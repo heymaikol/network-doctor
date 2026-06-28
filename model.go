@@ -163,12 +163,11 @@ func (m model) View() string {
 	b = append(b, "Network Doctor\n\n"...)
 	for _, row := range m.rows {
 		var glyph string
-		switch {
-		case row.result == nil:
+		if row.result == nil {
 			glyph = m.spinner.View()
-		case row.result.Status == Pass:
+		} else if row.result.Status {
 			glyph = passStyle.Render("✓")
-		default:
+		} else {
 			glyph = failStyle.Render("✗")
 		}
 		line := glyph + " " + row.check.Name
@@ -177,7 +176,7 @@ func (m model) View() string {
 		}
 		b = append(b, line...)
 		b = append(b, '\n')
-		if row.result != nil && row.result.Status == Fail && row.result.Fix != "" {
+		if row.result != nil && !row.result.Status && row.result.Fix != "" {
 			b = append(b, faintStyle.Render("    → Fix: "+row.result.Fix)...)
 			b = append(b, '\n')
 		}

@@ -30,7 +30,7 @@ func exitCode(final tea.Model) int {
 		return 1
 	}
 	for _, row := range m.rows {
-		if row.result == nil || row.result.Status == Fail {
+		if row.result == nil || !row.result.Status {
 			return 1
 		}
 	}

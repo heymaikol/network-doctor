@@ -11,13 +11,12 @@ import (
 	"time"
 )
 
-// Status is the binary outcome of a check. No Warn — nothing produces it, so
-// exit-code and presentation semantics stay binary.
-type Status int
+// Status is true when a check passes.
+type Status bool
 
 const (
-	Pass Status = iota
-	Fail
+	Fail Status = false
+	Pass Status = true
 )
 
 // Result is what a Check reports: an outcome, a human-readable detail, and a

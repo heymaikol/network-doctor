@@ -88,7 +88,7 @@ func TestCompletesAdvancesAndCancels(t *testing.T) {
 
 	u, cmd := m.Update(checkDoneMsg{idx: 0, gen: 0, res: Result{Status: Pass, Detail: "ok"}})
 	m = asModel(t, u)
-	if m.rows[0].result == nil || m.rows[0].result.Status != Pass {
+	if m.rows[0].result == nil || !m.rows[0].result.Status {
 		t.Fatal("result for check 0 not stored")
 	}
 	if ctx0.Err() != context.Canceled {

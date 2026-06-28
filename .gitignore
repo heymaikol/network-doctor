@@ -1,1 +1,10 @@
+# Go Binary
 /network-doctor
+
+# Graphify
+graphify-out/
+
+# AI Stuff
+.claude
+CLAUDE.md
+AGENTS.md

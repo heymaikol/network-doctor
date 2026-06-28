@@ -74,6 +74,7 @@ type ProbeResult struct {
 	SelectedIP net.IP   // Target TCP publishes the pinned IP
 	Source     net.IP
 	Iface      string
+	Network    string // connected Wi-Fi SSID, empty when wired/unknown
 	Attempts   []Attempt
 	RTT        time.Duration
 	Detail     string
@@ -156,7 +157,8 @@ func ifaceProbe(ctx context.Context, _ map[ProbeID]ProbeResult) ProbeResult {
 			continue
 		}
 		if ifi.Flags&net.FlagUp != 0 && ifi.Flags&net.FlagRunning != 0 {
-			r.Status, r.Detail = StatusPass, "interface "+ifi.Name+" is up"
+			r.Status, r.Iface, r.Detail = StatusPass, ifi.Name, "interface "+ifi.Name+" is up"
+			r.Network = ssid(ifi.Name)
 			return r
 		}
 	}

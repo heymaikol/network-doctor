@@ -428,6 +428,23 @@ func (m model) glyph(id ProbeID) string {
 	return mark
 }
 
+// networkLine is the connected-network label shown under the title: the Wi-Fi
+// SSID when wireless, else the wired interface name. Empty until the interface
+// probe has passed.
+func (m model) networkLine() string {
+	r, ok := m.results[pIface]
+	if !ok || r.Status != StatusPass {
+		return ""
+	}
+	if r.Network != "" {
+		return "Wi-Fi: " + r.Network
+	}
+	if r.Iface != "" {
+		return "Wired: " + r.Iface
+	}
+	return ""
+}
+
 func (m model) View() string {
 	leftW := 40
 	rightW := m.width - leftW - 3
@@ -438,7 +455,11 @@ func (m model) View() string {
 	deferred := m.toolbox && !m.chainRan()
 
 	var left strings.Builder
-	left.WriteString(titleStyle.Render("Network Doctor") + "\n\n")
+	left.WriteString(titleStyle.Render("Network Doctor") + "\n")
+	if n := m.networkLine(); n != "" {
+		left.WriteString(faintStyle.Render(n) + "\n")
+	}
+	left.WriteString("\n")
 	if deferred {
 		left.WriteString(faintStyle.Render("Toolbox mode.\nChain not run.\nPress r to run checks.") + "\n")
 	} else {

@@ -2,142 +2,194 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// startCheckMsg asks the model to begin check idx. gen guards against stale
-// reruns: a startCheckMsg whose gen no longer matches the model is ignored.
-type startCheckMsg struct {
-	idx int
+// scheduleMsg asks Update to dispatch any newly-runnable probes for generation
+// gen. A stale gen is ignored.
+type scheduleMsg struct{ gen int }
+
+// probeDoneMsg carries a finished probe's result. Accepted only when gen matches.
+type probeDoneMsg struct {
+	id  ProbeID
 	gen int
+	res ProbeResult
 }
 
-// checkDoneMsg carries a finished check's result back to Update. It is accepted
-// only when running && gen matches && idx is the in-flight check.
-type checkDoneMsg struct {
-	idx int
-	gen int
-	res Result
+// pendingAction is a state change deferred until the active job's terminal event
+// arrives, so Update never blocks waiting on it (that would deadlock — Update is
+// the goroutine that consumes the event).
+type pendingKind int
+
+const (
+	pendNone pendingKind = iota
+	pendQuit
+	pendRerun
+	pendTool
+)
+
+type pendingAction struct {
+	kind pendingKind
+	tool Tool
 }
 
-// checkRow pairs a check with its result (nil result = pending).
-type checkRow struct {
-	check  Check
-	result *Result
-}
+const (
+	maxJobLines  = 500
+	jobTailLines = 14
+)
 
 type model struct {
-	rows     []checkRow
-	inFlight int
+	target *Target
+	probes []Probe
+	order  []ProbeID
+	byID   map[ProbeID]Probe
+
+	// results + started are owned exclusively by Update; probe goroutines get an
+	// immutable snapshot, never the live map.
+	results map[ProbeID]ProbeResult
+	started map[ProbeID]bool
+
+	selected int
 	spinner  spinner.Model
 
 	generation int
-	running    bool
-
-	// Active check's context lifecycle. Owned exclusively by Update — no
-	// tea.Cmd ever writes these. cancel is nil when no check is in flight.
+	// Generation context; cancel kills all in-flight probes and the active job on
+	// rerun/quit. Kept alive after the chain completes so tools can run under it.
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// Drill-down job state (Phase 2).
+	tools      []Tool
+	activeJob  *job
+	pending    *pendingAction
+	jobStatus  JobStatus
+	jobToolKey string
+	jobName    string
+	jobDisplay string
+	jobOut     []string
+	jobErr     []string
+	jobDropped int64
+	jobStart   time.Time
+	facts      []Fact
+
+	toolbox   bool   // --toolbox: chain deferred until 'r'
+	exportMsg string // last export result, shown in the footer
+
+	width, height int
 }
 
 var (
 	passStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	failStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	skipStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	faintStyle = lipgloss.NewStyle().Faint(true)
+	titleStyle = lipgloss.NewStyle().Bold(true)
+	selStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 )
 
-func newModel(cs []Check) model {
-	rows := make([]checkRow, len(cs))
-	for i, c := range cs {
-		rows[i] = checkRow{check: c}
+func newModel(t *Target) model {
+	probes := buildProbes(t)
+	order := make([]ProbeID, len(probes))
+	byID := make(map[ProbeID]Probe, len(probes))
+	for i, p := range probes {
+		order[i] = p.ID
+		byID[p.ID] = p
 	}
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	return model{rows: rows, spinner: sp}
+	return model{
+		target:    t,
+		probes:    probes,
+		order:     order,
+		byID:      byID,
+		results:   map[ProbeID]ProbeResult{},
+		started:   map[ProbeID]bool{},
+		tools:     toolsFor(t),
+		jobStatus: JobQueued,
+		spinner:   sp,
+		width:     100,
+	}
 }
 
-// Init returns only the start command. It sets no state and creates no context
-// (value semantics: Init's receiver is not persisted, and a cmd cannot store a
-// context for the model).
 func (m model) Init() tea.Cmd {
-	return func() tea.Msg { return startCheckMsg{idx: 0, gen: 0} }
+	if m.toolbox {
+		return m.spinner.Tick // chain deferred until 'r'; tick drives the job timer
+	}
+	return tea.Batch(m.spinner.Tick, func() tea.Msg { return scheduleMsg{gen: 0} })
 }
+
+// chainRan reports whether the diagnostic chain has been started this session.
+func (m model) chainRan() bool { return len(m.started) > 0 }
+
+func (m model) allDone() bool { return len(m.results) == len(m.probes) }
+
+// spinnerActive reports whether the spinner tick chain should keep running:
+// while probes are pending or a drill-down job is live.
+func (m model) spinnerActive() bool { return !m.allDone() || m.activeJob != nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			m.clearCancel()
-			return m, tea.Quit
-		case "r":
-			// Cancel the in-flight check, invalidate outstanding msgs via a
-			// new generation, reset to pending, and restart from the top.
-			// Does NOT touch running or seed a tick — the startCheckMsg
-			// handler decides based on the running edge.
-			m.clearCancel()
-			m.generation++
-			for i := range m.rows {
-				m.rows[i].result = nil
-			}
-			m.inFlight = 0
-			gen := m.generation
-			return m, func() tea.Msg { return startCheckMsg{idx: 0, gen: gen} }
-		}
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 
-	case startCheckMsg:
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+
+	case scheduleMsg:
+		if msg.gen != m.generation {
+			return m, nil
+		}
+		if m.ctx == nil {
+			m.ctx, m.cancel = context.WithCancel(context.Background())
+		}
+		return m, tea.Batch(m.scheduleStep()...)
+
+	case probeDoneMsg:
 		if msg.gen != m.generation {
 			return m, nil // stale rerun
 		}
-		if msg.idx >= len(m.rows) {
-			return m, nil
-		}
-		// Create and store the per-check context synchronously — this is the
-		// single place context lifecycle is owned.
-		ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
-		m.ctx = ctx
-		m.cancel = cancel
-		m.inFlight = msg.idx
-
-		wasRunning := m.running
-		m.running = true
-
-		cmds := []tea.Cmd{func() tea.Msg {
-			return checkDoneMsg{idx: msg.idx, gen: m.generation, res: m.rows[msg.idx].check.Run(ctx)}
-		}}
-		if !wasRunning {
-			cmds = append(cmds, m.spinner.Tick) // seed exactly one tick on idle->running
-		}
-		return m, tea.Batch(cmds...)
-
-	case checkDoneMsg:
-		// Accept only the live, in-flight check for the current generation.
-		if !m.running || msg.gen != m.generation || msg.idx != m.inFlight {
-			return m, nil
-		}
-		m.clearCancel()
 		res := msg.res
-		m.rows[msg.idx].result = &res
+		res.ID = msg.id
+		m.results[msg.id] = res
+		return m, tea.Batch(m.scheduleStep()...)
 
-		if msg.idx+1 < len(m.rows) {
-			gen := m.generation
-			next := msg.idx + 1
-			return m, func() tea.Msg { return startCheckMsg{idx: next, gen: gen} }
+	case ToolOutputMsg:
+		if m.activeJob == nil || msg.Generation != m.generation || msg.JobID != m.activeJob.id {
+			return m, nil // stale job message
 		}
-		m.running = false // tick chain self-terminates
+		if msg.Stream == StreamStderr {
+			m.jobErr = appendCapped(m.jobErr, msg.Line)
+		} else {
+			m.jobOut = appendCapped(m.jobOut, msg.Line)
+		}
+		return m, waitForMsg(m.activeJob.ch)
+
+	case ToolDoneMsg:
+		if m.activeJob == nil || msg.Generation != m.generation || msg.JobID != m.activeJob.id {
+			return m, nil
+		}
+		m.jobStatus, m.jobDropped, m.activeJob = msg.Status, msg.Dropped, nil
+		m.facts = extractFacts(m.jobToolKey, m.jobOut, m.generation, msg.JobID, targetHost(m.target))
+		if m.pending != nil {
+			p := m.pending
+			m.pending = nil
+			return m.runPending(p)
+		}
 		return m, nil
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
-		if !m.running {
-			return m, nil // drop the cmd so the chain stops
+		if !m.spinnerActive() {
+			return m, nil
 		}
 		return m, cmd
 	}
@@ -145,7 +197,198 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clearCancel calls and nils the active check's cancel func, if any.
+func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		if m.activeJob != nil {
+			m.activeJob.cancel() // non-blocking; quit on the terminal event
+			m.pending = &pendingAction{kind: pendQuit}
+			return m, nil
+		}
+		m.clearCancel()
+		return m, tea.Quit
+	case "r":
+		if m.activeJob != nil {
+			m.activeJob.cancel()
+			m.pending = &pendingAction{kind: pendRerun}
+			return m, nil
+		}
+		return m, m.doRerun()
+	case "up", "k":
+		if m.selected > 0 {
+			m.selected--
+		}
+		return m, nil
+	case "down", "j":
+		if m.selected < len(m.order)-1 {
+			m.selected++
+		}
+		return m, nil
+	case "e":
+		if path, err := exportReport(m); err != nil {
+			m.exportMsg = "export failed: " + err.Error()
+		} else {
+			m.exportMsg = "exported → " + path
+		}
+		return m, nil
+	}
+	// Tool hotkeys (contextual toolbox).
+	for _, tool := range m.tools {
+		if msg.String() == tool.Key {
+			if m.activeJob != nil {
+				m.activeJob.cancel()
+				m.pending = &pendingAction{kind: pendTool, tool: tool} // last write wins
+				return m, nil
+			}
+			return m, m.launchTool(tool)
+		}
+	}
+	return m, nil
+}
+
+func (m *model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
+	switch p.kind {
+	case pendQuit:
+		m.clearCancel()
+		return m, tea.Quit
+	case pendRerun:
+		return m, m.doRerun()
+	case pendTool:
+		return m, m.launchTool(p.tool)
+	}
+	return m, nil
+}
+
+// doRerun bumps the generation (invalidating outstanding probe/job messages),
+// clears run + job state, resets the context, and reschedules from the root.
+func (m *model) doRerun() tea.Cmd {
+	wasTicking := m.spinnerActive()
+	m.clearCancel()
+	m.ctx = nil
+	m.generation++
+	m.results = map[ProbeID]ProbeResult{}
+	m.started = map[ProbeID]bool{}
+	m.activeJob, m.pending = nil, nil
+	m.jobStatus, m.jobOut, m.jobErr, m.facts, m.jobDropped = JobQueued, nil, nil, nil, 0
+	gen := m.generation
+	cmds := []tea.Cmd{func() tea.Msg { return scheduleMsg{gen: gen} }}
+	if !wasTicking {
+		cmds = append(cmds, m.spinner.Tick)
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *model) launchTool(tool Tool) tea.Cmd {
+	if !tool.Available() {
+		m.jobName, m.jobToolKey, m.jobStatus = tool.Name, tool.Key, JobFailed
+		m.jobOut, m.jobErr, m.facts = nil, []string{tool.Bin + " not found — install it"}, nil
+		m.jobDisplay = tool.Name
+		return nil
+	}
+	wasTicking := m.spinnerActive()
+	args, env, display := tool.Build(m.target)
+	id := fmt.Sprintf("%s-%d-%d", tool.Key, m.generation, time.Now().UnixNano())
+	j, cmd, err := startTool(m.ctx, m.generation, id, tool.Bin, args, env)
+	if err != nil {
+		m.jobName, m.jobToolKey, m.jobStatus = tool.Name, tool.Key, JobFailed
+		m.jobOut, m.jobErr, m.jobDisplay = nil, []string{sanitize(err.Error())}, display
+		return nil
+	}
+	m.activeJob, m.jobStatus = j, JobRunning
+	m.jobOut, m.jobErr, m.facts, m.jobDropped = nil, nil, nil, 0
+	m.jobName, m.jobToolKey, m.jobDisplay, m.jobStart = tool.Name, tool.Key, display, time.Now()
+	if !wasTicking {
+		return tea.Batch(cmd, m.spinner.Tick)
+	}
+	return cmd
+}
+
+// scheduleStep marks newly-skippable probes (a dependency failed) and returns run
+// commands for newly-runnable probes, repeating until no further progress so
+// skips propagate through dependents in one pass. Mutates results/started.
+func (m *model) scheduleStep() []tea.Cmd {
+	var cmds []tea.Cmd
+	for progress := true; progress; {
+		progress = false
+		for _, p := range m.probes {
+			if m.started[p.ID] {
+				continue
+			}
+			ready, blocked := depsState(p.Deps, m.results)
+			if !ready {
+				continue
+			}
+			m.started[p.ID] = true
+			progress = true
+			if blocked {
+				m.results[p.ID] = skipResult(p)
+				continue
+			}
+			cmds = append(cmds, m.runProbe(p))
+		}
+	}
+	return cmds
+}
+
+// depsState reports whether all deps completed (ready) and whether any completed
+// dep blocks this probe. A dep blocks on Fail or Skip (no output); a Pass or an
+// applicable NotApplicable (which still produced output) satisfies.
+func depsState(deps []ProbeID, res map[ProbeID]ProbeResult) (ready, blocked bool) {
+	for _, d := range deps {
+		r, ok := res[d]
+		if !ok {
+			return false, false
+		}
+		if r.Status == StatusFail || r.Status == StatusSkip {
+			blocked = true
+		}
+	}
+	return true, blocked
+}
+
+func skipResult(p Probe) ProbeResult {
+	return ProbeResult{ID: p.ID, Status: StatusSkip, Detail: "skipped — a prerequisite failed"}
+}
+
+// runProbe builds the tea.Cmd for a probe, capturing the generation, the parent
+// context, and an immutable snapshot of just its dependency outputs.
+func (m *model) runProbe(p Probe) tea.Cmd {
+	gen, parent, run, id := m.generation, m.ctx, p.Run, p.ID
+	snap := snapshot(m.results, p.Deps)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parent, probeTimeout)
+		defer cancel()
+		return probeDoneMsg{id: id, gen: gen, res: run(ctx, snap)}
+	}
+}
+
+// snapshot copies just the requested dependency results into a fresh map so the
+// probe goroutine never touches the live, Update-owned map.
+func snapshot(res map[ProbeID]ProbeResult, deps []ProbeID) map[ProbeID]ProbeResult {
+	out := make(map[ProbeID]ProbeResult, len(deps))
+	for _, d := range deps {
+		if r, ok := res[d]; ok {
+			out[d] = r
+		}
+	}
+	return out
+}
+
+func appendCapped(lines []string, line string) []string {
+	lines = append(lines, line)
+	if len(lines) > maxJobLines {
+		lines = lines[len(lines)-maxJobLines:]
+	}
+	return lines
+}
+
+func targetHost(t *Target) string {
+	if t == nil {
+		return ""
+	}
+	return t.Host
+}
+
 func (m *model) clearCancel() {
 	if m.cancel != nil {
 		m.cancel()
@@ -153,31 +396,136 @@ func (m *model) clearCancel() {
 	}
 }
 
+func (m model) glyph(id ProbeID) string {
+	r, ok := m.results[id]
+	if !ok {
+		return m.spinner.View()
+	}
+	switch r.Status {
+	case StatusPass:
+		return passStyle.Render("✓")
+	case StatusFail:
+		return failStyle.Render("✗")
+	case StatusSkip:
+		return skipStyle.Render("⊘")
+	case StatusNA:
+		return faintStyle.Render("–")
+	}
+	return "?"
+}
+
 func (m model) View() string {
-	var b strings.Builder
-	b.WriteString("Network Doctor\n\n")
-	for _, row := range m.rows {
-		var glyph string
-		if row.result == nil {
-			glyph = m.spinner.View()
-		} else if row.result.Status {
-			glyph = passStyle.Render("✓")
-		} else {
-			glyph = failStyle.Render("✗")
-		}
-		line := glyph + " " + row.check.Name
-		if row.result != nil && row.result.Detail != "" {
-			line += " — " + row.result.Detail
-		}
-		b.WriteString(line)
-		b.WriteByte('\n')
-		if row.result != nil && !row.result.Status && row.result.Fix != "" {
-			b.WriteString(faintStyle.Render("    → Fix: " + row.result.Fix))
-			b.WriteByte('\n')
+	leftW := 40
+	rightW := m.width - leftW - 3
+	if rightW < 36 {
+		rightW = 36
+	}
+
+	deferred := m.toolbox && !m.chainRan()
+
+	var left strings.Builder
+	left.WriteString(titleStyle.Render("Network Doctor") + "\n\n")
+	if deferred {
+		left.WriteString(faintStyle.Render("Toolbox mode.\nChain not run.\nPress r to run checks.") + "\n")
+	} else {
+		for i, id := range m.order {
+			name := m.byID[id].Name
+			if i == m.selected {
+				name = selStyle.Render("› " + name)
+			} else {
+				name = "  " + name
+			}
+			left.WriteString(m.glyph(id) + " " + name + "\n")
 		}
 	}
-	b.WriteByte('\n')
-	b.WriteString(faintStyle.Render("r: rerun · q: quit"))
-	b.WriteByte('\n')
-	return b.String()
+
+	var right strings.Builder
+	right.WriteString(titleStyle.Render("Diagnosis") + "\n\n")
+	if deferred {
+		right.WriteString("Toolbox mode — press r to run the diagnostic chain, or pick a tool below.\n")
+	} else {
+		right.WriteString(diagnose(m.target, m.order, m.results) + "\n\n")
+		id := m.order[m.selected]
+		right.WriteString(titleStyle.Render(m.byID[id].Name) + "\n")
+		if r, ok := m.results[id]; ok {
+			right.WriteString(r.Status.String() + " — " + r.Detail + "\n")
+			if r.Status == StatusFail && r.Fix != "" {
+				right.WriteString(faintStyle.Render("Fix: "+r.Fix) + "\n")
+			}
+			if r.Source != nil {
+				right.WriteString(faintStyle.Render("src "+r.Source.String()+" "+r.Iface) + "\n")
+			}
+			for _, a := range r.Attempts {
+				st := "ok"
+				if a.Err != nil {
+					st = sanitize(a.Err.Error())
+				}
+				right.WriteString(faintStyle.Render(fmt.Sprintf("  %s %dms %s", a.IP, a.Dur.Milliseconds(), st)) + "\n")
+			}
+		} else {
+			right.WriteString(faintStyle.Render("pending…") + "\n")
+		}
+	}
+
+	leftBox := lipgloss.NewStyle().Width(leftW).Render(left.String())
+	rightBox := lipgloss.NewStyle().Width(rightW).Render(right.String())
+	body := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
+
+	help := faintStyle.Render("↑/↓ select · r rerun · e export · q quit")
+	if m.exportMsg != "" {
+		help = faintStyle.Render(m.exportMsg) + "\n" + help
+	}
+	return body + "\n" + m.toolboxView() + "\n" + m.jobView() + help + "\n"
+}
+
+func (m model) toolboxView() string {
+	if len(m.tools) == 0 {
+		return faintStyle.Render("Tools: (target-dependent — pass a host)") + "\n"
+	}
+	parts := make([]string, len(m.tools))
+	for i, t := range m.tools {
+		label := "[" + t.Key + "] " + t.Name
+		if !t.Available() {
+			label = faintStyle.Render(label + " (missing)")
+		}
+		parts[i] = label
+	}
+	return "Tools: " + strings.Join(parts, "  ") + "\n"
+}
+
+func (m model) jobView() string {
+	if m.activeJob == nil && m.jobStatus == JobQueued {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("$ "+m.jobDisplay) + "\n")
+	status := m.jobName + " — " + m.jobStatus.String()
+	if m.activeJob != nil {
+		status += fmt.Sprintf(" (%.0fs)", time.Since(m.jobStart).Seconds())
+	}
+	b.WriteString(faintStyle.Render(status) + "\n")
+
+	for _, ln := range tail(m.jobOut, jobTailLines) {
+		b.WriteString(ln + "\n")
+	}
+	for _, ln := range tail(m.jobErr, 4) {
+		b.WriteString(faintStyle.Render("! "+ln) + "\n")
+	}
+	if len(m.facts) > 0 {
+		b.WriteString(titleStyle.Render("Extracted:") + "\n")
+		for _, f := range m.facts {
+			b.WriteString("  " + f.Key + ": " + f.Value + "\n")
+		}
+	}
+	if m.jobDropped > 0 {
+		b.WriteString(faintStyle.Render(fmt.Sprintf("(%d output lines dropped)", m.jobDropped)) + "\n")
+	}
+	return b.String() + "\n"
+}
+
+func tail(lines []string, n int) []string {
+	if len(lines) > n {
+		return lines[len(lines)-n:]
+	}
+	return lines
 }

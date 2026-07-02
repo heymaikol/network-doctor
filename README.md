@@ -87,7 +87,6 @@ literals are rejected (IPv4 only).
 |-----|--------|
 | `↑`/`↓` (`k`/`j`) | select a probe row |
 | `r` | rerun the chain |
-| `e` | export a sanitized markdown report |
 | `q` / `Ctrl-C` | quit |
 
 ## Drill-down tools
@@ -154,7 +153,7 @@ Windows only. Everything load-bearing (route table cells, the untranslated
 
 Implemented: native DAG probes + diagnosis engine + two-pane UI (Phase 1),
 cancellable streaming tool jobs with `ping`/`dig`/`curl` (Phase 2), and
-`traceroute`/`mtr`/`ss`/`ip` + markdown export + `--toolbox` mode (Phase 3).
+`traceroute`/`mtr`/`ss`/`ip` + a scrollable output viewport + `--toolbox` mode (Phase 3).
 
 Still to come: `nmap`, multiple concurrent jobs, a `Warn` state, and an
 mtr-parsed route-quality row. See `PLAN.md`.
@@ -180,7 +179,7 @@ The code is split by responsibility:
 - `main.go` owns CLI arguments, process I/O, and application startup.
 - `internal/diagnostic` owns target parsing, native probes, per-OS route/SSID
   lookups, and verdict logic without depending on terminal presentation.
-- `internal/ui` owns Bubble Tea state, rendering, tool jobs, and report export.
+- `internal/ui` owns Bubble Tea state, rendering, and tool jobs.
 - `internal/textsafe` sanitizes untrusted remote and subprocess text shared by
   both layers.
 

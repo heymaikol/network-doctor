@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -40,9 +41,17 @@ type pendingAction struct {
 }
 
 const (
-	maxJobLines  = 500
-	jobTailLines = 14
+	maxJobLines  = 5000
+	jobTailLines = 14 // main-screen tail fallback when the terminal height is unknown
 )
+
+// outLine is one captured output line tagged with its source stream. Lines are
+// kept in arrival order — best-effort interleaving, since the kernel buffers
+// stdout and stderr pipes independently.
+type outLine struct {
+	stream Stream
+	text   string
+}
 
 type model struct {
 	target *Target
@@ -72,14 +81,19 @@ type model struct {
 	jobToolKey string
 	jobName    string
 	jobDisplay string
-	jobOut     []string
-	jobErr     []string
-	jobDropped int64
+	jobLines   []outLine
+	jobDropped int64 // channel-overflow drops, reported by ToolDoneMsg
+	jobEvicted int   // oldest lines evicted from the jobLines ring buffer
 	jobStart   time.Time
 	facts      []Fact
 
-	toolbox   bool   // --toolbox: chain deferred until 'r'
-	exportMsg string // last export result, shown in the footer
+	// Output viewport (Enter). follow sticks to the tail while output arrives;
+	// scrolling up turns it off, scrolling back to the bottom re-enables it.
+	viewing bool
+	follow  bool
+	vp      viewport.Model
+
+	toolbox bool // --toolbox: chain deferred until 'r'
 
 	width, height int
 }
@@ -140,9 +154,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.viewing {
+			m.refreshViewport()
+		}
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.viewing {
+			return m.handleViewKey(msg)
+		}
 		return m.handleKey(msg)
 
 	case scheduleMsg:
@@ -167,10 +187,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeJob == nil || msg.Generation != m.generation || msg.JobID != m.activeJob.id {
 			return m, nil // stale job message
 		}
-		if msg.Stream == StreamStderr {
-			m.jobErr = appendCapped(m.jobErr, msg.Line)
-		} else {
-			m.jobOut = appendCapped(m.jobOut, msg.Line)
+		m.appendJobLine(msg.Stream, msg.Line)
+		if m.viewing {
+			m.refreshViewport()
 		}
 		return m, waitForMsg(m.activeJob.ch)
 
@@ -179,7 +198,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.jobStatus, m.jobDropped, m.activeJob = msg.Status, msg.Dropped, nil
-		m.facts = extractFacts(m.jobToolKey, runtime.GOOS, m.jobOut)
+		m.facts = extractFacts(m.jobToolKey, runtime.GOOS, m.stdoutLines())
 		if m.pending != nil {
 			p := m.pending
 			m.pending = nil
@@ -226,12 +245,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selected++
 		}
 		return m, nil
-	case "e":
-		if path, err := exportReport(m); err != nil {
-			m.exportMsg = "export failed: " + err.Error()
-		} else {
-			m.exportMsg = "exported → " + path
+	case "enter":
+		if len(m.jobLines) == 0 {
+			return m, nil
 		}
+		m.viewing, m.follow = true, true
+		m.vp = viewport.New(m.vpWidth(), m.vpHeight())
+		m.refreshViewport()
 		return m, nil
 	}
 	// Tool hotkeys (contextual toolbox).
@@ -246,6 +266,22 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// handleViewKey handles keys while the output viewport is open. Everything not
+// handled here scrolls the viewport; leaving the bottom disables follow mode.
+func (m model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "esc":
+		m.viewing = false
+		return m, nil
+	case "q", "ctrl+c":
+		return m.handleKey(msg) // quit path, incl. deferred quit under an active job
+	}
+	var cmd tea.Cmd
+	m.vp, cmd = m.vp.Update(msg)
+	m.follow = m.vp.AtBottom()
+	return m, cmd
 }
 
 func (m *model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
@@ -271,7 +307,10 @@ func (m *model) doRerun() tea.Cmd {
 	m.results = map[ProbeID]ProbeResult{}
 	m.started = map[ProbeID]bool{}
 	m.activeJob, m.pending = nil, nil
-	m.jobStatus, m.jobOut, m.jobErr, m.facts, m.jobDropped = JobQueued, nil, nil, nil, 0
+	m.jobStatus, m.jobLines, m.facts, m.jobDropped, m.jobEvicted = JobQueued, nil, nil, 0, 0
+	if m.viewing {
+		m.refreshViewport()
+	}
 	gen := m.generation
 	cmds := []tea.Cmd{func() tea.Msg { return scheduleMsg{gen: gen} }}
 	if !wasTicking {
@@ -283,7 +322,7 @@ func (m *model) doRerun() tea.Cmd {
 func (m *model) launchTool(tool Tool) tea.Cmd {
 	if !tool.Available() {
 		m.jobName, m.jobToolKey, m.jobStatus = tool.Name, tool.Key, JobFailed
-		m.jobOut, m.jobErr, m.facts = nil, []string{tool.Bin + " not found — install it"}, nil
+		m.jobLines, m.facts = []outLine{{StreamStderr, tool.Bin + " not found — install it"}}, nil
 		m.jobDisplay = tool.Name
 		return nil
 	}
@@ -298,11 +337,14 @@ func (m *model) launchTool(tool Tool) tea.Cmd {
 	j, cmd, err := startTool(m.ctx, m.generation, id, tool.Bin, args, env, tool.Timeout)
 	if err != nil {
 		m.jobName, m.jobToolKey, m.jobStatus = tool.Name, tool.Key, JobFailed
-		m.jobOut, m.jobErr, m.jobDisplay = nil, []string{sanitize(err.Error())}, display
+		m.jobLines, m.jobDisplay = []outLine{{StreamStderr, sanitize(err.Error())}}, display
 		return nil
 	}
 	m.activeJob, m.jobStatus = j, JobRunning
-	m.jobOut, m.jobErr, m.facts, m.jobDropped = nil, nil, nil, 0
+	m.jobLines, m.facts, m.jobDropped, m.jobEvicted = nil, nil, 0, 0
+	if m.viewing {
+		m.refreshViewport()
+	}
 	m.jobName, m.jobToolKey, m.jobDisplay, m.jobStart = tool.Name, tool.Key, display, time.Now()
 	if !wasTicking {
 		return tea.Batch(cmd, m.spinner.Tick)
@@ -381,12 +423,77 @@ func snapshot(res map[ProbeID]ProbeResult, deps []ProbeID) map[ProbeID]ProbeResu
 	return out
 }
 
-func appendCapped(lines []string, line string) []string {
-	lines = append(lines, line)
-	if len(lines) > maxJobLines {
-		lines = lines[len(lines)-maxJobLines:]
+// appendJobLine appends one output line to the ring buffer, counting evictions
+// separately from channel-overflow drops (jobDropped) so the viewport context
+// line stays accurate.
+func (m *model) appendJobLine(s Stream, text string) {
+	m.jobLines = append(m.jobLines, outLine{s, text})
+	if n := len(m.jobLines) - maxJobLines; n > 0 {
+		m.jobEvicted += n
+		m.jobLines = m.jobLines[n:]
 	}
-	return lines
+}
+
+// stdoutLines returns just the stdout side of the stream, for fact extraction.
+func (m model) stdoutLines() []string {
+	var out []string
+	for _, ln := range m.jobLines {
+		if ln.stream == StreamStdout {
+			out = append(out, ln.text)
+		}
+	}
+	return out
+}
+
+// jobContent renders the interleaved stream wrapped to w columns, stderr faint
+// with a "! " marker. Line numbers in the context line refer to these wrapped
+// display lines.
+func (m model) jobContent(w int) string {
+	if w <= 0 {
+		w = 80
+	}
+	var b strings.Builder
+	for i, ln := range m.jobLines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if ln.stream == StreamStderr {
+			b.WriteString(faintStyle.Render("! " + ln.text))
+		} else {
+			b.WriteString(ln.text)
+		}
+	}
+	return lipgloss.NewStyle().Width(w).Render(b.String())
+}
+
+// refreshViewport resizes and re-renders the open viewport, sticking to the
+// tail in follow mode.
+// ponytail: full content rebuild per line while open; fine at the 5000-line
+// cap, switch to incremental append if it ever lags.
+func (m *model) refreshViewport() {
+	m.vp.Width, m.vp.Height = m.vpWidth(), m.vpHeight()
+	m.vp.SetContent(m.jobContent(m.vpWidth()))
+	if m.follow {
+		m.vp.GotoBottom()
+	}
+}
+
+func (m model) vpWidth() int {
+	if m.width > 0 {
+		return m.width
+	}
+	return 80
+}
+
+func (m model) vpHeight() int {
+	if m.height <= 0 {
+		return 20
+	}
+	h := m.height - 4 // header + status above, context + help below
+	if h < 3 {
+		h = 3
+	}
+	return h
 }
 
 func (m *model) clearCancel() {
@@ -440,6 +547,9 @@ func (m model) networkLine() string {
 }
 
 func (m model) View() string {
+	if m.viewing {
+		return m.outputView()
+	}
 	leftW := 40
 	rightW := m.width - leftW - 3
 	if rightW < 36 {
@@ -502,11 +612,55 @@ func (m model) View() string {
 	rightBox := lipgloss.NewStyle().Width(rightW).Render(right.String())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
 
-	help := faintStyle.Render("↑/↓ select · r rerun · e export · q quit")
-	if m.exportMsg != "" {
-		help = faintStyle.Render(m.exportMsg) + "\n" + help
+	help := faintStyle.Render("↑/↓ select · r rerun · q quit")
+	toolbox := m.toolboxView()
+	// Adaptive tail: the job pane gets whatever height the rest doesn't use.
+	used := strings.Count(body, "\n") + strings.Count(toolbox, "\n") + strings.Count(help, "\n") + 2
+	return body + "\n" + toolbox + "\n" + m.jobView(m.height-used) + help + "\n"
+}
+
+// outputView is the full-screen scrollable output viewer (Enter).
+func (m model) outputView() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("$ "+m.jobDisplay) + "\n")
+	status := m.jobName + " — " + m.jobStatus.String()
+	if m.activeJob != nil {
+		status += fmt.Sprintf(" (%.0fs)", time.Since(m.jobStart).Seconds())
 	}
-	return body + "\n" + m.toolboxView() + "\n" + m.jobView() + help + "\n"
+	b.WriteString(faintStyle.Render(status) + "\n")
+	b.WriteString(m.vp.View() + "\n")
+	b.WriteString(faintStyle.Render(m.vpContext()) + "\n")
+	b.WriteString(faintStyle.Render("↑/↓ scroll · esc back · q quit"))
+	return b.String()
+}
+
+// vpContext is the viewport position line, in wrapped display-line numbers:
+// "lines 420–450 of 500 · 37 older lines discarded · following".
+func (m model) vpContext() string {
+	total := m.vp.TotalLineCount()
+	top := m.vp.YOffset + 1
+	bot := m.vp.YOffset + m.vp.Height
+	if bot > total {
+		bot = total
+	}
+	if top > bot {
+		top = bot
+	}
+	s := fmt.Sprintf("lines %d–%d of %d", top, bot, total)
+	if m.jobEvicted > 0 {
+		s += fmt.Sprintf(" · %d older lines discarded", m.jobEvicted)
+	}
+	if m.jobDropped > 0 {
+		s += fmt.Sprintf(" · %d dropped (channel overflow)", m.jobDropped)
+	}
+	if m.activeJob != nil {
+		if m.follow {
+			s += " · following"
+		} else {
+			s += " · follow paused — scroll to bottom to resume"
+		}
+	}
+	return s
 }
 
 func (m model) toolboxView() string {
@@ -524,9 +678,21 @@ func (m model) toolboxView() string {
 	return "Tools: " + strings.Join(parts, "  ") + "\n"
 }
 
-func (m model) jobView() string {
+// jobView renders the job pane with an adaptive tail: avail is the screen
+// height left over for this pane; unknown height falls back to jobTailLines.
+func (m model) jobView(avail int) string {
 	if m.activeJob == nil && m.jobStatus == JobQueued {
 		return ""
+	}
+	tailN := jobTailLines
+	if m.height > 0 {
+		overhead := 4 // title, status, context note, trailing blank
+		if len(m.facts) > 0 {
+			overhead += 1 + len(m.facts)
+		}
+		if tailN = avail - overhead; tailN < 3 {
+			tailN = 3
+		}
 	}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("$ "+m.jobDisplay) + "\n")
@@ -536,11 +702,13 @@ func (m model) jobView() string {
 	}
 	b.WriteString(faintStyle.Render(status) + "\n")
 
-	for _, ln := range tail(m.jobOut, jobTailLines) {
-		b.WriteString(ln + "\n")
-	}
-	for _, ln := range tail(m.jobErr, 4) {
-		b.WriteString(faintStyle.Render("! "+ln) + "\n")
+	shown := tail(m.jobLines, tailN)
+	for _, ln := range shown {
+		if ln.stream == StreamStderr {
+			b.WriteString(faintStyle.Render("! "+ln.text) + "\n")
+		} else {
+			b.WriteString(ln.text + "\n")
+		}
 	}
 	if len(m.facts) > 0 {
 		b.WriteString(titleStyle.Render("Extracted:") + "\n")
@@ -548,13 +716,21 @@ func (m model) jobView() string {
 			b.WriteString("  " + f.Key + ": " + f.Value + "\n")
 		}
 	}
-	if m.jobDropped > 0 {
-		b.WriteString(faintStyle.Render(fmt.Sprintf("(%d output lines dropped)", m.jobDropped)) + "\n")
+	older := len(m.jobLines) - len(shown) + m.jobEvicted
+	if older > 0 || m.jobDropped > 0 {
+		var notes []string
+		if older > 0 {
+			notes = append(notes, fmt.Sprintf("… %d earlier lines — enter to scroll", older))
+		}
+		if m.jobDropped > 0 {
+			notes = append(notes, fmt.Sprintf("%d dropped (channel overflow)", m.jobDropped))
+		}
+		b.WriteString(faintStyle.Render("("+strings.Join(notes, " · ")+")") + "\n")
 	}
 	return b.String() + "\n"
 }
 
-func tail(lines []string, n int) []string {
+func tail[T any](lines []T, n int) []T {
 	if len(lines) > n {
 		return lines[len(lines)-n:]
 	}

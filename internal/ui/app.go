@@ -1,5 +1,5 @@
-// Package ui owns the Bubble Tea application, rendering, tool execution, and
-// report export. Network semantics live in the diagnostic package.
+// Package ui owns the Bubble Tea application, rendering, and tool execution.
+// Network semantics live in the diagnostic package.
 package ui
 
 import (

@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -36,26 +37,32 @@ func TestTail(t *testing.T) {
 	if got := tail(lines, 10); len(got) != 4 {
 		t.Errorf("tail bigger than slice = %v, want all 4", got)
 	}
-	if got := tail(nil, 3); got != nil {
+	if got := tail[string](nil, 3); got != nil {
 		t.Errorf("tail(nil) = %v, want nil", got)
 	}
 }
 
-func TestAppendCapped(t *testing.T) {
-	var lines []string
+func TestAppendJobLine(t *testing.T) {
+	var m model
 	for i := 0; i < maxJobLines+50; i++ {
-		lines = appendCapped(lines, "x")
+		m.appendJobLine(StreamStdout, "x")
 	}
-	if len(lines) != maxJobLines {
-		t.Errorf("len = %d, want cap %d", len(lines), maxJobLines)
+	if len(m.jobLines) != maxJobLines {
+		t.Errorf("len = %d, want cap %d", len(m.jobLines), maxJobLines)
 	}
-	// The oldest lines are dropped, newest retained.
-	lines = appendCapped(lines, "newest")
-	if lines[len(lines)-1] != "newest" {
-		t.Error("most recent line must be kept")
+	// Ring evictions are counted separately from channel-overflow drops.
+	if m.jobEvicted != 50 {
+		t.Errorf("jobEvicted = %d, want 50", m.jobEvicted)
 	}
-	if len(lines) != maxJobLines {
-		t.Errorf("len after overflow = %d, want %d", len(lines), maxJobLines)
+	if m.jobDropped != 0 {
+		t.Errorf("jobDropped = %d, want 0 — evictions must not touch it", m.jobDropped)
+	}
+	m.appendJobLine(StreamStderr, "newest")
+	if last := m.jobLines[len(m.jobLines)-1]; last.text != "newest" || last.stream != StreamStderr {
+		t.Errorf("last = %+v, want newest stderr line kept", last)
+	}
+	if len(m.jobLines) != maxJobLines || m.jobEvicted != 51 {
+		t.Errorf("len=%d evicted=%d, want %d and 51", len(m.jobLines), m.jobEvicted, maxJobLines)
 	}
 }
 
@@ -301,7 +308,8 @@ func TestDeferredTool(t *testing.T) {
 	}
 }
 
-// Output lines route to the right buffer; stale-generation messages are dropped.
+// Output lines interleave in arrival order with their stream tag; stale
+// messages are dropped.
 func TestToolOutputRouting(t *testing.T) {
 	m := newModel(nil)
 	m.generation = 1
@@ -309,24 +317,26 @@ func TestToolOutputRouting(t *testing.T) {
 
 	u, cmd := m.Update(ToolOutputMsg{JobID: "j", Generation: 1, Stream: StreamStdout, Line: "hello"})
 	nm := asModel(t, u)
-	if len(nm.jobOut) != 1 || nm.jobOut[0] != "hello" {
-		t.Errorf("jobOut = %v, want [hello]", nm.jobOut)
+	if len(nm.jobLines) != 1 || nm.jobLines[0] != (outLine{StreamStdout, "hello"}) {
+		t.Errorf("jobLines = %v, want [hello]", nm.jobLines)
 	}
 	if cmd == nil {
 		t.Error("an accepted output line must reissue waitForMsg")
 	}
 
 	u, _ = nm.Update(ToolOutputMsg{JobID: "j", Generation: 1, Stream: StreamStderr, Line: "oops"})
+	u, _ = asModel(t, u).Update(ToolOutputMsg{JobID: "j", Generation: 1, Stream: StreamStdout, Line: "world"})
 	nm = asModel(t, u)
-	if len(nm.jobErr) != 1 || nm.jobErr[0] != "oops" {
-		t.Errorf("jobErr = %v, want [oops]", nm.jobErr)
+	want := []outLine{{StreamStdout, "hello"}, {StreamStderr, "oops"}, {StreamStdout, "world"}}
+	if len(nm.jobLines) != 3 || nm.jobLines[1] != want[1] || nm.jobLines[2] != want[2] {
+		t.Errorf("jobLines = %v, want interleaved %v", nm.jobLines, want)
 	}
 
 	// Stale generation → ignored.
 	u, cmd = nm.Update(ToolOutputMsg{JobID: "j", Generation: 99, Stream: StreamStdout, Line: "nope"})
 	nm = asModel(t, u)
-	if len(nm.jobOut) != 1 {
-		t.Errorf("stale output must be dropped, jobOut = %v", nm.jobOut)
+	if len(nm.jobLines) != 3 {
+		t.Errorf("stale output must be dropped, jobLines = %v", nm.jobLines)
 	}
 	if cmd != nil {
 		t.Error("stale output must issue no cmd")
@@ -374,7 +384,7 @@ func TestToolboxLaunchBeforeRun(t *testing.T) {
 		}}
 	cmd := (&m).launchTool(tool) // must not panic
 	if cmd == nil {
-		t.Fatalf("launchTool returned no cmd (jobErr=%v)", m.jobErr)
+		t.Fatalf("launchTool returned no cmd (jobLines=%v)", m.jobLines)
 	}
 	if m.ctx == nil {
 		t.Fatal("launchTool must lazily initialize the context")
@@ -400,8 +410,8 @@ func TestLaunchToolUnavailable(t *testing.T) {
 	if m.jobStatus != JobFailed {
 		t.Errorf("status = %v, want JobFailed", m.jobStatus)
 	}
-	if len(m.jobErr) == 0 || !strings.Contains(m.jobErr[0], "not found") {
-		t.Errorf("jobErr = %v, want a 'not found' hint", m.jobErr)
+	if len(m.jobLines) == 0 || m.jobLines[0].stream != StreamStderr || !strings.Contains(m.jobLines[0].text, "not found") {
+		t.Errorf("jobLines = %v, want a stderr 'not found' hint", m.jobLines)
 	}
 }
 
@@ -424,7 +434,7 @@ func TestViewRenders(t *testing.T) {
 
 	job := newModel(mustTarget(t, "github.com"))
 	job.jobStatus, job.jobName, job.jobDisplay = JobDone, "ping", "ping github.com"
-	job.jobOut = []string{"64 bytes from ..."}
+	job.jobLines = []outLine{{StreamStdout, "64 bytes from ..."}}
 	if !strings.Contains(job.View(), "$ ping github.com") {
 		t.Error("job view must show the command line")
 	}
@@ -436,12 +446,42 @@ func TestViewRenders(t *testing.T) {
 	}
 }
 
-func TestExportKey(t *testing.T) {
-	t.Chdir(t.TempDir())
+// Enter opens the output viewport in follow mode; scrolling up pauses follow
+// and new output must not yank the view back down; esc closes it.
+func TestViewportFollow(t *testing.T) {
 	m := newModel(nil)
-	u, _ := m.Update(keyMsg("e"))
+	m.width, m.height = 80, 10 // viewport height 6 — 20 lines overflow it
+	m.generation = 1
+	m.activeJob = &job{id: "j", gen: 1, ch: make(chan tea.Msg, 1)}
+	var u tea.Model = m
+	for i := 0; i < 20; i++ {
+		u, _ = asModel(t, u).Update(ToolOutputMsg{JobID: "j", Generation: 1, Stream: StreamStdout, Line: fmt.Sprintf("line %d", i)})
+	}
+
+	u, _ = asModel(t, u).Update(tea.KeyMsg{Type: tea.KeyEnter})
 	nm := asModel(t, u)
-	if !strings.HasPrefix(nm.exportMsg, "exported") {
-		t.Errorf("exportMsg = %q, want an 'exported …' confirmation", nm.exportMsg)
+	if !nm.viewing || !nm.follow || !nm.vp.AtBottom() {
+		t.Fatalf("enter must open the viewport following the tail (viewing=%v follow=%v atBottom=%v)",
+			nm.viewing, nm.follow, nm.vp.AtBottom())
+	}
+	if out := nm.View(); !strings.Contains(out, "line 19") || !strings.Contains(out, "of 20") {
+		t.Errorf("viewport must show the newest line and a position context, got:\n%s", out)
+	}
+
+	u, _ = nm.Update(tea.KeyMsg{Type: tea.KeyUp})
+	nm = asModel(t, u)
+	if nm.follow {
+		t.Error("scrolling up must pause follow mode")
+	}
+
+	u, _ = nm.Update(ToolOutputMsg{JobID: "j", Generation: 1, Stream: StreamStderr, Line: "boom"})
+	nm = asModel(t, u)
+	if nm.vp.AtBottom() {
+		t.Error("paused viewport must hold its position on new output")
+	}
+
+	u, _ = nm.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if nm = asModel(t, u); nm.viewing {
+		t.Error("esc must close the viewport")
 	}
 }

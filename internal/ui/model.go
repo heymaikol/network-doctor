@@ -541,41 +541,39 @@ func (m model) View() string {
 
 	deferred := m.toolbox && !m.chainRan()
 
-	var left strings.Builder
-	left.WriteString(titleStyle.Render("Network Doctor"))
+	header := titleStyle.Render("Network Doctor")
 	if m.target != nil {
-		left.WriteString(faintStyle.Render(fmt.Sprintf("  %s:%d", m.target.Host, m.target.Port)))
+		header += faintStyle.Render(fmt.Sprintf("  %s:%d", m.target.Host, m.target.Port))
 	}
-	left.WriteString("\n")
 	if n := m.networkLine(); n != "" {
-		left.WriteString(faintStyle.Render(n) + "\n")
+		header += faintStyle.Render("  ·  " + n)
 	}
-	left.WriteString("\n")
-	if deferred {
-		left.WriteString(faintStyle.Render("Toolbox mode.\nChain not run.\nPress r to run checks.") + "\n")
-	} else {
-		for i, probe := range m.probes {
-			name := probe.Name
-			if i == m.selected {
-				name = selStyle.Render("› " + name)
-			} else {
-				name = "  " + name
-			}
-			left.WriteString(m.glyph(probe.ID) + " " + name + "\n")
+
+	var left strings.Builder
+	left.WriteString(titleStyle.Render("Checks") + "\n")
+	for i, probe := range m.probes {
+		if deferred {
+			left.WriteString(faintStyle.Render("· "+probe.Name) + "\n")
+			continue
 		}
+		name := probe.Name
+		if i == m.selected {
+			name = selStyle.Render("› " + name)
+		} else {
+			name = "  " + name
+		}
+		left.WriteString(m.glyph(probe.ID) + " " + name + "\n")
 	}
 
 	var right strings.Builder
-	right.WriteString(titleStyle.Render("Diagnosis") + "\n\n")
 	if deferred {
-		right.WriteString("Toolbox mode — press r to run the diagnostic chain, or pick a tool below.\n")
+		right.WriteString(titleStyle.Render("Details") + "\n")
+		right.WriteString(faintStyle.Render("Nothing to show yet — the checks haven't run.") + "\n")
 	} else {
-		right.WriteString(m.verdictLine() + "\n\n")
 		probe := m.probes[m.selected]
-		right.WriteString(titleStyle.Render(probe.Name) + "\n")
-		id := probe.ID
-		if r, ok := m.results[id]; ok {
-			right.WriteString(r.Status.String() + " — " + r.Detail + "\n")
+		right.WriteString(titleStyle.Render("Details — "+probe.Name) + "\n")
+		if r, ok := m.results[probe.ID]; ok {
+			right.WriteString(styledProbeStatus(r.Status) + " — " + r.Detail + "\n")
 			if r.Status == diagnostic.StatusFail && r.Fix != "" {
 				right.WriteString(faintStyle.Render("Fix: "+r.Fix) + "\n")
 			}
@@ -590,7 +588,7 @@ func (m model) View() string {
 				right.WriteString(faintStyle.Render(fmt.Sprintf("  %s %dms %s", a.IP, a.Dur.Milliseconds(), st)) + "\n")
 			}
 		} else {
-			right.WriteString(faintStyle.Render("pending…") + "\n")
+			right.WriteString(m.spinner.View() + faintStyle.Render(" checking…") + "\n")
 		}
 	}
 
@@ -598,42 +596,105 @@ func (m model) View() string {
 	rightBox := lipgloss.NewStyle().Width(rightW).Render(right.String())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
 
-	keys := "↑/↓ select · r rerun · q quit"
-	if len(m.jobLines) > 0 {
-		keys = "↑/↓ select · enter output · r rerun · q quit"
-	}
-	help := faintStyle.Render(keys)
+	help := faintStyle.Render(m.helpLine(deferred))
 	toolbox := m.toolboxView()
+	top := header + "\n\n" + m.banner() + "\n\n"
 	// Adaptive tail: the job pane gets whatever height the rest doesn't use.
-	used := strings.Count(body, "\n") + strings.Count(toolbox, "\n") + strings.Count(help, "\n") + 2
-	return body + "\n" + toolbox + "\n" + m.jobView(m.height-used) + help + "\n"
+	used := strings.Count(top, "\n") + strings.Count(body, "\n") + strings.Count(toolbox, "\n") + strings.Count(help, "\n") + 2
+	return top + body + "\n" + toolbox + "\n" + m.jobView(m.height-used) + help + "\n"
 }
 
-// verdictLine is the one-line plain-English status atop the diagnosis pane: a
-// progress count while checks run, then the Diagnose verdict — red when
-// anything failed, green otherwise (including the all-clear Diagnose leaves
-// implicit for a fully-passing target).
-func (m model) verdictLine() string {
+func (m model) helpLine(deferred bool) string {
+	if deferred {
+		return "r run the checks · a tool key runs that tool · q quit"
+	}
+	if len(m.jobLines) > 0 {
+		return "↑/↓ pick a check · enter full output · r run again · q quit"
+	}
+	return "↑/↓ pick a check · r run again · q quit"
+}
+
+// banner is the full-width guidance block under the header: what is happening,
+// what it means in plain English, and — on a failure — what to do about it and
+// which tool to reach for next.
+func (m model) banner() string {
+	if m.toolbox && !m.chainRan() {
+		return "Welcome! Press " + selStyle.Render("r") + " to check your connection, or run a tool below."
+	}
 	if !m.allDone() {
-		return fmt.Sprintf("Running checks… %d of %d done", len(m.results), len(m.probes))
+		return m.spinner.View() + fmt.Sprintf(" Checking your connection… %d of %d done", len(m.results), len(m.probes))
 	}
 	order := make([]diagnostic.ProbeID, len(m.probes))
-	anyFail := false
+	var firstFail *diagnostic.ProbeResult
 	for i, probe := range m.probes {
 		order[i] = probe.ID
-		if m.results[probe.ID].Status == diagnostic.StatusFail {
-			anyFail = true
+		if r := m.results[probe.ID]; firstFail == nil && r.Status == diagnostic.StatusFail {
+			rr := r
+			firstFail = &rr
 		}
 	}
 	summary := diagnostic.Diagnose(m.target, order, m.results)
-	switch {
-	case anyFail:
-		return failStyle.Render(summary)
-	case summary == "":
-		return passStyle.Render("✓ All checks passed — no problems found.")
-	default:
-		return passStyle.Render(summary)
+	if firstFail == nil {
+		if summary == "" {
+			summary = "All checks passed — no problems found."
+			if m.target != nil {
+				summary = fmt.Sprintf("All checks passed — %s:%d looks healthy.", m.target.Host, m.target.Port)
+			}
+		}
+		return passStyle.Render("✓ " + summary)
 	}
+	if summary == "" {
+		summary = "A check failed — see the ✗ row for details."
+	}
+	lines := []string{failStyle.Render("✗ " + summary)}
+	if firstFail.Fix != "" {
+		lines = append(lines, faintStyle.Render("  Fix: "+firstFail.Fix))
+	}
+	if next := m.nextStep(firstFail.ID); next != "" {
+		lines = append(lines, "  "+next)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// probeNextTool maps a failed probe to the toolbox hotkey that best
+// investigates it.
+var probeNextTool = map[diagnostic.ProbeID]string{
+	diagnostic.ProbeInternet:  "p",
+	diagnostic.ProbeDNS:       "d",
+	diagnostic.ProbeTargetTCP: "t",
+	diagnostic.ProbeTLS:       "c",
+	diagnostic.ProbeHTTP:      "c",
+	diagnostic.ProbeHTTPS:     "c",
+	diagnostic.ProbeSSH:       "t",
+	diagnostic.ProbeSMTP:      "t",
+}
+
+// nextStep suggests the toolbox key worth pressing after a failure, e.g.
+// "Next: press d — DNS lookup (dig)". Empty when no tool applies or the
+// binary is missing.
+func (m model) nextStep(id diagnostic.ProbeID) string {
+	key, ok := probeNextTool[id]
+	if !ok {
+		return ""
+	}
+	for _, t := range m.tools {
+		if t.Key == key && t.Available() {
+			return "Next: press " + selStyle.Render(key) + " — " + toolPurpose[key] + " (" + t.Name + ")"
+		}
+	}
+	return ""
+}
+
+func styledProbeStatus(s diagnostic.Status) string {
+	switch s {
+	case diagnostic.StatusPass:
+		return passStyle.Render(s.String())
+	case diagnostic.StatusFail:
+		return failStyle.Render(s.String())
+	case diagnostic.StatusSkip:
+		return skipStyle.Render(s.String())
+	}
+	return s.String()
 }
 
 // styledStatus colors the job status word: green done, red failed/timed out,
@@ -694,19 +755,36 @@ func (m model) vpContext() string {
 	return s
 }
 
+// toolPurpose is the plain-English toolbox label per hotkey. Hotkeys are
+// stable across OSes; the real command is shown in the job pane once run.
+var toolPurpose = map[string]string{
+	"i": "route table",
+	"s": "open sockets",
+	"p": "ping the host",
+	"d": "DNS lookup",
+	"c": "web check",
+	"t": "trace the path",
+	"m": "path quality",
+}
+
 func (m model) toolboxView() string {
 	if len(m.tools) == 0 {
-		return faintStyle.Render("Tools: (target-dependent — pass a host)") + "\n"
+		return faintStyle.Render("Tools need a host — run: network-doctor <host>") + "\n"
 	}
 	parts := make([]string, len(m.tools))
 	for i, t := range m.tools {
-		label := "[" + t.Key + "] " + t.Name
+		purpose := toolPurpose[t.Key]
+		if purpose == "" {
+			purpose = t.Name
+		}
+		label := "[" + t.Key + "] " + purpose
 		if !t.Available() {
-			label = faintStyle.Render(label + " (missing)")
+			label = faintStyle.Render(label + " — " + t.Bin + " missing")
 		}
 		parts[i] = label
 	}
-	return "Tools: " + strings.Join(parts, "  ") + faintStyle.Render("  · press key to run") + "\n"
+	line := faintStyle.Render("Dig deeper: ") + strings.Join(parts, " · ")
+	return lipgloss.NewStyle().Width(m.vpWidth()).Render(line) + "\n"
 }
 
 // jobView renders the job pane with an adaptive tail: avail is the screen

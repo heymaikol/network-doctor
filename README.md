@@ -4,22 +4,30 @@ A terminal UI that diagnoses your network connectivity and tells you **where the
 connection breaks** in plain English — not just a wall of tool output.
 
 The home screen runs short, native, rootless probes as a small dependency graph,
-then a diagnosis engine turns their combined state into a one-line verdict. The
-left pane is the probe chain; the right pane is the diagnosis plus details for
-the selected probe.
+then a diagnosis engine turns their combined state into a plain-English verdict
+banner — on a failure it also shows the fix and suggests which drill-down tool
+to press next. Below it, the left pane is the probe chain and the right pane is
+detail for the selected probe.
 
 ```
-Network Doctor                Diagnosis
+Network Doctor  github.com:443  ·  Wi-Fi: HomeNet
 
-✓ Interface
-✓ Internet (TCP egress)
-✓ DNS github.com              HTTPS github.com
-✓ TCP github.com:443          PASS — HTTPS 200 (responded)
-✓ TLS github.com
-✓ HTTP github.com
-✓ HTTPS github.com
+✗ Cannot resolve github.com — DNS failure. (The general internet is reachable.)
+  Fix: check /etc/resolv.conf / DNS
+  Next: press d — DNS lookup (dig)
 
-↑/↓ select · r rerun · q quit
+Checks                        Details — DNS github.com
+✓ › Interface                 FAIL — no A records
+✓   Internet (TCP egress)
+✗   DNS github.com
+⊘   TCP github.com:443
+⊘   TLS github.com
+⊘   HTTP github.com
+⊘   HTTPS github.com
+
+Dig deeper: [i] route table · [s] open sockets · [p] ping the host · [d] DNS lookup · …
+
+↑/↓ pick a check · r run again · q quit
 ```
 
 ## How it diagnoses

@@ -407,7 +407,7 @@ func TestLaunchToolUnavailable(t *testing.T) {
 func TestViewRenders(t *testing.T) {
 	m := newModel(nil)
 	out := m.View()
-	for _, want := range []string{"Network Doctor", "Diagnosis"} {
+	for _, want := range []string{"Network Doctor", "Checks", "Details"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q", want)
 		}
@@ -415,7 +415,7 @@ func TestViewRenders(t *testing.T) {
 
 	tb := newModel(nil)
 	tb.toolbox = true
-	if !strings.Contains(tb.View(), "Toolbox mode") {
+	if !strings.Contains(tb.View(), "check your connection") {
 		t.Error("deferred toolbox view must explain itself")
 	}
 

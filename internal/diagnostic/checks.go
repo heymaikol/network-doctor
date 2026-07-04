@@ -117,7 +117,6 @@ type netops struct {
 	lookupIP       func(ctx context.Context, host string) ([]net.IP, error)
 	dialContext    func(ctx context.Context, network, addr string) (net.Conn, error)
 	dialTLS        func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error)
-	dial           func(network, addr string) (net.Conn, error)
 	ssid           func(ctx context.Context, iface string) string
 	defaultRoute   func(ctx context.Context) (string, bool, error)
 }
@@ -133,7 +132,6 @@ var defaultOps = &netops{
 		d := tls.Dialer{NetDialer: new(net.Dialer), Config: cfg}
 		return d.DialContext(ctx, network, addr)
 	},
-	dial:         net.Dial,
 	ssid:         ssid,
 	defaultRoute: defaultRoute,
 }
@@ -207,7 +205,7 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 	r.Attempts = attempts
 	if conn != nil {
 		defer conn.Close()
-		src, iface := o.pathIdentity(conn, sel, 443)
+		src, iface := o.pathIdentity(ctx, conn, sel, 443)
 		r.Status, r.SelectedIP, r.Source, r.Iface = StatusPass, sel, src, iface
 		r.Detail = fmt.Sprintf("direct egress via %s in %dms (src %s %s)", sel, rtt.Milliseconds(), src, iface)
 		if gw, found, _ := o.defaultRoute(ctx); found {
@@ -215,7 +213,7 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 		}
 		return r
 	}
-	src, iface := o.pathIdentity(nil, internetEndpoints[0], 443)
+	src, iface := o.pathIdentity(ctx, nil, internetEndpoints[0], 443)
 	r.Status, r.Source, r.Iface = StatusFail, src, iface
 	r.Detail = "no direct TCP egress to 1.1.1.1/8.8.8.8:443"
 	r.Fix = "no internet egress — proxy-only/filtered network? check upstream"
@@ -260,13 +258,13 @@ func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]Prob
 		r.Attempts = attempts
 		if conn != nil {
 			defer conn.Close()
-			src, iface := o.pathIdentity(conn, sel, port)
+			src, iface := o.pathIdentity(ctx, conn, sel, port)
 			r.Status, r.SelectedIP, r.Source, r.Iface = StatusPass, sel, src, iface
 			r.Detail = fmt.Sprintf("connected to %s:%d in %dms (src %s %s)", sel, port, rtt.Milliseconds(), src, iface)
 			return r
 		}
 		// All addresses failed: deterministic fallback path = first address.
-		src, iface := o.pathIdentity(nil, addrs[0], port)
+		src, iface := o.pathIdentity(ctx, nil, addrs[0], port)
 		r.Status, r.Source, r.Iface = StatusFail, src, iface
 		r.Detail = fmt.Sprintf("port %d unreachable on all %d address(es)", port, len(addrs))
 		r.Fix = fmt.Sprintf("port %d blocked/refused — firewall, wrong network, or VPN routing?", port)
@@ -424,14 +422,14 @@ func (o *netops) dialIPs(ctx context.Context, ips []net.IP, port int) (net.Conn,
 // successful connect it reads the winning LocalAddr (ground truth); otherwise it
 // falls back to a UDP "connect" (sends no packets) for path identity only — not
 // a reachability claim.
-func (o *netops) pathIdentity(conn net.Conn, dstIP net.IP, port int) (net.IP, string) {
+func (o *netops) pathIdentity(ctx context.Context, conn net.Conn, dstIP net.IP, port int) (net.IP, string) {
 	var src net.IP
 	if conn != nil {
 		if la, ok := conn.LocalAddr().(*net.TCPAddr); ok {
 			src = la.IP
 		}
 	} else if dstIP != nil {
-		if c, err := o.dial("udp4", net.JoinHostPort(dstIP.String(), strconv.Itoa(port))); err == nil {
+		if c, err := o.dialContext(ctx, "udp4", net.JoinHostPort(dstIP.String(), strconv.Itoa(port))); err == nil {
 			if la, ok := c.LocalAddr().(*net.UDPAddr); ok {
 				src = la.IP
 			}

@@ -123,7 +123,7 @@ func TestPathIdentityFromConn(t *testing.T) {
 	}
 	defer conn.Close()
 
-	src, iface := defaultOps.pathIdentity(conn, net.ParseIP("127.0.0.1"), port)
+	src, iface := defaultOps.pathIdentity(context.Background(), conn, net.ParseIP("127.0.0.1"), port)
 	if src == nil || !src.IsLoopback() {
 		t.Errorf("src = %v, want a loopback address", src)
 	}

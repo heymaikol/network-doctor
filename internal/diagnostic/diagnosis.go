@@ -1,6 +1,9 @@
 package diagnostic
 
-import "fmt"
+import (
+	"net"
+	"strconv"
+)
 
 // Diagnose computes the plain-English verdict from current-generation native
 // probe state only (tool facts never feed in). First-fail ordering + combination
@@ -48,7 +51,7 @@ func Diagnose(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) string {
 	}
 
 	host := t.Host
-	hp := fmt.Sprintf("%s:%d", host, t.Port)
+	hp := net.JoinHostPort(host, strconv.Itoa(t.Port)) // brackets IPv6 literals
 	switch {
 	case fail(ProbeDNS):
 		v := "Cannot resolve " + host + " — DNS failure."
@@ -70,7 +73,7 @@ func Diagnose(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) string {
 		return "TLS is fine but no HTTPS response from " + hp + " — application-layer or proxy block."
 	case has(ProbeHTTP) && fail(ProbeHTTP):
 		if t.Proto == ProtoTLSHTTP {
-			return "HTTPS works but no HTTP response from " + host + ":80 — the redirect/plain-HTTP endpoint may be blocked."
+			return "HTTPS works but no HTTP response from " + net.JoinHostPort(host, "80") + " — the redirect/plain-HTTP endpoint may be blocked."
 		}
 		return "No HTTP response from " + hp + " — application-layer or proxy block."
 	case (has(ProbeSSH) && fail(ProbeSSH)) || (has(ProbeSMTP) && fail(ProbeSMTP)):

@@ -43,12 +43,13 @@ func TestDialIPsAttemptCap(t *testing.T) {
 	}
 }
 
-// A cancelled context stops the address loop after the in-flight attempt
-// instead of grinding through the remaining addresses.
+// A cancelled context dials nothing instead of grinding through addresses.
 func TestDialIPsCancelledStopsEarly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	calls := 0
 	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+		calls++
 		return nil, context.Canceled
 	}}
 	ips := []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2"), net.ParseIP("192.0.2.3")}
@@ -57,8 +58,47 @@ func TestDialIPsCancelledStopsEarly(t *testing.T) {
 	if conn != nil {
 		t.Fatal("expected no connection under a cancelled context")
 	}
-	if len(attempts) != 1 {
-		t.Errorf("attempts = %d, want 1 (loop must stop on cancel)", len(attempts))
+	if calls != 0 || len(attempts) != 0 {
+		t.Errorf("calls = %d, attempts = %d, want 0 each (cancelled ctx must not dial)", calls, len(attempts))
+	}
+}
+
+// Happy Eyeballs: while an early address hangs, a later one is started after
+// the stagger delay and its success wins without waiting out the first.
+func TestDialIPsRacesStaggered(t *testing.T) {
+	win := net.ParseIP("192.0.2.2")
+	ops := &netops{dialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+		if strings.HasPrefix(addr, "192.0.2.1") {
+			<-ctx.Done() // first address black-holes
+			return nil, ctx.Err()
+		}
+		return fakeConn{}, nil
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	conn, sel, _, _ := ops.dialIPs(ctx, []net.IP{net.ParseIP("192.0.2.1"), win}, 80)
+	if conn == nil || !sel.Equal(win) {
+		t.Fatalf("sel = %v, want the second address to win the race", sel)
+	}
+	conn.Close()
+	if e := time.Since(start); e > 2*time.Second {
+		t.Errorf("race took %v, want well under the hung address's deadline", e)
+	}
+}
+
+// Addresses are interleaved by family, IPv6 first, per RFC 8305.
+func TestInterleaveFamilies(t *testing.T) {
+	got := interleaveFamilies([]net.IP{
+		net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2"),
+		net.ParseIP("2001:db8::1"), net.ParseIP("2001:db8::2"),
+	})
+	want := []string{"2001:db8::1", "192.0.2.1", "2001:db8::2", "192.0.2.2"}
+	for i, w := range want {
+		if got[i].String() != w {
+			t.Fatalf("interleave[%d] = %v, want %v (full: %v)", i, got[i], w, got)
+		}
 	}
 }
 
@@ -75,8 +115,41 @@ func TestDNSProbeErrors(t *testing.T) {
 
 	ops.lookupIP = func(context.Context, string) ([]net.IP, error) { return nil, nil }
 	r = ops.dnsProbe("example.com", false, nil)(context.Background(), nil)
-	if r.Status != StatusFail || !strings.Contains(r.Detail, "no A record") {
-		t.Errorf("empty answer = %+v, want FAIL with 'no A record'", r)
+	if r.Status != StatusFail || !strings.Contains(r.Detail, "no A/AAAA records") {
+		t.Errorf("empty answer = %+v, want FAIL with 'no A/AAAA records'", r)
+	}
+}
+
+// The egress probe diagnoses each family independently: IPv4 up + IPv6 down is
+// a PASS that names the missing family; both down is a FAIL naming both.
+func TestInternetProbeFamilies(t *testing.T) {
+	v4only := &netops{
+		dialContext: func(_ context.Context, _, addr string) (net.Conn, error) {
+			if strings.HasPrefix(addr, "[") { // IPv6 endpoints are bracketed
+				return nil, errors.New("no route to host")
+			}
+			return fakeConn{}, nil
+		},
+		interfaces:   func() ([]net.Interface, error) { return nil, nil },
+		defaultRoute: func(context.Context) (string, bool, error) { return "", false, nil },
+	}
+	r := v4only.internetProbe(context.Background(), nil)
+	if r.Status != StatusPass || !strings.Contains(r.Detail, "IPv4 egress via") || !strings.Contains(r.Detail, "no IPv6 egress") {
+		t.Errorf("v4-only network = %+v, want PASS naming the missing IPv6 egress", r)
+	}
+
+	down := &netops{
+		dialContext: func(context.Context, string, string) (net.Conn, error) {
+			return nil, errors.New("no route to host")
+		},
+		interfaces:   func() ([]net.Interface, error) { return nil, nil },
+		defaultRoute: func(context.Context) (string, bool, error) { return "", false, nil },
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	r = down.internetProbe(ctx, nil)
+	if r.Status != StatusFail || !strings.Contains(r.Detail, "IPv4") || !strings.Contains(r.Detail, "IPv6") {
+		t.Errorf("both families down = %+v, want FAIL naming both families", r)
 	}
 }
 

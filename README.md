@@ -53,10 +53,10 @@ prerequisite failed), or **– N/A** (doesn't apply — e.g. DNS on an IP litera
 | Probe | Passes when | Notes |
 |-------|-------------|-------|
 | **Interface** | A non-loopback interface is up and running | |
-| **Internet (TCP egress)** | A TCP connect to `1.1.1.1`/`8.8.8.8:443` succeeds | honestly "direct egress" — proxy-only networks can fail this |
+| **Internet (TCP egress)** | A TCP connect to well-known anycast `:443` endpoints succeeds | IPv4 and IPv6 probed independently in parallel; either family passes, both are reported |
 | **Internet (env proxy)** | The `HTTPS_PROXY`/`HTTP_PROXY` proxy grants a `CONNECT` tunnel | N/A when no proxy is configured; honors `NO_PROXY` |
-| **DNS** | The host resolves to an IPv4 (system resolution) | IP-literal targets are N/A; all A records are retained |
-| **TCP** | A TCP connect to the target port succeeds | tries each A record, pins the first that connects |
+| **DNS** | The host resolves to an IPv4 or IPv6 address (system resolution) | IP-literal targets are N/A; all A/AAAA records are retained |
+| **TCP** | A TCP connect to the target port succeeds | races A/AAAA records Happy-Eyeballs style (RFC 8305), pins the winner |
 | **TLS** | The TLS handshake (SNI + cert verification) succeeds | bad/expired cert, clock skew, or MITM → Fail |
 | **HTTP** | Port 80 returns any HTTP response (incl. 3xx/4xx/5xx) | Independent HEAD after DNS, redirects off, proxy off |
 | **HTTPS** | The selected TLS port returns any HTTP response | HEAD against the TLS-validated IP, redirects off, proxy off |
@@ -65,7 +65,7 @@ prerequisite failed), or **– N/A** (doesn't apply — e.g. DNS on an IP litera
 RTT is measured from the TCP-connect handshake (no ICMP, no root). The source IP
 and interface are read from the winning connection's `LocalAddr`, with a
 UDP-connect fallback (sends no packets) for path identity on failure. Every probe
-is IPv4-only and bounded by a 4-second timeout.
+is bounded by a 4-second timeout.
 
 ## Install
 
@@ -114,7 +114,7 @@ The target parser has two independent axes: the **port** (explicit `:port` >
 scheme default > 443) and the **protocol rows** (an explicit `http`/`https`
 scheme wins; otherwise inferred from the port — `443/8443`→HTTP+TLS+HTTPS, `80`→HTTP,
 `22`→SSH, `25/587`→SMTP). Hosts are validated against a strict allowlist; IPv6
-literals are rejected (IPv4 only).
+literals are accepted bare (`::1`) or bracketed with a port (`[::1]:443`).
 
 | Key | Action |
 |-----|--------|
@@ -201,7 +201,7 @@ cancellable streaming tool jobs with `ping`/`dig`/`curl` (Phase 2),
 (Phase 3), and an experimental `f` auto-fix-and-verify hotkey.
 
 Still to come (see `BACKLOG.md` for the full ordered list): dependency-injected
-probes for deterministic tests, a `Warn` state, proxy-aware diagnosis, IPv6,
+probes for deterministic tests, a `Warn` state, proxy-aware diagnosis,
 mtr-parsed route quality, `--json` output, multiple concurrent jobs, and `nmap`.
 
 ## Built with

@@ -44,9 +44,13 @@ then diagnostic quality, usability, and maintenance.
    proxy-aware verdicts and egress downgrading. Env-var proxies only — PAC
    files and SOCKS are not detected.
 
-8. **Add IPv6 and Happy Eyeballs support.** Targets and resolution are currently
-   IPv4-only. Diagnose IPv4 and IPv6 independently and race suitable addresses
-   instead of trying only IPv4 addresses serially.
+8. **Add IPv6 and Happy Eyeballs support.** FIXED Targets accept IPv6 literals
+   (bare or `[host]:port`), DNS resolves A + AAAA, the egress probe checks each
+   family independently in parallel, and dials race interleaved addresses
+   Happy-Eyeballs style (RFC 8305: IPv6 first, 250 ms stagger, first success
+   wins and cancels the rest). Family-specific failures surface as warnings
+   ("IPv6 unreachable, connected via IPv4"). Default-route/gateway garnish and
+   nslookup fact extraction remain IPv4-only.
 
 9. **Make drill-down tools protocol-aware.** Do not offer an HTTPS-oriented
    `curl` command for SSH and SMTP targets. Offer relevant commands such as

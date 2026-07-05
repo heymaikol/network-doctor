@@ -21,6 +21,11 @@ func TestParseTarget(t *testing.T) {
 		{"mail.example.com:587", "mail.example.com", 587, ProtoSMTP, false},
 		{"https://github.com/owner/repo", "github.com", 443, ProtoTLSHTTP, false},
 		{"host:8443", "host", 8443, ProtoTLSHTTP, false},
+		{"::1", "::1", 443, ProtoTLSHTTP, true},
+		{"fe80::1", "fe80::1", 443, ProtoTLSHTTP, true},
+		{"[::1]", "::1", 443, ProtoTLSHTTP, true},
+		{"[2001:db8::1]:22", "2001:db8::1", 22, ProtoSSH, true},
+		{"https://[2001:db8::1]:8443/path", "2001:db8::1", 8443, ProtoTLSHTTP, true},
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
@@ -45,7 +50,8 @@ func TestParseTarget(t *testing.T) {
 }
 
 func TestParseTargetErrors(t *testing.T) {
-	bad := []string{"", "::1", "[::1]:443", "host:0", "host:99999", "ftp://host", "bad_host!", "fe80::1"}
+	bad := []string{"", "host:0", "host:99999", "ftp://host", "bad_host!",
+		"[::1", "[::1]x", "[1.2.3.4]:80", "[hostname]:80", "[]:80", "[fe80::1%eth0]", "a:b:c"}
 	for _, in := range bad {
 		if tg, err := ParseTarget(in); err == nil {
 			t.Errorf("ParseTarget(%q) = %+v, want error", in, tg)

@@ -38,9 +38,9 @@ type Target struct {
 // so nothing user-supplied is ever fed to a probe or (later) a command.
 var hostnameRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
 
-// ParseTarget parses a CLI target: <host> | <host>:<port> | http(s)://<host>[:port][/path].
-// IPv6 literals are rejected (out of scope). Returns a typed Target or an error
-// (caller exits 2 on error).
+// ParseTarget parses a CLI target: <host> | <host>:<port> | <ipv6> |
+// [<ipv6>][:<port>] | http(s)://<host>[:port][/path]. Returns a typed Target
+// or an error (caller exits 2 on error).
 func ParseTarget(raw string) (*Target, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -63,31 +63,51 @@ func ParseTarget(raw string) (*Target, error) {
 	if s == "" {
 		return nil, errors.New("missing host")
 	}
-	// IPv6 literal forms (bracketed, or >1 colon) are out of scope.
-	if strings.ContainsAny(s, "[]") || strings.Count(s, ":") > 1 {
-		return nil, errors.New("IPv6 literals are out of scope (IPv4 only)")
-	}
 
 	host := s
-	if i := strings.LastIndex(s, ":"); i >= 0 {
-		host = s[:i]
-		port, err := strconv.Atoi(s[i+1:])
-		if err != nil || port < 1 || port > 65535 {
-			return nil, fmt.Errorf("invalid port %q", s[i+1:])
+	switch {
+	case strings.HasPrefix(s, "["):
+		// Bracketed IPv6 literal, optionally with a port: [<ipv6>][:<port>].
+		end := strings.Index(s, "]")
+		if end < 0 {
+			return nil, errors.New("missing ']' in bracketed IPv6 literal")
 		}
-		t.Port = port
-		t.PortExplicit = true
+		host = s[1:end]
+		if rest := s[end+1:]; rest != "" {
+			if !strings.HasPrefix(rest, ":") {
+				return nil, fmt.Errorf("unexpected %q after ']'", rest)
+			}
+			port, err := parsePort(rest[1:])
+			if err != nil {
+				return nil, err
+			}
+			t.Port, t.PortExplicit = port, true
+		}
+		if ip := net.ParseIP(host); ip == nil || ip.To4() != nil {
+			return nil, fmt.Errorf("brackets require an IPv6 literal, got %q", host)
+		}
+	case strings.Count(s, ":") > 1:
+		// Bare IPv6 literal — any port form must use brackets.
+	default:
+		if i := strings.LastIndex(s, ":"); i >= 0 {
+			host = s[:i]
+			port, err := parsePort(s[i+1:])
+			if err != nil {
+				return nil, err
+			}
+			t.Port, t.PortExplicit = port, true
+		}
 	}
 	if host == "" {
 		return nil, errors.New("missing host")
 	}
 
 	if ip := net.ParseIP(host); ip != nil {
-		if ip.To4() == nil {
-			return nil, errors.New("IPv6 literals are out of scope (IPv4 only)")
-		}
 		t.IsLiteral = true
-		t.IP = ip.To4()
+		t.IP = ip
+		if v4 := ip.To4(); v4 != nil {
+			t.IP = v4
+		}
 		t.Host = host
 	} else {
 		if len(host) > 253 || !hostnameRe.MatchString(host) {
@@ -127,4 +147,12 @@ func ParseTarget(raw string) (*Target, error) {
 		}
 	}
 	return t, nil
+}
+
+func parsePort(s string) (int, error) {
+	port, err := strconv.Atoi(s)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("invalid port %q", s)
+	}
+	return port, nil
 }

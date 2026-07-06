@@ -70,7 +70,6 @@ type ToolDoneMsg struct {
 	JobID      string
 	Generation int
 	Status     JobStatus
-	Err        error
 	Dropped    int64 // output lines dropped under overflow
 }
 
@@ -84,8 +83,6 @@ const (
 // then exactly one ToolDoneMsg, last.
 type job struct {
 	id     string
-	gen    int
-	cmd    *exec.Cmd
 	ch     chan tea.Msg
 	cancel context.CancelFunc
 }
@@ -120,7 +117,7 @@ func startTool(parent context.Context, gen int, id, name string, args, env []str
 		return nil, nil, err
 	}
 
-	j := &job{id: id, gen: gen, cmd: cmd, ch: make(chan tea.Msg, chanBuf), cancel: cancel}
+	j := &job{id: id, ch: make(chan tea.Msg, chanBuf), cancel: cancel}
 	var dropped int64
 
 	go func() {
@@ -136,7 +133,6 @@ func startTool(parent context.Context, gen int, id, name string, args, env []str
 			JobID:      id,
 			Generation: gen,
 			Status:     classifyJob(ctx, werr),
-			Err:        werr,
 			Dropped:    atomic.LoadInt64(&dropped),
 		}
 	}()

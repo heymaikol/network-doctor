@@ -227,7 +227,7 @@ func TestDeferredQuit(t *testing.T) {
 	m := newModel(mustTarget(t, "github.com"))
 	m.generation = 3
 	canceled := false
-	m.activeJob = &job{id: "j", gen: 3, cancel: func() { canceled = true }}
+	m.activeJob = &job{id: "j", cancel: func() { canceled = true }}
 
 	u, cmd := m.Update(keyMsg("q"))
 	nm := asModel(t, u)
@@ -260,7 +260,7 @@ func TestDeferredRerun(t *testing.T) {
 	m := newModel(mustTarget(t, "github.com"))
 	m.generation = 3
 	canceled := false
-	m.activeJob = &job{id: "j", gen: 3, cancel: func() { canceled = true }}
+	m.activeJob = &job{id: "j", cancel: func() { canceled = true }}
 
 	u, _ := m.Update(keyMsg("r"))
 	nm := asModel(t, u)
@@ -294,7 +294,7 @@ func TestDeferredTool(t *testing.T) {
 	m := newModel(mustTarget(t, "github.com"))
 	m.generation = 1
 	canceled := false
-	m.activeJob = &job{id: "j", gen: 1, cancel: func() { canceled = true }}
+	m.activeJob = &job{id: "j", cancel: func() { canceled = true }}
 
 	u, _ := m.Update(keyMsg("p")) // ping hotkey
 	nm := asModel(t, u)
@@ -314,7 +314,7 @@ func TestDeferredTool(t *testing.T) {
 func TestToolOutputRouting(t *testing.T) {
 	m := newModel(nil)
 	m.generation = 1
-	m.activeJob = &job{id: "j", gen: 1, ch: make(chan tea.Msg, 1)}
+	m.activeJob = &job{id: "j", ch: make(chan tea.Msg, 1)}
 
 	u, cmd := m.Update(ToolOutputMsg{JobID: "j", Generation: 1, Stream: StreamStdout, Line: "hello"})
 	nm := asModel(t, u)
@@ -348,7 +348,7 @@ func TestToolOutputRouting(t *testing.T) {
 func TestStaleToolDoneDropped(t *testing.T) {
 	m := newModel(nil)
 	m.generation = 2
-	m.activeJob = &job{id: "j", gen: 2, cancel: func() {}}
+	m.activeJob = &job{id: "j", cancel: func() {}}
 	u, cmd := m.Update(ToolDoneMsg{JobID: "other", Generation: 2, Status: JobDone})
 	nm := asModel(t, u)
 	if nm.activeJob == nil {
@@ -453,7 +453,7 @@ func TestViewportFollow(t *testing.T) {
 	m := newModel(nil)
 	m.width, m.height = 80, 10 // viewport height 6 — 20 lines overflow it
 	m.generation = 1
-	m.activeJob = &job{id: "j", gen: 1, ch: make(chan tea.Msg, 1)}
+	m.activeJob = &job{id: "j", ch: make(chan tea.Msg, 1)}
 	var u tea.Model = m
 	for i := 0; i < 20; i++ {
 		u, _ = asModel(t, u).Update(ToolOutputMsg{JobID: "j", Generation: 1, Stream: StreamStdout, Line: fmt.Sprintf("line %d", i)})

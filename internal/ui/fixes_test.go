@@ -80,7 +80,7 @@ func TestFixVerifyRerun(t *testing.T) {
 	m.generation = 2
 	doneResults(&m, diagnostic.ProbeDNS)
 	m.fixing = true
-	m.activeJob = &job{id: "fx", gen: 2, cancel: func() {}}
+	m.activeJob = &job{id: "fx", cancel: func() {}}
 
 	u, cmd := m.Update(ToolDoneMsg{JobID: "fx", Generation: 2, Status: JobDone})
 	nm := asModelP(t, u)
@@ -104,7 +104,7 @@ func TestDeferredFix(t *testing.T) {
 	m.generation = 1
 	doneResults(&m, diagnostic.ProbeDNS)
 	canceled := false
-	m.activeJob = &job{id: "j", gen: 1, cancel: func() { canceled = true }}
+	m.activeJob = &job{id: "j", cancel: func() { canceled = true }}
 
 	u, _ := m.Update(keyMsg("f"))
 	nm := asModel(t, u)
@@ -148,7 +148,7 @@ func TestPendingOverridesFix(t *testing.T) {
 	m := newModel(nil)
 	m.generation = 1
 	m.fixing = true
-	m.activeJob = &job{id: "fx", gen: 1, cancel: func() {}}
+	m.activeJob = &job{id: "fx", cancel: func() {}}
 	m.pending = &pendingAction{kind: pendQuit}
 
 	u, cmd := m.Update(ToolDoneMsg{JobID: "fx", Generation: 1, Status: JobCanceled})

@@ -1,12 +1,12 @@
 package ui
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/aymanbagabas/go-osc52/v2"
 	"github.com/mplaczek99/network-doctor/internal/diagnostic"
 	"github.com/mplaczek99/network-doctor/internal/textsafe"
 )
@@ -22,7 +22,7 @@ func exportReport(rep string, save bool) string {
 		}
 		return "report saved to " + name
 	}
-	if _, err := osc52.New(rep).WriteTo(os.Stderr); err != nil {
+	if _, err := fmt.Fprintf(os.Stderr, "\x1b]52;c;%s\x07", base64.StdEncoding.EncodeToString([]byte(rep))); err != nil {
 		return "copy failed: " + err.Error()
 	}
 	return "report copied to clipboard (terminal must support OSC 52)"

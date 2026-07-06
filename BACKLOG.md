@@ -144,7 +144,7 @@ then diagnostic quality, usability, and maintenance.
     `PLAN.md`. Either create and maintain that plan or replace the link with this
     backlog.
 
-17. **Pin CI to the module's Go version.** Change the main CI workflow from
+17. **Pin CI to the module's Go version.** FIXED Change the main CI workflow from
     `go-version: stable` to `go-version-file: go.mod`, matching the release
     workflow and the repository's declared toolchain requirement.
 

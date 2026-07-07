@@ -221,3 +221,26 @@ func TestEnterViewerBeforeOutput(t *testing.T) {
 		t.Error("empty viewer must show the (no output yet) placeholder")
 	}
 }
+
+// A running job with lots of output must never grow the view past the
+// terminal height: the renderer drops the top lines, which reads as the
+// whole UI scrolling.
+func TestViewFitsTerminal(t *testing.T) {
+	m := newModel(mustTarget(t, "example.com:443"))
+	m.jobStatus = JobRunning
+	m.jobDisplay = "ping example.com"
+	for range 200 {
+		m.jobLines = append(m.jobLines, outLine{text: "reply from 1.2.3.4"})
+	}
+	for _, size := range []tea.WindowSizeMsg{
+		{Width: 120, Height: 40},
+		{Width: 100, Height: 24},
+		{Width: 80, Height: 20},
+	} {
+		u, _ := m.Update(size)
+		nm := asModel(t, u)
+		if rows := strings.Count(nm.View(), "\n") + 1; rows > nm.height {
+			t.Errorf("%dx%d: view is %d rows, terminal is %d", size.Width, size.Height, rows, nm.height)
+		}
+	}
+}

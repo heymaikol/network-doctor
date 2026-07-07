@@ -754,10 +754,13 @@ func (m model) View() string {
 	}
 	toolbox := m.toolboxView()
 	top := header + "\n" + m.banner() + "\n\n"
-	// Adaptive tail: the job pane gets whatever height the rest doesn't use.
-	used := strings.Count(top, "\n") + strings.Count(body, "\n") + strings.Count(toolbox, "\n") + strings.Count(help, "\n") + 2
-	avail := m.height - used
-	return top + body + "\n" + toolbox + "\n" + m.jobView(avail) + help + "\n"
+	// Adaptive tail: the job pane gets whatever rows the rest doesn't use.
+	// avail is a budget in newlines: jobView's output must add at most avail
+	// of them, or the view exceeds the terminal and the renderer cuts the top.
+	fixed := top + body + "\n" + toolbox + "\n"
+	tail := help + "\n"
+	avail := m.height - strings.Count(fixed, "\n") - strings.Count(tail, "\n") - 1
+	return fixed + m.jobView(avail) + tail
 }
 
 // headerView is the one-line masthead: app name, target, connected network.
@@ -1153,8 +1156,8 @@ func (m model) jobTailN(avail int) int {
 	tailN := jobTailLines
 	if m.height > 0 {
 		overhead := 5 // rule, title, status, context note, trailing blank
-		if tailN = avail - overhead; tailN < 3 {
-			tailN = 3
+		if tailN = avail - overhead; tailN < 0 {
+			tailN = 0
 		}
 	}
 	return tailN
@@ -1165,6 +1168,9 @@ func (m model) jobTailN(avail int) int {
 func (m model) jobView(avail int) string {
 	if m.activeJob == nil && m.jobStatus == JobQueued {
 		return ""
+	}
+	if m.height > 0 && avail < 5 {
+		return "" // not even rule+title+status+note fit — drop the pane
 	}
 	tailN := m.jobTailN(avail)
 	var b strings.Builder

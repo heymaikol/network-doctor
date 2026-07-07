@@ -41,8 +41,9 @@ const (
 )
 
 type pendingAction struct {
-	kind pendingKind
-	tool Tool
+	kind   pendingKind
+	tool   Tool
+	target *diagnostic.Target
 }
 
 const (
@@ -419,12 +420,12 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.entering = false
-		m.applyTarget(t)
 		if m.activeJob != nil {
 			m.activeJob.cancel()
-			m.pending = &pendingAction{kind: pendRerun}
+			m.pending = &pendingAction{kind: pendRerun, target: t}
 			return m, nil
 		}
+		m.applyTarget(t)
 		return m, m.doRerun()
 	}
 	var cmd tea.Cmd
@@ -466,6 +467,7 @@ func (m *model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 		m.clearCancel()
 		return m, tea.Quit
 	case pendRerun:
+		m.applyTarget(p.target)
 		return m, m.doRerun()
 	case pendTool:
 		return m, m.launchTool(p.tool)

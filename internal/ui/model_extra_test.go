@@ -289,6 +289,50 @@ func TestDeferredRerun(t *testing.T) {
 	}
 }
 
+// A target entered during an active job must not be applied until the job's
+// terminal event runs the deferred rerun; otherwise old results can render
+// under the new target's header and produce a false healthy verdict.
+func TestDeferredRerunDefersTargetSwap(t *testing.T) {
+	m := newModel(mustTarget(t, "github.com"))
+	for _, probe := range m.probes {
+		m.results[probe.ID] = diagnostic.ProbeResult{ID: probe.ID, Status: diagnostic.StatusPass}
+	}
+	m.generation = 3
+	canceled := false
+	m.activeJob = &job{id: "j", cancel: func() { canceled = true }}
+
+	u, _ := m.Update(keyMsg("r"))
+	nm := asModel(t, u)
+	nm.input.SetValue("example.com")
+	u, _ = nm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	nm = asModel(t, u)
+
+	if !canceled {
+		t.Fatal("committing must cancel the active job")
+	}
+	if nm.target == nil || nm.target.Host != "github.com" {
+		t.Fatalf("target changed before terminal event: %+v", nm.target)
+	}
+	if nm.pending == nil || nm.pending.kind != pendRerun || nm.pending.target == nil || nm.pending.target.Host != "example.com" {
+		t.Fatalf("pending rerun target = %+v", nm.pending)
+	}
+	if got := nm.banner(); strings.Contains(got, "example.com") {
+		t.Fatalf("banner used pending target before rerun: %q", got)
+	}
+
+	u, cmd := nm.Update(ToolDoneMsg{JobID: "j", Generation: 3, Status: JobCanceled})
+	nm2 := asModelP(t, u)
+	if cmd == nil {
+		t.Fatal("deferred rerun must issue a reschedule cmd")
+	}
+	if nm2.target == nil || nm2.target.Host != "example.com" {
+		t.Fatalf("target after terminal event = %+v, want example.com", nm2.target)
+	}
+	if len(nm2.results) != 0 {
+		t.Fatalf("results after deferred rerun = %d, want cleared", len(nm2.results))
+	}
+}
+
 // A tool hotkey while a job runs defers the tool launch (last write wins).
 func TestDeferredTool(t *testing.T) {
 	m := newModel(mustTarget(t, "github.com"))

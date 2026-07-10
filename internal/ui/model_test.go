@@ -134,13 +134,31 @@ func TestRerunPrompt(t *testing.T) {
 
 func TestQuit(t *testing.T) {
 	m := newModel(nil)
-	u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	u, cmd := m.Update(keyMsg("q"))
 	_ = asModel(t, u)
 	if cmd == nil {
 		t.Fatal("quit must return a cmd")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Errorf("expected tea.QuitMsg, got %T", cmd())
+	}
+}
+
+func TestCtrlCDoesNotQuitOrCancel(t *testing.T) {
+	m := newModel(nil)
+	canceled := false
+	m.activeJob = &job{cancel: func() { canceled = true }}
+
+	u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	nm := asModel(t, u)
+	if cmd != nil {
+		t.Fatal("ctrl+c must not return a command")
+	}
+	if canceled {
+		t.Error("ctrl+c must not cancel the active job")
+	}
+	if nm.pending != nil {
+		t.Errorf("ctrl+c pending action = %v, want nil", nm.pending.kind)
 	}
 }
 

@@ -198,6 +198,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if msg.Type == tea.KeyCtrlC {
+			return m, nil
+		}
 		// Runes read from stdin in one batch arrive as a single KeyMsg
 		// ("jjj"), which matches no binding; replay them one key at a time.
 		if msg.Type == tea.KeyRunes && !msg.Paste && len(msg.Runes) > 1 {
@@ -289,7 +292,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "q":
 		if m.activeJob != nil {
 			m.activeJob.cancel() // non-blocking; quit on the terminal event
 			m.pending = &pendingAction{kind: pendQuit}
@@ -369,8 +372,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleConfirmKey handles keys while an advanced tool's command is shown: 'y'
-// runs it (deferred if a job is still live), ctrl+c quits, and any other key —
-// including esc — cancels without running the scan.
+// runs it (deferred if a job is still live), and any other key — including esc —
+// cancels without running the scan.
 func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	tool := *m.confirmTool
 	m.confirmTool = nil
@@ -382,8 +385,6 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.launchTool(tool)
-	case "ctrl+c":
-		return m.handleKey(msg) // quit path, incl. deferred quit under an active job
 	}
 	return m, nil
 }
@@ -395,7 +396,7 @@ func (m model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", "esc":
 		m.viewing = false
 		return m, nil
-	case "q", "ctrl+c":
+	case "q":
 		return m.handleKey(msg) // quit path, incl. deferred quit under an active job
 	}
 	var cmd tea.Cmd
@@ -412,9 +413,6 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.entering = false
 		return m, nil
-	case "ctrl+c":
-		m.entering = false
-		return m.handleKey(msg) // quit path, incl. deferred quit under an active job
 	case "enter":
 		t, err := parseRunArgs(m.input.Value())
 		if err != nil {

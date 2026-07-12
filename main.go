@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
-	"github.com/mplaczek99/network-doctor/internal/ui"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/ui"
 )
 
 // version is injected by GoReleaser via -X main.version={{.Version}}.

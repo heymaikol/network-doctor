@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
-	"github.com/mplaczek99/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
 // exportReport saves the report next to the user (save=true) or copies it to

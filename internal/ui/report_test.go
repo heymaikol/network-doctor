@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
 func TestOSC52Sequence(t *testing.T) {

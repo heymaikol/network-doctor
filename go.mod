@@ -1,4 +1,4 @@
-module github.com/mplaczek99/network-doctor
+module github.com/heymaikol/network-doctor
 
 go 1.26.4
 

@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/mplaczek99/network-doctor/internal/diagnostic"
+import "github.com/heymaikol/network-doctor/internal/diagnostic"
 
 // fixFor returns the automatic fix command for a failed probe on goos, or nil
 // when no safe local fix exists (target TCP/TLS/HTTP failures are remote

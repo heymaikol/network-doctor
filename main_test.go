@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
 // Only exercises paths that return before the TUI starts.

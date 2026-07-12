@@ -95,16 +95,16 @@ makepkg -si
 Installing with Homebrew avoids Gatekeeper's "unverified developer" prompt:
 
 ```sh
-brew tap mplaczek99/tap
+brew tap heymaikol/tap
 brew install --cask network-doctor
 ```
 
 ### Everywhere else
 
-Download a prebuilt binary from the [latest release](https://github.com/mplaczek99/network-doctor/releases/latest), or install with Go 1.26+:
+Download a prebuilt binary from the [latest release](https://github.com/heymaikol/network-doctor/releases/latest), or install with Go 1.26+:
 
 ```sh
-go install github.com/mplaczek99/network-doctor@latest
+go install github.com/heymaikol/network-doctor@latest
 ```
 
 Check what you're running with `network-doctor --version`.
@@ -112,7 +112,7 @@ Check what you're running with `network-doctor --version`.
 Or build from a clone:
 
 ```sh
-git clone https://github.com/mplaczek99/network-doctor
+git clone https://github.com/heymaikol/network-doctor
 cd network-doctor
 go build -o network-doctor .
 ```

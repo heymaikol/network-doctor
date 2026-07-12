@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
 func mustTarget(t *testing.T, s string) *diagnostic.Target {

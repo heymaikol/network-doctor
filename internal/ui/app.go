@@ -4,7 +4,7 @@ package ui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
 // New constructs the terminal application.

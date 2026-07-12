@@ -16,8 +16,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
-	"github.com/mplaczek99/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
 // scheduleMsg asks Update to dispatch any newly-runnable probes for generation

@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/mplaczek99/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
 // ssid returns iface's Wi-Fi network name via the built-in networksetup tool,

@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
 // New wires the model and ExitCode reads it back. Toolbox mode with no chain run

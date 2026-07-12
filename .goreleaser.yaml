@@ -26,7 +26,7 @@ aur_sources:
     description: Terminal UI that diagnoses network connectivity and explains where the connection breaks
     license: Apache-2.0
     maintainers:
-      - Michael Placzek <mplaczek99@gmail.com>
+      - Michael Placzek <heymaikol@proton.me>
     private_key: "{{ .Env.AUR_KEY }}"
     git_url: ssh://aur@aur.archlinux.org/network-doctor.git
     build: |-

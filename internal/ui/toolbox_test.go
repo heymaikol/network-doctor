@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/mplaczek99/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
 func TestToolsFor(t *testing.T) {

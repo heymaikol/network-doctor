@@ -928,7 +928,7 @@ func (m model) helpView(deferred bool) string {
 		}
 		return helpKeys(m.width, append(kv, "q", "quit")...)
 	}
-	kv := []string{"↑/↓", "pick a check"}
+	kv := []string{"↑/↓", "scroll"}
 	if hasJob {
 		kv = append(kv, "enter", "full output")
 	}

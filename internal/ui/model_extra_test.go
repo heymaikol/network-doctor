@@ -543,6 +543,17 @@ func TestViewportFollow(t *testing.T) {
 		t.Errorf("viewport must show the newest line and a position context, got:\n%s", out)
 	}
 
+	u, _ = nm.Update(tea.KeyMsg{Type: tea.KeyHome})
+	nm = asModel(t, u)
+	if nm.vp.YOffset != 0 || nm.follow {
+		t.Errorf("home must jump to the top and pause follow (offset=%d follow=%v)", nm.vp.YOffset, nm.follow)
+	}
+	u, _ = nm.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	nm = asModel(t, u)
+	if !nm.vp.AtBottom() || !nm.follow {
+		t.Errorf("end must jump to the bottom and resume follow (follow=%v)", nm.follow)
+	}
+
 	u, _ = nm.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp})
 	nm = asModel(t, u)
 	if nm.follow {

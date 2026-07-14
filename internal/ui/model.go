@@ -450,6 +450,14 @@ func (m model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.viewing = false
 		return m, nil
+	case "home":
+		m.vp.GotoTop()
+		m.follow = false
+		return m, nil
+	case "end":
+		m.vp.GotoBottom()
+		m.follow = true
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.vp, cmd = m.vp.Update(msg)
@@ -1120,7 +1128,7 @@ func (m model) outputView() string {
 	b.WriteString(m.jobStatusLine() + "\n")
 	b.WriteString(m.vp.View() + "\n")
 	b.WriteString(faintStyle.Render(m.vpContext()) + "\n")
-	footer := helpKeys(m.width, "↑/↓", "scroll", "pgup/pgdn", "page", "esc", "back", "q", "back")
+	footer := helpKeys(m.width, "↑/↓", "scroll", "pgup/pgdn", "page", "home/end", "top/bottom", "esc", "back", "q", "back")
 	if m.notice == ctrlCNotice {
 		footer = m.noticeView()
 	}

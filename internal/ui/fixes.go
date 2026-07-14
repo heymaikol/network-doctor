@@ -8,10 +8,7 @@ import "github.com/heymaikol/network-doctor/internal/diagnostic"
 // flush a cache or re-enable networking. The restart that follows the fix is the
 // real verdict, so a fix that turns out to be a no-op is harmless.
 func fixFor(id diagnostic.ProbeID, goos string) *Tool {
-	quote := shellArgs
-	if goos == "windows" {
-		quote = psArgs
-	}
+	quote := quoterFor(goos)
 	mk := func(name, bin string, args ...string) *Tool {
 		t := staticTool(quote, "f", name, bin, args...)
 		return &t

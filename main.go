@@ -7,9 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"os"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
@@ -33,7 +31,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	jsonOut := fs.Bool("json", false, "run the checks headless and print a JSON report")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	timeout := fs.Duration("timeout", diagnostic.ProbeTimeout, "per-check probe timeout")
-	egress := fs.String("egress", diagnostic.DefaultEgressList, "comma-separated IPs for the direct-egress check")
 
 	// The stdlib flag package stops parsing at the first non-flag argument;
 	// peel positionals off and re-parse the remainder so flags are accepted
@@ -63,16 +60,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	diagnostic.ProbeTimeout = *timeout
-	var ips []net.IP
-	for _, s := range strings.Split(*egress, ",") {
-		ip := net.ParseIP(strings.TrimSpace(s))
-		if ip == nil {
-			fmt.Fprintf(stderr, "network-doctor: invalid -egress IP %q\n", s)
-			return 2
-		}
-		ips = append(ips, ip)
-	}
-	diagnostic.SetEgressEndpoints(ips)
 	if *showVersion {
 		fmt.Fprintln(stdout, "network-doctor", version)
 		return 0

@@ -78,7 +78,12 @@ func (m model) report() string {
 			fmt.Fprintf(&b, "        attempt: %s %dms %s\n", a.IP, a.Dur.Milliseconds(), st)
 		}
 	}
-	stdout := m.stdoutLines()
+	var stdout []string
+	for _, line := range m.jobLines {
+		if !line.stderr {
+			stdout = append(stdout, line.text)
+		}
+	}
 	if len(stdout) > 0 && (m.jobStatus == JobDone || m.jobStatus == JobFailed) {
 		const reportTailLines = 15
 		if len(stdout) > reportTailLines {

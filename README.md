@@ -127,9 +127,8 @@ network-doctor https://host:80  # explicit scheme selects the protocol (→ TLS 
 network-doctor --json host      # headless: one JSON report on stdout (scripts, CI, bug reports)
 ```
 
-`--timeout` overrides the per-check probe timeout, and `--egress` replaces the
-IP list used by the direct-egress check; see `network-doctor --help` for the
-defaults.
+`--timeout` overrides the per-check probe timeout; see `network-doctor --help`
+for the default.
 
 The target parser has two independent axes: the **port** (explicit `:port` >
 scheme default > 443) and the **protocol rows** (an explicit `http`/`https`

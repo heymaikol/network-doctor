@@ -120,34 +120,13 @@ const (
 // probeHost is the host used by the generic (no-target) DNS + egress probes.
 const probeHost = "connectivitycheck.gstatic.com"
 
-// DefaultEgressList is the built-in direct-egress endpoint list, in the CLI
-// -egress flag spelling so the flag's default and help text cannot drift.
-const DefaultEgressList = "1.1.1.1,8.8.8.8,2606:4700:4700::1111,2001:4860:4860::8888"
-
 // internetEndpoints4/6 are the ordered direct-egress endpoints per address
 // family; first connect wins within a family. Honestly "direct TCP egress" —
 // proxy-only networks can fail this.
-var internetEndpoints4, internetEndpoints6 = splitFamilies([]net.IP{
-	net.ParseIP("1.1.1.1"), net.ParseIP("8.8.8.8"),
-	net.ParseIP("2606:4700:4700::1111"), net.ParseIP("2001:4860:4860::8888"),
-})
-
-func splitFamilies(ips []net.IP) (v4, v6 []net.IP) {
-	for _, ip := range ips {
-		if ip.To4() != nil {
-			v4 = append(v4, ip)
-		} else {
-			v6 = append(v6, ip)
-		}
-	}
-	return v4, v6
-}
-
-// SetEgressEndpoints replaces the direct-egress probe targets, partitioned by
-// address family. A family with no endpoints is simply not probed.
-func SetEgressEndpoints(ips []net.IP) {
-	internetEndpoints4, internetEndpoints6 = splitFamilies(ips)
-}
+var (
+	internetEndpoints4 = []net.IP{net.ParseIP("1.1.1.1"), net.ParseIP("8.8.8.8")}
+	internetEndpoints6 = []net.IP{net.ParseIP("2606:4700:4700::1111"), net.ParseIP("2001:4860:4860::8888")}
+)
 
 // netops holds every network/OS touchpoint the probes use, as function fields
 // so tests can stub them and run probes deterministically without real
@@ -207,12 +186,12 @@ func (o *netops) buildProbes(t *Target) []Probe {
 	case ProtoTLSHTTP:
 		probes = append(probes,
 			Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.tlsProbe(host, port)},
-			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeDNS}, Run: o.httpProbe(ProbeHTTP, host, 80, "http", ProbeDNS)},
-			Probe{ID: ProbeHTTPS, Name: "HTTPS " + host, Deps: []ProbeID{ProbeTLS}, Run: o.httpProbe(ProbeHTTPS, host, port, "https", ProbeTLS)},
+			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeDNS}, Run: o.httpProbe(host, 80, "http", ProbeDNS)},
+			Probe{ID: ProbeHTTPS, Name: "HTTPS " + host, Deps: []ProbeID{ProbeTLS}, Run: o.httpProbe(host, port, "https", ProbeTLS)},
 		)
 	case ProtoHTTP:
 		probes = append(probes,
-			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.httpProbe(ProbeHTTP, host, port, "http", ProbeTargetTCP)},
+			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.httpProbe(host, port, "http", ProbeTargetTCP)},
 		)
 	case ProtoSSH:
 		probes = append(probes, o.bannerProbe(ProbeSSH, "SSH banner "+hp, port))
@@ -225,7 +204,7 @@ func (o *netops) buildProbes(t *Target) []Probe {
 // ---- probe implementations ----
 
 func (o *netops) ifaceProbe(ctx context.Context, _ map[ProbeID]ProbeResult) ProbeResult {
-	r := ProbeResult{ID: ProbeIface}
+	var r ProbeResult
 	ifaces, err := o.interfaces()
 	if err != nil {
 		r.Status = StatusFail
@@ -253,7 +232,7 @@ func (o *netops) ifaceProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 }
 
 func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) ProbeResult {
-	r := ProbeResult{ID: ProbeInternet}
+	var r ProbeResult
 	type famResult struct {
 		conn     net.Conn
 		sel      net.IP
@@ -282,14 +261,9 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 	}
 	if prim.conn == nil {
 		r.Attempts = append(v4.attempts, v6.attempts...)
-		var dst net.IP // any configured endpoint works for path identity
-		if all := append(append([]net.IP{}, internetEndpoints4...), internetEndpoints6...); len(all) > 0 {
-			dst = all[0]
-			r.Detail = "no direct TCP egress to " + joinIPs(all) + " (port 443)"
-		} else {
-			r.Detail = "no direct TCP egress endpoints configured"
-		}
-		src, iface := o.pathIdentity(ctx, nil, dst, 443)
+		all := append(append([]net.IP{}, internetEndpoints4...), internetEndpoints6...)
+		r.Detail = "no direct TCP egress to " + joinIPs(all) + " (port 443)"
+		src, iface := o.pathIdentity(ctx, nil, all[0], 443)
 		r.Status, r.Source, r.Iface = StatusFail, src, iface
 		r.Fix = "no internet egress — proxy-only/filtered network? check upstream"
 		return r
@@ -322,7 +296,7 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 // proxy and ask for a CONNECT tunnel to probeHost:443. This is exactly what
 // proxied HTTPS clients do, minus the TLS handshake inside the tunnel.
 func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) ProbeResult {
-	r := ProbeResult{ID: ProbeProxy}
+	var r ProbeResult
 	var proxyURL *url.URL
 	var err error
 	for _, scheme := range []string{"https", "http"} {
@@ -406,7 +380,7 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 
 func (o *netops) dnsProbe(host string, literal bool, litIP net.IP) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
 	return func(ctx context.Context, _ map[ProbeID]ProbeResult) ProbeResult {
-		r := ProbeResult{ID: ProbeDNS}
+		var r ProbeResult
 		if literal {
 			r.Status, r.Addrs, r.SelectedIP = StatusNA, []net.IP{litIP}, litIP
 			r.Detail = "literal IP " + litIP.String() + " — no DNS needed"
@@ -432,7 +406,7 @@ func (o *netops) dnsProbe(host string, literal bool, litIP net.IP) func(context.
 
 func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
 	return func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
-		r := ProbeResult{ID: ProbeTargetTCP}
+		var r ProbeResult
 		addrs := deps[ProbeDNS].Addrs
 		if len(addrs) == 0 {
 			r.Status, r.Detail = StatusFail, "no resolved addresses"
@@ -459,7 +433,7 @@ func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]Prob
 
 func (o *netops) tlsProbe(host string, port int) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
 	return func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
-		r := ProbeResult{ID: ProbeTLS}
+		var r ProbeResult
 		ip := deps[ProbeTargetTCP].SelectedIP
 		if ip == nil {
 			r.Status, r.Detail = StatusSkip, "no pinned IP from Target TCP"
@@ -478,9 +452,9 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 	}
 }
 
-func (o *netops) httpProbe(id ProbeID, host string, port int, scheme string, addressDep ProbeID) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+func (o *netops) httpProbe(host string, port int, scheme string, addressDep ProbeID) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
 	return func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
-		r := ProbeResult{ID: id}
+		var r ProbeResult
 		protocol := strings.ToUpper(scheme)
 		var addrs []net.IP
 		if addressDep == ProbeDNS {
@@ -547,7 +521,7 @@ func (o *netops) httpProbe(id ProbeID, host string, port int, scheme string, add
 
 func (o *netops) bannerProbe(id ProbeID, label string, port int) Probe {
 	return Probe{ID: id, Name: label, Deps: []ProbeID{ProbeTargetTCP}, Run: func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
-		r := ProbeResult{ID: id}
+		var r ProbeResult
 		ip := deps[ProbeTargetTCP].SelectedIP
 		if ip == nil {
 			r.Status, r.Detail = StatusSkip, "no pinned IP from Target TCP"
@@ -647,6 +621,17 @@ func interleaveFamilies(ips []net.IP) []net.IP {
 		}
 	}
 	return out
+}
+
+func splitFamilies(ips []net.IP) (v4, v6 []net.IP) {
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			v4 = append(v4, ip)
+		} else {
+			v6 = append(v6, ip)
+		}
+	}
+	return v4, v6
 }
 
 // dialIPs races ip:port connection attempts Happy Eyeballs style (RFC 8305):

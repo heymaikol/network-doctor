@@ -634,17 +634,6 @@ func (m *model) appendJobLine(stderr bool, text string) {
 	}
 }
 
-// stdoutLines returns just the stdout side of the captured job stream.
-func (m model) stdoutLines() []string {
-	var out []string
-	for _, ln := range m.jobLines {
-		if !ln.stderr {
-			out = append(out, ln.text)
-		}
-	}
-	return out
-}
-
 // jobContent renders the interleaved stream wrapped to w columns, stderr faint
 // with a "! " marker. Line numbers in the context line refer to these wrapped
 // display lines.

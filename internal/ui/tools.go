@@ -34,10 +34,7 @@ func (t Tool) Available() bool {
 // Same hotkeys everywhere. The target-independent tools (routes, sockets) are
 // always offered; the target-dependent set only when a host is given.
 func toolsFor(t *diagnostic.Target, goos string) []Tool {
-	quote := shellArgs
-	if goos == "windows" {
-		quote = psArgs
-	}
+	quote := quoterFor(goos)
 
 	var tools []Tool
 	switch goos {
@@ -122,10 +119,7 @@ func toolsFor(t *diagnostic.Target, goos string) []Tool {
 // -sV/-O/-A: version and OS detection are louder, slower, and not needed to
 // answer "is the port open?".
 func nmapTool(host, goos string) Tool {
-	quote := shellArgs
-	if goos == "windows" {
-		quote = psArgs
-	}
+	quote := quoterFor(goos)
 	return Tool{
 		Key: "n", Name: "nmap", Bin: "nmap", Confirm: true, Timeout: 120 * time.Second,
 		Build: func(t *diagnostic.Target) ([]string, []string, string) {
@@ -221,6 +215,13 @@ func staticTool(quote func([]string) string, key, name, bin string, args ...stri
 		a := slices.Clone(args)
 		return a, nil, bin + " " + quote(a)
 	}}
+}
+
+func quoterFor(goos string) func([]string) string {
+	if goos == "windows" {
+		return psArgs
+	}
+	return shellArgs
 }
 
 // shellArgs renders argv for *display only* (never executed), quoting tokens with

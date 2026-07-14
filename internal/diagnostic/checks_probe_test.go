@@ -199,10 +199,10 @@ func TestProbesMalformedDeps(t *testing.T) {
 	if r := ops.tlsProbe("example.com", 443)(ctx, empty); r.Status != StatusSkip {
 		t.Errorf("tls without pinned IP = %+v, want SKIP", r)
 	}
-	if r := ops.httpProbe(ProbeHTTP, "example.com", 80, "http", ProbeDNS)(ctx, empty); r.Status != StatusSkip {
+	if r := ops.httpProbe("example.com", 80, "http", ProbeDNS)(ctx, empty); r.Status != StatusSkip {
 		t.Errorf("http without DNS addrs = %+v, want SKIP", r)
 	}
-	if r := ops.httpProbe(ProbeHTTPS, "example.com", 443, "https", ProbeTLS)(ctx, empty); r.Status != StatusSkip {
+	if r := ops.httpProbe("example.com", 443, "https", ProbeTLS)(ctx, empty); r.Status != StatusSkip {
 		t.Errorf("https without TLS pinned IP = %+v, want SKIP", r)
 	}
 	if r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, empty); r.Status != StatusSkip {
@@ -233,7 +233,7 @@ func TestHTTPProbeHeaderLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	r := ops.httpProbe(ProbeHTTP, "example.com", 80, "http", ProbeTargetTCP)(ctx, deps)
+	r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP)(ctx, deps)
 	if r.Status != StatusFail || !strings.Contains(r.Detail, "no HTTP response") || !strings.Contains(r.Detail, "exceeded") {
 		t.Errorf("oversized headers = %+v, want FAIL mentioning the exceeded header limit", r)
 	}

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -22,12 +23,39 @@ func exportReport(rep string, save bool) (notice string, ok bool) {
 		}
 		return "report saved to " + name, true
 	}
-	// stderr, because Bubble Tea owns stdout: both reach the tty, but only one
-	// of them is fighting the renderer for it mid-frame.
-	if _, err := osc52.New(rep).Mode(osc52Mode()).WriteTo(os.Stderr); err != nil {
+	if err := copyReport(rep); err != nil {
 		return "copy failed: " + err.Error(), false
 	}
-	return "report copied to clipboard (terminal must support OSC 52)", true
+	return "report copied to clipboard", true
+}
+
+var (
+	clipboardLookPath = exec.LookPath
+	clipboardRun      = func(path string, args []string, rep string) error {
+		cmd := exec.Command(path, args...)
+		cmd.Stdin = strings.NewReader(rep)
+		return cmd.Run()
+	}
+)
+
+func copyReport(rep string) error {
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{name: "wl-copy"},
+		{name: "xclip", args: []string{"-selection", "clipboard"}},
+		{name: "pbcopy"},
+	} {
+		path, err := clipboardLookPath(c.name)
+		if err == nil && clipboardRun(path, c.args, rep) == nil {
+			return nil
+		}
+	}
+	// stderr, because Bubble Tea owns stdout: both reach the tty, but only one
+	// of them is fighting the renderer for it mid-frame.
+	_, err := osc52.New(rep).Mode(osc52Mode()).WriteTo(os.Stderr)
+	return err
 }
 
 func osc52Mode() osc52.Mode {

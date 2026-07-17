@@ -95,7 +95,7 @@ type model struct {
 	follow  bool
 	vp      viewport.Model
 
-	// Restart prompt (r): an editable network-doctor command line. Enter parses
+	// Restart prompt (r): an editable netdoc command line. Enter parses
 	// and restarts; esc closes without touching the current run.
 	entering bool
 	input    textinput.Model
@@ -343,7 +343,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Open the restart prompt; an active job keeps streaming until Enter commits.
 		m.entering, m.inputErr = true, ""
 		ti := textinput.New()
-		ti.Prompt = "network-doctor "
+		ti.Prompt = "netdoc "
 		ti.Placeholder = "example.com:443 — empty for a general check"
 		ti.PromptStyle = keyStyle
 		if m.target != nil {
@@ -483,12 +483,12 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// parseRunArgs parses the restart prompt as a network-doctor command line: an
-// optional leading "network-doctor", then at most one target argument. An
+// parseRunArgs parses the restart prompt as a netdoc command line: an optional
+// leading binary name, then at most one target argument. An
 // empty line means a general, targetless run.
 func parseRunArgs(line string) (*diagnostic.Target, error) {
 	fields := strings.Fields(line)
-	if len(fields) > 0 && fields[0] == "network-doctor" {
+	if len(fields) > 0 && (fields[0] == "netdoc" || fields[0] == "network-doctor") {
 		fields = fields[1:]
 	}
 	switch {

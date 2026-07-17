@@ -160,7 +160,7 @@ func TestRestartPrompt(t *testing.T) {
 	if nm.input.Value() != "github.com" {
 		t.Errorf("prefill = %q, want github.com", nm.input.Value())
 	}
-	if !strings.Contains(nm.View(), "network-doctor") {
+	if !strings.Contains(nm.View(), "netdoc") {
 		t.Error("prompt view must show the command line")
 	}
 	if !strings.Contains(nm.View(), "Restart") {
@@ -217,7 +217,7 @@ func TestRestartPrompt(t *testing.T) {
 		t.Error("a bad line must keep the prompt open with an error")
 	}
 
-	bad.input.SetValue("network-doctor example.com:22")
+	bad.input.SetValue("netdoc example.com:22")
 	u, cmd := bad.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	good := asModel(t, u)
 	if good.entering {
@@ -510,7 +510,7 @@ func TestPromptFormsDroppedWhenShort(t *testing.T) {
 	if strings.Contains(v, "hostname (default port 443)") {
 		t.Error("80x12: forms cheatsheet must be dropped")
 	}
-	if !strings.Contains(v, "network-doctor") || !strings.Contains(v, "Restart") {
+	if !strings.Contains(v, "netdoc") || !strings.Contains(v, "Restart") {
 		t.Error("80x12: the input line must survive")
 	}
 }

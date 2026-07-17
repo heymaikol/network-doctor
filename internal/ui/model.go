@@ -731,7 +731,7 @@ func (m model) vpHeight() int {
 	if m.height <= 0 {
 		return 20
 	}
-	h := m.height - 4 // header + status above, context + help below
+	h := m.height - 3 - lipgloss.Height(m.viewerFooter()) // header + status above, context below
 	if h < 3 {
 		h = 3
 	}
@@ -1121,12 +1121,16 @@ func (m model) outputView() string {
 	b.WriteString(m.jobStatusLine() + "\n")
 	b.WriteString(m.vp.View() + "\n")
 	b.WriteString(faintStyle.Render(m.vpContext()) + "\n")
+	b.WriteString(m.viewerFooter())
+	return b.String()
+}
+
+func (m model) viewerFooter() string {
 	footer := helpKeys(m.width, "↑/↓", "scroll", "pgup/pgdn", "page", "home/end", "top/bottom", "esc", "back")
 	if m.notice == ctrlCNotice {
 		footer = m.noticeView()
 	}
-	b.WriteString(footer)
-	return b.String()
+	return footer
 }
 
 // vpContext is the viewport position line, in wrapped display-line numbers:

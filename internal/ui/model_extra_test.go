@@ -525,7 +525,7 @@ func TestViewRenders(t *testing.T) {
 // and new output must not yank the view back down; esc closes it.
 func TestViewportFollow(t *testing.T) {
 	m := newModel(nil, false)
-	m.width, m.height = 80, 10 // viewport height 6 — 20 lines overflow it
+	m.width, m.height = 60, 10 // wrapped footer leaves 5 viewport rows
 	m.generation = 1
 	m.activeJob = &job{id: "j", ch: make(chan tea.Msg, 1)}
 	var u tea.Model = m
@@ -539,8 +539,12 @@ func TestViewportFollow(t *testing.T) {
 		t.Fatalf("enter must open the viewport following the tail (viewing=%v follow=%v atBottom=%v)",
 			nm.viewing, nm.follow, nm.vp.AtBottom())
 	}
-	if out := nm.View(); !strings.Contains(out, "line 19") || !strings.Contains(out, "of 20") {
+	out := nm.View()
+	if !strings.Contains(out, "line 19") || !strings.Contains(out, "of 20") {
 		t.Errorf("viewport must show the newest line and a position context, got:\n%s", out)
+	}
+	if rows := strings.Count(out, "\n") + 1; rows > m.height {
+		t.Errorf("viewer is %d rows, terminal is %d", rows, m.height)
 	}
 
 	u, _ = nm.Update(tea.KeyMsg{Type: tea.KeyHome})

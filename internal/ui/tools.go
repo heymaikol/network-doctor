@@ -134,6 +134,9 @@ func nmapTool(quote func([]string) string, host string) Tool {
 		Key: "n", Name: "nmap", Purpose: "port scan", Bin: "nmap", Confirm: true, Timeout: 120 * time.Second,
 		Build: func(t *diagnostic.Target) ([]string, []string, string) {
 			args := []string{"-sT", "-T2", "-Pn", "--host-timeout", "90s"}
+			if t.IsLiteral && t.IP.To4() == nil {
+				args = append(args, "-6")
+			}
 			if t.PortExplicit {
 				args = append(args, "-p", strconv.Itoa(t.Port))
 			} else {

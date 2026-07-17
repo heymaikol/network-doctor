@@ -229,6 +229,12 @@ func TestNmapTool(t *testing.T) {
 	if !strings.HasPrefix(display, "nmap ") {
 		t.Errorf("nmap display = %q, want it to start with the command", display)
 	}
+	v6 := mustTarget(t, "[2001:db8::1]:8443")
+	v6Args, _, _ := toolByKey(t, toolsFor(v6, "linux"), "n").Build(v6)
+	wantV6 := []string{"-sT", "-T2", "-Pn", "--host-timeout", "90s", "-6", "-p", "8443", "2001:db8::1"}
+	if !slices.Equal(v6Args, wantV6) {
+		t.Errorf("nmap IPv6 argv = %q, want %q", v6Args, wantV6)
+	}
 	for _, bad := range []string{"-sS", "-sV", "-sU", "-O", "-A"} {
 		if slices.Contains(args, bad) {
 			t.Errorf("nmap argv contains aggressive flag %q", bad)

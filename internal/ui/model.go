@@ -1141,7 +1141,9 @@ func (m model) jobStatusLine() string {
 	if m.activeJob != nil {
 		return s + " " + m.spinner.View() + faintStyle.Render(fmt.Sprintf(" %.0fs", time.Since(m.jobStart).Seconds()))
 	}
-	if m.jobDur >= time.Second {
+	if m.jobDur > 0 && m.jobDur < time.Second {
+		s += faintStyle.Render(fmt.Sprintf(" · %dms", m.jobDur.Milliseconds()))
+	} else if m.jobDur >= time.Second {
 		s += faintStyle.Render(fmt.Sprintf(" · %.0fs", m.jobDur.Seconds()))
 	}
 	return s

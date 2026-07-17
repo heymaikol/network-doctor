@@ -146,6 +146,14 @@ func TestJobStatusString(t *testing.T) {
 	}
 }
 
+func TestJobStatusLineShowsMilliseconds(t *testing.T) {
+	m := newModel(nil, false)
+	m.jobStatus, m.jobDur = JobDone, 40*time.Millisecond
+	if got := m.jobStatusLine(); !strings.Contains(got, "40ms") {
+		t.Errorf("jobStatusLine() = %q, want 40ms", got)
+	}
+}
+
 // classifyJob is success-wins, then consults the context cause only on error.
 func TestClassifyJob(t *testing.T) {
 	if got := classifyJob(context.Background(), nil); got != JobDone {

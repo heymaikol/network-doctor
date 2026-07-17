@@ -140,6 +140,7 @@ literals are accepted bare (`::1`) or bracketed with a port (`[::1]:443`).
 |-----|--------|
 | `↑`/`↓` (`k`/`j`) | select a probe row |
 | `enter` | open the current tool job's output in a scrollable full-screen viewer |
+| `y` (viewer) | copy the viewer's retained full output (up to 5,000 lines) |
 | `r` | restart — opens a prompt to edit the `network-doctor` arguments (`enter` runs, `esc` backs out) |
 | `f` | try an automatic fix for the first failed check, then restart the chain to verify |
 | `y` / `w` | yank / write (copy / save) a report of the chain plus the completed tool output |

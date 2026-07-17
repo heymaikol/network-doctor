@@ -222,6 +222,32 @@ func TestViewerEscAndQGoBack(t *testing.T) {
 	}
 }
 
+func TestViewerCopiesFullOutput(t *testing.T) {
+	oldLookPath, oldRun := clipboardLookPath, clipboardRun
+	t.Cleanup(func() { clipboardLookPath, clipboardRun = oldLookPath, oldRun })
+	clipboardLookPath = func(string) (string, error) { return "wl-copy", nil }
+	var copied string
+	clipboardRun = func(_ string, _ []string, output string) error {
+		copied = output
+		return nil
+	}
+
+	m := newModel(nil, false)
+	m.jobStatus = JobDone
+	m.jobLines = []outLine{{text: "first"}, {stderr: true, text: "second"}}
+	u, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	nm := asModel(t, u)
+	if !strings.Contains(nm.View(), keyStyle.Render("y")) {
+		t.Fatal("viewer footer must offer y to copy output")
+	}
+
+	u, cmd := nm.Update(keyMsg("y"))
+	nm = asModel(t, u)
+	if copied != "first\nsecond" || cmd == nil || nm.notice != "output copied to clipboard" {
+		t.Fatalf("copied = %q, notice = %q, cmd nil = %v", copied, nm.notice, cmd == nil)
+	}
+}
+
 func TestCtrlCWarnsThenQuits(t *testing.T) {
 	m := newModel(nil, false)
 	canceled := false

@@ -459,6 +459,15 @@ func (m model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.viewing = false
 		return m, nil
+	case "y":
+		if err := copyReport(m.jobOutput()); err != nil {
+			m.notice, m.noticeOK = "copy failed: "+err.Error(), false
+		} else {
+			m.notice, m.noticeOK = "output copied to clipboard", true
+		}
+		m.noticeDeadline = time.Now().Add(noticeWindow)
+		deadline := m.noticeDeadline
+		return m, tea.Tick(noticeWindow, func(time.Time) tea.Msg { return noticeDoneMsg{deadline: deadline} })
 	case "home":
 		m.vp.GotoTop()
 		m.follow = false
@@ -711,6 +720,10 @@ func (m model) jobContent(w int) string {
 	if len(m.jobLines) == 0 {
 		return lipgloss.NewStyle().Width(w).Render(faintStyle.Render("(no output yet)"))
 	}
+	return lipgloss.NewStyle().Width(w).Render(m.jobOutput())
+}
+
+func (m model) jobOutput() string {
 	var b strings.Builder
 	for i, ln := range m.jobLines {
 		if i > 0 {
@@ -718,7 +731,7 @@ func (m model) jobContent(w int) string {
 		}
 		b.WriteString(renderJobLine(ln))
 	}
-	return lipgloss.NewStyle().Width(w).Render(b.String())
+	return b.String()
 }
 
 func renderJobLine(ln outLine) string {
@@ -1146,11 +1159,10 @@ func (m model) outputView() string {
 }
 
 func (m model) viewerFooter() string {
-	footer := helpKeys(m.width, "↑/↓", "scroll", "pgup/pgdn", "page", "home/end", "top/bottom", "esc/q", "back")
-	if m.notice == ctrlCNotice {
-		footer = m.noticeView()
+	if notice := m.noticeView(); notice != "" {
+		return notice
 	}
-	return footer
+	return helpKeys(m.width, "↑/↓", "scroll", "pgup/pgdn", "page", "home/end", "top/bottom", "y", "copy output", "esc/q", "back")
 }
 
 // vpContext is the viewport position line, in wrapped display-line numbers:

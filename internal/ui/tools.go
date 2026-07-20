@@ -29,6 +29,8 @@ type Tool struct {
 
 var toolLookPath = exec.LookPath
 
+const lanDiscoveryName = "LAN discovery"
+
 // Available reports whether the tool's binary is installed.
 func (t Tool) Available() bool { return t.available }
 
@@ -114,9 +116,8 @@ func toolsFor(t *diagnostic.Target, goos string) []Tool {
 			staticTool(quote, "m", "path quality", "mtr", "mtr", "--report", "--report-cycles", "5", host))
 	}
 
-	// nmap is the one advanced tool: it actively scans the target, so it's
-	// gated behind a shown-command confirmation (Confirm) rather than launching
-	// on the hotkey like everything else.
+	// Targeted nmap actively scans the host, so it is gated behind a shown-command
+	// confirmation (Confirm) rather than launching like passive tools.
 	tools = append(tools, nmapTool(quote, host))
 	return cacheAvailability(tools)
 }
@@ -145,6 +146,16 @@ func nmapTool(quote func([]string) string, host string) Tool {
 				args = append(args, "--top-ports", "100")
 			}
 			args = append(args, host)
+			return args, nil, "nmap " + quote(args)
+		},
+	}
+}
+
+func lanDiscoveryTool(quote func([]string) string, cidr string) Tool {
+	return Tool{
+		Key: "v", Name: lanDiscoveryName, Purpose: "discover LAN devices", Bin: "nmap", Confirm: true, Timeout: 60 * time.Second,
+		Build: func(*diagnostic.Target) ([]string, []string, string) {
+			args := []string{"--unprivileged", "-sn", "-T3", "--host-timeout", "5s", "-oG", "-", cidr}
 			return args, nil, "nmap " + quote(args)
 		},
 	}

@@ -114,6 +114,7 @@ literals are accepted bare (`::1`) or bracketed with a port (`[::1]:443`).
 | Key | Action |
 |-----|--------|
 | `↑`/`↓` (`k`/`j`) | select a probe row |
+| `v` | discover and map devices on the local private `/24` (confirmed, unprivileged `nmap`) |
 | `enter` | open the current tool job's output in a scrollable full-screen viewer |
 | `y` (viewer) | copy the viewer's retained full output (up to 5,000 lines) |
 | `r` | restart — opens a prompt to edit the `netdoc` arguments (`enter` runs, `esc` backs out) |
@@ -144,10 +145,10 @@ The same hotkeys map to each OS's built-in tools:
 | `m` | `mtr --report --report-cycles 5` | same (via brew) | `pathping -h 20 -q 5 -p 100 -w 500` (own 90 s budget) |
 | `n` | `nmap -sT -T2 -Pn` (the explicit target port, else top 100) | same | same |
 
-`n` is the one tool that actively scans the target, so it's gated behind an
-explicit confirmation showing the exact command before anything runs. It uses
-a plain connect scan (no raw sockets, no root) with polite timing and no
-version/OS detection — just enough to answer "is the port open?".
+`n` and `v` actively probe their shown scope, so both are gated behind an
+explicit confirmation before anything runs. `n` uses a plain connect scan with
+polite timing and no version/OS detection. `v` performs host discovery only,
+without raw sockets or root, and caps the scope at the source address's `/24`.
 
 The `c` slot is protocol-aware: HTTP(S) and unknown-port targets get `curl`,
 while SSH (port 22) and SMTP (ports 25/587) targets get a protocol-appropriate

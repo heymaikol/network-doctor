@@ -67,8 +67,10 @@ type model struct {
 	results map[diagnostic.ProbeID]diagnostic.ProbeResult
 	started map[diagnostic.ProbeID]bool
 
-	selected int
-	spinner  spinner.Model
+	selected    int
+	networkMap  bool
+	networkCIDR string
+	spinner     spinner.Model
 
 	generation int
 	// Generation context; cancel kills all in-flight probes and the active job on
@@ -364,6 +366,26 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		ti.CursorEnd()
 		m.input = ti
 		return m, textinput.Blink
+	case "v":
+		if m.networkMap {
+			m.networkMap = false
+			return m, nil
+		}
+		if m.jobName == lanDiscoveryName {
+			m.networkMap = true
+			return m, nil
+		}
+		_, cidr := m.discoveryNetwork()
+		if cidr == "" {
+			return m, m.setNotice("local private IPv4 network not available yet", false)
+		}
+		tool := cacheAvailability([]Tool{lanDiscoveryTool(quoterFor(runtime.GOOS), cidr)})[0]
+		if !tool.Available() {
+			return m, m.setNotice("network discovery needs nmap", false)
+		}
+		m.networkCIDR = cidr
+		m.confirmTool = &tool
+		return m, nil
 	case "up", "k":
 		if m.selected > 0 {
 			m.selected--
@@ -543,6 +565,7 @@ func (m *model) doRestart() tea.Cmd {
 	m.activeJob, m.pending, m.confirmTool = nil, nil, nil
 	m.jobStatus, m.jobName, m.jobDisplay, m.jobDur = JobQueued, "", "", 0
 	m.jobLines, m.jobDropped, m.jobEvicted = nil, 0, 0
+	m.networkMap, m.networkCIDR = false, ""
 	m.notice = ""
 	if m.viewing {
 		m.refreshViewport()
@@ -556,6 +579,7 @@ func (m *model) doRestart() tea.Cmd {
 }
 
 func (m *model) launchTool(tool Tool) tea.Cmd {
+	m.networkMap = tool.Key == "v"
 	if !tool.Available() {
 		m.jobName, m.jobStatus = tool.Name, JobFailed
 		m.jobLines, m.jobDropped, m.jobEvicted = []string{tool.Bin + " not found — install it"}, 0, 0
@@ -767,6 +791,9 @@ func (m model) View() string {
 
 	header := m.headerView()
 	body := m.bodyView(deferred)
+	if m.networkMap {
+		body = m.networkMapView()
+	}
 	help := m.helpView(deferred)
 	if m.entering {
 		help = m.promptView(true)
@@ -797,7 +824,11 @@ func (m model) View() string {
 		fixed = top + body + "\n" + toolbox + "\n"
 		avail = m.height - strings.Count(fixed, "\n") - strings.Count(tail, "\n") - 1
 	}
-	return fixed + m.jobView(avail) + tail
+	job := m.jobView(avail)
+	if m.networkMap && m.jobName == lanDiscoveryName {
+		job = ""
+	}
+	return fixed + job + tail
 }
 
 // targetHP is the target endpoint as host:port; JoinHostPort brackets IPv6
@@ -880,6 +911,65 @@ func (m model) bodyView(deferred bool) string {
 		panelStyle.Width(rightW).Height(h).Render(rightStr))
 }
 
+// networkMapView renders hosts found by the LAN discovery job.
+func (m model) networkMapView() string {
+	var b strings.Builder
+	b.WriteString(panelTitleStyle.Render("Network map — "+m.networkCIDR) + "\n")
+	source, _ := m.discoveryNetwork()
+	b.WriteString(selStyle.Render("◆") + " This device")
+	if source != nil {
+		b.WriteString(" " + source.String())
+	}
+	b.WriteString("\n")
+
+	var hosts []string
+	for _, line := range m.jobLines {
+		host, ok := strings.CutPrefix(line, "Host: ")
+		if !ok {
+			continue
+		}
+		host, status, ok := strings.Cut(host, "Status: ")
+		if !ok {
+			continue
+		}
+		host = strings.TrimSpace(host)
+		if strings.TrimSpace(status) != "Up" || source != nil && strings.HasPrefix(host, source.String()+" ") {
+			continue
+		}
+		hosts = append(hosts, strings.TrimSuffix(host, " ()"))
+	}
+	for i, host := range hosts {
+		branch := "├─ "
+		if i == len(hosts)-1 {
+			branch = "└─ "
+		}
+		b.WriteString(faintStyle.Render(branch) + passStyle.Render("●") + " " + host + "\n")
+	}
+	if len(hosts) == 0 {
+		switch {
+		case m.activeJob != nil:
+			b.WriteString(m.spinner.View() + faintStyle.Render(" discovering devices…") + "\n")
+		case m.jobStatus != JobDone:
+			b.WriteString(failStyle.Render("└─ Discovery "+m.jobStatus.String()) + "\n")
+		case m.jobStatus == JobDone:
+			b.WriteString(faintStyle.Render("└─ No other devices replied") + "\n")
+		}
+	}
+
+	return panelStyle.Width(max(m.width-2, 24)).Render(strings.TrimRight(b.String(), "\n"))
+}
+
+func (m model) discoveryNetwork() (net.IP, string) {
+	for _, id := range []diagnostic.ProbeID{diagnostic.ProbeInternet, diagnostic.ProbeProxy, diagnostic.ProbeTargetTCP} {
+		ip := m.results[id].Source
+		if v4 := ip.To4(); v4 != nil && ip.IsPrivate() {
+			// ponytail: cap discovery at the source /24; widen only if larger LANs matter.
+			return ip, net.IP(v4.Mask(net.CIDRMask(24, 32))).String() + "/24"
+		}
+	}
+	return nil, ""
+}
+
 // joinChips joins styled chips with sep, wrapping to width only at chip
 // boundaries so a "[k] label" pair is never split mid-word.
 func joinChips(width int, sep string, chips []string) string {
@@ -920,7 +1010,7 @@ func helpKeys(width int, kv ...string) string {
 func (m model) confirmView() string {
 	_, _, display := m.confirmTool.Build(m.target)
 	body := panelTitleStyle.Render("Run "+m.confirmTool.Name+"?") + "\n" +
-		faintStyle.Render("Actively scans "+m.target.Host+" — may trip its intrusion detection.") + "\n" +
+		faintStyle.Render("Actively probes the shown scope — may trip intrusion detection.") + "\n" +
 		"$ " + display
 	w := max(min(m.width-2, 76), 24)
 	return focusPanelStyle.Width(w).Render(body) + "\n" + helpKeys(m.width, "y", "run", "any other key", "cancel")
@@ -955,7 +1045,11 @@ func (m model) helpView(deferred bool) string {
 	// as jobView), so the hint tracks exactly when the key does something.
 	hasJob := m.activeJob != nil || m.jobStatus != JobQueued
 	if deferred {
-		kv := []string{"r", "run the checks"}
+		view := "discover devices"
+		if m.networkMap {
+			view = "checks"
+		}
+		kv := []string{"r", "run the checks", "v", view}
 		if len(m.tools) > 0 {
 			kv = append(kv, "letter", "runs that tool")
 		}
@@ -964,7 +1058,14 @@ func (m model) helpView(deferred bool) string {
 		}
 		return helpKeys(m.width, append(kv, "q", "quit")...)
 	}
-	kv := []string{"↑/↓", "scroll"}
+	view := "discover devices"
+	if m.jobName == lanDiscoveryName {
+		view = "network map"
+	}
+	kv := []string{"↑/↓", "scroll", "v", view}
+	if m.networkMap {
+		kv = []string{"v", "checks"}
+	}
 	if hasJob {
 		kv = append(kv, "enter", "full output")
 	}

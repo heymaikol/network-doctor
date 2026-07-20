@@ -22,7 +22,7 @@ func TestToolsFor(t *testing.T) {
 }
 
 func TestToolHotkeysUnique(t *testing.T) {
-	reserved := map[string]bool{"q": true, "r": true, "e": true, "j": true, "k": true}
+	reserved := map[string]bool{"q": true, "r": true, "v": true, "e": true, "j": true, "k": true}
 	for _, goos := range []string{"linux", "darwin", "windows"} {
 		seen := map[string]bool{}
 		for _, tool := range toolsFor(mustTarget(t, "github.com"), goos) {

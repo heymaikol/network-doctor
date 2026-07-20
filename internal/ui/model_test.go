@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"net"
 	"strings"
 	"testing"
 
@@ -44,6 +45,50 @@ func TestFixShortcutRemoved(t *testing.T) {
 	nm := asModel(t, u)
 	if cmd != nil || nm.activeJob != nil || nm.pending != nil {
 		t.Error("f must not launch or defer an automatic fix")
+	}
+}
+
+func TestNetworkMapToggle(t *testing.T) {
+	oldLookPath := toolLookPath
+	toolLookPath = func(string) (string, error) { return "nmap", nil }
+	t.Cleanup(func() { toolLookPath = oldLookPath })
+
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	doneResults(&m, diagnostic.ProbeDNS)
+	r := m.results[diagnostic.ProbeInternet]
+	r.Source = net.ParseIP("192.168.12.34")
+	m.results[diagnostic.ProbeInternet] = r
+	r.Source = net.ParseIP("203.0.113.34")
+	m.results[diagnostic.ProbeInternet] = r
+	if _, cidr := m.discoveryNetwork(); cidr != "" {
+		t.Fatalf("public source produced discovery scope %q", cidr)
+	}
+	r.Source = net.ParseIP("192.168.12.34")
+	m.results[diagnostic.ProbeInternet] = r
+
+	u, _ := m.Update(keyMsg("v"))
+	nm := asModel(t, u)
+	if nm.confirmTool == nil || nm.networkCIDR != "192.168.12.0/24" || !strings.Contains(nm.View(), "nmap --unprivileged") {
+		t.Fatalf("v must confirm discovery on the local /24:\n%s", nm.View())
+	}
+
+	nm.confirmTool = nil
+	nm.jobName, nm.jobStatus = lanDiscoveryName, JobDone
+	nm.jobLines = []string{
+		"Host: 192.168.12.1 (router.local)\tStatus: Up",
+		"Host: 192.168.12.50 (living-room-tv.local)\tStatus: Up",
+	}
+	u, _ = nm.Update(keyMsg("v"))
+	nm = asModel(t, u)
+	view := nm.View()
+	if !nm.networkMap || !strings.Contains(view, "router.local") || !strings.Contains(view, "living-room-tv.local") || strings.Contains(view, "Host:") {
+		t.Fatalf("v must render discovered LAN devices:\n%s", view)
+	}
+
+	u, _ = nm.Update(keyMsg("v"))
+	nm = asModel(t, u)
+	if nm.networkMap || !strings.Contains(nm.View(), "Details —") {
+		t.Fatal("second v must return to the checks view")
 	}
 }
 

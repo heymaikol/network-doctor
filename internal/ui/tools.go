@@ -129,7 +129,7 @@ func toolsFor(t *diagnostic.Target, goos string) []Tool {
 // keep the probe rate low, host discovery skipped (-Pn, the target is already
 // known reachable), and a hard --host-timeout so the run always ends and yields
 // partial results before the job timeout kills it. An explicit target port
-// scans only that port; otherwise the 100 most common ports. Deliberately no
+// scans only that port; otherwise all TCP ports. Deliberately no
 // -sV/-O/-A: version and OS detection are louder, slower, and not needed to
 // answer "is the port open?".
 func nmapTool(quote func([]string) string, host string) Tool {
@@ -143,7 +143,7 @@ func nmapTool(quote func([]string) string, host string) Tool {
 			if t.PortExplicit {
 				args = append(args, "-p", strconv.Itoa(t.Port))
 			} else {
-				args = append(args, "--top-ports", "100")
+				args = append(args, "-p-")
 			}
 			args = append(args, host)
 			return args, nil, "nmap " + quote(args)

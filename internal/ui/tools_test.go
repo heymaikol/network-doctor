@@ -69,7 +69,7 @@ func TestToolsForDefinitions(t *testing.T) {
 		display        string
 		lcAllEnv       bool // true: env ends with LC_ALL=C; false: env is nil
 	}
-	nmapArgs := []string{"-sT", "-T2", "-Pn", "--host-timeout", "90s", "--top-ports", "100", "github.com"}
+	nmapArgs := []string{"-sT", "-T2", "-Pn", "--host-timeout", "90s", "-p-", "github.com"}
 	wantHost := []want{
 		{"i", "ip route", "ip", []string{"route"}, "ip route", false},
 		{"s", "ss", "ss", []string{"-tunp"}, "ss -tunp", false},
@@ -221,7 +221,8 @@ func TestDigReversesLiteralTargets(t *testing.T) {
 }
 
 // TestNmapTool pins the advanced tool: it must be gated behind Confirm, scan
-// only the target's explicit port, and never carry an aggressive scan flag.
+// only an explicit target port or all ports otherwise, and never carry an
+// aggressive scan flag.
 func TestNmapTool(t *testing.T) {
 	tgt := mustTarget(t, "example.com:8443")
 	var tool Tool
@@ -243,6 +244,12 @@ func TestNmapTool(t *testing.T) {
 	}
 	if !strings.HasPrefix(display, "nmap ") {
 		t.Errorf("nmap display = %q, want it to start with the command", display)
+	}
+	allTarget := mustTarget(t, "example.com")
+	allArgs, _, _ := toolByKey(t, toolsFor(allTarget, "linux"), "n").Build(allTarget)
+	wantAll := []string{"-sT", "-T2", "-Pn", "--host-timeout", "90s", "-p-", "example.com"}
+	if !slices.Equal(allArgs, wantAll) {
+		t.Errorf("nmap implicit-port argv = %q, want %q", allArgs, wantAll)
 	}
 	v6 := mustTarget(t, "[2001:db8::1]:8443")
 	v6Args, _, _ := toolByKey(t, toolsFor(v6, "linux"), "n").Build(v6)

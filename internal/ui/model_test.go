@@ -390,6 +390,58 @@ func TestViewerCopiesFullOutput(t *testing.T) {
 	}
 }
 
+func TestTabSwitchNotice(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		viewing bool
+	}{
+		{"main", false},
+		{"viewer", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(nil, false)
+			m.jobName, m.jobDisplay, m.jobStatus = "current tool", "current", JobDone
+			m.jobLines = []string{"current output"}
+			m.otherJobs = []jobState{{name: "next tool", display: "next", status: JobDone, lines: []string{"next output"}}}
+			m.networkMap = true
+			u, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+			m = asModel(t, u)
+			if tc.viewing {
+				u, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+				m = asModel(t, u)
+				m.follow = false
+				if lipgloss.Height(m.viewerFooter()) <= 1 {
+					t.Fatal("narrow viewer help must wrap before the notice")
+				}
+			}
+
+			u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+			nm := asModel(t, u)
+			if cmd == nil || nm.notice != "switched to next tool" || !nm.noticeOK {
+				t.Fatalf("notice = %q, ok = %v, cmd nil = %v", nm.notice, nm.noticeOK, cmd == nil)
+			}
+			if nm.networkMap || tc.viewing && !nm.follow {
+				t.Fatal("switch state must update before showing the notice")
+			}
+			if !strings.Contains(nm.View(), "switched to next tool") {
+				t.Fatal("switched job notice must render")
+			}
+			if tc.viewing && nm.vp.Height != nm.vpHeight() {
+				t.Fatalf("viewport height after notice = %d, want %d", nm.vp.Height, nm.vpHeight())
+			}
+
+			u, _ = nm.Update(noticeDoneMsg{deadline: nm.noticeDeadline})
+			cleared := asModel(t, u)
+			if cleared.notice != "" {
+				t.Fatalf("notice after timeout = %q, want empty", cleared.notice)
+			}
+			if tc.viewing && cleared.vp.Height != cleared.vpHeight() {
+				t.Fatalf("viewport height after notice clears = %d, want %d", cleared.vp.Height, cleared.vpHeight())
+			}
+		})
+	}
+}
+
 func TestCtrlCWarnsThenQuits(t *testing.T) {
 	m := newModel(nil, false)
 	canceled := false

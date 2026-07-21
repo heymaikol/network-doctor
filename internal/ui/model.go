@@ -212,6 +212,9 @@ func (m *model) setNotice(msg string, ok bool) tea.Cmd {
 	m.notice, m.noticeOK = msg, ok
 	m.noticeDeadline = time.Now().Add(window)
 	deadline := m.noticeDeadline
+	if m.viewing {
+		m.refreshViewport()
+	}
 	return tea.Tick(window, func(time.Time) tea.Msg { return noticeDoneMsg{deadline: deadline} })
 }
 
@@ -288,6 +291,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.deadline.Equal(m.noticeDeadline) {
 			m.noticeDeadline = time.Time{}
 			m.notice = ""
+			if m.viewing {
+				m.refreshViewport()
+			}
 		}
 		return m, nil
 
@@ -430,8 +436,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.networkCIDR = cidr
 		return m, m.launchTool(tool)
 	case "tab":
-		m.switchJob()
-		return m, nil
+		return m, m.switchJob()
 	case "up", "k":
 		if m.networkMap {
 			if m.mapSelected > 0 {
@@ -532,8 +537,7 @@ func (m model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.follow = true
 		return m, nil
 	case "tab":
-		m.switchJob()
-		return m, nil
+		return m, m.switchJob()
 	}
 	var cmd tea.Cmd
 	m.vp, cmd = m.vp.Update(msg)
@@ -697,9 +701,9 @@ func (m *model) stashJob() {
 	}
 }
 
-func (m *model) switchJob() {
+func (m *model) switchJob() tea.Cmd {
 	if len(m.otherJobs) == 0 {
-		return
+		return nil
 	}
 	current := m.selectedJob()
 	next := m.otherJobs[0]
@@ -708,8 +712,15 @@ func (m *model) switchJob() {
 	m.networkMap = false
 	if m.viewing {
 		m.follow = true
-		m.refreshViewport()
 	}
+	// Keep the armed quit intact so the next Ctrl+C still quits.
+	if m.notice == ctrlCNotice && time.Now().Before(m.noticeDeadline) {
+		if m.viewing {
+			m.refreshViewport()
+		}
+		return nil
+	}
+	return m.setNotice("switched to "+m.jobName, true)
 }
 
 func (m model) jobsRunning() bool {

@@ -376,6 +376,38 @@ func TestConcurrentToolsCanSwitch(t *testing.T) {
 	_, _ = drain(t, second.ch)
 }
 
+func TestTabPreservesArmedQuit(t *testing.T) {
+	m := newModel(nil, false)
+	m.jobName, m.jobStatus = "current tool", JobDone
+	m.otherJobs = []jobState{{name: "next tool", status: JobDone}}
+
+	u, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	nm := asModel(t, u)
+	deadline := nm.noticeDeadline
+	u, cmd := nm.Update(tea.KeyMsg{Type: tea.KeyTab})
+	nm = asModel(t, u)
+	if cmd != nil || nm.jobName != "next tool" || nm.notice != ctrlCNotice || !nm.noticeDeadline.Equal(deadline) {
+		t.Fatalf("Tab changed armed quit: job=%q notice=%q deadline=%v cmd nil=%v", nm.jobName, nm.notice, nm.noticeDeadline, cmd == nil)
+	}
+
+	_, cmd = nm.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("Ctrl+C after Tab must quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Errorf("second Ctrl+C command = %T, want tea.QuitMsg", cmd())
+	}
+}
+
+func TestTabWithoutOtherJobsDoesNothing(t *testing.T) {
+	m := newModel(nil, false)
+	u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	nm := asModel(t, u)
+	if cmd != nil || nm.notice != "" {
+		t.Fatalf("Tab without another job: notice=%q cmd nil=%v", nm.notice, cmd == nil)
+	}
+}
+
 // Output lines interleave in arrival order; stale messages are dropped.
 func TestToolOutputRouting(t *testing.T) {
 	m := newModel(nil, false)

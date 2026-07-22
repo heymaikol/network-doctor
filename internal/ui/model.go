@@ -460,7 +460,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil // no job has run; nothing to view
 		}
 		m.viewing, m.follow = true, true
-		m.vp = viewport.New(m.vpWidth(), m.vpHeight())
+		m.vp = viewport.New(m.width, m.vpHeight())
 		// Zero-value bindings disable everything else (j/k, b/f/space, u/d).
 		m.vp.KeyMap = viewport.KeyMap{
 			Up:       key.NewBinding(key.WithKeys("up")),
@@ -799,7 +799,7 @@ func (m *model) appendJobLine(text string) {
 	}
 	appendJobLine(&m.cur.lines, &m.cur.evicted, text)
 	if len(m.cur.lines) == oldLen && m.viewing && !m.follow {
-		h := lipgloss.Height(lipgloss.NewStyle().Width(m.vpWidth()).Render(evictedLine))
+		h := lipgloss.Height(lipgloss.NewStyle().Width(m.width).Render(evictedLine))
 		m.vp.SetYOffset(m.vp.YOffset - h)
 	}
 }
@@ -815,7 +815,7 @@ func appendJobLine(lines *[]string, evicted *int, text string) {
 // jobContent renders the interleaved stream wrapped to the viewport width.
 // Line numbers in the context line refer to these wrapped display lines.
 func (m model) jobContent() string {
-	w := m.vpWidth()
+	w := m.width
 	if len(m.cur.lines) == 0 {
 		return lipgloss.NewStyle().Width(w).Render(faintStyle.Render("(no output yet)"))
 	}
@@ -831,18 +831,11 @@ func (m model) jobOutput() string {
 // ponytail: full content rebuild per line while open; fine at the 5000-line
 // cap, switch to incremental append if it ever lags.
 func (m *model) refreshViewport() {
-	m.vp.Width, m.vp.Height = m.vpWidth(), m.vpHeight()
+	m.vp.Width, m.vp.Height = m.width, m.vpHeight()
 	m.vp.SetContent(m.jobContent())
 	if m.follow {
 		m.vp.GotoBottom()
 	}
-}
-
-func (m model) vpWidth() int {
-	if m.width > 0 {
-		return m.width
-	}
-	return 80
 }
 
 func (m model) vpHeight() int {
@@ -1134,9 +1127,6 @@ func (m model) discoveryNetwork() (net.IP, string) {
 // joinChips joins styled chips with sep, wrapping to width only at chip
 // boundaries so a "[k] label" pair is never split mid-word.
 func joinChips(width int, sep string, chips []string) string {
-	if width <= 0 {
-		width = 80
-	}
 	var lines []string
 	cur := ""
 	for _, c := range chips {
@@ -1442,7 +1432,7 @@ func (m model) toolboxView() string {
 	// The title rides on the first chip so line 1's width math includes it;
 	// wrapping happens only between chips, never inside one.
 	parts[0] = titleStyle.Render("Dig deeper") + "  " + parts[0]
-	return joinChips(m.vpWidth(), faintStyle.Render("  ·  "), parts) + "\n"
+	return joinChips(m.width, faintStyle.Render("  ·  "), parts) + "\n"
 }
 
 // jobView renders the job pane with an adaptive tail: avail is the screen
@@ -1462,7 +1452,7 @@ func (m model) jobView(avail int) string {
 		}
 	}
 	var b strings.Builder
-	b.WriteString(faintStyle.Render(strings.Repeat("─", m.vpWidth())) + "\n")
+	b.WriteString(faintStyle.Render(strings.Repeat("─", m.width)) + "\n")
 	b.WriteString(titleStyle.Render("$ "+m.cur.display) + "\n")
 	b.WriteString(m.jobStatusLine() + "\n")
 

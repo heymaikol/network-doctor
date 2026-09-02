@@ -29,6 +29,7 @@ complete -c netdoc -o peer-connect -l peer-connect -d 'Read a temporary pairing 
 complete -c netdoc -o via -l via -r -f \
     -a '(__fish_print_hostnames)' \
     -d 'Run remotely, or provide side B for live two-sided diagnosis'
+complete -c netdoc -o list-checks -l list-checks -d 'List stable probe IDs and names, then exit'
 complete -c netdoc -o check -l check -r -d 'Run stable probe IDs (comma-separated; repeatable)'
 complete -c netdoc -o skip -l skip -r -d 'Skip stable probe IDs (comma-separated; repeatable)'
 complete -c netdoc -o no-reference-egress -l no-reference-egress -d "Don't contact netdoc's own built-in reference services"

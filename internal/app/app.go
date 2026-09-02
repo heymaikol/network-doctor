@@ -255,6 +255,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	noReferenceEgress := fs.Bool("no-reference-egress", false, "make no connections to netdoc's own built-in reference services; the target, profile endpoints, and this machine's configured DNS and routing still apply")
 	noHistory := fs.Bool("no-history", false, "don't read or write the saved target history")
 	keys := fs.String("keys", "", "keybinding `preset` for the TUI: "+strings.Join(ui.KeyPresets(), " or "))
+	listChecks := fs.Bool("list-checks", false, "list stable probe IDs accepted by -check and -skip, then exit")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	timeout := fs.Duration("timeout", diagnostic.DefaultProbeTimeout, "per-check probe timeout")
 
@@ -299,6 +300,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if *showVersion {
 		fmt.Fprintln(stdout, "netdoc", version)
+		return 0
+	}
+	if *listChecks {
+		setFlags := setFlagNames(fs)
+		delete(setFlags, "list-checks")
+		if len(positional) != 0 || len(setFlags) != 0 {
+			fmt.Fprintln(stderr, "netdoc: -list-checks cannot be combined with a target or other flags")
+			return 2
+		}
+		for _, probe := range diagnostic.StableProbes() {
+			fmt.Fprintf(stdout, "%s\t%s\n", probe.ID, probe.Name)
+		}
 		return 0
 	}
 	if setFlagNames(fs)["profile"] && *profileName == "" {

@@ -72,6 +72,7 @@ _netdoc() {
         -peer-listen --peer-listen
         -peer-connect --peer-connect
         -via --via
+        -list-checks --list-checks
         -check --check
         -skip --skip
         -no-reference-egress --no-reference-egress

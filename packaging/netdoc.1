@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-08-31" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-09-02" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the connection breaks
 .SH SYNOPSIS
@@ -457,6 +457,16 @@ harmless: it selects no row with
 .B \-check
 and changes nothing with
 .BR \-skip .
+.TP
+.B \-list\-checks
+Print every stable probe ID accepted by
+.B \-check
+and
+.BR \-skip ,
+followed by its human-readable base name, then exit without running probes.
+The order is deterministic. A target or another operational flag is rejected
+with exit
+.BR 2 .
 .TP
 .B \-no-reference-egress
 Make no connections to netdoc's own built-in reference services. The fixed

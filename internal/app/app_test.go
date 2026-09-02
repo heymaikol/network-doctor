@@ -62,6 +62,8 @@ func TestRun(t *testing.T) {
 		{"json+toolbox", []string{"-json", "-toolbox"}, 2, "", "cannot be combined"},
 		{"bad iface", []string{"-iface", "netdoc-no-such-interface"}, 2, "", "-iface:"},
 		{"version ignores bad timeout", []string{"-timeout", "-1s", "-version"}, 0, "netdoc dev", ""},
+		{"version overrides list checks", []string{"-list-checks", "-version"}, 0, "netdoc dev", ""},
+		{"help overrides list checks", []string{"-list-checks", "-help"}, 0, "-list-checks", ""},
 		{"bad timeout", []string{"-timeout", "-1s"}, 2, "", "-timeout must be positive"},
 		{"help lists check", []string{"-help"}, 0, "-check", ""},
 		{"help lists skip", []string{"-help"}, 0, "-skip", ""},
@@ -80,6 +82,62 @@ func TestRun(t *testing.T) {
 			}
 			if !strings.Contains(stderr.String(), tt.wantStderr) {
 				t.Errorf("stderr = %q, want contains %q", stderr.String(), tt.wantStderr)
+			}
+		})
+	}
+}
+
+func TestRunListChecks(t *testing.T) {
+	restore := runAll
+	runAll = func(context.Context, []diagnostic.Probe, time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {
+		t.Fatal("--list-checks ran the probe DAG")
+		return nil
+	}
+	t.Cleanup(func() { runAll = restore })
+
+	const want = "iface\tInterface\n" +
+		"internet_tcp\tInternet (TCP egress)\n" +
+		"quic_udp_443\tQUIC / UDP 443\n" +
+		"proxy_connect\tInternet (env proxy)\n" +
+		"dns\tDNS\n" +
+		"dns_public\tDNS (public)\n" +
+		"dns_encrypted\tDNS (encrypted DoH/DoT)\n" +
+		"target_tcp\tTCP\n" +
+		"path_mtu\tPath MTU\n" +
+		"ssid\tWi-Fi network\n" +
+		"tls\tTLS\n" +
+		"http\tHTTP\n" +
+		"https\tHTTPS\n" +
+		"ssh_banner\tSSH banner\n" +
+		"smtp_banner\tSMTP banner\n"
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"--list-checks"}, &stdout, &stderr); got != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", got, stderr.String())
+	}
+	if stdout.String() != want {
+		t.Errorf("stdout = %q, want %q", stdout.String(), want)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunListChecksRejectsOtherArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"--list-checks", "example.com"},
+		{"--list-checks", "--json"},
+		{"--list-checks", "--check", "dns"},
+	} {
+		t.Run(strings.Join(args[1:], "_"), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if got := run(args, &stdout, &stderr); got != 2 {
+				t.Fatalf("exit = %d, want 2", got)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+			if want := "-list-checks cannot be combined with a target or other flags"; !strings.Contains(stderr.String(), want) {
+				t.Errorf("stderr = %q, want %q", stderr.String(), want)
 			}
 		})
 	}

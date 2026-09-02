@@ -232,6 +232,7 @@ netdoc --support support.ndoc host  # headless: save a sanitized snapshot for sh
 netdoc --compare good.ndoc bad.ndoc  # headless: report what changed between two snapshots
 netdoc --watch host     # TUI: re-run continuously and track intermittent failures
 netdoc --json --watch host  # headless: one JSON report per line, until interrupted
+netdoc --list-checks        # list the stable IDs accepted by --check and --skip
 netdoc --check dns,target_tcp,tls example.com  # run only these IDs and their prerequisites
 netdoc --skip internet_tcp,quic_udp_443 example.com  # omit these probe branches
 netdoc --no-reference-egress host  # reach only the target and this machine's own network config
@@ -245,7 +246,7 @@ netdoc --peer-connect             # paste its temporary pairing string when prom
 netdoc --two-sided here.ndoc there.ndoc  # which machine a failure belongs to
 ```
 
-`--timeout` overrides the per-check probe timeout. `--check`/`--skip` select probes by stable ID plus their dependency closure; `--no-reference-egress` drops every check that would contact netdoc's own reference services, leaving the target and an explicitly selected profile's endpoints as the only destinations, reached through this machine's own resolver and routing; `--iface` and address-only binding follow probe traffic through the drill-down tools too. Full flag semantics, the target-parsing rules, the TUI key table, the Actions menu, themes, and the history file are in **[docs/reference.md](docs/reference.md#usage-details)**.
+`--timeout` overrides the per-check probe timeout. `--list-checks` prints the stable IDs and names accepted by `--check`/`--skip`; those selectors choose probes by stable ID plus their dependency closure. `--no-reference-egress` drops every check that would contact netdoc's own reference services, leaving the target and an explicitly selected profile's endpoints as the only destinations, reached through this machine's own resolver and routing; `--iface` and address-only binding follow probe traffic through the drill-down tools too. Full flag semantics, the target-parsing rules, the TUI key table, the Actions menu, themes, and the history file are in **[docs/reference.md](docs/reference.md#usage-details)**.
 
 ## Drill-down tools
 

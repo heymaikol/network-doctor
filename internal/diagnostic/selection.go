@@ -25,17 +25,24 @@ type ProbeSelection struct {
 	NoReferenceEgress bool
 }
 
+// StableProbe describes one probe accepted by --check and --skip, using the
+// row's base name without a run-specific target.
+type StableProbe struct {
+	ID   ProbeID
+	Name string
+}
+
 // Validate rejects IDs that are not stable nodes in any normal probe DAG.
 func (s ProbeSelection) Validate() error {
 	if len(s.Check) == 0 && len(s.Skip) == 0 {
 		return nil
 	}
-	ids := selectableProbeIDs()
-	known := make(map[ProbeID]struct{}, len(ids))
-	valid := make([]string, len(ids))
-	for i, id := range ids {
-		known[id] = struct{}{}
-		valid[i] = string(id)
+	probes := StableProbes()
+	known := make(map[ProbeID]struct{}, len(probes))
+	valid := make([]string, len(probes))
+	for i, probe := range probes {
+		known[probe.ID] = struct{}{}
+		valid[i] = string(probe.ID)
 	}
 	for _, group := range []struct {
 		name string
@@ -55,24 +62,39 @@ func (s ProbeSelection) Validate() error {
 	return nil
 }
 
-// selectableProbeIDs derives the public inventory from the same descriptor
-// builder used for runs. Building descriptors performs no probe work.
-func selectableProbeIDs() []ProbeID {
+// StableProbes derives the public inventory from the same descriptor builder
+// used for runs. Building descriptors performs no probe work.
+func StableProbes() []StableProbe {
+	const host = "example.invalid"
+	target := &Target{Host: host, Port: 443}
+	hostPort := fmt.Sprintf("%s:%d", target.Host, target.Port)
 	seen := map[ProbeID]struct{}{}
-	var ids []ProbeID
+	var stable []StableProbe
 	add := func(probes []Probe) {
 		for _, p := range probes {
 			if _, ok := seen[p.ID]; ok {
 				continue
 			}
 			seen[p.ID] = struct{}{}
-			ids = append(ids, p.ID)
+			name := strings.TrimSuffix(p.Name, " "+hostPort)
+			name = strings.TrimSuffix(name, " "+host)
+			stable = append(stable, StableProbe{ID: p.ID, Name: name})
 		}
 	}
 	for proto := range protoNames {
-		add(defaultOps.buildProbes(&Target{Host: "example.invalid", Port: 443, Proto: Proto(proto)}, DefaultPublicDNS, true))
+		target.Proto = Proto(proto)
+		add(defaultOps.buildProbes(target, DefaultPublicDNS, true))
 	}
 	add(defaultOps.buildProbes(nil, DefaultPublicDNS, true))
+	return stable
+}
+
+func selectableProbeIDs() []ProbeID {
+	probes := StableProbes()
+	ids := make([]ProbeID, len(probes))
+	for i, probe := range probes {
+		ids[i] = probe.ID
+	}
 	return ids
 }
 

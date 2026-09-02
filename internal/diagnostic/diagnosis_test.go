@@ -525,6 +525,14 @@ func TestReconcileDNS(t *testing.T) {
 		if res[ProbeDNSPublic].Status != StatusWarn || !strings.Contains(res[ProbeDNSPublic].Detail, "split DNS") {
 			t.Fatalf("public result = %+v, want explanatory warning", res[ProbeDNSPublic])
 		}
+		// The warning should name the comparison prefix on each side, so a
+		// reader can see that these answers really did mask to different
+		// prefixes rather than to two /24s inside one /16 (ordinary anycast).
+		for _, want := range []string{"192.0.0.0/16", "198.51.0.0/16"} {
+			if !strings.Contains(res[ProbeDNSPublic].Detail, want) {
+				t.Fatalf("detail = %q, want it to name comparison prefix %s", res[ProbeDNSPublic].Detail, want)
+			}
+		}
 	})
 	t.Run("same answers in different order pass", func(t *testing.T) {
 		res := map[ProbeID]ProbeResult{
@@ -630,6 +638,25 @@ func TestReconcileDNS(t *testing.T) {
 		order := []ProbeID{ProbeDNS, ProbeDNSPublic}
 		if _, verdict := Diagnose(nil, order, res); verdict != VerdictOK {
 			t.Fatalf("verdict = %q, want public N/A to be neutral", verdict)
+		}
+	})
+	t.Run("comparison prefixes describe what answersAgree compared", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			ips  []net.IP
+			want string
+		}{
+			{"single v4", []net.IP{net.ParseIP("172.217.14.206")}, "172.217.0.0/16"},
+			{"several v4 share one /16", []net.IP{net.ParseIP("142.250.9.94"), net.ParseIP("142.250.189.99")}, "142.250.0.0/16"},
+			{"sorted across v4 and v6", []net.IP{net.ParseIP("2607:f8b0:4009::1"), net.ParseIP("142.250.9.94")}, "142.250.0.0/16, 2607:f8b0::/32"},
+			{"mixed v6 prefixes", []net.IP{net.ParseIP("2001:4860:4860::8888"), net.ParseIP("2001:db8:1::5e")}, "2001:4860::/32, 2001:db8::/32"},
+			{"empty input", nil, "no comparison prefix"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				if got := comparisonPrefixes(tc.ips); got != tc.want {
+					t.Fatalf("comparisonPrefixes = %q, want %q", got, tc.want)
+				}
+			})
 		}
 	})
 }

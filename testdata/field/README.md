@@ -23,7 +23,7 @@ network, live LAN DNS-SD devices, and a proxy-only managed network are all
 outside what CI can manufacture, which is why this corpus exists at all.
 
 The `bootstrap-*` cases are synthetic fixtures generated from typed in-memory
-observations. They prove the harness while the real-network corpus is empty.
+observations. They prove the harness without needing a real network.
 They are labeled `provenance.origin: "synthetic"` and do not claim to be field
 captures. All other committed cases must use `real_network` provenance.
 

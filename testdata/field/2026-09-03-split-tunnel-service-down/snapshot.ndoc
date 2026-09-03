@@ -1,0 +1,192 @@
+{
+  "schema": "netdoc.snapshot.v1",
+  "created_at": "2026-09-03T03:32:01Z",
+  "tool": {
+    "version": "0.0.0-field.39eb154d47fa",
+    "os": "windows",
+    "arch": "amd64"
+  },
+  "target": {
+    "raw": "10.0.1.1:443",
+    "host": "10.0.1.1",
+    "ip": "10.0.1.1",
+    "port": 443,
+    "protocol": "tls+http",
+    "port_explicit": true
+  },
+  "options": {
+    "probe_timeout_ms": 4000,
+    "public_dns": "8.8.8.8",
+    "public_dns_auto": true,
+    "check": [
+      "internet_tcp",
+      "target_tcp"
+    ]
+  },
+  "checks": [
+    {
+      "id": "iface",
+      "name": "Interface",
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 23,
+      "detail": "interface interface-1 is up",
+      "observed": {
+        "interface": "interface-1",
+        "routes": [
+          {
+            "destination": "198.18.0.1",
+            "family": "ipv4",
+            "interface": "interface-1",
+            "gateway": "10.0.0.1",
+            "source": "10.0.0.2",
+            "prefix": "0.0.0.0/0",
+            "metric": 50,
+            "interface_mtu": 1500,
+            "tunnel": "direct",
+            "reason": "default_route"
+          },
+          {
+            "destination": "2001:db8::2",
+            "family": "ipv6",
+            "unreachable": true,
+            "reason": "no_route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "internet_tcp",
+      "name": "Internet (TCP egress)",
+      "deps": [
+        "iface"
+      ],
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 201,
+      "detail": "IPv4 egress via 198.18.0.1 in 12ms (src 10.0.0.2 interface-1); no IPv6 egress",
+      "observed": {
+        "selected_ip": "198.18.0.1",
+        "source_ip": "10.0.0.2",
+        "interface": "interface-1",
+        "address_families": {
+          "ipv4": "reachable",
+          "ipv6": "unreachable"
+        },
+        "attempts": [
+          {
+            "ip": "198.18.0.1",
+            "duration_ms": 12
+          },
+          {
+            "ip": "2001:db8::2",
+            "duration_ms": 5,
+            "error": "dial tcp6 [2001:db8::2]:443: connectex: A socket operation was attempted to an unreachable network.",
+            "cause": "unreachable"
+          },
+          {
+            "ip": "2001:db8::3",
+            "duration_ms": 1,
+            "error": "dial tcp6 [2001:db8::3]:443: connectex: A socket operation was attempted to an unreachable network.",
+            "cause": "unreachable"
+          }
+        ],
+        "clock_offset_ms": 358
+      }
+    },
+    {
+      "id": "dns",
+      "name": "DNS 10.0.1.1",
+      "deps": [
+        "iface"
+      ],
+      "status": "N/A",
+      "ran": true,
+      "duration_ms": 1,
+      "detail": "literal IP 10.0.1.1, no DNS needed",
+      "observed": {
+        "addresses": [
+          "10.0.1.1"
+        ],
+        "selected_ip": "10.0.1.1"
+      }
+    },
+    {
+      "id": "target_tcp",
+      "name": "TCP 10.0.1.1:443",
+      "deps": [
+        "dns"
+      ],
+      "status": "FAIL",
+      "cause": "connection_refused",
+      "ran": true,
+      "duration_ms": 2137,
+      "detail": "connection to port 443 was refused on all 1 attempted address(es): 10.0.1.1",
+      "fix": "connection refused: check that a service is listening on port 443 and that no firewall is actively rejecting it",
+      "observed": {
+        "source_ip": "10.0.1.2",
+        "interface": "interface-2",
+        "address_families": {
+          "ipv4": "unreachable"
+        },
+        "attempts": [
+          {
+            "ip": "10.0.1.1",
+            "duration_ms": 2083,
+            "error": "dial tcp4 10.0.1.1:443: connectex: No connection could be made because the target machine actively refused it.",
+            "cause": "connection_refused"
+          }
+        ],
+        "routes": [
+          {
+            "destination": "10.0.1.1",
+            "family": "ipv4",
+            "interface": "interface-2",
+            "source": "10.0.1.2",
+            "prefix": "10.0.1.0/30",
+            "metric": 5,
+            "interface_mtu": 1420,
+            "tunnel": "likely",
+            "reason": "more_specific_than_default"
+          }
+        ]
+      }
+    }
+  ],
+  "diagnosis": {
+    "verdict": "service",
+    "summary": "Every TCP connection attempt to 10.0.1.1:443 was explicitly refused: the device is on the network, but nothing is listening on that port.",
+    "blamed": "target_tcp",
+    "failed_stage": "target_tcp",
+    "findings": [
+      {
+        "id": "tcp_connection_refused",
+        "verdict": "service",
+        "summary": "Every TCP connection attempt to 10.0.1.1:443 was explicitly refused: the device is on the network, but nothing is listening on that port.",
+        "focus": "target_tcp",
+        "confidence": "high",
+        "evidence": [
+          "target_tcp"
+        ],
+        "causal_evidence": [
+          {
+            "kind": "support",
+            "check": "target_tcp",
+            "observation": "cause"
+          },
+          {
+            "kind": "ruled_out",
+            "check": "target_tcp",
+            "observation": "cause",
+            "candidate": "local_device_unreachable"
+          }
+        ]
+      }
+    ]
+  },
+  "ok": false,
+  "redaction": {
+    "sanitized": true,
+    "policy": "support-v1"
+  }
+}

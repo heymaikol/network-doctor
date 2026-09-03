@@ -1,0 +1,61 @@
+{
+  "schema": "netdoc.field-case.v1",
+  "id": "2026-09-03-split-tunnel-service-down",
+  "environment": {
+    "categories": [
+      "vpn"
+    ],
+    "platform": "windows",
+    "platform_details": "Windows 11, amd64, WireGuardNT split tunnel",
+    "details": "A controlled point-to-point WireGuard tunnel between two maintainer-owned machines. The tunnel carried only its own small subnet, so ordinary internet traffic stayed on the direct path."
+  },
+  "network_doctor": {
+    "version": "0.0.0-field.39eb154d47fa",
+    "assessment": "correct"
+  },
+  "ground_truth": {
+    "statement": "The target host was reachable over an active split tunnel and had no service listening on TCP/443, while ordinary internet egress kept working outside the tunnel. The failure belonged at the target's service rung, not to DNS, to general connectivity, or to the tunnel.",
+    "verification": [
+      {
+        "method": "controlled_change",
+        "details": "A known-good service on another port of the same host was unreachable with the tunnel down and reachable with it up, and the operating system selected a different interface and source address in each state."
+      },
+      {
+        "method": "independent_tool",
+        "details": "The operating system's own route lookup and TCP connectivity test, run outside Network Doctor, selected the tunnel interface for the target and the ordinary default route for a public address, and reported the public address reachable while the tunnel was up."
+      },
+      {
+        "method": "independent_tool",
+        "details": "Three separate socket connections to the target's TCP/443, made by a runtime unrelated to Network Doctor, each reported an explicit connection refusal in about two seconds rather than an ambiguous timeout."
+      },
+      {
+        "method": "configuration_review",
+        "details": "The target host's own listening sockets were reviewed: the known-good port was bound and TCP/443 had no listener."
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "service",
+    "findings": [
+      "tcp_connection_refused"
+    ],
+    "not_findings": [
+      "local_device_unreachable",
+      "direct_egress_blocked",
+      "offline",
+      "dns_failure"
+    ],
+    "confidence": [
+      {
+        "finding": "tcp_connection_refused",
+        "level": "high"
+      }
+    ]
+  },
+  "provenance": {
+    "origin": "real_network",
+    "summary": "Captured on a maintainer-controlled physical WireGuard split tunnel built for this test, with the service state and the routing transition established independently before the run, and reviewed for privacy before commit."
+  },
+  "snapshot": "snapshot.ndoc",
+  "notes": "The target is a private address reached through the tunnel, so the diagnosis takes the local-target arm, where the competing explanation is an unreachable device. The explicit refusal excludes that outright, which is why high confidence is asserted: the differential was observed rather than inferred, and no relevant observation was left unmade. Independently, the same device answered on another port over the same tunnel and had no listener on the failing port. The route and tunnel facts the snapshot records are supporting evidence rather than assertions, because the case format asserts the verdict and the finding set only."
+}

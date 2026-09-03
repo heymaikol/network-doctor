@@ -1,0 +1,59 @@
+{
+  "schema": "netdoc.field-case.v1",
+  "id": "2026-09-03-split-dns-disagreement",
+  "environment": {
+    "categories": [
+      "vpn",
+      "split_dns",
+      "custom_dns"
+    ],
+    "platform": "windows",
+    "platform_details": "Windows 11, amd64, WireGuardNT split tunnel",
+    "details": "A controlled resolver on the physical LAN returned a private address reachable through a real WireGuard split tunnel. DNS traveled over Wi-Fi, while only the private target subnet used the tunnel."
+  },
+  "network_doctor": {
+    "version": "0.0.0-field.1b632242b0f5",
+    "assessment": "correct"
+  },
+  "ground_truth": {
+    "statement": "The system resolver and an explicit public resolver intentionally returned disjoint answers, while the system-resolved private target was reachable through the split tunnel and ordinary internet egress remained healthy.",
+    "verification": [
+      {
+        "method": "controlled_change",
+        "details": "Before the temporary DNS change, system resolution was public and target TCP failed. Pointing only Wi-Fi IPv4 DNS at the controlled LAN resolver changed system resolution to the private tunnel target and target TCP succeeded. Restoring DHCP returned system resolution to public answers."
+      },
+      {
+        "method": "independent_tool",
+        "details": "Windows native DNS, TCP, and route tools observed exactly one private system A answer, no system AAAA answer, a successful target connection through WireGuard, and working public internet over the ordinary default path. The explicit public resolver independently returned public A and AAAA answers."
+      },
+      {
+        "method": "configuration_review",
+        "details": "The controlled resolver configuration and query log showed the test name's A answer served locally, its AAAA answer served locally as NODATA, no forwarding of that name, and normal forwarding of an unrelated name."
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "degraded",
+    "findings": [
+      "dns_disagreement"
+    ],
+    "not_findings": [
+      "dns_failure",
+      "target_unreachable",
+      "local_device_unreachable",
+      "direct_egress_blocked"
+    ],
+    "confidence": [
+      {
+        "finding": "dns_disagreement",
+        "level": "medium"
+      }
+    ]
+  },
+  "provenance": {
+    "origin": "real_network",
+    "summary": "Captured on a maintainer-controlled physical Windows and Fedora network. DNS used a controlled resolver on the physical LAN, and the returned private target used a real WireGuard split tunnel. Independent checks established the controlled transition and the artifact was reviewed for privacy before commit."
+  },
+  "snapshot": "snapshot.ndoc",
+  "notes": "The resolver disagreement and controlled path transition were directly observed, but dns_disagreement remains an inferred product conclusion: differing answers can be intentional, and one contemporaneous comparison does not establish resolver fault. The diagnosis is therefore capped at medium confidence."
+}

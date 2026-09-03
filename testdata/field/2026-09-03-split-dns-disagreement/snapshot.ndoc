@@ -1,0 +1,262 @@
+{
+  "schema": "netdoc.snapshot.v1",
+  "created_at": "2026-09-03T06:24:50Z",
+  "tool": {
+    "version": "0.0.0-field.1b632242b0f5",
+    "os": "windows",
+    "arch": "amd64"
+  },
+  "target": {
+    "raw": "host-2.invalid:2222",
+    "host": "host-2.invalid",
+    "port": 2222,
+    "protocol": "none",
+    "port_explicit": true
+  },
+  "options": {
+    "probe_timeout_ms": 4000,
+    "public_dns": "8.8.8.8",
+    "check": [
+      "internet_tcp",
+      "dns",
+      "dns_public",
+      "target_tcp"
+    ]
+  },
+  "checks": [
+    {
+      "id": "iface",
+      "name": "Interface",
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 9,
+      "detail": "interface interface-1 is up",
+      "observed": {
+        "interface": "interface-1",
+        "routes": [
+          {
+            "destination": "198.18.0.1",
+            "family": "ipv4",
+            "interface": "interface-1",
+            "gateway": "10.0.1.1",
+            "source": "10.0.1.2",
+            "prefix": "0.0.0.0/0",
+            "metric": 50,
+            "interface_mtu": 1500,
+            "tunnel": "direct",
+            "reason": "default_route"
+          },
+          {
+            "destination": "2001:db8::2",
+            "family": "ipv6",
+            "unreachable": true,
+            "reason": "no_route"
+          }
+        ]
+      }
+    },
+    {
+      "id": "internet_tcp",
+      "name": "Internet (TCP egress)",
+      "deps": [
+        "iface"
+      ],
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 65,
+      "detail": "IPv4 egress via 198.18.0.1 in 6ms (src 10.0.1.2 interface-1); no IPv6 egress",
+      "observed": {
+        "selected_ip": "198.18.0.1",
+        "source_ip": "10.0.1.2",
+        "interface": "interface-1",
+        "address_families": {
+          "ipv4": "reachable",
+          "ipv6": "unreachable"
+        },
+        "attempts": [
+          {
+            "ip": "198.18.0.1",
+            "duration_ms": 6
+          },
+          {
+            "ip": "2001:db8::2",
+            "duration_ms": 2,
+            "error": "dial tcp6 [2001:db8::2]:443: connectex: A socket operation was attempted to an unreachable network.",
+            "cause": "unreachable"
+          },
+          {
+            "ip": "2001:db8::3",
+            "duration_ms": 1,
+            "error": "dial tcp6 [2001:db8::3]:443: connectex: A socket operation was attempted to an unreachable network.",
+            "cause": "unreachable"
+          }
+        ],
+        "clock_offset_ms": 457
+      }
+    },
+    {
+      "id": "dns",
+      "name": "DNS host-2.invalid",
+      "deps": [
+        "iface"
+      ],
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 9,
+      "detail": "host-2.invalid → 10.0.1.3 (resolver tried: 10.0.1.4)",
+      "observed": {
+        "addresses": [
+          "10.0.1.3"
+        ],
+        "resolver_targets": [
+          "10.0.1.4:53"
+        ],
+        "routes": [
+          {
+            "destination": "10.0.1.4",
+            "family": "ipv4",
+            "interface": "interface-1",
+            "source": "10.0.1.2",
+            "prefix": "10.0.1.0/24",
+            "metric": 306,
+            "interface_mtu": 1500,
+            "tunnel": "direct",
+            "reason": "on_link"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dns_public",
+      "name": "DNS (public 8.8.8.8)",
+      "deps": [
+        "iface"
+      ],
+      "status": "WARN",
+      "ran": true,
+      "duration_ms": 45,
+      "detail": "answers point elsewhere; system: 10.0.1.3 (10.0.1.0/16); public 8.8.8.8: 198.18.0.4, 198.18.0.5, 2001:db8::6, 2001:db8::7 (198.18.0.8/16, 198.18.0.9/16, 2001:db8::a/32) (split DNS may be intentional)",
+      "observed": {
+        "addresses": [
+          "198.18.0.4",
+          "198.18.0.5",
+          "2001:db8::6",
+          "2001:db8::7"
+        ],
+        "resolver": "8.8.8.8",
+        "resolver_targets": [
+          "8.8.8.8:53"
+        ]
+      },
+      "derived": {
+        "answer_comparison": "disagree"
+      }
+    },
+    {
+      "id": "target_tcp",
+      "name": "TCP host-2.invalid:2222",
+      "deps": [
+        "dns"
+      ],
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 41,
+      "detail": "connected to 10.0.1.3:2222 in 15ms (src 10.0.0.1 interface-2)",
+      "observed": {
+        "selected_ip": "10.0.1.3",
+        "source_ip": "10.0.0.1",
+        "interface": "interface-2",
+        "address_families": {
+          "ipv4": "reachable"
+        },
+        "attempts": [
+          {
+            "ip": "10.0.1.3",
+            "duration_ms": 15
+          }
+        ],
+        "routes": [
+          {
+            "destination": "10.0.1.3",
+            "family": "ipv4",
+            "interface": "interface-2",
+            "source": "10.0.0.1",
+            "prefix": "10.0.1.0/30",
+            "metric": 5,
+            "interface_mtu": 1420,
+            "tunnel": "likely",
+            "reason": "more_specific_than_default"
+          }
+        ]
+      }
+    }
+  ],
+  "diagnosis": {
+    "verdict": "degraded",
+    "summary": "The target works, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).",
+    "blamed": "dns_public",
+    "findings": [
+      {
+        "id": "dns_disagreement",
+        "verdict": "degraded",
+        "summary": "The target works, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).",
+        "focus": "dns_public",
+        "confidence": "medium",
+        "evidence": [
+          "dns_public",
+          "dns"
+        ],
+        "causal_evidence": [
+          {
+            "kind": "support",
+            "check": "dns_public",
+            "observation": "dns_answers"
+          },
+          {
+            "kind": "support",
+            "check": "dns",
+            "observation": "dns_answers"
+          },
+          {
+            "kind": "support",
+            "check": "dns",
+            "observation": "route_path_differs",
+            "value": "interface-2"
+          }
+        ],
+        "counterfactual": {
+          "variable": "dns_resolver",
+          "alternatives": [
+            {
+              "value": "system",
+              "outcome": "succeeded",
+              "evidence": [
+                {
+                  "kind": "support",
+                  "check": "dns",
+                  "observation": "dns_answers"
+                }
+              ]
+            },
+            {
+              "value": "independent",
+              "outcome": "succeeded",
+              "evidence": [
+                {
+                  "kind": "support",
+                  "check": "dns_public",
+                  "observation": "dns_answers"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "ok": true,
+  "redaction": {
+    "sanitized": true,
+    "policy": "support-v1"
+  }
+}

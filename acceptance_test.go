@@ -50,11 +50,18 @@ const (
 
 // hostRoute is what the platform's own route tool answered about one
 // destination. A field the tool does not report stays zero.
+//
+// WasCloned records that the matched entry is a host route the kernel cloned
+// from a wider one, which macOS does as soon as anything connects to a
+// destination covered by a PRCLONING route. It is provenance, not shape: a host
+// route someone configured looks identical without it, and the two are
+// different facts about the host. Windows clones nothing and never sets it.
 type hostRoute struct {
-	Iface   string
-	Gateway netip.Addr
-	Source  netip.Addr
-	Prefix  netip.Prefix
+	Iface     string
+	Gateway   netip.Addr
+	Source    netip.Addr
+	Prefix    netip.Prefix
+	WasCloned bool
 }
 
 type hostRouteObservation struct {
@@ -66,6 +73,174 @@ type kernelRouteObservation struct {
 	Source netip.Addr
 	Owners []string
 	Err    string
+}
+
+// nativeSocketConnected records that a connected-socket observation has already
+// happened somewhere in this process. macOS clones a host route from whatever
+// entry matched the moment that happens, and the clone outlives the test that
+// caused it, so no later test can qualify the configured topology from the
+// route tool any more. The prepared-route test therefore runs before every test
+// that connects a socket, and reads this so that a reordering says exactly that
+// instead of reporting the clone as a host nobody prepared.
+//
+// Windows clones nothing and would not need the ordering, but the invariant is
+// the same one on both platforms and one test is easier to keep true than two.
+var nativeSocketConnected bool
+
+// TestNativePreparedTargetRouteMatchesTheHostRouteTool checks the route
+// evidence netdoc publishes for a user-supplied target against the platform's
+// own route tool, on a host where a route narrower than the default covers that
+// target and leaves by a different interface. A hosted runner only ever routes
+// to a default route, so the entry-level half of netdoc's reason vocabulary is
+// never exercised there against real kernel data.
+//
+// The prepared state is observed, never created: this test reads routes and
+// opens a connected datagram socket, and changes nothing about the host.
+//
+// The two observations are deliberately ordered. Asking the route tool changes
+// nothing, but connecting a socket makes macOS clone a host route from the
+// entry that matched, after which the route tool answers the clone. So the
+// topology is qualified from route-tool readings taken before anything in this
+// test or in netdoc connects to these destinations, and the connected socket
+// that names the source comes last. Both oracles then describe the state
+// netdoc itself looked at, since netdoc decides its route evidence before it
+// dials.
+//
+// The same ordering is why this is the first test in the file: Go runs a
+// package's tests in the order they are written, and every clone a socket in an
+// earlier test left behind would still be there. nativeSocketConnected turns
+// that from a silent dependency into a named one.
+func TestNativePreparedTargetRouteMatchesTheHostRouteTool(t *testing.T) {
+	raw, dst := preparedTarget(t)
+	if nativeSocketConnected {
+		t.Fatalf("a connected-socket observation already ran in this process, so on macOS %s now answers about these destinations from the route cache; this test has to run before every test that connects one", hostRouteTool)
+	}
+	reference := nativeReferenceFor(t, dst)
+	dsts := []netip.Addr{dst, reference}
+	bin := buildNetdoc(t)
+
+	// Repeating a lookup that mutates nothing is what proves the configured
+	// state is stable here. The old shape proved it by bracketing the netdoc run
+	// with socket observations, which on macOS could only ever settle on the
+	// cloned reading it had just caused.
+	var host map[netip.Addr]hostRouteObservation
+	for attempt := 1; attempt <= nativeObservationAttempts; attempt++ {
+		first := hostRouteObservations(t, dsts)
+		second := hostRouteObservations(t, dsts)
+		if reflect.DeepEqual(first, second) {
+			host = second
+			break
+		}
+		t.Logf("%s route state changed during observation %d:\nfirst  %+v\nsecond %+v", hostRouteTool, attempt, first, second)
+	}
+	if host == nil {
+		t.Fatalf("route state for %s and %s did not stay stable across %d bounded observations", dst, reference, nativeObservationAttempts)
+	}
+
+	// The topology is established by the operating system alone, before any
+	// netdoc output is read. Opting in is a claim that this host is prepared,
+	// so an unprepared one is a failure and never a skip.
+	hostTarget, hostReference := host[dst].Route, host[reference].Route
+	if !host[dst].Found {
+		t.Fatalf("%s found no route to prepared target %s; set %s to a destination this host has a prepared route for", hostRouteTool, dst, preparedTargetEnv)
+	}
+	if !host[reference].Found {
+		t.Fatalf("%s found no route to reference destination %s, so there is no general egress path to compare the prepared one against", hostRouteTool, reference)
+	}
+	if hostTarget.WasCloned || hostReference.WasCloned {
+		t.Fatalf("%s answered for %s or %s with a host route the kernel cloned from a wider entry, so the configured topology is hidden behind the route cache rather than absent: something connected to one of these destinations earlier on this machine, and on macOS a clone of a gatewayed route outlives the process that caused it. Observed %+v and %+v",
+			hostRouteTool, dst, reference, hostTarget, hostReference)
+	}
+	if !hostReference.Prefix.IsValid() || hostReference.Prefix.Bits() != 0 {
+		t.Fatalf("%s matched entry %v for reference destination %s, want a true default route: this host is not in the default-plus-specific shape the test requires",
+			hostRouteTool, hostReference.Prefix, reference)
+	}
+	if !hostTarget.Prefix.IsValid() || hostTarget.Prefix.Bits() == 0 {
+		t.Fatalf("%s matched entry %v for prepared target %s, want a route narrower than the default: the prepared route is missing", hostRouteTool, hostTarget.Prefix, dst)
+	}
+	if hostTarget.Iface == hostReference.Iface {
+		t.Fatalf("%s routes both prepared target %s and reference destination %s through %q; the prepared route must leave by a different interface",
+			hostRouteTool, dst, reference, hostTarget.Iface)
+	}
+	// The exit code is deliberately ignored. A prepared destination with
+	// nothing listening fails its TCP row and still carries the route evidence,
+	// which is decided before any dial is attempted.
+	got, _ := runNetdoc(t, bin, "--json", "--check", "target_tcp", raw)
+
+	// Read the route tool again before this test opens any socket of its own, so
+	// the only connection that could have changed these entries is netdoc's own
+	// target dial.
+	after := hostRouteObservations(t, dsts)
+	for _, d := range dsts {
+		assertRouteSurvivedRun(t, d, host[d].Route, after[d])
+	}
+
+	// Only now the connected socket, and only for the target. It is the
+	// independent source oracle on macOS, where route -n get reports none, and
+	// connecting it clones the entry it matched: moving it before the netdoc run
+	// is what made this test unsatisfiable on Darwin. The reference is left
+	// alone because nothing here reads a source for it, and the clone a socket
+	// would leave on a gatewayed destination does not expire, which would break
+	// the next run of this test on the same machine.
+	kernel := kernelRouteObservations(t, []netip.Addr{dst})
+
+	// netdoc's own reference evidence is checked against the oracle before it
+	// is used as the other half of the split comparison, so that comparison
+	// never rests on two readings of the same netdoc output.
+	reported, ok := routesByDestination(t, reportCheck(t, got, "iface"))[reference]
+	if !ok {
+		t.Fatalf("the interface row carries no route to reference destination %s: %+v", reference, got.Checks)
+	}
+	if reported.Interface != hostReference.Iface {
+		t.Fatalf("%s routes reference destination %s through %q, netdoc reported %q; the general egress path must agree before the prepared one is read against it",
+			hostRouteTool, reference, hostReference.Iface, reported.Interface)
+	}
+	if entry := mustPrefix(t, reported.Prefix); entry != hostReference.Prefix {
+		t.Fatalf("%s matched entry %v for reference destination %s, netdoc reported %q", hostRouteTool, hostReference.Prefix, reference, reported.Prefix)
+	}
+
+	// An IP literal resolves to exactly itself, so the target row describes one
+	// address and there is no second decision to pick the convenient one from.
+	targetRoutes := routesByDestination(t, reportCheck(t, got, "target_tcp"))
+	r, ok := targetRoutes[dst]
+	if !ok || len(targetRoutes) != 1 {
+		t.Fatalf("the target row carries %+v, want exactly one route, to %s", targetRoutes, dst)
+	}
+	if r.Unreachable {
+		t.Fatalf("%s routes %s through %q, but netdoc reported no route", hostRouteTool, dst, hostTarget.Iface)
+	}
+	if r.Interface != hostTarget.Iface {
+		t.Errorf("%s routes %s through %q, netdoc reported %q", hostRouteTool, dst, hostTarget.Iface, r.Interface)
+	}
+	if entry := mustPrefix(t, r.Prefix); entry != hostTarget.Prefix {
+		t.Errorf("%s matched entry %v for %s, netdoc reported %q", hostRouteTool, hostTarget.Prefix, dst, r.Prefix)
+	}
+	if gateway := optionalReportedAddr(t, r.Gateway); gateway != hostTarget.Gateway {
+		t.Errorf("%s reports next hop %v for %s, netdoc reported %q", hostRouteTool, hostTarget.Gateway, dst, r.Gateway)
+	}
+	if hostTarget.Source.IsValid() {
+		assertRouteToolSource(t, dst, r, hostTarget.Source)
+	} else if observed := kernel[dst]; observed.Err == "" {
+		// macOS route -n get reports no source, so the kernel's own selection
+		// for a connected socket is the independent answer there.
+		assertReportedSource(t, r, observed.Source, observed.Owners)
+	} else {
+		t.Errorf("neither %s nor a connected socket could name a source for %s: %s", hostRouteTool, dst, observed.Err)
+	}
+	if r.Interface == reported.Interface {
+		t.Errorf("netdoc routed %s and reference destination %s through the same interface %q, while %s routes them through %q and %q",
+			dst, reference, r.Interface, hostRouteTool, hostTarget.Iface, hostReference.Iface)
+	}
+	if want := expectedPreparedReason(hostTarget.Prefix); r.Reason != want {
+		t.Errorf("netdoc explained %s as %q; the entry %s matched makes it %q", dst, r.Reason, hostTarget.Prefix, want)
+	}
+	assertLinkClassificationPresent(t, r)
+	// Recorded rather than asserted. A correctly prepared WireGuard or utun
+	// link commonly reports "likely" with no kind, and an Ethernet-shaped
+	// virtual adapter reports "direct", so neither value can be ground truth
+	// for whether a tunnel is present.
+	t.Logf("prepared target %s via %q %s reason=%q tunnel=%q kind=%q mtu=%d; reference %s via %q %s",
+		dst, r.Interface, r.Prefix, r.Reason, r.Tunnel, r.TunnelKind, r.InterfaceMTU, reference, reported.Interface, reported.Prefix)
 }
 
 // TestNativeBinaryUsesLoopbackInterface proves the release-shaped binary can
@@ -213,123 +388,6 @@ func TestNativeRouteEvidenceMatchesTheHostRouteTool(t *testing.T) {
 	}
 }
 
-// TestNativePreparedTargetRouteMatchesTheHostRouteTool checks the route
-// evidence netdoc publishes for a user-supplied target against the platform's
-// own route tool, on a host where a route narrower than the default covers that
-// target and leaves by a different interface. A hosted runner only ever routes
-// to a default route, so the entry-level half of netdoc's reason vocabulary is
-// never exercised there against real kernel data.
-//
-// The prepared state is observed, never created: this test reads routes and
-// opens a connected datagram socket, and changes nothing about the host.
-func TestNativePreparedTargetRouteMatchesTheHostRouteTool(t *testing.T) {
-	raw, dst := preparedTarget(t)
-	reference := nativeReferenceFor(t, dst)
-	dsts := []netip.Addr{dst, reference}
-	bin := buildNetdoc(t)
-
-	var host map[netip.Addr]hostRouteObservation
-	var kernel map[netip.Addr]kernelRouteObservation
-	var got report.Report
-	for attempt := 1; attempt <= nativeObservationAttempts; attempt++ {
-		beforeHost, beforeKernel := hostRouteObservations(t, dsts), kernelRouteObservations(t, dsts)
-		// The exit code is deliberately ignored. A prepared destination with
-		// nothing listening fails its TCP row and still carries the route
-		// evidence, which is decided before any dial is attempted.
-		got, _ = runNetdoc(t, bin, "--json", "--check", "target_tcp", raw)
-		afterHost, afterKernel := hostRouteObservations(t, dsts), kernelRouteObservations(t, dsts)
-		if reflect.DeepEqual(beforeHost, afterHost) && reflect.DeepEqual(beforeKernel, afterKernel) {
-			host, kernel = afterHost, afterKernel
-			break
-		}
-		t.Logf("host route state changed during observation %d:\nbefore %+v %+v\nafter  %+v %+v",
-			attempt, beforeHost, beforeKernel, afterHost, afterKernel)
-	}
-	if host == nil {
-		t.Fatalf("route state for %s and %s did not stay stable across %d bounded observations", dst, reference, nativeObservationAttempts)
-	}
-
-	// The topology is established by the operating system alone, before any
-	// netdoc output is read. Opting in is a claim that this host is prepared,
-	// so an unprepared one is a failure and never a skip.
-	hostTarget, hostReference := host[dst].Route, host[reference].Route
-	if !host[dst].Found {
-		t.Fatalf("%s found no route to prepared target %s; set %s to a destination this host has a prepared route for", hostRouteTool, dst, preparedTargetEnv)
-	}
-	if !host[reference].Found {
-		t.Fatalf("%s found no route to reference destination %s, so there is no general egress path to compare the prepared one against", hostRouteTool, reference)
-	}
-	if !hostReference.Prefix.IsValid() || hostReference.Prefix.Bits() != 0 {
-		t.Fatalf("%s matched entry %v for reference destination %s, want a true default route: this host is not in the default-plus-specific shape the test requires",
-			hostRouteTool, hostReference.Prefix, reference)
-	}
-	if !hostTarget.Prefix.IsValid() || hostTarget.Prefix.Bits() == 0 {
-		t.Fatalf("%s matched entry %v for prepared target %s, want a route narrower than the default: the prepared route is missing", hostRouteTool, hostTarget.Prefix, dst)
-	}
-	if hostTarget.Iface == hostReference.Iface {
-		t.Fatalf("%s routes both prepared target %s and reference destination %s through %q; the prepared route must leave by a different interface",
-			hostRouteTool, dst, reference, hostTarget.Iface)
-	}
-
-	// netdoc's own reference evidence is checked against the oracle before it
-	// is used as the other half of the split comparison, so that comparison
-	// never rests on two readings of the same netdoc output.
-	reported, ok := routesByDestination(t, reportCheck(t, got, "iface"))[reference]
-	if !ok {
-		t.Fatalf("the interface row carries no route to reference destination %s: %+v", reference, got.Checks)
-	}
-	if reported.Interface != hostReference.Iface {
-		t.Fatalf("%s routes reference destination %s through %q, netdoc reported %q; the general egress path must agree before the prepared one is read against it",
-			hostRouteTool, reference, hostReference.Iface, reported.Interface)
-	}
-	if entry := mustPrefix(t, reported.Prefix); entry != hostReference.Prefix {
-		t.Fatalf("%s matched entry %v for reference destination %s, netdoc reported %q", hostRouteTool, hostReference.Prefix, reference, reported.Prefix)
-	}
-
-	// An IP literal resolves to exactly itself, so the target row describes one
-	// address and there is no second decision to pick the convenient one from.
-	targetRoutes := routesByDestination(t, reportCheck(t, got, "target_tcp"))
-	r, ok := targetRoutes[dst]
-	if !ok || len(targetRoutes) != 1 {
-		t.Fatalf("the target row carries %+v, want exactly one route, to %s", targetRoutes, dst)
-	}
-	if r.Unreachable {
-		t.Fatalf("%s routes %s through %q, but netdoc reported no route", hostRouteTool, dst, hostTarget.Iface)
-	}
-	if r.Interface != hostTarget.Iface {
-		t.Errorf("%s routes %s through %q, netdoc reported %q", hostRouteTool, dst, hostTarget.Iface, r.Interface)
-	}
-	if entry := mustPrefix(t, r.Prefix); entry != hostTarget.Prefix {
-		t.Errorf("%s matched entry %v for %s, netdoc reported %q", hostRouteTool, hostTarget.Prefix, dst, r.Prefix)
-	}
-	if gateway := optionalReportedAddr(t, r.Gateway); gateway != hostTarget.Gateway {
-		t.Errorf("%s reports next hop %v for %s, netdoc reported %q", hostRouteTool, hostTarget.Gateway, dst, r.Gateway)
-	}
-	if hostTarget.Source.IsValid() {
-		assertRouteToolSource(t, dst, r, hostTarget.Source)
-	} else if observed := kernel[dst]; observed.Err == "" {
-		// macOS route -n get reports no source, so the kernel's own selection
-		// for a connected socket is the independent answer there.
-		assertReportedSource(t, r, observed.Source, observed.Owners)
-	} else {
-		t.Errorf("neither %s nor a connected socket could name a source for %s: %s", hostRouteTool, dst, observed.Err)
-	}
-	if r.Interface == reported.Interface {
-		t.Errorf("netdoc routed %s and reference destination %s through the same interface %q, while %s routes them through %q and %q",
-			dst, reference, r.Interface, hostRouteTool, hostTarget.Iface, hostReference.Iface)
-	}
-	if want := expectedPreparedReason(hostTarget.Prefix); r.Reason != want {
-		t.Errorf("netdoc explained %s as %q; the entry %s matched makes it %q", dst, r.Reason, hostTarget.Prefix, want)
-	}
-	assertLinkClassificationPresent(t, r)
-	// Recorded rather than asserted. A correctly prepared WireGuard or utun
-	// link commonly reports "likely" with no kind, and an Ethernet-shaped
-	// virtual adapter reports "direct", so neither value can be ground truth
-	// for whether a tunnel is present.
-	t.Logf("prepared target %s via %q %s reason=%q tunnel=%q kind=%q mtu=%d; reference %s via %q %s",
-		dst, r.Interface, r.Prefix, r.Reason, r.Tunnel, r.TunnelKind, r.InterfaceMTU, reference, reported.Interface, reported.Prefix)
-}
-
 // preparedTarget reads the opt-in destination. Only an absent variable is a
 // skip, and even that becomes a failure once the caller declared the prepared
 // state present.
@@ -428,6 +486,32 @@ func TestNativePreparedTargetConfiguration(t *testing.T) {
 	}
 }
 
+// assertRouteSurvivedRun checks that the entry qualified before the netdoc run
+// still describes the destination after it. macOS clones a host route from
+// whatever entry matched as soon as netdoc dials, so the clone is accepted, but
+// only as a clone of the entry that was qualified: same interface, same next
+// hop, same source, and covering exactly the destination that was queried.
+// Every other change is a real one, and the comparisons that follow would be
+// describing a topology that no longer exists.
+//
+// Provenance comes from the platform's own flag rather than from the prefix
+// length, so a host route someone configured is never waved through as a clone.
+func assertRouteSurvivedRun(t *testing.T, dst netip.Addr, qualified hostRoute, got hostRouteObservation) {
+	t.Helper()
+	if !got.Found {
+		t.Fatalf("%s found no route to %s after the netdoc run, but matched %v before it", hostRouteTool, dst, qualified.Prefix)
+	}
+	if got.Route == qualified {
+		return
+	}
+	cloned := qualified
+	cloned.Prefix, cloned.WasCloned = netip.PrefixFrom(dst, dst.BitLen()), true
+	if got.Route != cloned {
+		t.Fatalf("%s matched %+v for %s after the netdoc run, want the entry qualified before it (%+v) or a host route cloned from that entry (%+v)",
+			hostRouteTool, got.Route, dst, qualified, cloned)
+	}
+}
+
 func assertRouteToolSource(t *testing.T, dst netip.Addr, r report.Route, hostSource netip.Addr) {
 	t.Helper()
 	reported := mustAddr(t, r.Source)
@@ -517,6 +601,7 @@ func hostRouteObservations(t *testing.T, dsts []netip.Addr) map[netip.Addr]hostR
 // application data.
 func kernelEgressSource(t *testing.T, dst netip.Addr) (netip.Addr, error) {
 	t.Helper()
+	nativeSocketConnected = true
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var dialer net.Dialer

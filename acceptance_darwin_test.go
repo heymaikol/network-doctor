@@ -79,7 +79,7 @@ func parseDarwinRouteOutput(dst netip.Addr, out []byte) (hostRoute, error) {
 		}
 		fields[strings.TrimSpace(name)] = strings.TrimSpace(value)
 	}
-	got := hostRoute{Iface: fields["interface"]}
+	got := hostRoute{Iface: fields["interface"], WasCloned: strings.Contains(darwinFlags(fields), ",WASCLONED,")}
 	if got.Iface == "" {
 		return hostRoute{}, errors.New("route named no interface")
 	}
@@ -102,6 +102,12 @@ func parseDarwinRouteOutput(dst netip.Addr, out []byte) (hostRoute, error) {
 	return got, nil
 }
 
+// darwinFlags is the route's flag list wrapped in the separator it uses, so a
+// whole flag can be matched without also matching a longer one containing it.
+func darwinFlags(fields map[string]string) string {
+	return "," + strings.Trim(fields["flags"], "<>") + ","
+}
+
 func darwinRoutePrefix(dst netip.Addr, fields map[string]string) (netip.Prefix, error) {
 	rawDestination := fields["destination"]
 	if rawDestination == "" {
@@ -118,9 +124,8 @@ func darwinRoutePrefix(dst netip.Addr, fields map[string]string) (netip.Prefix, 
 	if matched.Is4() != dst.Is4() {
 		return netip.Prefix{}, fmt.Errorf("route destination %s has the wrong family for %s", matched, dst)
 	}
-	flags := "," + strings.Trim(fields["flags"], "<>") + ","
 	bits := dst.BitLen()
-	if !strings.Contains(flags, ",HOST,") {
+	if !strings.Contains(darwinFlags(fields), ",HOST,") {
 		rawMask := fields["mask"]
 		if rawMask == "" {
 			return netip.Prefix{}, errors.New("non-host route named no mask")
@@ -153,6 +158,7 @@ func darwinRoutePrefix(dst netip.Addr, fields map[string]string) (netip.Prefix, 
 func TestNativeDarwinRouteOutputParser(t *testing.T) {
 	cases := []struct {
 		name, dst, output, prefix, gateway string
+		cloned                             bool
 	}{
 		{"IPv4 default", "1.1.1.1", `route to: 1.1.1.1
 destination: default
@@ -160,19 +166,29 @@ destination: default
     gateway: 192.0.2.1
   interface: en0
       flags: <UP,GATEWAY,DONE,STATIC>
-`, "0.0.0.0/0", "192.0.2.1"},
+`, "0.0.0.0/0", "192.0.2.1", false},
 		{"IPv6 network on link", "2606:4700:4700::1111", `route to: 2606:4700:4700::1111
 destination: 2606:4700::
        mask: ffff:ffff::
     gateway: link#7
   interface: en0
       flags: <UP,DONE,STATIC>
-`, "2606:4700::/32", ""},
+`, "2606:4700::/32", "", false},
 		{"IPv6 host", "2001:db8::7", `route to: 2001:db8::7
 destination: 2001:db8::7
   interface: utun3
       flags: <UP,HOST,DONE,IFSCOPE>
-`, "2001:db8::7/128", ""},
+`, "2001:db8::7/128", "", false},
+		// Captured from macOS 26 after a connected UDP socket to this address:
+		// the kernel cloned the default route, and route answers the clone. The
+		// shape is identical to the configured host route above apart from the
+		// flag, which is why the flag is what provenance is read from.
+		{"IPv4 host cloned from the default route", "1.1.1.1", `route to: 1.1.1.1
+destination: 1.1.1.1
+    gateway: 192.168.64.1
+  interface: en0
+      flags: <UP,GATEWAY,HOST,DONE,WASCLONED,IFSCOPE,IFREF,GLOBAL>
+`, "1.1.1.1/32", "192.168.64.1", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -184,8 +200,8 @@ destination: 2001:db8::7
 			if got.Gateway.IsValid() {
 				gateway = got.Gateway.String()
 			}
-			if got.Prefix.String() != c.prefix || gateway != c.gateway || got.Iface == "" {
-				t.Errorf("parsed route = %+v, want prefix %s gateway %s and an interface", got, c.prefix, c.gateway)
+			if got.Prefix.String() != c.prefix || gateway != c.gateway || got.Iface == "" || got.WasCloned != c.cloned {
+				t.Errorf("parsed route = %+v, want prefix %s gateway %s cloned=%v and an interface", got, c.prefix, c.gateway, c.cloned)
 			}
 		})
 	}

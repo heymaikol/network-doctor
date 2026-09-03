@@ -220,3 +220,37 @@ jobs:
           dpkg-deb -x "$deb" pkgroot
           ./pkgroot/usr/bin/netdoc -version
           ./pkgroot/usr/bin/netdoc-sim help > /dev/null
+      # Reading the archive proves what the .deb contains. It cannot prove that
+      # apt and dpkg will take it, which is a separate class of packaging
+      # failure, so the package built above is also installed the way the README
+      # tells users to install it. The container is the isolation: a clean
+      # Debian, so no copy already on the runner can carry the test, and the
+      # runner itself never has network-doctor installed on it. --network none
+      # because the package declares no dependencies, so a real install has
+      # nothing to fetch, and this stops passing if that ever changes. Pinned by
+      # digest like every other image and action here.
+      - name: Install the .deb in a clean Debian container
+        run: |
+          set -euo pipefail
+          docker run --rm -i --network none \
+            -v "$PWD/dist:/dist:ro" \
+            -e DEBIAN_FRONTEND=noninteractive \
+            debian:trixie@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1 \
+            sh -eu <<'SMOKE'
+          # Nothing is installed yet, so nothing below can pass on a copy that
+          # was already there. Not `! command -v netdoc`: set -e ignores a
+          # command whose status is inverted with !, so that spelling asserts
+          # nothing. The empty output is the assertion.
+          test -z "$(command -v netdoc)"
+          test -z "$(command -v netdoc-sim)"
+          apt-get install -y /dist/*_linux_amd64.deb
+          test "$(dpkg-query -W -f '${Status}' network-doctor)" = 'install ok installed'
+          test "$(command -v netdoc)" = /usr/bin/netdoc
+          test "$(command -v netdoc-sim)" = /usr/bin/netdoc-sim
+          # dpkg -V names every installed file that is missing or altered and
+          # still exits 0, so the empty report is the assertion.
+          verify=$(dpkg -V network-doctor)
+          test -z "$verify" || { printf 'dpkg -V network-doctor:\n%s\n' "$verify"; exit 1; }
+          netdoc --version
+          netdoc-sim version
+          SMOKE

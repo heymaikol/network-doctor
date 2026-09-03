@@ -343,9 +343,10 @@ type Check struct {
 	// Observed is what this probe measured. Absent when it measured nothing
 	// beyond its status, which is the case for every row that never ran.
 	Observed *Observed `json:"observed,omitempty"`
-	// Derived is what the cross-probe reasoning pass did to this row after the
-	// probes finished. Absent when it left the row alone, so its presence is
-	// the signal that the status above is not purely what the probe returned.
+	// Derived is what the cross-probe reasoning pass concluded about this row
+	// after the probes finished. Absent when it reached no conclusion about it.
+	// Its presence means reasoning added something the probe did not report,
+	// which is not the same as the status above having been rewritten.
 	Derived *Derived `json:"derived,omitempty"`
 }
 
@@ -484,14 +485,45 @@ type Attempt struct {
 	Aborted    bool   `json:"aborted,omitempty"`
 }
 
-// Derived records that the cross-probe pass rewrote this row's outcome, which
-// is the difference between "the probe reported this" and "netdoc concluded
-// this". A comparison that ignored it would read an inferred Warn and a
-// measured Warn as the same state.
+// Derived is what the cross-probe reasoning pass concluded about this row: a
+// structured conclusion, never a reading. It is the difference between "the
+// probe reported this" and "netdoc concluded this", which a comparison that
+// ignored it would read as the same state. Some of these conclusions rewrote
+// the row's status and some left it alone, so its presence says reasoning
+// reached a conclusion here, not that the status above was changed.
 type Derived struct {
 	// StatusDowngraded means an observed failure was relaxed because another
 	// path proved the network still carries traffic.
 	StatusDowngraded bool `json:"status_downgraded,omitempty"`
+	// AnswerComparison is what the cross-probe pass concluded when it compared
+	// this row's DNS answers against the system resolver's. Absent means no
+	// comparison outcome was recorded: what every artifact written before this
+	// field says, and what a run with nothing to compare says. It never means
+	// the answers agreed. Both outcomes are recorded because the comparison is
+	// made from the addresses the resolvers actually returned, and a sanitized
+	// artifact no longer holds those.
+	AnswerComparison AnswerComparison `json:"answer_comparison,omitempty"`
+}
+
+// AnswerComparison is the closed vocabulary for a recorded DNS answer-set
+// comparison. The zero value means no comparison was recorded, which is a
+// third state and never agreement.
+type AnswerComparison string
+
+const (
+	AnswerComparisonAgree    AnswerComparison = "agree"
+	AnswerComparisonDisagree AnswerComparison = "disagree"
+)
+
+// validAnswerComparison accepts the closed vocabulary and the empty value a
+// producer that compared nothing wrote, and refuses anything else in both
+// directions, exactly like validConfidence.
+func validAnswerComparison(value AnswerComparison) bool {
+	switch value {
+	case "", AnswerComparisonAgree, AnswerComparisonDisagree:
+		return true
+	}
+	return false
 }
 
 // Diagnosis is the run's single interpretation: its class, its sentence, and
@@ -719,6 +751,8 @@ func validate(s Snapshot) error {
 			return fmt.Errorf("snapshot check %q has no status: a row with no completed result must say %s", c.ID, StatusIncomplete)
 		case c.CauseFamily != "" && c.Cause == "":
 			return fmt.Errorf("snapshot check %q has a cause family without a cause", c.ID)
+		case c.Derived != nil && !validAnswerComparison(c.Derived.AnswerComparison):
+			return fmt.Errorf("snapshot check %q has unknown answer comparison %q", c.ID, c.Derived.AnswerComparison)
 		case c.Status == StatusIncomplete && c.Ran:
 			return fmt.Errorf("snapshot check %q is %s and also ran: a row that reported has an outcome", c.ID, StatusIncomplete)
 		case c.Status == StatusIncomplete && s.OK:

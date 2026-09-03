@@ -124,6 +124,29 @@ func replayResult(id ProbeID, status Status, check snapshot.Check) (ProbeResult,
 			return ProbeResult{}, errors.New("status downgrade is present on a non-WARN result")
 		}
 		result.downgraded = check.Derived.StatusDowngraded
+		if check.Derived.AnswerComparison != "" {
+			// answer_comparison is defined for the independent DNS row and no
+			// other, because that is the only row the cross-probe pass
+			// compares. Anywhere else it is derived state this version would
+			// restore and never read, so the artifact is refused rather than
+			// half believed.
+			if id != ProbeDNSPublic {
+				return ProbeResult{}, fmt.Errorf("answer comparison is present on %q, which is not the independent DNS row", id)
+			}
+			// Answers are what a comparison is made of, so a row that recorded
+			// none cannot have produced either outcome. That is a property of
+			// the stored row itself, unlike its status, which any later
+			// reconciliation rule is free to rewrite for an unrelated reason.
+			if check.Observed == nil || len(check.Observed.Addresses) == 0 {
+				return ProbeResult{}, errors.New("an answer comparison is present on a row that recorded no answers to compare")
+			}
+		}
+		switch check.Derived.AnswerComparison {
+		case snapshot.AnswerComparisonAgree:
+			result.answerComparison = comparisonAgree
+		case snapshot.AnswerComparisonDisagree:
+			result.answerComparison = comparisonDisagree
+		}
 	}
 	if check.Observed == nil {
 		return result, nil

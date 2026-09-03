@@ -1004,3 +1004,46 @@ func optionKeys(t *testing.T, data []byte) map[string]json.RawMessage {
 	}
 	return doc.Options
 }
+
+// The answer comparison is a closed vocabulary for the same reason confidence
+// is, with one extra rule that matters more here: absence is a third state.
+// A run that had nothing to compare and a run that compared and agreed are
+// different facts, so an omitted key must never decode as agreement.
+func TestAnswerComparisonRoundTripsAndRejectsUnknownValues(t *testing.T) {
+	base := func(comparison AnswerComparison) Snapshot {
+		return Snapshot{
+			Checks: []Check{{
+				ID: "dns_public", Status: StatusWarn, Ran: true, DurationMs: 1,
+				Derived: &Derived{AnswerComparison: comparison},
+			}},
+		}
+	}
+	for _, comparison := range []AnswerComparison{"", AnswerComparisonAgree, AnswerComparisonDisagree} {
+		data, err := Encode(base(comparison))
+		if err != nil {
+			t.Fatalf("Encode %q: %v", comparison, err)
+		}
+		if comparison == "" && strings.Contains(string(data), "answer_comparison") {
+			t.Errorf("a row that compared nothing published an answer_comparison key:\n%s", data)
+		}
+		decoded, err := Decode(data)
+		if err != nil {
+			t.Fatalf("Decode %q: %v", comparison, err)
+		}
+		if got := decoded.Checks[0].Derived.AnswerComparison; got != comparison {
+			t.Errorf("answer comparison round-tripped as %q, want %q", got, comparison)
+		}
+	}
+
+	if _, err := Encode(base("maybe")); err == nil || !strings.Contains(err.Error(), "unknown answer comparison") {
+		t.Errorf("Encode error = %v, want it to refuse an unknown answer comparison", err)
+	}
+	valid, err := Encode(base(AnswerComparisonAgree))
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := strings.Replace(string(valid), `"answer_comparison": "agree"`, `"answer_comparison": "maybe"`, 1)
+	if _, err := Decode([]byte(future)); err == nil || !strings.Contains(err.Error(), "unknown answer comparison") {
+		t.Errorf("Decode error = %v, want it to refuse an unknown answer comparison", err)
+	}
+}

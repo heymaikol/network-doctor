@@ -113,20 +113,30 @@ and the point of replay is to judge the same evidence under today's rules.
 The snapshot schema stays `netdoc.snapshot.v1`: replay state added to v1 is
 optional, and absence is a state rather than a gap. An absent `cause_family`
 means the cause was family-neutral, which is what the direct-egress probe
-records when the same route fact held for both stacks. Where absence would
+records when the same route fact held for both stacks. An absent
+`derived.answer_comparison` means no DNS answer comparison was recorded, which
+is never the same as one that found the resolvers agreeing. Where absence would
 instead be a missing measurement, replay refuses the case rather than guess: a
 check ID this version does not know, a status or protocol outside the current
 vocabulary, an unrecognized cause family or tunnel state, a relaxed status on a
-row that is not WARN, and a failed target attempt carrying only human error
-text with no typed cause.
+row that is not WARN, an answer comparison on any row but `dns_public`, an
+answer comparison on a row that recorded no answers to compare, and a failed
+target attempt carrying only human error text with no typed cause.
 
-Two limits are worth knowing before writing `expected` for a real case.
-Support redaction pseudonymizes every address, and every public address in one
-artifact lands in a single /16. `answersAgree` compares that /16, so two
-disagreeing sets of public DNS answers can read as agreeing on replay. The
-`dns_disagreement` finding still survives, because the cross-probe pass stamped
-the WARN before the snapshot was written; the resolver counterfactual under it
-may not. Second, evidence values that are addresses are the sanitized
+Two limits are worth knowing before writing `expected` for a real case, and the
+first one now depends on how old the artifact is. Support redaction
+pseudonymizes every address without preserving the /16 `answersAgree` compares,
+in both directions: it can put two agreeing answer sets in different blocks and
+two disagreeing sets in the same one. A snapshot produced by a version that
+writes `derived.answer_comparison` records what the original unsanitized
+comparison found, so replay reads that outcome and never recomputes it from the
+pseudonyms, and the `dns_disagreement` finding and the resolver counterfactual
+under it both survive intact. A sanitized snapshot that predates the field
+carries no such record and is inherently lossy: replay falls back to comparing
+the sanitized addresses, so its resolver counterfactual can still be lost or
+invented. Nothing here repairs those older artifacts, and nothing here restores
+or preserves original addresses in any artifact. That is the second limit, and
+it is unchanged: evidence values that are addresses are the sanitized
 addresses, not the originals, which is what the artifact actually records.
 
 If a change to the snapshot encoder makes a committed fixture non-canonical,

@@ -323,7 +323,15 @@ func (r *redactor) check(c Check) Check {
 		Detail: r.text(c.Detail), Fix: r.text(c.Fix),
 	}
 	if c.Derived != nil {
-		out.Derived = &Derived{StatusDowngraded: c.Derived.StatusDowngraded}
+		// Both fields are conclusions the run reached, not measurements: they
+		// name no address, prefix, operator, or routability, and say strictly
+		// less than the row's own status and detail already do. Copied as
+		// stored, because recomputing either one here would need the original
+		// addresses this pass exists to remove.
+		out.Derived = &Derived{
+			StatusDowngraded: c.Derived.StatusDowngraded,
+			AnswerComparison: c.Derived.AnswerComparison,
+		}
 	}
 	if c.Observed == nil {
 		return out

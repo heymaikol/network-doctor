@@ -1030,6 +1030,19 @@ func reconcileDNS(res map[ProbeID]ProbeResult) {
 	if !systemOK || !publicOK || public.Status != StatusPass {
 		return
 	}
+	// The comparison is made once, here, and recorded on the row so nothing
+	// downstream has to make it again from addresses a support artifact will
+	// have pseudonymized. Both outcomes are recorded: agreement is a
+	// conclusion this run reached from what the resolvers actually returned,
+	// and re-deriving it later from redacted addresses is exactly what this
+	// exists to avoid. Nothing to compare stays unrecorded rather than
+	// becoming a disagreement.
+	if system.Status == StatusPass && len(system.Addrs) > 0 && len(public.Addrs) > 0 {
+		public.answerComparison = comparisonAgree
+		if !answersAgree(system.Addrs, public.Addrs) {
+			public.answerComparison = comparisonDisagree
+		}
+	}
 	switch {
 	case system.DNSNotFound && public.DNSNotFound:
 		system.Detail += "; public DNS agrees there are no A/AAAA records"
@@ -1042,7 +1055,7 @@ func reconcileDNS(res map[ProbeID]ProbeResult) {
 		public.Detail += " (system DNS reports no records, so split DNS or filtering may be intentional)"
 		system.Detail += ", but public DNS resolves it"
 		system.Fix = "check the configured resolver, VPN, or DNS filter"
-	case system.Status == StatusPass && len(public.Addrs) > 0 && !answersAgree(system.Addrs, public.Addrs):
+	case public.answerComparison == comparisonDisagree:
 		public.Status = StatusWarn
 		public.Detail = "answers point elsewhere; system: " + joinIPs(system.Addrs) + " (" + comparisonPrefixes(system.Addrs) + "); public " + public.resolver + ": " + joinIPs(public.Addrs) + " (" + comparisonPrefixes(public.Addrs) + ") (split DNS may be intentional)"
 	case system.Status == StatusFail && len(public.Addrs) > 0:

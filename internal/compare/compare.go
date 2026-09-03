@@ -543,7 +543,23 @@ func diffCheck(d *diff, id string, before, after snapshot.Check) {
 	d.field(SectionCheck, id, "checks."+id+".derived.status_downgraded", id+" status relaxed by later reasoning",
 		yesNo(before.Derived != nil && before.Derived.StatusDowngraded),
 		yesNo(after.Derived != nil && after.Derived.StatusDowngraded))
+	// Whether the two resolvers were found to point at the same place. It is a
+	// conclusion drawn from the answers rather than a reading of them, and the
+	// addresses above cannot stand in for it: a support artifact carries the
+	// conclusion but only pseudonyms of what produced it.
+	d.field(SectionCheck, id, "checks."+id+".derived.answer_comparison", id+" DNS answer comparison",
+		string(answerComparisonOf(before)), string(answerComparisonOf(after)))
 	diffObserved(d, id, observedOf(before), observedOf(after))
+}
+
+// answerComparisonOf reads a row's recorded DNS answer comparison, spelling an
+// absent one as the empty value it already means: no comparison was recorded,
+// which is a different state from either outcome.
+func answerComparisonOf(c snapshot.Check) snapshot.AnswerComparison {
+	if c.Derived == nil {
+		return ""
+	}
+	return c.Derived.AnswerComparison
 }
 
 // observedOf reads a row's evidence, substituting the zero value for an absent

@@ -78,13 +78,29 @@ func dnsCounterfactual(t *Target, res map[ProbeID]ProbeResult) (DiagnosisFinding
 			"System DNS resolves "+name+", but independent DNS reports no records; split DNS or filtering may be intentional.",
 			alternative(counterfactualSystemDNS, CounterfactualSucceeded, ProbeDNS, ObservationDNSAnswers),
 			alternative(counterfactualIndependentDNS, CounterfactualNotFound, ProbeDNSPublic, ObservationDNSNotFound)), true
-	case len(system.Addrs) > 0 && len(independent.Addrs) > 0 && !answersAgree(system.Addrs, independent.Addrs):
+	case len(system.Addrs) > 0 && len(independent.Addrs) > 0 && dnsAnswersDisagree(system, independent):
 		return makeFinding(DiagnosisDNSDisagreement, VerdictDegraded,
 			"System and independent DNS return materially different addresses for "+name+"; split DNS or filtering may be intentional.",
 			alternative(counterfactualSystemDNS, CounterfactualSucceeded, ProbeDNS, ObservationDNSAnswers),
 			alternative(counterfactualIndependentDNS, CounterfactualSucceeded, ProbeDNSPublic, ObservationDNSAnswers)), true
 	}
 	return DiagnosisFinding{}, false
+}
+
+// dnsAnswersDisagree prefers the comparison the run recorded over one made
+// here. Both reach the same answer on live results; they diverge on a replayed
+// support artifact, where the addresses have been pseudonymized and the
+// recorded outcome is the only one made from what the resolvers actually said.
+// The fallback is for results that carry no recorded outcome at all, which is
+// every artifact written before the field existed.
+func dnsAnswersDisagree(system, independent ProbeResult) bool {
+	switch independent.answerComparison {
+	case comparisonAgree:
+		return false
+	case comparisonDisagree:
+		return true
+	}
+	return !answersAgree(system.Addrs, independent.Addrs)
 }
 
 func familyCounterfactual(t *Target, res map[ProbeID]ProbeResult) (DiagnosisFinding, bool) {

@@ -46,6 +46,15 @@ type matrixCase struct {
 // in most of these runs: the arm under test is the one or two that carry more.
 func ok(s Status) ProbeResult { return ProbeResult{Status: s} }
 
+// disagreed is the independent DNS row as reconcileDNS leaves it when the two
+// resolvers answered from different allocations: warned, carrying the answers
+// it compared, and carrying the outcome of that comparison. The recorded
+// outcome is part of the state, not decoration: it is the only form of the
+// comparison that survives into a sanitized artifact.
+func disagreed(addrs ...net.IP) ProbeResult {
+	return ProbeResult{Status: StatusWarn, Addrs: addrs, answerComparison: comparisonDisagree}
+}
+
 func diagnosisMatrix() []matrixCase {
 	tls := &Target{Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
 	local := &Target{Host: "192.168.1.10", IP: net.ParseIP("192.168.1.10"), Port: 9100, Proto: ProtoNone}
@@ -139,8 +148,13 @@ func diagnosisMatrix() []matrixCase {
 		},
 		{
 			name: "generic resolvers disagree", order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeDNSPublic},
+			// The rows a run reaches this arm with: reconcileDNS warned the
+			// public row because two real answer sets landed in different
+			// allocations, and recorded that conclusion on the row it warned.
 			res: map[ProbeID]ProbeResult{
-				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass), ProbeDNS: ok(StatusPass), ProbeDNSPublic: ok(StatusWarn),
+				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass),
+				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("203.0.113.9")}},
+				ProbeDNSPublic: disagreed(net.ParseIP("198.51.100.20")),
 			},
 			summary: "Online, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).",
 			verdict: VerdictDegraded, focus: ProbeDNSPublic,
@@ -660,7 +674,10 @@ func diagnosisMatrix() []matrixCase {
 		},
 		{
 			name: "target works, resolvers disagree", target: tls, order: append([]ProbeID{ProbeDNSPublic}, webOrder...),
-			res:     with(map[ProbeID]ProbeResult{ProbeDNSPublic: ok(StatusWarn)}),
+			res: with(map[ProbeID]ProbeResult{
+				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("203.0.113.9")}},
+				ProbeDNSPublic: disagreed(net.ParseIP("198.51.100.20")),
+			}),
 			summary: "The target works, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).",
 			verdict: VerdictDegraded, focus: ProbeDNSPublic,
 			id: "dns_disagreement", evidence: []ProbeID{ProbeDNSPublic, ProbeDNS},

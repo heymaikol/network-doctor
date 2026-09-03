@@ -80,8 +80,8 @@ func BuildSnapshot(t *Target, probes []Probe, results map[ProbeID]ProbeResult) s
 			c.Deps = append(c.Deps, string(dep))
 		}
 		c.Observed = observedFrom(r)
-		if r.downgraded {
-			c.Derived = &snapshot.Derived{StatusDowngraded: true}
+		if derived := derivedFrom(r); derived != nil {
+			c.Derived = derived
 		}
 		s.Checks = append(s.Checks, c)
 	}
@@ -120,6 +120,25 @@ func BuildSnapshot(t *Target, probes []Probe, results map[ProbeID]ProbeResult) s
 		s.Diagnosis.Findings = append(s.Diagnosis.Findings, finding)
 	}
 	return s
+}
+
+// derivedFrom copies the cross-probe conclusions off one result, and returns
+// nil when the reasoning pass reached none about this row. A recorded
+// agreement is a conclusion like any other and is written even though it left
+// the row's status alone: it was reached from the addresses the resolvers
+// returned, and a sanitized artifact keeps no way to reach it again.
+func derivedFrom(r ProbeResult) *snapshot.Derived {
+	var comparison snapshot.AnswerComparison
+	switch r.answerComparison {
+	case comparisonAgree:
+		comparison = snapshot.AnswerComparisonAgree
+	case comparisonDisagree:
+		comparison = snapshot.AnswerComparisonDisagree
+	}
+	if !r.downgraded && comparison == "" {
+		return nil
+	}
+	return &snapshot.Derived{StatusDowngraded: r.downgraded, AnswerComparison: comparison}
 }
 
 // observedFrom copies the readings off one result, and returns nil when the

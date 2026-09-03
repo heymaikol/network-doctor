@@ -135,6 +135,17 @@ const (
 	QUICCauseHandshake = "quic_handshake_failure"
 )
 
+// answerComparison is the outcome of one DNS answer-set comparison. The zero
+// value is deliberately "not recorded" rather than either result, so a run
+// that compared nothing can never be read as one whose answers agreed.
+type answerComparison uint8
+
+const (
+	comparisonUnrecorded answerComparison = iota
+	comparisonAgree
+	comparisonDisagree
+)
+
 // ProbeResult is the typed contract the diagnosis engine and renderer consume.
 // Detail/Fix are derived human text, never parsed back.
 type ProbeResult struct {
@@ -145,10 +156,16 @@ type ProbeResult struct {
 	Cause       string
 	causeFamily string // address family that supplied Cause; empty when shared or family-neutral
 	Families    *FamilyConnectivity
-	downgraded  bool     // downgradeEgress rewrote a direct-egress failure to Warn.
-	Portal      *Portal  // non-nil when egress is intercepted, not dead.
-	Addrs       []net.IP // DNS publishes all A records here
-	DNSNotFound bool     // the resolver found no A/AAAA records
+	downgraded  bool // downgradeEgress rewrote a direct-egress failure to Warn.
+	// answerComparison is what reconcileDNS concluded when it compared this
+	// row's answers with the system resolver's. Unrecorded when there was
+	// nothing to compare, which is never the same as agreement. Private, and
+	// restored from the snapshot on replay, because it is derived state rather
+	// than anything a probe measured.
+	answerComparison answerComparison
+	Portal           *Portal  // non-nil when egress is intercepted, not dead.
+	Addrs            []net.IP // DNS publishes all A records here
+	DNSNotFound      bool     // the resolver found no A/AAAA records
 	// ResolverTargets are DNS service addresses recorded as passed to the Go
 	// resolver's Dial hook. They prove where a lookup was attempted, not which
 	// target answered or supplied any returned address.

@@ -2,6 +2,7 @@ package diagnostic
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"reflect"
 	"strings"
@@ -287,12 +288,15 @@ func TestReplayClockOffsetKeepsThresholdSemantics(t *testing.T) {
 // come out the same. Only the address strings inside evidence change, and they
 // change to exactly the addresses the sanitized artifact records.
 //
-// The one place redaction can still cost a deduction: answersAgree compares
-// the /16 an answer sits in, and every public address in one artifact is
-// pseudonymized into a single /16, so two disagreeing public answer sets can
-// read as agreeing. The dns_disagreement finding survives anyway because
-// reconcileDNS stamped the WARN before the snapshot was written; only the
-// resolver counterfactual is at risk, and only when neither answer is private.
+// Counterfactual alternatives are compared by what they concluded rather than
+// by value, because an address-valued alternative names the sanitized address
+// on the replayed side, which is the artifact reporting what it actually
+// holds. Whether a counterfactual exists at all, and what each alternative
+// concluded, has to match. For the resolver comparison it does only because
+// the run recorded that comparison's outcome: answersAgree reads the /16 an
+// answer sits in, and pseudonymization does not preserve it in either
+// direction, so recomputing it from a sanitized artifact is not the same
+// question the run asked.
 func TestReplayAfterSupportSanitizationKeepsTheConclusion(t *testing.T) {
 	for _, test := range diagnosisMatrix() {
 		t.Run(test.name, func(t *testing.T) {
@@ -324,9 +328,28 @@ func TestReplayAfterSupportSanitizationKeepsTheConclusion(t *testing.T) {
 					t.Errorf("finding %d = %s@%s, want %s@%s", i,
 						got.Findings[i].ID, got.Findings[i].Focus, want.Findings[i].ID, want.Findings[i].Focus)
 				}
+				if gotShape, wantShape := counterfactualShape(got.Findings[i]), counterfactualShape(want.Findings[i]); gotShape != wantShape {
+					t.Errorf("finding %d counterfactual = %q, want %q", i, gotShape, wantShape)
+				}
 			}
 		})
 	}
+}
+
+// counterfactualShape reduces a finding's counterfactual to the parts a
+// sanitized artifact has to reproduce exactly: whether there is one at all,
+// the variable it compared, and what each alternative concluded. The
+// alternative values are deliberately left out, since an address-valued one
+// names the sanitized address after a round trip.
+func counterfactualShape(f DiagnosisFinding) string {
+	if f.Counterfactual == nil {
+		return "none"
+	}
+	shape := string(f.Counterfactual.Variable)
+	for _, alternative := range f.Counterfactual.Alternatives {
+		shape += " " + string(alternative.Outcome)
+	}
+	return shape
 }
 
 // Replay reads an allowlist of probe IDs so an artifact from a future version
@@ -345,6 +368,319 @@ func TestEveryProbeTheGraphBuildsIsReplayable(t *testing.T) {
 		for _, p := range BuildProbesFromSources(target, nil, DefaultPublicDNS, true) {
 			if !replayProbeID(p.ID) {
 				t.Errorf("probe %q is in the graph but not replayable", p.ID)
+			}
+		}
+	}
+}
+
+// The two tests below are the reason Derived carries an answer comparison at
+// all. Support redaction pseudonymizes addresses without preserving the /16
+// answersAgree compares, in both directions: it keeps a public resolver's own
+// address verbatim while pseudonymizing its neighbours, and it collapses every
+// other public address in one artifact into a single block. So recomputing the
+// comparison from a sanitized artifact can invent a disagreement that never
+// happened and erase one that did. The original run made the comparison from
+// the addresses the resolvers actually returned, and that outcome is what the
+// artifact has to carry.
+//
+// Neither test asserts anything about how the redactor maps a particular
+// address. They assert only that the conclusion survives, which is what has to
+// stay true when the redactor changes.
+
+func TestReplayKeepsAnAgreementSanitizationWouldSplit(t *testing.T) {
+	target := &Target{Raw: "dns.google:443", Host: "dns.google", Port: 443, Proto: ProtoTLSHTTP, PortExplicit: true}
+	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeDNSPublic, ProbeTargetTCP, ProbeTLS, ProbeHTTPS}
+	res := map[ProbeID]ProbeResult{
+		ProbeIface:    {Status: StatusPass},
+		ProbeInternet: {Status: StatusPass},
+		// Both answers are records of the name being diagnosed and both sit in
+		// 8.8.0.0/16, so the two resolvers agree and the run is healthy. One of
+		// them is also the public resolver's own address, which is the field
+		// support redaction keeps verbatim.
+		ProbeDNS: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("8.8.4.4")}},
+		ProbeDNSPublic: {
+			Status: StatusPass, Addrs: []net.IP{net.ParseIP("8.8.8.8")},
+			resolver: "8.8.8.8", ResolverTargets: []string{"8.8.8.8:53"},
+		},
+		ProbeTargetTCP: {Status: StatusPass},
+		ProbeTLS:       {Status: StatusPass},
+		ProbeHTTPS:     {Status: StatusPass},
+	}
+
+	want, artifact := sanitizedReplayInput(t, target, order, res)
+	if want.Verdict != VerdictOK || len(want.Findings) != 0 {
+		t.Fatalf("live diagnosis = %q with %d findings, want a healthy run", want.Verdict, len(want.Findings))
+	}
+	if !sanitizedAnswersLookDifferent(t, artifact) {
+		t.Fatal("the sanitized artifact still shares a comparison prefix, so it no longer proves anything")
+	}
+	got, err := ReplaySnapshot(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range got.Findings {
+		if finding.ID == DiagnosisDNSDisagreement {
+			t.Error("replay invented a DNS disagreement the run never found")
+		}
+	}
+	assertDiagnosisSemantics(t, got, want)
+}
+
+func TestReplayKeepsADisagreementSanitizationWouldCollapse(t *testing.T) {
+	target := &Target{Raw: "example.com:443", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP, PortExplicit: true}
+	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeDNSPublic, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTP, ProbeHTTPS}
+	res := map[ProbeID]ProbeResult{
+		ProbeIface:    {Status: StatusPass},
+		ProbeInternet: {Status: StatusPass},
+		// Two public answers in different allocations: a real disagreement.
+		// Sanitization pseudonymizes both into one block, so an artifact-only
+		// comparison reads them as agreeing.
+		ProbeDNS: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("203.0.113.9")}},
+		ProbeDNSPublic: {
+			Status: StatusPass, Addrs: []net.IP{net.ParseIP("198.51.100.20")},
+			resolver: "9.9.9.9", ResolverTargets: []string{"9.9.9.9:53"},
+		},
+		// The target fails, so the headline is the target failure and the
+		// disagreement survives only as the appended DNS counterfactual: the
+		// finding this artifact could otherwise lose without changing verdict.
+		ProbeTargetTCP: {Status: StatusFail},
+		ProbePMTU:      {Status: StatusPass},
+		ProbeTLS:       {Status: StatusSkip},
+		ProbeHTTP:      {Status: StatusSkip},
+		ProbeHTTPS:     {Status: StatusSkip},
+	}
+
+	want, artifact := sanitizedReplayInput(t, target, order, res)
+	live, ok := findingByID(want, DiagnosisDNSDisagreement)
+	if !ok || live.Counterfactual == nil {
+		t.Fatalf("live diagnosis = %q with findings %v, want a DNS disagreement carrying a counterfactual",
+			want.Verdict, findingIDs(want))
+	}
+	if sanitizedAnswersLookDifferent(t, artifact) {
+		t.Fatal("the sanitized artifact still shows two comparison prefixes, so it no longer proves anything")
+	}
+	got, err := ReplaySnapshot(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, ok := findingByID(got, DiagnosisDNSDisagreement)
+	if !ok {
+		t.Fatalf("replay lost the DNS disagreement; findings = %v", findingIDs(got))
+	}
+	if !reflect.DeepEqual(replayed.Counterfactual, live.Counterfactual) {
+		t.Errorf("replayed counterfactual =\n%+v\nwant\n%+v", replayed.Counterfactual, live.Counterfactual)
+	}
+	assertDiagnosisSemantics(t, got, want)
+}
+
+// sanitizedReplayInput runs one set of live results through the whole path a
+// support artifact takes: reconciliation, interpretation, the snapshot, the
+// sanitizer, and a real encode and decode. It returns the live diagnosis and
+// the artifact replay has to reproduce it from.
+func sanitizedReplayInput(t *testing.T, target *Target, order []ProbeID, res map[ProbeID]ProbeResult) (Diagnosis, snapshot.Snapshot) {
+	t.Helper()
+	probes := make([]Probe, len(order))
+	for i, id := range order {
+		probes[i] = Probe{ID: id, Name: string(id)}
+	}
+	Finalize(res)
+	want := Interpret(target, order, res)
+	data, err := snapshot.Encode(snapshot.SanitizeForSupport(BuildSnapshot(target, probes, res)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := snapshot.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return want, artifact
+}
+
+// sanitizedAnswersLookDifferent reports what answersAgree would conclude from
+// the artifact's own addresses, which is the wrong answer both tests above are
+// built to produce. It is a guard on the fixtures rather than an assertion
+// about the redactor: if a change to pseudonymization stops rewriting these
+// addresses the way each test needs, the test says so instead of passing for
+// the wrong reason.
+func sanitizedAnswersLookDifferent(t *testing.T, artifact snapshot.Snapshot) bool {
+	t.Helper()
+	answers := map[ProbeID][]net.IP{}
+	for _, check := range artifact.Checks {
+		if check.Observed == nil {
+			continue
+		}
+		ips, err := replayIPs("address", check.Observed.Addresses)
+		if err != nil {
+			t.Fatal(err)
+		}
+		answers[ProbeID(check.ID)] = ips
+	}
+	system, public := answers[ProbeDNS], answers[ProbeDNSPublic]
+	if len(system) == 0 || len(public) == 0 {
+		t.Fatalf("the sanitized artifact kept no answers to compare: system %v, public %v", system, public)
+	}
+	return !answersAgree(system, public)
+}
+
+func findingIDs(d Diagnosis) []DiagnosisID {
+	ids := make([]DiagnosisID, 0, len(d.Findings))
+	for _, finding := range d.Findings {
+		ids = append(ids, finding.ID)
+	}
+	return ids
+}
+
+// The recorded outcome is the authoritative one wherever it exists, so a
+// refactor that quietly went back to reading the addresses fails here rather
+// than only on a sanitized artifact, where the two disagree.
+func TestRecordedAnswerComparisonOutranksTheAddresses(t *testing.T) {
+	system := ProbeResult{Addrs: []net.IP{net.ParseIP("203.0.113.9")}}
+	elsewhere := []net.IP{net.ParseIP("198.51.100.20")}
+	sameBlock := []net.IP{net.ParseIP("203.0.113.10")}
+	tests := []struct {
+		name       string
+		comparison answerComparison
+		addrs      []net.IP
+		want       bool
+	}{
+		{"agreement outranks addresses in different blocks", comparisonAgree, elsewhere, false},
+		{"disagreement outranks addresses in one block", comparisonDisagree, sameBlock, true},
+		{"nothing recorded falls back to the addresses", comparisonUnrecorded, elsewhere, true},
+		{"nothing recorded agrees on one block", comparisonUnrecorded, sameBlock, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			independent := ProbeResult{Addrs: test.addrs, answerComparison: test.comparison}
+			if got := dnsAnswersDisagree(system, independent); got != test.want {
+				t.Fatalf("dnsAnswersDisagree = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+// Replay refuses an artifact whose derived state no reasoning pass could have
+// produced, rather than restoring it and reasoning from it anyway.
+func TestReplayRejectsImpossibleAnswerComparisons(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      ProbeID
+		status  Status
+		value   snapshot.AnswerComparison
+		answers []string
+	}{
+		// Answers are what a comparison is made of, so neither outcome can
+		// have been reached on a row that recorded none.
+		{"agreement without answers to compare", ProbeDNSPublic, StatusPass, snapshot.AnswerComparisonAgree, nil},
+		{"disagreement without answers to compare", ProbeDNSPublic, StatusWarn, snapshot.AnswerComparisonDisagree, nil},
+		// The comparison is defined for the independent DNS row alone, which
+		// these rows are not, however well formed the rest of the row is.
+		{"agreement on a row nothing compares", ProbeDNS, StatusPass, snapshot.AnswerComparisonAgree, []string{"198.51.100.20"}},
+		{"disagreement on a row nothing compares", ProbeTargetTCP, StatusWarn, snapshot.AnswerComparisonDisagree, []string{"198.51.100.20"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			check := snapshot.Check{ID: string(test.id), Derived: &snapshot.Derived{AnswerComparison: test.value}}
+			if len(test.answers) > 0 {
+				check.Observed = &snapshot.Observed{Addresses: test.answers}
+			}
+			if _, err := replayResult(test.id, test.status, check); err == nil {
+				t.Fatal("replayResult accepted an artifact no run could have written")
+			}
+		})
+	}
+}
+
+// The one status pairing deliberately left open: agreement is what the current
+// producer records on the PASS row it leaves alone, and a later reconciliation
+// rule could warn that row for an unrelated reason without making a recorded
+// agreement false.
+func TestReplayAcceptsAgreementOnEitherStatus(t *testing.T) {
+	for _, status := range []Status{StatusPass, StatusWarn} {
+		check := snapshot.Check{
+			ID:       string(ProbeDNSPublic),
+			Derived:  &snapshot.Derived{AnswerComparison: snapshot.AnswerComparisonAgree},
+			Observed: &snapshot.Observed{Addresses: []string{"198.51.100.20"}},
+		}
+		result, err := replayResult(ProbeDNSPublic, status, check)
+		if err != nil {
+			t.Fatalf("%s: %v", status, err)
+		}
+		if result.answerComparison != comparisonAgree {
+			t.Fatalf("%s: comparison = %v, want agree", status, result.answerComparison)
+		}
+	}
+}
+
+// TestEveryReconciledDNSStateReplays is the producer/replay symmetry guard.
+// reconcileDNS records the answer comparison before the switch under it picks
+// which arm rewrites the row, so the two can drift: reordering an arm could
+// leave a comparison serialized on a row replay then refuses, and the artifact
+// this tool wrote would be one this tool cannot read. Sweeping the
+// reconciliation inputs rather than sampling them is what makes that drift fail
+// here instead of on a support capture nobody can open. It asserts only that
+// the round trip is accepted and preserves the comparison, never what the
+// diagnosis concluded from it.
+func TestEveryReconciledDNSStateReplays(t *testing.T) {
+	answers := []struct {
+		name string
+		ips  []net.IP
+	}{
+		{"no answers", nil},
+		{"one allocation", []net.IP{net.ParseIP("203.0.113.9")}},
+		{"another allocation", []net.IP{net.ParseIP("198.51.100.20")}},
+	}
+	var states []struct {
+		name   string
+		result ProbeResult
+	}
+	for _, status := range []Status{StatusPass, StatusWarn, StatusFail, StatusNA, StatusSkip} {
+		for _, answer := range answers {
+			for _, notFound := range []bool{false, true} {
+				states = append(states, struct {
+					name   string
+					result ProbeResult
+				}{
+					fmt.Sprintf("%s/%s/notfound=%t", status, answer.name, notFound),
+					ProbeResult{Status: status, Addrs: answer.ips, DNSNotFound: notFound, resolver: "9.9.9.9"},
+				})
+			}
+		}
+	}
+
+	probes := []Probe{{ID: ProbeDNS, Name: "DNS"}, {ID: ProbeDNSPublic, Name: "Public DNS"}}
+	for _, system := range states {
+		for _, public := range states {
+			res := map[ProbeID]ProbeResult{ProbeDNS: system.result, ProbeDNSPublic: public.result}
+			Finalize(res)
+			want := res[ProbeDNSPublic].answerComparison
+			data, err := snapshot.Encode(BuildSnapshot(nil, probes, res))
+			if err != nil {
+				t.Fatalf("system %s, public %s: encode: %v", system.name, public.name, err)
+			}
+			artifact, err := snapshot.Decode(data)
+			if err != nil {
+				t.Fatalf("system %s, public %s: decode: %v", system.name, public.name, err)
+			}
+			if _, err := ReplaySnapshot(artifact); err != nil {
+				t.Errorf("system %s, public %s: replay refused an artifact this producer wrote: %v",
+					system.name, public.name, err)
+				continue
+			}
+			stored := artifact.Checks[1]
+			if stored.ID != string(ProbeDNSPublic) {
+				t.Fatalf("snapshot check 1 = %q, want the independent DNS row", stored.ID)
+			}
+			status, err := replayStatus(stored.Status)
+			if err != nil {
+				t.Fatalf("system %s, public %s: %v", system.name, public.name, err)
+			}
+			got, err := replayResult(ProbeDNSPublic, status, stored)
+			if err != nil {
+				t.Fatalf("system %s, public %s: %v", system.name, public.name, err)
+			}
+			if got.answerComparison != want {
+				t.Errorf("system %s, public %s: replayed comparison = %v, want the recorded %v",
+					system.name, public.name, got.answerComparison, want)
 			}
 		}
 	}

@@ -1109,3 +1109,19 @@ func TestComparesHowThePublicResolverWasChosenAndNotJustWhichOne(t *testing.T) {
 		t.Errorf("changes = %v, want none between two identical runs", paths)
 	}
 }
+
+// Whether the two resolvers were found to point at the same place is a
+// conclusion, not a reading, and the addresses on the rows cannot stand in for
+// it: a support artifact keeps the conclusion and only pseudonyms of the
+// answers that produced it. Two runs that went from agreeing to disagreeing
+// must therefore not compare as identical.
+func TestAnswerComparisonIsItsOwnDifference(t *testing.T) {
+	before, after := fixture(t), fixture(t)
+	check(t, &before, "dns_public").Derived = &snapshot.Derived{AnswerComparison: snapshot.AnswerComparisonAgree}
+	check(t, &after, "dns_public").Derived = &snapshot.Derived{AnswerComparison: snapshot.AnswerComparisonDisagree}
+
+	got := changeAt(t, Snapshots(before, after), "checks.dns_public.derived.answer_comparison")
+	if got.Before != string(snapshot.AnswerComparisonAgree) || got.After != string(snapshot.AnswerComparisonDisagree) {
+		t.Errorf("change = %+v, want the resolvers to stop agreeing", got)
+	}
+}

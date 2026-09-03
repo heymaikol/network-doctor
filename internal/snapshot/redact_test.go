@@ -463,3 +463,36 @@ func TestSanitizeKeepsWhetherThePublicResolverWasChosen(t *testing.T) {
 		}
 	}
 }
+
+// The answer comparison is the one conclusion in the artifact that cannot be
+// recomputed after sanitization: it was drawn from the addresses the resolvers
+// returned, and those are gone. So the sanitizer has to carry it through
+// unchanged, in both directions. It carries no address, prefix, operator, or
+// routability of its own, which is why copying it is allowed at all.
+func TestSupportKeepsTheRecordedAnswerComparison(t *testing.T) {
+	for _, comparison := range []AnswerComparison{AnswerComparisonAgree, AnswerComparisonDisagree} {
+		s := Snapshot{
+			Schema: Schema, CreatedAt: "2026-08-25T17:00:00Z",
+			Checks: []Check{{
+				ID: "dns_public", Name: "Public DNS", Status: StatusWarn, Ran: true, DurationMs: 1,
+				Derived:  &Derived{AnswerComparison: comparison},
+				Observed: &Observed{Resolver: "9.9.9.9", Addresses: []string{"198.51.100.20"}},
+			}},
+			Diagnosis: Diagnosis{Verdict: "degraded", Summary: "The resolvers answer differently."},
+		}
+		data, err := Encode(SanitizeForSupport(s))
+		if err != nil {
+			t.Fatalf("Encode %q: %v", comparison, err)
+		}
+		decoded, err := Decode(data)
+		if err != nil {
+			t.Fatalf("Decode %q: %v", comparison, err)
+		}
+		if got := decoded.Checks[0].Derived.AnswerComparison; got != comparison {
+			t.Errorf("sanitized answer comparison = %q, want %q", got, comparison)
+		}
+		if strings.Contains(string(data), "198.51.100.20") {
+			t.Errorf("keeping the comparison also kept the answer it was drawn from:\n%s", data)
+		}
+	}
+}

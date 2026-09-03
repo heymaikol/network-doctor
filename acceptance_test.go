@@ -21,9 +21,11 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/report"
 )
 
@@ -37,6 +39,14 @@ var nativeReferenceDestinations = []netip.Addr{
 }
 
 const nativeObservationAttempts = 3
+
+// The prepared-route case needs a topology no hosted runner has, so it is
+// opt-in. Requiring it separately exists so a job that meant to run it cannot
+// go green having quietly skipped it.
+const (
+	preparedTargetEnv        = "NETDOC_ACCEPTANCE_TARGET"
+	requirePreparedTargetEnv = "NETDOC_REQUIRE_ACCEPTANCE_TARGET"
+)
 
 // hostRoute is what the platform's own route tool answered about one
 // destination. A field the tool does not report stays zero.
@@ -90,9 +100,9 @@ func TestNativeSelectedInterfaceIsTheOneTheKernelRoutesThrough(t *testing.T) {
 	var check report.Check
 	var kernel map[netip.Addr]kernelRouteObservation
 	for attempt := 1; attempt <= nativeObservationAttempts; attempt++ {
-		before := kernelRouteObservations(t)
+		before := kernelRouteObservations(t, nativeReferenceDestinations)
 		check = nativeIfaceCheck(t, bin)
-		after := kernelRouteObservations(t)
+		after := kernelRouteObservations(t, nativeReferenceDestinations)
 		if reflect.DeepEqual(before, after) {
 			kernel = after
 			break
@@ -153,9 +163,9 @@ func TestNativeRouteEvidenceMatchesTheHostRouteTool(t *testing.T) {
 	var check report.Check
 	var observed map[netip.Addr]hostRouteObservation
 	for attempt := 1; attempt <= nativeObservationAttempts; attempt++ {
-		before := hostRouteObservations(t)
+		before := hostRouteObservations(t, nativeReferenceDestinations)
 		check = nativeIfaceCheck(t, bin)
-		after := hostRouteObservations(t)
+		after := hostRouteObservations(t, nativeReferenceDestinations)
 		if reflect.DeepEqual(before, after) {
 			observed = after
 			break
@@ -200,6 +210,221 @@ func TestNativeRouteEvidenceMatchesTheHostRouteTool(t *testing.T) {
 	}
 	if reachable == 0 {
 		t.Fatalf("no reachable reference route to check against %s: %+v", hostRouteTool, check.Routes)
+	}
+}
+
+// TestNativePreparedTargetRouteMatchesTheHostRouteTool checks the route
+// evidence netdoc publishes for a user-supplied target against the platform's
+// own route tool, on a host where a route narrower than the default covers that
+// target and leaves by a different interface. A hosted runner only ever routes
+// to a default route, so the entry-level half of netdoc's reason vocabulary is
+// never exercised there against real kernel data.
+//
+// The prepared state is observed, never created: this test reads routes and
+// opens a connected datagram socket, and changes nothing about the host.
+func TestNativePreparedTargetRouteMatchesTheHostRouteTool(t *testing.T) {
+	raw, dst := preparedTarget(t)
+	reference := nativeReferenceFor(t, dst)
+	dsts := []netip.Addr{dst, reference}
+	bin := buildNetdoc(t)
+
+	var host map[netip.Addr]hostRouteObservation
+	var kernel map[netip.Addr]kernelRouteObservation
+	var got report.Report
+	for attempt := 1; attempt <= nativeObservationAttempts; attempt++ {
+		beforeHost, beforeKernel := hostRouteObservations(t, dsts), kernelRouteObservations(t, dsts)
+		// The exit code is deliberately ignored. A prepared destination with
+		// nothing listening fails its TCP row and still carries the route
+		// evidence, which is decided before any dial is attempted.
+		got, _ = runNetdoc(t, bin, "--json", "--check", "target_tcp", raw)
+		afterHost, afterKernel := hostRouteObservations(t, dsts), kernelRouteObservations(t, dsts)
+		if reflect.DeepEqual(beforeHost, afterHost) && reflect.DeepEqual(beforeKernel, afterKernel) {
+			host, kernel = afterHost, afterKernel
+			break
+		}
+		t.Logf("host route state changed during observation %d:\nbefore %+v %+v\nafter  %+v %+v",
+			attempt, beforeHost, beforeKernel, afterHost, afterKernel)
+	}
+	if host == nil {
+		t.Fatalf("route state for %s and %s did not stay stable across %d bounded observations", dst, reference, nativeObservationAttempts)
+	}
+
+	// The topology is established by the operating system alone, before any
+	// netdoc output is read. Opting in is a claim that this host is prepared,
+	// so an unprepared one is a failure and never a skip.
+	hostTarget, hostReference := host[dst].Route, host[reference].Route
+	if !host[dst].Found {
+		t.Fatalf("%s found no route to prepared target %s; set %s to a destination this host has a prepared route for", hostRouteTool, dst, preparedTargetEnv)
+	}
+	if !host[reference].Found {
+		t.Fatalf("%s found no route to reference destination %s, so there is no general egress path to compare the prepared one against", hostRouteTool, reference)
+	}
+	if !hostReference.Prefix.IsValid() || hostReference.Prefix.Bits() != 0 {
+		t.Fatalf("%s matched entry %v for reference destination %s, want a true default route: this host is not in the default-plus-specific shape the test requires",
+			hostRouteTool, hostReference.Prefix, reference)
+	}
+	if !hostTarget.Prefix.IsValid() || hostTarget.Prefix.Bits() == 0 {
+		t.Fatalf("%s matched entry %v for prepared target %s, want a route narrower than the default: the prepared route is missing", hostRouteTool, hostTarget.Prefix, dst)
+	}
+	if hostTarget.Iface == hostReference.Iface {
+		t.Fatalf("%s routes both prepared target %s and reference destination %s through %q; the prepared route must leave by a different interface",
+			hostRouteTool, dst, reference, hostTarget.Iface)
+	}
+
+	// netdoc's own reference evidence is checked against the oracle before it
+	// is used as the other half of the split comparison, so that comparison
+	// never rests on two readings of the same netdoc output.
+	reported, ok := routesByDestination(t, reportCheck(t, got, "iface"))[reference]
+	if !ok {
+		t.Fatalf("the interface row carries no route to reference destination %s: %+v", reference, got.Checks)
+	}
+	if reported.Interface != hostReference.Iface {
+		t.Fatalf("%s routes reference destination %s through %q, netdoc reported %q; the general egress path must agree before the prepared one is read against it",
+			hostRouteTool, reference, hostReference.Iface, reported.Interface)
+	}
+	if entry := mustPrefix(t, reported.Prefix); entry != hostReference.Prefix {
+		t.Fatalf("%s matched entry %v for reference destination %s, netdoc reported %q", hostRouteTool, hostReference.Prefix, reference, reported.Prefix)
+	}
+
+	// An IP literal resolves to exactly itself, so the target row describes one
+	// address and there is no second decision to pick the convenient one from.
+	targetRoutes := routesByDestination(t, reportCheck(t, got, "target_tcp"))
+	r, ok := targetRoutes[dst]
+	if !ok || len(targetRoutes) != 1 {
+		t.Fatalf("the target row carries %+v, want exactly one route, to %s", targetRoutes, dst)
+	}
+	if r.Unreachable {
+		t.Fatalf("%s routes %s through %q, but netdoc reported no route", hostRouteTool, dst, hostTarget.Iface)
+	}
+	if r.Interface != hostTarget.Iface {
+		t.Errorf("%s routes %s through %q, netdoc reported %q", hostRouteTool, dst, hostTarget.Iface, r.Interface)
+	}
+	if entry := mustPrefix(t, r.Prefix); entry != hostTarget.Prefix {
+		t.Errorf("%s matched entry %v for %s, netdoc reported %q", hostRouteTool, hostTarget.Prefix, dst, r.Prefix)
+	}
+	if gateway := optionalReportedAddr(t, r.Gateway); gateway != hostTarget.Gateway {
+		t.Errorf("%s reports next hop %v for %s, netdoc reported %q", hostRouteTool, hostTarget.Gateway, dst, r.Gateway)
+	}
+	if hostTarget.Source.IsValid() {
+		assertRouteToolSource(t, dst, r, hostTarget.Source)
+	} else if observed := kernel[dst]; observed.Err == "" {
+		// macOS route -n get reports no source, so the kernel's own selection
+		// for a connected socket is the independent answer there.
+		assertReportedSource(t, r, observed.Source, observed.Owners)
+	} else {
+		t.Errorf("neither %s nor a connected socket could name a source for %s: %s", hostRouteTool, dst, observed.Err)
+	}
+	if r.Interface == reported.Interface {
+		t.Errorf("netdoc routed %s and reference destination %s through the same interface %q, while %s routes them through %q and %q",
+			dst, reference, r.Interface, hostRouteTool, hostTarget.Iface, hostReference.Iface)
+	}
+	if want := expectedPreparedReason(hostTarget.Prefix); r.Reason != want {
+		t.Errorf("netdoc explained %s as %q; the entry %s matched makes it %q", dst, r.Reason, hostTarget.Prefix, want)
+	}
+	assertLinkClassificationPresent(t, r)
+	// Recorded rather than asserted. A correctly prepared WireGuard or utun
+	// link commonly reports "likely" with no kind, and an Ethernet-shaped
+	// virtual adapter reports "direct", so neither value can be ground truth
+	// for whether a tunnel is present.
+	t.Logf("prepared target %s via %q %s reason=%q tunnel=%q kind=%q mtu=%d; reference %s via %q %s",
+		dst, r.Interface, r.Prefix, r.Reason, r.Tunnel, r.TunnelKind, r.InterfaceMTU, reference, reported.Interface, reported.Prefix)
+}
+
+// preparedTarget reads the opt-in destination. Only an absent variable is a
+// skip, and even that becomes a failure once the caller declared the prepared
+// state present.
+func preparedTarget(t *testing.T) (string, netip.Addr) {
+	t.Helper()
+	value, configured := os.LookupEnv(preparedTargetEnv)
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		const need = "this test needs an externally prepared host where a route narrower than the default covers that IP literal and leaves by a different interface"
+		// Present but blank is a configured case, not an absent one. A job
+		// whose value expanded to nothing did ask for this run, and reading
+		// that as a host nobody opted in on is how a configured case goes
+		// green having quietly skipped, so it is read apart from unset.
+		if configured {
+			t.Fatalf("%s is set to %q, which names no destination: %s", preparedTargetEnv, value, need)
+		}
+		if os.Getenv(requirePreparedTargetEnv) == "1" {
+			t.Fatalf("%s is set, so an absent %s is a failure rather than a skip: %s", requirePreparedTargetEnv, preparedTargetEnv, need)
+		}
+		t.Skipf("%s is not set: %s", preparedTargetEnv, need)
+	}
+	dst, err := preparedTargetAddr(raw)
+	if err != nil {
+		t.Fatalf("%s=%q: %v", preparedTargetEnv, value, err)
+	}
+	return raw, dst
+}
+
+// preparedTargetAddr accepts the destination in netdoc's own target grammar, so
+// the spelling this test validates is the spelling the binary is given, and
+// requires an IP literal: a name would let a resolver choose which route is
+// under test, and the route decision being checked is made per address.
+func preparedTargetAddr(raw string) (netip.Addr, error) {
+	target, err := diagnostic.ParseTarget(raw)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	if target.IP == nil {
+		return netip.Addr{}, fmt.Errorf("%q is a hostname; the prepared route must be named by an IP literal such as 10.20.0.5, 10.20.0.5:443 or [2001:db8::5]:443", raw)
+	}
+	addr, ok := netip.AddrFromSlice(target.IP)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("%q parsed to an unusable address", raw)
+	}
+	return addr.Unmap().WithZone(""), nil
+}
+
+func nativeReferenceFor(t *testing.T, dst netip.Addr) netip.Addr {
+	t.Helper()
+	for _, reference := range nativeReferenceDestinations {
+		if reference.Is4() == dst.Is4() {
+			return reference
+		}
+	}
+	t.Fatalf("no independently known reference destination for the address family of %s", dst)
+	return netip.Addr{}
+}
+
+// expectedPreparedReason is the explanation the prepared topology forces, read
+// off the matched entry the route tool reported rather than off netdoc.
+//
+// Only these two are reachable once the preconditions hold. Unreachable and
+// default-route are excluded by the topology the oracle proved, and the
+// lower-metric branch cannot apply because competing routes are recorded beside
+// reference decisions only, never beside the per-address lookups a target row
+// carries. This is why it can be two lines instead of a second copy of the
+// production rule.
+func expectedPreparedReason(matched netip.Prefix) string {
+	if matched.Bits() == matched.Addr().BitLen() {
+		return "host_route"
+	}
+	return "more_specific_than_default"
+}
+
+func TestNativePreparedTargetConfiguration(t *testing.T) {
+	for _, raw := range []string{"10.20.0.5", "10.20.0.5:443", "[2001:db8::5]:443", "2001:db8::5"} {
+		got, err := preparedTargetAddr(raw)
+		if err != nil || !got.IsValid() {
+			t.Errorf("preparedTargetAddr(%q) = %v, %v, want the literal it names", raw, got, err)
+		}
+	}
+	for _, raw := range []string{"example.com", "example.com:443", "https://example.com", ""} {
+		if got, err := preparedTargetAddr(raw); err == nil {
+			t.Errorf("preparedTargetAddr(%q) = %v, want a rejection: a name would let a resolver choose the route under test", raw, got)
+		}
+	}
+	for _, c := range []struct{ prefix, want string }{
+		{"10.20.0.5/32", "host_route"},
+		{"2001:db8::5/128", "host_route"},
+		{"10.20.0.0/16", "more_specific_than_default"},
+		{"2001:db8::/64", "more_specific_than_default"},
+	} {
+		if got := expectedPreparedReason(netip.MustParsePrefix(c.prefix)); got != c.want {
+			t.Errorf("expectedPreparedReason(%s) = %q, want %q", c.prefix, got, c.want)
+		}
 	}
 }
 
@@ -261,10 +486,10 @@ func assertLinkClassificationPresent(t *testing.T, r report.Route) {
 	}
 }
 
-func kernelRouteObservations(t *testing.T) map[netip.Addr]kernelRouteObservation {
+func kernelRouteObservations(t *testing.T, dsts []netip.Addr) map[netip.Addr]kernelRouteObservation {
 	t.Helper()
-	out := make(map[netip.Addr]kernelRouteObservation, len(nativeReferenceDestinations))
-	for _, dst := range nativeReferenceDestinations {
+	out := make(map[netip.Addr]kernelRouteObservation, len(dsts))
+	for _, dst := range dsts {
 		source, err := kernelEgressSource(t, dst)
 		if err != nil {
 			out[dst] = kernelRouteObservation{Err: err.Error()}
@@ -277,10 +502,10 @@ func kernelRouteObservations(t *testing.T) map[netip.Addr]kernelRouteObservation
 	return out
 }
 
-func hostRouteObservations(t *testing.T) map[netip.Addr]hostRouteObservation {
+func hostRouteObservations(t *testing.T, dsts []netip.Addr) map[netip.Addr]hostRouteObservation {
 	t.Helper()
-	out := make(map[netip.Addr]hostRouteObservation, len(nativeReferenceDestinations))
-	for _, dst := range nativeReferenceDestinations {
+	out := make(map[netip.Addr]hostRouteObservation, len(dsts))
+	for _, dst := range dsts {
 		route, found := hostRouteLookup(t, dst)
 		out[dst] = hostRouteObservation{Route: route, Found: found}
 	}
@@ -339,23 +564,17 @@ func interfacesHolding(t *testing.T, ip netip.Addr) []string {
 	return names
 }
 
-func referenceRoutes(t *testing.T, check report.Check) map[netip.Addr]report.Route {
+// routesByDestination indexes one check's route evidence by destination. A
+// duplicate or a family label that disagrees with the address it labels is a
+// defect in the row itself, so both are caught here rather than by whichever
+// caller happened to look.
+func routesByDestination(t *testing.T, check report.Check) map[netip.Addr]report.Route {
 	t.Helper()
-	if len(check.Routes) != len(nativeReferenceDestinations) {
-		t.Fatalf("interface routes = %+v, want exactly the independently known reference destinations %v", check.Routes, nativeReferenceDestinations)
-	}
-	want := map[netip.Addr]bool{}
-	for _, dst := range nativeReferenceDestinations {
-		want[dst] = true
-	}
 	got := make(map[netip.Addr]report.Route, len(check.Routes))
 	for _, r := range check.Routes {
 		dst := mustAddr(t, r.Destination)
-		if !want[dst] {
-			t.Fatalf("interface row reported unexpected reference destination %s; want %v", dst, nativeReferenceDestinations)
-		}
 		if _, duplicate := got[dst]; duplicate {
-			t.Fatalf("interface row reported reference destination %s more than once", dst)
+			t.Fatalf("the %s row reported destination %s more than once", check.ID, dst)
 		}
 		family := "ipv6"
 		if dst.Is4() {
@@ -365,6 +584,18 @@ func referenceRoutes(t *testing.T, check report.Check) map[netip.Addr]report.Rou
 			t.Errorf("route to %s reports family %q, want %q", dst, r.Family, family)
 		}
 		got[dst] = r
+	}
+	return got
+}
+
+func referenceRoutes(t *testing.T, check report.Check) map[netip.Addr]report.Route {
+	t.Helper()
+	got := routesByDestination(t, check)
+	// Equal counts plus every wanted destination present is what rules out an
+	// extra one, so a production reference the oracle was never asked about
+	// cannot slip through unexamined.
+	if len(got) != len(nativeReferenceDestinations) {
+		t.Fatalf("interface routes = %+v, want exactly the independently known reference destinations %v", check.Routes, nativeReferenceDestinations)
 	}
 	for _, dst := range nativeReferenceDestinations {
 		if _, ok := got[dst]; !ok {
@@ -380,16 +611,21 @@ func nativeIfaceCheck(t *testing.T, bin string) report.Check {
 	if code != 0 {
 		t.Fatalf("netdoc exited %d for its interface-only run: %+v", code, got)
 	}
-	for _, check := range got.Checks {
-		if check.ID != "iface" {
-			continue
-		}
-		if check.Status != "PASS" {
-			t.Fatalf("interface row = %+v, want PASS: this host has no usable interface to check", check)
-		}
-		return check
+	check := reportCheck(t, got, "iface")
+	if check.Status != "PASS" {
+		t.Fatalf("interface row = %+v, want PASS: this host has no usable interface to check", check)
 	}
-	t.Fatalf("no interface row in %+v", got.Checks)
+	return check
+}
+
+func reportCheck(t *testing.T, got report.Report, id string) report.Check {
+	t.Helper()
+	for _, check := range got.Checks {
+		if check.ID == id {
+			return check
+		}
+	}
+	t.Fatalf("no %q row in %+v", id, got.Checks)
 	return report.Check{}
 }
 

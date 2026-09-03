@@ -447,6 +447,24 @@ local decisions, while the drill-down checks stay on loopback. It keeps
 `-count=1` so a cached result can never stand in for a run that actually touched
 the host.
 
+One acceptance test is opt-in, because no hosted runner has the topology it
+needs. `TestNativePreparedTargetRouteMatchesTheHostRouteTool` checks the route
+evidence netdoc publishes for a user-supplied target against the platform's own
+route tool on a host where a route narrower than the default covers that target
+and leaves by a different interface, which is how a split tunnel or a lab route
+over a second adapter looks. Set `NETDOC_ACCEPTANCE_TARGET` to the destination
+as an IP literal (`10.20.0.5`, `10.20.0.5:443` or `[2001:db8::5]:443`; a
+hostname is rejected, so no resolver picks which route is under test), and
+nothing needs to listen on it. Without the variable the test skips, while a
+variable that is present but empty fails, so a job whose value expanded to
+nothing hears about it; set `NETDOC_REQUIRE_ACCEPTANCE_TARGET=1` to turn the
+remaining skip into a failure too, so a job meant to run it cannot go green
+having skipped it. Once opted in, a host that is not actually in that shape
+fails rather than skips. The test only observes: it reads routes and opens a
+connected datagram socket, and never creates, changes, or removes a route,
+interface, tunnel, address, or firewall rule. Preparing that state is a manual
+step on a real machine, so CI sets neither variable.
+
 Three layers of evidence sit behind a release, and none of them substitutes for
 another:
 

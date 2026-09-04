@@ -17,7 +17,9 @@ authoritative reference is split by topic, all version-controlled beside the
 code it documents:
 
 - **[Scenario authoring](simulation-scenarios.md)**: the YAML schema, service
-  and fault semantics, adding or changing a scenario.
+  and fault semantics, adding or changing a scenario, and the published
+  [JSON Schema](../schema/simulation-scenario-v1.schema.json) editors validate
+  scenario files against.
 - **[Hunts and triage](simulation-hunts.md)**: deterministic campaigns,
   generated bug hunts, and nightly triage automation.
 - **[Challenge Mode](simulation-challenge.md)**: commands, the daily

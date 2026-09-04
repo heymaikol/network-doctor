@@ -42,6 +42,40 @@ Use
 [`broken-dns.yaml`](../internal/simulation/scenarios/broken-dns.yaml) as the
 complete, validated single-segment example.
 
+### Editor and tooling schema
+
+A machine-readable [JSON
+Schema](../schema/simulation-scenario-v1.schema.json) for scenario YAML is
+published at `schema/simulation-scenario-v1.schema.json`, in Draft 2020-12.
+Point an editor at it for field names, property completion, and enum
+completion while authoring. It describes the v1 scenario input the parser
+already accepts rather than proposing a replacement for it, so no existing
+scenario needs changing to satisfy it.
+
+What it catches is what a schema can see without a topology: misspelled and
+unknown keys, which every object rejects because the parser decodes with
+`KnownFields(true)`; wrong types; the fields a scenario cannot omit; and the
+closed vocabularies, meaning service and fault types, node roles, proxy
+schemes, certificate modes, DNS and link outcomes, and the expected probe ids,
+statuses, verdicts, causes and address-family states.
+
+`netdoc-sim validate` remains authoritative for semantic and cross-reference
+validation. The schema describes the structural v1 input the parser accepts
+before defaults and normalization, and it is designed not to reject a
+structurally valid file merely to make the format cleaner: known zero, empty,
+and default compatibility cases the parser accepts (`port: 0`, `status: 0`,
+`portal: false`, an empty string or list) validate here too. The
+cross-reference and topology-aware rules stay in Go: that exactly one node is a
+client, that referenced names exist and are unique, that an address sits inside
+its segment, that a gateway is on-link, that durations and percentages parse,
+that scheduled offsets increase, and that a service or fault carries only the
+options its type supports. Schema-valid does not imply semantically valid; a
+file that passes the schema can still be rejected by `netdoc-sim validate`.
+
+Network Doctor validates every built-in scenario against the file and compares
+each frozen vocabulary and every `yaml:` field against the Go source, so the
+published schema cannot fall behind the parser.
+
 ### Deterministic NXDOMAIN scenario
 
 The built-in `dns-nxdomain` scenario represents an office printer whose

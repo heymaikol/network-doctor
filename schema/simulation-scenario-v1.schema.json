@@ -1,0 +1,698 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/heymaikol/network-doctor/main/schema/simulation-scenario-v1.schema.json",
+  "title": "Network Doctor simulation scenario",
+  "description": "The YAML document `netdoc-sim` reads for one scenario: a topology to build, faults to inject, netdoc runs to make, and the diagnosis those runs should produce. It describes the input the existing parser accepts rather than proposing a new format. JSON Schema describes YAML here because the scenario model is ordinary objects, arrays and scalars. Every object forbids additional properties, because the parser decodes with KnownFields(true) and rejects an unrecognized key; the exception is a DNS zone, whose property names are the hostnames the scenario author chooses. This file is deliberately less strict than `netdoc-sim validate`, and never stricter: it describes what may be written, before defaults and normalization, so an explicit zero value the parser accepts (`port: 0`, `status: 0`, `portal: false`, an empty string, an empty list, a null pointer field) validates here too. Cross-reference and topology-aware rules stay with the Go validator, which remains authoritative: that exactly one node is a client, that names referenced elsewhere exist and are unique, that an address is inside its segment, that a gateway is on-link, that a duration or percentage parses, that scheduled offsets increase, and that a service or fault carries only the options its type supports. A file that validates against this schema can still be rejected by `netdoc-sim validate`. An enumeration appears only where the accepted vocabulary is closed for every shape the field can appear in; a field the parser leaves unvalidated for some types, such as a `drop` fault's direction and protocol on other fault types, stays open outside the condition that closes it.",
+  "$ref": "#/$defs/Scenario",
+  "$defs": {
+    "Scenario": {
+      "type": "object",
+      "title": "Scenario",
+      "description": "One simulation. `expect` is listed as required because a scenario whose expectation is entirely empty is rejected: it has to claim a verdict, a summary, some checks, or a combination.",
+      "required": ["name", "topology", "tests", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The scenario's name. Required and non-empty."
+        },
+        "description": {
+          "type": "string",
+          "description": "What the scenario models and what it is a control for. Free prose."
+        },
+        "topology": { "$ref": "#/$defs/Topology" },
+        "faults": {
+          "type": "array",
+          "description": "Impairments applied after the topology is up and healthy.",
+          "items": { "$ref": "#/$defs/Fault" }
+        },
+        "tests": {
+          "type": "array",
+          "description": "The netdoc runs to make. At least one is required.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Test" }
+        },
+        "expect": { "$ref": "#/$defs/Expect" },
+        "campaign": {
+          "description": "Bounded ranges a seeded campaign resolves per iteration. Absent, or explicitly null, means an ordinary single run.",
+          "oneOf": [{ "$ref": "#/$defs/CampaignSpec" }, { "type": "null" }]
+        }
+      }
+    },
+
+    "Topology": {
+      "type": "object",
+      "title": "Topology",
+      "description": "L2 segments, node interfaces and routes. `subnet` is the single-segment shorthand the original scenarios use; validation normalizes it into a segment named `lan` plus one interface per node, and it cannot be combined with explicit segments, interfaces or routes.",
+      "required": ["nodes"],
+      "additionalProperties": false,
+      "properties": {
+        "subnet": {
+          "type": "string",
+          "description": "IPv4 CIDR shorthand for a single-segment topology, defaulting to 10.77.0.0/24 when the whole key is omitted and no segments are given."
+        },
+        "segments": {
+          "type": "array",
+          "description": "The explicit multi-segment form. One entry per simulator-owned bridge.",
+          "items": { "$ref": "#/$defs/Segment" }
+        },
+        "nodes": {
+          "type": "array",
+          "description": "The network namespaces to build. At least one is required, and exactly one of them must have role client.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Node" }
+        },
+        "routes": {
+          "type": "array",
+          "description": "Explicit unicast routes. Only valid alongside explicit segments; the shorthand form derives its default route from each node's gateway.",
+          "items": { "$ref": "#/$defs/Route" }
+        }
+      }
+    },
+
+    "Segment": {
+      "type": "object",
+      "title": "Segment",
+      "description": "One logical L2 segment. `subnet` and `ipv4` are alternate spellings of the same prefix and cannot be combined; at least one of the three prefixes is required.",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/safeName" },
+        "subnet": { "type": "string", "description": "Backward-compatible spelling of ipv4." },
+        "ipv4": { "type": "string", "description": "IPv4 prefix in CIDR form." },
+        "ipv6": { "type": "string", "description": "IPv6 prefix in CIDR form." }
+      }
+    },
+
+    "Node": {
+      "type": "object",
+      "title": "Node",
+      "description": "One network namespace. `address` and `gateway` are the single-segment shorthand and cannot be combined with explicit interfaces.",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/safeName" },
+        "role": {
+          "$ref": "#/$defs/nodeRole",
+          "description": "client marks the namespace netdoc runs in. Omitted, or empty, becomes server."
+        },
+        "address": {
+          "type": "string",
+          "description": "Bare IPv4 address for the shorthand topology form."
+        },
+        "interfaces": {
+          "type": "array",
+          "description": "The explicit multi-segment form: one interface per segment this node attaches to.",
+          "items": { "$ref": "#/$defs/Interface" }
+        },
+        "aliases": {
+          "type": "array",
+          "description": "Extra addresses placed on the node's loopback, which is how the simulated internet claims netdoc's compiled-in probe endpoints.",
+          "items": { "type": "string" }
+        },
+        "gateway": {
+          "type": "string",
+          "description": "Default next hop for the shorthand topology form."
+        },
+        "resolver": {
+          "type": "string",
+          "description": "The address written into this node's resolv.conf."
+        },
+        "services": {
+          "type": "array",
+          "description": "Test servers this node runs, bound inside its own namespace.",
+          "items": { "$ref": "#/$defs/Service" }
+        }
+      }
+    },
+
+    "Interface": {
+      "type": "object",
+      "title": "Interface",
+      "description": "Attaches a node to one logical segment. `address` and `ipv4` are alternate spellings and cannot be combined; at least one of the three addresses is required. The kernel interface name is derived, never written here.",
+      "required": ["segment"],
+      "additionalProperties": false,
+      "properties": {
+        "segment": { "type": "string", "description": "The name of a segment declared in topology.segments." },
+        "address": { "type": "string", "description": "Backward-compatible spelling of ipv4, in CIDR form." },
+        "ipv4": { "type": "string", "description": "IPv4 address in CIDR form, with the segment's prefix length." },
+        "ipv6": { "type": "string", "description": "IPv6 address in CIDR form, with the segment's prefix length." }
+      }
+    },
+
+    "Route": {
+      "type": "object",
+      "title": "Route",
+      "description": "One unicast route. The destination is either the literal `default` or a canonical prefix; free-form iproute expressions cannot be spelled. The next hop must be on a directly connected subnet of the node.",
+      "required": ["node", "destination", "via"],
+      "additionalProperties": false,
+      "properties": {
+        "node": { "type": "string", "description": "The node the route is installed in." },
+        "destination": { "type": "string", "description": "`default`, or a prefix in CIDR form." },
+        "via": { "type": "string", "description": "The next-hop address." },
+        "metric": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "description": "Route metric. Omitted is 0."
+        }
+      }
+    },
+
+    "Service": {
+      "type": "object",
+      "title": "Service",
+      "description": "One test server. Each type accepts only its own options and the Go validator rejects the rest, which this schema does not attempt to reproduce: the parser cannot tell an omitted field from one explicitly written as its zero value, so every property stays permitted here for every type. A port of 0, or an absent port, selects the type's default (53 for dns, 80 for http, 443 for tls, quic and encrypted_dns, 1080 for socks5, 3128 for http_connect); tcp and tcp_reset have no default and need one.",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/optionalSafeName",
+          "description": "Optional, and required only when something else in the scenario identifies this service by name, which tls, quic and encrypted_dns always do. Non-empty names are unique across the topology."
+        },
+        "type": { "$ref": "#/$defs/serviceType" },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Listen port inside the node's namespace. 0, like an absent key, asks for the type's default."
+        },
+        "banner": {
+          "type": "string",
+          "description": "One bounded, newline-terminated greeting a tcp fixture writes before draining the connection. At most 1024 bytes."
+        },
+        "zone": {
+          "type": "object",
+          "description": "Static name to address records for a dns or encrypted_dns fixture. A name that is absent answers NXDOMAIN. Property names are the hostnames the scenario chooses, so they are not constrained here.",
+          "additionalProperties": { "type": "string" }
+        },
+        "records": {
+          "type": "array",
+          "description": "The ordered multi-record form of the same static zone. Zone and records together are limited to 64 records.",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/DNSRecord" }
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 599,
+          "description": "HTTP status an http fixture replies with. 0, like an absent key, means 200; otherwise 100 to 599."
+        },
+        "body": { "type": "string", "description": "HTTP response body." },
+        "date_offset": {
+          "type": "string",
+          "description": "Moves the HTTP Date header relative to the server clock, in Go duration syntax. Empty leaves the ordinary header alone."
+        },
+        "portal": {
+          "type": "boolean",
+          "description": "Makes an http fixture intercept the connectivity checks the way a captive portal does. The sign-in URL is the simulator's; a scenario selects the behaviour, not the URL."
+        },
+        "certificate": {
+          "description": "Simulator-generated TLS identity. Required by tls, quic and encrypted_dns. Scenarios select intent only: no keys, PEM, paths or algorithms.",
+          "oneOf": [{ "$ref": "#/$defs/TLSCertificate" }, { "type": "null" }]
+        },
+        "dns_fault": {
+          "description": "A bounded, precomputed response schedule for a dns fixture, consumed per queried name and query type.",
+          "oneOf": [{ "$ref": "#/$defs/DNSFault" }, { "type": "null" }]
+        },
+        "doh_response": {
+          "$ref": "#/$defs/dohResponse",
+          "description": "The encrypted-DNS fixture's DoH response mode. Empty serves a valid DNS message; invalid serves protocol-invalid bytes over DoH only, leaving DoT as an independent control."
+        }
+      }
+    },
+
+    "DNSRecord": {
+      "type": "object",
+      "title": "DNSRecord",
+      "description": "One static A or AAAA answer. The record type is derived from the address, so a scenario cannot claim an A record while supplying IPv6 bytes.",
+      "required": ["name", "address"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "The hostname this record answers for." },
+        "address": { "type": "string", "description": "The address to answer with." }
+      }
+    },
+
+    "TLSCertificate": {
+      "type": "object",
+      "title": "TLSCertificate",
+      "description": "The narrow certificate intent a TLS-bearing service accepts.",
+      "required": ["mode", "dns_names"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "$ref": "#/$defs/tlsCertificateMode" },
+        "dns_names": {
+          "type": "array",
+          "description": "The names the generated leaf certificate carries. Hostnames, never IP literals, and at least one.",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "DNSFault": {
+      "type": "object",
+      "title": "DNSFault",
+      "description": "One deterministic response sequence per query family. Every queried name walks its family's sequence independently, and answers normally once the sequence is exhausted. At least one outcome is required across the two families, and at most 256. A wrong address is required by, and only by, a wrong_answer outcome in the same family.",
+      "additionalProperties": false,
+      "properties": {
+        "a": {
+          "type": "array",
+          "description": "The A-query outcome sequence.",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/dnsFaultOutcome" }
+        },
+        "aaaa": {
+          "type": "array",
+          "description": "The AAAA-query outcome sequence.",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/dnsFaultOutcome" }
+        },
+        "wrong_a": { "type": "string", "description": "The IPv4 address a wrong_answer A outcome returns." },
+        "wrong_aaaa": { "type": "string", "description": "The IPv6 address a wrong_answer AAAA outcome returns." }
+      }
+    },
+
+    "Fault": {
+      "type": "object",
+      "title": "Fault",
+      "description": "One impairment. Which properties a type actually reads is enforced by the Go validator and mostly not here, because the parser cannot distinguish an omitted field from an explicit zero value. `node` is not listed as required because a scheduled_dns fault derives its node from the named service; every other type needs one.",
+      "required": ["type"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "drop" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "direction": { "$ref": "#/$defs/dropDirection" },
+              "protocol": { "$ref": "#/$defs/dropProtocol" },
+              "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "type": { "$ref": "#/$defs/faultType" },
+        "node": { "type": "string", "description": "The node the fault is applied in." },
+        "segment": { "type": "string", "description": "Selects one of the node's interfaces by logical segment name. Optional on a single-interface node for netem and the scheduled variants." },
+        "via": { "type": "string", "description": "The replacement next hop, used only by replace_default_route." },
+        "metric": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "description": "The replacement route's metric, used only by replace_default_route."
+        },
+        "family": {
+          "$ref": "#/$defs/addressFamily",
+          "description": "Restricts a route fault to one family. Empty preserves the original IPv4 behaviour."
+        },
+        "to": { "type": "string", "description": "Destination address a drop fault matches. Empty matches every destination." },
+        "protocol": { "type": "string", "description": "Protocol a drop fault matches: tcp, udp, or empty for every protocol. Other fault types do not read it." },
+        "port": { "type": "integer", "description": "Port a drop fault matches; 0 matches every port. Other fault types do not read it." },
+        "direction": { "type": "string", "description": "Where a drop fault bites: outbound is refused at the sender, inbound is a black hole the sender waits out. Empty is outbound. Other fault types do not read it." },
+        "delay": { "type": "string", "description": "netem delay, in Go duration syntax, at most 10s." },
+        "jitter": { "type": "string", "description": "netem jitter, in Go duration syntax, at most 10s. Needs a delay to vary." },
+        "loss": { "type": "string", "description": "netem loss as a percentage such as \"10%\"." },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Makes tc netem's pseudo-random sequence reproducible. 0 asks tc for its default."
+        },
+        "mtu": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1499,
+          "description": "The size pmtu_blackhole narrows the named router interface to: 576 to 1499, and at least 1280 when the interface carries IPv6."
+        },
+        "service": {
+          "type": "string",
+          "description": "The named dns service a scheduled_dns fault drives. Its node is derived from it."
+        },
+        "events": {
+          "type": "array",
+          "description": "The timed transition list of a scheduled_* fault, resolved before the topology exists. At most 16 per fault, and 64 across the scenario.",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/ScheduledEvent" }
+        }
+      }
+    },
+
+    "ScheduledEvent": {
+      "type": "object",
+      "title": "ScheduledEvent",
+      "description": "One timed change. Offsets are measured from a single simulation epoch, must not exceed 30s, and must strictly increase within a fault. Which of the remaining properties an event may carry follows from its fault's type and is left to the Go validator.",
+      "required": ["at"],
+      "additionalProperties": false,
+      "properties": {
+        "at": { "type": "string", "description": "Offset from T0, in Go duration syntax, such as \"700ms\"." },
+        "latency": { "type": "string", "description": "scheduled_netem latency, in Go duration syntax, at most 10s." },
+        "jitter": { "type": "string", "description": "scheduled_netem jitter, in Go duration syntax, at most 10s. Needs a latency to vary." },
+        "loss_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "scheduled_netem loss. All three netem properties absent means an unimpaired link."
+        },
+        "outcome": {
+          "$ref": "#/$defs/scheduledDNSOutcome",
+          "description": "The scheduled_dns response behaviour this event moves the resolver to."
+        },
+        "delay": {
+          "type": "string",
+          "description": "How late the delay outcome answers, in Go duration syntax, greater than 0 and at most 5s. Required by, and only by, that outcome."
+        },
+        "state": { "$ref": "#/$defs/linkState", "description": "The scheduled_link transition." }
+      }
+    },
+
+    "Test": {
+      "type": "object",
+      "title": "Test",
+      "description": "One netdoc run inside a node. An absent or empty target runs the generic no-target checks, exactly as `netdoc` with no argument does.",
+      "required": ["node"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Label for the run. Derived from the node and target when absent." },
+        "type": { "$ref": "#/$defs/testType", "description": "Absent or empty means netdoc, the only type." },
+        "node": { "type": "string", "description": "The node to run netdoc in." },
+        "target": { "type": "string", "description": "What to diagnose, parsed by the same target parser the CLI uses." },
+        "source_segment": { "type": "string", "description": "Pins the run to one of the node's interfaces by logical segment name." },
+        "proxy": {
+          "description": "Hands netdoc a proxy through the environment. The address is derived from the validated node; a raw proxy URL cannot be written.",
+          "oneOf": [{ "$ref": "#/$defs/TestProxy" }, { "type": "null" }]
+        },
+        "trust": {
+          "description": "Hands netdoc the public root of one validated TLS service through SSL_CERT_FILE.",
+          "oneOf": [{ "$ref": "#/$defs/TestTrust" }, { "type": "null" }]
+        },
+        "expect": {
+          "description": "Overrides the scenario-level expectation for this run only.",
+          "oneOf": [{ "$ref": "#/$defs/Expect" }, { "type": "null" }]
+        }
+      }
+    },
+
+    "TestProxy": {
+      "type": "object",
+      "title": "TestProxy",
+      "description": "Selects one proxy service and the URL scheme netdoc receives. socks5 and socks5h select a socks5 service, http selects an http_connect service.",
+      "required": ["scheme", "node"],
+      "additionalProperties": false,
+      "properties": {
+        "scheme": { "$ref": "#/$defs/proxyScheme" },
+        "node": { "type": "string", "description": "The node running the proxy service." },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "The proxy port. 0, like an absent key, means the scheme's default: 1080 for socks5 and socks5h, 3128 for http."
+        }
+      }
+    },
+
+    "TestTrust": {
+      "type": "object",
+      "title": "TestTrust",
+      "description": "Selects the public root generated by one validated tls service. Scenarios cannot supply environment names, paths or certificate bytes.",
+      "required": ["service"],
+      "additionalProperties": false,
+      "properties": {
+        "service": { "type": "string", "description": "The name of a tls service in the topology." }
+      }
+    },
+
+    "Expect": {
+      "type": "object",
+      "title": "Expect",
+      "description": "The diagnosis the scenario claims netdoc should reach. A verdict, a summary, some checks, or a combination: an expectation that is empty in all three is rejected.",
+      "additionalProperties": false,
+      "properties": {
+        "verdict": { "$ref": "#/$defs/verdict", "description": "netdoc's machine-readable verdict. Empty asserts nothing about it." },
+        "summary": { "type": "string", "description": "Pins the user-facing one-line diagnosis." },
+        "checks": {
+          "type": "array",
+          "description": "Probe rows and the results they should carry. Each probe id appears at most once.",
+          "items": { "$ref": "#/$defs/ExpectedCheck" }
+        }
+      }
+    },
+
+    "ExpectedCheck": {
+      "type": "object",
+      "title": "ExpectedCheck",
+      "description": "One probe row and its expected result. A cause requires a FAIL or WARN status.",
+      "required": ["id", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/probeID" },
+        "status": { "$ref": "#/$defs/status" },
+        "cause": { "$ref": "#/$defs/cause", "description": "The machine-readable failure cause. Empty asserts nothing about it." },
+        "fix": { "type": "string", "description": "Pins the user-facing remedy." },
+        "ipv4": { "$ref": "#/$defs/familyState", "description": "The expected IPv4 reachability of this row. Empty asserts nothing about it." },
+        "ipv6": { "$ref": "#/$defs/familyState", "description": "The expected IPv6 reachability of this row. Empty asserts nothing about it." }
+      }
+    },
+
+    "CampaignSpec": {
+      "type": "object",
+      "title": "CampaignSpec",
+      "description": "Bounded ranges only. Compilation resolves every range before a node or goroutine starts, so a scenario file carries no expression and nothing executable. At least one of netem, dns, timeline or dns_delay is required.",
+      "additionalProperties": false,
+      "properties": {
+        "runs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Iterations to run. 0, like an absent key, means 10; otherwise 1 to 1000."
+        },
+        "netem": {
+          "description": "Sweeps latency, jitter and loss on one node interface.",
+          "oneOf": [{ "$ref": "#/$defs/CampaignNetem" }, { "type": "null" }]
+        },
+        "dns": {
+          "description": "Sweeps the failure rate of one named dns service.",
+          "oneOf": [{ "$ref": "#/$defs/CampaignDNS" }, { "type": "null" }]
+        },
+        "timeline": {
+          "description": "Generates one bounded flapping timeline per iteration.",
+          "oneOf": [{ "$ref": "#/$defs/CampaignTimeline" }, { "type": "null" }]
+        },
+        "dns_delay": {
+          "description": "Sweeps one resolver delay, which walks a probe timeout boundary without varying anything else.",
+          "oneOf": [{ "$ref": "#/$defs/CampaignDNSDelay" }, { "type": "null" }]
+        }
+      }
+    },
+
+    "CampaignTimeline": {
+      "type": "object",
+      "title": "CampaignTimeline",
+      "description": "A generated flapping timeline whose shape is fixed: healthy, then degraded for 400ms, then healthy for 400ms, then a total outage, then healthy again. Only when degradation starts, how bad it is, and how long the outage lasts vary, so a failing iteration is still readable.",
+      "required": ["node", "segment", "latency", "degrade_at", "outage_for"],
+      "additionalProperties": false,
+      "properties": {
+        "node": { "type": "string", "description": "The node whose interface the timeline impairs." },
+        "segment": { "type": "string", "description": "Which of that node's interfaces, by logical segment name." },
+        "service": { "type": "string", "description": "A named dns service that also loses its responses for the outage window." },
+        "resolver_hold": {
+          "type": "string",
+          "description": "The delay that service opens with, in Go duration syntax, greater than 0 and at most 5s. Required when service is named: it paces the run so the generated phases actually overlap a probe."
+        },
+        "latency": { "type": "string", "description": "The fixed healthy latency every phase carries, in Go duration syntax." },
+        "degrade_at": { "$ref": "#/$defs/DurationRange", "description": "When degradation starts. The minimum must be positive." },
+        "degrade_loss_percent": { "$ref": "#/$defs/NumberRange", "description": "How much loss the degraded phase carries." },
+        "outage_for": { "$ref": "#/$defs/DurationRange", "description": "How long the total outage lasts. The longest generated timeline must still fit inside 30s." }
+      }
+    },
+
+    "CampaignDNSDelay": {
+      "type": "object",
+      "title": "CampaignDNSDelay",
+      "description": "Sweeps the delay one named dns service holds every answer for.",
+      "required": ["service", "delay"],
+      "additionalProperties": false,
+      "properties": {
+        "service": { "type": "string", "description": "The named dns service to delay." },
+        "delay": { "$ref": "#/$defs/DurationRange", "description": "The swept delay. Positive minimum, at most 5s." }
+      }
+    },
+
+    "CampaignNetem": {
+      "type": "object",
+      "title": "CampaignNetem",
+      "description": "Sweeps netem parameters on one node interface. Latency and jitter are both parsed even when a sweep only cares about one of them, so both ranges are required.",
+      "required": ["node", "segment", "latency", "jitter"],
+      "additionalProperties": false,
+      "properties": {
+        "node": { "type": "string", "description": "The node whose interface is impaired." },
+        "segment": { "type": "string", "description": "Which of that node's interfaces, by logical segment name." },
+        "latency": { "$ref": "#/$defs/DurationRange", "description": "Swept latency, at most 10s." },
+        "jitter": { "$ref": "#/$defs/DurationRange", "description": "Swept jitter, at most 10s." },
+        "loss_percent": { "$ref": "#/$defs/NumberRange", "description": "Swept loss." }
+      }
+    },
+
+    "CampaignDNS": {
+      "type": "object",
+      "title": "CampaignDNS",
+      "description": "Sweeps how often one named dns service fails.",
+      "required": ["service", "queries_per_type"],
+      "additionalProperties": false,
+      "properties": {
+        "service": { "type": "string", "description": "The named dns service to impair." },
+        "queries_per_type": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "How long a precomputed outcome sequence to generate per query type."
+        },
+        "failure_percent": { "$ref": "#/$defs/NumberRange", "description": "Swept share of queries that fail." }
+      }
+    },
+
+    "DurationRange": {
+      "type": "object",
+      "title": "DurationRange",
+      "description": "An inclusive range of Go durations. Both ends are parsed, so both are required, and they must satisfy 0 <= min <= max <= the bound of whatever is being swept.",
+      "required": ["min", "max"],
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": "string", "description": "Lower bound, in Go duration syntax." },
+        "max": { "type": "string", "description": "Upper bound, in Go duration syntax." }
+      }
+    },
+
+    "NumberRange": {
+      "type": "object",
+      "title": "NumberRange",
+      "description": "An inclusive numeric range. Every use is a percentage, so both ends lie between 0 and 100, and an absent end is 0.",
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": "number", "minimum": 0, "maximum": 100, "description": "Lower bound." },
+        "max": { "type": "number", "minimum": 0, "maximum": 100, "description": "Upper bound." }
+      }
+    },
+
+    "safeName": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*$",
+      "description": "A name that reaches a command argument as a namespace or interface name: at most 32 letters, digits or dashes, not starting with a dash."
+    },
+
+    "optionalSafeName": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^([A-Za-z0-9][A-Za-z0-9-]*)?$",
+      "description": "The same name, where an empty one is also allowed."
+    },
+
+    "serviceType": {
+      "enum": ["dns", "http", "tcp", "socks5", "http_connect", "tls", "quic", "encrypted_dns", "tcp_reset"],
+      "description": "The test servers the simulator can run."
+    },
+
+    "faultType": {
+      "enum": [
+        "drop", "netem", "no_default_route", "replace_default_route", "link_down", "pmtu_blackhole",
+        "scheduled_netem", "scheduled_dns", "scheduled_link"
+      ],
+      "description": "The impairments the simulator can apply. The scheduled_ ones change an already-built topology while netdoc is running."
+    },
+
+    "nodeRole": {
+      "enum": ["", "client", "server", "router"],
+      "description": "Empty is accepted and becomes server."
+    },
+
+    "testType": {
+      "enum": ["", "netdoc"],
+      "description": "Empty is accepted and becomes netdoc."
+    },
+
+    "proxyScheme": {
+      "enum": ["socks5", "socks5h", "http"],
+      "description": "The public URL scheme netdoc is given for the proxy."
+    },
+
+    "addressFamily": {
+      "enum": ["", "ipv4", "ipv6"],
+      "description": "Empty leaves the family unrestricted, which for a route fault preserves the original IPv4 behaviour."
+    },
+
+    "dropDirection": {
+      "enum": ["", "outbound", "inbound"],
+      "description": "Empty is outbound."
+    },
+
+    "dropProtocol": {
+      "enum": ["", "tcp", "udp"],
+      "description": "Empty matches every protocol, and then a port cannot be given."
+    },
+
+    "tlsCertificateMode": {
+      "enum": ["valid", "expired", "not_yet_valid", "hostname_mismatch"],
+      "description": "The certificate defect, if any, the simulator generates."
+    },
+
+    "dohResponse": {
+      "enum": ["", "invalid"],
+      "description": "Empty serves a valid DNS message."
+    },
+
+    "dnsFaultOutcome": {
+      "enum": ["answer", "servfail", "refused", "truncated", "wrong_answer"],
+      "description": "One step of a per-query response schedule."
+    },
+
+    "scheduledDNSOutcome": {
+      "enum": ["", "answer", "servfail", "drop", "delay"],
+      "description": "A scheduled resolver state: answering, SERVFAIL, silence, or a bounded delay. Empty is accepted only on an event belonging to a fault that is not scheduled_dns."
+    },
+
+    "linkState": {
+      "enum": ["", "up", "down"],
+      "description": "A scheduled link transition. Empty is accepted only on an event belonging to a fault that is not scheduled_link."
+    },
+
+    "probeID": {
+      "enum": [
+        "iface", "ssid", "internet_tcp", "quic_udp_443", "proxy_connect", "dns", "dns_public",
+        "dns_encrypted", "target_tcp", "path_mtu", "tls", "http", "https", "ssh_banner", "smtp_banner"
+      ],
+      "description": "The probe rows a scenario may assert on. A newly added probe has to be listed in the simulator before a scenario can name it."
+    },
+
+    "status": {
+      "enum": ["PASS", "WARN", "FAIL", "SKIP", "N/A"],
+      "description": "netdoc's status vocabulary as it appears in the JSON report. INCOMPLETE is absent on purpose: a finished run never reports it."
+    },
+
+    "verdict": {
+      "enum": ["", "ok", "degraded", "dns", "network", "service"],
+      "description": "netdoc's verdict vocabulary. Empty asserts nothing. `incomplete` is absent on purpose: a finished run never reports it, so expecting it is always a scenario bug."
+    },
+
+    "familyState": {
+      "enum": ["", "reachable", "unreachable"],
+      "description": "The per-family reachability a check row can carry. Empty asserts nothing."
+    },
+
+    "cause": {
+      "enum": [
+        "", "proxy_unreachable", "client_dns_failure", "proxy_side_dns_failure",
+        "destination_unreachable_from_proxy", "proxy_protocol_failure", "quic_handshake_failure",
+        "encrypted_dns_unavailable", "certificate_expired", "certificate_not_yet_valid",
+        "hostname_mismatch", "untrusted_issuer", "tls_handshake_failure", "tcp_unreachable",
+        "timeout", "connection_closed", "no_default_route", "gateway_unreachable",
+        "selected_path_failed", "preferred_route_failed", "ipv4_unreachable", "ipv6_unreachable",
+        "dns_timeout", "dns_temporary_failure", "connection_refused", "connection_reset"
+      ],
+      "description": "The machine-readable failure causes a scenario may assert on. Empty asserts nothing."
+    }
+  }
+}

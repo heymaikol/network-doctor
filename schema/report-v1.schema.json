@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/heymaikol/network-doctor/main/schema/report-v1.schema.json",
+  "title": "Network Doctor diagnostic report",
+  "description": "The JSON document `netdoc --json` writes to stdout for one diagnosis, and the same object `netdoc --via host --json` prints for a run performed on another machine. It describes the existing public contract rather than proposing a new one. Under `--json --watch` each NDJSON line is one instance of this schema with an added `ts`. Other machine-readable outputs are separate contracts and are not described here: `--profile` emits an aggregate result that carries reports under `components[].report`, `--compare` and `--two-sided` emit their own documents, `--peer-listen`/`--peer-connect` emit a peer result, a `.ndoc` snapshot is the `netdoc.snapshot.v1` artifact, and the `--via` worker protocol is internal. No object here forbids additional properties, deliberately: the report is additive within v1, the documented rule for readers is to ignore keys they do not recognize and to treat an absent optional field as \"not known\" rather than as zero, and a consumer pinned to this file must keep validating against a newer netdoc. Producer-side drift is caught by Network Doctor's own tests instead, which compare every serialized field and every closed vocabulary against this file. Enumerations appear only where the repository publishes a closed vocabulary; identities documented as growing over time (finding and remediation ids, check ids, failure causes, tunnel kinds) stay open strings.",
+  "$ref": "#/$defs/Report",
+  "$defs": {
+    "Report": {
+      "type": "object",
+      "title": "Report",
+      "description": "One finished diagnosis.",
+      "required": ["version", "target", "checks", "summary", "verdict", "ok"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "The netdoc build that produced the report. A local build reports \"dev\"."
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this pass ran, RFC 3339 in UTC. Present only under `--json --watch`, where the output is a stream of one report per line. A one-shot report carries none."
+        },
+        "target": {
+          "description": "The endpoint under test, and null in generic (no-target) mode.",
+          "oneOf": [{ "$ref": "#/$defs/Target" }, { "type": "null" }]
+        },
+        "checks": {
+          "type": "array",
+          "description": "Every check the run built, in probe order, including the ones that never reported.",
+          "items": { "$ref": "#/$defs/Check" }
+        },
+        "summary": {
+          "type": "string",
+          "description": "The plain-English headline. Reworded freely between versions; branch on verdict and finding ids instead."
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict",
+          "description": "The summary as a machine-readable class."
+        },
+        "failed_stage": {
+          "type": "string",
+          "description": "The id of the first check that failed. Omitted when none did."
+        },
+        "findings": {
+          "type": "array",
+          "description": "The specific conclusions the diagnosis drew, most important first. Omitted when the run reached none.",
+          "items": { "$ref": "#/$defs/Finding" }
+        },
+        "ok": {
+          "type": "boolean",
+          "description": "True when no check failed and every check reported. False implies exit code 1."
+        }
+      }
+    },
+    "Target": {
+      "type": "object",
+      "title": "Target",
+      "required": ["host", "port", "protocol"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "The hostname or IP literal as the run resolved it from the argument."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "The effective TCP port: explicit, else the scheme default, else 443."
+        },
+        "protocol": {
+          "$ref": "#/$defs/protocol",
+          "description": "Which protocol-specific rows the run added on top of the TCP check."
+        }
+      }
+    },
+    "Check": {
+      "type": "object",
+      "title": "Check",
+      "description": "One probe row. Optional fields are omitted when empty, and an absent field is unknown rather than zero.",
+      "required": ["id", "name", "status", "ms", "detail"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The stable probe id, such as iface, dns, internet_tcp, target_tcp or tls. New rows are added over time, so this is not a closed vocabulary."
+        },
+        "name": {
+          "type": "string",
+          "description": "The row's display name. Presentation text, not an identity."
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "cause": {
+          "type": "string",
+          "description": "A stable machine-readable reason, present on the failures where one probe has materially different remediation paths. The values are per-probe vocabularies documented in docs/reference.md and grow as probes learn to classify more, so this stays an open string."
+        },
+        "address_families": { "$ref": "#/$defs/Families" },
+        "ms": {
+          "type": "integer",
+          "description": "Wall time in milliseconds, truncated but floored at 1, so 0 means the check never ran."
+        },
+        "detail": {
+          "type": "string",
+          "description": "What the row observed, as prose. Never parsed back."
+        },
+        "fix": {
+          "type": "string",
+          "description": "The one-line remedy this row wrote about itself. Omitted where there is nothing useful to suggest."
+        },
+        "addrs": {
+          "type": "array",
+          "description": "The addresses a lookup returned.",
+          "items": { "type": "string" }
+        },
+        "resolver_targets": {
+          "type": "array",
+          "description": "DNS service addresses recorded as dialed. Attempt evidence, not proof of which server answered.",
+          "items": { "type": "string" }
+        },
+        "selected_ip": {
+          "type": "string",
+          "description": "The address this probe used."
+        },
+        "source": {
+          "type": "string",
+          "description": "The local source address the probe left from."
+        },
+        "iface": {
+          "type": "string",
+          "description": "The local interface name the probe used."
+        },
+        "network": {
+          "type": "string",
+          "description": "The connected network's name, such as an SSID."
+        },
+        "portal": { "$ref": "#/$defs/Portal" },
+        "attempts": {
+          "type": "array",
+          "description": "Per-address connection attempts.",
+          "items": { "$ref": "#/$defs/Attempt" }
+        },
+        "routes": {
+          "type": "array",
+          "description": "The operating system's own route decision for each destination this check was about. Omitted where the platform cannot be asked, which is not the same as having no route.",
+          "items": { "$ref": "#/$defs/Route" }
+        }
+      }
+    },
+    "Families": {
+      "type": "object",
+      "title": "Families",
+      "description": "Independently tested reachability per address family. A family that was never dialed has its key omitted, which reads as untested rather than unreachable, so an empty object is legal.",
+      "properties": {
+        "ipv4": { "$ref": "#/$defs/familyState" },
+        "ipv6": { "$ref": "#/$defs/familyState" }
+      }
+    },
+    "Portal": {
+      "type": "object",
+      "title": "Portal",
+      "description": "Present when HTTP interception was corroborated by both fixed connectivity endpoints. The object itself is the claim, so it can be empty.",
+      "properties": {
+        "redirect_url": {
+          "type": "string",
+          "description": "The sign-in URL one of those responses supplied. Displayed, never opened by netdoc."
+        }
+      }
+    },
+    "Attempt": {
+      "type": "object",
+      "title": "Attempt",
+      "description": "One connection attempt against a single address.",
+      "required": ["ip", "ms"],
+      "properties": {
+        "ip": { "type": "string" },
+        "ms": {
+          "type": "integer",
+          "description": "Wall time in milliseconds, floored at 1 the same way a check's is."
+        },
+        "error": {
+          "type": "string",
+          "description": "The dial error, sanitized. Omitted when the attempt succeeded."
+        },
+        "cause": {
+          "type": "string",
+          "description": "The same open per-probe cause vocabulary a check carries."
+        },
+        "aborted": {
+          "type": "boolean",
+          "description": "Present and true when cancellation or the enclosing probe deadline ended this attempt, so it is not evidence that the address itself failed."
+        }
+      }
+    },
+    "Route": {
+      "type": "object",
+      "title": "Route",
+      "description": "One destination's selected path as the operating system reported it. Every field the platform did not supply is absent rather than zero.",
+      "required": ["destination"],
+      "properties": {
+        "destination": { "type": "string" },
+        "family": { "$ref": "#/$defs/routeFamily" },
+        "interface": { "type": "string" },
+        "gateway": {
+          "type": "string",
+          "description": "The next hop. Absent when the destination is on-link."
+        },
+        "source": { "type": "string" },
+        "prefix": {
+          "type": "string",
+          "description": "The route entry that matched, on the platforms that name one."
+        },
+        "metric": {
+          "type": "integer",
+          "description": "The route's preference metric. Absent when the platform reported none, which is why it is never written as 0."
+        },
+        "table": {
+          "type": "string",
+          "description": "The routing table or routing domain the decision came from. The main table is written as an absent value, so this needs table_known to be read."
+        },
+        "table_known": {
+          "type": "boolean",
+          "description": "Present and true when the platform named a routing domain at all. Absent means unknown, never the main table."
+        },
+        "interface_mtu": {
+          "type": "integer",
+          "description": "The selected link's own MTU, never a measured path MTU."
+        },
+        "tunnel": { "$ref": "#/$defs/tunnel" },
+        "tunnel_kind": {
+          "type": "string",
+          "description": "The encapsulating device kind the operating system itself named, such as wireguard, tun, gre or ppp. Whatever the platform reports, so not a closed vocabulary."
+        },
+        "unreachable": {
+          "type": "boolean",
+          "description": "Present and true when the operating system had no route to this destination."
+        },
+        "reason": { "$ref": "#/$defs/routeReason" },
+        "competing": {
+          "type": "array",
+          "description": "The routes that lost, where seeing them is what explains the decision. Usually absent.",
+          "items": { "$ref": "#/$defs/CompetingRoute" }
+        }
+      }
+    },
+    "CompetingRoute": {
+      "type": "object",
+      "title": "CompetingRoute",
+      "required": ["metric"],
+      "properties": {
+        "interface": { "type": "string" },
+        "metric": { "type": "integer" }
+      }
+    },
+    "Finding": {
+      "type": "object",
+      "title": "Finding",
+      "description": "One thing the run proved wrong.",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The stable identity to branch on. New ids are added over time, so treat an unrecognized one as \"some specific problem\" and fall back to verdict."
+        },
+        "focus": {
+          "type": "string",
+          "description": "The check id whose detail and fix belong to this conclusion. Omitted when the conclusion is about no single row."
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence",
+          "description": "How strongly the observations support this finding as an explanation. Absent from a producer that predates the field, which is not the same as low."
+        },
+        "evidence": {
+          "type": "array",
+          "description": "The compatibility projection: unique observed check ids in reasoning order, focus first.",
+          "items": { "type": "string" }
+        },
+        "causal_evidence": {
+          "type": "array",
+          "description": "The typed form of the same reasoning, which may also name a relevant check that was not evaluated. Absent means this producer recorded no explanation, never that alternatives were tested.",
+          "items": { "$ref": "#/$defs/CausalEvidence" }
+        },
+        "counterfactual": { "$ref": "#/$defs/Counterfactual" },
+        "remediation": { "$ref": "#/$defs/Remediation" }
+      }
+    },
+    "CausalEvidence": {
+      "type": "object",
+      "title": "CausalEvidence",
+      "description": "One typed relationship to an observation carried by a check row.",
+      "required": ["kind", "check"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/evidenceKind" },
+        "check": {
+          "type": "string",
+          "description": "The check id the fact came from. Always present, and empty where the item is about no single row."
+        },
+        "observation": {
+          "$ref": "#/$defs/observation",
+          "description": "The typed identity of the observed field. The value itself stays on the referenced check."
+        },
+        "value": {
+          "type": "string",
+          "description": "The member of a structured observation, such as an address family or one attempted address. Absent for whole-row observations."
+        },
+        "candidate": {
+          "type": "string",
+          "description": "The alternative finding id this fact weakens or excludes. Present only on contradiction and ruled_out items, and open for the same reason a finding id is."
+        },
+        "reason": {
+          "$ref": "#/$defs/notEvaluatedReason",
+          "description": "Why the relevant check supplied no observation. Present only on not_evaluated items."
+        }
+      }
+    },
+    "Counterfactual": {
+      "type": "object",
+      "title": "Counterfactual",
+      "description": "The controlled alternatives behind a conclusion, observed during the same run.",
+      "required": ["variable", "alternatives"],
+      "properties": {
+        "variable": {
+          "type": "string",
+          "description": "What changed between the alternatives, such as the resolver, the address family, or the resolved address. Left open because the repository publishes no closed list of these."
+        },
+        "alternatives": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CounterfactualAlternative" }
+        }
+      }
+    },
+    "CounterfactualAlternative": {
+      "type": "object",
+      "title": "CounterfactualAlternative",
+      "required": ["value", "outcome", "evidence"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "The setting of the variable this alternative was observed under."
+        },
+        "outcome": {
+          "type": "string",
+          "description": "What was observed under it. Left open for the same reason variable is."
+        },
+        "evidence": {
+          "type": "array",
+          "description": "Causal evidence the finding already carries, referenced rather than copied.",
+          "items": { "$ref": "#/$defs/CausalEvidence" }
+        }
+      }
+    },
+    "Remediation": {
+      "type": "object",
+      "title": "Remediation",
+      "description": "The structured next action for a finding. Carried by the primary finding when the diagnosis supports advice.",
+      "required": ["id", "action"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The stable identity of this advice. New ids are added over time, so treat an unrecognized one as \"some specific advice\" and show action and steps."
+        },
+        "action": {
+          "type": "string",
+          "description": "The imperative next step, in one line."
+        },
+        "why": {
+          "type": "string",
+          "description": "What makes that action the right one given this run's evidence."
+        },
+        "steps": {
+          "type": "array",
+          "description": "The action broken down, in the order worth trying.",
+          "items": { "type": "string" }
+        },
+        "command": {
+          "type": "array",
+          "description": "A safe read-only command as an argv, never a shell string, and never run by netdoc.",
+          "items": { "type": "string" }
+        },
+        "expect": {
+          "type": "string",
+          "description": "What success looks like, so a reader knows whether a rerun is worth it yet."
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "description": "A check's outcome. INCOMPLETE is the one value no probe can return: the check was in the run's check set and never reported, which is what a cancelled or interrupted run leaves behind. It is never a pass, and a report holding one is never ok.",
+      "enum": ["PASS", "WARN", "FAIL", "SKIP", "N/A", "INCOMPLETE"]
+    },
+    "verdict": {
+      "type": "string",
+      "description": "The run's broad class: ok, degraded, a name that did not resolve, an unavailable path, a failing service on a working path, or a chain that did not finish.",
+      "enum": ["ok", "degraded", "dns", "network", "service", "incomplete"]
+    },
+    "confidence": {
+      "type": "string",
+      "description": "Closed vocabulary. It is not a probability and not a severity: it is how well the run explains the finding, given the alternatives netdoc could evaluate.",
+      "enum": ["high", "medium", "low", "insufficient_evidence"]
+    },
+    "evidenceKind": {
+      "type": "string",
+      "description": "How one observed fact bears on the selected finding or a named alternative.",
+      "enum": ["support", "contradiction", "ruled_out", "not_evaluated"]
+    },
+    "observation": {
+      "type": "string",
+      "description": "The measured field a causal-evidence item references.",
+      "enum": [
+        "status_pass",
+        "status_warn",
+        "status_fail",
+        "status_skip",
+        "status_not_applicable",
+        "cause",
+        "dns_answers",
+        "dns_not_found",
+        "captive_portal",
+        "timeout",
+        "clock_offset",
+        "status_downgraded",
+        "family_reachable",
+        "family_failed",
+        "address_succeeded",
+        "address_failed",
+        "route_tunneled",
+        "route_direct",
+        "route_unreachable",
+        "route_path_differs",
+        "route_next_hop_differs",
+        "route_table_differs",
+        "route_family_split",
+        "route_interface_mtu"
+      ]
+    },
+    "notEvaluatedReason": {
+      "type": "string",
+      "description": "Why a relevant check produced no observation. A skipped, not-applicable, missing or incomplete check never rules a cause out.",
+      "enum": ["prerequisite_failed", "not_selected", "not_applicable", "incomplete"]
+    },
+    "familyState": {
+      "type": "string",
+      "description": "Independently tested state of one address family.",
+      "enum": ["reachable", "unreachable"]
+    },
+    "routeFamily": {
+      "type": "string",
+      "description": "The address family of a route decision.",
+      "enum": ["ipv4", "ipv6"]
+    },
+    "tunnel": {
+      "type": "string",
+      "description": "How sure netdoc is that the selected interface encapsulates: tunnel when the operating system itself names an encapsulating device kind, likely when the link only has the shape of one, direct for an ordinary interface. Absent when nothing classified it, which reads as unknown and not as direct.",
+      "enum": ["direct", "likely", "tunnel"]
+    },
+    "routeReason": {
+      "type": "string",
+      "description": "Why this route was the one selected. default_route, more_specific_than_default, host_route and lower_metric are statements about which entry won and appear only where the platform named it; same_path_as_default and differs_from_default_path compare this decision with the one for general Internet traffic and say nothing about why; on_link and no_route are read from the decision itself.",
+      "enum": [
+        "no_route",
+        "default_route",
+        "more_specific_than_default",
+        "same_path_as_default",
+        "differs_from_default_path",
+        "on_link",
+        "host_route",
+        "lower_metric"
+      ]
+    },
+    "protocol": {
+      "type": "string",
+      "description": "The protocol rows the target selected, from the parser's closed set.",
+      "enum": ["none", "tls+http", "http", "ssh", "smtp"]
+    }
+  }
+}

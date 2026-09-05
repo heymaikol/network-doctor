@@ -398,8 +398,8 @@ The exhaustive gate below exists for CI, maintainership, releases, and the
 specific checks that apply to your change; a small contribution does not have
 to reproduce every CI environment locally.
 
-Every tool runs through `go run` at the version CI uses, so a Go toolchain is
-the only prerequisite:
+The core Go checks run directly, and external validation tools use pinned
+`go run` commands, so a Go toolchain is the only prerequisite:
 
 ```sh
 go vet ./...

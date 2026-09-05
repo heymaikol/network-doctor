@@ -37,8 +37,46 @@ jobs:
       - run: go build ./...
         env:
           CGO_ENABLED: "0"
-      - if: runner.os != 'Linux'
+      - if: runner.os == 'macOS'
         run: go test ./...
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Temporary workaround for golang/go#81368: cmd/go can hang before launching
+          # the internal/ui test binary on GitHub-hosted Windows runners.
+          # Compile that package's tests and execute the binaries directly instead.
+          $uiPkg = go list ./internal/ui
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $allPkgs = @(go list ./...)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $rest = @($allPkgs | Where-Object { $_ -ne $uiPkg })
+          if (($allPkgs.Count - $rest.Count) -ne 1) {
+            Write-Error "expected exactly one package excluded, got $($allPkgs.Count - $rest.Count)"
+            exit 1
+          }
+          if ($rest.Count -eq 0) {
+            Write-Error "no packages remain after excluding internal/ui"
+            exit 1
+          }
+          go test @rest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uiTest = Join-Path $env:RUNNER_TEMP 'ui.test.exe'
+          go test -c -o $uiTest ./internal/ui
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uiExit = 0
+          Push-Location ./internal/ui
+          try {
+            $uiArgs = @(
+              '-test.timeout=10m'
+            )
+            & $uiTest @uiArgs
+            $uiExit = $LASTEXITCODE
+          }
+          finally {
+            Pop-Location
+          }
+          if ($uiExit -ne 0) { exit $uiExit }
       - if: runner.os == 'Linux'
         name: Run tests with coverage
         run: |
@@ -50,9 +88,34 @@ jobs:
       # interface, and source-address evidence to what Windows and macOS
       # themselves report, which is the one thing the Linux simulator cannot
       # check. -count=1 because a cached result would not have touched the host.
-      - if: runner.os != 'Linux'
+      - if: runner.os == 'macOS'
         name: Run native OS acceptance tests
         run: go test -tags acceptance -count=1 -run '^TestNative' . ./internal/ui
+      - if: runner.os == 'Windows'
+        name: Run native OS acceptance tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -tags acceptance -count=1 -run '^TestNative' .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uiAcceptanceTest = Join-Path $env:RUNNER_TEMP 'ui-acceptance.test.exe'
+          go test -c -tags acceptance -o $uiAcceptanceTest ./internal/ui
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $uiAcceptanceExit = 0
+          Push-Location ./internal/ui
+          try {
+            $uiAcceptanceArgs = @(
+              '-test.run=^TestNative'
+              '-test.count=1'
+              '-test.timeout=10m'
+            )
+            & $uiAcceptanceTest @uiAcceptanceArgs
+            $uiAcceptanceExit = $LASTEXITCODE
+          }
+          finally {
+            Pop-Location
+          }
+          if ($uiAcceptanceExit -ne 0) { exit $uiAcceptanceExit }
       - if: runner.os == 'Linux'
         name: Run loopback integration tests with coverage
         run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation

@@ -67,7 +67,10 @@ jobs:
           $uiExit = 0
           Push-Location ./internal/ui
           try {
-            & $uiTest -test.timeout=10m
+            $uiArgs = @(
+              '-test.timeout=10m'
+            )
+            & $uiTest @uiArgs
             $uiExit = $LASTEXITCODE
           }
           finally {
@@ -101,7 +104,12 @@ jobs:
           $uiAcceptanceExit = 0
           Push-Location ./internal/ui
           try {
-            & $uiAcceptanceTest -test.run '^TestNative' -test.count=1 -test.timeout=10m
+            $uiAcceptanceArgs = @(
+              '-test.run=^TestNative'
+              '-test.count=1'
+              '-test.timeout=10m'
+            )
+            & $uiAcceptanceTest @uiAcceptanceArgs
             $uiAcceptanceExit = $LASTEXITCODE
           }
           finally {

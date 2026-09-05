@@ -4,6 +4,18 @@ Thanks for helping make network troubleshooting less mysterious. Bug reports,
 small fixes, platform-specific testing, and focused feature proposals are all
 welcome. Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Choosing something to work on
+
+- `good first issue` marks work intentionally scoped for someone unfamiliar
+  with this repository.
+- `help wanted` marks work where outside contributions are especially welcome,
+  though it may need more familiarity with the repository or its domain.
+- A contribution does not have to be Go code. Platform testing and real-network
+  field testing are meaningful contributions too.
+- When you take an existing issue, leave a short comment saying you intend to
+  work on it before investing substantial effort.
+- Ask on the issue when the requirements are unclear.
+
 ## Before opening an issue
 
 - Search existing issues first.
@@ -68,8 +80,13 @@ that command would delete too.
 
 ## Validation
 
-Start with the tests nearest your change, then run the complete validation gate
-documented in the [README](README.md#tests) before submitting a pull request.
+Start with the tests nearest your change, then `go test ./...` and any other
+checks clearly relevant to the files or behavior you changed. That is enough
+for an ordinary, focused pull request. Run the rest of the
+[README](README.md#tests) gate only where a specific check applies to your
+change, for CI, maintainership, releases, or a check that genuinely matters to
+what you touched; a small external contribution does not have to reproduce every
+CI environment locally.
 
 Additional requirements:
 

@@ -76,6 +76,21 @@ netdoc --profile ssh server.example.com # port 22 by default, with banner eviden
 
 The built-ins are `github`, `ssh`, `smtp`, and `web`. Profiles are headless: `--json`, `--save`, and `--support` behave as they always do, and `--via` runs each component on the SSH host. The per-plan endpoints, the aggregate rules, and the execution modes are in **[docs/reference.md](docs/reference.md#service-profiles)**.
 
+## Contribute
+
+Network Doctor actively welcomes external contributors, and many contributions
+need no networking expertise. Useful work includes Go and Bubble Tea / TUI
+development, Bash, Zsh, and Fish completions, CI / packaging / release tooling,
+documentation, Linux / macOS / Windows testing, and real-network field testing.
+
+Pick up something to start on:
+
+- [Good first issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22good+first+issue%22)
+- [Help wanted issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22help+wanted%22)
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, choosing a task, validation,
+and opening a pull request.
+
 ## Install
 
 Runs on **Linux, macOS, and Windows**. Project = `network-doctor`; installed binary = `netdoc`.
@@ -347,9 +362,8 @@ Native DAG probes + diagnosis engine + authenticated two-ended peer diagnosis, b
 
 ## Contributing
 
-Bug reports, focused pull requests, and platform testing are welcome. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, and reporting guidance.
-Please report suspected vulnerabilities privately as described in
+Bug reports, focused pull requests, and platform testing are welcome. Please
+report suspected vulnerabilities privately as described in
 [SECURITY.md](SECURITY.md).
 
 ## Support
@@ -377,7 +391,15 @@ the software or how issues are prioritized.
 
 ## Tests
 
-Before submitting a change, run the complete CI gate. Every tool runs through `go run` at the version CI uses, so a Go toolchain is the only prerequisite:
+For an ordinary, focused pull request, run the tests nearest your change plus
+`go test ./...`, then any additional checks clearly relevant to the files or
+behavior you changed. That is almost all a small external contribution needs.
+The exhaustive gate below exists for CI, maintainership, releases, and the
+specific checks that apply to your change; a small contribution does not have
+to reproduce every CI environment locally.
+
+The core Go checks run directly, and external validation tools use pinned
+`go run` commands, so a Go toolchain is the only prerequisite:
 
 ```sh
 go vet ./...

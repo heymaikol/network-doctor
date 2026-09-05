@@ -7,8 +7,12 @@ Describe the change and its user-visible effect.
 List the exact commands you ran.
 
 - [ ] Tests nearest the change pass
-- [ ] Full validation gate passes, or exceptions are explained below
-- [ ] Cross-platform compile checks run when platform-specific code changed
+- [ ] Normal local validation passed (`go test ./...` plus any checks clearly relevant to the change)
+- [ ] Full CI gate passed, or the specific checks that did not run are explained below
+
+## Skipped checks
+
+List any CI checks that did not run and why, or write `'None.'`
 
 ## Platforms
 

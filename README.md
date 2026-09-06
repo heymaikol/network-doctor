@@ -420,6 +420,19 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 go run github.com/goreleaser/goreleaser/v2@v2.17.1 check
 ```
 
+CI also syntax-checks every shipped Bash, Zsh, and Fish completion script with
+its native shell. Run the same focused check after changing a file under
+`packaging/completions/`:
+
+```sh
+(
+  set -e
+  for script in packaging/completions/*.bash; do bash -n "$script"; done
+  for script in packaging/completions/*.zsh; do zsh -n "$script"; done
+  for script in packaging/completions/*.fish; do fish -n "$script"; done
+)
+```
+
 If the change touched the `Dockerfile` or the image's release job, also build the
 image and test the artifact. It needs Docker or Podman, which is why it is not in
 the gate above:

@@ -19,6 +19,21 @@ jobs:
           persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
 
+  completion-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install completion shells
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y fish zsh
+      - name: Check completion script syntax
+        run: |
+          set -euo pipefail
+          for script in packaging/completions/*.bash; do bash -n "$script"; done
+          for script in packaging/completions/*.zsh; do zsh -n "$script"; done
+          for script in packaging/completions/*.fish; do fish -n "$script"; done
+
   test:
     strategy:
       fail-fast: false

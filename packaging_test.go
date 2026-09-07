@@ -5,8 +5,11 @@ import (
 	goversion "go/version"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -457,7 +460,7 @@ func TestShippedSurfacesOfferTheRealKeyPresets(t *testing.T) {
 		path, pattern string
 	}{
 		{"packaging/completions/netdoc.bash", `(?s)-keys \| --keys\).*?compgen -W "([^"]*)".*?\n\s*;;`},
-		{"packaging/completions/netdoc.zsh", `(?m)^.*\{--keys,-keys\}.*:preset:\(([^)]*)\).*$`},
+		{"packaging/completions/netdoc.zsh", `(?m)^.*\{--keys,-keys\}=.*:preset:\(([^)]*)\).*$`},
 		{"packaging/completions/netdoc.fish", `(?m)^complete -c netdoc [^\n]* -l keys [^\n]*\\\n[ \t]*-a '([^']*)'$`},
 	}
 	for _, completion := range completions {
@@ -570,7 +573,7 @@ func TestShippedSurfacesOfferTheRealProfiles(t *testing.T) {
 		path, pattern string
 	}{
 		{"packaging/completions/netdoc.bash", `(?s)-profile \| --profile\).*?compgen -W "([^"]*)".*?\n\s*;;`},
-		{"packaging/completions/netdoc.zsh", `(?m)^.*\{--profile,-profile\}.*:profile:\(([^)]*)\).*$`},
+		{"packaging/completions/netdoc.zsh", `(?m)^.*\{--profile,-profile\}=.*:profile:\(([^)]*)\).*$`},
 		{"packaging/completions/netdoc.fish", `(?m)^complete -c netdoc [^\n]* -l profile [^\n]*\\\n[ \t]*-a '([^']*)'$`},
 	}
 	for _, completion := range completions {
@@ -588,6 +591,108 @@ func TestShippedSurfacesOfferTheRealProfiles(t *testing.T) {
 			t.Errorf("packaging/netdoc.1 does not document profile %q", name)
 		}
 	}
+}
+
+// The CLI accepts --flag=value. Zsh only offers that form when the option spec
+// includes '=', and Bash only reaches the value cases after splitting on '='.
+func TestCompletionsHandleAttachedFlagValues(t *testing.T) {
+	zsh, err := os.ReadFile("packaging/completions/netdoc.zsh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"profile", "keys", "check", "skip"} {
+		if !regexp.MustCompile(`\{--` + name + `,-` + name + `\}=`).Match(zsh) {
+			t.Errorf("packaging/completions/netdoc.zsh: --%s must be declared with '=' so --%s=value completes", name, name)
+		}
+	}
+
+	bash, err := os.ReadFile("packaging/completions/netdoc.bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(bash), `[[ $cur == -*=* ]]`) {
+		t.Error("packaging/completions/netdoc.bash must split --flag=value so the existing value cases apply to the attached form")
+	}
+}
+
+func TestBashCompletesAttachedAndSeparatedFlagValues(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not found")
+	}
+
+	dir := t.TempDir()
+	// Files that filename completion would offer for the prefixes below.
+	// The enumerable flags must not fall back to them.
+	for _, name := range []string{"gith", "github-file", "vimrc", "tls-file", "dns-file"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, tt := range []struct {
+		name  string
+		words []string
+		cword int
+		want  []string
+	}{
+		{"attached profile", []string{"netdoc", "--profile=git"}, 1, []string{"github"}},
+		{"attached single-dash profile", []string{"netdoc", "-profile=git"}, 1, []string{"github"}},
+		{"attached keys", []string{"netdoc", "--keys=vi"}, 1, []string{"vim"}},
+		{"attached single-dash keys", []string{"netdoc", "-keys=vi"}, 1, []string{"vim"}},
+		{"attached check prefix", []string{"netdoc", "--check=dn"}, 1, []string{"dns", "dns_public", "dns_encrypted"}},
+		{"attached skip prefix", []string{"netdoc", "--skip=tl"}, 1, []string{"tls"}},
+		{"attached check keeps comma prefix", []string{"netdoc", "--check=dns,tl"}, 1, []string{"dns,tls"}},
+		{"attached skip keeps comma prefix", []string{"netdoc", "--skip=tls,ht"}, 1, []string{"tls,http", "tls,https"}},
+		{"attached single-dash check keeps comma prefix", []string{"netdoc", "-check=dns,tl"}, 1, []string{"dns,tls"}},
+		{"separated profile", []string{"netdoc", "--profile", "git"}, 2, []string{"github"}},
+		{"separated keys", []string{"netdoc", "--keys", "vi"}, 2, []string{"vim"}},
+		{"separated check keeps comma prefix", []string{"netdoc", "--check", "dns,tl"}, 2, []string{"dns,tls"}},
+		{"readline split profile equals-glued", []string{"netdoc", "--profile", "=git"}, 2, []string{"github"}},
+		{"readline split profile three words", []string{"netdoc", "--profile", "=", "git"}, 3, []string{"github"}},
+		{"readline split profile equals on prev", []string{"netdoc", "--profile=", "git"}, 2, []string{"github"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := bashComplete(t, dir, tt.words, tt.cword)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("complete %q = %v, want %v", strings.Join(tt.words, " "), got, tt.want)
+			}
+		})
+	}
+}
+
+func bashComplete(t *testing.T, dir string, words []string, cword int) []string {
+	t.Helper()
+	script, err := filepath.Abs("packaging/completions/netdoc.bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := append([]string{"-c", `source "$1"
+cword=$2
+shift 2
+COMP_WORDS=("$@")
+COMP_CWORD=$cword
+COMP_LINE="${COMP_WORDS[*]}"
+COMP_POINT=${#COMP_LINE}
+COMPREPLY=()
+_netdoc
+if ((${#COMPREPLY[@]})); then
+  printf '%s\n' "${COMPREPLY[@]}"
+fi
+`, "bash-complete", script, strconv.Itoa(cword)}, words...)
+	cmd := exec.Command("bash", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			t.Fatalf("bash completion %q: %v\n%s", strings.Join(words, " "), err, ee.Stderr)
+		}
+		t.Fatal(err)
+	}
+	text := strings.TrimSuffix(string(out), "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
 }
 
 // reference is the man page and completions one installed binary owes its

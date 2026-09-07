@@ -73,11 +73,10 @@ func sshResult(t *testing.T, cmd tea.Cmd) sshResolvedMsg {
 }
 
 func TestSSHCommand(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home directory")
-	}
-	key := filepath.Join(home, ".ssh", "id_ed25519")
+	// sshCommand treats the key as opaque argv text and never opens it, so a
+	// synthetic nested path stands in for a real one: no home directory to
+	// resolve, nothing to skip, and nothing read from disk.
+	key := "/home/tester/.ssh/id_ed25519"
 
 	tests := []struct {
 		name                          string

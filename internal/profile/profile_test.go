@@ -101,7 +101,7 @@ func TestComposeSelectionKeepsProfileMinimumAndDependencyClosure(t *testing.T) {
 	if !slices.Contains(check, diagnostic.ProbeHTTPS) || !slices.Contains(check, diagnostic.ProbeQUIC) || len(check) != len(plan.Runs[0].Check)+1 {
 		t.Fatalf("composed check = %v", check)
 	}
-	probes := selection.Apply(diagnostic.BuildProbesFromSources(plan.Runs[0].Target, nil, diagnostic.DefaultPublicDNS, true))
+	probes := selection.BuildProbesFromSources(plan.Runs[0].Target, nil, diagnostic.DefaultPublicDNS, true)
 	var ids []diagnostic.ProbeID
 	for _, probe := range probes {
 		ids = append(ids, probe.ID)
@@ -168,5 +168,27 @@ func serviceReport(run Run, status string) report.Report {
 		Target:  &report.Target{Host: run.Target.Host, Port: run.Target.Port, Protocol: run.Target.Proto.String()},
 		Checks:  []report.Check{{ID: string(run.Focus), Status: status}},
 		Verdict: diagnostic.VerdictOK, OK: status != StatusFail,
+	}
+}
+
+func TestInheritedPMTUIsNotExplicitForUnknownProtocol(t *testing.T) {
+	target, err := diagnostic.ParseTarget("host:9999")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := Run{Target: target, Check: serviceChecks(diagnostic.ProbeTargetTCP)}
+	for _, explicit := range []bool{false, true} {
+		var extra []diagnostic.ProbeID
+		if explicit {
+			extra = []diagnostic.ProbeID{diagnostic.ProbePMTU}
+		}
+		selection, checks := ComposeSelection(run, extra, nil)
+		if got := slices.Contains(checks, diagnostic.ProbePMTU); got != explicit {
+			t.Fatalf("recorded PMTU = %t, want %t", got, explicit)
+		}
+		probes := selection.BuildProbesFromSources(target, nil, diagnostic.DefaultPublicDNS, true)
+		if got := slices.ContainsFunc(probes, func(p diagnostic.Probe) bool { return p.ID == diagnostic.ProbePMTU }); got != explicit {
+			t.Fatalf("selected PMTU = %t, want %t", got, explicit)
+		}
 	}
 }

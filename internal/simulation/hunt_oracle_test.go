@@ -1124,20 +1124,18 @@ func TestPreferredRouteFailureAndNoDefaultRouteCannotBothBeEstablished(t *testin
 	}
 }
 
-// TestPreferredRouteFailureRecognizesOnlyItsOwnCause is the other half. The
-// four route causes are one closed vocabulary carrying four different repairs,
-// so a diagnosis that names a neighbour has given the wrong answer rather than
-// a differently worded right one, and a cause on a passing row is context.
-func TestPreferredRouteFailureRecognizesOnlyItsOwnCause(t *testing.T) {
+// Selection metadata names no causal preferred-route fault, even on a failing
+// row. Only the simulator has the controlled alternate-path measurement.
+func TestPreferredRouteFailureIsNotRecognizedFromSelectionMetadata(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		checks []DiagnosisCheck
 		want   bool
 	}{
 		{"its own cause on a failing row", []DiagnosisCheck{{ID: "internet_tcp", Status: "FAIL",
-			Cause: diagnostic.RouteCausePreferredPathFailed}}, true},
+			Cause: diagnostic.RouteCausePreferredPathFailed}}, false},
 		{"its own cause on a warning row", []DiagnosisCheck{{ID: "internet_tcp", Status: "WARN",
-			Cause: diagnostic.RouteCausePreferredPathFailed}}, true},
+			Cause: diagnostic.RouteCausePreferredPathFailed}}, false},
 		{"its own cause on a passing row", []DiagnosisCheck{{ID: "internet_tcp", Status: "PASS",
 			Cause: diagnostic.RouteCausePreferredPathFailed}}, false},
 		{"no default route", []DiagnosisCheck{{ID: "internet_tcp", Status: "FAIL",
@@ -1180,8 +1178,8 @@ func TestPreferredRouteFailureMissReportsOneHighConfidenceFinding(t *testing.T) 
 	named := oracleReport(oracleDiagnosis(DiagnosisCheck{ID: "internet_tcp", Status: "WARN",
 		Cause:    diagnostic.RouteCausePreferredPathFailed,
 		Families: &DiagnosisFamilies{IPv4: FamilyStateUnreachable}}), preferredRouteEvidence())
-	if got := unrecognizedConditionFindings(named, truth); len(got) != 0 {
-		t.Fatalf("a recognized condition still produced %+v", got)
+	if got := unrecognizedConditionFindings(named, truth); len(got) != 1 || got[0].Expected != string(ConditionPreferredRouteFailed) {
+		t.Fatalf("selection metadata hid the unrecognized route condition: %+v", got)
 	}
 	// Intent is not truth: the same diagnosis over a network where nothing was
 	// observed accuses nobody, however loudly a manifest names the operator.

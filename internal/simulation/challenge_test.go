@@ -735,9 +735,6 @@ func TestChallengeRecognizesNetdocsOwnVocabulary(t *testing.T) {
 		{"family.ipv6_drop",
 			[]*Diagnosis{fail("internet_tcp", "ipv6_unreachable")},
 			[]*Diagnosis{healthy, fail("internet_tcp", "ipv4_unreachable")}},
-		{"routing.preferred_path_failure",
-			[]*Diagnosis{fail("route", "preferred_route_failed")},
-			[]*Diagnosis{healthy, fail("route", "gateway_unreachable"), fail("route", "no_default_route")}},
 		// The name half of a certificate failure, and deliberately not the date
 		// half: an expired-certificate verdict sends the user to check a clock
 		// for a certificate whose dates are fine.
@@ -745,21 +742,13 @@ func TestChallengeRecognizesNetdocsOwnVocabulary(t *testing.T) {
 			[]*Diagnosis{fail("tls", "hostname_mismatch"), fail("https", "hostname_mismatch")},
 			[]*Diagnosis{healthy, fail("tls", "certificate_expired"), fail("tls", "untrusted_issuer"),
 				fail("tls", "tls_handshake_failure"), fail("tls", "tcp_unreachable")}},
-		// The four route causes are one closed vocabulary, so each of these
-		// rejects the other three by name rather than by being merely different.
+		// Missing-default evidence is distinct from gateway state or ordinary
+		// route selection metadata.
 		{"routing.no_default_route",
 			[]*Diagnosis{fail("internet_tcp", "no_default_route"), fail("route", "no_default_route")},
 			[]*Diagnosis{healthy, fail("internet_tcp", "selected_path_failed"),
 				fail("internet_tcp", "preferred_route_failed"), fail("internet_tcp", "gateway_unreachable"),
 				fail("internet_tcp", "")}},
-		{"routing.wrong_default_route",
-			[]*Diagnosis{fail("internet_tcp", "selected_path_failed"),
-				{Checks: []DiagnosisCheck{{ID: "internet_tcp", Status: "WARN", Cause: "selected_path_failed"}}}},
-			[]*Diagnosis{healthy, fail("internet_tcp", "no_default_route"),
-				fail("internet_tcp", "preferred_route_failed"), fail("internet_tcp", "gateway_unreachable"),
-				fail("internet_tcp", "ipv4_unreachable"), fail("internet_tcp", ""),
-				// A cause on a passing row is context, not a diagnosis.
-				{Checks: []DiagnosisCheck{{ID: "internet_tcp", Status: "PASS", Cause: "selected_path_failed"}}}}},
 	} {
 		condition, ok := challengeConditionFor(tt.mutation)
 		if !ok {
@@ -1413,4 +1402,12 @@ func reflectEqualJSON(t *testing.T, a, b any) bool {
 		t.Fatal(err)
 	}
 	return bytes.Equal(one, two)
+}
+
+func TestSelectionMetadataCannotRecognizeRouteChallenges(t *testing.T) {
+	for _, answer := range []ChallengeAnswer{AnswerWrongDefaultRoute, AnswerPreferredRoute} {
+		if _, ok := challengeRecognition[answer]; ok {
+			t.Fatalf("selection-only condition %s has a recognition rule", answer)
+		}
+	}
 }

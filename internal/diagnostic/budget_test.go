@@ -170,7 +170,6 @@ func TestProbeGraphStagesAndWorstCaseBudget(t *testing.T) {
 		{name: "no protocol row", target: "target.test:9999", stages: [][]ProbeID{
 			root, offIface,
 			{ProbeTargetTCP},
-			{ProbePMTU},
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

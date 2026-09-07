@@ -285,22 +285,25 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 	return r
 }
 
-// failedRouteCause chooses the strongest route fact proved by any failed
-// family. A routed failure is more useful than an unrelated family's missing
-// default, and the order of endpoint candidates cannot decide the repair.
+// failedRouteCause summarizes attempted, failed families conservatively. A local
+// defect in one family cannot explain an unlocalized failure in another, so
+// selection-only or unknown evidence takes precedence over localizing causes.
+// When every attempted family has local evidence, prefer an unresolved gateway
+// to a missing default. Unattempted families contribute nothing. Within a
+// family, classifyDefaultRoutes still prefers neighbor evidence to metadata.
 func failedRouteCause(classify func(net.IP) string, families ...[]net.IP) (cause, family string) {
 	priority := func(cause string) int {
 		switch cause {
-		case RouteCausePreferredPathFailed:
-			return 4
 		case RouteCauseGatewayUnreachable:
-			return 3
-		case RouteCauseSelectedPathFailed:
 			return 2
+		case RouteCausePreferredPathFailed:
+			return 5
+		case RouteCauseSelectedPathFailed:
+			return 4
 		case RouteCauseNoDefaultRoute:
 			return 1
 		default:
-			return 0
+			return 3
 		}
 	}
 	best := -1
@@ -309,9 +312,6 @@ func failedRouteCause(classify func(net.IP) string, families ...[]net.IP) (cause
 			continue
 		}
 		candidate := classify(ips[0])
-		if candidate == "" {
-			continue
-		}
 		rank := priority(candidate)
 		switch {
 		case rank > best:
@@ -320,6 +320,9 @@ func failedRouteCause(classify func(net.IP) string, families ...[]net.IP) (cause
 			// The same fact held for both families, so neither alone owns it.
 			family = ""
 		}
+	}
+	if cause == "" {
+		family = ""
 	}
 	return cause, family
 }

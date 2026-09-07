@@ -1600,8 +1600,8 @@ func TestPreferredPathFailureMutationIsIndependentlyObserved(t *testing.T) {
 			if check.Cause != diagnostic.RouteCausePreferredPathFailed || diagnosedFamily(final.Diagnosis, tc.family) != FamilyStateUnreachable {
 				t.Fatalf("diagnosis did not recognize %s preferred-path failure: %+v stderr=%s", tc.family, check, final.Stderr)
 			}
-			if findings := unrecognizedConditionFindings(&rep, truth); len(findings) != 0 {
-				t.Fatalf("independent %s truth was not reconciled with diagnosis: %+v", tc.family, findings)
+			if findings := unrecognizedConditionFindings(&rep, truth); len(findings) != 1 || findings[0].Expected != string(ConditionPreferredRouteFailed) {
+				t.Fatalf("selection metadata must leave the independently observed %s route fault unrecognized: %+v", tc.family, findings)
 			}
 			t.Logf("mutation=%+v baseline=%+v mutated=%+v diagnosis=%s/%s families=%+v mutationObserved=true",
 				mutation, baselineFamily, mutatedFamily, check.Status, check.Cause, check.Families)

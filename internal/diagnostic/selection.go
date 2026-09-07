@@ -3,6 +3,7 @@ package diagnostic
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -23,6 +24,12 @@ type ProbeSelection struct {
 	// matters in the TUI, where a target switch rebuilds the graph in a shape
 	// the command line never saw.
 	NoReferenceEgress bool
+}
+
+// BuildProbesFromSources builds and filters the graph, including probes that
+// require explicit selection for this target.
+func (s ProbeSelection) BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS string, publicDNSAuto bool) []Probe {
+	return s.Apply(BuildProbesFromSources(t, sources, publicDNS, publicDNSAuto, slices.Collect(maps.Keys(s.Check))...))
 }
 
 // StableProbe describes one probe accepted by --check and --skip, using the
@@ -83,7 +90,8 @@ func StableProbes() []StableProbe {
 	}
 	for proto := range protoNames {
 		target.Proto = Proto(proto)
-		add(defaultOps.buildProbes(target, DefaultPublicDNS, true))
+		// Inventory includes opt-in checks and preserves their published order.
+		add(defaultOps.buildProbes(target, DefaultPublicDNS, true, ProbePMTU))
 	}
 	add(defaultOps.buildProbes(nil, DefaultPublicDNS, true))
 	return stable

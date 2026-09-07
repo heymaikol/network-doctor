@@ -626,7 +626,7 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // applyTarget swaps the run target and rebuilds its probes.
 func (m *model) applyTarget(t *diagnostic.Target) {
 	m.target = t
-	m.probes = m.selection.Apply(diagnostic.BuildProbesFromSources(t, m.sources, m.publicDNS, m.publicDNSAuto))
+	m.probes = m.selection.BuildProbesFromSources(t, m.sources, m.publicDNS, m.publicDNSAuto)
 	m.selected = 0
 	m.runHistory = map[diagnostic.ProbeID][]diagnostic.Status{}
 	m.incidents = incident.Timeline{}

@@ -120,8 +120,8 @@ func certWindow(c *x509.Certificate) string {
 const egressFix = "no egress to the reference endpoints: proxy-only/filtered network? check upstream"
 
 // routeFix turns a route cause the local kernel supplied into advice about the
-// thing that actually broke. The routing backends decide the cause; the prose
-// lives here so all three platforms share one vocabulary. An empty or
+// observed state, without treating route selection as proof of a break. The
+// prose lives here so all three platforms share one vocabulary. An empty or
 // unrecognized cause keeps the generic hint rather than guessing.
 func routeFix(cause string) string {
 	switch cause {
@@ -130,9 +130,9 @@ func routeFix(cause string) string {
 	case RouteCauseGatewayUnreachable:
 		return "the default gateway is not answering at the link layer: check the cable/Wi-Fi link, the gateway itself, or a wrong static IP/subnet"
 	case RouteCauseSelectedPathFailed:
-		return "the default route and its gateway look fine, so the break is upstream: check the router's own uplink or a filter"
+		return "a default route exists, but the failed reference connections do not locate the break: check the gateway and upstream connectivity"
 	case RouteCausePreferredPathFailed:
-		return "the preferred default route failed while another default route exists: check that interface (VPN or Wi-Fi vs Ethernet), or prefer the other route"
+		return "multiple default routes exist with a metric preference; the failed reference connections do not prove which route is broken: test each path before changing preference"
 	}
 	return egressFix
 }

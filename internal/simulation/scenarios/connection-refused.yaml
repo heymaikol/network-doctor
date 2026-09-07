@@ -46,4 +46,3 @@ expect:
     - {id: dns, status: PASS}
     - {id: dns_public, status: PASS}
     - {id: target_tcp, status: FAIL, cause: connection_refused}
-    - {id: path_mtu, status: SKIP}

@@ -321,7 +321,7 @@ func WithSnapshotSelection(check, skip []string) Option {
 // NewWithSelection applies a validated CLI probe policy to this run and every
 // target switch made from it.
 func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses, toolbox, watch bool, histFile, version, publicDNS string, publicDNSAuto bool, selection diagnostic.ProbeSelection, opts ...Option) tea.Model {
-	probes := selection.Apply(diagnostic.BuildProbesFromSources(t, sources, publicDNS, publicDNSAuto))
+	probes := selection.BuildProbesFromSources(t, sources, publicDNS, publicDNSAuto)
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
 	m := model{

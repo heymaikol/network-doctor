@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -463,5 +464,36 @@ func TestDiagnoseUnfilteredCompatibility(t *testing.T) {
 	}
 	if got, verdict := Diagnose(nil, genericOrder, genericResults); got != "Online: direct TCP egress and DNS both work." || verdict != VerdictOK {
 		t.Fatalf("full generic all-clear = %q/%q", got, verdict)
+	}
+}
+
+func TestPMTUSelectionByProtocol(t *testing.T) {
+	for _, raw := range []string{"host:9999", "host:443", "host:8443", "host:80", "host:22", "host:25", "host:587", "https://host:9999", "http://host:9999", "ssh://host:9999", "smtp://host:9999"} {
+		for _, tc := range []struct {
+			name        string
+			check, skip []ProbeID
+			want        bool
+		}{
+			{name: "default", want: raw != "host:9999"},
+			{name: "explicit", check: []ProbeID{ProbePMTU}, want: true},
+			{name: "combined", check: []ProbeID{ProbePMTU, ProbeTargetTCP}, want: true},
+			{name: "tcp only", check: []ProbeID{ProbeTargetTCP}},
+			{name: "skip", check: []ProbeID{ProbePMTU}, skip: []ProbeID{ProbePMTU}},
+			{name: "skip prerequisite", check: []ProbeID{ProbePMTU}, skip: []ProbeID{ProbeTargetTCP}},
+		} {
+			t.Run(raw+"/"+tc.name, func(t *testing.T) {
+				selection := ProbeSelection{Check: map[ProbeID]struct{}{}, Skip: map[ProbeID]struct{}{}, NoReferenceEgress: true}
+				for _, id := range tc.check {
+					selection.Check[id] = struct{}{}
+				}
+				for _, id := range tc.skip {
+					selection.Skip[id] = struct{}{}
+				}
+				probes := selection.BuildProbesFromSources(mustTarget(t, raw), nil, DefaultPublicDNS, true)
+				if got := slices.ContainsFunc(probes, func(p Probe) bool { return p.ID == ProbePMTU }); got != tc.want {
+					t.Fatalf("PMTU selected = %t, want %t", got, tc.want)
+				}
+			})
+		}
 	}
 }

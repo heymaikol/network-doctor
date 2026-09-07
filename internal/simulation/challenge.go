@@ -435,17 +435,12 @@ var challengeRecognition = map[ChallengeAnswer]func(*Diagnosis) bool{
 	AnswerTLSCertificate: conditionRecognizer(ConditionTLSCertificateExpired),
 	AnswerIPv4Failure:    conditionRecognizer(ConditionIPv4InternetUnreachable),
 	AnswerIPv6Failure:    conditionRecognizer(ConditionIPv6InternetUnreachable),
-	AnswerPreferredRoute: causeRecognizer(diagnostic.RouteCausePreferredPathFailed),
 	AnswerTLSHostname:    conditionRecognizer(ConditionTLSHostnameMismatch),
 	AnswerNoDefaultRoute: causeRecognizer(diagnostic.RouteCauseNoDefaultRoute),
-	// The four route causes are one closed vocabulary and each one carries a
-	// different fix, so a wrong default is recognized by its own word and not by
-	// any of the neighbours: no_default_route means there is nothing to point
-	// at, gateway_unreachable means the next hop is dead, preferred_route_failed
-	// means a better route exists to be un-preferred. selected_path_failed is
-	// the only one that says the single route in place has a live gateway and
-	// still goes nowhere.
-	AnswerWrongDefaultRoute: causeRecognizer(diagnostic.RouteCauseSelectedPathFailed),
+	// AnswerWrongDefaultRoute and AnswerPreferredRoute have no recognition
+	// rule: the report's legacy route-selection causes do not establish either
+	// fault, and the simulator's private alternate-path evidence cannot do so
+	// on the report's behalf.
 	// AnswerPortBlocked and AnswerMissingRoute have no entries. netdoc's target
 	// row fails both the same way and carries no cause: a filtered port and a
 	// target with no route to it are one sentence to it, and there is no report

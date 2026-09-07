@@ -21,19 +21,20 @@ type defaultRouteState struct {
 // classifyDefaultRoutes turns a host's default routes into one route cause.
 // gatewayFailed reports whether the selected route's next hop is unresolved at
 // the link layer; a platform that cannot prove that passes nil, which keeps the
-// verdict at the weaker selected_path_failed rather than inventing a neighbor
-// diagnosis the kernel never supplied.
+// classification at a selection-only legacy cause rather than inventing a
+// neighbor failure. selected_path_failed and preferred_route_failed retain their
+// wire IDs but neither proves where connectivity failed.
 func classifyDefaultRoutes(routes []defaultRouteState, gatewayFailed func(defaultRouteState) bool) string {
 	if len(routes) == 0 {
 		return RouteCauseNoDefaultRoute
 	}
 	sort.SliceStable(routes, func(i, j int) bool { return routes[i].metric < routes[j].metric })
-	if len(routes) > 1 && routes[0].metric < routes[1].metric {
-		return RouteCausePreferredPathFailed
-	}
 	selected := routes[0]
 	if gatewayFailed != nil && gatewayFailed(selected) {
 		return RouteCauseGatewayUnreachable
+	}
+	if len(routes) > 1 && routes[0].metric < routes[1].metric {
+		return RouteCausePreferredPathFailed
 	}
 	return RouteCauseSelectedPathFailed
 }

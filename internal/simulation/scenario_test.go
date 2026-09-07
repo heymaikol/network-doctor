@@ -987,3 +987,41 @@ func checkProbeRoutes(t *testing.T, scenario *Scenario, carrier Node, usedAliase
 		}
 	}
 }
+
+func TestScenarioPMTUExpectationsMatchTargetPolicy(t *testing.T) {
+	check := func(name, raw string, checks []ExpectedCheck) {
+		t.Helper()
+		if raw == "" {
+			return
+		}
+		target, err := diagnostic.ParseTarget(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if target.Proto == diagnostic.ProtoNone {
+			for _, expected := range checks {
+				if expected.ID == string(diagnostic.ProbePMTU) {
+					t.Errorf("%s: default unknown target %s expects PMTU", name, raw)
+				}
+			}
+		}
+	}
+	for _, name := range LibraryNames() {
+		s, err := LibraryScenario(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range s.Tests {
+			expect := s.Expect
+			if test.Expect != nil {
+				expect = *test.Expect
+			}
+			check("library/"+name+"/"+test.Name, test.Target, expect.Checks)
+		}
+	}
+	for _, s := range LabScenarios() {
+		for i, view := range s.Views {
+			check(fmt.Sprintf("lab/%s/view-%d", s.Name, i), view.Target, view.Expected.Checks)
+		}
+	}
+}

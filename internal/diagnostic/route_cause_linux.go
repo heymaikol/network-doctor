@@ -113,6 +113,9 @@ func parseProcIPv4(raw string) net.IP {
 	return net.IPv4(b[3], b[2], b[1], b[0])
 }
 
+// arpGatewayFailed reads unresolved ARP state after reference TCP attempts fail.
+// This /proc representation does not distinguish resolution still in progress
+// (NUD_INCOMPLETE) from NUD_FAILED; the entry alone is not proof of a dead peer.
 func arpGatewayFailed(raw []byte, gateway, iface string) bool {
 	lines := strings.Split(string(raw), "\n")
 	for _, line := range lines[1:] {

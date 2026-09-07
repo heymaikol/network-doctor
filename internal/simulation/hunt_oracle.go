@@ -192,23 +192,16 @@ var conditionOracle = []conditionRule{
 		condition: ConditionPreferredRouteFailed,
 		summary:   "a client whose preferred default route goes nowhere while a lower-preference one still works",
 		evidence:  "the client's own routing table was read back from its kernel and held two defaults with a strict preference between them, the client's own dial of the preferred family's controlled endpoints did not complete, and the client's own dial of a controlled target over one of the other defaults did",
-		// Not family-scoped, for the same reason no_default_route is not:
-		// netdoc names the route fault on one row whichever family lost its
-		// preferred path.
+		// Not family-scoped: the simulator can establish this condition
+		// independently in either family.
 		observed: func(o observation) bool {
 			return preferredDefaultRouteFailedFor(o, string(familyIPv4)) ||
 				preferredDefaultRouteFailedFor(o, string(familyIPv6))
 		},
-		// The fourth word in a closed vocabulary, and the only one that says a
-		// working route is already installed and merely out-ranked. Telling this
-		// user the internet is unreachable, or that their gateway is dead, or
-		// that they have no default route, sends them to build something they
-		// already have; the repair is to stop preferring the dead path. The
-		// neighbouring route causes are therefore deliberately not accepted as
-		// other ways of saying this one.
-		recognized: func(d *Diagnosis) bool {
-			return flaggedCause(d, nil, diagnostic.RouteCausePreferredPathFailed)
-		},
+		// The report has selection metadata, not a measured comparison proving
+		// a failed preferred route and working alternate. Independent simulator
+		// evidence establishes the fault but cannot count as report recognition.
+		recognized: func(*Diagnosis) bool { return false },
 	},
 }
 

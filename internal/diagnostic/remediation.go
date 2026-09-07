@@ -128,14 +128,23 @@ func Remediate(d Diagnosis, res map[ProbeID]ProbeResult, goos string) (Remediati
 			return Remediation{}, false
 		}
 	}
-	return Remediation{
+	out := Remediation{
 		ID:      r.id,
 		Action:  r.action,
 		Why:     r.why,
 		Steps:   slices.Clone(r.steps),
 		Command: commandFor(r.command, goos),
 		Expect:  r.expect,
-	}, true
+	}
+	if out.ID == RemedyReachGateway {
+		for _, route := range res[ProbeIface].Routes {
+			if len(route.Competing) > 0 && (res[f.Focus].causeFamily == "" || route.Family == res[f.Focus].causeFamily) {
+				out.Steps = append(out.Steps, "Another default route is configured for this family. Test that path before changing preference; its presence does not prove it works.")
+				break
+			}
+		}
+	}
+	return out, true
 }
 
 // remedyKey is what a piece of advice answers: a stable conclusion, optionally
@@ -222,7 +231,7 @@ var (
 	gatewaySilent = remedy{
 		id:     RemedyReachGateway,
 		action: "Get the default gateway answering",
-		why:    "The route exists but the gateway never answered at the link layer, so this machine and the router are not talking to each other yet. A loose cable, a dropped Wi-Fi association, or an address on the wrong subnet all look like this.",
+		why:    "After the reference connections failed, the gateway was unresolved in the neighbor table. A loose cable, a dropped Wi-Fi association, or an address on the wrong subnet all look like this.",
 		steps: []string{
 			"Reseat the cable, or leave and rejoin the Wi-Fi network.",
 			"Check that this machine's address and mask put the gateway on the same subnet.",
@@ -234,23 +243,23 @@ var (
 	uplinkBroken = remedy{
 		id:     RemedyCheckUpstream,
 		action: "Check the router's own uplink",
-		why:    "The default route and its gateway both look healthy from here, so this machine's side of the link is doing its job and the break is somewhere past the router.",
+		why:    "A default route exists, but failed reference connections do not establish whether the gateway or upstream path works. The location of the break remains unknown.",
 		steps: []string{
 			"Check whether other devices on the same network are offline too.",
 			"Look at the router's WAN status, or ask whoever runs the network about a filter.",
 		},
-		expect: "Egress returning once the router's own uplink is back.",
+		expect: "A measured gateway or upstream result that narrows where connectivity fails.",
 	}
 	preferredRouteDead = remedy{
 		id:     RemedyFixPreferredRoute,
 		action: "Check the interface holding the preferred default route",
-		why:    "This machine has more than one default route, and the preferred one failed while another is still there. A VPN or virtual interface that is up but not carrying traffic looks exactly like this.",
+		why:    "This machine has multiple default routes with a metric preference. Failed reference connections do not prove that the preferred route caused the failure or that another route works.",
 		steps: []string{
-			"Reconnect the VPN, or lower its priority so the working interface is preferred.",
+			"Test connectivity through each interface before changing route preference.",
 			"Confirm the preferred interface really has upstream connectivity of its own.",
 		},
 		command: showRoutes,
-		expect:  "One default route that carries traffic, preferred over the rest.",
+		expect:  "A measured comparison showing whether either route carries traffic.",
 	}
 	noHTTPResponse = remedy{
 		id:     RemedyCheckApplication,
@@ -315,14 +324,12 @@ var remedies = map[remedyKey]remedy{
 		command: showRoutes,
 		expect:  "A default route, and a gateway that answers.",
 	},
-	{id: DiagnosisOffline, cause: RouteCauseNoDefaultRoute}:                 routeMissing,
-	{id: DiagnosisOffline, cause: RouteCauseGatewayUnreachable}:             gatewaySilent,
-	{id: DiagnosisOffline, cause: RouteCauseSelectedPathFailed}:             uplinkBroken,
-	{id: DiagnosisOffline, cause: RouteCausePreferredPathFailed}:            preferredRouteDead,
-	{id: DiagnosisLocalEgressFailure, cause: RouteCauseNoDefaultRoute}:      routeMissing,
-	{id: DiagnosisLocalEgressFailure, cause: RouteCauseGatewayUnreachable}:  gatewaySilent,
-	{id: DiagnosisLocalEgressFailure, cause: RouteCauseSelectedPathFailed}:  uplinkBroken,
-	{id: DiagnosisLocalEgressFailure, cause: RouteCausePreferredPathFailed}: preferredRouteDead,
+	{id: DiagnosisOffline, cause: RouteCauseNoDefaultRoute}:                routeMissing,
+	{id: DiagnosisOffline, cause: RouteCauseGatewayUnreachable}:            gatewaySilent,
+	{id: DiagnosisOffline, cause: RouteCauseSelectedPathFailed}:            uplinkBroken,
+	{id: DiagnosisOffline, cause: RouteCausePreferredPathFailed}:           preferredRouteDead,
+	{id: DiagnosisLocalEgressFailure, cause: RouteCauseNoDefaultRoute}:     routeMissing,
+	{id: DiagnosisLocalEgressFailure, cause: RouteCauseGatewayUnreachable}: gatewaySilent,
 	{id: DiagnosisLocalEgressFailure}: {
 		id:     RemedyFixLocalEgressFirst,
 		action: "Fix this machine's own connection first",

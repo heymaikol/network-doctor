@@ -8,7 +8,7 @@ import (
 )
 
 func TestProbePlanHasProductionMetadataAndNoExecutableBodies(t *testing.T) {
-	for _, raw := range []string{"", "https://app.test", "http://app.test", "app.test:22", "app.test:25", "1.1.1.1:443", "[2001:db8::1]:443"} {
+	for _, raw := range []string{"", "app.test:9999", "https://app.test", "http://app.test", "app.test:22", "app.test:25", "1.1.1.1:443", "[2001:db8::1]:443"} {
 		var target *Target
 		if raw != "" {
 			var err error

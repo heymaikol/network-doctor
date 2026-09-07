@@ -68,6 +68,11 @@ func runLiveTwoSided(parent context.Context, h headless, stdout, stderr io.Write
 
 	localRun := h
 	localRun.via, localRun.viaCommand = "", ""
+	if needsPMTUCompatibilitySkip(h) {
+		// Record the remote compatibility restriction on both snapshots. The
+		// local graph already omits PMTU; persistent selection is unchanged.
+		localRun.skip = append(append(probeList(nil), h.skip...), diagnostic.ProbePMTU)
+	}
 	var local, remote diagnosisOutput
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -130,7 +135,7 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 	// success, so an interrupt before the first line lands has to fail closed.
 	code := 1
 	for {
-		probes := h.selection.Apply(diagnostic.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto))
+		probes := h.selection.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto)
 		results := runAll(ctx, probes, h.timeout)
 		if ctx.Err() != nil {
 			// Interrupted mid-pass: every probe failed because we cancelled it,
@@ -196,7 +201,7 @@ func diagnoseHeadless(ctx context.Context, h headless) diagnosisOutput {
 		}
 		return diagnosisOutput{report: *resp.Report, snapshot: *resp.Snapshot, tool: resp.Tool}
 	}
-	probes := h.selection.Apply(diagnostic.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto))
+	probes := h.selection.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto)
 	results := runAll(ctx, probes, h.timeout)
 	if ctx.Err() != nil {
 		return diagnosisOutput{err: ctx.Err()}

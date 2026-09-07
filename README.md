@@ -405,11 +405,11 @@ The core Go checks run directly, and external validation tools use pinned
 go vet ./...
 CGO_ENABLED=0 go build ./...
 go test ./...
-go test -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
 go test -tags acceptance -count=1 -run '^TestNative' . ./internal/ui
 go test -tags netns_integration -count=1 -v ./internal/simulation
 go test -race ./...
-go test -race -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
 go test -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
 go test -fuzz=FuzzEncryptedDNSResponseVerifier -fuzztime=10s ./internal/diagnostic
 go test -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic

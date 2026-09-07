@@ -98,7 +98,7 @@ jobs:
           mkdir -p coverage
           go test -covermode=set -coverprofile=coverage/unit.out ./...
       - if: runner.os != 'Linux'
-        run: go test -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+        run: go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
       # Required gate on both native hosts: it holds the built binary's route,
       # interface, and source-address evidence to what Windows and macOS
       # themselves report, which is the one thing the Linux simulator cannot
@@ -133,7 +133,7 @@ jobs:
           if ($uiAcceptanceExit -ne 0) { exit $uiAcceptanceExit }
       - if: runner.os == 'Linux'
         name: Run loopback integration tests with coverage
-        run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+        run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
       # The job runner does concurrent subprocess cancellation; gate it.
       - if: runner.os == 'Linux'
         run: go test -race ./...
@@ -142,7 +142,7 @@ jobs:
       # build, and applying it to ./... would compile integration files into
       # every other package's test binary.
       - if: runner.os == 'Linux'
-        run: go test -race -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+        run: go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
       # Smoke-fuzz the parsers fed by input we do not control (terminal output,
       # target arguments, encrypted-DNS responses, and peer frames) so regressions don't
       # rely on contributors remembering to fuzz locally.

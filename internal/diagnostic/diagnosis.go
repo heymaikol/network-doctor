@@ -746,16 +746,12 @@ func publicTargetReachedDirectly(t *Target, res map[ProbeID]ProbeResult) bool {
 	return ok && functional(r.Status) && t != nil && !localTarget(t, res)
 }
 
-// localPathObserved reports whether the operating system's own routing and
-// neighbor tables classified the dead direct path. Those causes are read from
-// local state rather than inferred from what failed to answer, which is what
-// separates a located break from a set of destinations that happened to be
-// silent together. Without one, reference endpoints and a target failing at the
-// same moment is a correlation, and naming the local path would be a guess.
+// localPathObserved requires a missing usable default or an independently
+// unresolved gateway. The legacy selected/preferred cause IDs describe routing
+// metadata after failed connectivity, not an observed local break.
 func localPathObserved(cause string) bool {
 	switch cause {
-	case RouteCauseNoDefaultRoute, RouteCauseGatewayUnreachable,
-		RouteCauseSelectedPathFailed, RouteCausePreferredPathFailed:
+	case RouteCauseNoDefaultRoute, RouteCauseGatewayUnreachable:
 		return true
 	}
 	return false

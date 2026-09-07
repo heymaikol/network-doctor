@@ -75,7 +75,7 @@ func routeEvidence(id DiagnosisID, order []ProbeID, res map[ProbeID]ProbeResult)
 				out = add(out, ProbeTargetTCP, ObservationRouteInterfaceMTU, target.Iface)
 			}
 		}
-	case DiagnosisOffline, DiagnosisLocalEgressFailure, DiagnosisDirectEgressBlocked, DiagnosisDirectEgressDegraded:
+	case DiagnosisOffline, DiagnosisLocalEgressFailure, DiagnosisDirectEgressBlocked, DiagnosisDirectEgressDegraded, DiagnosisReachabilityUnlocalized:
 		for _, r := range reference {
 			if r.Unreachable {
 				out = add(out, ProbeIface, ObservationRouteUnreachable, r.Destination.String())

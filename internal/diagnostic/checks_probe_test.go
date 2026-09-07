@@ -860,8 +860,9 @@ func TestInternetProbeAddsBackwardCompatibleRouteCause(t *testing.T) {
 // first candidate address misdescribes. Both families fail, the endpoint list
 // leads with IPv4, and IPv4 has no default route because this host does not do
 // IPv4: reading the cause off that table reports "no default route" to someone
-// whose IPv6 default is present, preferred and dead, which is a different
-// repair entirely. The family with defaults of its own is the one asked.
+// whose IPv6 defaults are present with a metric preference. That metadata
+// calls for investigation, not an instruction to restore a missing route.
+// The family with defaults of its own is the one asked.
 func TestInternetProbeClassifiesTheFamilyThatHasRoutes(t *testing.T) {
 	asked := map[string]string{}
 	ops := &netops{routeCause: func(destination net.IP) string {
@@ -874,13 +875,13 @@ func TestInternetProbeClassifiesTheFamilyThatHasRoutes(t *testing.T) {
 	}}
 	r, dialed := dialedNetworks(t, ops, map[string]bool{"tcp4": true, "tcp6": true})
 	if r.Status != StatusFail || r.Cause != RouteCausePreferredPathFailed {
-		t.Errorf("IPv6-only host with a dead preferred path = %+v, want %s", r, RouteCausePreferredPathFailed)
+		t.Errorf("IPv6-only host with preferred route metadata = %+v, want %s", r, RouteCausePreferredPathFailed)
 	}
 	if dialed != "[tcp4 tcp6]" || asked["ipv4"] == "" || asked["ipv6"] == "" {
 		t.Errorf("dialed %s, classifier saw %v: both families are still tried and still asked", dialed, asked)
 	}
-	if fix := routeFix(r.Cause); !strings.Contains(fix, "preferred default route") {
-		t.Errorf("fix hint = %q, want the preferred-route repair", fix)
+	if fix := routeFix(r.Cause); !strings.Contains(fix, "test each path before changing preference") {
+		t.Errorf("fix hint = %q, want advice to measure paths before changing preference", fix)
 	}
 
 	// The other family having nothing to say leaves the original verdict

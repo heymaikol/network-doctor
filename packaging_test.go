@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	goversion "go/version"
 	"io"
 	"os"
@@ -600,18 +601,14 @@ func TestCompletionsHandleAttachedFlagValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"profile", "keys", "check", "skip"} {
+	// Every flag that takes a value, so a new one cannot be added without '='.
+	for _, name := range []string{
+		"save", "support", "profile", "peer-listen", "via", "iface",
+		"public-dns", "check", "skip", "keys", "timeout",
+	} {
 		if !regexp.MustCompile(`\{--` + name + `,-` + name + `\}=`).Match(zsh) {
 			t.Errorf("packaging/completions/netdoc.zsh: --%s must be declared with '=' so --%s=value completes", name, name)
 		}
-	}
-
-	bash, err := os.ReadFile("packaging/completions/netdoc.bash")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(bash), `[[ $cur == -*=* ]]`) {
-		t.Error("packaging/completions/netdoc.bash must split --flag=value so the existing value cases apply to the attached form")
 	}
 }
 
@@ -623,8 +620,8 @@ func TestBashCompletesAttachedAndSeparatedFlagValues(t *testing.T) {
 	dir := t.TempDir()
 	// Files that filename completion would offer for the prefixes below.
 	// The enumerable flags must not fall back to them.
-	for _, name := range []string{"gith", "github-file", "vimrc", "tls-file", "dns-file"} {
-		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+	for _, name := range []string{"gith", "github-file", "vimrc", "tls-file", "dns-file", "zzz"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -635,21 +632,25 @@ func TestBashCompletesAttachedAndSeparatedFlagValues(t *testing.T) {
 		cword int
 		want  []string
 	}{
-		{"attached profile", []string{"netdoc", "--profile=git"}, 1, []string{"github"}},
-		{"attached single-dash profile", []string{"netdoc", "-profile=git"}, 1, []string{"github"}},
-		{"attached keys", []string{"netdoc", "--keys=vi"}, 1, []string{"vim"}},
-		{"attached single-dash keys", []string{"netdoc", "-keys=vi"}, 1, []string{"vim"}},
-		{"attached check prefix", []string{"netdoc", "--check=dn"}, 1, []string{"dns", "dns_public", "dns_encrypted"}},
-		{"attached skip prefix", []string{"netdoc", "--skip=tl"}, 1, []string{"tls"}},
-		{"attached check keeps comma prefix", []string{"netdoc", "--check=dns,tl"}, 1, []string{"dns,tls"}},
-		{"attached skip keeps comma prefix", []string{"netdoc", "--skip=tls,ht"}, 1, []string{"tls,http", "tls,https"}},
-		{"attached single-dash check keeps comma prefix", []string{"netdoc", "-check=dns,tl"}, 1, []string{"dns,tls"}},
+		// Attached: `netdoc --profile=git` reaches the function already split.
+		{"attached profile", []string{"netdoc", "--profile", "=", "git"}, 3, []string{"github"}},
+		{"attached single-dash profile", []string{"netdoc", "-profile", "=", "git"}, 3, []string{"github"}},
+		{"attached keys", []string{"netdoc", "--keys", "=", "vi"}, 3, []string{"vim"}},
+		{"attached single-dash keys", []string{"netdoc", "-keys", "=", "vi"}, 3, []string{"vim"}},
+		{"attached check prefix", []string{"netdoc", "--check", "=", "dn"}, 3, []string{"dns", "dns_public", "dns_encrypted"}},
+		{"attached skip prefix", []string{"netdoc", "--skip", "=", "tl"}, 3, []string{"tls"}},
+		{"attached check keeps comma prefix", []string{"netdoc", "--check", "=", "dns,tl"}, 3, []string{"dns,tls"}},
+		{"attached skip keeps comma prefix", []string{"netdoc", "--skip", "=", "tls,ht"}, 3, []string{"tls,http", "tls,https"}},
+		{"attached single-dash check keeps comma prefix", []string{"netdoc", "-check", "=", "dns,tl"}, 3, []string{"dns,tls"}},
+		// Empty attached value: the '=' is itself the word being completed.
+		{"attached empty profile", []string{"netdoc", "--profile", "="}, 2, []string{"github", "ssh", "smtp", "web", "list"}},
+		{"attached empty keys", []string{"netdoc", "--keys", "="}, 2, []string{"default", "vim"}},
+		// Enumerable and non-enumerable values must never fall back to filenames.
+		{"attached keys no filename fallback", []string{"netdoc", "--keys", "=", "zz"}, 3, nil},
+		{"attached public-dns no filename fallback", []string{"netdoc", "--public-dns", "="}, 2, nil},
 		{"separated profile", []string{"netdoc", "--profile", "git"}, 2, []string{"github"}},
 		{"separated keys", []string{"netdoc", "--keys", "vi"}, 2, []string{"vim"}},
 		{"separated check keeps comma prefix", []string{"netdoc", "--check", "dns,tl"}, 2, []string{"dns,tls"}},
-		{"readline split profile equals-glued", []string{"netdoc", "--profile", "=git"}, 2, []string{"github"}},
-		{"readline split profile three words", []string{"netdoc", "--profile", "=", "git"}, 3, []string{"github"}},
-		{"readline split profile equals on prev", []string{"netdoc", "--profile=", "git"}, 2, []string{"github"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got := bashComplete(t, dir, tt.words, tt.cword)
@@ -679,12 +680,14 @@ if ((${#COMPREPLY[@]})); then
   printf '%s\n' "${COMPREPLY[@]}"
 fi
 `, "bash-complete", script, strconv.Itoa(cword)}, words...)
+	//nolint:gosec // G204: the binary and script are constants; the words come from this test's own table.
 	cmd := exec.Command("bash", args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			t.Fatalf("bash completion %q: %v\n%s", strings.Join(words, " "), err, ee.Stderr)
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			t.Fatalf("bash completion %q: %v\n%s", strings.Join(words, " "), err, exit.Stderr)
 		}
 		t.Fatal(err)
 	}

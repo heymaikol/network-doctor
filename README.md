@@ -391,9 +391,14 @@ the software or how issues are prioritized.
 
 ## Tests
 
-For an ordinary, focused pull request, run the tests nearest your change plus
-`go test ./...`, then any additional checks clearly relevant to the files or
-behavior you changed. That is almost all a small external contribution needs.
+For an ordinary, focused pull request, run `./scripts/check` -- gofmt, `go vet`,
+a `CGO_ENABLED=0` build, macOS and Windows cross-compiles, and `go test ./...`,
+with no root and no Docker needed (a Go toolchain and a POSIX shell: on
+Windows, Git Bash or WSL). The checks make no network calls, though the Go
+toolchain downloads on a cold module cache or an out-of-date `toolchain` line.
+Then run the tests nearest your change and any additional checks clearly
+relevant to the files or behavior you changed. That is almost all a small
+external contribution needs.
 The exhaustive gate below exists for CI, maintainership, releases, and the
 specific checks that apply to your change; a small contribution does not have
 to reproduce every CI environment locally.

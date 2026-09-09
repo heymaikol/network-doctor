@@ -48,6 +48,15 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # The contributor-facing fast gate, run on Linux so it cannot rot
+      # unnoticed. Most of its work is repeated by the steps below, so this
+      # roughly doubles the unit suite on this leg rather than costing a few
+      # seconds. That is the price of the guarantee: contributors are told to
+      # run `scripts/check`, and running the real script is the only thing that
+      # proves it still works. Asserting on its text cannot.
+      - if: runner.os == 'Linux'
+        name: Run the fast local check contributors are asked to run
+        run: ./scripts/check
       - run: go vet ./...
       - run: go build ./...
         env:

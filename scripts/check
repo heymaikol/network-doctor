@@ -1,0 +1,102 @@
+#!/bin/sh
+# Fast local validation for an ordinary pull request. See usage() below.
+#
+# Exits non-zero on the first failure, so it is usable in a pre-push hook.
+
+set -eu
+
+# The help text is a here-document rather than a slice of this comment block,
+# so editing the header cannot silently change what --help prints.
+usage() {
+    cat <<'EOF'
+Fast local validation for an ordinary pull request.
+
+Runs the checks a contributor should have run before opening one: the ones
+that are fast, need no privileges, and behave the same on every platform a
+contributor might be on.
+
+Network: the checks themselves make no network calls, but the Go toolchain
+may. A cold or incomplete module cache downloads the module dependencies, and
+a Go older than the toolchain line in go.mod downloads that toolchain first.
+Once both are warm the script is offline.
+
+It deliberately does NOT reproduce the full gate in README.md#tests. Race,
+fuzz, loopback-integration, namespace, acceptance and container suites, and
+the pinned external tools (golangci-lint, govulncheck, goreleaser), all stay
+in CI. Those are slower, several need Linux or Docker, and the pinned tools
+download on first run. Making this script the whole gate would make it too
+slow to run, which is the way a check like this stops being run at all.
+
+Usage:
+  ./scripts/check            fast checks
+  ./scripts/check --race     also run the race detector (slower, still local)
+  ./scripts/check --help     print this message
+EOF
+}
+
+race=0
+for arg in "$@"; do
+    case "$arg" in
+        --race) race=1 ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'check: unknown option %s\n' "$arg" >&2
+            exit 2
+            ;;
+    esac
+done
+
+cd "$(dirname "$0")/.."
+
+step() {
+    printf '\n==> %s\n' "$1"
+    shift
+    "$@"
+}
+
+# gofmt rather than `go fmt`: it reports rather than rewrites, so a formatting
+# problem fails the check instead of silently editing the working tree during
+# what the contributor asked to be a read-only verification.
+#
+# The file list comes from git rather than from `gofmt -l .`, because gofmt
+# walks every directory that does not start with "." or "_". That includes
+# untracked third-party trees `go build ./...` and golangci-lint both skip:
+# node_modules, and the vendor/ directory a local goreleaser run leaves behind
+# (see the before-hooks in .goreleaser.yaml). Reporting those fails the gate on
+# code no contributor can fix. -z and xargs -0 so the list survives a path with
+# a space in it.
+check_gofmt() {
+    unformatted=$(git ls-files -z '*.go' | xargs -0 gofmt -l)
+    if [ -n "$unformatted" ]; then
+        printf 'These files are not gofmt-clean:\n%s\n' "$unformatted" >&2
+        return 1
+    fi
+}
+
+step "gofmt" check_gofmt
+step "go vet" go vet ./...
+
+# CGO_ENABLED=0 matches the release build, so a cgo dependency introduced by
+# accident fails here rather than at release time. See AGENTS.md.
+step "build (CGO_ENABLED=0)" env CGO_ENABLED=0 go build ./...
+
+# Cross-compilation only, no tests: it is the cheap half of the cross-platform
+# rule in AGENTS.md, and it catches a platform-tagged file that does not
+# compile elsewhere. Running it always rather than only after a _linux/_darwin/
+# _windows edit costs a few seconds and removes the judgement call.
+step "cross-compile (darwin)" env GOOS=darwin go build ./...
+step "cross-compile (windows)" env GOOS=windows go build ./...
+
+# The ordinary suite: deterministic, rootless, no build tags. This is also
+# where the repository's own invariant tests live (architecture, packaging,
+# docs links, em dashes), so those run here too.
+step "go test" go test ./...
+
+if [ "$race" -eq 1 ]; then
+    step "go test -race" go test -race ./...
+fi
+
+printf '\nAll checks passed.\n'

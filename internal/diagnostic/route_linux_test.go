@@ -432,3 +432,25 @@ func TestLookupRouteDecisionReadsTheRoutingTableTheKernelUsed(t *testing.T) {
 		t.Error("a known main table compared as the same domain as a policy table")
 	}
 }
+
+func TestMainIPv6DefaultsExcludeOtherTables(t *testing.T) {
+	main := rtMsg(unix.AF_INET6, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST,
+		rtAttr(unix.RTA_OIF, u32(2)), rtAttr(unix.RTA_GATEWAY, net.ParseIP("2001:db8::1").To16()), rtAttr(unix.RTA_PRIORITY, u32(50)))
+	foreign := rtMsg(unix.AF_INET6, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST,
+		rtAttr(unix.RTA_TABLE, u32(100)), rtAttr(unix.RTA_OIF, u32(3)), rtAttr(unix.RTA_PRIORITY, u32(1)))
+	specific := rtMsg(unix.AF_INET6, 64, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_OIF, u32(3)))
+	name := func(index int) string {
+		if index == 2 {
+			return "eth0"
+		}
+		return "eth1"
+	}
+	routes := mainIPv6Defaults([]netlinkMessage{foreign, main, specific}, name)
+	if len(routes) != 1 || routes[0].iface != "eth0" || routes[0].metric != 50 || !routes[0].gateway.Equal(net.ParseIP("2001:db8::1")) {
+		t.Fatalf("main defaults = %+v", routes)
+	}
+	multipath := rtMsg(unix.AF_INET6, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_MULTIPATH, nil))
+	if routes := mainIPv6Defaults([]netlinkMessage{main, multipath}, name); routes != nil {
+		t.Fatalf("partial inventory = %+v", routes)
+	}
+}

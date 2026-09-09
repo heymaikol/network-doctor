@@ -198,10 +198,11 @@ var conditionOracle = []conditionRule{
 			return preferredDefaultRouteFailedFor(o, string(familyIPv4)) ||
 				preferredDefaultRouteFailedFor(o, string(familyIPv6))
 		},
-		// The report has selection metadata, not a measured comparison proving
-		// a failed preferred route and working alternate. Independent simulator
-		// evidence establishes the fault but cannot count as report recognition.
-		recognized: func(*Diagnosis) bool { return false },
+		// Only netdoc's measured comparison counts. Legacy selection causes
+		// and the simulator's private alternate measurement remain insufficient.
+		recognized: func(d *Diagnosis) bool {
+			return flaggedCause(d, []string{string(diagnostic.ProbeInternet)}, diagnostic.RouteCausePreferredPathAlternateReachable)
+		},
 	},
 }
 

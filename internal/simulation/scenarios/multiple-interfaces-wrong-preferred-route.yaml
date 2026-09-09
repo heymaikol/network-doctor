@@ -60,7 +60,7 @@ tests:
       verdict: degraded
       checks:
         - {id: iface, status: PASS}
-        - {id: internet_tcp, status: WARN, cause: preferred_route_failed}
+        - {id: internet_tcp, status: WARN, cause: preferred_path_failed_alternate_reachable}
         - {id: dns, status: PASS}
         - {id: dns_encrypted, status: FAIL}
         - {id: target_tcp, status: PASS}

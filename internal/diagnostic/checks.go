@@ -55,6 +55,10 @@ const (
 	ConnectionCauseCanceled       = "canceled"
 )
 
+// RouteCausePreferredPathAlternateReachable requires failed reference dials
+// and a successful target connection through a lower-preference default path.
+const RouteCausePreferredPathAlternateReachable = "preferred_path_failed_alternate_reachable"
+
 const (
 	FamilyReachable   = "reachable"
 	FamilyUnreachable = "unreachable"
@@ -158,6 +162,10 @@ type ProbeResult struct {
 	causeFamily string // address family that supplied Cause; empty when shared or family-neutral
 	Families    *FamilyConnectivity
 	downgraded  bool // downgradeEgress rewrote a direct-egress failure to Warn.
+	// alternateDefaults records default paths ranked below the path used by
+	// every reference dial in a family. Selection only; Finalize must also
+	// match a successful target socket before reporting a measured comparison.
+	alternateDefaults map[string][]defaultRouteState
 	// answerComparison is what reconcileDNS concluded when it compared this
 	// row's answers with the system resolver's. Unrecorded when there was
 	// nothing to compare, which is never the same as agreement. Private, and

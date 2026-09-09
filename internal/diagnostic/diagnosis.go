@@ -598,6 +598,10 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	case encryptedDNSBlocked(res):
 		return blame(DiagnosisEncryptedDNSUnavailable, ProbeDNSEncrypted, encryptedDNSSummary, VerdictDegraded, ProbeDNS, ProbeDNSPublic, ProbeInternet)
 	case targetOK && (fail(ProbeInternet) || (warn(ProbeInternet) && res[ProbeInternet].downgraded)):
+		if res[ProbeInternet].Cause == RouteCausePreferredPathAlternateReachable {
+			return blame(DiagnosisReferenceEgressUnreachable, ProbeInternet, preferredPathSummary,
+				VerdictDegraded, ProbeInternet, ProbeTargetTCP)
+		}
 		if publicTargetReachedDirectly(t, res) {
 			// A public destination answered a direct connection on this run,
 			// which refutes "direct egress is blocked" rather than softening
@@ -881,6 +885,7 @@ func causeSatisfied(id ProbeID, res map[ProbeID]ProbeResult) bool {
 // in the same order. Idempotent, but there's no reason to call it twice.
 func Finalize(res map[ProbeID]ProbeResult) {
 	reconcileDNS(res)
+	reconcilePreferredPath(res)
 	downgradeEgress(res)
 	// After the downgrade, so "direct egress worked" means what the finished
 	// report says it means rather than what it said mid-pass.
@@ -1165,7 +1170,10 @@ func downgradeEgress(res map[ProbeID]ProbeResult) {
 	// network with no default route is working as designed. The cause stays in
 	// the JSON as evidence; only the advice reverts.
 	r.Fix = egressFix
-	if otherOK {
+	if r.Cause == RouteCausePreferredPathAlternateReachable {
+		// The measured comparison already names the working path.
+		r.Fix = routeFix(r.Cause)
+	} else if otherOK {
 		r.Detail += ", but another path works"
 	} else {
 		r.Detail += ", but the environment proxy works"

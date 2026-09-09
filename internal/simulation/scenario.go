@@ -484,6 +484,7 @@ var knownCauses = []string{
 	diagnostic.RouteCauseGatewayUnreachable,
 	diagnostic.RouteCauseSelectedPathFailed,
 	diagnostic.RouteCausePreferredPathFailed,
+	diagnostic.RouteCausePreferredPathAlternateReachable,
 	diagnostic.FamilyCauseIPv4Unreachable,
 	diagnostic.FamilyCauseIPv6Unreachable,
 	diagnostic.DNSCauseTimeout,

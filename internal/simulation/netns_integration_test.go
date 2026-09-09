@@ -1597,11 +1597,11 @@ func TestPreferredPathFailureMutationIsIndependentlyObserved(t *testing.T) {
 				t.Fatal("final client test is absent")
 			}
 			check := diagnosisCheck(*final, string(diagnostic.ProbeInternet))
-			if check.Cause != diagnostic.RouteCausePreferredPathFailed || diagnosedFamily(final.Diagnosis, tc.family) != FamilyStateUnreachable {
+			if check.Cause != diagnostic.RouteCausePreferredPathAlternateReachable || diagnosedFamily(final.Diagnosis, tc.family) != FamilyStateUnreachable {
 				t.Fatalf("diagnosis did not recognize %s preferred-path failure: %+v stderr=%s", tc.family, check, final.Stderr)
 			}
-			if findings := unrecognizedConditionFindings(&rep, truth); len(findings) != 1 || findings[0].Expected != string(ConditionPreferredRouteFailed) {
-				t.Fatalf("selection metadata must leave the independently observed %s route fault unrecognized: %+v", tc.family, findings)
+			if findings := unrecognizedConditionFindings(&rep, truth); len(findings) != 0 {
+				t.Fatalf("measured %s path comparison left findings: %+v", tc.family, findings)
 			}
 			t.Logf("mutation=%+v baseline=%+v mutated=%+v diagnosis=%s/%s families=%+v mutationObserved=true",
 				mutation, baselineFamily, mutatedFamily, check.Status, check.Cause, check.Families)
@@ -1649,11 +1649,11 @@ func TestPreferredRouteFailureConditionIsEstablishedIndependently(t *testing.T) 
 			// forgot to ask whether the path is dead would fire here.
 			baseline := runLibraryScenarioDefinition(t, sim, netdoc, tc.base)
 			baselineTruth := collectObservedTruth(manifest, &baseline)
-			baselineEstablished, _, baselineComparable := caseConditions(&baseline, baselineTruth)
+			baselineEstablished, baselineRecognized, baselineComparable := caseConditions(&baseline, baselineTruth)
 			if !baselineComparable {
 				t.Fatalf("healthy %s was not a final-state comparison", tc.base)
 			}
-			if slices.Contains(baselineEstablished, ConditionPreferredRouteFailed) {
+			if slices.Contains(baselineEstablished, ConditionPreferredRouteFailed) || slices.Contains(baselineRecognized, ConditionPreferredRouteFailed) {
 				t.Fatalf("a healthy multipath base established %s: %+v", ConditionPreferredRouteFailed, baselineEstablished)
 			}
 
@@ -1681,6 +1681,9 @@ func TestPreferredRouteFailureConditionIsEstablishedIndependently(t *testing.T) 
 			// it, so one network can never be both.
 			if slices.Contains(established, ConditionNoDefaultRoute) {
 				t.Fatalf("%s established both route conditions: %v", tc.base, established)
+			}
+			if !slices.Contains(recognized, ConditionPreferredRouteFailed) {
+				t.Fatalf("%s did not recognize the measured comparison", tc.base)
 			}
 			findings := unrecognizedConditionFindings(&rep, truth)
 			named := slices.ContainsFunc(findings, func(f HuntCaseFinding) bool {

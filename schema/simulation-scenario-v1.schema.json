@@ -689,7 +689,7 @@
         "encrypted_dns_unavailable", "certificate_expired", "certificate_not_yet_valid",
         "hostname_mismatch", "untrusted_issuer", "tls_handshake_failure", "tcp_unreachable",
         "timeout", "connection_closed", "no_default_route", "gateway_unreachable",
-        "selected_path_failed", "preferred_route_failed", "ipv4_unreachable", "ipv6_unreachable",
+        "selected_path_failed", "preferred_route_failed", "preferred_path_failed_alternate_reachable", "ipv4_unreachable", "ipv6_unreachable",
         "dns_timeout", "dns_temporary_failure", "connection_refused", "connection_reset"
       ],
       "description": "The machine-readable failure causes a scenario may assert on. Empty asserts nothing."

@@ -133,6 +133,8 @@ func routeFix(cause string) string {
 		return "a default route exists, but the failed reference connections do not locate the break: check the gateway and upstream connectivity"
 	case RouteCausePreferredPathFailed:
 		return "multiple default routes exist with a metric preference; the failed reference connections do not prove which route is broken: test each path before changing preference"
+	case RouteCausePreferredPathAlternateReachable:
+		return "compare the preferred path's gateway and upstream with the working alternate; target reachability alone does not guarantee that changing the default will restore reference connectivity"
 	}
 	return egressFix
 }

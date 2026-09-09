@@ -1188,3 +1188,18 @@ func TestPreferredRouteFailureMissReportsOneHighConfidenceFinding(t *testing.T) 
 		t.Fatalf("an unobserved mutation produced %+v", got)
 	}
 }
+
+func TestPreferredRouteFailureRecognizesOnlyMeasuredCause(t *testing.T) {
+	for _, tc := range []struct {
+		row, status string
+		want        bool
+	}{
+		{"internet_tcp", "WARN", true}, {"internet_tcp", "FAIL", true},
+		{"internet_tcp", "PASS", false}, {"target_tcp", "WARN", false},
+	} {
+		d := oracleDiagnosis(DiagnosisCheck{ID: tc.row, Status: tc.status, Cause: diagnostic.RouteCausePreferredPathAlternateReachable})
+		if got := slices.Contains(recognizedConditions(d), ConditionPreferredRouteFailed); got != tc.want {
+			t.Errorf("%s/%s recognized = %v, want %v", tc.row, tc.status, got, tc.want)
+		}
+	}
+}

@@ -127,6 +127,7 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 	if len(v4.ips) == 0 && len(v6.ips) == 0 {
 		return ProbeResult{Status: StatusNA, Detail: "the selected interface has no address family available for direct egress"}
 	}
+	routeEvidence := o.collectPathComparison(ctx, v4.ips, v6.ips)
 	// obs holds one entry per fixed connectivity endpoint, in endpoint order.
 	// An entry stays zero where the check is stubbed out or the endpoint never
 	// answered, and an endpoint that did not answer is the absence of an
@@ -218,6 +219,20 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 		}
 		if o.routeCause != nil {
 			r.Cause, r.causeFamily = failedRouteCause(o.routeCause, v4.ips, v6.ips)
+		}
+		if ctx.Err() != context.Canceled {
+			// A timeout is useful failure evidence, but must not start more
+			// kernel queries after the probe has spent its budget.
+			select {
+			case evidence := <-routeEvidence:
+				r.Routes, r.alternateDefaults = evidence.Routes, evidence.alternateDefaults
+			default:
+				select {
+				case evidence := <-routeEvidence:
+					r.Routes, r.alternateDefaults = evidence.Routes, evidence.alternateDefaults
+				case <-ctx.Done():
+				}
+			}
 		}
 		// The routing table decides the advice: a missing default route and a
 		// filtered upstream are different repairs. An empty or unrecognized

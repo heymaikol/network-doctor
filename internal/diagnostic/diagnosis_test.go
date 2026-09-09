@@ -267,8 +267,9 @@ func TestDiagnoseTarget(t *testing.T) {
 	}
 
 	// A raw egress failure must never fall through to the all-clear verdict,
-	// and with the target answering directly it must not be called an egress
-	// outage either.
+	// and with the target answering directly on a public address it must not be
+	// called an egress outage either.
+	res[ProbeTargetTCP] = ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("140.82.121.4")}
 	res[ProbeInternet] = ProbeResult{Status: StatusFail}
 	if v := Interpret(tg, order, res).Summary; !strings.Contains(v, "reference endpoints are what did not answer") {
 		t.Errorf("got %q, want the reference-endpoint verdict", v)

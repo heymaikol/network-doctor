@@ -2877,7 +2877,11 @@ func TestWrongDefaultRouteScenario(t *testing.T) {
 	if !hasSelectedRoute(rep, "client", "1.1.1.1", "10.77.1.254", "client-lan", &reachable) {
 		t.Errorf("wrong but locally reachable gateway not selected: %+v", rep.Evidence.Routes)
 	}
-	if len(rep.Tests) != 2 || diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeInternet)).Status != "WARN" ||
+	// The distinction is the specific route reaching 10.77.2.20 while default
+	// traffic does not. It is not a relaxed egress row: nothing in either run
+	// reached a destination off this network, so the egress failure stays a
+	// FAIL and stays in ok and the exit status.
+	if len(rep.Tests) != 2 || diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeInternet)).Status != "FAIL" ||
 		diagnosisCheck(rep.Tests[1], string(diagnostic.ProbeTargetTCP)).Status != "PASS" {
 		t.Errorf("wrong/default and correct/specific paths were not distinguished: %+v", rep.Tests)
 	}
@@ -2903,7 +2907,11 @@ func TestMultipleInterfacesWrongPreferredRouteScenario(t *testing.T) {
 	if !hasGatewayState(rep, "client", "10.77.1.1", true) || !hasGatewayState(rep, "client", "10.77.3.1", true) {
 		t.Errorf("both gateway neighbor states were not reachable: %+v", rep.Evidence.Routes)
 	}
-	if len(rep.Tests) != 2 || diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeInternet)).Status != "WARN" ||
+	// Only the second run measures the alternate path, by binding to
+	// working-lan, so only it may relax the egress row. The first run observes
+	// the preferred path failing and nothing else, which is a FAIL.
+	if len(rep.Tests) != 2 || diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeInternet)).Status != "FAIL" ||
+		diagnosisCheck(rep.Tests[1], string(diagnostic.ProbeInternet)).Status != "WARN" ||
 		diagnosisCheck(rep.Tests[1], string(diagnostic.ProbeTargetTCP)).Status != "PASS" || rep.Tests[1].SourceSegment != "working-lan" {
 		t.Errorf("preferred failure/alternate success evidence missing: %+v", rep.Tests)
 	}

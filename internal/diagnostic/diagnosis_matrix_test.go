@@ -46,6 +46,12 @@ type matrixCase struct {
 // in most of these runs: the arm under test is the one or two that carry more.
 func ok(s Status) ProbeResult { return ProbeResult{Status: s} }
 
+// reached is a successful endpoint connect, carrying the address that answered
+// the way the probe records it.
+func reached(ip string) ProbeResult {
+	return ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP(ip)}
+}
+
 // disagreed is the independent DNS row as reconcileDNS leaves it when the two
 // resolvers answered from different allocations: warned, carrying the answers
 // it compared, and carrying the outcome of that comparison. The recorded
@@ -58,15 +64,22 @@ func disagreed(addrs ...net.IP) ProbeResult {
 func diagnosisMatrix() []matrixCase {
 	tls := &Target{Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
 	local := &Target{Host: "192.168.1.10", IP: net.ParseIP("192.168.1.10"), Port: 9100, Proto: ProtoNone}
+	// RFC 6598 shared address space: a CGNAT or tailnet peer. Reaching it is
+	// not reaching the public internet, so it belongs with the local device
+	// above rather than with a public endpoint.
+	shared := &Target{Host: "100.100.100.100", IP: net.ParseIP("100.100.100.100"), Port: 9100, Proto: ProtoNone}
 	httpOnly := &Target{Host: "example.com", Port: 80, Proto: ProtoHTTP}
 	ssh := &Target{Host: "example.com", Port: 22, Proto: ProtoSSH}
 	tcp := &Target{Host: "example.com", Port: 443, Proto: ProtoNone}
 
 	webOrder := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTP, ProbeHTTPS}
+	// The endpoint row carries the address that answered, as a real run's does.
+	// It is not decoration: it is what says the connection left this network,
+	// and the arms that refuse to generalize from a local answer read it.
 	webHealthy := func() map[ProbeID]ProbeResult {
 		return map[ProbeID]ProbeResult{
 			ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass), ProbeDNS: ok(StatusPass),
-			ProbeTargetTCP: ok(StatusPass), ProbePMTU: ok(StatusPass), ProbeTLS: ok(StatusPass),
+			ProbeTargetTCP: reached("93.184.216.34"), ProbePMTU: ok(StatusPass), ProbeTLS: ok(StatusPass),
 			ProbeHTTP: ok(StatusPass), ProbeHTTPS: ok(StatusPass),
 		}
 	}
@@ -653,6 +666,20 @@ func diagnosisMatrix() []matrixCase {
 			res: map[ProbeID]ProbeResult{
 				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusFail),
 				ProbeDNS: ok(StatusNA), ProbeTargetTCP: ok(StatusPass),
+			},
+			summary: "The target works but direct TCP egress to the egress check's reference endpoints is blocked (proxy-only or filtered network?).",
+			verdict: VerdictDegraded, focus: ProbeInternet,
+			id: "direct_egress_blocked", evidence: []ProbeID{ProbeInternet, ProbeTargetTCP},
+		},
+		{
+			// And the same again with a peer in shared address space. A
+			// tailnet or CGNAT address is not globally routable, so answering
+			// on one contradicts nothing about egress either.
+			name: "shared address space peer works, direct egress blocked", target: shared,
+			order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP},
+			res: map[ProbeID]ProbeResult{
+				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusFail),
+				ProbeDNS: ok(StatusNA), ProbeTargetTCP: reached("100.100.100.100"),
 			},
 			summary: "The target works but direct TCP egress to the egress check's reference endpoints is blocked (proxy-only or filtered network?).",
 			verdict: VerdictDegraded, focus: ProbeInternet,

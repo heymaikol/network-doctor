@@ -827,26 +827,46 @@ func TestProxyProbeFallsBackToHTTP(t *testing.T) {
 }
 
 // downgradeEgress turns a direct-egress FAIL into WARN only when another path
-// proved the network works: target TCP when a target exists, the environment
-// proxy, or else DNS.
+// carried traffic off this network: the endpoint check reached a public
+// address directly, or the environment proxy tunnels traffic. The Warn is what
+// takes the failure out of ok and the exit code, so activity that never left
+// the network does not buy one.
 func TestDowngradeEgress(t *testing.T) {
+	public, lan, shared := net.ParseIP("93.184.216.34"), net.ParseIP("192.168.1.10"), net.ParseIP("100.100.100.100")
 	cases := []struct {
 		name string
 		res  map[ProbeID]ProbeResult
 		want Status
 	}{
+		// A resolver answering is not egress: the lookup may have been served
+		// on-link from a cache or a local zone, and the generic truth table
+		// already calls this state a network outage rather than a degradation.
 		{"generic dns works", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass},
-		}, StatusWarn},
+		}, StatusFail},
 		{"generic dns fails too", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusFail},
 		}, StatusFail},
 		{"target tcp works", map[ProbeID]ProbeResult{
-			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass},
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: public},
 		}, StatusWarn},
 		{"target tcp works with warnings", map[ProbeID]ProbeResult{
-			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusWarn},
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusWarn, SelectedIP: public},
 		}, StatusWarn},
+		// The two destinations that answer without leaving the network. Both
+		// are ordinary targets, and neither says anything about egress.
+		{"lan target works, dns too", map[ProbeID]ProbeResult{
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: lan},
+		}, StatusFail},
+		{"shared address space target works", map[ProbeID]ProbeResult{
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: shared},
+		}, StatusFail},
+		// A row that says it connected but not to where cannot support the
+		// claim either, which is what an artifact from before the address was
+		// recorded looks like on replay.
+		{"target tcp works, address unrecorded", map[ProbeID]ProbeResult{
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass},
+		}, StatusFail},
 		{"target tcp fails, dns pass not enough", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusFail},
 		}, StatusFail},
@@ -861,6 +881,9 @@ func TestDowngradeEgress(t *testing.T) {
 		}, StatusWarn},
 		{"proxy path saves target", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusFail}, ProbeProxy: {Status: StatusPass},
+		}, StatusWarn},
+		{"proxy path saves a lan-only run", map[ProbeID]ProbeResult{
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: lan}, ProbeProxy: {Status: StatusPass},
 		}, StatusWarn},
 		{"proxy NA not enough", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusFail}, ProbeProxy: {Status: StatusNA},

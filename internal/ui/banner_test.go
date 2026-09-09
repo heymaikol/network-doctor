@@ -7,6 +7,7 @@ package ui
 
 import (
 	"maps"
+	"net"
 	"strings"
 	"testing"
 
@@ -64,6 +65,9 @@ func TestBannerFailureGuidance(t *testing.T) {
 			name: "egress alone fails",
 			results: map[diagnostic.ProbeID]diagnostic.ProbeResult{
 				diagnostic.ProbeInternet: fail(egressFix),
+				// The address that answered is what makes the sentence below
+				// true: the endpoint check left this network and arrived.
+				diagnostic.ProbeTargetTCP: {Status: diagnostic.StatusPass, SelectedIP: net.ParseIP("93.184.216.34")},
 			},
 			// Degraded: the target works, so the banner warns rather than
 			// painting a red failure over a sentence that says so. The

@@ -59,7 +59,13 @@ tests:
       verdict: degraded
       checks:
         - {id: iface, status: PASS}
-        - {id: internet_tcp, status: WARN, cause: selected_path_failed}
+        # FAIL rather than WARN. The specific route reaches 10.77.2.20, which
+        # is one subnet over through the correct router, so the run never
+        # reaches a destination off this network at all; selected_path_failed
+        # is routing metadata read after the failure and establishes no working
+        # alternate either. Nothing here has earned the relaxed row that would
+        # take the failure out of ok and the exit status.
+        - {id: internet_tcp, status: FAIL, cause: selected_path_failed}
         - {id: dns, status: PASS}
         - {id: dns_encrypted, status: FAIL}
         - {id: target_tcp, status: PASS}
@@ -69,7 +75,10 @@ expect:
   verdict: network
   checks:
     - {id: iface, status: PASS}
-    - {id: internet_tcp, status: WARN, cause: selected_path_failed}
+    # The verdict below is network, so the row may not be a WARN: a relaxed
+    # egress row reports ok true and exits 0, which would contradict it. The
+    # resolver answering is not a path off this network.
+    - {id: internet_tcp, status: FAIL, cause: selected_path_failed}
     - {id: dns, status: PASS}
     # The encrypted resolver is reached over the failed default path, so this
     # is that routing failure showing up again, not a block on DoH/DoT.

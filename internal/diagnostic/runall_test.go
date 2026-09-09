@@ -5,6 +5,7 @@ package diagnostic
 
 import (
 	"context"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -87,15 +88,26 @@ func TestRunAllPropagatesCancellation(t *testing.T) {
 	}
 }
 
+// RunAll runs Finalize on its way out, so the egress downgrade reaches --json
+// and the TUI through it. What it takes to earn one is the interesting half: a
+// public address answered a direct connection, and a resolver answering did
+// not.
 func TestRunAllDowngradesEgress(t *testing.T) {
-	probes := []Probe{
+	base := []Probe{
 		staticProbe(ProbeIface, nil, StatusPass),
 		staticProbe(ProbeInternet, []ProbeID{ProbeIface}, StatusFail),
 		staticProbe(ProbeDNS, []ProbeID{ProbeIface}, StatusPass),
 	}
-	res := RunAll(context.Background(), probes, DefaultProbeTimeout)
+	reached := Probe{ID: ProbeTargetTCP, Deps: []ProbeID{ProbeIface}, Run: func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+		return ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("93.184.216.34")}
+	}}
+	res := RunAll(context.Background(), append(append([]Probe(nil), base...), reached), DefaultProbeTimeout)
 	if res[ProbeInternet].Status != StatusWarn {
-		t.Errorf("internet = %v, want WARN (DNS path works)", res[ProbeInternet].Status)
+		t.Errorf("internet = %v, want WARN (a public address answered directly)", res[ProbeInternet].Status)
+	}
+	res = RunAll(context.Background(), base, DefaultProbeTimeout)
+	if res[ProbeInternet].Status != StatusFail {
+		t.Errorf("internet = %v, want FAIL (a resolver answering is not egress)", res[ProbeInternet].Status)
 	}
 }
 

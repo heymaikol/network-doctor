@@ -193,15 +193,16 @@ func TestDiagnoseGenericEgressNoDNS(t *testing.T) {
 
 // A Warn planted by downgradeEgress isn't a degraded route, it's a dead one:
 // with no proxy to carry traffic the prose has to say so, and match the verdict.
+//
+// The row is assembled rather than produced here. This pass no longer plants a
+// Warn on a generic run with no proxy, since a resolver answering is not
+// egress, but an artifact written before that reaches replay carrying exactly
+// this state and still has to read the same way.
 func TestDiagnoseGenericDowngradedNoProxy(t *testing.T) {
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS}
 	res := map[ProbeID]ProbeResult{
-		ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusFail},
+		ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusWarn, downgraded: true},
 		ProbeDNS: {Status: StatusPass},
-	}
-	downgradeEgress(res)
-	if res[ProbeInternet].Status != StatusWarn {
-		t.Fatalf("egress not downgraded: %v", res[ProbeInternet].Status)
 	}
 	d := Interpret(nil, order, res)
 	if !strings.Contains(d.Summary, "no direct TCP egress") {

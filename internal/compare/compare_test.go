@@ -1125,3 +1125,23 @@ func TestAnswerComparisonIsItsOwnDifference(t *testing.T) {
 		t.Errorf("change = %+v, want the resolvers to stop agreeing", got)
 	}
 }
+
+func TestRepeatedAddressAttemptsRetainVerificationEvidence(t *testing.T) {
+	before, after := fixture(t), fixture(t)
+	ip := "192.0.2.1"
+	original := snapshot.Attempt{IP: ip, Error: "canceled", Cause: "canceled", Aborted: true}
+	verified := snapshot.Attempt{IP: ip, Error: "deadline exceeded", Cause: "timeout"}
+	check(t, &before, "target_tcp").Observed.Attempts = []snapshot.Attempt{original, verified}
+	check(t, &after, "target_tcp").Observed.Attempts = []snapshot.Attempt{verified, original}
+	mustNotChange(t, Snapshots(before, after), "reordering a canceled attempt and its verification")
+	check(t, &after, "target_tcp").Observed.Attempts[0].Aborted = true
+	got := changeAt(t, Snapshots(before, after), "checks.target_tcp.observed.attempts."+ip+".outcomes")
+	if got.Kind != KindChanged {
+		t.Fatalf("parent cancellation hidden: %+v", got)
+	}
+	check(t, &after, "target_tcp").Observed.Attempts = []snapshot.Attempt{original}
+	got = changeAt(t, Snapshots(before, after), "checks.target_tcp.observed.attempts."+ip+".outcomes")
+	if got.Kind != KindChanged {
+		t.Fatalf("verification removal hidden: %+v", got)
+	}
+}

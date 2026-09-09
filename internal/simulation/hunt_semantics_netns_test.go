@@ -3,6 +3,7 @@
 package simulation
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 
@@ -56,6 +57,16 @@ func TestSemanticOracleNamespaceEvidence(t *testing.T) {
 				}
 			}
 			t.Logf("established=%v recognized=%v missed=%v", established, recognizedConditions(finalClientDiagnosis(&report)), unrecognizedConditions(unrecognizedConditionFindings(&report, o.Truth)))
+			if tc.scenario == "same-family-failover" {
+				data, err := json.Marshal(struct {
+					Evidence  Evidence
+					Diagnosis *Diagnosis
+				}{report.Evidence, finalClientDiagnosis(&report)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Logf("failover evidence: %s", data)
+			}
 			if tc.scenario == "healthy" && len(established) > 0 {
 				t.Fatalf("healthy condition false positive: %v", established)
 			}

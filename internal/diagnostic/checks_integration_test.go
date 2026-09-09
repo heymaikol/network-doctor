@@ -471,3 +471,30 @@ func dnsReply(q []byte, answer net.IP) []byte {
 	r = append(r, 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4)
 	return append(r, answer.To4()...)
 }
+
+func TestTargetSiblingVerificationUsesSelectedSourceLoopback(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	ip, winner := net.ParseIP("127.0.0.1"), net.ParseIP("127.0.0.2")
+	o := opsFromSources(&SourceAddresses{IPv4: ip})
+	dial := o.dialContext
+	var source net.IP
+	o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dial(ctx, network, addr)
+		if err == nil {
+			source = conn.LocalAddr().(*net.TCPAddr).IP
+		}
+		return conn, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
+	defer cancel()
+	got, ran := o.verifyTargetSibling(ctx, []net.IP{ip, winner}, winner, []Attempt{
+		{IP: ip, Err: context.Canceled, Cause: ConnectionCauseCanceled, Aborted: true}, {IP: winner},
+	}, ln.Addr().(*net.TCPAddr).Port)
+	if !ran || got.Err != nil || !source.Equal(ip) {
+		t.Fatalf("ran=%t attempt=%+v source=%v", ran, got, source)
+	}
+}

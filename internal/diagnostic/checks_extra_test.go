@@ -342,7 +342,7 @@ func TestApplyDialWarnings(t *testing.T) {
 		{"clean", []Attempt{{IP: ip}}, 10 * time.Millisecond, "eth0", false, StatusPass, ""},
 		{"cancelled sibling", []Attempt{{IP: ip, Err: context.Canceled}, {IP: ip}}, 10 * time.Millisecond, "eth0", false, StatusPass, ""},
 		{"high latency", []Attempt{{IP: ip}}, warnRTT, "eth0", false, StatusWarn, "high latency"},
-		{"partial addresses", []Attempt{{IP: ip, Err: errors.New("refused")}, {IP: ip}}, 10 * time.Millisecond, "eth0", false, StatusWarn, "1 of 2 address(es) failed"},
+		{"partial addresses", []Attempt{{IP: net.ParseIP("192.0.2.2"), Err: errors.New("refused")}, {IP: ip}}, 10 * time.Millisecond, "eth0", false, StatusWarn, "1 of 2 address(es) failed"},
 		{"ambiguous iface", []Attempt{{IP: ip}}, 10 * time.Millisecond, "eth0", true, StatusWarn, "ambiguous source interface"},
 		// The display text is not the control channel: an interface whose real
 		// name reads like the placeholder is a clean pass.

@@ -184,11 +184,11 @@ func TestSameFamilyFailoverScenario(t *testing.T) {
 		t.Errorf("dns = %+v, want both A records resolved", dns)
 	}
 	tcp := diagnosisCheck(out, string(diagnostic.ProbeTargetTCP))
-	if tcp.Status != "PASS" || len(tcp.Attempts) != 2 {
+	if tcp.Status != "WARN" || len(tcp.Attempts) != 3 {
 		t.Fatalf("target_tcp = %+v, want successful two-address failover", tcp)
 	}
 	first, second := tcp.Attempts[0], tcp.Attempts[1]
-	if first.IP != deadIP || first.Error == "" || !strings.Contains(strings.ToLower(first.Error), "cancel") {
+	if first.IP != deadIP || first.Error == "" || first.Cause != diagnostic.ConnectionCauseCanceled || !first.Aborted {
 		t.Errorf("first attempt = %+v, want cancelled black-holed address %s", first, deadIP)
 	}
 	if first.Ms < 200 {
@@ -216,13 +216,18 @@ func TestSameFamilyFailoverScenario(t *testing.T) {
 	if !matchedDrop {
 		t.Errorf("black-hole rule did not count the first real SYN: %+v", rep.Evidence.PacketDrops)
 	}
-	if out.ActualVerdict != diagnostic.VerdictOK {
-		t.Errorf("verdict = %s, want %s after successful fallback", out.ActualVerdict, diagnostic.VerdictOK)
+	if out.ActualVerdict != diagnostic.VerdictDegraded {
+		t.Errorf("verdict = %s, want %s after verified sibling failure", out.ActualVerdict, diagnostic.VerdictDegraded)
 	}
-	for _, finding := range out.Diagnosis.Findings {
-		if finding.ID == string(diagnostic.DiagnosisPartialReachability) {
-			t.Errorf("a canceled black-holed attempt became a partial-reachability finding: %+v", finding)
-		}
+	if out.ExitCode != 0 {
+		t.Errorf("successful failover exited %d, want 0", out.ExitCode)
+	}
+	verified := tcp.Attempts[2]
+	if verified.IP != deadIP || verified.Cause != diagnostic.ConnectionCauseTimeout || verified.Aborted {
+		t.Fatalf("verification = %+v, want independent address timeout", verified)
+	}
+	if !slices.Contains(recognizedConditions(out.Diagnosis), ConditionPartialReachability) {
+		t.Fatalf("verified failure missing from diagnosis: %+v", out.Diagnosis)
 	}
 	assertCleanedUp(t, rep)
 }

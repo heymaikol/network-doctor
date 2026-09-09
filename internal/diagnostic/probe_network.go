@@ -143,8 +143,8 @@ func (s SourceAddresses) forDial(network, addr string) (net.IP, int) {
 }
 
 // applyDialWarnings downgrades a successful dial result to Warn when it is
-// degraded: high connect latency, sibling addresses that failed before one
-// won, or an ambiguous source interface. Notes are appended to Detail.
+// degraded: high connect latency, observed sibling address failures,
+// or an ambiguous source interface. Notes are appended to Detail.
 func applyDialWarnings(r *ProbeResult, rtt time.Duration, extra ...string) {
 	notes := extra
 	if rtt >= warnRTT {
@@ -153,14 +153,17 @@ func applyDialWarnings(r *ProbeResult, rtt time.Duration, extra ...string) {
 	// A dial canceled because another address won is useful attempt evidence,
 	// but it does not prove that address failed. Callers hand over only the
 	// winning family's attempts (see targetTCPProbe).
-	failed := 0
-	for _, attempt := range r.Attempts[:max(0, len(r.Attempts)-1)] {
-		if attempt.Err != nil && !errors.Is(attempt.Err, context.Canceled) {
-			failed++
+	var addresses, failures []net.IP
+	for _, attempt := range r.Attempts {
+		if !containsResolvedIP(addresses, attempt.IP) {
+			addresses = append(addresses, attempt.IP)
+		}
+		if attempt.Err != nil && !isCanceledAttempt(attempt) && !containsResolvedIP(failures, attempt.IP) {
+			failures = append(failures, attempt.IP)
 		}
 	}
-	if failed > 0 {
-		notes = append(notes, fmt.Sprintf("%d of %d address(es) failed", failed, len(r.Attempts)))
+	if len(failures) > 0 {
+		notes = append(notes, fmt.Sprintf("%d of %d address(es) failed", len(failures), len(addresses)))
 	}
 	if r.ifaceAmbiguous {
 		notes = append(notes, "ambiguous source interface")
@@ -306,6 +309,7 @@ func (o *netops) dialIPs(ctx context.Context, ips []net.IP, port int) (net.Conn,
 				att := Attempt{IP: ip, Dur: since(start), Err: err}
 				if err != nil {
 					att.Cause = ConnectionFailureCause(err)
+					att.Aborted = dctx.Err() != nil
 				}
 				results <- result{conn, att}
 				if err != nil {
@@ -345,7 +349,7 @@ func (o *netops) dialIPs(ctx context.Context, ips []net.IP, port int) (net.Conn,
 				continue
 			}
 			drain()
-			attempts = append(attempts, got.att) // winner last; applyDialWarnings counts on it
+			attempts = append(attempts, got.att) // winner last
 			return got.conn, got.att.IP, attempts, got.att.Dur
 		case <-ctx.Done():
 			before := len(attempts)

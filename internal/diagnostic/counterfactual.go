@@ -155,14 +155,32 @@ func addressCounterfactual(t *Target, res map[ProbeID]ProbeResult) (DiagnosisFin
 			{Kind: EvidenceSupport, Check: ProbeDNS, Observation: ObservationDNSAnswers, Value: ip.String()},
 		}
 	}
-	success := addressEvidence(r.SelectedIP, ObservationAddressSucceeded)
 	var alternatives []CounterfactualAlternative
 	var evidence []CausalEvidence
+	var succeeded, failed []net.IP
 	states := effectiveTargetFamilies(res)
 	for _, attempt := range r.Attempts {
-		if attempt.Err == nil || attempt.Aborted || attemptCause(attempt) == ConnectionCauseCanceled ||
+		if attempt.Err == nil || isCanceledAttempt(attempt) ||
 			attempt.IP.Equal(r.SelectedIP) || !containsResolvedIP(resolved, attempt.IP) || !attemptFamilyReachable(states, attempt.IP) {
 			continue
+		}
+		// Cite an actual resolved success in this same family, which need not
+		// be the selected protocol address when both families connected.
+		var success net.IP
+		for _, sibling := range r.Attempts {
+			if sibling.IP.To16() != nil && sibling.Err == nil && !sibling.Aborted &&
+				sibling.Cause == "" && (sibling.IP.To4() != nil) == (attempt.IP.To4() != nil) &&
+				!sibling.IP.Equal(attempt.IP) && containsResolvedIP(resolved, sibling.IP) {
+				success = sibling.IP
+				break
+			}
+		}
+		if attempt.IP.To16() == nil || success == nil || containsResolvedIP(failed, attempt.IP) {
+			continue
+		}
+		failed = append(failed, attempt.IP)
+		if !containsResolvedIP(succeeded, success) {
+			succeeded = append(succeeded, success)
 		}
 		alternativeEvidence := addressEvidence(attempt.IP, ObservationAddressFailed)
 		evidence = append(evidence, alternativeEvidence...)
@@ -171,10 +189,13 @@ func addressCounterfactual(t *Target, res map[ProbeID]ProbeResult) (DiagnosisFin
 	if len(alternatives) == 0 {
 		return DiagnosisFinding{}, false
 	}
-	evidence = append(evidence, success...)
-	alternatives = append(alternatives, CounterfactualAlternative{Value: r.SelectedIP.String(), Outcome: CounterfactualSucceeded, Evidence: success})
+	for _, ip := range succeeded {
+		success := addressEvidence(ip, ObservationAddressSucceeded)
+		evidence = append(evidence, success...)
+		alternatives = append(alternatives, CounterfactualAlternative{Value: ip.String(), Outcome: CounterfactualSucceeded, Evidence: success})
+	}
 	summary := "A connection to one address for " + t.Host + " fails, but another succeeds."
-	if len(alternatives) > 2 {
+	if len(failed) > 1 {
 		summary = "Connections to multiple addresses for " + t.Host + " fail, but another succeeds."
 	}
 	return DiagnosisFinding{

@@ -2,7 +2,12 @@
 
 ## Build, Test, and Development Commands
 
-Full validation gate: see "Tests" in `README.md`.
+Before considering an ordinary change complete, run `./scripts/check`. Use
+`./scripts/check --race` when race testing is relevant to the change.
+
+`scripts/check` is the canonical fast local validation command. It does not
+replace the exhaustive validation documented under "Tests" in `README.md`;
+run additional checks there when they apply to the change.
 
 Before changing behavior, verify the reported issue against the current HEAD. Do not assume an audit finding, issue description, or suggested implementation is still accurate.
 
@@ -22,7 +27,10 @@ Diagnosis reasoning is also pinned against recorded evidence: `internal/diagnost
 
 ## Cross-Platform Guidelines
 
-After changing a platform-tagged file, compile-check other targets: `GOOS=darwin go build ./...` and `GOOS=windows go build ./...`. Release builds use `CGO_ENABLED=0`; do not introduce cgo. Keep `internal/diagnostic` independent of `internal/ui`: network semantics in `diagnostic`, interaction + rendering in `ui`.
+`scripts/check` compile-checks the supported targets and portability fallback.
+Release builds use `CGO_ENABLED=0`; do not introduce cgo. Keep
+`internal/diagnostic` independent of `internal/ui`: network semantics in
+`diagnostic`, interaction + rendering in `ui`.
 
 ## Commit & Pull Request Guidelines
 

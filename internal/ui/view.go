@@ -1513,10 +1513,17 @@ func (m model) helpOverlay() string {
 			keyWidth = max(keyWidth, lipgloss.Width(m.keys.label(ctx, def.act)))
 		}
 	}
+	// A description wraps in its own column, with a hanging indent, rather than
+	// running past the terminal: the display rows the terminal would hard-wrap
+	// it into are not in MaxHeight's accounting, so they would push the bottom
+	// of the sheet off the screen. ansi.Wrap leaves the text alone when the
+	// width is unknown or narrower than the key column.
+	indent := strings.Repeat(" ", 2+keyWidth+2)
 	row := func(k, desc string) string {
+		desc = ansi.Wrap(m.st.faint.Render(desc), m.width-len(indent), "")
 		return "  " + m.st.key.Render(k) +
 			strings.Repeat(" ", max(keyWidth-lipgloss.Width(k), 0)+2) +
-			m.st.faint.Render(desc) + "\n"
+			strings.ReplaceAll(desc, "\n", "\n"+indent) + "\n"
 	}
 	// Both sections are generated from the same table dispatch indexes.
 	section := func(b *strings.Builder, ctx keyContext) {

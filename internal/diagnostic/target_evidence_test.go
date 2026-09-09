@@ -107,7 +107,7 @@ func TestTargetSiblingVerificationEligibility(t *testing.T) {
 				if vd.After(pd) || time.Until(vd) > targetSiblingTimeout {
 					t.Error("verification extended budget")
 				}
-				return nil, syscall.ECONNREFUSED
+				return nil, connectionRefusedErrno
 			}}
 			got, ran := o.verifyTargetSibling(ctx, tc.resolved, b, tc.attempts, 80)
 			if ran != tc.want || calls > 1 || (ran && (got.Aborted || got.Cause != ConnectionCauseRefused)) {

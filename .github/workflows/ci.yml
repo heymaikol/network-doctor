@@ -341,7 +341,7 @@ jobs:
             sh -eu <<'SMOKE'
           test -z "$(command -v netdoc)"
           test -z "$(command -v netdoc-sim)"
-          dnf install -y /dist/*_linux_amd64.rpm
+          dnf install -y --disablerepo='*' /dist/*_linux_amd64.rpm
           rpm -q network-doctor
           test "$(command -v netdoc)" = /usr/bin/netdoc
           test "$(command -v netdoc-sim)" = /usr/bin/netdoc-sim

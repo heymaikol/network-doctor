@@ -14,8 +14,9 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 )
 
 // proxyFromEnvironment is http.ProxyFromEnvironment plus ALL_PROXY, which Go
@@ -29,7 +30,7 @@ func proxyFromEnvironment(req *http.Request) (*url.URL, error) {
 	// net/http already applied NO_PROXY to HTTP(S)_PROXY, so a nil here can
 	// equally mean "exempted", and falling back to ALL_PROXY on that would report
 	// a proxy nothing would use for this host.
-	if noProxyBypasses(req.URL.Hostname()) {
+	if noProxyBypasses(req.URL) {
 		return nil, nil
 	}
 	all := os.Getenv("ALL_PROXY")
@@ -46,52 +47,24 @@ func proxyFromEnvironment(req *http.Request) (*url.URL, error) {
 	return url.Parse("http://" + all)
 }
 
-// noProxyBypasses reports whether NO_PROXY exempts host from proxying, the
+// noProxyBypasses reports whether NO_PROXY exempts reqURL from proxying, the
 // check net/http applies to HTTP(S)_PROXY and this file has to apply itself to
-// the ALL_PROXY fallback. Entry semantics are the ones httpproxy.domainMatch
-// implements for net/http: "foo.com" matches foo.com and its subdomains, while
-// ".foo.com" and "*.foo.com" are one subdomain-only entry that does not match
-// foo.com itself.
-// ponytail: domain and "*" entries only, so a NO_PROXY entry carrying a port
-// ("foo.com:443") or a CIDR block never matches; the only host asked about is
-// ConnectivityProbeHost, a fixed public name that is never a literal IP.
-// proxyProbe is the sole caller and hardcodes it even when the user names a
-// target, an invariant TestProxyProbeOnlyAsksAboutProbeHost pins. The day a
-// caller passes a host the user chose, that test fails: drop this for
-// golang.org/x/net/http/httpproxy, the matcher net/http itself uses.
-func noProxyBypasses(host string) bool {
+// the ALL_PROXY fallback. It defers to httpproxy, the same matcher net/http
+// builds ProxyFromEnvironment out of, so an entry carrying a port, a CIDR
+// block or a bare IP reads here exactly as it reads there. The sentinel proxy
+// is what turns ProxyFunc into a bypass oracle: with a proxy configured for
+// both schemes, a nil answer can only mean this request is exempt.
+func noProxyBypasses(reqURL *url.URL) bool {
 	np := os.Getenv("NO_PROXY")
 	if np == "" {
 		np = os.Getenv("no_proxy")
 	}
-	host = strings.ToLower(host)
-	for _, entry := range strings.Split(np, ",") {
-		entry = strings.ToLower(strings.TrimSpace(entry))
-		if entry == "" {
-			continue
-		}
-		if entry == "*" {
-			return true
-		}
-		// Go strips the star and keeps the dot, so "*.foo.com" becomes the
-		// ".foo.com" entry rather than a separate wildcard form. A star that
-		// does not begin a label ("*foo.com") is not a wildcard to Go, and
-		// stays a literal that matches nothing.
-		if strings.HasPrefix(entry, "*.") {
-			entry = entry[1:]
-		}
-		// A dotted entry matches subdomains only; a bare one also matches the
-		// domain itself. Comparing against a leading dot keeps the match on a
-		// label boundary, so notfoo.com never matches foo.com.
-		matchHost := !strings.HasPrefix(entry, ".")
-		if matchHost {
-			entry = "." + entry
-		}
-		if strings.HasSuffix(host, entry) || (matchHost && host == entry[1:]) {
-			return true
-		}
+	if np == "" {
+		return false
 	}
-	return false
+	const sentinel = "http://proxy.invalid"
+	proxy, err := (&httpproxy.Config{HTTPProxy: sentinel, HTTPSProxy: sentinel, NoProxy: np}).ProxyFunc()(reqURL)
+	return err == nil && proxy == nil
 }
 
 // proxyProbe checks egress through the environment-configured proxy: dial the

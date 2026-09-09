@@ -18,6 +18,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 )
 
 // fakeConn is a no-network net.Conn stand-in; only LocalAddr and Close are
@@ -609,7 +611,11 @@ func TestProxyFromEnvironmentAllProxy(t *testing.T) {
 	}
 	// A NO_PROXY hit is why net/http returned nil; falling back to ALL_PROXY
 	// there would report a proxy this host would never go through.
-	for _, np := range []string{"*", "gstatic.com", ".gstatic.com", "*.gstatic.com", "connectivitycheck.gstatic.com"} {
+	for _, np := range []string{"*", "gstatic.com", ".gstatic.com", "*.gstatic.com", "connectivitycheck.gstatic.com",
+		// A port-scoped entry exempts the request Go would send to that port.
+		// The probe asks about https with no explicit port, so 443 is the
+		// port the entry has to be read against.
+		"connectivitycheck.gstatic.com:443", "gstatic.com:443"} {
 		t.Run("NO_PROXY="+np, func(t *testing.T) {
 			t.Setenv("ALL_PROXY", "socks5h://proxy.corp:1080")
 			t.Setenv("NO_PROXY", np)
@@ -625,6 +631,26 @@ func TestProxyFromEnvironmentAllProxy(t *testing.T) {
 			t.Errorf("proxyFromEnvironment = %v, %v; want socks5h://proxy.corp:1080", u, err)
 		}
 	})
+	// The port in an entry narrows it. A request to another port on the same
+	// name is not exempt, so the ALL_PROXY fallback still applies.
+	t.Run("NO_PROXY port does not carry to another port", func(t *testing.T) {
+		t.Setenv("ALL_PROXY", "socks5h://proxy.corp:1080")
+		t.Setenv("NO_PROXY", ConnectivityProbeHost+":443")
+		other := &http.Request{URL: &url.URL{Scheme: "https", Host: ConnectivityProbeHost + ":8443"}}
+		if u, err := proxyFromEnvironment(other); err != nil || u == nil || u.Host != "proxy.corp:1080" {
+			t.Errorf("proxyFromEnvironment = %v, %v; want socks5h://proxy.corp:1080", u, err)
+		}
+	})
+	// The default port comes from the scheme, so an entry pinned to 443 leaves
+	// a plain http request on port 80 proxied.
+	t.Run("NO_PROXY port is matched per scheme default", func(t *testing.T) {
+		t.Setenv("ALL_PROXY", "socks5h://proxy.corp:1080")
+		t.Setenv("NO_PROXY", ConnectivityProbeHost+":443")
+		plain := &http.Request{URL: &url.URL{Scheme: "http", Host: ConnectivityProbeHost}}
+		if u, err := proxyFromEnvironment(plain); err != nil || u == nil || u.Host != "proxy.corp:1080" {
+			t.Errorf("proxyFromEnvironment = %v, %v; want socks5h://proxy.corp:1080", u, err)
+		}
+	})
 	t.Run("bare host defaults to http", func(t *testing.T) {
 		t.Setenv("ALL_PROXY", "proxy.corp:3128")
 		u, err := proxyFromEnvironment(req)
@@ -635,61 +661,102 @@ func TestProxyFromEnvironmentAllProxy(t *testing.T) {
 }
 
 // noProxyBypasses stands in for the NO_PROXY check net/http already applied to
-// HTTP(S)_PROXY, so it has to read an entry the way Go's matcher does:
-// "foo.com" matches foo.com and bar.foo.com, while ".foo.com" and "*.foo.com"
-// are the same subdomain-only entry and do not match foo.com itself.
+// HTTP(S)_PROXY, so it has to read an entry the way Go's matcher does. The
+// expectations below are httpproxy's, the package net/http builds
+// ProxyFromEnvironment out of: "foo.com" matches foo.com and bar.foo.com,
+// ".foo.com" and "*.foo.com" are the same subdomain-only entry, an entry may
+// carry a port, and the port a request is matched on is the scheme default
+// when the URL does not name one.
 func TestNoProxyBypasses(t *testing.T) {
 	const probeHost = ConnectivityProbeHost
 	cases := []struct {
 		noProxy string
+		scheme  string // "" means https
 		host    string
 		want    bool
 	}{
 		// A wildcard entry is Go's spelling of a leading-dot entry.
-		{"*.gstatic.com", probeHost, true},
-		{"*.gstatic.com", "gstatic.com", false},
-		{"*.GSTATIC.COM", probeHost, true},
-		{"*.example.com", probeHost, false},
+		{noProxy: "*.gstatic.com", host: probeHost, want: true},
+		{noProxy: "*.gstatic.com", host: "gstatic.com", want: false},
+		{noProxy: "*.GSTATIC.COM", host: probeHost, want: true},
+		{noProxy: "*.example.com", host: probeHost, want: false},
 		// Domain boundaries: a suffix that is not a label boundary is a miss.
-		{"*.gstatic.com", "notgstatic.com", false},
+		{noProxy: "*.gstatic.com", host: "notgstatic.com", want: false},
 		// A star that does not begin a label is a literal, not a wildcard.
-		{"*gstatic.com", probeHost, false},
-		{"gstatic.com", "notgstatic.com", false},
-		{".gstatic.com", "notgstatic.com", false},
+		{noProxy: "*gstatic.com", host: probeHost, want: false},
+		{noProxy: "gstatic.com", host: "notgstatic.com", want: false},
+		{noProxy: ".gstatic.com", host: "notgstatic.com", want: false},
 		// Bare domain: the domain itself and its subdomains.
-		{"gstatic.com", probeHost, true},
-		{"gstatic.com", "gstatic.com", true},
+		{noProxy: "gstatic.com", host: probeHost, want: true},
+		{noProxy: "gstatic.com", host: "gstatic.com", want: true},
 		// Leading dot: subdomains only.
-		{".gstatic.com", probeHost, true},
-		{".gstatic.com", "gstatic.com", false},
+		{noProxy: ".gstatic.com", host: probeHost, want: true},
+		{noProxy: ".gstatic.com", host: "gstatic.com", want: false},
 		// Exact hostname.
-		{probeHost, probeHost, true},
-		{probeHost, "other.gstatic.com", false},
-		// Everything, and nothing.
-		{"*", probeHost, true},
-		{"", probeHost, false},
+		{noProxy: probeHost, host: probeHost, want: true},
+		{noProxy: probeHost, host: "other.gstatic.com", want: false},
+		// Everything, and nothing. A wildcard ignores the port entirely.
+		{noProxy: "*", host: probeHost, want: true},
+		{noProxy: "*", host: probeHost + ":8443", want: true},
+		{noProxy: "", host: probeHost, want: false},
 		// Lists, whitespace and empty entries.
-		{"example.com, *.gstatic.com", probeHost, true},
-		{" , .gstatic.com , ", probeHost, true},
-		{"example.com,notgstatic.com", probeHost, false},
-		// Entries carrying a port are outside this matcher's contract: Go
-		// bypasses gstatic.com:443 for an https request, and this returns
-		// false. Pinned so the gap is visible rather than accidental.
-		{"gstatic.com:443", probeHost, false},
+		{noProxy: "example.com, *.gstatic.com", host: probeHost, want: true},
+		{noProxy: " , .gstatic.com , ", host: probeHost, want: true},
+		{noProxy: "example.com,notgstatic.com", host: probeHost, want: false},
+		// A port on the entry narrows it to that port. An https URL with no
+		// explicit port is matched on 443, which is why the reported
+		// NO_PROXY=host:443 case has to bypass.
+		{noProxy: probeHost + ":443", host: probeHost, want: true},
+		{noProxy: probeHost + ":443", host: probeHost + ":443", want: true},
+		{noProxy: probeHost + ":443", host: probeHost + ":8443", want: false},
+		{noProxy: probeHost + ":443", scheme: "http", host: probeHost, want: false},
+		{noProxy: probeHost + ":80", scheme: "http", host: probeHost, want: true},
+		// A port rides along with the domain and wildcard forms too.
+		{noProxy: "gstatic.com:443", host: probeHost, want: true},
+		{noProxy: ".gstatic.com:443", host: probeHost, want: true},
+		{noProxy: "*.gstatic.com:443", host: probeHost, want: true},
+		{noProxy: "gstatic.com:443", host: probeHost + ":8443", want: false},
+		// IP and CIDR entries, which net/http honors and the probe host never
+		// exercises. Pinned so the fallback stays the same matcher, not a
+		// hostname-only subset of it.
+		{noProxy: "10.0.0.0/8", host: "10.1.2.3", want: true},
+		{noProxy: "10.0.0.0/8", host: "11.1.2.3", want: false},
+		{noProxy: "10.1.2.3", host: "10.1.2.3", want: true},
+		{noProxy: "10.1.2.3:443", host: "10.1.2.3", want: true},
+		{noProxy: "10.1.2.3:443", host: "10.1.2.3:8443", want: false},
+		// Go never proxies localhost or a loopback literal, whatever NO_PROXY
+		// says, so neither may be resurrected through ALL_PROXY.
+		{noProxy: "example.com", host: "localhost", want: true},
+		{noProxy: "example.com", host: "127.0.0.1", want: true},
+		{noProxy: "example.com", host: "[::1]", want: true},
 	}
 	for _, c := range cases {
-		t.Run(c.noProxy+"/"+c.host, func(t *testing.T) {
+		scheme := c.scheme
+		if scheme == "" {
+			scheme = "https"
+		}
+		t.Run(c.noProxy+"/"+scheme+"://"+c.host, func(t *testing.T) {
 			t.Setenv("NO_PROXY", c.noProxy)
 			t.Setenv("no_proxy", "")
-			if got := noProxyBypasses(c.host); got != c.want {
-				t.Errorf("noProxyBypasses(%q) with NO_PROXY=%q = %v, want %v", c.host, c.noProxy, got, c.want)
+			reqURL := &url.URL{Scheme: scheme, Host: c.host}
+			if got := noProxyBypasses(reqURL); got != c.want {
+				t.Errorf("noProxyBypasses(%q) with NO_PROXY=%q = %v, want %v", reqURL, c.noProxy, got, c.want)
+			}
+			// The point of the fallback check is agreeing with net/http, so
+			// compare against httpproxy directly rather than trusting the
+			// table alone.
+			const sentinel = "http://proxy.invalid"
+			cfg := &httpproxy.Config{HTTPProxy: sentinel, HTTPSProxy: sentinel, NoProxy: c.noProxy}
+			proxy, err := cfg.ProxyFunc()(reqURL)
+			if want := err == nil && proxy == nil; want != c.want {
+				t.Errorf("httpproxy bypass for %q with NO_PROXY=%q = %v, want %v", reqURL, c.noProxy, want, c.want)
 			}
 		})
 	}
 	t.Run("lowercase no_proxy is read when NO_PROXY is unset", func(t *testing.T) {
 		t.Setenv("NO_PROXY", "")
 		t.Setenv("no_proxy", "*.gstatic.com")
-		if !noProxyBypasses(probeHost) {
+		if !noProxyBypasses(&url.URL{Scheme: "https", Host: probeHost}) {
 			t.Errorf("noProxyBypasses(%q) with no_proxy=*.gstatic.com = false, want true", probeHost)
 		}
 	})

@@ -338,7 +338,7 @@ func TestBannerActionFollowsBlamedRowNotFirstFailure(t *testing.T) {
 	if firstFail != diagnostic.ProbeTLS {
 		t.Fatalf("first failing row = %q, want the TLS row: the case no longer separates the two candidates", firstFail)
 	}
-	blamed := diagnostic.FocusProbe(m.target, m.probeOrder(), m.results)
+	blamed := m.diagnosis().Focus()
 	if blamed != diagnostic.ProbePMTU {
 		t.Fatalf("diagnosis blames %q, want the Path MTU row", blamed)
 	}

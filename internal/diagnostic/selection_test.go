@@ -447,13 +447,13 @@ func TestDiagnoseUnfilteredCompatibility(t *testing.T) {
 	for _, id := range targetOrder {
 		targetResults[id] = ProbeResult{Status: StatusPass}
 	}
-	if got, verdict := Diagnose(target, targetOrder, targetResults); got != "All checks passed. example.com:443 looks healthy." || verdict != VerdictOK {
-		t.Fatalf("full target all-clear = %q/%q", got, verdict)
+	if d := Interpret(target, targetOrder, targetResults); d.Summary != "All checks passed. example.com:443 looks healthy." || d.Verdict != VerdictOK {
+		t.Fatalf("full target all-clear = %q/%q", d.Summary, d.Verdict)
 	}
 	targetResults[ProbeQUIC] = ProbeResult{Status: StatusFail}
 	targetResults[ProbeDNSPublic] = ProbeResult{Status: StatusWarn}
-	if got, verdict := Diagnose(target, targetOrder, targetResults); got != "The target and direct TCP/443 work, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower." || verdict != VerdictDegraded {
-		t.Fatalf("full target precedence = %q/%q", got, verdict)
+	if d := Interpret(target, targetOrder, targetResults); d.Summary != "The target and direct TCP/443 work, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower." || d.Verdict != VerdictDegraded {
+		t.Fatalf("full target precedence = %q/%q", d.Summary, d.Verdict)
 	}
 
 	genericProbes := BuildProbesFromSources(nil, nil, DefaultPublicDNS, true)
@@ -462,8 +462,8 @@ func TestDiagnoseUnfilteredCompatibility(t *testing.T) {
 	for _, id := range genericOrder {
 		genericResults[id] = ProbeResult{Status: StatusPass}
 	}
-	if got, verdict := Diagnose(nil, genericOrder, genericResults); got != "Online: direct TCP egress and DNS both work." || verdict != VerdictOK {
-		t.Fatalf("full generic all-clear = %q/%q", got, verdict)
+	if d := Interpret(nil, genericOrder, genericResults); d.Summary != "Online: direct TCP egress and DNS both work." || d.Verdict != VerdictOK {
+		t.Fatalf("full generic all-clear = %q/%q", d.Summary, d.Verdict)
 	}
 }
 

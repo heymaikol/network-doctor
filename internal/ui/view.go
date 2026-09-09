@@ -1667,7 +1667,7 @@ func (m model) answerRow() int {
 
 // probeOrder is the run's probe IDs in DAG order, which is what the diagnosis
 // reads. It deliberately reports nothing about which row failed: the blamed
-// row is Diagnose's call alone, and focusRow is the only place that asks.
+// row is the diagnosis's call alone, and focusRow is the only place that asks.
 func (m model) probeOrder() []diagnostic.ProbeID {
 	order := make([]diagnostic.ProbeID, len(m.probes))
 	for i, probe := range m.probes {
@@ -1805,7 +1805,7 @@ func (m model) focusTarget() int {
 // on comes back with the Details panel that describes it.
 //
 // The blamed row comes from focusRow, so the list and the banner cannot
-// disagree about which row matters. Every row FocusProbe can name today is
+// disagree about which row matters. Every row the diagnosis can name today is
 // also a Warn, so that clause currently keeps nothing the severity test would
 // have dropped; it stays because the row worth reading is the diagnosis's
 // call, not a severity comparison made over here.

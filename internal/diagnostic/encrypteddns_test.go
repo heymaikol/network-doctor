@@ -1014,9 +1014,9 @@ func TestEncryptedDNSResolverErrorsWarnWithoutClaimingUnavailable(t *testing.T) 
 				t.Fatal("a correlated resolver error was diagnosed as blocked encrypted DNS")
 			}
 			order := []ProbeID{ProbeInternet, ProbeDNS, ProbeDNSEncrypted}
-			summary, verdict := Diagnose(nil, order, results)
-			if verdict != VerdictDegraded || summary == encryptedDNSSummary {
-				t.Fatalf("Diagnose = %q, %q, want a generic degraded verdict without the blocking diagnosis", summary, verdict)
+			d := Interpret(nil, order, results)
+			if d.Verdict != VerdictDegraded || d.Summary == encryptedDNSSummary {
+				t.Fatalf("diagnosis = %q, %q, want a generic degraded verdict without the blocking diagnosis", d.Summary, d.Verdict)
 			}
 		})
 	}
@@ -1277,14 +1277,14 @@ func TestDiagnoseEncryptedDNSBlockedWhilePlainDNSWorks(t *testing.T) {
 		ProbeDNSEncrypted: {Status: StatusFail, Cause: EncryptedDNSCauseUnavailable, Detail: "no encrypted DNS"},
 	}
 
-	summary, verdict := Diagnose(nil, order, res)
-	if verdict != VerdictDegraded || summary != encryptedDNSSummary {
-		t.Fatalf("Diagnose = %q, %q", summary, verdict)
+	d := Interpret(nil, order, res)
+	if d.Verdict != VerdictDegraded || d.Summary != encryptedDNSSummary {
+		t.Fatalf("diagnosis = %q, %q", d.Summary, d.Verdict)
 	}
 	// The claim stops at what two probes observed. Intent is not observable.
 	for _, overclaim := range []string{"forc", "downgrad", "Firefox", "browser chose"} {
-		if strings.Contains(strings.ToLower(summary), strings.ToLower(overclaim)) {
-			t.Errorf("summary %q claims %q, which the probes cannot show", summary, overclaim)
+		if strings.Contains(strings.ToLower(d.Summary), strings.ToLower(overclaim)) {
+			t.Errorf("summary %q claims %q, which the probes cannot show", d.Summary, overclaim)
 		}
 	}
 }
@@ -1298,9 +1298,9 @@ func TestDiagnoseDoesNotBlameEncryptedDNSWhenAllDNSIsDown(t *testing.T) {
 		ProbeDNSEncrypted: {Status: StatusFail},
 	}
 
-	summary, verdict := Diagnose(nil, order, res)
-	if summary == encryptedDNSSummary || verdict != VerdictDNS {
-		t.Fatalf("Diagnose = %q, %q, want the DNS-wide failure rather than an encrypted-specific claim", summary, verdict)
+	d := Interpret(nil, order, res)
+	if d.Summary == encryptedDNSSummary || d.Verdict != VerdictDNS {
+		t.Fatalf("diagnosis = %q, %q, want the DNS-wide failure rather than an encrypted-specific claim", d.Summary, d.Verdict)
 	}
 }
 

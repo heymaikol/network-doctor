@@ -9,33 +9,6 @@ import (
 	"time"
 )
 
-// Diagnose computes the plain-English summary and its machine-readable
-// classification from current-generation native probe state only (tool output
-// never feeds in). First-fail ordering + combination rules. Returns
-// "Running diagnostics…" until every probe in order has a result. A completed
-// run always returns a verdict.
-//
-// It is a view onto Interpret, which is the one place any of this is decided.
-func Diagnose(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) (string, string) {
-	d := Interpret(t, order, res)
-	return d.Summary, d.Verdict
-}
-
-// FocusProbe names the probe row a finished diagnosis is about: the row a
-// caller should put the cursor on, take remediation from, and quote evidence
-// from. It reads the same interpretation Diagnose reads, so the row and the
-// prose cannot disagree, which is the whole reason it exists rather than being
-// guessed at from the first failed row. Those two are not the same row nearly
-// as often as they look: an outage fails the sibling probes (QUIC, the proxy,
-// encrypted DNS) early in probe order while the prose blames a rung further
-// down.
-//
-// Empty when the verdict is about no single row: a healthy run, a run that is
-// merely degraded in several places at once, or one still in progress.
-func FocusProbe(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) ProbeID {
-	return Interpret(t, order, res).Focus()
-}
-
 // Interpret is the diagnostic interpretation pass, and the only one there is.
 // Everything a caller can ask about what a run means comes from the Diagnosis
 // it returns: the summary, the verdict, the stable diagnosis ID, the blamed
@@ -655,7 +628,7 @@ func targetRows(t *Target) []ProbeID {
 	return []ProbeID{ProbeTargetTCP}
 }
 
-// Verdict classifications: the second half of Diagnose's return, for scripts
+// Verdict classifications: the Diagnosis.Verdict vocabulary, for scripts
 // that need the shape of the failure without parsing English. It answers the
 // question the prose answers, in one word: is this a broken path or a broken
 // service? Stable vocabulary.

@@ -306,7 +306,7 @@ func TestNoDefaultRouteScenario(t *testing.T) {
 	assertCleanedUp(t, rep)
 }
 
-// TestLinkDownScenario covers the first branch Diagnose takes. With the
+// TestLinkDownScenario covers the first branch Interpret takes. With the
 // client's only link administratively down there is no interface to send from,
 // and that has to be the whole answer rather than the pile of downstream
 // failures it would otherwise be read as.

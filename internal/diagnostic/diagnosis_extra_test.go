@@ -1,4 +1,4 @@
-// Diagnose branches the main tables miss: targeted failure rungs, banner
+// Interpret branches the main tables miss: targeted failure rungs, banner
 // failures, and generic egress without DNS.
 
 package diagnostic
@@ -125,7 +125,7 @@ func TestDiagnoseTargetBranches(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if v, _ := Diagnose(tg, targetOrder, c.res); !strings.Contains(v, c.want) {
+			if v := Interpret(tg, targetOrder, c.res).Summary; !strings.Contains(v, c.want) {
 				t.Errorf("got %q, want substring %q", v, c.want)
 			}
 		})
@@ -157,9 +157,9 @@ func TestDiagnoseNamesRefusalOnlyWithWorkingEgressControl(t *testing.T) {
 				res[id] = result
 			}
 			res[ProbeInternet] = ProbeResult{Status: tt.internet}
-			summary, verdict := Diagnose(tg, targetOrder, res)
-			if !strings.Contains(summary, tt.wantSummary) || verdict != tt.wantVerdict {
-				t.Errorf("diagnosis = %q (%s), want %q (%s)", summary, verdict, tt.wantSummary, tt.wantVerdict)
+			d := Interpret(tg, targetOrder, res)
+			if !strings.Contains(d.Summary, tt.wantSummary) || d.Verdict != tt.wantVerdict {
+				t.Errorf("diagnosis = %q (%s), want %q (%s)", d.Summary, d.Verdict, tt.wantSummary, tt.wantVerdict)
 			}
 		})
 	}
@@ -174,7 +174,7 @@ func TestDiagnoseBannerFail(t *testing.T) {
 		ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass},
 		ProbeSSH: {Status: StatusFail},
 	}
-	if v, _ := Diagnose(tg, order, res); !strings.Contains(v, "banner check failed") {
+	if v := Interpret(tg, order, res).Summary; !strings.Contains(v, "banner check failed") {
 		t.Errorf("got %q, want 'banner check failed'", v)
 	}
 }
@@ -186,7 +186,7 @@ func TestDiagnoseGenericEgressNoDNS(t *testing.T) {
 		ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusFail},
 		ProbeDNS: {Status: StatusPass},
 	}
-	if v, _ := Diagnose(nil, order, res); !strings.Contains(v, "no direct TCP egress") {
+	if v := Interpret(nil, order, res).Summary; !strings.Contains(v, "no direct TCP egress") {
 		t.Errorf("got %q, want 'no direct TCP egress'", v)
 	}
 }
@@ -203,12 +203,12 @@ func TestDiagnoseGenericDowngradedNoProxy(t *testing.T) {
 	if res[ProbeInternet].Status != StatusWarn {
 		t.Fatalf("egress not downgraded: %v", res[ProbeInternet].Status)
 	}
-	v, verdict := Diagnose(nil, order, res)
-	if !strings.Contains(v, "no direct TCP egress") {
-		t.Errorf("got %q, want 'no direct TCP egress'", v)
+	d := Interpret(nil, order, res)
+	if !strings.Contains(d.Summary, "no direct TCP egress") {
+		t.Errorf("got %q, want 'no direct TCP egress'", d.Summary)
 	}
-	if verdict != VerdictNetwork {
-		t.Errorf("got verdict %q, want %q", verdict, VerdictNetwork)
+	if d.Verdict != VerdictNetwork {
+		t.Errorf("got verdict %q, want %q", d.Verdict, VerdictNetwork)
 	}
 }
 
@@ -414,15 +414,15 @@ func TestDiagnoseTLSClockSkew(t *testing.T) {
 				ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass},
 				ProbeTLS: {Status: StatusFail, Cause: c.cause}, ProbeHTTP: {Status: StatusPass}, ProbeHTTPS: {Status: StatusSkip},
 			}
-			v, verdict := Diagnose(tg, targetOrder, res)
-			if !strings.Contains(v, c.want) {
-				t.Errorf("got %q, want substring %q", v, c.want)
+			d := Interpret(tg, targetOrder, res)
+			if !strings.Contains(d.Summary, c.want) {
+				t.Errorf("got %q, want substring %q", d.Summary, c.want)
 			}
-			if c.wantNot != "" && strings.Contains(v, c.wantNot) {
-				t.Errorf("got %q, want it to drop %q", v, c.wantNot)
+			if c.wantNot != "" && strings.Contains(d.Summary, c.wantNot) {
+				t.Errorf("got %q, want it to drop %q", d.Summary, c.wantNot)
 			}
-			if verdict != VerdictService {
-				t.Errorf("verdict = %q, want %q", verdict, VerdictService)
+			if d.Verdict != VerdictService {
+				t.Errorf("verdict = %q, want %q", d.Verdict, VerdictService)
 			}
 		})
 	}

@@ -609,7 +609,7 @@ func TestProxyFromEnvironmentAllProxy(t *testing.T) {
 	}
 	// A NO_PROXY hit is why net/http returned nil; falling back to ALL_PROXY
 	// there would report a proxy this host would never go through.
-	for _, np := range []string{"*", "gstatic.com", ".gstatic.com", "connectivitycheck.gstatic.com"} {
+	for _, np := range []string{"*", "gstatic.com", ".gstatic.com", "*.gstatic.com", "connectivitycheck.gstatic.com"} {
 		t.Run("NO_PROXY="+np, func(t *testing.T) {
 			t.Setenv("ALL_PROXY", "socks5h://proxy.corp:1080")
 			t.Setenv("NO_PROXY", np)
@@ -630,6 +630,67 @@ func TestProxyFromEnvironmentAllProxy(t *testing.T) {
 		u, err := proxyFromEnvironment(req)
 		if err != nil || u == nil || u.Scheme != "http" || u.Host != "proxy.corp:3128" {
 			t.Errorf("proxyFromEnvironment = %v, %v; want http://proxy.corp:3128", u, err)
+		}
+	})
+}
+
+// noProxyBypasses stands in for the NO_PROXY check net/http already applied to
+// HTTP(S)_PROXY, so it has to read an entry the way Go's matcher does:
+// "foo.com" matches foo.com and bar.foo.com, while ".foo.com" and "*.foo.com"
+// are the same subdomain-only entry and do not match foo.com itself.
+func TestNoProxyBypasses(t *testing.T) {
+	const probeHost = ConnectivityProbeHost
+	cases := []struct {
+		noProxy string
+		host    string
+		want    bool
+	}{
+		// A wildcard entry is Go's spelling of a leading-dot entry.
+		{"*.gstatic.com", probeHost, true},
+		{"*.gstatic.com", "gstatic.com", false},
+		{"*.GSTATIC.COM", probeHost, true},
+		{"*.example.com", probeHost, false},
+		// Domain boundaries: a suffix that is not a label boundary is a miss.
+		{"*.gstatic.com", "notgstatic.com", false},
+		// A star that does not begin a label is a literal, not a wildcard.
+		{"*gstatic.com", probeHost, false},
+		{"gstatic.com", "notgstatic.com", false},
+		{".gstatic.com", "notgstatic.com", false},
+		// Bare domain: the domain itself and its subdomains.
+		{"gstatic.com", probeHost, true},
+		{"gstatic.com", "gstatic.com", true},
+		// Leading dot: subdomains only.
+		{".gstatic.com", probeHost, true},
+		{".gstatic.com", "gstatic.com", false},
+		// Exact hostname.
+		{probeHost, probeHost, true},
+		{probeHost, "other.gstatic.com", false},
+		// Everything, and nothing.
+		{"*", probeHost, true},
+		{"", probeHost, false},
+		// Lists, whitespace and empty entries.
+		{"example.com, *.gstatic.com", probeHost, true},
+		{" , .gstatic.com , ", probeHost, true},
+		{"example.com,notgstatic.com", probeHost, false},
+		// Entries carrying a port are outside this matcher's contract: Go
+		// bypasses gstatic.com:443 for an https request, and this returns
+		// false. Pinned so the gap is visible rather than accidental.
+		{"gstatic.com:443", probeHost, false},
+	}
+	for _, c := range cases {
+		t.Run(c.noProxy+"/"+c.host, func(t *testing.T) {
+			t.Setenv("NO_PROXY", c.noProxy)
+			t.Setenv("no_proxy", "")
+			if got := noProxyBypasses(c.host); got != c.want {
+				t.Errorf("noProxyBypasses(%q) with NO_PROXY=%q = %v, want %v", c.host, c.noProxy, got, c.want)
+			}
+		})
+	}
+	t.Run("lowercase no_proxy is read when NO_PROXY is unset", func(t *testing.T) {
+		t.Setenv("NO_PROXY", "")
+		t.Setenv("no_proxy", "*.gstatic.com")
+		if !noProxyBypasses(probeHost) {
+			t.Errorf("noProxyBypasses(%q) with no_proxy=*.gstatic.com = false, want true", probeHost)
 		}
 	})
 }

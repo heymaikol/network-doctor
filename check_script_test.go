@@ -89,6 +89,7 @@ func TestCheckScriptRunsTheFastChecksItDocuments(t *testing.T) {
 		"CGO_ENABLED=0 go build ./...",
 		"GOOS=darwin go build ./...",
 		"GOOS=windows go build ./...",
+		"GOOS=freebsd go build ./...",
 		"go test ./...",
 	} {
 		if !strings.Contains(script, want) {

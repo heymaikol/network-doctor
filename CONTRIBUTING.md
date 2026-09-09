@@ -87,11 +87,12 @@ For an ordinary, focused pull request, run:
 ```
 
 That is gofmt, `go vet`, a `CGO_ENABLED=0` build, a macOS and Windows
-cross-compile, and `go test ./...`. It needs a Go toolchain and a POSIX shell,
-and no root and no Docker. On Windows that shell is the Git Bash that ships
-with Git for Windows, or WSL; the checks themselves are the same three
-platforms over. Add `--race` to include the race detector. CI runs the same
-script on Linux, so it cannot rot without someone noticing.
+cross-compile, a FreeBSD build that only proves the fallbacks for unsupported
+platforms still compile, and `go test ./...`. It needs a Go toolchain and a
+POSIX shell, and no root and no Docker. On Windows that shell is the Git Bash
+that ships with Git for Windows, or WSL; the checks themselves are the same
+three platforms over. Add `--race` to include the race detector. CI runs the
+same script on Linux, so it cannot rot without someone noticing.
 
 The checks make no network calls themselves, but the Go toolchain may: a cold
 or incomplete module cache downloads this module's dependencies, and a Go

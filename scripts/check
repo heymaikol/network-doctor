@@ -90,6 +90,13 @@ step "build (CGO_ENABLED=0)" env CGO_ENABLED=0 go build ./...
 step "cross-compile (darwin)" env GOOS=darwin go build ./...
 step "cross-compile (windows)" env GOOS=windows go build ./...
 
+# FreeBSD is not a shipped target and nothing here claims it works at runtime.
+# It builds only to keep the !linux && !darwin && !windows fallbacks honest: a
+# platform-tagged file added without one compiles fine on all three shipped
+# targets and breaks every other GOOS silently, which is how socketSendBuffer
+# and socketMSS came to have no fallback at all.
+step "cross-compile (freebsd, portability only)" env GOOS=freebsd go build ./...
+
 # The ordinary suite: deterministic, rootless, no build tags. This is also
 # where the repository's own invariant tests live (architecture, packaging,
 # docs links, em dashes), so those run here too.

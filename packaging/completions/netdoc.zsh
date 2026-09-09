@@ -3,7 +3,7 @@
 # zsh completion for netdoc(1). Installed as _netdoc on zsh's fpath.
 #
 # Hand-maintained: netdoc uses the stdlib flag package, which has no completion
-# generator. Keep this in sync with the flags in main.go.
+# generator. Keep this in sync with the flags in internal/app/app.go.
 
 # Interface names only. -iface also takes a local IP address, which is not
 # offered here: the useful ones are already on these links.

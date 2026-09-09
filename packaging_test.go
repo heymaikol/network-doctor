@@ -302,7 +302,7 @@ func TestReleaseWorkflowPublishesTheImageAtTheTag(t *testing.T) {
 }
 
 // The man page and the three completion files are hand-maintained copies of the
-// flag list in main.go, so a new flag silently ships undocumented and
+// flag list in internal/app/app.go, so a new flag silently ships undocumented and
 // uncompletable, and a deleted one stays advertised. Read the flags back out of
 // the real usage output and require every shipped surface to declare exactly
 // that set, in that surface's own declaration syntax, so a name that only

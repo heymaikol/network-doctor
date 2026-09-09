@@ -349,16 +349,33 @@ func (o *netops) bannerProbe(id ProbeID, label string, port int) Probe {
 		br := bufio.NewReader(io.LimitReader(conn, 1024))
 		line, readErr := br.ReadString('\n')
 		line = strings.TrimRight(line, "\r\n")
+		first := line
+		// RFC 4253 section 4.2 lets an SSH server send other lines of data
+		// before its identification string, and forbids those lines from
+		// starting with "SSH-". Keep reading complete lines under the same byte
+		// limit and read deadline until the identification string shows up.
+		for id == ProbeSSH && readErr == nil && !strings.HasPrefix(line, "SSH-") {
+			line, readErr = br.ReadString('\n')
+			if readErr != nil {
+				// No delimiter, so the byte limit or the deadline cut this line
+				// short. A truncated line is not an identification string.
+				line = ""
+			}
+			line = strings.TrimRight(line, "\r\n")
+			if first == "" {
+				first = line
+			}
+		}
 		r.SelectedIP = ip
-		if line == "" && errors.Is(readErr, syscall.ECONNRESET) {
+		if first == "" && errors.Is(readErr, syscall.ECONNRESET) {
 			r.Status, r.Cause = StatusFail, ConnectionCauseReset
 			r.Detail = "peer accepted the connection and reset it before sending a banner"
-		} else if line == "" {
+		} else if first == "" {
 			// Port answered but the service said nothing: functional, degraded.
 			r.Status, r.Detail = StatusWarn, "connected, no banner within deadline"
 		} else if valid := id == ProbeSSH && strings.HasPrefix(line, "SSH-") ||
 			id == ProbeSMTP && (strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-")); !valid {
-			r.Status, r.Detail = StatusFail, "unexpected service banner: "+line
+			r.Status, r.Detail = StatusFail, "unexpected service banner: "+first
 		} else {
 			r.Status, r.Detail = StatusPass, "banner: "+line
 		}

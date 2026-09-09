@@ -2624,3 +2624,136 @@ func TestPublicDNSDefaultLeavesTimeForTheOtherFamily(t *testing.T) {
 		})
 	}
 }
+
+// RFC 4253 section 4.2 lets an SSH server send other lines of data before its
+// identification string, so the probe must keep reading complete lines instead
+// of judging the first one. The byte limit and the read deadline still bound
+// the search, and a line that only mentions "SSH-" is not an identification.
+func TestBannerProbeSSHPreliminaryLines(t *testing.T) {
+	tests := []struct {
+		name   string
+		server string
+		want   Status
+		detail string
+	}{
+		{
+			name:   "identification first",
+			server: "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "one preliminary line",
+			server: "Authorized use only\r\nSSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "multiple preliminary lines",
+			server: "Authorized use only\r\nAll activity is logged\r\n\r\nSSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "preliminary lines then EOF",
+			server: "Authorized use only\r\nAll activity is logged\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: Authorized use only",
+		},
+		{
+			name:   "byte limit reached before identification",
+			server: strings.Repeat("All activity is logged\r\n", 50) + "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: All activity is logged",
+		},
+		{
+			// The preliminary line leaves 6 bytes of the 1024-byte budget, so
+			// the identification arrives as a delimiterless "SSH-2." fragment.
+			name:   "identification truncated by the byte limit",
+			server: strings.Repeat("x", 1016) + "\r\n" + "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: " + strings.Repeat("x", 1016),
+		},
+		{
+			// The same boundary one byte the other way: the identification and
+			// its CRLF land exactly on the 1024th byte, so it still counts.
+			name:   "identification ends exactly on the byte limit",
+			server: strings.Repeat("x", 1001) + "\r\n" + "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "misleading preliminary text is not an identification",
+			server: "this host speaks SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: this host speaks SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "misleading preliminary text before the identification",
+			server: "this host speaks SSH-2.0-OpenSSH_8.9\r\nSSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "wrong protocol banner stays rejected",
+			server: "220 mail.example ESMTP\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: 220 mail.example ESMTP",
+		},
+	}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+				return &scriptConn{r: strings.NewReader(tt.server)}, nil
+			}}
+			r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(context.Background(), deps)
+			if r.Status != tt.want || r.Detail != tt.detail {
+				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, tt.want, tt.detail)
+			}
+		})
+	}
+}
+
+// The read deadline is set once, before the first line, so a server that sends
+// a preliminary line and then stalls cannot stretch the probe: the search for
+// the identification string ends at the same deadline as a single read.
+func TestBannerProbeSSHPreliminaryLineStallHonorsDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = server.Close() })
+	go func() { _, _ = server.Write([]byte("Authorized use only\r\n")) }()
+	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+		return client, nil
+	}}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, deps)
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("banner probe took %v, want the read deadline to cap the line search", elapsed)
+	}
+	if r.Status != StatusFail || r.Detail != "unexpected service banner: Authorized use only" {
+		t.Errorf("stalled server = %+v, want FAIL naming the preliminary line", r)
+	}
+}
+
+// A deadline that lands mid-identification truncates the line the same way the
+// byte limit does, and a truncated line is not an identification string either.
+func TestBannerProbeSSHTruncatedIdentificationAtDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = server.Close() })
+	go func() { _, _ = server.Write([]byte("Authorized use only\r\nSSH-2.")) }()
+	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+		return client, nil
+	}}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, deps)
+	if r.Status != StatusFail || r.Detail != "unexpected service banner: Authorized use only" {
+		t.Errorf("identification cut off by the deadline = %+v, want FAIL", r)
+	}
+}

@@ -1,12 +1,21 @@
 # bash completion for netdoc(1)
 #
 # Hand-maintained: netdoc uses the stdlib flag package, which has no completion
-# generator. Keep this in sync with the flags in main.go.
+# generator. Keep this in sync with the flags in internal/app/app.go.
 
 _netdoc() {
     local cur prev
     cur=${COMP_WORDS[COMP_CWORD]}
     prev=${COMP_WORDS[COMP_CWORD-1]}
+
+    # The CLI accepts --flag=value as well as --flag value. Readline treats '='
+    # as a word break, so COMPREPLY must be the value only; the cases below
+    # then match both forms. Reconstruct when bash split the token on '='.
+    if [[ $cur == =* ]]; then
+        cur="${cur#=}"
+    elif [[ $prev == '=' && COMP_CWORD -ge 2 ]]; then
+        prev="${COMP_WORDS[COMP_CWORD-2]}"
+    fi
 
     case $prev in
         -iface | --iface)

@@ -145,7 +145,12 @@ func listSSHKeys() []string {
 	if err != nil {
 		return nil
 	}
-	dir := filepath.Join(home, ".ssh")
+	return sshKeysIn(filepath.Join(home, ".ssh"))
+}
+
+// sshKeysIn is the directory scan behind listSSHKeys, with the directory as an
+// argument so tests can point it at a temporary one instead of ~/.ssh.
+func sshKeysIn(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil

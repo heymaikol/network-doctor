@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"slices"
 	"syscall"
 	"time"
 
@@ -26,6 +27,11 @@ var remoteRun = remote.Run
 // workerStdin is the protocol's inbound channel, stubbed in tests.
 var workerStdin io.Reader = os.Stdin
 
+func needsPMTUCompatibilitySkip(h headless) bool {
+	return h.target != nil && h.target.Proto == diagnostic.ProtoNone &&
+		!slices.Contains(h.check, diagnostic.ProbePMTU) && !slices.Contains(h.skip, diagnostic.ProbePMTU)
+}
+
 func requestForRemote(h headless) remote.Request {
 	req := remote.Request{
 		Iface: h.iface, PublicDNS: h.publicDNS, PublicDNSAuto: h.publicDNSAuto,
@@ -36,6 +42,11 @@ func requestForRemote(h headless) remote.Request {
 		// The remote parses the same validated spelling again, so a build that
 		// resolves it differently records that difference in its snapshot.
 		req.Target = h.target.Raw
+		// Older workers include unknown-protocol PMTU by default. Carry the
+		// restriction in the existing skip field so they honor it too.
+		if needsPMTUCompatibilitySkip(h) {
+			req.Skip = append(req.Skip, string(diagnostic.ProbePMTU))
+		}
 	}
 	return req
 }
@@ -207,7 +218,7 @@ func diagnoseRemote(ctx context.Context, req remote.Request) (*report.Report, *s
 		h.sources = sources
 	}
 
-	probes := h.selection.Apply(diagnostic.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto))
+	probes := h.selection.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto)
 	results := runAll(ctx, probes, h.timeout)
 	if ctx.Err() != nil {
 		// Cancelled mid-pass, which for a worker means the local side went

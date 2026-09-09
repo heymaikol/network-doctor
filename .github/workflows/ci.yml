@@ -33,6 +33,20 @@ jobs:
           for script in packaging/completions/*.bash; do bash -n "$script"; done
           for script in packaging/completions/*.zsh; do zsh -n "$script"; done
           for script in packaging/completions/*.fish; do fish -n "$script"; done
+  
+  manpage-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mandoc
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y mandoc
+      - name: Check man page syntax
+        run: |
+          set -euo pipefail
+          mandoc -Tlint packaging/netdoc.1
+          mandoc -Tlint packaging/netdoc-sim.1
 
   test:
     strategy:
@@ -48,6 +62,15 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # The contributor-facing fast gate, run on Linux so it cannot rot
+      # unnoticed. Most of its work is repeated by the steps below, so this
+      # roughly doubles the unit suite on this leg rather than costing a few
+      # seconds. That is the price of the guarantee: contributors are told to
+      # run `scripts/check`, and running the real script is the only thing that
+      # proves it still works. Asserting on its text cannot.
+      - if: runner.os == 'Linux'
+        name: Run the fast local check contributors are asked to run
+        run: ./scripts/check
       - run: go vet ./...
       - run: go build ./...
         env:
@@ -98,7 +121,7 @@ jobs:
           mkdir -p coverage
           go test -covermode=set -coverprofile=coverage/unit.out ./...
       - if: runner.os != 'Linux'
-        run: go test -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+        run: go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
       # Required gate on both native hosts: it holds the built binary's route,
       # interface, and source-address evidence to what Windows and macOS
       # themselves report, which is the one thing the Linux simulator cannot
@@ -133,7 +156,7 @@ jobs:
           if ($uiAcceptanceExit -ne 0) { exit $uiAcceptanceExit }
       - if: runner.os == 'Linux'
         name: Run loopback integration tests with coverage
-        run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+        run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
       # The job runner does concurrent subprocess cancellation; gate it.
       - if: runner.os == 'Linux'
         run: go test -race ./...
@@ -142,7 +165,7 @@ jobs:
       # build, and applying it to ./... would compile integration files into
       # every other package's test binary.
       - if: runner.os == 'Linux'
-        run: go test -race -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+        run: go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
       # Smoke-fuzz the parsers fed by input we do not control (terminal output,
       # target arguments, encrypted-DNS responses, and peer frames) so regressions don't
       # rely on contributors remembering to fuzz locally.

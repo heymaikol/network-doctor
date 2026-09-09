@@ -71,4 +71,3 @@ expect:
     - {id: dns, status: N/A}
     - {id: dns_public, status: N/A}
     - {id: target_tcp, status: PASS}
-    - {id: path_mtu, status: PASS}

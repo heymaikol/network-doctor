@@ -65,9 +65,6 @@ func replayLabFuzzArtifact(ctx context.Context, a LabFuzzArtifact, evaluate labF
 }
 func labSameFailure(a, b LabFuzzViolation) bool { return a.Property == b.Property && a.Code == b.Code }
 
-func MinimizeLabFuzz(ctx context.Context, c LabFuzzCase, f LabFuzzViolation) (LabFuzzArtifact, error) {
-	return minimizeLabFuzz(ctx, c, f, EvaluateLabFuzz)
-}
 func minimizeLabFuzz(ctx context.Context, c LabFuzzCase, f LabFuzzViolation, evaluate labFuzzEvaluator) (LabFuzzArtifact, error) {
 	a := LabFuzzArtifact{Format: labArtifactFormat, Failure: f, Original: labCopy(c)}
 	holds := func(candidate LabFuzzCase) (bool, error) {

@@ -7,8 +7,10 @@ package diagnostic
 
 import (
 	"go/ast"
+	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -321,6 +323,54 @@ func TestRemediationIDsAreStableAndDocumented(t *testing.T) {
 	for value, name := range declared {
 		if !used[value] {
 			t.Errorf("%s (%q) is declared but no table entry produces it", name, value)
+		}
+	}
+}
+
+func TestGatewayRemediationKeepsConfiguredAlternateContext(t *testing.T) {
+	for _, family := range []string{"ipv4", "ipv6"} {
+		for _, competing := range []bool{false, true} {
+			t.Run(family+strconv.FormatBool(competing), func(t *testing.T) {
+				route := RouteDecision{Destination: net.ParseIP("1.1.1.1"), Family: family}
+				if competing {
+					route.Competing = []CompetingRoute{{Iface: "eth1", Metric: 200}}
+				}
+				res := map[ProbeID]ProbeResult{
+					ProbeIface:    {Status: StatusPass, Routes: []RouteDecision{route}},
+					ProbeInternet: {Status: StatusFail, Cause: RouteCauseGatewayUnreachable, causeFamily: "ipv4"},
+				}
+				d := Diagnosis{Findings: []DiagnosisFinding{{ID: DiagnosisLocalEgressFailure, Focus: ProbeInternet}}}
+				rem, ok := Remediate(d, res, "linux")
+				if !ok {
+					t.Fatal("missing remediation")
+				}
+				text := strings.Join(rem.Steps, " ")
+				want := competing && family == "ipv4"
+				if strings.Contains(text, "Another default route is configured") != want {
+					t.Fatalf("alternate context = %q, want present=%v", text, want)
+				}
+				if want && !strings.Contains(text, "does not prove it works") {
+					t.Fatal("alternate route advice lost its uncertainty")
+				}
+				stored := BuildSnapshot(nil, []Probe{{ID: ProbeIface}}, res)
+				restored, err := replayResult(ProbeIface, StatusPass, stored.Checks[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				res[ProbeIface] = restored
+				replayRem, ok := Remediate(d, res, "linux")
+				if !ok || !reflect.DeepEqual(rem, replayRem) {
+					t.Fatalf("replayed route context changed remediation: %+v", replayRem)
+				}
+			})
+		}
+	}
+	for _, cause := range []string{RouteCauseSelectedPathFailed, RouteCausePreferredPathFailed} {
+		if _, ok := remedies[remedyKey{id: DiagnosisLocalEgressFailure, cause: cause}]; ok {
+			t.Fatalf("dead remediation key for %s", cause)
+		}
+		if _, ok := remedies[remedyKey{id: DiagnosisOffline, cause: cause}]; !ok {
+			t.Fatalf("lost reachable offline remediation for %s", cause)
 		}
 	}
 }

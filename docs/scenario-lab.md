@@ -23,7 +23,7 @@ uses the standard Go flag formatting.
 
 Exit codes retain the simulator convention: 0 means semantic validation
 passed, 1 means it failed, 2 means invalid arguments, and 3 means the model
-could not run. The current 20-case corpus passes semantic validation, so
+could not run. The current 22-case corpus passes semantic validation, so
 `lab run --all` exits 0. A test that successfully reproduces a known failure
 does not make that scenario pass. The CLI prints every failure normally.
 
@@ -294,7 +294,7 @@ integration lanes.
 
 ## Corpus results
 
-All 20 scenarios execute, replay and satisfy their semantic expectations.
+All 22 scenarios execute, replay and satisfy their semantic expectations.
 These are model results,
 not measurements from a real broken network.
 
@@ -319,6 +319,8 @@ not measurements from a real broken network.
 | `unrelated-dns-failure` | split-dns-answer, decoy-listener-moved | client service: tcp_connection_refused, dns_disagreement<br>remote ok<br>side a; endpoint cause open | client service: tcp_connection_refused, dns_disagreement<br>remote ok<br>side a; endpoint cause open | PASS |
 | `dns-nxdomain` | missing-name-system-dns, missing-name-public-dns | dns: dns_name_not_found | dns: dns_name_not_found | PASS |
 | `connection-refused` | No listener on requested port 8443 | service: tcp_connection_refused | service: tcp_connection_refused | PASS |
+| `lan-target-dead-uplink` | uplink-down | degraded: direct_egress_blocked; egress row FAIL, not relaxed; confidence <= medium | degraded: direct_egress_blocked; egress row FAIL | PASS |
+| `shared-space-target-dead-uplink` | uplink-down | degraded: direct_egress_blocked; not reference_egress_unreachable; egress row FAIL | degraded: direct_egress_blocked; egress row FAIL | PASS |
 | `tls-http-no-response` | silent-application | service: https_no_response | service: https_no_response | PASS |
 
 ## Adversarial audit notes

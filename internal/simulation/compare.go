@@ -349,7 +349,7 @@ func (o *TestOutcome) suggest() []Suggestion {
 		switch {
 		case c.Outcome == OutcomeMissing:
 			addCheck(SuggestMissedFinding, c, fmt.Sprintf(
-				"No %s row in the report, but the scenario expected one at %s. The probe never ran, so check the DAG dependency that skipped it.",
+				"No %s row in the report, but the scenario expected one at %s. The probe never ran: check the DAG dependency that skipped it, or whether this target selects the probe at all.",
 				c.ID, c.Expected), "")
 		case c.Outcome == OutcomeWrongStatus && flagged(c.Expected) && !flagged(c.Actual):
 			addCheck(SuggestMissedFinding, c, fmt.Sprintf(

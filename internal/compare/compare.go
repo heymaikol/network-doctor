@@ -682,7 +682,13 @@ func diffAttempts(d *diff, id, path string, before, after []snapshot.Attempt) {
 			d.member(SectionCheck, id, path+"attempts."+ip, id+" connection attempt to", ip, inAfter)
 			continue
 		}
-		d.field(SectionCheck, id, path+"attempts."+ip+".error", id+" connection attempt to "+ip, b.Error, a.Error)
+		if len(b) == 1 && len(a) == 1 {
+			d.field(SectionCheck, id, path+"attempts."+ip+".error", id+" connection attempt to "+ip, b[0].Error, a[0].Error)
+			d.field(SectionCheck, id, path+"attempts."+ip+".cause", id+" connection cause for "+ip, b[0].Cause, a[0].Cause)
+			d.field(SectionCheck, id, path+"attempts."+ip+".aborted", id+" connection aborted for "+ip, strconv.FormatBool(b[0].Aborted), strconv.FormatBool(a[0].Aborted))
+		} else {
+			d.field(SectionCheck, id, path+"attempts."+ip+".outcomes", id+" connection outcomes for "+ip, attemptOutcomes(b), attemptOutcomes(a))
+		}
 	}
 }
 
@@ -694,14 +700,21 @@ func attemptIPs(attempts []snapshot.Attempt) []string {
 	return ips
 }
 
-func attemptsByIP(attempts []snapshot.Attempt) map[string]snapshot.Attempt {
-	byIP := make(map[string]snapshot.Attempt, len(attempts))
+func attemptsByIP(attempts []snapshot.Attempt) map[string][]snapshot.Attempt {
+	byIP := make(map[string][]snapshot.Attempt, len(attempts))
 	for _, a := range attempts {
-		if _, seen := byIP[a.IP]; !seen {
-			byIP[a.IP] = a
-		}
+		byIP[a.IP] = append(byIP[a.IP], a)
 	}
 	return byIP
+}
+
+func attemptOutcomes(attempts []snapshot.Attempt) string {
+	out := make([]string, 0, len(attempts))
+	for _, a := range attempts {
+		out = append(out, "error="+strconv.Quote(a.Error)+", cause="+strconv.Quote(a.Cause)+", aborted="+strconv.FormatBool(a.Aborted))
+	}
+	slices.Sort(out)
+	return strings.Join(slices.Compact(out), "; ")
 }
 
 // The route intelligence half of the comparison.

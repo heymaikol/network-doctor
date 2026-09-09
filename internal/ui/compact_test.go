@@ -237,7 +237,7 @@ func TestCompactViewKeepsWarnRow(t *testing.T) {
 	m.results[diagnostic.ProbeQUIC] = diagnostic.ProbeResult{ID: diagnostic.ProbeQUIC, Status: diagnostic.StatusWarn}
 	m, v := renderAt(t, m)
 
-	if blamed := diagnostic.FocusProbe(m.target, m.probeOrder(), m.results); blamed == diagnostic.ProbeQUIC {
+	if blamed := m.diagnosis().Focus(); blamed == diagnostic.ProbeQUIC {
 		t.Fatalf("the diagnosis blames the QUIC row, so this no longer tests the Warn rule on its own")
 	}
 	name := probeName(t, m, diagnostic.ProbeQUIC)
@@ -255,7 +255,7 @@ func TestCompactViewKeepsBlamedPathMTUWarn(t *testing.T) {
 	if got := m.results[diagnostic.ProbePMTU].Status; got != diagnostic.StatusWarn {
 		t.Fatalf("Path MTU is %v, want a Warn: the case no longer covers the downgraded blamed row", got)
 	}
-	if blamed := diagnostic.FocusProbe(m.target, m.probeOrder(), m.results); blamed != diagnostic.ProbePMTU {
+	if blamed := m.diagnosis().Focus(); blamed != diagnostic.ProbePMTU {
 		t.Fatalf("the diagnosis blames %q, want the Path MTU row", blamed)
 	}
 	pmtu := slices.IndexFunc(m.probes, func(p diagnostic.Probe) bool { return p.ID == diagnostic.ProbePMTU })
@@ -280,7 +280,7 @@ func TestCompactViewKeepsBlamedPathMTUWarn(t *testing.T) {
 // TestBlamedRowIsAlwaysOnScreen is the invariant the Path MTU case is one
 // instance of: whatever row the diagnosis sends the reader to, the compact
 // view is showing it. The row comes from focusRow, so this holds however
-// diagnostic.FocusProbe decides to point later, including at a row whose own
+// the diagnosis decides to point later, including at a row whose own
 // status would not have earned it a place.
 func TestBlamedRowIsAlwaysOnScreen(t *testing.T) {
 	for _, tc := range []struct {

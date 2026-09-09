@@ -59,7 +59,7 @@ func responseForLiveRequest(req remote.Request, targetStatus string) (remote.Res
 		target: target, selection: diagnostic.ProbeSelection{Check: checks.set(), Skip: skips.set()},
 		check: checks, skip: skips, publicDNS: req.PublicDNS, timeout: time.Duration(req.TimeoutMs) * time.Millisecond,
 	}
-	probes := h.selection.Apply(diagnostic.BuildProbesFromSources(target, nil, req.PublicDNS, req.PublicDNSAuto))
+	probes := h.selection.BuildProbesFromSources(target, nil, req.PublicDNS, req.PublicDNSAuto)
 	results := resultsWithTargetStatus(probes, targetStatus)
 	rep := buildReport(target, probes, results)
 	rep.Version = remoteTool.Version
@@ -398,6 +398,85 @@ func TestRunLiveTwoSidedRejectsAsymmetricAndUnrelatedFlagsBeforeStarting(t *test
 			}
 			if stdout.Len() != 0 || !strings.Contains(stderr.String(), test.want) {
 				t.Errorf("stdout = %q, stderr = %q, want %q", stdout.String(), stderr.String(), test.want)
+			}
+		})
+	}
+}
+
+func TestRemoteRequestPreservesUnknownProtocolPMTUOptIn(t *testing.T) {
+	for _, tc := range []struct {
+		target      string
+		check, skip probeList
+		wantSkip    bool
+	}{
+		{target: "host:9999", wantSkip: true},
+		{target: "host:9999", check: probeList{diagnostic.ProbeTargetTCP}, wantSkip: true},
+		{target: "host:9999", check: probeList{diagnostic.ProbePMTU}},
+		{target: "host:9999", check: probeList{diagnostic.ProbePMTU}, skip: probeList{diagnostic.ProbePMTU}, wantSkip: true},
+		{target: "host:443"},
+		{target: "ssh://host:9999"},
+	} {
+		target, err := diagnostic.ParseTarget(tc.target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := requestForRemote(headless{target: target, check: tc.check, skip: tc.skip})
+		count := 0
+		for _, id := range req.Skip {
+			if id == string(diagnostic.ProbePMTU) {
+				count++
+			}
+		}
+		if (count == 1) != tc.wantSkip || count > 1 {
+			t.Fatalf("target %s, check %v, skip %v: remote skip %v, want PMTU skip %t", tc.target, tc.check, tc.skip, req.Skip, tc.wantSkip)
+		}
+	}
+}
+
+func TestLiveTwoSidedPMTUSelectionDoesNotInventMismatch(t *testing.T) {
+	for _, tc := range []struct {
+		name, target string
+		args         []string
+		wantPMTU     bool
+	}{
+		{name: "unknown", target: "host:9999"},
+		{name: "known", target: "host:443", wantPMTU: true},
+		{name: "explicit", target: "host:9999", args: []string{"--check", "path_mtu"}, wantPMTU: true},
+		{name: "skipped", target: "host:9999", args: []string{"--skip", "path_mtu"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			originalRunAll, originalRemoteRun := runAll, remoteRun
+			t.Cleanup(func() { runAll, remoteRun = originalRunAll, originalRemoteRun })
+			var localIDs, remoteIDs []string
+			runAll = func(_ context.Context, probes []diagnostic.Probe, _ time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {
+				for _, p := range probes {
+					localIDs = append(localIDs, string(p.ID))
+				}
+				return resultsWithTargetStatus(probes, snapshot.StatusPass)
+			}
+			remoteRun = func(_ context.Context, _, _ string, req remote.Request) (remote.Response, error) {
+				resp, err := responseForLiveRequest(req, snapshot.StatusPass)
+				if err == nil {
+					for _, check := range resp.Report.Checks {
+						remoteIDs = append(remoteIDs, check.ID)
+					}
+				}
+				return resp, err
+			}
+			args := append([]string{"--two-sided", "--via", "ideapad"}, tc.args...)
+			args = append(args, tc.target)
+			var stdout, stderr bytes.Buffer
+			if code := run(args, &stdout, &stderr); code != 0 {
+				t.Fatalf("exit %d: %s", code, &stderr)
+			}
+			if len(localIDs) == 0 || !slices.Equal(localIDs, remoteIDs) {
+				t.Fatalf("measured probes differ: local %v, remote %v", localIDs, remoteIDs)
+			}
+			if got := slices.Contains(localIDs, string(diagnostic.ProbePMTU)); got != tc.wantPMTU {
+				t.Fatalf("PMTU measured = %t, want %t", got, tc.wantPMTU)
+			}
+			if strings.Contains(stdout.String(), "different probes") {
+				t.Fatalf("identical probe sets produced a false caveat:\n%s", &stdout)
 			}
 		})
 	}

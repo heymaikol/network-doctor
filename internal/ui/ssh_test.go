@@ -73,11 +73,10 @@ func sshResult(t *testing.T, cmd tea.Cmd) sshResolvedMsg {
 }
 
 func TestSSHCommand(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home directory")
-	}
-	key := filepath.Join(home, ".ssh", "id_ed25519")
+	// sshCommand treats the key as opaque argv text and never opens it, so a
+	// synthetic nested path stands in for a real one: no home directory to
+	// resolve, nothing to skip, and nothing read from disk.
+	key := "/home/tester/.ssh/id_ed25519"
 
 	tests := []struct {
 		name                          string
@@ -856,6 +855,88 @@ func TestSSHKeyChooser(t *testing.T) {
 	if got, want := f.keyPath(), "/home/a/.ssh/id_rsa"; got != want {
 		t.Errorf("wrapped to %q, want %q", got, want)
 	}
+}
+
+// Key discovery is the .pub file next to a regular private half, nothing
+// else: a lone half of either kind, or a directory wearing the private name,
+// is not a key. Every case runs in its own temporary directory, so no test
+// reads the developer's ~/.ssh or needs a real key.
+func TestSSHKeysIn(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string // regular files, created empty
+		dirs  []string
+		want  []string // discovered keys, relative to the directory
+	}{
+		{name: "empty directory"},
+		{name: "matching pair", files: []string{"id_ed25519", "id_ed25519.pub"}, want: []string{"id_ed25519"}},
+		{name: "public half alone", files: []string{"id_ed25519.pub"}},
+		{name: "private half alone", files: []string{"id_ed25519"}},
+		{name: "directory under the private name", files: []string{"id_rsa.pub"}, dirs: []string{"id_rsa"}},
+		// Trimming ".pub" off a bare ".pub" leaves nothing, and joining
+		// nothing onto the directory names the directory. It is not a
+		// regular file, so it is not offered as a key to ssh -i.
+		{name: "bare .pub file", files: []string{".pub"}},
+		{
+			// The sort has to be the thing that orders these. ReadDir hands
+			// back the full names in order, and "id_ed25519-work.pub" sorts
+			// before "id_ed25519.pub" because '-' is below '.', while the
+			// trimmed key names sort the other way round. Without the sort
+			// this case comes back with the pair swapped.
+			name:  "several keys sort by name",
+			files: []string{"id_rsa", "id_rsa.pub", "id_ed25519", "id_ed25519.pub", "id_ed25519-work", "id_ed25519-work.pub", "id_ecdsa", "id_ecdsa.pub", "known_hosts", "config"},
+			want:  []string{"id_ecdsa", "id_ed25519", "id_ed25519-work", "id_rsa"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, d := range tc.dirs {
+				if err := os.Mkdir(filepath.Join(dir, d), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, f := range tc.files {
+				if err := os.WriteFile(filepath.Join(dir, f), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var want []string
+			for _, w := range tc.want {
+				want = append(want, filepath.Join(dir, w))
+			}
+			if got := sshKeysIn(dir); !slices.Equal(got, want) {
+				t.Errorf("sshKeysIn = %q, want %q", got, want)
+			}
+		})
+	}
+
+	t.Run("missing directory", func(t *testing.T) {
+		if got := sshKeysIn(filepath.Join(t.TempDir(), ".ssh")); got != nil {
+			t.Errorf("sshKeysIn = %q, want nil", got)
+		}
+	})
+
+	// The regular-file check runs on what the name resolves to, so a key
+	// symlinked in from a dotfile repository is still a key. Switching that
+	// os.Stat to an os.Lstat would quietly drop it from the form.
+	t.Run("symlinked private half", func(t *testing.T) {
+		dir := t.TempDir()
+		stored := filepath.Join(dir, "stored_key")
+		if err := os.WriteFile(stored, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		key := filepath.Join(dir, "id_ed25519")
+		if err := os.Symlink(stored, key); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if err := os.WriteFile(key+".pub", nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := sshKeysIn(dir); !slices.Equal(got, []string{key}) {
+			t.Errorf("sshKeysIn = %q, want %q", got, []string{key})
+		}
+	})
 }
 
 // A password is echoed as dots, never as itself.

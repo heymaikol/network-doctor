@@ -296,15 +296,8 @@ func TestFailedRouteCauseIsFamilyAndOrderInvariant(t *testing.T) {
 				if cause4 != cause6 && (got == cause4 && family != counterfactualIPv4 || got == cause6 && family != counterfactualIPv6) {
 					t.Errorf("cause %q provenance = %q, want its originating family", got, family)
 				}
-				if cause4 == RouteCausePreferredPathFailed || cause6 == RouteCausePreferredPathFailed {
-					if got != RouteCausePreferredPathFailed {
-						t.Errorf("preferred route failure disappeared behind %q", got)
-					}
-				} else if cause4 == RouteCauseNoDefaultRoute && cause6 != RouteCauseNoDefaultRoute ||
-					cause6 == RouteCauseNoDefaultRoute && cause4 != RouteCauseNoDefaultRoute {
-					if got == RouteCauseNoDefaultRoute {
-						t.Errorf("an unrouted family hid routed cause pair %q/%q", cause4, cause6)
-					}
+				if localPathObserved(got) != (localPathObserved(cause4) && localPathObserved(cause6)) {
+					t.Errorf("aggregate %q incorrectly localizes cause pair %q/%q", got, cause4, cause6)
 				}
 				assertDirectCauseEvidence(t, ProbeResult{Status: StatusFail, Cause: got, causeFamily: family}, invariantFamily(family))
 			})

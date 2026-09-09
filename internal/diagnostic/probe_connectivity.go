@@ -127,6 +127,7 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 	if len(v4.ips) == 0 && len(v6.ips) == 0 {
 		return ProbeResult{Status: StatusNA, Detail: "the selected interface has no address family available for direct egress"}
 	}
+	routeEvidence := o.collectPathComparison(ctx, v4.ips, v6.ips)
 	// obs holds one entry per fixed connectivity endpoint, in endpoint order.
 	// An entry stays zero where the check is stubbed out or the endpoint never
 	// answered, and an endpoint that did not answer is the absence of an
@@ -219,6 +220,20 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 		if o.routeCause != nil {
 			r.Cause, r.causeFamily = failedRouteCause(o.routeCause, v4.ips, v6.ips)
 		}
+		if ctx.Err() != context.Canceled {
+			// A timeout is useful failure evidence, but must not start more
+			// kernel queries after the probe has spent its budget.
+			select {
+			case evidence := <-routeEvidence:
+				r.Routes, r.alternateDefaults = evidence.Routes, evidence.alternateDefaults
+			default:
+				select {
+				case evidence := <-routeEvidence:
+					r.Routes, r.alternateDefaults = evidence.Routes, evidence.alternateDefaults
+				case <-ctx.Done():
+				}
+			}
+		}
 		// The routing table decides the advice: a missing default route and a
 		// filtered upstream are different repairs. An empty or unrecognized
 		// cause keeps the generic hint.
@@ -285,22 +300,25 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 	return r
 }
 
-// failedRouteCause chooses the strongest route fact proved by any failed
-// family. A routed failure is more useful than an unrelated family's missing
-// default, and the order of endpoint candidates cannot decide the repair.
+// failedRouteCause summarizes attempted, failed families conservatively. A local
+// defect in one family cannot explain an unlocalized failure in another, so
+// selection-only or unknown evidence takes precedence over localizing causes.
+// When every attempted family has local evidence, prefer an unresolved gateway
+// to a missing default. Unattempted families contribute nothing. Within a
+// family, classifyDefaultRoutes still prefers neighbor evidence to metadata.
 func failedRouteCause(classify func(net.IP) string, families ...[]net.IP) (cause, family string) {
 	priority := func(cause string) int {
 		switch cause {
-		case RouteCausePreferredPathFailed:
-			return 4
 		case RouteCauseGatewayUnreachable:
-			return 3
-		case RouteCauseSelectedPathFailed:
 			return 2
+		case RouteCausePreferredPathFailed:
+			return 5
+		case RouteCauseSelectedPathFailed:
+			return 4
 		case RouteCauseNoDefaultRoute:
 			return 1
 		default:
-			return 0
+			return 3
 		}
 	}
 	best := -1
@@ -309,9 +327,6 @@ func failedRouteCause(classify func(net.IP) string, families ...[]net.IP) (cause
 			continue
 		}
 		candidate := classify(ips[0])
-		if candidate == "" {
-			continue
-		}
 		rank := priority(candidate)
 		switch {
 		case rank > best:
@@ -320,6 +335,9 @@ func failedRouteCause(classify func(net.IP) string, families ...[]net.IP) (cause
 			// The same fact held for both families, so neither alone owns it.
 			family = ""
 		}
+	}
+	if cause == "" {
+		family = ""
 	}
 	return cause, family
 }

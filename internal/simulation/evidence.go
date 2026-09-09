@@ -17,6 +17,7 @@ import (
 // namespaces. It complements netdoc's report; it is never used to manufacture
 // a diagnostic result.
 type Evidence struct {
+	ResolverLookups  []ResolverLookupEvidence  `json:"resolver_lookups,omitempty"`
 	DNS              []DNSEvidence             `json:"dns"`
 	DNSQueries       []DNSQueryEvidence        `json:"dns_queries"`
 	SOCKSRequests    []SOCKSEvidence           `json:"socks_requests"`

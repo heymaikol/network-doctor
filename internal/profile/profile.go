@@ -139,7 +139,11 @@ func (definition Definition) Plan(target string) (Plan, error) {
 func ComposeSelection(run Run, extra, skip []diagnostic.ProbeID) (diagnostic.ProbeSelection, []diagnostic.ProbeID) {
 	check := make([]diagnostic.ProbeID, 0, len(run.Check)+len(extra))
 	checkSet := make(map[diagnostic.ProbeID]struct{}, len(run.Check)+len(extra))
-	for _, id := range append(slices.Clone(run.Check), extra...) {
+	for i, id := range append(slices.Clone(run.Check), extra...) {
+		// A profile's default list is not consent to write to an unknown service.
+		if i < len(run.Check) && id == diagnostic.ProbePMTU && run.Target != nil && run.Target.Proto == diagnostic.ProtoNone {
+			continue
+		}
 		if _, exists := checkSet[id]; exists {
 			continue
 		}

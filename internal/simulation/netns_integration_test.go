@@ -184,11 +184,11 @@ func TestSameFamilyFailoverScenario(t *testing.T) {
 		t.Errorf("dns = %+v, want both A records resolved", dns)
 	}
 	tcp := diagnosisCheck(out, string(diagnostic.ProbeTargetTCP))
-	if tcp.Status != "PASS" || len(tcp.Attempts) != 2 {
+	if tcp.Status != "WARN" || len(tcp.Attempts) != 3 {
 		t.Fatalf("target_tcp = %+v, want successful two-address failover", tcp)
 	}
 	first, second := tcp.Attempts[0], tcp.Attempts[1]
-	if first.IP != deadIP || first.Error == "" || !strings.Contains(strings.ToLower(first.Error), "cancel") {
+	if first.IP != deadIP || first.Error == "" || first.Cause != diagnostic.ConnectionCauseCanceled || !first.Aborted {
 		t.Errorf("first attempt = %+v, want cancelled black-holed address %s", first, deadIP)
 	}
 	if first.Ms < 200 {
@@ -216,13 +216,18 @@ func TestSameFamilyFailoverScenario(t *testing.T) {
 	if !matchedDrop {
 		t.Errorf("black-hole rule did not count the first real SYN: %+v", rep.Evidence.PacketDrops)
 	}
-	if out.ActualVerdict != diagnostic.VerdictOK {
-		t.Errorf("verdict = %s, want %s after successful fallback", out.ActualVerdict, diagnostic.VerdictOK)
+	if out.ActualVerdict != diagnostic.VerdictDegraded {
+		t.Errorf("verdict = %s, want %s after verified sibling failure", out.ActualVerdict, diagnostic.VerdictDegraded)
 	}
-	for _, finding := range out.Diagnosis.Findings {
-		if finding.ID == string(diagnostic.DiagnosisPartialReachability) {
-			t.Errorf("a canceled black-holed attempt became a partial-reachability finding: %+v", finding)
-		}
+	if out.ExitCode != 0 {
+		t.Errorf("successful failover exited %d, want 0", out.ExitCode)
+	}
+	verified := tcp.Attempts[2]
+	if verified.IP != deadIP || verified.Cause != diagnostic.ConnectionCauseTimeout || verified.Aborted {
+		t.Fatalf("verification = %+v, want independent address timeout", verified)
+	}
+	if !slices.Contains(recognizedConditions(out.Diagnosis), ConditionPartialReachability) {
+		t.Fatalf("verified failure missing from diagnosis: %+v", out.Diagnosis)
 	}
 	assertCleanedUp(t, rep)
 }
@@ -306,7 +311,7 @@ func TestNoDefaultRouteScenario(t *testing.T) {
 	assertCleanedUp(t, rep)
 }
 
-// TestLinkDownScenario covers the first branch Diagnose takes. With the
+// TestLinkDownScenario covers the first branch Interpret takes. With the
 // client's only link administratively down there is no interface to send from,
 // and that has to be the whole answer rather than the pile of downstream
 // failures it would otherwise be read as.
@@ -1597,11 +1602,11 @@ func TestPreferredPathFailureMutationIsIndependentlyObserved(t *testing.T) {
 				t.Fatal("final client test is absent")
 			}
 			check := diagnosisCheck(*final, string(diagnostic.ProbeInternet))
-			if check.Cause != diagnostic.RouteCausePreferredPathFailed || diagnosedFamily(final.Diagnosis, tc.family) != FamilyStateUnreachable {
+			if check.Cause != diagnostic.RouteCausePreferredPathAlternateReachable || diagnosedFamily(final.Diagnosis, tc.family) != FamilyStateUnreachable {
 				t.Fatalf("diagnosis did not recognize %s preferred-path failure: %+v stderr=%s", tc.family, check, final.Stderr)
 			}
 			if findings := unrecognizedConditionFindings(&rep, truth); len(findings) != 0 {
-				t.Fatalf("independent %s truth was not reconciled with diagnosis: %+v", tc.family, findings)
+				t.Fatalf("measured %s path comparison left findings: %+v", tc.family, findings)
 			}
 			t.Logf("mutation=%+v baseline=%+v mutated=%+v diagnosis=%s/%s families=%+v mutationObserved=true",
 				mutation, baselineFamily, mutatedFamily, check.Status, check.Cause, check.Families)
@@ -1649,11 +1654,11 @@ func TestPreferredRouteFailureConditionIsEstablishedIndependently(t *testing.T) 
 			// forgot to ask whether the path is dead would fire here.
 			baseline := runLibraryScenarioDefinition(t, sim, netdoc, tc.base)
 			baselineTruth := collectObservedTruth(manifest, &baseline)
-			baselineEstablished, _, baselineComparable := caseConditions(&baseline, baselineTruth)
+			baselineEstablished, baselineRecognized, baselineComparable := caseConditions(&baseline, baselineTruth)
 			if !baselineComparable {
 				t.Fatalf("healthy %s was not a final-state comparison", tc.base)
 			}
-			if slices.Contains(baselineEstablished, ConditionPreferredRouteFailed) {
+			if slices.Contains(baselineEstablished, ConditionPreferredRouteFailed) || slices.Contains(baselineRecognized, ConditionPreferredRouteFailed) {
 				t.Fatalf("a healthy multipath base established %s: %+v", ConditionPreferredRouteFailed, baselineEstablished)
 			}
 
@@ -1681,6 +1686,9 @@ func TestPreferredRouteFailureConditionIsEstablishedIndependently(t *testing.T) 
 			// it, so one network can never be both.
 			if slices.Contains(established, ConditionNoDefaultRoute) {
 				t.Fatalf("%s established both route conditions: %v", tc.base, established)
+			}
+			if !slices.Contains(recognized, ConditionPreferredRouteFailed) {
+				t.Fatalf("%s did not recognize the measured comparison", tc.base)
 			}
 			findings := unrecognizedConditionFindings(&rep, truth)
 			named := slices.ContainsFunc(findings, func(f HuntCaseFinding) bool {
@@ -2874,7 +2882,11 @@ func TestWrongDefaultRouteScenario(t *testing.T) {
 	if !hasSelectedRoute(rep, "client", "1.1.1.1", "10.77.1.254", "client-lan", &reachable) {
 		t.Errorf("wrong but locally reachable gateway not selected: %+v", rep.Evidence.Routes)
 	}
-	if len(rep.Tests) != 2 || diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeInternet)).Status != "WARN" ||
+	// The distinction is the specific route reaching 10.77.2.20 while default
+	// traffic does not. It is not a relaxed egress row: nothing in either run
+	// reached a destination off this network, so the egress failure stays a
+	// FAIL and stays in ok and the exit status.
+	if len(rep.Tests) != 2 || diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeInternet)).Status != "FAIL" ||
 		diagnosisCheck(rep.Tests[1], string(diagnostic.ProbeTargetTCP)).Status != "PASS" {
 		t.Errorf("wrong/default and correct/specific paths were not distinguished: %+v", rep.Tests)
 	}
@@ -2900,7 +2912,11 @@ func TestMultipleInterfacesWrongPreferredRouteScenario(t *testing.T) {
 	if !hasGatewayState(rep, "client", "10.77.1.1", true) || !hasGatewayState(rep, "client", "10.77.3.1", true) {
 		t.Errorf("both gateway neighbor states were not reachable: %+v", rep.Evidence.Routes)
 	}
-	if len(rep.Tests) != 2 || diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeInternet)).Status != "WARN" ||
+	// Only the second run measures the alternate path, by binding to
+	// working-lan, so only it may relax the egress row. The first run observes
+	// the preferred path failing and nothing else, which is a FAIL.
+	if len(rep.Tests) != 2 || diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeInternet)).Status != "FAIL" ||
+		diagnosisCheck(rep.Tests[1], string(diagnostic.ProbeInternet)).Status != "WARN" ||
 		diagnosisCheck(rep.Tests[1], string(diagnostic.ProbeTargetTCP)).Status != "PASS" || rep.Tests[1].SourceSegment != "working-lan" {
 		t.Errorf("preferred failure/alternate success evidence missing: %+v", rep.Tests)
 	}

@@ -235,8 +235,8 @@ func mssNote(mss int) string {
 }
 
 // pmtuPayload is the byte pattern the PMTU probe pushes at the target: legible
-// to whoever finds it in a packet capture or a server log, and worthless to
-// anything that parses it.
+// to whoever finds it in a packet capture or a server log. It is not guaranteed
+// harmless to an unknown application protocol.
 func pmtuPayload(proto Proto) []byte {
 	filler := []byte("netdoc path-mtu probe, discard me. ")
 	out := make([]byte, 0, pmtuPayloadSize)

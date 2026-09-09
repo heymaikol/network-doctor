@@ -188,6 +188,10 @@ func userNamespaceReason() string {
 	return ""
 }
 
+// directorTeardownGrace bounds how long an interrupted director gets to release
+// its namespaces and remove its workspace before it is killed outright.
+const directorTeardownGrace = 10 * time.Second
+
 // LaunchDirector re-executes this binary with argv inside a fresh user,
 // network and mount namespace, and returns its exit code. The child is where
 // the backend actually runs; the parent keeps no privileges and no namespaces.
@@ -211,6 +215,12 @@ func LaunchDirector(ctx context.Context, self string, argv []string, stdin io.Re
 		// (and listeners) alive behind the user's back.
 		Pdeathsig: syscall.SIGKILL,
 	}
+	// Interrupt, not kill: the director's own teardown is what removes the
+	// workspace and the state record, and SIGKILL would leave both behind for
+	// a user who only pressed Ctrl-C. The delay is the backstop for a director
+	// that will not go, after which exec kills it.
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = directorTeardownGrace
 	err := cmd.Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -145,14 +147,28 @@ func TestTCPServiceKeepsAccepting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go serveSink(listener)
-	t.Cleanup(func() { _ = listener.Close() })
+	server := startTCPServer(context.Background(), []net.Listener{listener}, "")
+	t.Cleanup(func() { _ = server.Close() })
 	for i := 0; i < 3; i++ {
 		conn, err := net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
 		if err != nil {
 			t.Fatalf("connection %d: %v", i+1, err)
 		}
 		conn.Close()
+	}
+	// The path-MTU probe writes megabytes and times how long the peer takes to
+	// take them, so the sink has to keep draining rather than hang up. More than
+	// any socket buffer holds, so this write completes only if it is drained.
+	conn, err := net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write(make([]byte, 4<<20)); err != nil {
+		t.Fatalf("sink did not drain a 4 MiB write: %v", err)
 	}
 }
 
@@ -162,7 +178,7 @@ func TestBannerServiceWritesAndStaysOpenUntilShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	server := startBannerServer(ctx, []net.Listener{listener}, "SSH-2.0-test\r\n")
+	server := startTCPServer(ctx, []net.Listener{listener}, "SSH-2.0-test\r\n")
 	t.Cleanup(func() {
 		cancel()
 		_ = server.Close()
@@ -388,8 +404,8 @@ func TestHTTPServicePortalModeInterceptsOnlyTheConnectivityCheck(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = ln.Close() })
-		go serveHTTP(ln, svc, nil)
+		server := startHTTPService(context.Background(), []net.Listener{ln}, svc, nil)
+		t.Cleanup(func() { _ = server.Close() })
 		return "http://" + ln.Addr().String()
 	}
 	// The probe reports the 3xx rather than chasing it, so the fixture has to be
@@ -447,8 +463,9 @@ func TestHTTPServiceDateOffset(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { _ = ln.Close() })
-			go serveHTTP(ln, Service{Type: ServiceHTTP, Port: 80, Status: 200, DateOffset: tc.raw}, nil)
+			server := startHTTPService(context.Background(), []net.Listener{ln},
+				Service{Type: ServiceHTTP, Port: 80, Status: 200, DateOffset: tc.raw}, nil)
+			t.Cleanup(func() { _ = server.Close() })
 
 			before := time.Now()
 			resp, err := client.Get("http://" + ln.Addr().String() + "/generate_204")
@@ -466,6 +483,248 @@ func TestHTTPServiceDateOffset(t *testing.T) {
 			}
 			if date.Before(before.Add(tc.offset-2*time.Second)) || date.After(after.Add(tc.offset+2*time.Second)) {
 				t.Errorf("Date offset = %v, want about %v", date.Sub(before), tc.offset)
+			}
+		})
+	}
+}
+
+// trackedListener hands out connections that count the reads in flight on them.
+// A service goroutine parked in Read is exactly the shape of the leak these
+// tests are about: the count drops to zero only when that goroutine returns, so
+// shutdown can be observed directly instead of through a sleep or a goroutine
+// census.
+type trackedListener struct {
+	net.Listener
+	reading atomic.Int64
+	once    sync.Once
+	blocked chan struct{}
+}
+
+func newTrackedListener(t *testing.T, network, address string) *trackedListener {
+	t.Helper()
+	ln, err := net.Listen(network, address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &trackedListener{Listener: ln, blocked: make(chan struct{})}
+}
+
+func (l *trackedListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &trackedConn{Conn: conn, owner: l}, nil
+}
+
+// awaitBlockedRead returns once a service goroutine has entered Read on one of
+// this listener's connections. Every client these tests open for that purpose
+// sends nothing, so the Read cannot finish until the service closes the
+// connection itself.
+func (l *trackedListener) awaitBlockedRead(t *testing.T) {
+	t.Helper()
+	select {
+	case <-l.blocked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no service goroutine read from the accepted connection")
+	}
+}
+
+type trackedConn struct {
+	net.Conn
+	owner *trackedListener
+}
+
+func (c *trackedConn) Read(b []byte) (int, error) {
+	c.owner.reading.Add(1)
+	c.owner.once.Do(func() { close(c.owner.blocked) })
+	n, err := c.Conn.Read(b)
+	c.owner.reading.Add(-1)
+	return n, err
+}
+
+// requireClosed fails unless the peer has hung up. A stalled connection reads as
+// a deadline, which is the failure this distinguishes from a real shutdown.
+func requireClosed(t *testing.T, conn net.Conn, what string) {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var one [1]byte
+	if _, err := conn.Read(one[:]); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("%s: read after Close = %v, want the connection to be gone", what, err)
+	}
+}
+
+// A client that leaves its connection open must not be able to keep a finished
+// scenario's goroutine alive. Closing the listener alone stops new accepts and
+// nothing else, so shutdown has to take the accepted connection down and join
+// the goroutine draining it, both before Close returns.
+func TestTCPSinkShutdownClosesConnectionsAndJoinsHandlers(t *testing.T) {
+	listener := newTrackedListener(t, "tcp4", "127.0.0.1:0")
+	server := startTCPServer(context.Background(), []net.Listener{listener}, "")
+
+	conn, err := net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	listener.awaitBlockedRead(t)
+
+	if err := server.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if got := listener.reading.Load(); got != 0 {
+		t.Errorf("%d sink reads still in flight when Close returned, want 0", got)
+	}
+	requireClosed(t, conn, "sink client")
+}
+
+// The same invariant for the HTTP fixture. net/http parks a goroutine per
+// accepted connection waiting for a request line, and that goroutine is where a
+// handler runs, so a connection still being read after Close means the old
+// service still owns a goroutine.
+func TestHTTPServiceShutdownClosesConnectionsAndJoinsHandlers(t *testing.T) {
+	listener := newTrackedListener(t, "tcp4", "127.0.0.1:0")
+	server := startHTTPService(context.Background(), []net.Listener{listener},
+		Service{Type: ServiceHTTP, Port: 80, Status: 200}, nil)
+
+	conn, err := net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	listener.awaitBlockedRead(t)
+
+	if err := server.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if got := listener.reading.Load(); got != 0 {
+		t.Errorf("%d HTTP connection reads still in flight when Close returned, want 0", got)
+	}
+	requireClosed(t, conn, "HTTP client")
+}
+
+// A keep-alive connection is the one a served request leaves behind, and it is
+// the connection that survives a listener-only shutdown. After Close it has to
+// be gone, and the address has to stop answering.
+func TestHTTPServiceShutdownEndsKeptAliveConnections(t *testing.T) {
+	listener := newTrackedListener(t, "tcp4", "127.0.0.1:0")
+	server := startHTTPService(context.Background(), []net.Listener{listener},
+		Service{Type: ServiceHTTP, Port: 80, Status: 200}, nil)
+	address := "http://" + listener.Addr().String()
+
+	// Shutdown must not be bought with a service that never served: the request
+	// is answered first, over a connection the client then keeps alive.
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(address + "/generate_204")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+
+	if err := server.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if got := listener.reading.Load(); got != 0 {
+		t.Errorf("%d HTTP connection reads still in flight when Close returned, want 0", got)
+	}
+	// The pooled connection is dead, so this either fails outright or has to
+	// dial the closed listener. Either way the old service answers nothing.
+	if resp, err := client.Get(address + "/generate_204"); err == nil {
+		_ = resp.Body.Close()
+		t.Error("the closed HTTP service still answered a request")
+	}
+}
+
+// Shutdown with nothing connected, and shutdown run twice: neither may error,
+// block, or panic on an already-closed listener.
+func TestServiceShutdownIsSafeWithoutClients(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		start func([]net.Listener) io.Closer
+	}{
+		{"tcp sink", func(l []net.Listener) io.Closer { return startTCPServer(context.Background(), l, "") }},
+		{"tcp banner", func(l []net.Listener) io.Closer {
+			return startTCPServer(context.Background(), l, "SSH-2.0-test\r\n")
+		}},
+		{"http", func(l []net.Listener) io.Closer {
+			return startHTTPService(context.Background(), l, Service{Type: ServiceHTTP, Port: 80, Status: 200}, nil)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			listener := newTrackedListener(t, "tcp4", "127.0.0.1:0")
+			server := tc.start([]net.Listener{listener})
+			if err := server.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			if err := server.Close(); err != nil {
+				t.Errorf("second Close: %v", err)
+			}
+		})
+	}
+}
+
+// loopbackListeners is the multi-listener shape a node binds: one per address
+// family. IPv6 is best-effort, since a build host may have none configured.
+func loopbackListeners(t *testing.T) []*trackedListener {
+	t.Helper()
+	listeners := []*trackedListener{newTrackedListener(t, "tcp4", "127.0.0.1:0")}
+	if ln, err := net.Listen("tcp6", "[::1]:0"); err == nil {
+		listeners = append(listeners, &trackedListener{Listener: ln, blocked: make(chan struct{})})
+	}
+	return listeners
+}
+
+// One service, several listeners, several connections open on each. Close still
+// has to leave nothing running, which is what a node with both families bound
+// actually asks of it.
+func TestServiceShutdownJoinsEveryListenerAndConnection(t *testing.T) {
+	const perListener = 4
+	for _, tc := range []struct {
+		name  string
+		start func([]net.Listener) io.Closer
+	}{
+		{"tcp sink", func(l []net.Listener) io.Closer { return startTCPServer(context.Background(), l, "") }},
+		{"http", func(l []net.Listener) io.Closer {
+			return startHTTPService(context.Background(), l, Service{Type: ServiceHTTP, Port: 80, Status: 200}, nil)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tracked := loopbackListeners(t)
+			listeners := make([]net.Listener, len(tracked))
+			for i, ln := range tracked {
+				listeners[i] = ln
+			}
+			server := tc.start(listeners)
+
+			var conns []net.Conn
+			for _, ln := range tracked {
+				for i := 0; i < perListener; i++ {
+					conn, err := net.DialTimeout("tcp", ln.Addr().String(), time.Second)
+					if err != nil {
+						t.Fatalf("%s connection %d: %v", ln.Addr(), i+1, err)
+					}
+					defer conn.Close()
+					conns = append(conns, conn)
+				}
+				ln.awaitBlockedRead(t)
+			}
+
+			if err := server.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			for _, ln := range tracked {
+				if got := ln.reading.Load(); got != 0 {
+					t.Errorf("%s: %d reads still in flight when Close returned, want 0", ln.Addr(), got)
+				}
+			}
+			for i, conn := range conns {
+				requireClosed(t, conn, fmt.Sprintf("connection %d", i+1))
 			}
 		})
 	}

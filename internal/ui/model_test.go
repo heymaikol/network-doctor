@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -53,6 +54,59 @@ func TestHelpOverlay(t *testing.T) {
 	u, _ = hm.Update(keyMsg("x"))
 	if asModel(t, u).helping {
 		t.Error("any key must close the cheatsheet")
+	}
+}
+
+// TestHelpOverlayFitsNarrowTerminal renders the cheatsheet at the widths the
+// rest of the TUI supports, for every preset. No row may be wider than the
+// terminal: the terminal would hard-wrap it into display rows MaxHeight never
+// counted. A description that wraps must still read against its own key.
+func TestHelpOverlayFitsNarrowTerminal(t *testing.T) {
+	// A continuation row is indented past the key column; an entry row is not.
+	continuation := regexp.MustCompile(`\n {3,}(\S)`)
+	noSpace := func(s string) string { return strings.ReplaceAll(s, " ", "") }
+	for _, preset := range KeyPresets() {
+		km, err := PresetKeymap(preset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range []int{24, 30, 40, 60, 100} {
+			m := newModel(nil, false)
+			m.keys, m.width, m.height, m.helping = km, w, 24, true
+			if v := m.View(); lipgloss.Height(v) > m.height {
+				t.Errorf("%s %dx%d: view is %d display rows tall:\n%s", preset, w, m.height, lipgloss.Height(v), v)
+			}
+			m.height = 0 // unclipped: every entry must survive wrapping
+			sheet := ansi.Strip(m.helpOverlay())
+			for _, line := range strings.Split(sheet, "\n") {
+				if got := lipgloss.Width(line); got > w {
+					t.Errorf("%s width %d: line is %d wide: %q", preset, w, got, line)
+				}
+			}
+			if !strings.HasPrefix(sheet, "Keys\n") || !strings.Contains(sheet, "\nOutput viewer\n") || !strings.HasSuffix(sheet, "\nany key close") {
+				t.Errorf("%s width %d: headings or close hint lost:\n%s", preset, w, sheet)
+			}
+			// Rejoin each wrapped description and compare it to its metadata
+			// ignoring spaces, since a word too long for the column is split.
+			// Anchoring to the row start pins the description to its key.
+			joined := noSpace(continuation.ReplaceAllString(sheet, "$1"))
+			expect := func(key, desc string) {
+				t.Helper()
+				if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(noSpace(key+desc)) + `$`).MatchString(joined) {
+					t.Errorf("%s width %d: %q is not followed by %q:\n%s", preset, w, key, desc, sheet)
+				}
+			}
+			for _, def := range actionDefs {
+				for ctx, help := range def.help {
+					if km.bound(ctx, def.act) && def.act != actSSH {
+						expect(km.label(ctx, def.act), help.details)
+					}
+				}
+			}
+			for _, tool := range m.tools {
+				expect(tool.Key, "run "+tool.Name)
+			}
+		}
 	}
 }
 

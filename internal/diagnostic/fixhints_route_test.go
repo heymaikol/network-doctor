@@ -106,7 +106,7 @@ func TestDowngradedEgressDropsRouteRepairAdvice(t *testing.T) {
 		{"another path works", map[ProbeID]ProbeResult{
 			ProbeInternet:  {Status: StatusFail, Cause: RouteCauseSelectedPathFailed, Fix: routeFix(RouteCauseSelectedPathFailed)},
 			ProbeDNS:       {Status: StatusPass},
-			ProbeTargetTCP: {Status: StatusPass},
+			ProbeTargetTCP: {Status: StatusPass, SelectedIP: net.ParseIP("93.184.216.34")},
 		}},
 	} {
 		Finalize(c.res)

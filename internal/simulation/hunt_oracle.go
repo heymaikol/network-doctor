@@ -39,9 +39,12 @@ const (
 // conditions are facts about one node's kernel rather than about the network at
 // large, and a rule cannot pick the right node without being told which it is.
 type observation struct {
-	Evidence Evidence
-	Truth    ObservedTruth
-	Client   string
+	Evidence      Evidence
+	Truth         ObservedTruth
+	Client        string
+	Target        string
+	StableDNS     bool
+	SourceSegment string
 }
 
 // conditionRule holds the two halves of one oracle entry side by side, because
@@ -65,6 +68,9 @@ type conditionRule struct {
 	observed func(observation) bool
 	// recognized reads one diagnosis. It must never read simulator evidence.
 	recognized func(*Diagnosis) bool
+	// contradicted requires positive incompatible observations. Unknown is
+	// neither observed nor contradicted.
+	contradicted func(observation) bool
 }
 
 // conditionOracle is ordered API. A slice rather than a map so repeated runs
@@ -74,7 +80,7 @@ type conditionRule struct {
 // per-family verdicts, not over probe ids, because those are the parts of the
 // report that say what is wrong with the network rather than which row noticed.
 // Splitting or merging probe rows therefore leaves this table correct.
-var conditionOracle = []conditionRule{
+var conditionOracle = append([]conditionRule{
 	{
 		condition: ConditionIPv4InternetUnreachable,
 		family:    "ipv4",
@@ -192,25 +198,19 @@ var conditionOracle = []conditionRule{
 		condition: ConditionPreferredRouteFailed,
 		summary:   "a client whose preferred default route goes nowhere while a lower-preference one still works",
 		evidence:  "the client's own routing table was read back from its kernel and held two defaults with a strict preference between them, the client's own dial of the preferred family's controlled endpoints did not complete, and the client's own dial of a controlled target over one of the other defaults did",
-		// Not family-scoped, for the same reason no_default_route is not:
-		// netdoc names the route fault on one row whichever family lost its
-		// preferred path.
+		// Not family-scoped: the simulator can establish this condition
+		// independently in either family.
 		observed: func(o observation) bool {
 			return preferredDefaultRouteFailedFor(o, string(familyIPv4)) ||
 				preferredDefaultRouteFailedFor(o, string(familyIPv6))
 		},
-		// The fourth word in a closed vocabulary, and the only one that says a
-		// working route is already installed and merely out-ranked. Telling this
-		// user the internet is unreachable, or that their gateway is dead, or
-		// that they have no default route, sends them to build something they
-		// already have; the repair is to stop preferring the dead path. The
-		// neighbouring route causes are therefore deliberately not accepted as
-		// other ways of saying this one.
+		// Only netdoc's measured comparison counts. Legacy selection causes
+		// and the simulator's private alternate measurement remain insufficient.
 		recognized: func(d *Diagnosis) bool {
-			return flaggedCause(d, nil, diagnostic.RouteCausePreferredPathFailed)
+			return flaggedCause(d, []string{string(diagnostic.ProbeInternet)}, diagnostic.RouteCausePreferredPathAlternateReachable)
 		},
 	},
-}
+}, semanticOracle...)
 
 // preferredDefaultRouteFailedFor reads the whole condition off the client's own
 // kernel and the client's own dials, and needs all three halves of the sentence
@@ -324,7 +324,7 @@ func caseConditions(report *Report, truth ObservedTruth) (established, recognize
 	if test == nil || test.Diagnosis == nil {
 		return nil, nil, false
 	}
-	return observedConditions(observation{Evidence: report.Evidence, Truth: truth, Client: observedClient(report)}),
+	return observedConditions(caseObservation(report, truth)),
 		recognizedConditions(test.Diagnosis), true
 }
 
@@ -394,13 +394,14 @@ func flaggedCause(d *Diagnosis, rows []string, causes ...string) bool {
 	return false
 }
 
-// diagnosedFamily reads netdoc's structured per-family egress verdict from
-// whichever row published one. Status is not required here: a row that states
+// diagnosedFamily reads netdoc's structured per-family egress verdict. Target
+// families describe another destination and cannot establish internet failure.
+// Status is not required here: a row that states
 // "ipv4: unreachable" has communicated the fact even while the run as a whole
 // passes on the other family, which is exactly the dual-stack case.
 func diagnosedFamily(d *Diagnosis, family string) string {
 	for _, check := range d.Checks {
-		if check.Families == nil {
+		if check.ID != string(diagnostic.ProbeInternet) || check.Families == nil {
 			continue
 		}
 		state := check.Families.IPv6

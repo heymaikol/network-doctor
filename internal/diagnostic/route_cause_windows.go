@@ -12,10 +12,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// NL_NEIGHBOR_STATE values that mean the next hop was never resolved, or that
-// unreachability detection has already given up on it. Probe, Delay, Stale,
-// Reachable, and Permanent all describe a neighbor that did answer, so like the
-// Linux reading of /proc/net/arp they are not treated as a failure.
+// These states are inspected after reference TCP attempts have failed.
+// Incomplete can mean resolution is still in progress; Unreachable records
+// failed reachability detection. Neither alone proves the peer never answered.
+// Other states are not classified as unresolved here.
 const (
 	nlNeighborUnreachable = 0
 	nlNeighborIncomplete  = 1
@@ -110,9 +110,9 @@ func windowsDefaultRoutes(family uint16, routes []windows.MibIpForwardRow2,
 
 // windowsNeighborUnresolved reports that the neighbor table holds an entry for
 // this gateway on this interface and Windows has placed that entry in a state
-// meaning the next hop never answered. An absent entry proves nothing and is
-// not a failure. Neither does an empty PhysicalAddress: point-to-point and
-// tunnel media have no link-layer addresses to resolve, so reading that as a
+// meaning unresolved or unreachable at the time of inspection. An absent entry
+// proves nothing and is not a failure. Neither does an empty PhysicalAddress:
+// point-to-point and tunnel media have no link-layer addresses to resolve, so reading that as a
 // dead gateway would invent a failure the state field says is not there.
 func windowsNeighborUnresolved(family uint16, neighbors []mibIPNetRow2, gateway net.IP, iface string) bool {
 	for i := range neighbors {

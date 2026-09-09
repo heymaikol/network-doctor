@@ -60,7 +60,7 @@ tests:
       verdict: degraded
       checks:
         - {id: iface, status: PASS}
-        - {id: internet_tcp, status: WARN, cause: preferred_route_failed}
+        - {id: internet_tcp, status: WARN, cause: preferred_path_failed_alternate_reachable}
         - {id: dns, status: PASS}
         - {id: dns_encrypted, status: FAIL}
         - {id: target_tcp, status: PASS}
@@ -70,7 +70,12 @@ expect:
   verdict: network
   checks:
     - {id: iface, status: PASS}
-    - {id: internet_tcp, status: WARN, cause: preferred_route_failed}
+    # FAIL, unlike the targeted test above. There the target's own socket left
+    # by the ranked-lower default, which is a measured working alternate; here
+    # there is no target and preferred_route_failed only records that a metric
+    # preference existed. A WARN would report ok true and exit 0 against the
+    # network verdict below.
+    - {id: internet_tcp, status: FAIL, cause: preferred_route_failed}
     - {id: dns, status: PASS}
     # The encrypted resolver is reached over the preferred path, the broken one.
     - {id: dns_encrypted, status: FAIL}

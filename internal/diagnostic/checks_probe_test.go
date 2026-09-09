@@ -860,8 +860,9 @@ func TestInternetProbeAddsBackwardCompatibleRouteCause(t *testing.T) {
 // first candidate address misdescribes. Both families fail, the endpoint list
 // leads with IPv4, and IPv4 has no default route because this host does not do
 // IPv4: reading the cause off that table reports "no default route" to someone
-// whose IPv6 default is present, preferred and dead, which is a different
-// repair entirely. The family with defaults of its own is the one asked.
+// whose IPv6 defaults are present with a metric preference. That metadata
+// calls for investigation, not an instruction to restore a missing route.
+// The family with defaults of its own is the one asked.
 func TestInternetProbeClassifiesTheFamilyThatHasRoutes(t *testing.T) {
 	asked := map[string]string{}
 	ops := &netops{routeCause: func(destination net.IP) string {
@@ -874,13 +875,13 @@ func TestInternetProbeClassifiesTheFamilyThatHasRoutes(t *testing.T) {
 	}}
 	r, dialed := dialedNetworks(t, ops, map[string]bool{"tcp4": true, "tcp6": true})
 	if r.Status != StatusFail || r.Cause != RouteCausePreferredPathFailed {
-		t.Errorf("IPv6-only host with a dead preferred path = %+v, want %s", r, RouteCausePreferredPathFailed)
+		t.Errorf("IPv6-only host with preferred route metadata = %+v, want %s", r, RouteCausePreferredPathFailed)
 	}
 	if dialed != "[tcp4 tcp6]" || asked["ipv4"] == "" || asked["ipv6"] == "" {
 		t.Errorf("dialed %s, classifier saw %v: both families are still tried and still asked", dialed, asked)
 	}
-	if fix := routeFix(r.Cause); !strings.Contains(fix, "preferred default route") {
-		t.Errorf("fix hint = %q, want the preferred-route repair", fix)
+	if fix := routeFix(r.Cause); !strings.Contains(fix, "test each path before changing preference") {
+		t.Errorf("fix hint = %q, want advice to measure paths before changing preference", fix)
 	}
 
 	// The other family having nothing to say leaves the original verdict
@@ -1988,6 +1989,139 @@ func TestBannerProbeValidatesProtocol(t *testing.T) {
 	}
 }
 
+// RFC 4253 section 4.2 terminates the SSH identification string with CR LF, so
+// only a complete line identifies a service. bufio.Reader.ReadString returns
+// the bytes it did get together with the error that stopped it, and those
+// bytes are a fragment: a peer that writes "SSH-2." and hangs up said nothing
+// valid, however promising the prefix looks. The same holds for the SMTP
+// greeting, which RFC 5321 section 4.2 also terminates with CR LF.
+func TestBannerProbeRequiresCompleteLine(t *testing.T) {
+	tests := []struct {
+		name   string
+		id     ProbeID
+		server string
+		want   Status
+		detail string
+	}{
+		{
+			name:   "truncated SSH identification then EOF",
+			id:     ProbeSSH,
+			server: "SSH-2.",
+			want:   StatusFail,
+			detail: "unexpected service banner: SSH-2.",
+		},
+		{
+			name:   "LF-terminated SSH identification",
+			id:     ProbeSSH,
+			server: "SSH-2.0-test\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-test",
+		},
+		{
+			name:   "CRLF-terminated SSH identification",
+			id:     ProbeSSH,
+			server: "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "preliminary line then a complete identification",
+			id:     ProbeSSH,
+			server: "Authorized use only\r\nSSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "preliminary line then a truncated identification",
+			id:     ProbeSSH,
+			server: "Authorized use only\r\nSSH-2.",
+			want:   StatusFail,
+			detail: "unexpected service banner: Authorized use only",
+		},
+		{
+			name:   "truncated preliminary line that never identifies",
+			id:     ProbeSSH,
+			server: "Authorized use onl",
+			want:   StatusFail,
+			detail: "unexpected service banner: Authorized use onl",
+		},
+		{
+			name:   "identification cut off by the byte limit",
+			id:     ProbeSSH,
+			server: "SSH-2.0-" + strings.Repeat("x", 2000) + "\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: SSH-2.0-" + strings.Repeat("x", 1016),
+		},
+		{
+			name:   "truncated SMTP greeting then EOF",
+			id:     ProbeSMTP,
+			server: "220 ",
+			want:   StatusFail,
+			detail: "unexpected service banner: 220 ",
+		},
+		{
+			name:   "truncated SMTP continuation greeting then EOF",
+			id:     ProbeSMTP,
+			server: "220-mail.exam",
+			want:   StatusFail,
+			detail: "unexpected service banner: 220-mail.exam",
+		},
+		{
+			name:   "complete SMTP greeting",
+			id:     ProbeSMTP,
+			server: "220 mail.example ESMTP\r\n",
+			want:   StatusPass,
+			detail: "banner: 220 mail.example ESMTP",
+		},
+	}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+				return &scriptConn{r: strings.NewReader(tt.server)}, nil
+			}}
+			r := ops.bannerProbe(tt.id, "service banner", 22).Run(context.Background(), deps)
+			if r.Status != tt.want || r.Detail != tt.detail {
+				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, tt.want, tt.detail)
+			}
+		})
+	}
+}
+
+// A peer that streams forever without a newline gets no pass and no unbounded
+// read: the 1024-byte limit ends the probe.
+func TestBannerProbeEndlessStreamStaysBounded(t *testing.T) {
+	stream := &countingReader{}
+	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+		return &scriptConn{r: stream}, nil
+	}}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(context.Background(), deps)
+	if stream.n > 1024 {
+		t.Errorf("read %d bytes, want the 1024-byte limit to hold", stream.n)
+	}
+	if r.Status != StatusFail {
+		t.Errorf("endless banner = %+v, want FAIL", r)
+	}
+}
+
+// countingReader is an endless "SSH-" stream with no line ending, counting the
+// bytes the probe consumes.
+type countingReader struct{ n int }
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	const prefix = "SSH-2.0-"
+	for i := range p {
+		if n := c.n + i; n < len(prefix) {
+			p[i] = prefix[n]
+			continue
+		}
+		p[i] = 'x'
+	}
+	c.n += len(p)
+	return len(p), nil
+}
+
 // Dependent probes fed an empty/zero dependency map degrade to their explicit
 // fail/skip states, with no nil-deref and no accidental pass.
 func TestProbesMalformedDeps(t *testing.T) {
@@ -2621,5 +2755,138 @@ func TestPublicDNSDefaultLeavesTimeForTheOtherFamily(t *testing.T) {
 				t.Errorf("status = %s, want %s", r.Status, StatusNA)
 			}
 		})
+	}
+}
+
+// RFC 4253 section 4.2 lets an SSH server send other lines of data before its
+// identification string, so the probe must keep reading complete lines instead
+// of judging the first one. The byte limit and the read deadline still bound
+// the search, and a line that only mentions "SSH-" is not an identification.
+func TestBannerProbeSSHPreliminaryLines(t *testing.T) {
+	tests := []struct {
+		name   string
+		server string
+		want   Status
+		detail string
+	}{
+		{
+			name:   "identification first",
+			server: "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "one preliminary line",
+			server: "Authorized use only\r\nSSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "multiple preliminary lines",
+			server: "Authorized use only\r\nAll activity is logged\r\n\r\nSSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "preliminary lines then EOF",
+			server: "Authorized use only\r\nAll activity is logged\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: Authorized use only",
+		},
+		{
+			name:   "byte limit reached before identification",
+			server: strings.Repeat("All activity is logged\r\n", 50) + "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: All activity is logged",
+		},
+		{
+			// The preliminary line leaves 6 bytes of the 1024-byte budget, so
+			// the identification arrives as a delimiterless "SSH-2." fragment.
+			name:   "identification truncated by the byte limit",
+			server: strings.Repeat("x", 1016) + "\r\n" + "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: " + strings.Repeat("x", 1016),
+		},
+		{
+			// The same boundary one byte the other way: the identification and
+			// its CRLF land exactly on the 1024th byte, so it still counts.
+			name:   "identification ends exactly on the byte limit",
+			server: strings.Repeat("x", 1001) + "\r\n" + "SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "misleading preliminary text is not an identification",
+			server: "this host speaks SSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: this host speaks SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "misleading preliminary text before the identification",
+			server: "this host speaks SSH-2.0-OpenSSH_8.9\r\nSSH-2.0-OpenSSH_9.7\r\n",
+			want:   StatusPass,
+			detail: "banner: SSH-2.0-OpenSSH_9.7",
+		},
+		{
+			name:   "wrong protocol banner stays rejected",
+			server: "220 mail.example ESMTP\r\n",
+			want:   StatusFail,
+			detail: "unexpected service banner: 220 mail.example ESMTP",
+		},
+	}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+				return &scriptConn{r: strings.NewReader(tt.server)}, nil
+			}}
+			r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(context.Background(), deps)
+			if r.Status != tt.want || r.Detail != tt.detail {
+				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, tt.want, tt.detail)
+			}
+		})
+	}
+}
+
+// The read deadline is set once, before the first line, so a server that sends
+// a preliminary line and then stalls cannot stretch the probe: the search for
+// the identification string ends at the same deadline as a single read.
+func TestBannerProbeSSHPreliminaryLineStallHonorsDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = server.Close() })
+	go func() { _, _ = server.Write([]byte("Authorized use only\r\n")) }()
+	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+		return client, nil
+	}}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, deps)
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("banner probe took %v, want the read deadline to cap the line search", elapsed)
+	}
+	if r.Status != StatusFail || r.Detail != "unexpected service banner: Authorized use only" {
+		t.Errorf("stalled server = %+v, want FAIL naming the preliminary line", r)
+	}
+}
+
+// A deadline that lands mid-identification truncates the line the same way the
+// byte limit does, and a truncated line is not an identification string either.
+func TestBannerProbeSSHTruncatedIdentificationAtDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = server.Close() })
+	go func() { _, _ = server.Write([]byte("Authorized use only\r\nSSH-2.")) }()
+	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+		return client, nil
+	}}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, deps)
+	if r.Status != StatusFail || r.Detail != "unexpected service banner: Authorized use only" {
+		t.Errorf("identification cut off by the deadline = %+v, want FAIL", r)
 	}
 }

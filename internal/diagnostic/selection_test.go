@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -446,13 +447,13 @@ func TestDiagnoseUnfilteredCompatibility(t *testing.T) {
 	for _, id := range targetOrder {
 		targetResults[id] = ProbeResult{Status: StatusPass}
 	}
-	if got, verdict := Diagnose(target, targetOrder, targetResults); got != "All checks passed. example.com:443 looks healthy." || verdict != VerdictOK {
-		t.Fatalf("full target all-clear = %q/%q", got, verdict)
+	if d := Interpret(target, targetOrder, targetResults); d.Summary != "All checks passed. example.com:443 looks healthy." || d.Verdict != VerdictOK {
+		t.Fatalf("full target all-clear = %q/%q", d.Summary, d.Verdict)
 	}
 	targetResults[ProbeQUIC] = ProbeResult{Status: StatusFail}
 	targetResults[ProbeDNSPublic] = ProbeResult{Status: StatusWarn}
-	if got, verdict := Diagnose(target, targetOrder, targetResults); got != "The target and direct TCP/443 work, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower." || verdict != VerdictDegraded {
-		t.Fatalf("full target precedence = %q/%q", got, verdict)
+	if d := Interpret(target, targetOrder, targetResults); d.Summary != "The target and direct TCP/443 work, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower." || d.Verdict != VerdictDegraded {
+		t.Fatalf("full target precedence = %q/%q", d.Summary, d.Verdict)
 	}
 
 	genericProbes := BuildProbesFromSources(nil, nil, DefaultPublicDNS, true)
@@ -461,7 +462,38 @@ func TestDiagnoseUnfilteredCompatibility(t *testing.T) {
 	for _, id := range genericOrder {
 		genericResults[id] = ProbeResult{Status: StatusPass}
 	}
-	if got, verdict := Diagnose(nil, genericOrder, genericResults); got != "Online: direct TCP egress and DNS both work." || verdict != VerdictOK {
-		t.Fatalf("full generic all-clear = %q/%q", got, verdict)
+	if d := Interpret(nil, genericOrder, genericResults); d.Summary != "Online: direct TCP egress and DNS both work." || d.Verdict != VerdictOK {
+		t.Fatalf("full generic all-clear = %q/%q", d.Summary, d.Verdict)
+	}
+}
+
+func TestPMTUSelectionByProtocol(t *testing.T) {
+	for _, raw := range []string{"host:9999", "host:443", "host:8443", "host:80", "host:22", "host:25", "host:587", "https://host:9999", "http://host:9999", "ssh://host:9999", "smtp://host:9999"} {
+		for _, tc := range []struct {
+			name        string
+			check, skip []ProbeID
+			want        bool
+		}{
+			{name: "default", want: raw != "host:9999"},
+			{name: "explicit", check: []ProbeID{ProbePMTU}, want: true},
+			{name: "combined", check: []ProbeID{ProbePMTU, ProbeTargetTCP}, want: true},
+			{name: "tcp only", check: []ProbeID{ProbeTargetTCP}},
+			{name: "skip", check: []ProbeID{ProbePMTU}, skip: []ProbeID{ProbePMTU}},
+			{name: "skip prerequisite", check: []ProbeID{ProbePMTU}, skip: []ProbeID{ProbeTargetTCP}},
+		} {
+			t.Run(raw+"/"+tc.name, func(t *testing.T) {
+				selection := ProbeSelection{Check: map[ProbeID]struct{}{}, Skip: map[ProbeID]struct{}{}, NoReferenceEgress: true}
+				for _, id := range tc.check {
+					selection.Check[id] = struct{}{}
+				}
+				for _, id := range tc.skip {
+					selection.Skip[id] = struct{}{}
+				}
+				probes := selection.BuildProbesFromSources(mustTarget(t, raw), nil, DefaultPublicDNS, true)
+				if got := slices.ContainsFunc(probes, func(p Probe) bool { return p.ID == ProbePMTU }); got != tc.want {
+					t.Fatalf("PMTU selected = %t, want %t", got, tc.want)
+				}
+			})
+		}
 	}
 }

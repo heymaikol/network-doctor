@@ -80,13 +80,35 @@ that command would delete too.
 
 ## Validation
 
-Start with the tests nearest your change, then `go test ./...` and any other
-checks clearly relevant to the files or behavior you changed. That is enough
-for an ordinary, focused pull request. Run the rest of the
-[README](README.md#tests) gate only where a specific check applies to your
-change, for CI, maintainership, releases, or a check that genuinely matters to
-what you touched; a small external contribution does not have to reproduce every
-CI environment locally.
+For an ordinary, focused pull request, run:
+
+```sh
+./scripts/check
+```
+
+That is gofmt, `go vet`, a `CGO_ENABLED=0` build, a macOS and Windows
+cross-compile, a FreeBSD build that only proves the fallbacks for unsupported
+platforms still compile, and `go test ./...`. It needs a Go toolchain and a
+POSIX shell, and no root and no Docker. On Windows that shell is the Git Bash
+that ships with Git for Windows, or WSL; the checks themselves are the same
+three platforms over. Add `--race` to include the race detector. CI runs the
+same script on Linux, so it cannot rot without someone noticing.
+
+The checks make no network calls themselves, but the Go toolchain may: a cold
+or incomplete module cache downloads this module's dependencies, and a Go
+older than the `toolchain` line in `go.mod` downloads that toolchain first.
+Warm both once (`go mod download`) and the script runs offline after that.
+
+Then run the tests nearest your change and anything else clearly relevant to
+the files or behavior you touched.
+
+**What the script leaves to CI, and why:** the race, fuzz, loopback-integration,
+namespace, acceptance and container suites, plus the pinned external tools
+(golangci-lint, govulncheck, goreleaser). Those are slower, several need Linux
+or Docker, and the pinned tools download on first run. Running the rest of the
+[README](README.md#tests) gate locally is worth it where a specific check
+applies to your change, for CI, maintainership, or releases; a small external
+contribution does not have to reproduce every CI environment.
 
 Additional requirements:
 

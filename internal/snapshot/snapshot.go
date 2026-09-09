@@ -1189,10 +1189,19 @@ func (e UnsupportedProfileSchemaError) Error() string {
 // WriteFile saves a snapshot at path, replacing whatever was there.
 //
 // The bytes land in a temporary file in the same directory and are renamed
-// over the destination, so an interrupted or failing write leaves the previous
-// file intact rather than a truncated artifact that still parses as JSON right
-// up to the point it stops. Same directory because a rename across filesystems
-// is not atomic and, on Windows, not permitted at all.
+// over the destination only once all of them are written, so a write that
+// fails, or a process killed partway through one, leaves the previous file
+// intact rather than a truncated artifact that still parses as JSON right up
+// to the point it stops. Same directory because a rename across filesystems is
+// not atomic and, on Windows, not permitted at all.
+//
+// That covers this process failing, not the machine underneath it. Nothing
+// here calls fsync, so a kernel crash or a power cut around the write can
+// leave the destination holding the old snapshot, the new one, or, on a
+// filesystem that commits the rename before the data it points at, an empty
+// file. Nothing in netdoc reads a saved run back as state it depends on, and
+// the repair is to run again, so the two syncs that would close that window
+// are not worth their cost on every save.
 //
 // The file inherits os.CreateTemp's 0600 on the platforms where mode means
 // anything: a snapshot carries the addresses, interface names, and network name

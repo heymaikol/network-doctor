@@ -9,33 +9,6 @@ import (
 	"time"
 )
 
-// Diagnose computes the plain-English summary and its machine-readable
-// classification from current-generation native probe state only (tool output
-// never feeds in). First-fail ordering + combination rules. Returns
-// "Running diagnostics…" until every probe in order has a result. A completed
-// run always returns a verdict.
-//
-// It is a view onto Interpret, which is the one place any of this is decided.
-func Diagnose(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) (string, string) {
-	d := Interpret(t, order, res)
-	return d.Summary, d.Verdict
-}
-
-// FocusProbe names the probe row a finished diagnosis is about: the row a
-// caller should put the cursor on, take remediation from, and quote evidence
-// from. It reads the same interpretation Diagnose reads, so the row and the
-// prose cannot disagree, which is the whole reason it exists rather than being
-// guessed at from the first failed row. Those two are not the same row nearly
-// as often as they look: an outage fails the sibling probes (QUIC, the proxy,
-// encrypted DNS) early in probe order while the prose blames a rung further
-// down.
-//
-// Empty when the verdict is about no single row: a healthy run, a run that is
-// merely degraded in several places at once, or one still in progress.
-func FocusProbe(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) ProbeID {
-	return Interpret(t, order, res).Focus()
-}
-
 // Interpret is the diagnostic interpretation pass, and the only one there is.
 // Everything a caller can ask about what a run means comes from the Diagnosis
 // it returns: the summary, the verdict, the stable diagnosis ID, the blamed
@@ -598,7 +571,11 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	case encryptedDNSBlocked(res):
 		return blame(DiagnosisEncryptedDNSUnavailable, ProbeDNSEncrypted, encryptedDNSSummary, VerdictDegraded, ProbeDNS, ProbeDNSPublic, ProbeInternet)
 	case targetOK && (fail(ProbeInternet) || (warn(ProbeInternet) && res[ProbeInternet].downgraded)):
-		if publicTargetReachedDirectly(t, res) {
+		if res[ProbeInternet].Cause == RouteCausePreferredPathAlternateReachable {
+			return blame(DiagnosisReferenceEgressUnreachable, ProbeInternet, preferredPathSummary,
+				VerdictDegraded, ProbeInternet, ProbeTargetTCP)
+		}
+		if publicTargetReachedDirectly(res) {
 			// A public destination answered a direct connection on this run,
 			// which refutes "direct egress is blocked" rather than softening
 			// it: traffic did leave this machine without a proxy. What the run
@@ -651,7 +628,7 @@ func targetRows(t *Target) []ProbeID {
 	return []ProbeID{ProbeTargetTCP}
 }
 
-// Verdict classifications: the second half of Diagnose's return, for scripts
+// Verdict classifications: the Diagnosis.Verdict vocabulary, for scripts
 // that need the shape of the failure without parsing English. It answers the
 // question the prose answers, in one word: is this a broken path or a broken
 // service? Stable vocabulary.
@@ -714,10 +691,38 @@ func localTarget(t *Target, res map[ProbeID]ProbeResult) bool {
 	return true
 }
 
-// localIP is the address ranges that are reachable without leaving the local
-// network: RFC1918 and its IPv6 equivalent, link-local, and this machine.
+// sharedIPv4Space is RFC 6598 shared address space, the range carriers hand
+// out behind CGNAT and the one Tailscale allocates tailnet addresses from.
+// siteLocalIPv6 is the deprecated RFC 3879 site-local range. Neither is
+// globally routable, so neither is a destination this machine can only have
+// reached by way of the public internet.
+var (
+	sharedIPv4Space = netip.MustParsePrefix("100.64.0.0/10")
+	siteLocalIPv6   = netip.MustParsePrefix("fec0::/10")
+)
+
+// localIP is the addresses whose reachability is not evidence that traffic
+// left this network for the public internet: RFC1918 and its IPv6 equivalent,
+// link-local, this machine, and the two ranges above.
+//
+// It is deliberately narrower than internal/snapshot's sensitiveAddress, which
+// answers a different question. That one decides what a shared artifact must
+// pseudonymize, so it also covers multicast and the unspecified address, which
+// no TCP target ever is. This one decides what a successful connection proves,
+// and it stops at ranges that appear in real deployments as destinations off
+// no public path: the documentation and benchmarking ranges stay public here
+// because that is what they stand in for, in this repository's own fixtures
+// and in the pseudonyms a --support artifact carries.
 func localIP(ip net.IP) bool {
-	return ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLoopback()
+	if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLoopback() {
+		return true
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	addr = addr.Unmap()
+	return sharedIPv4Space.Contains(addr) || siteLocalIPv6.Contains(addr)
 }
 
 // directEgressOK means direct egress genuinely worked: a Pass, or a Warn the
@@ -739,23 +744,28 @@ func directEgressOK(res map[ProbeID]ProbeResult) bool {
 // check dials the target itself, with no proxy in the path, so a public target
 // answering is a direct counterexample to "direct egress is blocked": one
 // destination refusing a run's traffic while another accepts it is a fact
-// about those destinations. A device on the local network proves nothing here,
-// because it is reached without leaving the network at all.
-func publicTargetReachedDirectly(t *Target, res map[ProbeID]ProbeResult) bool {
+// about those destinations.
+//
+// The address that answered decides it, not the name that was asked for. A
+// device on the local network proves nothing here, because it is reached
+// without leaving the network at all, and neither does a tailnet or CGNAT peer
+// in shared address space; a name that resolves to both a local address and a
+// public one was reached at whichever of them accepted the connection, so
+// reading the name rather than the socket would credit a LAN answer to the
+// public internet. An endpoint row that carries no address is no evidence
+// either: production sets it on every connect that succeeded, so its absence
+// means the run cannot say where the traffic went.
+func publicTargetReachedDirectly(res map[ProbeID]ProbeResult) bool {
 	r, ok := res[ProbeTargetTCP]
-	return ok && functional(r.Status) && t != nil && !localTarget(t, res)
+	return ok && functional(r.Status) && r.SelectedIP != nil && !localIP(r.SelectedIP)
 }
 
-// localPathObserved reports whether the operating system's own routing and
-// neighbor tables classified the dead direct path. Those causes are read from
-// local state rather than inferred from what failed to answer, which is what
-// separates a located break from a set of destinations that happened to be
-// silent together. Without one, reference endpoints and a target failing at the
-// same moment is a correlation, and naming the local path would be a guess.
+// localPathObserved requires a missing usable default or an independently
+// unresolved gateway. The legacy selected/preferred cause IDs describe routing
+// metadata after failed connectivity, not an observed local break.
 func localPathObserved(cause string) bool {
 	switch cause {
-	case RouteCauseNoDefaultRoute, RouteCauseGatewayUnreachable,
-		RouteCauseSelectedPathFailed, RouteCausePreferredPathFailed:
+	case RouteCauseNoDefaultRoute, RouteCauseGatewayUnreachable:
 		return true
 	}
 	return false
@@ -885,6 +895,7 @@ func causeSatisfied(id ProbeID, res map[ProbeID]ProbeResult) bool {
 // in the same order. Idempotent, but there's no reason to call it twice.
 func Finalize(res map[ProbeID]ProbeResult) {
 	reconcileDNS(res)
+	reconcilePreferredPath(res)
 	downgradeEgress(res)
 	// After the downgrade, so "direct egress worked" means what the finished
 	// report says it means rather than what it said mid-pass.
@@ -1140,10 +1151,19 @@ func comparisonPrefixes(ips []net.IP) string {
 }
 
 // downgradeEgress rewrites a direct-egress failure to Warn once another path
-// has proven the network usable: the target TCP connect succeeded, the
-// environment proxy tunnels traffic, or, in generic mode where DNS is the
-// only other network path, DNS answered. Call it once, after every probe has
-// a result; degraded-but-functional must not read as an outage.
+// has carried traffic off this network: the endpoint check reached a public
+// address directly, or the environment proxy tunnels traffic. Call it once,
+// after every probe has a result; degraded-but-functional must not read as an
+// outage.
+//
+// The Warn is what removes the failure from ok, failed_stage and the exit
+// code, so the evidence for it has to be egress and not merely activity. A
+// device on the local network answering is not, which is what
+// publicTargetReachedDirectly is for. Neither is the resolver answering: a
+// lookup satisfied on-link, from a cache or a local zone, leaves this machine
+// exactly as cut off as it was, and the generic truth table already reads that
+// state as VerdictNetwork rather than a degradation, so a Warn there would
+// have contradicted the verdict the same run publishes.
 func downgradeEgress(res map[ProbeID]ProbeResult) {
 	r, ok := res[ProbeInternet]
 	// An intercepted path is exempt: behind a portal DNS and the target
@@ -1152,13 +1172,16 @@ func downgradeEgress(res map[ProbeID]ProbeResult) {
 	if !ok || r.Status != StatusFail || r.Portal != nil {
 		return
 	}
-	other, hasOther := res[ProbeTargetTCP]
-	if !hasOther {
-		other, hasOther = res[ProbeDNS]
-	}
-	prx, hasProxy := res[ProbeProxy]
-	otherOK := hasOther && functional(other.Status)
-	proxyOK := hasProxy && functional(prx.Status)
+	// The measured route comparison is egress evidence in its own right, and
+	// the only one here that does not turn on where the destination was:
+	// reconcilePreferredPath sets that cause only when the target's own socket
+	// left by a default path the reference dials ranked below the one they
+	// used, so this machine has a second working way off its network whatever
+	// address answered on it. The legacy selected/preferred causes are not
+	// that: they record routing metadata after a failure and establish no
+	// working alternate.
+	otherOK := r.Cause == RouteCausePreferredPathAlternateReachable || publicTargetReachedDirectly(res)
+	proxyOK := proxyCarries(res)
 	if !otherOK && !proxyOK {
 		return
 	}
@@ -1169,7 +1192,10 @@ func downgradeEgress(res map[ProbeID]ProbeResult) {
 	// network with no default route is working as designed. The cause stays in
 	// the JSON as evidence; only the advice reverts.
 	r.Fix = egressFix
-	if otherOK {
+	if r.Cause == RouteCausePreferredPathAlternateReachable {
+		// The measured comparison already names the working path.
+		r.Fix = routeFix(r.Cause)
+	} else if otherOK {
 		r.Detail += ", but another path works"
 	} else {
 		r.Detail += ", but the environment proxy works"

@@ -40,8 +40,8 @@ func TestInternetProbeEndpointsAreDefensiveCopies(t *testing.T) {
 }
 
 // A target adds iface, TCP and QUIC Internet checks, proxy, system/public/
-// encrypted DNS, target_tcp, path_mtu, ssid, plus whatever rows its protocol
-// contributes.
+// encrypted DNS, target_tcp, ssid, plus path_mtu and protocol rows when the
+// protocol is known.
 func TestBuildProbesShape(t *testing.T) {
 	cases := []struct {
 		target string // empty means no target
@@ -55,7 +55,7 @@ func TestBuildProbesShape(t *testing.T) {
 		{"host:25", 11},            // + smtp banner
 		{"host:587", 11},           // + smtp banner
 		{"smtp://host:2525", 11},   // + smtp banner
-		{"host:9999", 10},          // ProtoNone, stops at path_mtu
+		{"host:9999", 9},           // ProtoNone, stops at target_tcp
 	}
 	for _, c := range cases {
 		var tg *Target

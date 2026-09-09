@@ -53,6 +53,11 @@ type HuntConditionCoverage struct {
 	Reachable   bool `json:"reachable"`
 	Established int  `json:"established_cases"`
 	Recognized  int  `json:"recognized_cases"`
+	// Reverse coverage only counts rules with a positive contradiction test.
+	// Unverified is a limit of the oracle, never a diagnosis defect.
+	Claimed      int `json:"claimed_cases,omitempty"`
+	Contradicted int `json:"contradicted_cases,omitempty"`
+	Unverified   int `json:"unverified_claim_cases,omitempty"`
 }
 
 // HuntCoverage is the aggregate. Operators and Conditions are in registry
@@ -202,6 +207,7 @@ func huntCoverageFor(version string, lane HuntLane, baseID string, cases []HuntC
 	applicable := applicableHuntOperators(version, lane, baseID)
 	generated, observed := map[string]int{}, map[string]int{}
 	established, recognized := map[NetworkCondition]int{}, map[NetworkCondition]int{}
+	claimed, contradicted, unverified := map[NetworkCondition]int{}, map[NetworkCondition]int{}, map[NetworkCondition]int{}
 	sets, experiments := map[string]bool{}, map[string]bool{}
 	for _, item := range cases {
 		if item.Status != "generated" {
@@ -236,6 +242,18 @@ func huntCoverageFor(version string, lane HuntLane, baseID string, cases []HuntC
 			continue
 		}
 		coverage.OracleCases++
+		observation := caseObservation(item.Report, item.Truth)
+		for _, rule := range conditionOracle {
+			if rule.contradicted == nil || !slices.Contains(caseRecognized, rule.condition) {
+				continue
+			}
+			claimed[rule.condition]++
+			if rule.contradicted(observation) {
+				contradicted[rule.condition]++
+			} else if !slices.Contains(caseEstablished, rule.condition) {
+				unverified[rule.condition]++
+			}
+		}
 		for _, condition := range caseEstablished {
 			established[condition]++
 			if slices.Contains(caseRecognized, condition) {
@@ -255,7 +273,8 @@ func huntCoverageFor(version string, lane HuntLane, baseID string, cases []HuntC
 		coverage.Conditions = append(coverage.Conditions, HuntConditionCoverage{Condition: rule.condition,
 			Family:      rule.family,
 			Reachable:   established[rule.condition] > 0 || conditionDeclared(rule.condition, version, lane, applicable),
-			Established: established[rule.condition], Recognized: recognized[rule.condition]})
+			Established: established[rule.condition], Recognized: recognized[rule.condition],
+			Claimed: claimed[rule.condition], Contradicted: contradicted[rule.condition], Unverified: unverified[rule.condition]})
 	}
 	return coverage
 }

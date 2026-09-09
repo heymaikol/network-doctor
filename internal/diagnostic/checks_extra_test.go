@@ -11,11 +11,15 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 )
 
 // fakeConn is a no-network net.Conn stand-in; only LocalAddr and Close are
@@ -340,7 +344,7 @@ func TestApplyDialWarnings(t *testing.T) {
 		{"clean", []Attempt{{IP: ip}}, 10 * time.Millisecond, "eth0", false, StatusPass, ""},
 		{"cancelled sibling", []Attempt{{IP: ip, Err: context.Canceled}, {IP: ip}}, 10 * time.Millisecond, "eth0", false, StatusPass, ""},
 		{"high latency", []Attempt{{IP: ip}}, warnRTT, "eth0", false, StatusWarn, "high latency"},
-		{"partial addresses", []Attempt{{IP: ip, Err: errors.New("refused")}, {IP: ip}}, 10 * time.Millisecond, "eth0", false, StatusWarn, "1 of 2 address(es) failed"},
+		{"partial addresses", []Attempt{{IP: net.ParseIP("192.0.2.2"), Err: errors.New("refused")}, {IP: ip}}, 10 * time.Millisecond, "eth0", false, StatusWarn, "1 of 2 address(es) failed"},
 		{"ambiguous iface", []Attempt{{IP: ip}}, 10 * time.Millisecond, "eth0", true, StatusWarn, "ambiguous source interface"},
 		// The display text is not the control channel: an interface whose real
 		// name reads like the placeholder is a clean pass.
@@ -566,11 +570,34 @@ func TestSOCKS5RejectsInvalidConnectReplyHeader(t *testing.T) {
 
 // Go's own ProxyFromEnvironment ignores ALL_PROXY; netdoc must not, or a box
 // proxied only through ALL_PROXY reads as having no proxy at all.
+//
+// net/http reads HTTP(S)_PROXY and NO_PROXY once per process and caches them,
+// so a machine, container or CI runner that already exports a proxy cannot be
+// undone with t.Setenv here. The assertions therefore run in a child: this
+// same test binary, re-run with every *_PROXY variable stripped, whatever the
+// parent inherited. The marker variable tells the child to run them.
 func TestProxyFromEnvironmentAllProxy(t *testing.T) {
-	req := &http.Request{URL: &url.URL{Scheme: "https", Host: ConnectivityProbeHost}}
-	if u, err := http.ProxyFromEnvironment(req); u != nil || err != nil {
-		t.Skipf("test environment already has HTTP(S)_PROXY set (%v, %v)", u, err)
+	if os.Getenv("NETDOC_PROXY_ENV_HELPER") == "" {
+		args := []string{"-test.run=^TestProxyFromEnvironmentAllProxy$"}
+		// go test -cover exports GOCOVERDIR, but a test binary only writes its
+		// counters there when told to, so the child's coverage of
+		// proxyFromEnvironment lands in the parent's profile.
+		if dir := os.Getenv("GOCOVERDIR"); dir != "" {
+			args = append(args, "-test.gocoverdir="+dir)
+		}
+		// #nosec G204 G702 -- the child is this same test binary, os.Args[0],
+		// re-run with a literal -test.run filter.
+		cmd := exec.Command(os.Args[0], args...)
+		cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
+			name, _, _ := strings.Cut(kv, "=")
+			return strings.HasSuffix(strings.ToUpper(name), "_PROXY")
+		}), "NETDOC_PROXY_ENV_HELPER=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("test rerun without proxy variables: %v\n%s", err, out)
+		}
+		return
 	}
+	req := &http.Request{URL: &url.URL{Scheme: "https", Host: ConnectivityProbeHost}}
 	for _, name := range []string{"ALL_PROXY", "all_proxy"} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("ALL_PROXY", "")
@@ -584,7 +611,11 @@ func TestProxyFromEnvironmentAllProxy(t *testing.T) {
 	}
 	// A NO_PROXY hit is why net/http returned nil; falling back to ALL_PROXY
 	// there would report a proxy this host would never go through.
-	for _, np := range []string{"*", "gstatic.com", ".gstatic.com", "connectivitycheck.gstatic.com"} {
+	for _, np := range []string{"*", "gstatic.com", ".gstatic.com", "*.gstatic.com", "connectivitycheck.gstatic.com",
+		// A port-scoped entry exempts the request Go would send to that port.
+		// The probe asks about https with no explicit port, so 443 is the
+		// port the entry has to be read against.
+		"connectivitycheck.gstatic.com:443", "gstatic.com:443"} {
 		t.Run("NO_PROXY="+np, func(t *testing.T) {
 			t.Setenv("ALL_PROXY", "socks5h://proxy.corp:1080")
 			t.Setenv("NO_PROXY", np)
@@ -600,11 +631,135 @@ func TestProxyFromEnvironmentAllProxy(t *testing.T) {
 			t.Errorf("proxyFromEnvironment = %v, %v; want socks5h://proxy.corp:1080", u, err)
 		}
 	})
+	// The port in an entry narrows it. A request to another port on the same
+	// name is not exempt, so the ALL_PROXY fallback still applies.
+	t.Run("NO_PROXY port does not carry to another port", func(t *testing.T) {
+		t.Setenv("ALL_PROXY", "socks5h://proxy.corp:1080")
+		t.Setenv("NO_PROXY", ConnectivityProbeHost+":443")
+		other := &http.Request{URL: &url.URL{Scheme: "https", Host: ConnectivityProbeHost + ":8443"}}
+		if u, err := proxyFromEnvironment(other); err != nil || u == nil || u.Host != "proxy.corp:1080" {
+			t.Errorf("proxyFromEnvironment = %v, %v; want socks5h://proxy.corp:1080", u, err)
+		}
+	})
+	// The default port comes from the scheme, so an entry pinned to 443 leaves
+	// a plain http request on port 80 proxied.
+	t.Run("NO_PROXY port is matched per scheme default", func(t *testing.T) {
+		t.Setenv("ALL_PROXY", "socks5h://proxy.corp:1080")
+		t.Setenv("NO_PROXY", ConnectivityProbeHost+":443")
+		plain := &http.Request{URL: &url.URL{Scheme: "http", Host: ConnectivityProbeHost}}
+		if u, err := proxyFromEnvironment(plain); err != nil || u == nil || u.Host != "proxy.corp:1080" {
+			t.Errorf("proxyFromEnvironment = %v, %v; want socks5h://proxy.corp:1080", u, err)
+		}
+	})
 	t.Run("bare host defaults to http", func(t *testing.T) {
 		t.Setenv("ALL_PROXY", "proxy.corp:3128")
 		u, err := proxyFromEnvironment(req)
 		if err != nil || u == nil || u.Scheme != "http" || u.Host != "proxy.corp:3128" {
 			t.Errorf("proxyFromEnvironment = %v, %v; want http://proxy.corp:3128", u, err)
+		}
+	})
+}
+
+// noProxyBypasses stands in for the NO_PROXY check net/http already applied to
+// HTTP(S)_PROXY, so it has to read an entry the way Go's matcher does. The
+// expectations below are httpproxy's, the package net/http builds
+// ProxyFromEnvironment out of: "foo.com" matches foo.com and bar.foo.com,
+// ".foo.com" and "*.foo.com" are the same subdomain-only entry, an entry may
+// carry a port, and the port a request is matched on is the scheme default
+// when the URL does not name one.
+func TestNoProxyBypasses(t *testing.T) {
+	const probeHost = ConnectivityProbeHost
+	cases := []struct {
+		noProxy string
+		scheme  string // "" means https
+		host    string
+		want    bool
+	}{
+		// A wildcard entry is Go's spelling of a leading-dot entry.
+		{noProxy: "*.gstatic.com", host: probeHost, want: true},
+		{noProxy: "*.gstatic.com", host: "gstatic.com", want: false},
+		{noProxy: "*.GSTATIC.COM", host: probeHost, want: true},
+		{noProxy: "*.example.com", host: probeHost, want: false},
+		// Domain boundaries: a suffix that is not a label boundary is a miss.
+		{noProxy: "*.gstatic.com", host: "notgstatic.com", want: false},
+		// A star that does not begin a label is a literal, not a wildcard.
+		{noProxy: "*gstatic.com", host: probeHost, want: false},
+		{noProxy: "gstatic.com", host: "notgstatic.com", want: false},
+		{noProxy: ".gstatic.com", host: "notgstatic.com", want: false},
+		// Bare domain: the domain itself and its subdomains.
+		{noProxy: "gstatic.com", host: probeHost, want: true},
+		{noProxy: "gstatic.com", host: "gstatic.com", want: true},
+		// Leading dot: subdomains only.
+		{noProxy: ".gstatic.com", host: probeHost, want: true},
+		{noProxy: ".gstatic.com", host: "gstatic.com", want: false},
+		// Exact hostname.
+		{noProxy: probeHost, host: probeHost, want: true},
+		{noProxy: probeHost, host: "other.gstatic.com", want: false},
+		// Everything, and nothing. A wildcard ignores the port entirely.
+		{noProxy: "*", host: probeHost, want: true},
+		{noProxy: "*", host: probeHost + ":8443", want: true},
+		{noProxy: "", host: probeHost, want: false},
+		// Lists, whitespace and empty entries.
+		{noProxy: "example.com, *.gstatic.com", host: probeHost, want: true},
+		{noProxy: " , .gstatic.com , ", host: probeHost, want: true},
+		{noProxy: "example.com,notgstatic.com", host: probeHost, want: false},
+		// A port on the entry narrows it to that port. An https URL with no
+		// explicit port is matched on 443, which is why the reported
+		// NO_PROXY=host:443 case has to bypass.
+		{noProxy: probeHost + ":443", host: probeHost, want: true},
+		{noProxy: probeHost + ":443", host: probeHost + ":443", want: true},
+		{noProxy: probeHost + ":443", host: probeHost + ":8443", want: false},
+		{noProxy: probeHost + ":443", scheme: "http", host: probeHost, want: false},
+		{noProxy: probeHost + ":80", scheme: "http", host: probeHost, want: true},
+		// A port rides along with the domain and wildcard forms too.
+		{noProxy: "gstatic.com:443", host: probeHost, want: true},
+		{noProxy: ".gstatic.com:443", host: probeHost, want: true},
+		{noProxy: "*.gstatic.com:443", host: probeHost, want: true},
+		{noProxy: "gstatic.com:443", host: probeHost + ":8443", want: false},
+		// IP and CIDR entries, which net/http honors and the probe host never
+		// exercises. Pinned so the fallback stays the same matcher, not a
+		// hostname-only subset of it.
+		{noProxy: "10.0.0.0/8", host: "10.1.2.3", want: true},
+		{noProxy: "10.0.0.0/8", host: "11.1.2.3", want: false},
+		{noProxy: "10.1.2.3", host: "10.1.2.3", want: true},
+		{noProxy: "10.1.2.3:443", host: "10.1.2.3", want: true},
+		{noProxy: "10.1.2.3:443", host: "10.1.2.3:8443", want: false},
+		// Go never proxies localhost or a loopback literal, whatever NO_PROXY
+		// says, so neither may be resurrected through ALL_PROXY.
+		{noProxy: "example.com", host: "localhost", want: true},
+		{noProxy: "example.com", host: "127.0.0.1", want: true},
+		{noProxy: "example.com", host: "[::1]", want: true},
+	}
+	for _, c := range cases {
+		scheme := c.scheme
+		if scheme == "" {
+			scheme = "https"
+		}
+		t.Run(c.noProxy+"/"+scheme+"://"+c.host, func(t *testing.T) {
+			// Lowercase first: Windows environment names are case-insensitive,
+			// so the two calls are one variable there and the last write wins.
+			t.Setenv("no_proxy", "")
+			t.Setenv("NO_PROXY", c.noProxy)
+			reqURL := &url.URL{Scheme: scheme, Host: c.host}
+			if got := noProxyBypasses(reqURL); got != c.want {
+				t.Errorf("noProxyBypasses(%q) with NO_PROXY=%q = %v, want %v", reqURL, c.noProxy, got, c.want)
+			}
+			// The point of the fallback check is agreeing with net/http, so
+			// compare against httpproxy directly rather than trusting the
+			// table alone.
+			const sentinel = "http://proxy.invalid"
+			cfg := &httpproxy.Config{HTTPProxy: sentinel, HTTPSProxy: sentinel, NoProxy: c.noProxy}
+			proxy, err := cfg.ProxyFunc()(reqURL)
+			if want := err == nil && proxy == nil; want != c.want {
+				t.Errorf("httpproxy bypass for %q with NO_PROXY=%q = %v, want %v", reqURL, c.noProxy, want, c.want)
+			}
+		})
+	}
+	t.Run("lowercase no_proxy is read when NO_PROXY is unset", func(t *testing.T) {
+		t.Setenv("NO_PROXY", "")
+		t.Setenv("no_proxy", "*.gstatic.com")
+		if !noProxyBypasses(&url.URL{Scheme: "https", Host: probeHost}) {
+			t.Errorf("noProxyBypasses(%q) with no_proxy=*.gstatic.com = false, want true", probeHost)
 		}
 	})
 }
@@ -802,26 +957,46 @@ func TestProxyProbeFallsBackToHTTP(t *testing.T) {
 }
 
 // downgradeEgress turns a direct-egress FAIL into WARN only when another path
-// proved the network works: target TCP when a target exists, the environment
-// proxy, or else DNS.
+// carried traffic off this network: the endpoint check reached a public
+// address directly, or the environment proxy tunnels traffic. The Warn is what
+// takes the failure out of ok and the exit code, so activity that never left
+// the network does not buy one.
 func TestDowngradeEgress(t *testing.T) {
+	public, lan, shared := net.ParseIP("93.184.216.34"), net.ParseIP("192.168.1.10"), net.ParseIP("100.100.100.100")
 	cases := []struct {
 		name string
 		res  map[ProbeID]ProbeResult
 		want Status
 	}{
+		// A resolver answering is not egress: the lookup may have been served
+		// on-link from a cache or a local zone, and the generic truth table
+		// already calls this state a network outage rather than a degradation.
 		{"generic dns works", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass},
-		}, StatusWarn},
+		}, StatusFail},
 		{"generic dns fails too", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusFail},
 		}, StatusFail},
 		{"target tcp works", map[ProbeID]ProbeResult{
-			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass},
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: public},
 		}, StatusWarn},
 		{"target tcp works with warnings", map[ProbeID]ProbeResult{
-			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusWarn},
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusWarn, SelectedIP: public},
 		}, StatusWarn},
+		// The two destinations that answer without leaving the network. Both
+		// are ordinary targets, and neither says anything about egress.
+		{"lan target works, dns too", map[ProbeID]ProbeResult{
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: lan},
+		}, StatusFail},
+		{"shared address space target works", map[ProbeID]ProbeResult{
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: shared},
+		}, StatusFail},
+		// A row that says it connected but not to where cannot support the
+		// claim either, which is what an artifact from before the address was
+		// recorded looks like on replay.
+		{"target tcp works, address unrecorded", map[ProbeID]ProbeResult{
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass},
+		}, StatusFail},
 		{"target tcp fails, dns pass not enough", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusFail},
 		}, StatusFail},
@@ -836,6 +1011,9 @@ func TestDowngradeEgress(t *testing.T) {
 		}, StatusWarn},
 		{"proxy path saves target", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusFail}, ProbeProxy: {Status: StatusPass},
+		}, StatusWarn},
+		{"proxy path saves a lan-only run", map[ProbeID]ProbeResult{
+			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: lan}, ProbeProxy: {Status: StatusPass},
 		}, StatusWarn},
 		{"proxy NA not enough", map[ProbeID]ProbeResult{
 			ProbeInternet: {Status: StatusFail}, ProbeDNS: {Status: StatusFail}, ProbeProxy: {Status: StatusNA},

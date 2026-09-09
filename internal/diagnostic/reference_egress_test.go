@@ -12,6 +12,8 @@ import (
 	"net"
 	"strings"
 	"testing"
+
+	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
 
 // blanketClaims are the sentences a failed reference sample cannot carry:
@@ -186,25 +188,29 @@ func TestBothPathsFailingDoesNotLocateTheBreak(t *testing.T) {
 }
 
 // TestObservedRouteStateStillLocatesTheBreak is the other half of the rule.
-// Where the operating system's own routing and neighbor tables classified the
-// dead path, the location is observed rather than inferred from silence, and
+// A missing usable default or an unresolved gateway adds a local observation
+// beyond route selection metadata and failed connections, so
 // the stronger conclusion and its route-specific repair must both survive.
 func TestObservedRouteStateStillLocatesTheBreak(t *testing.T) {
 	target := &Target{Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
 	for _, tc := range []struct {
-		cause string
-		want  RemediationID
+		cause  string
+		want   RemediationID
+		routes []defaultRouteState
 	}{
-		{RouteCauseNoDefaultRoute, RemedyRestoreDefaultRoute},
-		{RouteCauseGatewayUnreachable, RemedyReachGateway},
-		{RouteCauseSelectedPathFailed, RemedyCheckUpstream},
-		{RouteCausePreferredPathFailed, RemedyFixPreferredRoute},
+		{RouteCauseNoDefaultRoute, RemedyRestoreDefaultRoute, nil},
+		{RouteCauseGatewayUnreachable, RemedyReachGateway, []defaultRouteState{{iface: "eth0", gateway: net.ParseIP("192.0.2.1"), metric: 100}}},
+		{RouteCauseGatewayUnreachable, RemedyReachGateway, []defaultRouteState{{iface: "eth0", gateway: net.ParseIP("192.0.2.1"), metric: 100}, {iface: "eth1", gateway: net.ParseIP("192.0.2.2"), metric: 200}}},
 	} {
 		t.Run(tc.cause, func(t *testing.T) {
+			cause := classifyDefaultRoutes(tc.routes, func(r defaultRouteState) bool { return r.gateway.Equal(net.ParseIP("192.0.2.1")) })
+			if cause != tc.cause {
+				t.Fatalf("cause = %q, want %q", cause, tc.cause)
+			}
 			res := map[ProbeID]ProbeResult{
 				ProbeIface:     {Status: StatusPass},
-				ProbeInternet:  {Status: StatusFail, Cause: tc.cause},
+				ProbeInternet:  {Status: StatusFail, Cause: cause},
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
 				ProbeTargetTCP: {Status: StatusFail},
 			}
@@ -216,5 +222,141 @@ func TestObservedRouteStateStillLocatesTheBreak(t *testing.T) {
 				t.Errorf("remediation = %q (ok=%v), want %q", rem.ID, ok, tc.want)
 			}
 		})
+	}
+}
+
+// Selection metadata must not change the conclusion without a new observation.
+func TestRouteSelectionDoesNotLocateFailure(t *testing.T) {
+	for _, multiple := range []bool{false, true} {
+		routes := []defaultRouteState{{iface: "eth0", gateway: net.ParseIP("192.0.2.1"), metric: 100}}
+		wantCause := RouteCauseSelectedPathFailed
+		if multiple {
+			routes = append(routes, defaultRouteState{iface: "eth1", gateway: net.ParseIP("192.0.2.2"), metric: 200})
+			wantCause = RouteCausePreferredPathFailed
+		}
+		cause := classifyDefaultRoutes(routes, func(defaultRouteState) bool { return false })
+		if cause != wantCause {
+			t.Fatalf("cause = %q, want %q", cause, wantCause)
+		}
+		for _, host := range []string{"example.com", "192.168.1.10"} {
+			t.Run(cause+"/"+host, func(t *testing.T) {
+				target := &Target{Host: host, IP: net.ParseIP(host), Port: 443, Proto: ProtoNone}
+				order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
+				probes := make([]Probe, len(order))
+				for i, id := range order {
+					probes[i] = Probe{ID: id, Name: string(id)}
+				}
+				var control Diagnosis
+				for _, observed := range []string{"", cause} {
+					res := map[ProbeID]ProbeResult{
+						ProbeIface:     {Status: StatusPass},
+						ProbeInternet:  {Status: StatusFail, Cause: observed, Fix: routeFix(cause)},
+						ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
+						ProbeTargetTCP: {Status: StatusFail},
+					}
+					d := Interpret(target, order, res)
+					if len(d.Findings) != 1 || d.Findings[0].ID != DiagnosisReachabilityUnlocalized {
+						t.Fatalf("cause %q: findings = %+v, want unlocalized", observed, d.Findings)
+					}
+					if d.Findings[0].Confidence != ConfidenceInsufficientEvidence {
+						t.Fatalf("confidence = %s", d.Findings[0].Confidence)
+					}
+					assertNoBlanketClaim(t, "summary", d.Summary)
+					if rem, ok := Remediate(d, res, "linux"); !ok || rem.ID != RemedyCheckLocalPath {
+						t.Fatalf("remediation = %+v, ok=%v", rem, ok)
+					}
+					if observed == "" {
+						control = d
+					} else if d.Verdict != control.Verdict || d.Summary != control.Summary {
+						t.Fatal("route metadata changed verdict or summary")
+					}
+					data, err := snapshot.Encode(BuildSnapshot(target, probes, res))
+					if err != nil {
+						t.Fatal(err)
+					}
+					artifact, err := snapshot.Decode(data)
+					if err != nil {
+						t.Fatal(err)
+					}
+					replay, err := ReplaySnapshot(artifact)
+					if err != nil {
+						t.Fatal(err)
+					}
+					assertDiagnosisSemantics(t, replay, d)
+				}
+			})
+		}
+	}
+}
+
+func TestFailedRouteFamiliesPreserveUncertaintyAndContext(t *testing.T) {
+	target := &Target{Host: "example.com", Port: 443, Proto: ProtoNone}
+	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
+	probes := []Probe{{ID: ProbeIface}, {ID: ProbeInternet}, {ID: ProbeDNS}, {ID: ProbeTargetTCP}}
+	causes := []string{RouteCauseNoDefaultRoute, RouteCauseGatewayUnreachable, RouteCauseSelectedPathFailed, RouteCausePreferredPathFailed, ""}
+	strong := func(c string) bool { return c == RouteCauseNoDefaultRoute || c == RouteCauseGatewayUnreachable }
+	for _, c4 := range causes {
+		for _, c6 := range causes {
+			for _, single := range []string{"", "ipv4", "ipv6"} {
+				t.Run(c4+"/"+c6+"/only="+single, func(t *testing.T) {
+					v4, v6 := []net.IP{net.ParseIP("1.1.1.1")}, []net.IP{net.ParseIP("2606:4700:4700::1111")}
+					if single == "ipv4" {
+						v6 = nil
+					}
+					if single == "ipv6" {
+						v4 = nil
+					}
+					classify := func(ip net.IP) string {
+						if ip.To4() != nil {
+							return c4
+						}
+						return c6
+					}
+					cause, family := failedRouteCause(classify, v4, v6)
+					reverse, reverseFamily := failedRouteCause(classify, v6, v4)
+					if cause != reverse || family != reverseFamily {
+						t.Fatal("family order changed aggregation")
+					}
+					res := map[ProbeID]ProbeResult{
+						ProbeIface: {Status: StatusPass, Routes: []RouteDecision{
+							{Destination: net.ParseIP("1.1.1.1"), Family: "ipv4", Unreachable: true},
+							{Destination: net.ParseIP("2606:4700:4700::1111"), Family: "ipv6", Iface: "wg0", Tunnel: TunnelKnown},
+						}},
+						ProbeInternet:  {Status: StatusFail, Cause: cause, causeFamily: family},
+						ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
+						ProbeTargetTCP: {Status: StatusFail},
+					}
+					d := Interpret(target, order, res)
+					want, confidence := DiagnosisReachabilityUnlocalized, ConfidenceInsufficientEvidence
+					if (len(v4) == 0 || strong(c4)) && (len(v6) == 0 || strong(c6)) {
+						want, confidence = DiagnosisLocalEgressFailure, ConfidenceMedium
+					}
+					if len(d.Findings) != 1 || d.Findings[0].ID != want || d.Findings[0].Confidence != confidence {
+						t.Fatalf("got %+v, want %s/%s", d.Findings, want, confidence)
+					}
+					for _, e := range []CausalEvidence{
+						{Kind: EvidenceSupport, Check: ProbeIface, Observation: ObservationRouteUnreachable, Value: "1.1.1.1"},
+						{Kind: EvidenceSupport, Check: ProbeIface, Observation: ObservationRouteTunneled, Value: "wg0"},
+					} {
+						if !hasEvidenceItem(d.Findings[0].Evidence, e) {
+							t.Errorf("missing route context %+v", e)
+						}
+					}
+					data, err := snapshot.Encode(BuildSnapshot(target, probes, res))
+					if err != nil {
+						t.Fatal(err)
+					}
+					stored, err := snapshot.Decode(data)
+					if err != nil {
+						t.Fatal(err)
+					}
+					replay, err := ReplaySnapshot(stored)
+					if err != nil {
+						t.Fatal(err)
+					}
+					assertDiagnosisSemantics(t, replay, d)
+				})
+			}
+		}
 	}
 }

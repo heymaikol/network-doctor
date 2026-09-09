@@ -175,6 +175,51 @@ func LabScenarios() []LabScenario {
 	// An absent listener is base service state, declared independently of expected results.
 	expect(&s, d.VerdictService, d.DiagnosisTCPConnectionRefused, ExpectedCheck{ID: "target_tcp", Status: "FAIL", Cause: d.ConnectionCauseRefused})
 	out = append(out, s)
+	// Two runs whose only reachable endpoint is one no traffic leaves the site
+	// to arrive at, with the gateway's uplink administratively down so nothing
+	// public can answer. Reaching either endpoint says nothing about egress,
+	// so the egress row has to stay a failure and the reference-endpoint
+	// reading has to stay off the table.
+	deadUplink := LabFault{ID: "uplink-down", Layer: "link", Scope: "gateway/uplink", Network: &Fault{Type: FaultLinkDown, Node: "gateway", Segment: "uplink"}}
+	strandedExpectation := LabExpected{
+		Verdict:  d.VerdictDegraded,
+		Required: []d.DiagnosisID{d.DiagnosisDirectEgressBlocked},
+		// Not merely absent: this is the claim the topology refutes, since no
+		// public destination is reachable to have answered anything.
+		Forbidden: []d.DiagnosisID{d.DiagnosisReferenceEgressUnreachable, d.DiagnosisOffline, d.DiagnosisProxyOnlyNetwork},
+		Checks: []ExpectedCheck{
+			// FAIL rather than WARN: a relaxed egress row is what drops the
+			// failure out of the report's ok field and the exit status, and
+			// nothing here carried traffic off this network to earn that.
+			{ID: "internet_tcp", Status: "FAIL"},
+			{ID: "target_tcp", Status: "PASS"},
+		},
+		// A two-address sample cannot be generalized to every destination,
+		// whichever way the endpoint row went.
+		Confidence: []LabConfidence{{Finding: d.DiagnosisDirectEgressBlocked, Min: d.ConfidenceLow, Max: d.ConfidenceMedium}},
+	}
+	strandedBlindSpot := "The model knows the uplink is down. The client only knows two reference addresses did not answer, so it names the rung and not the hop; a filtered pair and a dead uplink look the same from here."
+	s = healthy("lan-target-dead-uplink", "A device on the client's own segment answers while the gateway's uplink is down.", false)
+	s.Network.Topology.Nodes = append(s.Network.Topology.Nodes, Node{Name: "printer", Interfaces: []Interface{{Segment: "ethernet", IPv4: "10.20.1.60/24"}}, Services: []Service{{Name: "printer-jetdirect", Type: ServiceHTTP, Port: 9100}}})
+	s.Faults = []LabFault{deadUplink}
+	s.Views[0].Target = "10.20.1.60:9100"
+	s.Views[0].Expected = strandedExpectation
+	s.BlindSpots = []string{strandedBlindSpot}
+	out = append(out, s)
+	// RFC 6598 shared address space on a tunnel, which is the shape a tailnet
+	// has: every node carries a 100.64.0.0/10 address, and reaching one of
+	// them is not reaching the internet.
+	s = healthy("shared-space-target-dead-uplink", "A peer in RFC 6598 shared address space answers over a tunnel while the gateway's uplink is down.", false)
+	s.Network.Topology.Segments = append(s.Network.Topology.Segments, Segment{Name: "tailnet", IPv4: "100.100.0.0/16"})
+	s.Network.Topology.Nodes[0].Interfaces = append(s.Network.Topology.Nodes[0].Interfaces, Interface{Segment: "tailnet", IPv4: "100.100.0.10/16"})
+	s.Network.Topology.Nodes = append(s.Network.Topology.Nodes, Node{Name: "peer", Interfaces: []Interface{{Segment: "tailnet", IPv4: "100.100.0.60/16"}}, Services: []Service{{Name: "peer-app", Type: ServiceHTTP, Port: 9100}}})
+	s.Tunnels = []string{"tailnet"}
+	s.Faults = []LabFault{deadUplink}
+	s.Views[0].Target = "100.100.0.60:9100"
+	s.Views[0].SourceSegment = ""
+	s.Views[0].Expected = strandedExpectation
+	s.BlindSpots = []string{strandedBlindSpot, "Shared address space is not globally routable, but nothing observable says whether a given 100.64.0.0/10 peer sits on this link or at the far end of a carrier's NAT."}
+	out = append(out, s)
 	s = healthy("tls-http-no-response", "The TLS identity verifies but the application never returns HTTP.", false)
 	s.Faults = []LabFault{{ID: "silent-application", Layer: "http", Scope: "target-tls", HTTPNoResponse: "target-tls"}}
 	expect(&s, d.VerdictService, d.DiagnosisHTTPSNoResponse, ExpectedCheck{ID: "tls", Status: "PASS"}, ExpectedCheck{ID: "https", Status: "FAIL"})

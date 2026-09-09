@@ -225,7 +225,12 @@ func replayResult(id ProbeID, status Status, check snapshot.Check) (ProbeResult,
 		if err != nil {
 			return ProbeResult{}, err
 		}
+		var competing []CompetingRoute
+		for _, alternative := range route.Competing {
+			competing = append(competing, CompetingRoute{Iface: alternative.Interface, Metric: alternative.Metric})
+		}
 		result.Routes = append(result.Routes, RouteDecision{
+			Competing:   competing,
 			Destination: destination,
 			Family:      route.Family,
 			Iface:       route.Interface,

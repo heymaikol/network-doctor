@@ -66,9 +66,10 @@ func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]Prob
 			wg.Go(func() { v6.conn, v6.sel, v6.attempts, v6.rtt = o.dialIPs(ctx, v6addrs, port) })
 		}
 		wg.Wait()
+		resolved4, resolved6 := splitFamilies(deps[ProbeDNS].Addrs)
 		r.Families = &FamilyConnectivity{
-			IPv4: targetFamilyState(v4addrs, v4.conn, v4.attempts),
-			IPv6: targetFamilyState(v6addrs, v6.conn, v6.attempts),
+			IPv4: targetFamilyState(resolved4, v4.conn, v4.attempts),
+			IPv6: targetFamilyState(resolved6, v6.conn, v6.attempts),
 		}
 
 		// Prefer IPv6 when both complete together, but keep the faster working
@@ -85,6 +86,10 @@ func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]Prob
 			if secondary.conn != nil {
 				defer secondary.conn.Close()
 			}
+			if a, ok := o.verifyTargetSibling(ctx, addrs, sel, r.Attempts, port); ok {
+				r.Attempts = append(r.Attempts, a)
+				primary.attempts = append(primary.attempts, a)
+			}
 			src, iface, ambiguous := o.pathIdentity(ctx, conn, sel, port)
 			r.Status, r.SelectedIP, r.Source, r.Iface, r.ifaceAmbiguous = StatusPass, sel, src, iface, ambiguous
 			r.Routes = routes
@@ -93,11 +98,9 @@ func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]Prob
 			// reachability. A whole failed family is reconciled later against the
 			// independent egress-family observation, so single-stack hosts stay clean.
 			var warningAttempts []Attempt
-			if v4.conn != nil {
-				warningAttempts = append(warningAttempts, v4.attempts...)
-			}
-			if v6.conn != nil {
-				warningAttempts = append(warningAttempts, v6.attempts...)
+			warningAttempts = append(warningAttempts, primary.attempts...)
+			if secondary.conn != nil {
+				warningAttempts = append(warningAttempts, secondary.attempts...)
 			}
 			allAttempts := r.Attempts
 			r.Attempts = warningAttempts
@@ -130,6 +133,53 @@ func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]Prob
 		r.Fix = fmt.Sprintf("port %d blocked/refused: firewall, wrong network, or VPN routing?", port)
 		return r
 	}
+}
+
+// A retry has its own individual-address budget. Expiration of the enclosing
+// probe is still an aborted observation, never evidence against the address.
+const targetSiblingTimeout = time.Second
+
+func (o *netops) verifyTargetSibling(ctx context.Context, resolved []net.IP, winner net.IP, attempts []Attempt, port int) (Attempt, bool) {
+	deadline, bounded := ctx.Deadline()
+	// Reserve one dial even if every resolved candidate started, including
+	// successful race losers that dialIPs closes without recording.
+	if !bounded || ctx.Err() != nil || time.Until(deadline) <= targetSiblingTimeout || len(resolved) >= maxAttempts {
+		return Attempt{}, false
+	}
+	var candidate net.IP
+	for _, a := range attempts {
+		if a.IP.To16() == nil || a.IP.Equal(winner) || (a.IP.To4() != nil) != (winner.To4() != nil) ||
+			!containsResolvedIP(resolved, a.IP) || len(o.compatibleSourceIPs([]net.IP{a.IP})) == 0 {
+			continue
+		}
+		// Already proved a failed sibling: more connections add no needed evidence.
+		if a.Err != nil && !isCanceledAttempt(a) {
+			return Attempt{}, false
+		}
+		if candidate == nil && a.Cause == ConnectionCauseCanceled {
+			candidate = a.IP
+		}
+	}
+	if candidate != nil {
+		vctx, cancel := context.WithTimeout(ctx, targetSiblingTimeout)
+		defer cancel()
+		network := "tcp6"
+		if candidate.To4() != nil {
+			network = "tcp4"
+		}
+		start := time.Now()
+		conn, err := o.dialContext(vctx, network, net.JoinHostPort(candidate.String(), strconv.Itoa(port)))
+		if conn != nil {
+			_ = conn.Close()
+		}
+		verified := Attempt{IP: candidate, Dur: since(start), Err: err}
+		if err != nil {
+			verified.Cause = ConnectionFailureCause(err)
+			verified.Aborted = ctx.Err() != nil
+		}
+		return verified, true
+	}
+	return Attempt{}, false
 }
 
 func (o *netops) tlsProbe(host string, port int) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
@@ -267,6 +317,15 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 	}
 }
 
+// readBannerLine reads one banner line and reports whether it is complete. A
+// line without its "\n" delimiter was cut short by EOF, a reset, the read
+// deadline or the byte limit, so it is a fragment of what the peer meant to
+// send and never a valid protocol greeting, however it starts.
+func readBannerLine(br *bufio.Reader) (line string, complete bool, err error) {
+	line, err = br.ReadString('\n')
+	return strings.TrimRight(line, "\r\n"), err == nil, err
+}
+
 func (o *netops) bannerProbe(id ProbeID, label string, port int) Probe {
 	return Probe{ID: id, Name: label, Deps: []ProbeID{ProbeTargetTCP}, Run: func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
 		var r ProbeResult
@@ -297,18 +356,28 @@ func (o *netops) bannerProbe(id ProbeID, label string, port int) Probe {
 		// Strict byte limit: a hostile server streaming without a newline can't
 		// exhaust memory.
 		br := bufio.NewReader(io.LimitReader(conn, 1024))
-		line, readErr := br.ReadString('\n')
-		line = strings.TrimRight(line, "\r\n")
+		line, complete, readErr := readBannerLine(br)
+		first := line
+		// RFC 4253 section 4.2 lets an SSH server send other lines of data
+		// before its identification string, and forbids those lines from
+		// starting with "SSH-". Keep reading complete lines under the same byte
+		// limit and read deadline until the identification string shows up.
+		for id == ProbeSSH && complete && !strings.HasPrefix(line, "SSH-") {
+			line, complete, readErr = readBannerLine(br)
+			if first == "" {
+				first = line
+			}
+		}
 		r.SelectedIP = ip
-		if line == "" && errors.Is(readErr, syscall.ECONNRESET) {
+		if first == "" && errors.Is(readErr, syscall.ECONNRESET) {
 			r.Status, r.Cause = StatusFail, ConnectionCauseReset
 			r.Detail = "peer accepted the connection and reset it before sending a banner"
-		} else if line == "" {
+		} else if first == "" {
 			// Port answered but the service said nothing: functional, degraded.
 			r.Status, r.Detail = StatusWarn, "connected, no banner within deadline"
-		} else if valid := id == ProbeSSH && strings.HasPrefix(line, "SSH-") ||
-			id == ProbeSMTP && (strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-")); !valid {
-			r.Status, r.Detail = StatusFail, "unexpected service banner: "+line
+		} else if valid := complete && (id == ProbeSSH && strings.HasPrefix(line, "SSH-") ||
+			id == ProbeSMTP && (strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-"))); !valid {
+			r.Status, r.Detail = StatusFail, "unexpected service banner: "+first
 		} else {
 			r.Status, r.Detail = StatusPass, "banner: "+line
 		}

@@ -241,8 +241,8 @@ func TestDiagnoseTCPHealthyQUICFailed(t *testing.T) {
 		ProbeDNS:      {Status: StatusPass},
 	}
 
-	summary, verdict := Diagnose(nil, order, results)
-	if verdict != VerdictDegraded || !strings.Contains(summary, "TCP/443 works") || !strings.Contains(summary, "fall back to TCP") {
-		t.Fatalf("Diagnose = %q, %q", summary, verdict)
+	d := Interpret(nil, order, results)
+	if d.Verdict != VerdictDegraded || !strings.Contains(d.Summary, "TCP/443 works") || !strings.Contains(d.Summary, "fall back to TCP") {
+		t.Fatalf("diagnosis = %q, %q", d.Summary, d.Verdict)
 	}
 }

@@ -23,7 +23,7 @@ func planFor(t *testing.T, spec string, sel diagnostic.ProbeSelection) []diagnos
 	if spec != "" {
 		target = mustTarget(t, spec)
 	}
-	return sel.Apply(diagnostic.BuildProbesFromSources(target, nil, diagnostic.DefaultPublicDNS, true))
+	return sel.BuildProbesFromSources(target, nil, diagnostic.DefaultPublicDNS, true)
 }
 
 // pathRun is a finished run over spec in which the named rows carry the named
@@ -465,5 +465,30 @@ func TestPathStripYieldsBeforeTheConclusionDoes(t *testing.T) {
 	u, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 10})
 	if v := asModel(t, u).View(); strings.Contains(v, "Target path") {
 		t.Errorf("100x10 kept the strip instead of the conclusion:\n%s", v)
+	}
+}
+
+func TestPMTUSelectionSurvivesTargetChanges(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		selection := diagnostic.ProbeSelection{}
+		if explicit {
+			selection.Check = map[diagnostic.ProbeID]struct{}{diagnostic.ProbePMTU: {}}
+		}
+		m := asModel(t, NewWithSelection(mustTarget(t, "host:9999"), nil, false, true, "", "test", "", false, selection))
+		check := func(want bool) {
+			t.Helper()
+			if got := slices.ContainsFunc(m.probes, func(p diagnostic.Probe) bool { return p.ID == diagnostic.ProbePMTU }); got != want {
+				t.Fatalf("target %v, explicit %t: PMTU = %t, want %t", m.target, explicit, got, want)
+			}
+		}
+		check(explicit)
+		for _, raw := range []string{"https://host:9999", "host:9999", ""} {
+			var target *diagnostic.Target
+			if raw != "" {
+				target = mustTarget(t, raw)
+			}
+			m.applyTarget(target)
+			check(target != nil && (target.Proto != diagnostic.ProtoNone || explicit))
+		}
 	}
 }

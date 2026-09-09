@@ -214,6 +214,18 @@ This proves the bytes were built from the tagged commit by the release workflow.
 
 Probes form a **dependency graph with independent branches**, so an unrelated failure never hides a working one: direct egress, QUIC, proxy egress, public and encrypted DNS, and the selected target path each run on their own, and the unprivileged path-MTU check hangs off the connect. Each row lands in one of five states, **✓ Pass**, **! Warn**, **✗ Fail**, **⊘ Skip**, and **– N/A**; Warn never counts as a failure.
 
+After a target connection wins a same-family address race, Network Doctor may
+retry one canceled sibling from the system resolver's answers. It uses the same
+source binding and target port, with a one-second individual dial budget only
+when that full interval remains inside the target probe's timeout. Successes
+before a sibling starts trigger no retry, and the total stays within the 16-attempt cap.
+The canceled attempt remains non-failure evidence; a separate refusal or dial
+timeout can earn `partial_endpoint_reachability` alongside a successful address
+in that same family. Parent-probe cancellation never earns that finding. This
+is a bounded observation of the endpoint at that time, not proof of a permanent
+outage. Reports and snapshots retain both attempts with their existing `cause`
+and `aborted` fields.
+
 The full probe table with exact pass conditions, JSON causes, and the unprivileged path-MTU method is in **[docs/reference.md](docs/reference.md#how-it-diagnoses)**. The wiki's [How Network Doctor Works](https://github.com/heymaikol/network-doctor/wiki/How-Network-Doctor-Works) explains why the branches are independent, and [Understanding Your Diagnosis](https://github.com/heymaikol/network-doctor/wiki/Understanding-Your-Diagnosis) turns a row into a next action.
 
 ## Think you can beat Network Doctor?
@@ -391,9 +403,16 @@ the software or how issues are prioritized.
 
 ## Tests
 
-For an ordinary, focused pull request, run the tests nearest your change plus
-`go test ./...`, then any additional checks clearly relevant to the files or
-behavior you changed. That is almost all a small external contribution needs.
+For an ordinary, focused pull request, run `./scripts/check` -- gofmt, `go vet`,
+a `CGO_ENABLED=0` build, macOS and Windows cross-compiles, a FreeBSD build that
+only proves the fallbacks for unsupported platforms still compile, and
+`go test ./...`, with no root and no Docker needed (a Go toolchain and a POSIX
+shell: on Windows, Git Bash or WSL). The checks make no network calls, though
+the Go toolchain downloads on a cold module cache or an out-of-date `toolchain`
+line.
+Then run the tests nearest your change and any additional checks clearly
+relevant to the files or behavior you changed. That is almost all a small
+external contribution needs.
 The exhaustive gate below exists for CI, maintainership, releases, and the
 specific checks that apply to your change; a small contribution does not have
 to reproduce every CI environment locally.
@@ -405,11 +424,11 @@ The core Go checks run directly, and external validation tools use pinned
 go vet ./...
 CGO_ENABLED=0 go build ./...
 go test ./...
-go test -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
 go test -tags acceptance -count=1 -run '^TestNative' . ./internal/ui
 go test -tags netns_integration -count=1 -v ./internal/simulation
 go test -race ./...
-go test -race -tags integration ./internal/diagnostic ./internal/peer ./internal/simulation
+go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
 go test -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
 go test -fuzz=FuzzEncryptedDNSResponseVerifier -fuzztime=10s ./internal/diagnostic
 go test -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic

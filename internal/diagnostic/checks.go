@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -53,6 +54,10 @@ const (
 	ConnectionCauseUnreachable    = "unreachable"
 	ConnectionCauseCanceled       = "canceled"
 )
+
+// RouteCausePreferredPathAlternateReachable requires failed reference dials
+// and a successful target connection through a lower-preference default path.
+const RouteCausePreferredPathAlternateReachable = "preferred_path_failed_alternate_reachable"
 
 const (
 	FamilyReachable   = "reachable"
@@ -157,6 +162,10 @@ type ProbeResult struct {
 	causeFamily string // address family that supplied Cause; empty when shared or family-neutral
 	Families    *FamilyConnectivity
 	downgraded  bool // downgradeEgress rewrote a direct-egress failure to Warn.
+	// alternateDefaults records default paths ranked below the path used by
+	// every reference dial in a family. Selection only; Finalize must also
+	// match a successful target socket before reporting a measured comparison.
+	alternateDefaults map[string][]defaultRouteState
 	// answerComparison is what reconcileDNS concluded when it compared this
 	// row's answers with the system resolver's. Unrecorded when there was
 	// nothing to compare, which is never the same as agreement. Private, and
@@ -535,16 +544,17 @@ var dialFamily = func(ctx context.Context, source net.IP, network, addr string, 
 var errFamilyLost = errors.New("connection superseded by the other address family")
 
 // BuildProbesFromSources constructs the DAG with separate selected-interface
-// addresses for IPv4 and IPv6. publicDNS is a bare IP, or "" to leave the
-// second-opinion probe out of the DAG altogether, since a skipped row would
-// still have had to dial to be skipped. publicDNSAuto says nobody named that
-// resolver, which is what lets the row cross to the other address family.
+// addresses for IPv4 and IPv6. explicit contains directly requested check IDs;
+// unknown-protocol PMTU requires an explicit ProbePMTU. publicDNS is a bare IP,
+// or "" to leave the second-opinion probe out of the DAG altogether, since a
+// skipped row would still have had to dial to be skipped. publicDNSAuto says
+// nobody named that resolver, letting the row cross to the other address family.
 //
 // The candidates are worked out here rather than at the flag, so they are
 // worked out by the machine that runs the probes: --via builds this graph on
 // the far end, and an IPv6-only remote must not be pinned to the caller's
 // address family.
-func BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS string, publicDNSAuto bool) []Probe {
+func BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS string, publicDNSAuto bool, explicit ...ProbeID) []Probe {
 	// A copy either way, so the per-pass route cache installed below belongs
 	// to this pass rather than to the package-level ops every pass shares.
 	o := opsFromSources(sources)
@@ -553,7 +563,7 @@ func BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS strin
 	// than once; a later pass must not be answered from an earlier one, since
 	// the whole point of Watch Mode is to see the route change.
 	o.routes = newRouteCache(o.routeFor, o.sources)
-	probes := o.buildProbes(t, publicDNS, publicDNSAuto)
+	probes := o.buildProbes(t, publicDNS, publicDNSAuto, explicit...)
 	for i := range probes {
 		probes[i].Run = wrapRun(probes[i].Run)
 	}
@@ -605,8 +615,8 @@ func cleanResult(r ProbeResult) ProbeResult {
 // reference egress. The mark is applied here, over the finished graph, so
 // there is one place a new probe has to pass through to acquire it, and so it
 // is decided against the shape of the run the graph was actually built for.
-func (o *netops) buildProbes(t *Target, publicDNS string, publicDNSAuto bool) []Probe {
-	probes := o.buildProbeGraph(t, publicDNS, publicDNSAuto)
+func (o *netops) buildProbes(t *Target, publicDNS string, publicDNSAuto bool, explicit ...ProbeID) []Probe {
+	probes := o.buildProbeGraph(t, publicDNS, publicDNSAuto, explicit...)
 	for i := range probes {
 		probes[i].Reference = referenceEgress(probes[i].ID, t != nil, !publicDNSAuto)
 	}
@@ -616,7 +626,7 @@ func (o *netops) buildProbes(t *Target, publicDNS string, publicDNSAuto bool) []
 // buildProbeGraph assembles the DAG. publicDNS is the second-opinion resolver;
 // "" leaves the row out entirely rather than emitting a skipped one, and
 // publicDNSAuto lets an unnamed one cross to the other address family.
-func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool) []Probe {
+func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool, explicit ...ProbeID) []Probe {
 	publicDNSResolvers := PublicDNSCandidates(publicDNS, publicDNSAuto)
 	// The interface row carries the run's reference paths: where traffic to
 	// the general Internet goes, per family. Every other route decision in the
@@ -663,7 +673,13 @@ func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool
 	if len(publicDNSResolvers) > 0 {
 		probes = append(probes, Probe{ID: ProbeDNSPublic, Name: publicDNSRowName(publicDNS, publicDNSAuto), Deps: []ProbeID{ProbeIface}, Run: o.publicDNSProbe(host, t.IP, publicDNSResolvers)})
 	}
-	probes = append(probes, encryptedDNS, ttcp, pmtu, network)
+	probes = append(probes, encryptedDNS, ttcp)
+	// Unknown application protocols may interpret the filler as commands.
+	// Only a direct request for this check permits that bulk write.
+	if t.Proto != ProtoNone || slices.Contains(explicit, ProbePMTU) {
+		probes = append(probes, pmtu)
+	}
+	probes = append(probes, network)
 
 	switch t.Proto {
 	case ProtoTLSHTTP:

@@ -276,11 +276,26 @@ strict preference between them in the client's own kernel table, that family
 unreachable from the client's own dial, and a controlled target answering over
 one of the other defaults. The third clause is what separates the condition
 from a network that is simply down, since two dead paths would otherwise wear
-the name of one. Recognition is `preferred_route_failed` and nothing else. The
-neighbouring route causes each carry a different repair, and this is the only
-one that says a working route is already installed and merely out-ranked, so
-answering with `no_default_route` sends the user to build something they
-already have.
+the name of one. Neither `preferred_route_failed` nor `selected_path_failed` names a causal
+route fault: both are selection context. Network Doctor now reports
+`preferred_path_failed_alternate_reachable` only when its own failed reference
+connections use the strictly preferred default's interface and next hop, and
+its successful same-family target socket uses a distinct lower-preference
+default's interface and next hop. Both route decisions must be known to use
+the main table, and the target route must match the socket's source address.
+Unknown routes, policy tables, tied metrics, DNS or proxy success alone, and
+two failed paths cannot establish this comparison. No extra network probes
+are sent. The target can use a specific route through the alternate gateway;
+this proves reachability to that target, not that switching defaults would
+restore connectivity to every reference endpoint. The physical cause of the
+preferred path's failed connections remains unlocalized.
+
+The oracle recognizes this new measured cause, while retaining its independent
+three-part observation predicate. Without that cause it reports an independently
+established preferred-route fault as unrecognized. Challenge Mode still scores
+preferred-route and wrong-default-route conditions as `ChallengeUnrecognized`.
+The simulator's private alternate-path measurement cannot count as a diagnosis
+made by Network Doctor.
 
 ### How much ground a hunt covered
 

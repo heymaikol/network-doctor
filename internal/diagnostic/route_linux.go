@@ -44,6 +44,7 @@ const (
 	iflaIfName     = 0x3  // IFLA_IFNAME
 	iflaMTU        = 0x4  // IFLA_MTU
 	rtmFLookupTbl  = 0x1000
+	rtaNHID        = 30 // RTA_NH_ID, a nexthop object rather than an inline gateway
 	netlinkAlignTo = 4
 )
 
@@ -308,30 +309,71 @@ func linkClassificationFacts(name, kind string) ifaceFacts {
 	return f
 }
 
-// defaultRoutesFor reuses the /proc reading the failed-egress classification
-// already does, so the competing default routes a decision is explained
-// against come from the same view of the table as everything else.
-//
-// That view is partial, and the caller is written around it. /proc/net/route
-// is the main table only, so an IPv4 default route in a table policy routing
-// installed does not appear here; /proc/net/ipv6_route spans the tables but,
-// like its IPv4 counterpart, shows no rule that selects between them. Nothing
-// downstream treats what comes back as the full set of candidate routes, and
-// the reason vocabulary never claims a metric settled a decision unless a
-// competitor was actually seen.
+// defaultRoutesFor reads main-table defaults only. IPv4's /proc view has that
+// scope; IPv6's spans tables without identifying them, so use netlink there.
+// Policy-selected decisions cannot be compared against this inventory.
 func defaultRoutesFor(family string) []defaultRouteState {
 	if family == counterfactualIPv6 {
-		raw, err := os.ReadFile(procIPv6Routes)
+		body := make([]byte, rtMsgLen)
+		body[0] = unix.AF_INET6
+		replies, err := netlinkExchangeFlags(unix.RTM_GETROUTE, body, unix.NLM_F_DUMP)
 		if err != nil {
 			return nil
 		}
-		return parseIPv6DefaultRoutes(raw)
+		return mainIPv6Defaults(replies, func(index int) string {
+			if iface, err := net.InterfaceByIndex(index); err == nil {
+				return iface.Name
+			}
+			return ""
+		})
 	}
 	raw, err := os.ReadFile(procIPv4Routes)
 	if err != nil {
 		return nil
 	}
 	return parseDefaultRoutes(raw)
+}
+
+func mainIPv6Defaults(replies []netlinkMessage, interfaceName func(int) string) []defaultRouteState {
+	var out []defaultRouteState
+	for _, msg := range replies {
+		if msg.Type != unix.RTM_NEWROUTE || len(msg.Data) < rtMsgLen ||
+			msg.Data[0] != unix.AF_INET6 || msg.Data[1] != 0 || msg.Data[2] != 0 || msg.Data[7] != unix.RTN_UNICAST {
+			continue
+		}
+		table := uint32(msg.Data[4])
+		var route defaultRouteState
+		multipath := false
+		for _, attr := range netlinkAttrs(msg.Data[rtMsgLen:]) {
+			switch attr.Type {
+			case unix.RTA_TABLE:
+				if len(attr.Value) >= 4 {
+					table = binary.NativeEndian.Uint32(attr.Value)
+				}
+			case unix.RTA_OIF:
+				if len(attr.Value) >= 4 {
+					route.iface = interfaceName(int(binary.NativeEndian.Uint32(attr.Value)))
+				}
+			case unix.RTA_GATEWAY:
+				route.gateway = netlinkIP(attr.Value)
+			case unix.RTA_PRIORITY:
+				if len(attr.Value) >= 4 {
+					route.metric = int(binary.NativeEndian.Uint32(attr.Value))
+				}
+			case unix.RTA_MULTIPATH, rtaNHID:
+				multipath = true
+			}
+		}
+		if table != unix.RT_TABLE_MAIN {
+			continue
+		}
+		// An unrepresented competitor could win. Do not rank a partial set.
+		if multipath || route.iface == "" {
+			return nil
+		}
+		out = append(out, route)
+	}
+	return out
 }
 
 // netlinkMessage is one message out of a netlink reply, split from the stream
@@ -415,6 +457,10 @@ func netlinkMessages(b []byte) ([]netlinkMessage, error) {
 // of these, and a short-lived socket cannot outlive the namespace it was
 // opened in.
 func netlinkExchange(msgType uint16, body []byte) ([]netlinkMessage, error) {
+	return netlinkExchangeFlags(msgType, body, 0)
+}
+
+func netlinkExchangeFlags(msgType uint16, body []byte, flags uint16) ([]netlinkMessage, error) {
 	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW|unix.SOCK_CLOEXEC, unix.NETLINK_ROUTE)
 	if err != nil {
 		return nil, err
@@ -433,18 +479,70 @@ func netlinkExchange(msgType uint16, body []byte) ([]netlinkMessage, error) {
 	// #nosec G115 -- the request is a header plus a body this file builds, tens of bytes
 	binary.NativeEndian.PutUint32(request[0:4], uint32(len(request)))
 	binary.NativeEndian.PutUint16(request[4:6], msgType)
-	binary.NativeEndian.PutUint16(request[6:8], unix.NLM_F_REQUEST)
+	binary.NativeEndian.PutUint16(request[6:8], unix.NLM_F_REQUEST|flags)
 	binary.NativeEndian.PutUint32(request[8:12], 1)
 	copy(request[nlMsgHdrLen:], body)
 	if err := unix.Sendto(fd, request, 0, &unix.SockaddrNetlink{Family: unix.AF_NETLINK}); err != nil {
 		return nil, err
 	}
 	buf := make([]byte, netlinkReplyMax)
+	if flags&unix.NLM_F_DUMP != 0 {
+		return readRouteDump(fd, buf)
+	}
 	n, _, err := unix.Recvfrom(fd, buf, 0)
 	if err != nil {
 		return nil, err
 	}
 	return netlinkMessages(buf[:n])
+}
+
+// A dump must finish within one exchange's time and byte budgets. Partial or
+// interrupted inventories cannot establish which default is preferred.
+func readRouteDump(fd int, buf []byte) ([]netlinkMessage, error) {
+	deadline := time.Now().Add(netlinkTimeout)
+	var raw []byte
+	for time.Now().Before(deadline) {
+		timeout := unix.NsecToTimeval(int64(time.Until(deadline)))
+		if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &timeout); err != nil {
+			return nil, err
+		}
+		n, _, err := unix.Recvfrom(fd, buf, 0)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 || len(raw)+n >= netlinkReplyMax {
+			return nil, errors.New("route dump exceeds reply budget")
+		}
+		chunk := buf[:n]
+		for len(chunk) >= nlMsgHdrLen {
+			length := int(binary.NativeEndian.Uint32(chunk[:4]))
+			if length < nlMsgHdrLen || length > len(chunk) {
+				return nil, errors.New("truncated route dump")
+			}
+			if binary.NativeEndian.Uint16(chunk[6:8])&unix.NLM_F_DUMP_INTR != 0 {
+				return nil, errors.New("interrupted route dump")
+			}
+			if binary.NativeEndian.Uint16(chunk[4:6]) == unix.NLMSG_DONE {
+				if length >= nlMsgHdrLen+4 && binary.NativeEndian.Uint32(chunk[nlMsgHdrLen:]) != 0 {
+					return nil, errors.New("route dump failed")
+				}
+				return netlinkMessages(raw)
+			}
+			if _, err := netlinkMessages(chunk[:length]); err != nil {
+				return nil, err
+			}
+			step := nlAlign(length)
+			if step > len(chunk) {
+				return nil, errors.New("truncated route dump alignment")
+			}
+			raw = append(raw, chunk[:step]...)
+			chunk = chunk[step:]
+		}
+		if len(chunk) != 0 {
+			return nil, errors.New("truncated route dump header")
+		}
+	}
+	return nil, errors.New("route dump timed out")
 }
 
 // rtAttr encodes one attribute, padded to the netlink alignment.

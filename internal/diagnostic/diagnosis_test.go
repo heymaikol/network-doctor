@@ -1,4 +1,4 @@
-// Table tests for Diagnose verdicts: generic and targeted runs, proxy-only
+// Table tests for Interpret verdicts: generic and targeted runs, proxy-only
 // networks, and the in-progress placeholder.
 
 package diagnostic
@@ -31,7 +31,7 @@ func TestDiagnoseGeneric(t *testing.T) {
 				ProbeInternet: {Status: c.internet},
 				ProbeDNS:      {Status: c.dns},
 			}
-			if v, _ := Diagnose(nil, order, res); !strings.Contains(v, c.want) {
+			if v := Interpret(nil, order, res).Summary; !strings.Contains(v, c.want) {
 				t.Errorf("got %q, want substring %q", v, c.want)
 			}
 		})
@@ -70,7 +70,7 @@ func TestDiagnoseProxy(t *testing.T) {
 				ProbeProxy:    {Status: c.proxy},
 				ProbeDNS:      {Status: c.dns},
 			}
-			if v, _ := Diagnose(nil, order, res); !strings.Contains(v, c.want) {
+			if v := Interpret(nil, order, res).Summary; !strings.Contains(v, c.want) {
 				t.Errorf("got %q, want substring %q", v, c.want)
 			}
 		})
@@ -78,7 +78,7 @@ func TestDiagnoseProxy(t *testing.T) {
 }
 
 // A proxy-only network whose resolver is also gone, assembled the way a real
-// run assembles it: raw probe results in, Finalize, then Diagnose. The direct
+// run assembles it: raw probe results in, Finalize, then Interpret. The direct
 // dial failed outright and only the environment proxy carries traffic, so the
 // summary may not open by saying internet egress works.
 func TestDiagnoseProxyOnlyBrokenDNS(t *testing.T) {
@@ -108,18 +108,18 @@ func TestDiagnoseProxyOnlyBrokenDNS(t *testing.T) {
 		t.Fatalf("DNS after Finalize = %v, want FAIL", res[ProbeDNS].Status)
 	}
 
-	summary, verdict := Diagnose(nil, order, res)
+	d := Interpret(nil, order, res)
 	want := "Direct egress is blocked and DNS resolution is failing; only the environment proxy is carrying traffic."
-	if summary != want {
-		t.Errorf("summary = %q, want %q", summary, want)
+	if d.Summary != want {
+		t.Errorf("summary = %q, want %q", d.Summary, want)
 	}
 	for _, claim := range []string{"Internet egress works", "Online"} {
-		if strings.Contains(summary, claim) {
-			t.Errorf("summary %q claims %q on a network with no direct egress", summary, claim)
+		if strings.Contains(d.Summary, claim) {
+			t.Errorf("summary %q claims %q on a network with no direct egress", d.Summary, claim)
 		}
 	}
-	if verdict != VerdictNetwork {
-		t.Errorf("verdict = %q, want %q", verdict, VerdictNetwork)
+	if d.Verdict != VerdictNetwork {
+		t.Errorf("verdict = %q, want %q", d.Verdict, VerdictNetwork)
 	}
 }
 
@@ -132,12 +132,12 @@ func TestDiagnoseTargetProxyOnly(t *testing.T) {
 		ProbeTargetTCP: {Status: StatusFail},
 	}
 	downgradeEgress(res)
-	if v, _ := Diagnose(tg, order, res); !strings.Contains(v, "proxy-only network") {
+	if v := Interpret(tg, order, res).Summary; !strings.Contains(v, "proxy-only network") {
 		t.Errorf("got %q, want a proxy-only verdict", v)
 	}
 	res[ProbeInternet] = ProbeResult{Status: StatusWarn}
 	res[ProbeTargetTCP] = ProbeResult{Status: StatusPass}
-	if v, _ := Diagnose(tg, order, res); !strings.Contains(v, "direct egress to the egress check's reference endpoints is degraded") {
+	if v := Interpret(tg, order, res).Summary; !strings.Contains(v, "direct egress to the egress check's reference endpoints is degraded") {
 		t.Errorf("got %q, want a degraded direct-egress verdict", v)
 	}
 }
@@ -145,7 +145,7 @@ func TestDiagnoseTargetProxyOnly(t *testing.T) {
 func TestDiagnoseIncomplete(t *testing.T) {
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS}
 	res := map[ProbeID]ProbeResult{ProbeIface: {Status: StatusPass}}
-	if v, _ := Diagnose(nil, order, res); !strings.Contains(v, "Running") {
+	if v := Interpret(nil, order, res).Summary; !strings.Contains(v, "Running") {
 		t.Errorf("incomplete should report running, got %q", v)
 	}
 }
@@ -178,9 +178,9 @@ func TestDiagnoseSelectionPreservesSupportedDiagnosis(t *testing.T) {
 			for id, result := range tc.overrides {
 				results[id] = result
 			}
-			wantSummary, wantVerdict := Diagnose(tg, order, results)
-			if wantVerdict != tc.verdict {
-				t.Fatalf("fixture verdict = %q, want %q (summary: %s)", wantVerdict, tc.verdict, wantSummary)
+			want := Interpret(tg, order, results)
+			if want.Verdict != tc.verdict {
+				t.Fatalf("fixture verdict = %q, want %q (summary: %s)", want.Verdict, tc.verdict, want.Summary)
 			}
 
 			omit := make(map[ProbeID]bool, len(tc.omit))
@@ -194,8 +194,8 @@ func TestDiagnoseSelectionPreservesSupportedDiagnosis(t *testing.T) {
 					selected = append(selected, id)
 				}
 			}
-			if summary, verdict := Diagnose(tg, selected, results); summary != wantSummary || verdict != wantVerdict {
-				t.Errorf("omitting %v changed diagnosis from %q/%q to %q/%q", tc.omit, wantSummary, wantVerdict, summary, verdict)
+			if got := Interpret(tg, selected, results); got.Summary != want.Summary || got.Verdict != want.Verdict {
+				t.Errorf("omitting %v changed diagnosis from %q/%q to %q/%q", tc.omit, want.Summary, want.Verdict, got.Summary, got.Verdict)
 			}
 		})
 	}
@@ -210,14 +210,14 @@ func TestDiagnoseDoesNotInferMissingEvidence(t *testing.T) {
 			ProbeDNS:       {Status: StatusPass},
 			ProbeTargetTCP: {Status: StatusFail},
 		}
-		summary, verdict := Diagnose(tg, order, results)
-		if verdict != VerdictNetwork || !strings.Contains(summary, "general internet reachability was not checked") {
-			t.Fatalf("Diagnose without internet evidence = %q/%q", summary, verdict)
+		d := Interpret(tg, order, results)
+		if d.Verdict != VerdictNetwork || !strings.Contains(d.Summary, "general internet reachability was not checked") {
+			t.Fatalf("diagnosis without internet evidence = %q/%q", d.Summary, d.Verdict)
 		}
 		results[ProbeInternet] = ProbeResult{Status: StatusPass}
 		order = append(order[:1], append([]ProbeID{ProbeInternet}, order[1:]...)...)
-		if _, verdict := Diagnose(tg, order, results); verdict != VerdictService {
-			t.Fatalf("Diagnose with internet evidence = %q, want %q", verdict, VerdictService)
+		if verdict := Interpret(tg, order, results).Verdict; verdict != VerdictService {
+			t.Fatalf("diagnosis with internet evidence = %q, want %q", verdict, VerdictService)
 		}
 	})
 
@@ -230,8 +230,8 @@ func TestDiagnoseDoesNotInferMissingEvidence(t *testing.T) {
 			ProbeTargetTCP: {Status: StatusPass},
 			ProbeTLS:       {Status: StatusFail, Cause: TLSCauseTimeout},
 		}
-		if summary, verdict := Diagnose(tg, order, results); verdict != VerdictService || strings.Contains(summary, "MTU") {
-			t.Fatalf("Diagnose without PMTU evidence = %q/%q", summary, verdict)
+		if d := Interpret(tg, order, results); d.Verdict != VerdictService || strings.Contains(d.Summary, "MTU") {
+			t.Fatalf("diagnosis without PMTU evidence = %q/%q", d.Summary, d.Verdict)
 		}
 	})
 
@@ -254,23 +254,24 @@ func TestDiagnoseTarget(t *testing.T) {
 		ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusFail},
 		ProbeTLS: {Status: StatusSkip}, ProbeHTTP: {Status: StatusPass}, ProbeHTTPS: {Status: StatusSkip},
 	}
-	if v, _ := Diagnose(tg, order, res); !strings.Contains(v, "unreachable") {
+	if v := Interpret(tg, order, res).Summary; !strings.Contains(v, "unreachable") {
 		t.Errorf("got %q, want 'unreachable'", v)
 	}
 
-	// Everything passes → Diagnose owns the shared all-clear verdict.
+	// Everything passes → Interpret owns the shared all-clear verdict.
 	for _, id := range order {
 		res[id] = ProbeResult{Status: StatusPass}
 	}
-	if v, _ := Diagnose(tg, order, res); !strings.Contains(v, "github.com:443 looks healthy") {
+	if v := Interpret(tg, order, res).Summary; !strings.Contains(v, "github.com:443 looks healthy") {
 		t.Errorf("got %q, want target healthy verdict", v)
 	}
 
 	// A raw egress failure must never fall through to the all-clear verdict,
-	// and with the target answering directly it must not be called an egress
-	// outage either.
+	// and with the target answering directly on a public address it must not be
+	// called an egress outage either.
+	res[ProbeTargetTCP] = ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("140.82.121.4")}
 	res[ProbeInternet] = ProbeResult{Status: StatusFail}
-	if v, _ := Diagnose(tg, order, res); !strings.Contains(v, "reference endpoints are what did not answer") {
+	if v := Interpret(tg, order, res).Summary; !strings.Contains(v, "reference endpoints are what did not answer") {
 		t.Errorf("got %q, want the reference-endpoint verdict", v)
 	}
 }
@@ -284,18 +285,18 @@ func TestDiagnoseTargetWarnings(t *testing.T) {
 			res[id] = ProbeResult{Status: StatusPass}
 		}
 		res[warning] = ProbeResult{Status: StatusWarn}
-		if v, _ := Diagnose(tg, order, res); !strings.Contains(v, "some checks are degraded") {
+		if v := Interpret(tg, order, res).Summary; !strings.Contains(v, "some checks are degraded") {
 			t.Errorf("%s warning: got %q, want degraded verdict", warning, v)
 		}
 	}
 }
 
-// FocusProbe is what lets the UI park the cursor, the remediation and the
+// Diagnosis.Focus is what lets the UI park the cursor, the remediation and the
 // evidence on the row the prose points at. It has to stay tied to the verdict
 // that was actually reached: a black hole preempted by a broken resolver
 // blames the resolver, or the cursor would land on Path MTU while the banner
 // talks about DNS.
-func TestFocusProbe(t *testing.T) {
+func TestDiagnosisFocus(t *testing.T) {
 	tg := mustTarget(t, "github.com")
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeProxy, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTP, ProbeHTTPS}
 	blackHole := map[ProbeID]ProbeResult{
@@ -341,8 +342,8 @@ func TestFocusProbe(t *testing.T) {
 			for id, r := range c.res {
 				res[id] = r
 			}
-			if got := FocusProbe(tg, order, res); got != c.want {
-				t.Errorf("FocusProbe = %q, want %q", got, c.want)
+			if got := Interpret(tg, order, res).Focus(); got != c.want {
+				t.Errorf("Focus = %q, want %q", got, c.want)
 			}
 		})
 	}
@@ -362,17 +363,17 @@ func TestUnverifiedPathMTUIsNotBlackHoleEvidence(t *testing.T) {
 		ProbePMTU: {Status: StatusNA,
 			Detail: "24 KiB accepted by the local TCP stack, but path-MTU delivery could not be verified: no TCP send-queue accounting on windows"},
 	}
-	summary, verdict := Diagnose(tg, order, unverified)
-	if strings.Contains(summary, "path MTU black hole") {
-		t.Errorf("summary = %q, want no black hole named: nothing measured one", summary)
+	got := Interpret(tg, order, unverified)
+	if strings.Contains(got.Summary, "path MTU black hole") {
+		t.Errorf("summary = %q, want no black hole named: nothing measured one", got.Summary)
 	}
 	// The comparison is the invariant: an unverified row is worth exactly as
 	// much as a row that never ran.
-	wantSummary, wantVerdict := Diagnose(tg, order, map[ProbeID]ProbeResult{ProbeTLS: stall})
-	if summary != wantSummary || verdict != wantVerdict {
-		t.Errorf("unverified Path MTU changed the answer to (%q, %q), want (%q, %q)", summary, verdict, wantSummary, wantVerdict)
+	want := Interpret(tg, order, map[ProbeID]ProbeResult{ProbeTLS: stall})
+	if got.Summary != want.Summary || got.Verdict != want.Verdict {
+		t.Errorf("unverified Path MTU changed the answer to (%q, %q), want (%q, %q)", got.Summary, got.Verdict, want.Summary, want.Verdict)
 	}
-	if focus := FocusProbe(tg, order, unverified); focus == ProbePMTU {
+	if focus := got.Focus(); focus == ProbePMTU {
 		t.Error("focus landed on a Path MTU row that established nothing")
 	}
 }
@@ -478,14 +479,14 @@ func TestVerdict(t *testing.T) {
 			for id, r := range c.res {
 				res[id] = r
 			}
-			if summary, got := Diagnose(c.target, c.order, res); got != c.want {
-				t.Errorf("Verdict = %q, want %q (summary: %s)", got, c.want, summary)
+			if d := Interpret(c.target, c.order, res); d.Verdict != c.want {
+				t.Errorf("Verdict = %q, want %q (summary: %s)", d.Verdict, c.want, d.Summary)
 			}
 		})
 	}
 
 	// An unfinished run must not claim health.
-	if _, got := Diagnose(tg, targetOrder, map[ProbeID]ProbeResult{ProbeIface: {Status: StatusPass}}); got != VerdictIncomplete {
+	if got := Interpret(tg, targetOrder, map[ProbeID]ProbeResult{ProbeIface: {Status: StatusPass}}).Verdict; got != VerdictIncomplete {
 		t.Errorf("Verdict on partial results = %q, want %q", got, VerdictIncomplete)
 	}
 }
@@ -636,7 +637,7 @@ func TestReconcileDNS(t *testing.T) {
 		}
 		reconcileDNS(res)
 		order := []ProbeID{ProbeDNS, ProbeDNSPublic}
-		if _, verdict := Diagnose(nil, order, res); verdict != VerdictOK {
+		if verdict := Interpret(nil, order, res).Verdict; verdict != VerdictOK {
 			t.Fatalf("verdict = %q, want public N/A to be neutral", verdict)
 		}
 	})
@@ -708,9 +709,9 @@ func TestDiagnoseSecondOpinionDNS(t *testing.T) {
 			}
 			res[ProbeDNS], res[ProbeDNSPublic] = tc.system, tc.public
 			reconcileDNS(res)
-			summary, verdict := Diagnose(tg, order, res)
-			if verdict != tc.verdict || !strings.Contains(summary, tc.want) {
-				t.Fatalf("Diagnose = (%q, %q), want %q and %q", summary, verdict, tc.want, tc.verdict)
+			d := Interpret(tg, order, res)
+			if d.Verdict != tc.verdict || !strings.Contains(d.Summary, tc.want) {
+				t.Fatalf("diagnosis = (%q, %q), want %q and %q", d.Summary, d.Verdict, tc.want, tc.verdict)
 			}
 		})
 	}
@@ -787,17 +788,17 @@ func TestDiagnoseLocalDeviceTargetTCPFailure(t *testing.T) {
 				delete(res, drop)
 				ids = slices.DeleteFunc(slices.Clone(ids), func(id ProbeID) bool { return id == drop })
 			}
-			summary, verdict := Diagnose(tg, ids, res)
-			if !strings.Contains(summary, c.want) {
-				t.Errorf("summary = %q, want substring %q", summary, c.want)
+			d := Interpret(tg, ids, res)
+			if !strings.Contains(d.Summary, c.want) {
+				t.Errorf("summary = %q, want substring %q", d.Summary, c.want)
 			}
-			if verdict != c.wantVerdict {
-				t.Errorf("verdict = %q, want %q", verdict, c.wantVerdict)
+			if d.Verdict != c.wantVerdict {
+				t.Errorf("verdict = %q, want %q", d.Verdict, c.wantVerdict)
 			}
 			// Whatever else it says, a local device's failure is never
 			// explained by the state of the route to the internet.
-			if strings.Contains(summary, "general internet") || strings.Contains(summary, "proxy-only") {
-				t.Errorf("summary = %q, which explains a local device by the internet path", summary)
+			if strings.Contains(d.Summary, "general internet") || strings.Contains(d.Summary, "proxy-only") {
+				t.Errorf("summary = %q, which explains a local device by the internet path", d.Summary)
 			}
 		})
 	}
@@ -824,7 +825,7 @@ func TestDiagnoseLocalTargetFollowsResolvedAddresses(t *testing.T) {
 				ProbeDNS:       {Status: StatusPass, Addrs: c.addrs},
 				ProbeTargetTCP: {Status: StatusFail},
 			}
-			if v, _ := Diagnose(mustTarget(t, "nas.lan:445"), order, res); !strings.Contains(v, c.want) {
+			if v := Interpret(mustTarget(t, "nas.lan:445"), order, res).Summary; !strings.Contains(v, c.want) {
 				t.Errorf("summary = %q, want substring %q", v, c.want)
 			}
 		})
@@ -859,11 +860,11 @@ func TestIPv6OnlyDefaultSecondOpinionDoesNotReadAsDNSTrouble(t *testing.T) {
 	if got := res[ProbeDNSPublic]; got.Status != StatusPass || got.resolver != "2001:4860:4860::8888" {
 		t.Fatalf("public row = %+v, want a pass credited to the resolver that answered", got)
 	}
-	summary, verdict := Diagnose(tg, order, res)
-	if verdict != VerdictOK {
-		t.Errorf("verdict = %q (%q), want %q: one unreachable resolver is not a DNS problem", verdict, summary, VerdictOK)
+	d := Interpret(tg, order, res)
+	if d.Verdict != VerdictOK {
+		t.Errorf("verdict = %q (%q), want %q: one unreachable resolver is not a DNS problem", d.Verdict, d.Summary, VerdictOK)
 	}
-	if strings.Contains(summary, "DNS") {
-		t.Errorf("summary = %q, want no DNS claim", summary)
+	if strings.Contains(d.Summary, "DNS") {
+		t.Errorf("summary = %q, want no DNS claim", d.Summary)
 	}
 }

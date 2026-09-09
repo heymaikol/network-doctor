@@ -38,12 +38,12 @@ tests:
   - {name: second A record survives the black hole, node: client, target: failover-target.test:80}
 
 expect:
-  verdict: ok
+  verdict: degraded
   checks:
     - {id: iface, status: PASS}
     - {id: internet_tcp, status: PASS}
     - {id: dns, status: PASS}
     - {id: dns_public, status: PASS}
-    - {id: target_tcp, status: PASS}
+    - {id: target_tcp, status: WARN}
     - {id: path_mtu, status: PASS}
     - {id: http, status: PASS}

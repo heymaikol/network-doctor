@@ -13,7 +13,7 @@ import (
 // The README's hero GIF is recorded by .github/workflows/demo.yml from
 // hero.tape. These tests hold the parts of that arrangement that break
 // silently: a recording is still produced when the tape has drifted off the
-// program, and each successful main recording can refresh the tracked GIF.
+// program, and each release tag's recording can refresh the tracked GIF.
 
 func demoWorkflow(t *testing.T) string {
 	t.Helper()
@@ -194,7 +194,7 @@ func TestDemoWorkflowPinsItsActionsAndItsVHS(t *testing.T) {
 	}
 }
 
-func TestDemoWorkflowRefreshesTheTrackedGIFOnMain(t *testing.T) {
+func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/demo.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -234,6 +234,7 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnMain(t *testing.T) {
 		t.Fatal("demo.yml does not run on pushes")
 	}
 	var pushFilter struct {
+		Tags        []string `yaml:"tags"`
 		Branches    []string `yaml:"branches"`
 		Paths       []string `yaml:"paths"`
 		PathsIgnore []string `yaml:"paths-ignore"`
@@ -241,8 +242,8 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnMain(t *testing.T) {
 	if err := push.Decode(&pushFilter); err != nil {
 		t.Fatalf("decode push trigger: %v", err)
 	}
-	if !slices.Equal(pushFilter.Branches, []string{"main"}) || len(pushFilter.Paths) != 0 || len(pushFilter.PathsIgnore) != 0 {
-		t.Errorf("demo.yml push filter = branches %q, paths %q, paths-ignore %q; want every push to main", pushFilter.Branches, pushFilter.Paths, pushFilter.PathsIgnore)
+	if !slices.Equal(pushFilter.Tags, []string{"v[0-9]+.[0-9]+.[0-9]+"}) || len(pushFilter.Branches) != 0 || len(pushFilter.Paths) != 0 || len(pushFilter.PathsIgnore) != 0 {
+		t.Errorf("demo.yml push filter = tags %q, branches %q, paths %q, paths-ignore %q; want every release tag", pushFilter.Tags, pushFilter.Branches, pushFilter.Paths, pushFilter.PathsIgnore)
 	}
 	if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != "write" {
 		t.Errorf("demo.yml permissions = %v, want only contents: write", workflow.Permissions)
@@ -273,16 +274,19 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnMain(t *testing.T) {
 	if commit == nil {
 		t.Fatal("demo.yml does not commit the changed recording")
 	}
-	if commit.If != "github.ref == 'refs/heads/main'" {
-		t.Errorf("demo.yml commit condition = %q, want only refs/heads/main", commit.If)
+	if commit.If != "" {
+		t.Errorf("demo.yml commit condition = %q; a release tag is the only trigger that reaches this step", commit.If)
+	}
+	if checkout.With["fetch-depth"] != "0" {
+		t.Error("demo.yml checkout is shallow; the ancestry check needs main's history")
 	}
 	if commit.Env["EXPECTED_HEAD"] != "${{ github.sha }}" {
 		t.Errorf("demo.yml expected head = %q, want the revision that was recorded", commit.Env["EXPECTED_HEAD"])
 	}
 
 	noChange := strings.Index(commit.Run, "git diff --quiet -- assets/hero.gif")
-	remoteHead := strings.Index(commit.Run, "git ls-remote origin refs/heads/main")
-	compareHead := strings.Index(commit.Run, `if test "$remote_head" != "$EXPECTED_HEAD"; then`)
+	remoteHead := strings.Index(commit.Run, "git fetch origin main")
+	compareHead := strings.Index(commit.Run, `if ! git merge-base --is-ancestor "$EXPECTED_HEAD" origin/main; then`)
 	rejectStale := strings.Index(commit.Run, "exit 1")
 	addGIF := strings.Index(commit.Run, "git add assets/hero.gif")
 	commitGIF := strings.Index(commit.Run, `git commit -m "Refresh README hero GIF"`)
@@ -294,7 +298,7 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnMain(t *testing.T) {
 	prev := -1
 	for _, position := range ordered {
 		if position < 0 || position <= prev {
-			t.Fatal("demo.yml must check for a changed GIF, reject an advanced main, then add, commit, and push the recording")
+			t.Fatal("demo.yml must check for a changed GIF, reject a tag that is not on main, then add, commit, and push the recording")
 		}
 		prev = position
 	}

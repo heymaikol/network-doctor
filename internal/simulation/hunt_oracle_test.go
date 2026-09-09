@@ -962,7 +962,8 @@ func TestScheduledFaultThatReachedNobodyIsNotObserved(t *testing.T) {
 // TestEveryMutationFamilyDeclaresItsHuntPath checks the production registry,
 // which is the authoritative classification. A missing decision is invalid, a
 // bug-oracle decision must name analyzer code that exists, and every generic
-// condition must remain reachable from at least one operator.
+// operator contract must remain reachable. Semantic comparisons can also cover
+// base scenarios and interactions without changing a retained generator's lane.
 func TestEveryMutationFamilyDeclaresItsHuntPath(t *testing.T) {
 	contracts := map[huntFindingContract]bool{
 		huntDNSFailureContract: true,
@@ -1015,6 +1016,11 @@ func TestEveryMutationFamilyDeclaresItsHuntPath(t *testing.T) {
 		claimed[contract] = true
 	}
 	for contract := range contracts {
+		if slices.ContainsFunc(semanticOracle, func(rule conditionRule) bool {
+			return huntFindingContract(rule.condition) == contract
+		}) {
+			continue
+		}
 		if !claimed[contract] {
 			t.Errorf("finding contract %q is claimed by no mutation family", contract)
 		}
@@ -1124,20 +1130,18 @@ func TestPreferredRouteFailureAndNoDefaultRouteCannotBothBeEstablished(t *testin
 	}
 }
 
-// TestPreferredRouteFailureRecognizesOnlyItsOwnCause is the other half. The
-// four route causes are one closed vocabulary carrying four different repairs,
-// so a diagnosis that names a neighbour has given the wrong answer rather than
-// a differently worded right one, and a cause on a passing row is context.
-func TestPreferredRouteFailureRecognizesOnlyItsOwnCause(t *testing.T) {
+// Selection metadata names no causal preferred-route fault, even on a failing
+// row. Only the simulator has the controlled alternate-path measurement.
+func TestPreferredRouteFailureIsNotRecognizedFromSelectionMetadata(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		checks []DiagnosisCheck
 		want   bool
 	}{
 		{"its own cause on a failing row", []DiagnosisCheck{{ID: "internet_tcp", Status: "FAIL",
-			Cause: diagnostic.RouteCausePreferredPathFailed}}, true},
+			Cause: diagnostic.RouteCausePreferredPathFailed}}, false},
 		{"its own cause on a warning row", []DiagnosisCheck{{ID: "internet_tcp", Status: "WARN",
-			Cause: diagnostic.RouteCausePreferredPathFailed}}, true},
+			Cause: diagnostic.RouteCausePreferredPathFailed}}, false},
 		{"its own cause on a passing row", []DiagnosisCheck{{ID: "internet_tcp", Status: "PASS",
 			Cause: diagnostic.RouteCausePreferredPathFailed}}, false},
 		{"no default route", []DiagnosisCheck{{ID: "internet_tcp", Status: "FAIL",
@@ -1180,13 +1184,28 @@ func TestPreferredRouteFailureMissReportsOneHighConfidenceFinding(t *testing.T) 
 	named := oracleReport(oracleDiagnosis(DiagnosisCheck{ID: "internet_tcp", Status: "WARN",
 		Cause:    diagnostic.RouteCausePreferredPathFailed,
 		Families: &DiagnosisFamilies{IPv4: FamilyStateUnreachable}}), preferredRouteEvidence())
-	if got := unrecognizedConditionFindings(named, truth); len(got) != 0 {
-		t.Fatalf("a recognized condition still produced %+v", got)
+	if got := unrecognizedConditionFindings(named, truth); len(got) != 1 || got[0].Expected != string(ConditionPreferredRouteFailed) {
+		t.Fatalf("selection metadata hid the unrecognized route condition: %+v", got)
 	}
 	// Intent is not truth: the same diagnosis over a network where nothing was
 	// observed accuses nobody, however loudly a manifest names the operator.
 	if got := unrecognizedConditionFindings(oracleReport(oracleDiagnosis(
 		DiagnosisCheck{ID: "internet_tcp", Status: "PASS"}), Evidence{}), ObservedTruth{}); len(got) != 0 {
 		t.Fatalf("an unobserved mutation produced %+v", got)
+	}
+}
+
+func TestPreferredRouteFailureRecognizesOnlyMeasuredCause(t *testing.T) {
+	for _, tc := range []struct {
+		row, status string
+		want        bool
+	}{
+		{"internet_tcp", "WARN", true}, {"internet_tcp", "FAIL", true},
+		{"internet_tcp", "PASS", false}, {"target_tcp", "WARN", false},
+	} {
+		d := oracleDiagnosis(DiagnosisCheck{ID: tc.row, Status: tc.status, Cause: diagnostic.RouteCausePreferredPathAlternateReachable})
+		if got := slices.Contains(recognizedConditions(d), ConditionPreferredRouteFailed); got != tc.want {
+			t.Errorf("%s/%s recognized = %v, want %v", tc.row, tc.status, got, tc.want)
+		}
 	}
 }

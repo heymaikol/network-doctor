@@ -736,8 +736,10 @@ func TestNoProxyBypasses(t *testing.T) {
 			scheme = "https"
 		}
 		t.Run(c.noProxy+"/"+scheme+"://"+c.host, func(t *testing.T) {
-			t.Setenv("NO_PROXY", c.noProxy)
+			// Lowercase first: Windows environment names are case-insensitive,
+			// so the two calls are one variable there and the last write wins.
 			t.Setenv("no_proxy", "")
+			t.Setenv("NO_PROXY", c.noProxy)
 			reqURL := &url.URL{Scheme: scheme, Host: c.host}
 			if got := noProxyBypasses(reqURL); got != c.want {
 				t.Errorf("noProxyBypasses(%q) with NO_PROXY=%q = %v, want %v", reqURL, c.noProxy, got, c.want)

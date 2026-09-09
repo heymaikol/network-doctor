@@ -87,6 +87,13 @@ func (r *HuntResult) writeCoverage(w io.Writer) {
 		fmt.Fprintf(w, "; %d of %d executed case(s) were oracle-comparable\n", coverage.OracleCases, r.ExecutedCases)
 		fmt.Fprintf(w, "  interaction: %d executed case(s) carried two or more independently observed faults at once\n",
 			coverage.MultiFaultCases)
+		var claimed, contradicted, unverified int
+		for _, condition := range coverage.Conditions {
+			claimed += condition.Claimed
+			contradicted += condition.Contradicted
+			unverified += condition.Unverified
+		}
+		fmt.Fprintf(w, "  claims:      %d assessed by reverse rules, %d independently contradicted, %d unverified\n", claimed, contradicted, unverified)
 	}
 	gaps := coverage.Gaps()
 	if len(gaps) == 0 {

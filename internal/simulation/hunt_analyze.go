@@ -772,6 +772,9 @@ func analyzeHuntCase(manifest GeneratedCaseManifest, report *Report, truth Obser
 	for _, finding := range familyContradictionFindings(report, truth) {
 		add(finding)
 	}
+	for _, finding := range unsupportedConditionFindings(report, truth) {
+		add(finding)
+	}
 	if truth.TCP == "reset" && !diagnosisClassifiedReset(report) {
 		add(HuntCaseFinding{Category: FindingCoverageGap, Severity: SeverityLow, Code: "tcp_reset_not_distinguished",
 			Probe: protocolProbe(report), Expected: "connection_reset",

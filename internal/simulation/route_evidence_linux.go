@@ -166,6 +166,20 @@ func (e *netnsEnv) Evidence(ctx context.Context) (Evidence, error) {
 	if err := e.observeRouteTables(ctx, &out); err != nil {
 		return Evidence{}, err
 	}
+	if err := e.observeResolvers(ctx, &out); err != nil {
+		return Evidence{}, err
+	}
+	// Lookup schedules can exhaust while either client is querying. Compare
+	// the entire service history, including our own exchanges, before calling
+	// the final resolver result stable. Preserve the original service snapshot.
+	later, err := readEvidence(paths)
+	if err != nil {
+		return Evidence{}, err
+	}
+	for i := range out.ResolverLookups {
+		item := &out.ResolverLookups[i]
+		item.Stable = item.Stable && resolverHistoryStable(later.DNSQueries, item.Name)
+	}
 	return out, nil
 }
 

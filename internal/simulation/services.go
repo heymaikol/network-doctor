@@ -988,6 +988,9 @@ func serveHolderCommands(ctx context.Context, r io.Reader, w io.Writer, dns map[
 // rather than answered, so a future director talking to an old holder blocks on
 // its own read deadline instead of acting on a misread reply.
 func holderCommandReply(line string, dns map[string]*dnsState) string {
+	if strings.HasPrefix(line, "lookup ") {
+		return holderLookupReply(strings.TrimPrefix(line, "lookup "))
+	}
 	if line == holderEvidenceCheck {
 		return holderEvidenceReady
 	}

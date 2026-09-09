@@ -962,7 +962,8 @@ func TestScheduledFaultThatReachedNobodyIsNotObserved(t *testing.T) {
 // TestEveryMutationFamilyDeclaresItsHuntPath checks the production registry,
 // which is the authoritative classification. A missing decision is invalid, a
 // bug-oracle decision must name analyzer code that exists, and every generic
-// condition must remain reachable from at least one operator.
+// operator contract must remain reachable. Semantic comparisons can also cover
+// base scenarios and interactions without changing a retained generator's lane.
 func TestEveryMutationFamilyDeclaresItsHuntPath(t *testing.T) {
 	contracts := map[huntFindingContract]bool{
 		huntDNSFailureContract: true,
@@ -1015,6 +1016,11 @@ func TestEveryMutationFamilyDeclaresItsHuntPath(t *testing.T) {
 		claimed[contract] = true
 	}
 	for contract := range contracts {
+		if slices.ContainsFunc(semanticOracle, func(rule conditionRule) bool {
+			return huntFindingContract(rule.condition) == contract
+		}) {
+			continue
+		}
 		if !claimed[contract] {
 			t.Errorf("finding contract %q is claimed by no mutation family", contract)
 		}

@@ -33,6 +33,20 @@ jobs:
           for script in packaging/completions/*.bash; do bash -n "$script"; done
           for script in packaging/completions/*.zsh; do zsh -n "$script"; done
           for script in packaging/completions/*.fish; do fish -n "$script"; done
+  
+  manpage-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mandoc
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y mandoc
+      - name: Check man page syntax
+        run: |
+          set -euo pipefail
+          mandoc -Tlint packaging/netdoc.1
+          mandoc -Tlint packaging/netdoc-sim.1
 
   test:
     strategy:

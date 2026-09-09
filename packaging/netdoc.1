@@ -1,6 +1,7 @@
 .TH NETDOC 1 "2026-09-02" "network-doctor" "User Commands"
 .SH NAME
-netdoc \- diagnose network connectivity and name the layer where the connection breaks
+netdoc \- diagnose network connectivity and name the layer where the
+ connection breaks
 .SH SYNOPSIS
 .B netdoc
 .RI [ flags ]
@@ -649,7 +650,6 @@ NAT traversal. At least one listener address must be directly reachable. A
 failed reverse connection can be consistent with filtering, routing, or NAT,
 but does not prove which one caused it.
 .SH EXAMPLES
-.PP
 Run the generic local and internet diagnosis:
 .PP
 .RS 4
@@ -812,8 +812,10 @@ and delete the file to clear what is already saved.
 .PP
 Full documentation, including the JSON report schema and the verdict table:
 .UR https://github.com/heymaikol/network-doctor
+network-doctor
 .UE
 .SH BUGS
 Report issues at
 .UR https://github.com/heymaikol/network-doctor/issues
+network-doctor/issues
 .UE

@@ -1,6 +1,7 @@
 .TH NETDOC\-SIM 1 "2026-09-05" "network-doctor" "User Commands"
 .SH NAME
-netdoc\-sim \- build throwaway virtual networks, run netdoc inside them, and score the diagnosis
+netdoc\-sim \- build throwaway virtual networks, run netdoc inside them,
+ and score the diagnosis
 .SH SYNOPSIS
 .B netdoc\-sim
 .I command
@@ -23,7 +24,8 @@ returns. Run
 to see what a run does on this machine and whether it can run at all.
 .PP
 The only backend that builds a live network is Linux namespaces.
-The separate Scenario Lab models observations in memory on Linux, macOS and Windows, without namespaces, network access, or a separate netdoc binary.
+The separate Scenario Lab models observations in memory on Linux, macOS
+ and Windows, without namespaces, network access, or a separate netdoc binary.
 .PP
 Each command parses its own flags. Flags may be given before or after a
 command's positional argument, and each accepts both the single-dash and
@@ -589,7 +591,6 @@ also a failed
 .B gh
 call.
 .SH EXAMPLES
-.PP
 Check whether this host can simulate at all:
 .PP
 .RS 4
@@ -703,8 +704,10 @@ Full documentation starting at
 including scenario authoring, the report schemas, the challenge contract, and
 how the container image is run:
 .UR https://github.com/heymaikol/network-doctor
+network-doctor
 .UE
 .SH BUGS
 Report issues at
 .UR https://github.com/heymaikol/network-doctor/issues
+network-doctor/issues
 .UE

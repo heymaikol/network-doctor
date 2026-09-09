@@ -148,22 +148,13 @@ func startService(ctx context.Context, svc Service, addresses []string, resolver
 		if err != nil {
 			return nil, nil, err
 		}
-		for _, ln := range listeners {
-			go serveHTTP(ln, svc, recorder)
-		}
-		return listenersAsClosers(listeners), nil, nil
+		return []io.Closer{startHTTPService(ctx, listeners, svc, recorder)}, nil, nil
 	case ServiceTCP:
 		listeners, err := listenTCPFamilies(addresses, port)
 		if err != nil {
 			return nil, nil, err
 		}
-		if svc.Banner != "" {
-			return []io.Closer{startBannerServer(ctx, listeners, svc.Banner)}, nil, nil
-		}
-		for _, ln := range listeners {
-			go serveSink(ln)
-		}
-		return listenersAsClosers(listeners), nil, nil
+		return []io.Closer{startTCPServer(ctx, listeners, svc.Banner)}, nil, nil
 	case ServiceTCPReset:
 		listeners, err := listenTCPFamilies(addresses, port)
 		if err != nil {
@@ -305,12 +296,13 @@ const portalSignInURL = "http://portal.test/signin"
 // /generate_204 path beside it is kept.
 const ncsiCleanBody = "Microsoft Connect Test\r\n"
 
-// serveHTTP answers netdoc's two connectivity probes with the clean responses
-// they document and everything else with the scenario's configured status. A
-// portal-mode service intercepts both of those paths instead, which is the
-// whole of what a captive portal looks like to the probes: a real portal grabs
-// whatever plain HTTP a client sends, not one provider's name.
-func serveHTTP(ln net.Listener, svc Service, recorder *evidenceRecorder) {
+// httpFixture builds the handler half of an HTTP service. It answers netdoc's
+// two connectivity probes with the clean responses they document and everything
+// else with the scenario's configured status. A portal-mode service intercepts
+// both of those paths instead, which is the whole of what a captive portal
+// looks like to the probes: a real portal grabs whatever plain HTTP a client
+// sends, not one provider's name.
+func httpFixture(svc Service, recorder *evidenceRecorder) *http.Server {
 	body := svc.Body
 	if body == "" {
 		body = "netdoc-sim\n"
@@ -356,38 +348,78 @@ func serveHTTP(ln net.Listener, svc Service, recorder *evidenceRecorder) {
 			mux.ServeHTTP(w, r)
 		})
 	}
-	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
-	// Serve returns when the node holder closes the listener on shutdown.
-	_ = srv.Serve(ln)
+	return &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 }
 
-// serveSink accepts a connection and drains it. Draining rather than closing:
-// netdoc's path-MTU probe writes a few megabytes and times how long the peer
-// takes to take them, and a peer that hangs up immediately would look like a
-// black hole on a healthy link.
-func serveSink(ln net.Listener) {
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
+// httpService owns one HTTP fixture: its listeners, the goroutine serving each
+// of them, and every connection those goroutines accept. Nothing it starts
+// outlives Close, so a node can be torn down without leaving a keep-alive
+// connection or a running handler behind.
+type httpService struct {
+	srv  *http.Server
+	stop func() bool
+	wg   sync.WaitGroup
+}
+
+func startHTTPService(ctx context.Context, listeners []net.Listener, svc Service, recorder *evidenceRecorder) *httpService {
+	s := &httpService{srv: httpFixture(svc, recorder)}
+	// One counter for both kinds of goroutine this service owns: the Serve loop
+	// per listener, and the goroutine net/http runs per accepted connection. A
+	// connection reaches StateClosed as the last act of that goroutine, so
+	// draining the counter is what proves the handler has returned.
+	s.srv.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			s.wg.Add(1)
+		case http.StateHijacked, http.StateClosed:
+			s.wg.Done()
 		}
+	}
+	for _, listener := range listeners {
+		s.wg.Add(1)
 		go func() {
-			defer conn.Close()
-			_, _ = io.Copy(io.Discard, conn)
+			defer s.wg.Done()
+			// Serve closes the listener it was handed before it returns, on the
+			// shutdown path and on the already-closed-server path alike.
+			_ = s.srv.Serve(listener)
 		}()
 	}
+	s.stop = context.AfterFunc(ctx, func() { _ = s.srv.Close() })
+	return s
 }
 
-type bannerServer struct {
+// Close is the abrupt shutdown rather than the graceful one: a scenario that is
+// over wants its sockets gone now, not once a client's keep-alive idles out.
+// Server.Close closes the listeners, waits for the Serve loops that own them,
+// then closes every accepted connection, which unblocks the connection
+// goroutines; the wait joins them.
+func (s *httpService) Close() error {
+	s.stop()
+	err := s.srv.Close()
+	s.wg.Wait()
+	if errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
+}
+
+// tcpServer is the plain TCP fixture, with or without a banner. It drains what
+// a client writes rather than hanging up: netdoc's path-MTU probe writes a few
+// megabytes and times how long the peer takes to take them, and a peer that hung
+// up immediately would look like a black hole on a healthy link. Draining is
+// unbounded, so every accepted connection is tied to the service's context and
+// joined by Close; otherwise a client that never hangs up keeps a goroutine of a
+// finished scenario alive.
+type tcpServer struct {
 	listeners []net.Listener
 	cancel    context.CancelFunc
 	banner    string
 	wg        sync.WaitGroup
 }
 
-func startBannerServer(parent context.Context, listeners []net.Listener, banner string) *bannerServer {
+func startTCPServer(parent context.Context, listeners []net.Listener, banner string) *tcpServer {
 	ctx, cancel := context.WithCancel(parent)
-	s := &bannerServer{listeners: listeners, cancel: cancel, banner: banner}
+	s := &tcpServer{listeners: listeners, cancel: cancel, banner: banner}
 	for _, listener := range listeners {
 		s.wg.Add(1)
 		go s.serve(ctx, listener)
@@ -395,28 +427,32 @@ func startBannerServer(parent context.Context, listeners []net.Listener, banner 
 	return s
 }
 
-func (s *bannerServer) serve(ctx context.Context, listener net.Listener) {
+func (s *tcpServer) serve(ctx context.Context, listener net.Listener) {
 	defer s.wg.Done()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			return
 		}
+		// Counted from the accept loop, which is itself still counted, so Close's
+		// wait cannot return between an accept and the connection being tracked.
 		s.wg.Add(1)
 		go func(conn net.Conn) {
 			defer s.wg.Done()
 			defer conn.Close()
 			stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 			defer stop()
-			if _, err := io.WriteString(conn, s.banner); err != nil {
-				return
+			if s.banner != "" {
+				if _, err := io.WriteString(conn, s.banner); err != nil {
+					return
+				}
 			}
 			_, _ = io.Copy(io.Discard, conn)
 		}(conn)
 	}
 }
 
-func (s *bannerServer) Close() error {
+func (s *tcpServer) Close() error {
 	s.cancel()
 	err := closeServices(listenersAsClosers(s.listeners))
 	s.wg.Wait()

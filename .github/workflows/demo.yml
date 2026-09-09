@@ -1,20 +1,20 @@
 name: demo
 
 # Records the README's hero GIF from hero.tape on a disposable Linux runner
-# after every push to main or a manual request. VHS, ttyd and ffmpeg all come
+# for every release tag or a manual request. VHS, ttyd and ffmpeg all come
 # from the official action.
 #
 # The recording uses live probes, so latencies and spinner phases make fresh
 # recordings differ byte for byte. After verification, the tracked GIF follows
-# the newest successful recording from main and is also uploaded for review.
+# the newest successful recording and is also uploaded for review.
 #
-# Checkout persists the job's GITHUB_TOKEN for the final git push. GitHub does
-# not create workflow runs for events caused by that token, so the generated
-# commit cannot recursively trigger this push workflow.
+# Checkout persists the job's GITHUB_TOKEN for the final git push. The tag a
+# release is cut from is already on main, so the refreshed recording lands
+# there; release.yml has verified that ancestry by the time this runs.
 
 on:
   push:
-    branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
 
 permissions:
@@ -30,6 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Full history so the ancestry check below has main to compare with.
+          fetch-depth: 0
           persist-credentials: true
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -82,7 +84,6 @@ jobs:
           path: assets/hero.gif
           if-no-files-found: error
       - name: Commit the changed recording
-        if: github.ref == 'refs/heads/main'
         env:
           EXPECTED_HEAD: ${{ github.sha }}
         run: |
@@ -91,9 +92,9 @@ jobs:
             echo "assets/hero.gif is unchanged"
             exit 0
           fi
-          remote_head=$(git ls-remote origin refs/heads/main | cut -f1)
-          if test "$remote_head" != "$EXPECTED_HEAD"; then
-            echo "::error::main advanced from $EXPECTED_HEAD to $remote_head; refusing to attach an obsolete recording"
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$EXPECTED_HEAD" origin/main; then
+            echo "::error::$EXPECTED_HEAD is not on main; refusing to push a recording there"
             exit 1
           fi
           git config user.name "github-actions[bot]"

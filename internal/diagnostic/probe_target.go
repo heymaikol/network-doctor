@@ -317,6 +317,15 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 	}
 }
 
+// readBannerLine reads one banner line and reports whether it is complete. A
+// line without its "\n" delimiter was cut short by EOF, a reset, the read
+// deadline or the byte limit, so it is a fragment of what the peer meant to
+// send and never a valid protocol greeting, however it starts.
+func readBannerLine(br *bufio.Reader) (line string, complete bool, err error) {
+	line, err = br.ReadString('\n')
+	return strings.TrimRight(line, "\r\n"), err == nil, err
+}
+
 func (o *netops) bannerProbe(id ProbeID, label string, port int) Probe {
 	return Probe{ID: id, Name: label, Deps: []ProbeID{ProbeTargetTCP}, Run: func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
 		var r ProbeResult
@@ -347,21 +356,14 @@ func (o *netops) bannerProbe(id ProbeID, label string, port int) Probe {
 		// Strict byte limit: a hostile server streaming without a newline can't
 		// exhaust memory.
 		br := bufio.NewReader(io.LimitReader(conn, 1024))
-		line, readErr := br.ReadString('\n')
-		line = strings.TrimRight(line, "\r\n")
+		line, complete, readErr := readBannerLine(br)
 		first := line
 		// RFC 4253 section 4.2 lets an SSH server send other lines of data
 		// before its identification string, and forbids those lines from
 		// starting with "SSH-". Keep reading complete lines under the same byte
 		// limit and read deadline until the identification string shows up.
-		for id == ProbeSSH && readErr == nil && !strings.HasPrefix(line, "SSH-") {
-			line, readErr = br.ReadString('\n')
-			if readErr != nil {
-				// No delimiter, so the byte limit or the deadline cut this line
-				// short. A truncated line is not an identification string.
-				line = ""
-			}
-			line = strings.TrimRight(line, "\r\n")
+		for id == ProbeSSH && complete && !strings.HasPrefix(line, "SSH-") {
+			line, complete, readErr = readBannerLine(br)
 			if first == "" {
 				first = line
 			}
@@ -373,8 +375,8 @@ func (o *netops) bannerProbe(id ProbeID, label string, port int) Probe {
 		} else if first == "" {
 			// Port answered but the service said nothing: functional, degraded.
 			r.Status, r.Detail = StatusWarn, "connected, no banner within deadline"
-		} else if valid := id == ProbeSSH && strings.HasPrefix(line, "SSH-") ||
-			id == ProbeSMTP && (strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-")); !valid {
+		} else if valid := complete && (id == ProbeSSH && strings.HasPrefix(line, "SSH-") ||
+			id == ProbeSMTP && (strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-"))); !valid {
 			r.Status, r.Detail = StatusFail, "unexpected service banner: "+first
 		} else {
 			r.Status, r.Detail = StatusPass, "banner: "+line

@@ -376,3 +376,23 @@ jobs:
           netdoc --version
           netdoc-sim version
           SMOKE
+
+      # Like the deb and rpm installation checks, exercise the package manager
+      # itself in a clean container. No network ensures the install cannot
+      # silently succeed by fetching an unexpected package dependency.
+      - name: Install the APK in a clean Alpine container
+        run: |
+          set -euo pipefail
+          docker run --rm -i --network none \
+            -v "$PWD/dist:/dist:ro" \
+            alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b \
+            sh -eu <<'SMOKE'
+          test -z "$(command -v netdoc)"
+          test -z "$(command -v netdoc-sim)"
+          apk add --allow-untrusted /dist/*_linux_amd64.apk
+          apk info -e network-doctor
+          test "$(command -v netdoc)" = /usr/bin/netdoc
+          test "$(command -v netdoc-sim)" = /usr/bin/netdoc-sim
+          netdoc --version
+          netdoc-sim version
+          SMOKE

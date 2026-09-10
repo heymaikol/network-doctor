@@ -496,3 +496,54 @@ func TestSupportKeepsTheRecordedAnswerComparison(t *testing.T) {
 		}
 	}
 }
+
+// ConnectCleartext is a boolean about the proxy transport, not about anyone: it
+// names no host, address, credential, or interface, so the sanitizer keeps it
+// rather than dropping it with the text it was observed beside. A support
+// artifact that lost it would report a proxied run as if the hop had never been
+// looked at.
+func TestSupportKeepsTheCleartextConnectObservation(t *testing.T) {
+	s := Snapshot{
+		Schema: Schema, CreatedAt: "2026-08-25T17:00:00Z",
+		Checks: []Check{{
+			ID: "proxy_connect", Name: "Internet (env proxy)", Status: StatusPass, Ran: true, DurationMs: 30,
+			Detail:   "proxy proxy.corp:3128 tunnels to example.com:443 in 30ms",
+			Observed: &Observed{ConnectCleartext: true, SourceIP: "192.0.2.44"},
+		}},
+		Diagnosis: Diagnosis{Verdict: "ok", Summary: "The network works."},
+	}
+	data, err := Encode(SanitizeForSupport(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.Checks[0].Observed.ConnectCleartext {
+		t.Errorf("sanitization dropped connect_cleartext:\n%s", data)
+	}
+	if strings.Contains(string(data), "proxy.corp") || strings.Contains(string(data), "192.0.2.44") {
+		t.Errorf("keeping the observation also kept what it was observed beside:\n%s", data)
+	}
+}
+
+// The other half of the policy: false is absent, so an artifact never asserts a
+// TLS hop it did not confirm.
+func TestSupportOmitsAnUnrecordedCleartextObservation(t *testing.T) {
+	s := Snapshot{
+		Schema: Schema, CreatedAt: "2026-08-25T17:00:00Z",
+		Checks: []Check{{
+			ID: "proxy_connect", Name: "Internet (env proxy)", Status: StatusPass, Ran: true, DurationMs: 30,
+			Detail: "proxy tunnels", Observed: &Observed{ConnectCleartext: false},
+		}},
+		Diagnosis: Diagnosis{Verdict: "ok", Summary: "The network works."},
+	}
+	data, err := Encode(SanitizeForSupport(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "connect_cleartext") {
+		t.Errorf("false connect_cleartext was encoded rather than omitted:\n%s", data)
+	}
+}

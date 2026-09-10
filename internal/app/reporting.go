@@ -79,16 +79,17 @@ func buildReport(t *diagnostic.Target, probes []diagnostic.Probe, results map[di
 			rep.FailedStage = string(p.ID)
 		}
 		c := report.Check{
-			ID:              string(p.ID),
-			Name:            p.Name,
-			Status:          status,
-			Cause:           r.Cause,
-			Ms:              diagnostic.Ms(r.Dur),
-			Detail:          r.Detail,
-			Fix:             r.Fix,
-			ResolverTargets: append([]string(nil), r.ResolverTargets...),
-			Iface:           r.Iface,
-			Network:         r.Network,
+			ID:               string(p.ID),
+			Name:             p.Name,
+			Status:           status,
+			Cause:            r.Cause,
+			Ms:               diagnostic.Ms(r.Dur),
+			Detail:           r.Detail,
+			Fix:              r.Fix,
+			ResolverTargets:  append([]string(nil), r.ResolverTargets...),
+			Iface:            r.Iface,
+			Network:          r.Network,
+			ConnectCleartext: r.ConnectCleartext,
 		}
 		if r.Families != nil {
 			c.Families = &report.Families{IPv4: r.Families.IPv4, IPv6: r.Families.IPv6}
@@ -208,7 +209,10 @@ func reportText(r report.Report) string {
 	b.WriteString("\nchecks:\n")
 	for _, c := range r.Checks {
 		fmt.Fprintf(&b, "  [%s] %s: %s\n", clean(c.Status), clean(c.Name), clean(c.Detail))
-		if c.Fix != "" && (c.Status == diagnostic.StatusFail.String() || c.Status == diagnostic.StatusWarn.String()) {
+		// A working http:// proxy row keeps its earned status, so its advice
+		// would otherwise never be shown: the cleartext observation is the one
+		// non-failing result that carries a line worth reading.
+		if c.Fix != "" && (c.Status == diagnostic.StatusFail.String() || c.Status == diagnostic.StatusWarn.String() || c.ConnectCleartext) {
 			b.WriteString("        fix: " + clean(c.Fix) + "\n")
 		}
 		if c.Portal != nil && c.Portal.RedirectURL != "" {

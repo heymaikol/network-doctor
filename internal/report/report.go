@@ -139,6 +139,16 @@ type Check struct {
 	// and omitted where the platform cannot answer, which is never the same as
 	// "no route": an entry with unreachable set says that.
 	Routes []Route `json:"routes,omitempty"`
+	// ConnectCleartext is true when this row reached its result over a plaintext
+	// HTTP CONNECT: the destination hostname was sent to the proxy without TLS on
+	// the client-to-proxy hop. It describes the proxy transport the configuration
+	// selected and is not a claim that anything on the path read the name. Absent
+	// (omitted) means the observation was not recorded, which covers a row that
+	// used TLS to the proxy, a non-proxy row, a proxy the run never reached, and
+	// a CONNECT the proxy refused after the destination hostname was already on
+	// the wire. It never means a TLS hop was confirmed, and never means that no
+	// cleartext hostname was sent.
+	ConnectCleartext bool `json:"connect_cleartext,omitempty"`
 }
 
 // Route is one destination's selected path as the operating system reported

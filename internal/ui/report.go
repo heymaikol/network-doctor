@@ -137,7 +137,10 @@ func (m model) report() string {
 	for _, p := range m.probes {
 		r := m.results[p.ID]
 		fmt.Fprintf(&b, "  [%s] %s: %s\n", r.Status, p.Name, r.Detail)
-		if (r.Status == diagnostic.StatusFail || r.Status == diagnostic.StatusWarn) && r.Fix != "" {
+		// A working http:// proxy row keeps its earned status, so its advice
+		// would otherwise never be shown: the cleartext observation is the one
+		// non-failing result that carries a line worth reading.
+		if (r.Status == diagnostic.StatusFail || r.Status == diagnostic.StatusWarn || r.ConnectCleartext) && r.Fix != "" {
 			b.WriteString("        fix: " + r.Fix + "\n")
 		}
 		if r.Portal != nil && r.Portal.RedirectURL != "" {

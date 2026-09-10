@@ -141,6 +141,10 @@
           "type": "array",
           "description": "The operating system's own route decision for each destination this check was about. Omitted where the platform cannot be asked, which is not the same as having no route.",
           "items": { "$ref": "#/$defs/Route" }
+        },
+        "connect_cleartext": {
+          "type": "boolean",
+          "description": "True when this row reached its result over a plaintext HTTP CONNECT, meaning the destination hostname was sent to the proxy without TLS on the client-to-proxy hop. It describes the proxy transport the configuration selected and is not a claim that anything on the path read the name. Recorded only for a tunnel that succeeded. Omitted when false, which means the observation was not recorded (a row that used TLS to the proxy, a non-proxy row, a proxy the run never reached, or a CONNECT the proxy refused after the destination hostname was already on the wire) and never that a TLS hop was confirmed or that no cleartext hostname was sent."
         }
       }
     },

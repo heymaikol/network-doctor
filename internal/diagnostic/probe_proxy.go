@@ -220,8 +220,24 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 		}
 		return r
 	}
-	return o.proxyTunnelOK(ctx, conn, addr, rtt)
+	r = o.proxyTunnelOK(ctx, conn, addr, rtt)
+	// An http:// proxy carried the CONNECT, and its destination line, over a bare
+	// TCP hop: the destination hostname reached the proxy without TLS. Record the
+	// observation on the working row. This is the transport the configuration
+	// chose, not a statement that anything read the name; the SOCKS and https://
+	// paths do not reach here.
+	if proxyURL.Scheme == "http" {
+		r.ConnectCleartext = true
+		r.Detail += "; the CONNECT destination hostname is sent to the proxy without TLS"
+		r.Fix = cleartextConnectAdvice
+	}
+	return r
 }
+
+// cleartextConnectAdvice hangs off a working http:// proxy row. It does not
+// assert that an https:// endpoint exists, because this probe never tested one;
+// it names the hop that is exposed and what to check.
+const cleartextConnectAdvice = "an http:// proxy sends the CONNECT destination hostname in cleartext on the client-to-proxy hop; if this proxy also offers a TLS listener, an https:// proxy URL encrypts that hop, but verify the TLS endpoint works before relying on it"
 
 // proxyTunnelOK builds the PASS result shared by the CONNECT and SOCKS5 paths.
 func (o *netops) proxyTunnelOK(ctx context.Context, conn net.Conn, addr string, rtt time.Duration) ProbeResult {

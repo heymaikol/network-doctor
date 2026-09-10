@@ -174,6 +174,25 @@ func reportScenarios() []reportScenario {
 			},
 		},
 		{
+			// A working http:// proxy row, which is where the additive
+			// connect_cleartext observation appears: the tunnel passed, and the
+			// row records that the CONNECT destination hostname reached the proxy
+			// without TLS on the client-to-proxy hop.
+			name:   "proxy cleartext connect",
+			target: target,
+			probes: []diagnostic.Probe{probe(diagnostic.ProbeIface, "Interface"), probe(diagnostic.ProbeProxy, "Internet (env proxy)")},
+			results: map[diagnostic.ProbeID]diagnostic.ProbeResult{
+				diagnostic.ProbeIface: {Status: diagnostic.StatusPass, Dur: time.Millisecond, Detail: "interface wlan0 is up"},
+				diagnostic.ProbeProxy: {
+					Status:           diagnostic.StatusPass,
+					Dur:              30 * time.Millisecond,
+					Detail:           "proxy proxy.corp:3128 tunnels to 203.0.113.9:443 in 30ms; the CONNECT destination hostname is sent to the proxy without TLS",
+					Fix:              "an http:// proxy sends the CONNECT destination hostname in cleartext on the client-to-proxy hop; if this proxy also offers a TLS listener, an https:// proxy URL encrypts that hop, but verify the TLS endpoint works before relying on it",
+					ConnectCleartext: true,
+				},
+			},
+		},
+		{
 			// Every status a row can carry at once, including the INCOMPLETE
 			// that no probe returns: the TLS row is in the check set and absent
 			// from the results, which is what an interrupted run leaves behind.
@@ -347,6 +366,7 @@ func TestPublishedReportsValidateAgainstSchema(t *testing.T) {
 		"counterfactual", "alternative_evidence", "remediation", "remediation_command", "remediation_steps",
 		"address_families", "portal", "attempts", "attempt_error", "attempt_aborted", "addrs",
 		"resolver_targets", "routes", "route_metric", "route_competing", "route_tunnel", "route_reason", "cause", "fix",
+		"connect_cleartext",
 	} {
 		if !covered[want] {
 			t.Errorf("no scenario produced %s, so that part of the schema is unvalidated", want)
@@ -369,6 +389,7 @@ func recordCoverage(rep report.Report, covered, statuses map[string]bool) {
 			"cause": c.Cause != "", "fix": c.Fix != "", "addrs": len(c.Addrs) > 0,
 			"resolver_targets": len(c.ResolverTargets) > 0, "address_families": c.Families != nil,
 			"portal": c.Portal != nil, "attempts": len(c.Attempts) > 0, "routes": len(c.Routes) > 0,
+			"connect_cleartext": c.ConnectCleartext,
 		} {
 			covered[key] = covered[key] || present
 		}

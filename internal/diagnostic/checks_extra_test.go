@@ -838,6 +838,65 @@ func TestProxyProbeConnectOK(t *testing.T) {
 	}
 }
 
+// A working http:// proxy carried the CONNECT over a bare TCP hop, so the row
+// records the cleartext-hostname observation and hedged advice, while staying a
+// clean PASS. The observation is deterministic from the scheme.
+func TestProxyProbeConnectCleartextObservation(t *testing.T) {
+	conn := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}
+	ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
+		return conn, nil
+	})
+	r := ops.proxyProbe(context.Background(), nil)
+	if r.Status != StatusPass {
+		t.Fatalf("granted CONNECT = %+v, want PASS", r)
+	}
+	if !r.ConnectCleartext {
+		t.Error("http:// proxy did not set ConnectCleartext")
+	}
+	if !strings.Contains(r.Detail, "without TLS") {
+		t.Errorf("detail = %q, want it to note the cleartext hop", r.Detail)
+	}
+	if !strings.Contains(r.Fix, "cleartext") {
+		t.Errorf("fix = %q, want cleartext advice", r.Fix)
+	}
+	// The advice must not assert an https:// endpoint exists, only how to check.
+	if !strings.Contains(r.Fix, "verify") {
+		t.Errorf("fix = %q, want it to hedge the https:// suggestion", r.Fix)
+	}
+}
+
+// https:// and SOCKS5 proxies wrap or do not use the plaintext HTTP CONNECT, so
+// they must never carry the cleartext observation.
+func TestProxyProbeNonHTTPProxiesAreNotCleartext(t *testing.T) {
+	t.Run("https", func(t *testing.T) {
+		conn := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}
+		ops := proxyOps("https://proxy.corp:3129", nil)
+		ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+			return conn, nil
+		}
+		r := ops.proxyProbe(context.Background(), nil)
+		if r.Status != StatusPass {
+			t.Fatalf("granted CONNECT = %+v, want PASS", r)
+		}
+		if r.ConnectCleartext {
+			t.Error("https:// proxy set ConnectCleartext, want false")
+		}
+	})
+	t.Run("socks5", func(t *testing.T) {
+		conn := &scriptConn{r: strings.NewReader(socks5Reply)}
+		ops := proxyOps("socks5://proxy.corp", func(context.Context, string, string) (net.Conn, error) {
+			return conn, nil
+		})
+		r := ops.proxyProbe(context.Background(), nil)
+		if r.Status != StatusPass {
+			t.Fatalf("granted CONNECT = %+v, want PASS", r)
+		}
+		if r.ConnectCleartext {
+			t.Error("socks5 proxy set ConnectCleartext, want false")
+		}
+	})
+}
+
 func TestProxyProbeRejectsUnboundedRead(t *testing.T) {
 	conn := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n"), readDeadlineErr: errors.New("unsupported")}
 	ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {

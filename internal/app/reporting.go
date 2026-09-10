@@ -79,16 +79,17 @@ func buildReport(t *diagnostic.Target, probes []diagnostic.Probe, results map[di
 			rep.FailedStage = string(p.ID)
 		}
 		c := report.Check{
-			ID:              string(p.ID),
-			Name:            p.Name,
-			Status:          status,
-			Cause:           r.Cause,
-			Ms:              diagnostic.Ms(r.Dur),
-			Detail:          r.Detail,
-			Fix:             r.Fix,
-			ResolverTargets: append([]string(nil), r.ResolverTargets...),
-			Iface:           r.Iface,
-			Network:         r.Network,
+			ID:               string(p.ID),
+			Name:             p.Name,
+			Status:           status,
+			Cause:            r.Cause,
+			Ms:               diagnostic.Ms(r.Dur),
+			Detail:           r.Detail,
+			Fix:              r.Fix,
+			ResolverTargets:  append([]string(nil), r.ResolverTargets...),
+			Iface:            r.Iface,
+			Network:          r.Network,
+			ConnectCleartext: r.ConnectCleartext,
 		}
 		if r.Families != nil {
 			c.Families = &report.Families{IPv4: r.Families.IPv4, IPv6: r.Families.IPv6}

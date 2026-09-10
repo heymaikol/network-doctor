@@ -154,6 +154,7 @@ func observedFrom(r ProbeResult) *snapshot.Observed {
 		SSID:               r.Network,
 		Timeout:            r.timedOut,
 		InterfaceAmbiguous: r.ifaceAmbiguous,
+		ConnectCleartext:   r.ConnectCleartext,
 	}
 	for _, ip := range r.Addrs {
 		o.Addresses = append(o.Addresses, ip.String())

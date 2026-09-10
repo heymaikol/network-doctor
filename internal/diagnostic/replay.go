@@ -170,6 +170,7 @@ func replayResult(id ProbeID, status Status, check snapshot.Check) (ProbeResult,
 	result.Network = observed.SSID
 	result.timedOut = observed.Timeout
 	result.ifaceAmbiguous = observed.InterfaceAmbiguous
+	result.ConnectCleartext = observed.ConnectCleartext
 	if observed.Families != nil {
 		if err := replayFamilies(observed.Families); err != nil {
 			return ProbeResult{}, err

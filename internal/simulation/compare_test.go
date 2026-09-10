@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/report"
 )
 
@@ -502,6 +503,67 @@ func TestCompareTreatsAddressFamiliesAsPresentOnlyWhenClaimed(t *testing.T) {
 			o.compare(Expect{Verdict: "ok", Checks: []ExpectedCheck{tc.expect}}, 4*time.Second)
 			if len(o.Checks) != 1 || o.Checks[0].Outcome != tc.wantOutcome {
 				t.Fatalf("outcome = %+v, want %s", o.Checks, tc.wantOutcome)
+			}
+		})
+	}
+}
+
+// TestCompareTimeoutClassification pins what puts a row in TimedOut. The
+// probe's own elapsed clock starts inside the deadline it races and Ms
+// truncates, so a genuine expiry routinely records just under the budget;
+// classification has to rest on the cause netdoc recorded, not on that
+// comparison.
+func TestCompareTimeoutClassification(t *testing.T) {
+	timeout := time.Second
+	cases := []struct {
+		name  string
+		check DiagnosisCheck
+		want  bool
+	}{
+		{"genuine timeout just under the budget", DiagnosisCheck{ID: "target_tcp", Status: "FAIL", Ms: 999,
+			Attempts: []DiagnosisAttempt{{IP: "10.77.0.20", Ms: 998, Error: "dial tcp4 10.77.0.20:2222: i/o timeout",
+				Cause: diagnostic.ConnectionCauseTimeout, Aborted: true}}}, true},
+		{"probe row classified as a timeout", DiagnosisCheck{ID: "quic_udp_443", Status: "FAIL", Ms: 900,
+			Cause: diagnostic.QUICCauseTimeout}, true},
+		{"resolver timeout", DiagnosisCheck{ID: "dns", Status: "FAIL", Ms: 900,
+			Cause: diagnostic.DNSCauseTimeout}, true},
+		{"fast definite refusal", DiagnosisCheck{ID: "target_tcp", Status: "FAIL", Ms: 20,
+			Cause: diagnostic.ConnectionCauseRefused,
+			Attempts: []DiagnosisAttempt{{IP: "10.77.0.20", Ms: 20, Error: "connect: connection refused",
+				Cause: diagnostic.ConnectionCauseRefused}}}, false},
+		{"unreachable address", DiagnosisCheck{ID: "internet_tcp", Status: "FAIL", Ms: 12,
+			Attempts: []DiagnosisAttempt{{IP: "10.77.0.20", Ms: 12, Error: "connect: network is unreachable",
+				Cause: diagnostic.ConnectionCauseUnreachable}}}, false},
+		{"cancellation is not a timeout", DiagnosisCheck{ID: "target_tcp", Status: "FAIL", Ms: 999,
+			Attempts: []DiagnosisAttempt{{IP: "10.77.0.20", Ms: 998, Error: "operation was canceled",
+				Cause: diagnostic.ConnectionCauseCanceled, Aborted: true}}}, false},
+		{"a temporary resolver failure is an answer", DiagnosisCheck{ID: "dns", Status: "FAIL", Ms: 30,
+			Cause: diagnostic.DNSCauseTemporaryFailure}, false},
+		{"a TLS certificate rejection is an answer", DiagnosisCheck{ID: "tls", Status: "FAIL", Ms: 40,
+			Cause: diagnostic.TLSCauseCertificateExpired}, false},
+		{"a proxy protocol failure is an answer", DiagnosisCheck{ID: "proxy_connect", Status: "FAIL", Ms: 15,
+			Cause: diagnostic.ProxyCauseProtocol}, false},
+		// Reports captured before netdoc recorded causes carry nothing but the
+		// elapsed time, so the original comparison stays as the fallback.
+		{"legacy row with no cause at all", DiagnosisCheck{ID: "dns", Status: "FAIL", Ms: 1000}, true},
+		{"legacy row that answered quickly", DiagnosisCheck{ID: "dns", Status: "FAIL", Ms: 30}, false},
+		// Only a failure can be a timeout: a slow row that still answered spent
+		// the budget getting somewhere.
+		{"a passing row that waited", DiagnosisCheck{ID: "internet_tcp", Status: "PASS", Ms: 1200,
+			Attempts: []DiagnosisAttempt{{IP: "10.77.0.20", Ms: 999, Cause: diagnostic.ConnectionCauseTimeout}}}, false},
+		// One address answered and the other never did: the row was still paced
+		// by the deadline the silent address ran out.
+		{"one refused address and one silent one", DiagnosisCheck{ID: "target_tcp", Status: "FAIL", Ms: 999,
+			Attempts: []DiagnosisAttempt{
+				{IP: "10.77.0.20", Ms: 3, Cause: diagnostic.ConnectionCauseRefused},
+				{IP: "fd00::20", Ms: 998, Cause: diagnostic.ConnectionCauseTimeout, Aborted: true}}}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := TestOutcome{Name: "t", Diagnosis: diag("v", tc.check)}
+			o.compare(Expect{Checks: []ExpectedCheck{{ID: tc.check.ID, Status: tc.check.Status}}}, timeout)
+			if got := slices.Contains(o.TimedOut, tc.check.ID); got != tc.want {
+				t.Errorf("timed out = %v, want %v (TimedOut=%v)", got, tc.want, o.TimedOut)
 			}
 		})
 	}

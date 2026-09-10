@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
 // Diagnosis is the simulator's narrow view of a netdoc report. It is also
@@ -283,13 +285,43 @@ func (o *TestOutcome) compare(expect Expect, probeTimeout time.Duration) {
 		}
 	}
 
-	// A failing probe that spent the whole budget answered "I ran out of time",
-	// which is a different and worse finding than a fast, definite failure.
+	// A failing probe that ran out of time answered "I ran out of time", which
+	// is a different and worse finding than a fast, definite failure. The
+	// probe's elapsed clock starts inside the deadline it is racing and its
+	// milliseconds are truncated, so a real expiry routinely records just under
+	// the budget. The cause netdoc classified the failure with is the evidence;
+	// the elapsed comparison stays as the fallback for reports that carry none.
 	for _, c := range o.Diagnosis.Checks {
-		if c.Status == "FAIL" && probeTimeout > 0 && time.Duration(c.Ms)*time.Millisecond >= probeTimeout {
+		if c.Status != "FAIL" {
+			continue
+		}
+		if timedOutCheck(c) || probeTimeout > 0 && time.Duration(c.Ms)*time.Millisecond >= probeTimeout {
 			o.TimedOut = append(o.TimedOut, c.ID)
 		}
 	}
+}
+
+// timedOutCause reports whether a netdoc cause names a deadline that expired.
+// The dial, QUIC, TLS and encrypted-DNS probes share one spelling and the
+// resolver has its own. Everything else, a temporary resolver failure and an
+// explicit cancellation included, is an answer that arrived.
+func timedOutCause(cause string) bool {
+	return cause == diagnostic.ConnectionCauseTimeout || cause == diagnostic.DNSCauseTimeout
+}
+
+// timedOutCheck reports whether a check's own evidence says a deadline ended
+// it. A dial probe leaves that classification on its attempt rows: the check
+// row carries no cause of its own when every address simply stayed silent.
+func timedOutCheck(c DiagnosisCheck) bool {
+	if timedOutCause(c.Cause) {
+		return true
+	}
+	for _, a := range c.Attempts {
+		if timedOutCause(a.Cause) {
+			return true
+		}
+	}
+	return false
 }
 
 // flagged reports whether a status is netdoc raising its hand.

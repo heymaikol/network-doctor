@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -86,7 +87,7 @@ func TestTargetSiblingVerificationEligibility(t *testing.T) {
 		{"duplicate canceled addresses", []net.IP{a, a, b}, []Attempt{canceled, canceled, {IP: b}}, nil, DefaultProbeTimeout, true},
 		{"malformed canceled address", []net.IP{nil, b}, []Attempt{{Err: context.Canceled, Cause: ConnectionCauseCanceled}, {IP: b}}, nil, DefaultProbeTimeout, false},
 		{"winner duplicate", []net.IP{b, b}, []Attempt{{IP: b, Err: context.Canceled, Cause: ConnectionCauseCanceled}, {IP: b}}, nil, DefaultProbeTimeout, false},
-		{"explicit failure already sufficient", []net.IP{a, b, c}, []Attempt{canceled, {IP: a, Err: syscall.ECONNREFUSED, Cause: ConnectionCauseRefused}, {IP: b}}, nil, DefaultProbeTimeout, false},
+		{"explicit failure already sufficient", []net.IP{a, b, c}, []Attempt{canceled, {IP: a, Err: connectionRefusedErrno, Cause: ConnectionCauseRefused}, {IP: b}}, nil, DefaultProbeTimeout, false},
 		{"successful race loser", []net.IP{a, b}, []Attempt{{IP: a}, {IP: b}}, nil, DefaultProbeTimeout, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -147,7 +148,7 @@ func TestTargetEvidenceOrdinaryOutcomes(t *testing.T) {
 						n := firstCalls.Add(1)
 						switch outcome {
 						case "refused first":
-							return nil, syscall.ECONNREFUSED
+							return nil, connectionRefusedErrno
 						case "timed out first":
 							return nil, context.DeadlineExceeded
 						case "healthy verification", "cancel verification":
@@ -216,7 +217,7 @@ func TestTargetAttemptLimitLeavesResolvedAddressesUnknown(t *testing.T) {
 		if network != "udp" {
 			calls.Add(1)
 		}
-		return nil, syscall.ECONNREFUSED
+		return nil, connectionRefusedErrno
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
 	defer cancel()
@@ -238,19 +239,21 @@ func TestTargetAttemptLimitLeavesResolvedAddressesUnknown(t *testing.T) {
 }
 
 func TestTargetProbeDeadlineIsNotAddressFailure(t *testing.T) {
-	ip := net.ParseIP("192.0.2.1")
-	o := &netops{interfaces: func() ([]net.Interface, error) { return nil, nil }, dialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		if network != "udp" {
-			<-ctx.Done()
+	synctest.Test(t, func(t *testing.T) {
+		ip := net.ParseIP("192.0.2.1")
+		o := &netops{interfaces: func() ([]net.Interface, error) { return nil, nil }, dialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			if network != "udp" {
+				<-ctx.Done()
+			}
+			return nil, ctx.Err()
+		}}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{ip}}})
+		if len(r.Attempts) != 1 || !r.Attempts[0].Aborted || r.Attempts[0].Cause != ConnectionCauseTimeout {
+			t.Fatalf("deadline evidence=%+v", r.Attempts)
 		}
-		return nil, ctx.Err()
-	}}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{ip}}})
-	if len(r.Attempts) != 1 || !r.Attempts[0].Aborted || r.Attempts[0].Cause != ConnectionCauseTimeout {
-		t.Fatalf("deadline evidence=%+v", r.Attempts)
-	}
+	})
 }
 
 // dialIPs cancels its derived context to unblock the dials still in flight, so
@@ -258,29 +261,31 @@ func TestTargetProbeDeadlineIsNotAddressFailure(t *testing.T) {
 // ended the probe is the enclosing deadline, and the address that failed on its
 // own beforehand keeps its own cause.
 func TestTargetProbeDeadlineOverridesInternalCancellation(t *testing.T) {
-	refused, blocked := net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")
-	o := &netops{interfaces: func() ([]net.Interface, error) { return nil, nil }, dialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-		if network == "udp" {
-			return nil, syscall.ECONNREFUSED
+	synctest.Test(t, func(t *testing.T) {
+		refused, blocked := net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")
+		o := &netops{interfaces: func() ([]net.Interface, error) { return nil, nil }, dialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if network == "udp" {
+				return nil, connectionRefusedErrno
+			}
+			if host, _, _ := net.SplitHostPort(addr); host == refused.String() {
+				return nil, connectionRefusedErrno
+			}
+			<-ctx.Done()
+			return nil, context.Canceled
+		}}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{refused, blocked}}})
+		if len(r.Attempts) != 2 {
+			t.Fatalf("evidence=%+v", r.Attempts)
 		}
-		if host, _, _ := net.SplitHostPort(addr); host == refused.String() {
-			return nil, syscall.ECONNREFUSED
+		if a := r.Attempts[0]; !a.IP.Equal(refused) || a.Aborted || a.Cause != ConnectionCauseRefused {
+			t.Fatalf("completed failure rewritten: %+v", a)
 		}
-		<-ctx.Done()
-		return nil, context.Canceled
-	}}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{refused, blocked}}})
-	if len(r.Attempts) != 2 {
-		t.Fatalf("evidence=%+v", r.Attempts)
-	}
-	if a := r.Attempts[0]; !a.IP.Equal(refused) || a.Aborted || a.Cause != ConnectionCauseRefused {
-		t.Fatalf("completed failure rewritten: %+v", a)
-	}
-	if a := r.Attempts[1]; !a.IP.Equal(blocked) || !a.Aborted || a.Cause != ConnectionCauseTimeout {
-		t.Fatalf("deadline evidence=%+v", a)
-	}
+		if a := r.Attempts[1]; !a.IP.Equal(blocked) || !a.Aborted || a.Cause != ConnectionCauseTimeout {
+			t.Fatalf("deadline evidence=%+v", a)
+		}
+	})
 }
 
 // Explicit caller cancellation is not a timeout, so the same path has to keep
@@ -290,7 +295,7 @@ func TestTargetProbeCallerCancellationStaysCanceled(t *testing.T) {
 	defer cancel()
 	o := &netops{interfaces: func() ([]net.Interface, error) { return nil, nil }, dialContext: func(dctx context.Context, network, _ string) (net.Conn, error) {
 		if network == "udp" {
-			return nil, syscall.ECONNREFUSED
+			return nil, connectionRefusedErrno
 		}
 		cancel()
 		<-dctx.Done()

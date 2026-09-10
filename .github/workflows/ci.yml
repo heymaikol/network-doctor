@@ -355,3 +355,19 @@ jobs:
           netdoc --version
           netdoc-sim version
           SMOKE
+      - name: Install the RPM in a clean Fedora container
+        run: |
+          set -euo pipefail
+          docker run --rm -i --network none \
+            -v "$PWD/dist:/dist:ro" \
+            fedora:41@sha256:f1a3fab47bcb3c3ddf3135d5ee7ba8b7b25f2e809a47440936212a3a50957f3d \
+            sh -eu <<'SMOKE'
+          test -z "$(command -v netdoc)"
+          test -z "$(command -v netdoc-sim)"
+          dnf install -y --disablerepo='*' /dist/*_linux_amd64.rpm
+          rpm -q network-doctor
+          test "$(command -v netdoc)" = /usr/bin/netdoc
+          test "$(command -v netdoc-sim)" = /usr/bin/netdoc-sim
+          netdoc --version
+          netdoc-sim version
+          SMOKE

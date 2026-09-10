@@ -77,6 +77,13 @@ service?**
 - [TLS failure causes, from expired certificates to hostname mismatch]({{ '/docs/reference/#how-it-diagnoses' | relative_url }})
 - [A port that refuses versus one that is filtered]({{ '/wiki/How-Network-Doctor-Works/#why-each-branch-is-separate' | relative_url }})
 
+## Did Network Doctor help?
+
+If Network Doctor saved you time, you can [sponsor its development on GitHub Sponsors](https://github.com/sponsors/heymaikol).
+Your support helps fund cross-platform testing, packaging, releases, and ongoing
+maintenance. Sponsorship is optional and does not affect access to the software
+or how issues are prioritized.
+
 ## Still stuck?
 
 If Network Doctor found a problem but you are still unsure what it means or

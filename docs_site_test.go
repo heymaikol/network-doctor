@@ -132,16 +132,24 @@ func TestREADMEKeepsDownloadLinksOnTheReleasesPage(t *testing.T) {
 	}
 }
 
-func TestPersonalDiagnosisUsesCanonicalIntakeURL(t *testing.T) {
-	const intakeURL = "https://tally.so/r/KYK7Y7"
-	for _, name := range []string{"README.md", "site/index.md"} {
-		// #nosec G304 -- name comes from this fixed list of public surfaces.
-		data, err := os.ReadFile(name)
+func TestPublicSupportUsesCanonicalURLs(t *testing.T) {
+	for _, surface := range []struct {
+		file, url string
+		count     int
+	}{
+		{"README.md", "https://tally.so/r/KYK7Y7", 1},
+		{"site/index.md", "https://tally.so/r/KYK7Y7", 1},
+		{"README.md", "https://github.com/sponsors/heymaikol", 2},
+		{"site/index.md", "https://github.com/sponsors/heymaikol", 1},
+		{".goreleaser.yaml", "https://github.com/sponsors/heymaikol", 1},
+	} {
+		// #nosec G304 -- file comes from this fixed list of public surfaces.
+		data, err := os.ReadFile(surface.file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if count := strings.Count(string(data), intakeURL); count != 1 {
-			t.Errorf("%s contains the Personal Network Diagnosis intake URL %d times, want once", name, count)
+		if count := strings.Count(string(data), surface.url); count != surface.count {
+			t.Errorf("%s contains %s %d times, want %d", surface.file, surface.url, count, surface.count)
 		}
 	}
 }

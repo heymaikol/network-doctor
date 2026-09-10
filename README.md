@@ -29,6 +29,8 @@ path, or at the service?**
 - **Runs everywhere.** The same diagnosis engine supports Linux, macOS, and
   Windows, with native packages and prebuilt binaries.
 
+If Network Doctor saves you time, you can [support its development on GitHub Sponsors](https://github.com/sponsors/heymaikol).
+
 ## Quick start
 
 Install `netdoc` using the package for your platform below, then diagnose any

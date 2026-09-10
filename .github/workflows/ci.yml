@@ -195,9 +195,14 @@ jobs:
       # refuses to escalate.
       - if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      #
+      # Each scenario builds its own namespaces under a random run id, so the
+      # runs are independent and -parallel decides how many stand at once. Most
+      # of a run is spent waiting on probe deadlines rather than on CPU, so four
+      # at a time cuts the step to about a third of its serial wall time.
       - if: runner.os == 'Linux'
         name: Run namespace integration tests
-        run: go test -covermode=set -coverprofile=coverage/netns.out -tags netns_integration -count=1 -skip '^TestGeneratedStressHuntPMTUBlackholeCaseReachesThePathMTUProbe$' ./internal/simulation
+        run: go test -covermode=set -coverprofile=coverage/netns.out -tags netns_integration -count=1 -parallel 4 -skip '^TestGeneratedStressHuntPMTUBlackholeCaseReachesThePathMTUProbe$' ./internal/simulation
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
       # Keep one small fixed-seed stress Hunt regression separate from the

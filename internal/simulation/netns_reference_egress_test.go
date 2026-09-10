@@ -107,6 +107,9 @@ func targetServiceReplies(rep Report) []ServiceReplyEvidence {
 	return out
 }
 
+// No t.Parallel() here. The evidence read back is this run's own, so nothing
+// a concurrent run does can reach it, but a test whose whole assertion is an
+// absence is the last place worth saving a second.
 func TestNoReferenceEgressLeavesTheSimulatedReferenceServicesUntouched(t *testing.T) {
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)

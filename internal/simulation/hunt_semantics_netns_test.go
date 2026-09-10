@@ -11,6 +11,7 @@ import (
 )
 
 func TestSemanticOracleNamespaceEvidence(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	for _, tc := range []struct {
@@ -80,6 +81,7 @@ func TestSemanticOracleNamespaceEvidence(t *testing.T) {
 }
 
 func TestSemanticOracleScopedFailuresInNamespaces(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	for _, family := range []string{"ipv4", "ipv6", "dns"} {

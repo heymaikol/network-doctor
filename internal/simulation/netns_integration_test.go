@@ -7,6 +7,16 @@
 // No root needed: the simulator runs in an unprivileged user namespace. The
 // tests skip themselves on a host where that is unavailable, and nothing they
 // create is reachable from, or visible to, the host network.
+//
+// Most of these tests call t.Parallel(). Every run builds its own namespaces
+// under a random id, inside a director namespace the kernel keeps out of the
+// host's, so two runs share nothing but the machine. The exceptions are the
+// tests that read something outside their own run: the host's own links,
+// routes and forwarding settings, the state directory, the workspace
+// directory. A concurrent run would move what those observe, so they have no
+// t.Parallel() and run before the rest. The fixed-seed stress Hunt case is
+// left alone for a different reason: CI gives it a step of its own, so it
+// never has anything to run beside.
 
 package simulation
 
@@ -129,6 +139,7 @@ func hasSuggestion(suggestions []Suggestion, code string) bool {
 // TestHealthyScenario is the control: netdoc must find nothing wrong with a
 // network where nothing is wrong.
 func TestHealthyScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "healthy")
 	if rep.Result != ResultPass {
@@ -149,6 +160,7 @@ func TestHealthyScenario(t *testing.T) {
 }
 
 func TestSameFamilyFailoverScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	const (
 		deadIP    = "10.77.0.20"
@@ -236,6 +248,7 @@ func TestSameFamilyFailoverScenario(t *testing.T) {
 // name, with the path underneath left working, and a diagnosis that has to say
 // which of the two it was.
 func TestBrokenDNSScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "broken-dns")
 	if rep.Result != ResultPass {
@@ -300,6 +313,7 @@ func TestBrokenDNSScenario(t *testing.T) {
 }
 
 func TestNoDefaultRouteScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "no-default-route")
 	if rep.Result != ResultPass {
@@ -316,6 +330,7 @@ func TestNoDefaultRouteScenario(t *testing.T) {
 // and that has to be the whole answer rather than the pile of downstream
 // failures it would otherwise be read as.
 func TestLinkDownScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "link-down")
 	if rep.Result != ResultPass {
@@ -360,6 +375,7 @@ func TestLinkDownScenario(t *testing.T) {
 }
 
 func TestHighLatencyScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "high-latency")
 	if rep.Result != ResultPass {
@@ -369,6 +385,7 @@ func TestHighLatencyScenario(t *testing.T) {
 }
 
 func TestTierOneScenarios(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	for _, tc := range []struct {
 		name      string
@@ -480,6 +497,7 @@ func TestTierOneScenarios(t *testing.T) {
 }
 
 func TestStableCauseScenarios(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	for _, tc := range []struct {
 		name  string
@@ -526,6 +544,7 @@ func TestStableCauseScenarios(t *testing.T) {
 }
 
 func TestHighJitterScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	requireNetemSeed(t)
 	rep := runScenario(t, "high-jitter")
@@ -546,6 +565,7 @@ func TestHighJitterScenario(t *testing.T) {
 }
 
 func TestIntermittentDNSScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "intermittent-dns")
 	if rep.Result != ResultPass {
@@ -581,6 +601,7 @@ func TestIntermittentDNSScenario(t *testing.T) {
 }
 
 func TestDNSHijackingScenarioReachesSplitDNSDiagnosis(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	const (
 		wrongAddress  = "192.0.2.20"
@@ -633,6 +654,7 @@ func TestDNSHijackingScenarioReachesSplitDNSDiagnosis(t *testing.T) {
 }
 
 func TestTCPResetScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "tcp-reset")
 	if rep.Result != ResultPass {
@@ -656,6 +678,7 @@ func TestTCPResetScenario(t *testing.T) {
 }
 
 func TestServiceBannerScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "service-banners")
 	if rep.Result != ResultPass {
@@ -710,6 +733,7 @@ func appliedEvent(t *testing.T, rep Report, kind, state string) FaultEventEviden
 }
 
 func TestTransientDNSOutageScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "transient-dns-outage", "-timeout", timedTimeout)
 	if rep.Result != ResultPass {
@@ -767,6 +791,7 @@ func TestTransientDNSOutageScenario(t *testing.T) {
 }
 
 func TestLatencySpikeScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	requireNetemSeed(t)
 	rep := runScenario(t, "latency-spike", "-timeout", "4s")
@@ -810,6 +835,7 @@ func TestLatencySpikeScenario(t *testing.T) {
 }
 
 func TestTransientConnectivityLossScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "transient-connectivity-loss", "-timeout", timedTimeout)
 	if rep.Result != ResultPass {
@@ -861,6 +887,7 @@ func TestTransientConnectivityLossScenario(t *testing.T) {
 }
 
 func TestFaultDuringProbeScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "fault-during-probe", "-timeout", timedTimeout)
 	if rep.Result != ResultPass {
@@ -902,6 +929,7 @@ func TestFaultDuringProbeScenario(t *testing.T) {
 // schedules and timeline fingerprints must reproduce exactly, and the diagnosis
 // is only compared where the campaign itself claims stability.
 func TestFlappingCampaignTimelinesAreReproducible(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	requireNetemSeed(t)
 	netdoc, sim := buildBinaries(t)
@@ -1020,6 +1048,7 @@ func TestUnstableConnectivityCampaignIsReproducible(t *testing.T) {
 // left to move: the same held answer resolves under a timeout above the swept
 // range and is classified as a DNS timeout under one below it.
 func TestDNSTimeoutBoundaryCampaignCrossesTheDeadline(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	run := func(timeout string) IterationResult {
@@ -1147,6 +1176,7 @@ func TestGeneratedHuntCasesAreReproducible(t *testing.T) {
 }
 
 func TestHuntProtocolServiceMutationsAreObserved(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	run := func(t *testing.T, scenario *Scenario) Report {
@@ -1446,6 +1476,7 @@ func TestHuntProtocolServiceMutationsAreObserved(t *testing.T) {
 }
 
 func TestHuntNetemDNSTimelineAndLinkMutationsAreObserved(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	run := func(t *testing.T, scenario *Scenario) Report {
@@ -1512,6 +1543,7 @@ func TestHuntNetemDNSTimelineAndLinkMutationsAreObserved(t *testing.T) {
 }
 
 func TestPreferredPathFailureMutationIsIndependentlyObserved(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	run := func(t *testing.T, scenario *Scenario) Report {
@@ -1629,6 +1661,7 @@ func TestPreferredPathFailureMutationIsIndependentlyObserved(t *testing.T) {
 // whether or not a given base currently gets the right answer, so fixing a
 // diagnosis this catches does not also break its test.
 func TestPreferredRouteFailureConditionIsEstablishedIndependently(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	for _, tc := range []struct{ name, base, family string }{
@@ -1716,6 +1749,7 @@ func TestPreferredRouteFailureConditionIsEstablishedIndependently(t *testing.T) 
 // derived from it. No finding, no verdict and no expectation row is consulted,
 // so a failure here is an oracle failure rather than an analysis failure.
 func TestFamilyDropMutationsMoveHolderSideObservation(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	control := cloneScenario(loadHuntBase(t, "dual-stack-healthy"))
@@ -1892,6 +1926,7 @@ func familyCauseFor(family string) string {
 }
 
 func TestHuntFamilyMutationsMoveIndependentReachability(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	base := loadHuntBase(t, "dual-stack-healthy")
@@ -2050,6 +2085,7 @@ func hasHuntSuggestion(suggestions []HuntSuggestion, code string) bool {
 }
 
 func TestSOCKS5LocalDNSScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "socks5-local-dns-fails")
 	if rep.Result != ResultPass {
@@ -2080,6 +2116,7 @@ func TestSOCKS5LocalDNSScenario(t *testing.T) {
 }
 
 func TestSOCKS5hRemoteDNSScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "socks5h-remote-dns-succeeds")
 	if rep.Result != ResultPass {
@@ -2118,6 +2155,7 @@ func TestSOCKS5hRemoteDNSScenario(t *testing.T) {
 // speaks RFC 9110 CONNECT, and the production probe is handed the proxy the way
 // a corporate network hands it over, through HTTPS_PROXY.
 func TestProxyOnlyNetworkScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "proxy-only-network", "-timeout", timedTimeout)
 	if rep.Result != ResultPass {
@@ -2182,6 +2220,7 @@ func TestProxyOnlyNetworkScenario(t *testing.T) {
 // is dead, no name resolves, and the CONNECT proxy is the only thing carrying
 // traffic, so the diagnosis has to say both halves and promise neither.
 func TestProxyOnlyNetworkBrokenDNSScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "proxy-only-network-broken-dns", "-timeout", timedTimeout)
 	if rep.Result != ResultPass {
@@ -2243,6 +2282,7 @@ func TestProxyOnlyNetworkBrokenDNSScenario(t *testing.T) {
 // FAIL here that came with a dead path or a dead resolver would prove nothing,
 // which is what the passing rows are for.
 func TestEncryptedDNSBlockedScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "encrypted-dns-blocked", "-timeout", timedTimeout)
 	if rep.Result != ResultPass {
@@ -2312,6 +2352,7 @@ func TestEncryptedDNSBlockedScenario(t *testing.T) {
 // on the machine here, so a PASS is evidence of an independent path rather than
 // the absence of an assertion.
 func TestPlainDNSBlockedScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "plain-dns-blocked", "-timeout", timedTimeout)
 	if rep.Result != ResultPass {
@@ -2379,6 +2420,7 @@ func TestPlainDNSBlockedScenario(t *testing.T) {
 // cheaper explanation is available and the portal verdict has to beat all of
 // them rather than win by default.
 func TestCaptivePortalScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "captive-portal")
 	if rep.Result != ResultPass {
@@ -2449,6 +2491,7 @@ func TestCaptivePortalScenario(t *testing.T) {
 // promoted one provider's answer into a verdict would call this a captive
 // portal; netdoc has to report the discrepancy and stop there.
 func TestSelectiveHTTPInterceptionScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "selective-http-interception")
 	if rep.Result != ResultPass {
@@ -2491,6 +2534,7 @@ func TestSelectiveHTTPInterceptionScenario(t *testing.T) {
 }
 
 func TestTLSValidScenario(t *testing.T) {
+	t.Parallel()
 	rep := runTLSScenario(t, "tls-valid")
 	out := rep.Tests[0]
 	assertTLSCheck(t, out, "PASS", "")
@@ -2510,6 +2554,7 @@ func TestTLSValidScenario(t *testing.T) {
 }
 
 func TestTLSExpiredCertificateScenario(t *testing.T) {
+	t.Parallel()
 	rep := runTLSScenario(t, "tls-expired-certificate")
 	out := rep.Tests[0]
 	assertTLSCheck(t, out, "FAIL", diagnostic.TLSCauseCertificateExpired)
@@ -2540,6 +2585,7 @@ func TestTLSExpiredCertificateScenario(t *testing.T) {
 }
 
 func TestTLSHostnameMismatchScenario(t *testing.T) {
+	t.Parallel()
 	rep := runTLSScenario(t, "tls-hostname-mismatch")
 	out := rep.Tests[0]
 	assertTLSCheck(t, out, "FAIL", diagnostic.TLSCauseHostnameMismatch)
@@ -2553,6 +2599,7 @@ func TestTLSHostnameMismatchScenario(t *testing.T) {
 }
 
 func TestHealthyRoutedNetworkScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	hostForwardingBefore, err := os.ReadFile(ipv4ForwardPath)
 	if err != nil {
@@ -2593,6 +2640,7 @@ func TestHealthyRoutedNetworkScenario(t *testing.T) {
 // from inside the namespace: a lookup that leaked to the host would answer
 // with the developer's own default route instead.
 func TestRouteDecisionsAnswerForTheNamespaceNotTheHost(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "healthy-routed-network")
 	if rep.Result != ResultPass {
@@ -2639,6 +2687,7 @@ func TestRouteDecisionsAnswerForTheNamespaceNotTheHost(t *testing.T) {
 // A scenario with no default route is netdoc's own no-route case, and it has
 // to be recorded as the kernel saying so rather than as an empty path.
 func TestRouteDecisionsRecordAMissingDefaultRoute(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "no-default-route")
 	iface := diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeIface))
@@ -2666,6 +2715,7 @@ func TestRouteDecisionsRecordAMissingDefaultRoute(t *testing.T) {
 // is visible on Linux, and reconciliation turns that row plus the TLS timeout
 // into a network verdict instead of blaming the certificate.
 func TestPMTUBlackholeScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "pmtu-blackhole")
 	if rep.Result != ResultPass {
@@ -2830,6 +2880,7 @@ func assertHostMTUAndFirewallUntouched(t *testing.T) {
 // Two runs of the same black hole must reach the same diagnosis. A stall that
 // is really a race would show up here as a status that moves between runs.
 func TestPMTUBlackholeScenarioIsDeterministic(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	first, second := runScenario(t, "pmtu-blackhole"), runScenario(t, "pmtu-blackhole")
 	if first.Result != ResultPass || second.Result != ResultPass {
@@ -2852,6 +2903,7 @@ func TestPMTUBlackholeScenarioIsDeterministic(t *testing.T) {
 }
 
 func TestGatewayUnreachableScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "gateway-unreachable")
 	if rep.Result != ResultPass {
@@ -2873,6 +2925,7 @@ func TestGatewayUnreachableScenario(t *testing.T) {
 }
 
 func TestWrongDefaultRouteScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "wrong-default-route")
 	if rep.Result != ResultPass {
@@ -2897,6 +2950,7 @@ func TestWrongDefaultRouteScenario(t *testing.T) {
 }
 
 func TestMultipleInterfacesWrongPreferredRouteScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "multiple-interfaces-wrong-preferred-route")
 	if rep.Result != ResultPass {
@@ -2946,6 +3000,7 @@ func TestDualStackHealthyScenario(t *testing.T) {
 }
 
 func TestTargetIPv6FailureProducesCounterfactualDiagnosis(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	scenario, err := LibraryScenario("dual-stack-healthy")
@@ -2988,6 +3043,7 @@ func TestTargetIPv6FailureProducesCounterfactualDiagnosis(t *testing.T) {
 }
 
 func TestIPv4WorksIPv6BrokenScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "ipv4-works-ipv6-broken")
 	assertDualStackScenario(t, rep, diagnostic.FamilyReachable, diagnostic.FamilyUnreachable, diagnostic.FamilyCauseIPv6Unreachable,
@@ -2998,6 +3054,7 @@ func TestIPv4WorksIPv6BrokenScenario(t *testing.T) {
 }
 
 func TestIPv6WorksIPv4BrokenScenario(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "ipv6-works-ipv4-broken")
 	assertDualStackScenario(t, rep, diagnostic.FamilyUnreachable, diagnostic.FamilyReachable, diagnostic.FamilyCauseIPv4Unreachable,
@@ -3068,6 +3125,7 @@ expect:
 // diagnosis, and whatever netdoc concluded about IPv4 here is required to be
 // something else.
 func TestIPv6OnlyClientSeparatesUnavailableFromUnreachable(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	path := filepath.Join(t.TempDir(), "ipv6-only-client.yaml")
 	if err := os.WriteFile(path, []byte(ipv6OnlyScenario), 0o600); err != nil {
@@ -3107,6 +3165,7 @@ func TestIPv6OnlyClientSeparatesUnavailableFromUnreachable(t *testing.T) {
 // dialing the controlled endpoints from inside the client namespace, must not
 // move with it.
 func TestFamilyReachabilityIgnoresScenarioExpectations(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	raw, err := library.ReadFile("scenarios/ipv4-works-ipv6-broken.yaml")
 	if err != nil {
@@ -3536,6 +3595,7 @@ func assertCleanedUp(t *testing.T, rep Report) {
 // TestDryRunCreatesNothing checks the audit path: -dry-run has to print the
 // privileged commands without making any of them happen.
 func TestDryRunCreatesNothing(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	_, sim := buildBinaries(t)
 	cmd := exec.Command(sim, "run", "healthy", "-dry-run")
@@ -3575,6 +3635,7 @@ func runChallenge(t *testing.T, sim, netdoc string, extra ...string) ChallengeRe
 // is exercised for real: the evidence each condition rests on is read back off
 // the live kernel, not assembled in a fixture.
 func TestChallengeConditionsAreScoreableEndToEnd(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	for _, condition := range challengeConditions {
@@ -3624,6 +3685,7 @@ func TestChallengeConditionsAreScoreableEndToEnd(t *testing.T) {
 // The same id twice is the same puzzle, and the human's answer is the only
 // thing their answer changes.
 func TestChallengeReplayIsStableAndHumanAnswerMovesNothingElse(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	challenge := challengeWithMutation(t, "dns.servfail")
@@ -3657,6 +3719,7 @@ func TestChallengeReplayIsStableAndHumanAnswerMovesNothingElse(t *testing.T) {
 // diagnosis it checks is netdoc resolving the renamed name through the node's own
 // /etc/resolv.conf against the simulator's own DNS service.
 func TestChallengeHostnameResolvesInsideTheNamespaces(t *testing.T) {
+	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	// A healthy challenge on each base that briefs a hostname, one with plain HTTP

@@ -8,6 +8,8 @@
   items:
     - title: Getting Started
       url: /wiki/Getting-Started/
+    - title: Installation details
+      url: /docs/installation/
     - title: Understanding Your Diagnosis
       url: /wiki/Understanding-Your-Diagnosis/
     - title: How Network Doctor Works
@@ -48,3 +50,5 @@
       url: /wiki/Development-and-Contributing/
     - title: Documentation Map
       url: /wiki/Documentation-Map/
+    - title: Validation and testing
+      url: /docs/validation/

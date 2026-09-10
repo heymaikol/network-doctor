@@ -106,9 +106,9 @@ the files or behavior you touched.
 namespace, acceptance and container suites, plus the pinned external tools
 (golangci-lint, govulncheck, goreleaser). Those are slower, several need Linux
 or Docker, and the pinned tools download on first run. Running the rest of the
-[README](README.md#tests) gate locally is worth it where a specific check
-applies to your change, for CI, maintainership, or releases; a small external
-contribution does not have to reproduce every CI environment.
+[validation gate](docs/validation.md) locally is worth it where a specific
+check applies to your change, for CI, maintainership, or releases; a small
+external contribution does not have to reproduce every CI environment.
 
 Additional requirements:
 

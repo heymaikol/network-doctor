@@ -461,8 +461,7 @@ docker build --build-arg VERSION=dev -t netdoc-sim:test .
 NETDOC_CONTAINER_IMAGE=netdoc-sim:test go test -tags container -count=1 -v .
 ```
 
-See the repository's [Tests section](../README.md#tests) for the complete
-validation gate. A documentation-only change does not require running namespace
+See [Validation and testing](validation.md) for the complete validation gate. A documentation-only change does not require running namespace
 integration tests unless it exposes a reason to verify namespace behavior.
 
 ## Limitations

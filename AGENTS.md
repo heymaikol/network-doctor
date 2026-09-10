@@ -6,8 +6,8 @@ Before considering an ordinary change complete, run `./scripts/check`. Use
 `./scripts/check --race` when race testing is relevant to the change.
 
 `scripts/check` is the canonical fast local validation command. It does not
-replace the exhaustive validation documented under "Tests" in `README.md`;
-run additional checks there when they apply to the change.
+replace the exhaustive validation documented in `docs/validation.md`; run
+additional checks there when they apply to the change.
 
 Before changing behavior, verify the reported issue against the current HEAD. Do not assume an audit finding, issue description, or suggested implementation is still accurate.
 

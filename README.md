@@ -31,68 +31,6 @@ path, or at the service?**
 
 If Network Doctor saves you time, you can [support its development on GitHub Sponsors](https://github.com/sponsors/heymaikol).
 
-## Quick start
-
-Install `netdoc` using the package for your platform below, then diagnose any
-host or service:
-
-```sh
-netdoc github.com       # DNS → TCP → TLS → HTTP diagnosis
-netdoc github.com:22    # SSH path and banner diagnosis
-netdoc --profile github # GitHub web, API, and both SSH paths
-netdoc --profile ssh server.example.com # SSH path, route, MTU, and banner evidence
-netdoc --watch host     # catch intermittent failures
-netdoc --json host      # structured report for scripts or bug reports
-netdoc --peer-listen 192.168.1.20:4242  # offer one direct, authenticated peer session
-netdoc --peer-connect   # paste the temporary pairing string at the hidden prompt
-netdoc --two-sided --via ideapad example.com  # local and remote: where is the failure?
-netdoc --two-sided here.ndoc there.ndoc  # two machines, one target: which side is it on?
-```
-
-Run `netdoc` with no target to check the local interface, internet egress,
-configured proxy, public DNS, and Wi-Fi metadata. A finished run leads with the
-answer: the verdict, the fix, the tool worth reaching for next, and the one line
-of evidence the verdict rests on, above the checks that produced them. When a
-target's path broke, a one-line target path sits under that answer, showing the
-rung that failed and the checks that never ran behind it. Select any other row
-to see its own evidence and suggested fix. Press `e` to replace the focused
-Details panel with the causal explanation for the diagnosis, and `?` for every
-shortcut.
-
-In `--watch`, Network Doctor keeps a bounded incident timeline around each
-intermittent failure. It retains the last working state, the failure onset,
-meaningful changes while the failure continues, and the first recovered state.
-Press `i` after an incident appears to inspect what changed at onset and
-recovery, the diagnosis and its causal evidence, or save the selected incident
-as a portable `.ndoc` with `w`.
-
-## Service profiles
-
-A service profile composes ordinary `netdoc target` runs into one service-specific check with a single aggregate verdict, and every component keeps its full ordinary report and causal evidence:
-
-```sh
-netdoc --profile list                   # the built-ins
-netdoc --profile github                 # GitHub web, API, and both SSH paths
-netdoc --profile ssh server.example.com # port 22 by default, with banner evidence
-```
-
-The built-ins are `github`, `ssh`, `smtp`, and `web`. Profiles are headless: `--json`, `--save`, and `--support` behave as they always do, and `--via` runs each component on the SSH host. The per-plan endpoints, the aggregate rules, and the execution modes are in **[docs/reference.md](docs/reference.md#service-profiles)**.
-
-## Contribute
-
-Network Doctor actively welcomes external contributors, and many contributions
-need no networking expertise. Useful work includes Go and Bubble Tea / TUI
-development, Bash, Zsh, and Fish completions, CI / packaging / release tooling,
-documentation, Linux / macOS / Windows testing, and real-network field testing.
-
-Pick up something to start on:
-
-- [Good first issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22good+first+issue%22)
-- [Help wanted issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22help+wanted%22)
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, choosing a task, validation,
-and opening a pull request.
-
 ## Install
 
 Runs on **Linux, macOS, and Windows**. Project = `network-doctor`; installed binary = `netdoc`.
@@ -118,42 +56,33 @@ The Homebrew Core formula, bottled for both platforms, so `brew upgrade` picks u
 
 ### Linux
 
+Every Linux package installs two commands at the same version: `netdoc`, and
+`netdoc-sim`, the simulator behind [Challenge Mode](#challenge-mode).
+
 #### Fedora
 
-**Fedora stable uses the prebuilt release RPM. Fedora Rawhide uses COPR.**
-
-##### Fedora stable: prebuilt release RPM
-
-Download the `.rpm` for your architecture from the [latest release](https://github.com/heymaikol/network-doctor/releases/latest), then install it locally:
+**Fedora stable uses the prebuilt release RPM**, downloaded from the [latest
+release](https://github.com/heymaikol/network-doctor/releases/latest). It is
+prebuilt, so the Go-version limitation that prevents COPR source builds on
+Fedora 43, 44, and 45 does not apply:
 
 ```sh
 sudo dnf install ./network-doctor_X.Y.Z_linux_ARCH.rpm    # ARCH is amd64 or arm64
 ```
 
-The release RPM is prebuilt, so the Go-version limitation that prevents COPR
-source builds on Fedora 43, 44, and 45 does not apply. It is a standalone
-package: installing it does not add a Network Doctor repository, and `dnf`
-will not automatically pull the next release.
-
-##### Fedora Rawhide: COPR repository
-
-The [COPR repo](https://copr.fedorainfracloud.org/coprs/heymaikol/network-doctor/)
-builds from source and publishes only for Fedora Rawhide on `x86_64` and
-`aarch64`:
+**Fedora Rawhide uses the COPR repository**, which builds from source and
+publishes for Rawhide on `x86_64` and `aarch64` alone:
 
 ```sh
 sudo dnf copr enable heymaikol/network-doctor
 sudo dnf install network-doctor
 ```
 
-This repository-backed install upgrades normally through `dnf`. A new COPR
-package appears after its Rawhide builds finish, so it may trail the GitHub
-release. COPR signs with its own per-project key, a separate trust root from
-the GitHub attestation below, which `dnf copr enable` installs for you.
+#### Other distributions
 
-#### Other Linux distributions
-
-Prebuilt `.deb`, `.rpm`, and `.apk` packages are on the [latest release](https://github.com/heymaikol/network-doctor/releases/latest), for `amd64` and `arm64`. Download one and install it locally:
+Take a prebuilt `.deb`, `.rpm`, or `.apk` from the
+[latest release](https://github.com/heymaikol/network-doctor/releases/latest),
+for `amd64` and `arm64`:
 
 ```sh
 sudo apt install ./network-doctor_X.Y.Z_linux_amd64.deb    # Debian, Ubuntu, Mint
@@ -161,25 +90,10 @@ sudo dnf install ./network-doctor_X.Y.Z_linux_amd64.rpm    # RHEL, Rocky, Alma
 sudo apk add --allow-untrusted ./network-doctor_X.Y.Z_linux_amd64.apk    # Alpine
 ```
 
-These standalone packages do not add an update repository, so `dnf`/`apt`
-will not pull the next version for you. After downloading a newer Debian
-package, install it over the existing version and confirm the upgrade:
-
-```sh
-sudo apt install ./network-doctor_X.Y.Z_linux_amd64.deb
-netdoc --version
-netdoc-sim version
-dpkg-query -W network-doctor
-```
-
-Every Linux package (COPR, `.deb`, `.rpm`, `.apk`) installs two commands at the same version: `netdoc`, and `netdoc-sim`, the simulator behind [Challenge Mode](#think-you-can-beat-network-doctor). Confirm both:
-
-```sh
-netdoc --version
-netdoc-sim help
-```
-
-`netdoc-sim` is Linux-only: it builds its networks out of Linux namespaces, so the macOS and Windows downloads ship `netdoc` alone. Those hosts run the same simulator from [a container](docs/simulation.md#running-it-in-a-container) instead.
+Downloaded packages are standalone, so `dnf`/`apt` will not pull the next
+version for you; the COPR repository upgrades normally. Upgrade paths, trust
+roots, and the `netdoc-sim` Linux-only rule are in
+**[docs/installation.md](docs/installation.md#linux)**.
 
 ### Everywhere else
 
@@ -189,362 +103,174 @@ Grab a prebuilt binary from the [latest release](https://github.com/heymaikol/ne
 go install github.com/heymaikol/network-doctor/cmd/netdoc@latest
 ```
 
-Check what you are running with `netdoc --version`.
+Check what you are running with `netdoc --version`. Releases carry a signed
+attestation binding each artifact to the workflow run that built it; verifying
+one is in
+**[docs/installation.md](docs/installation.md#verify-your-download)**, along with
+building from a clone.
 
-Or build from clone:
+## Quick start
 
 ```sh
-git clone https://github.com/heymaikol/network-doctor
-cd network-doctor
-go build -o netdoc .
+netdoc                  # local interface, egress, proxy, public DNS, Wi-Fi
+netdoc github.com       # DNS, TCP, TLS, HTTP diagnosis of one target
+netdoc github.com:22    # the port selects the protocol rows (SSH banner)
+netdoc --watch host     # catch intermittent failures
+netdoc --json host      # structured report for scripts or bug reports
 ```
 
-### Verify your download
+A finished run leads with the answer: the verdict, the fix, the tool worth
+reaching for next, and the one line of evidence the verdict rests on, above the
+checks that produced them. Select any other row for its own evidence and fix,
+press `e` for the causal explanation, and `?` for every shortcut.
 
-Releases carry a signed attestation binding each artifact to the workflow run that built it (not available for v1.8.4 and earlier). With the GitHub CLI installed and `gh auth login` done:
+The recording above is one worked example: an office printer hostname that no
+longer resolves. The DNS row fails, every check that depended on it is skipped
+rather than guessed at, and the verdict names the missing DNS record instead of
+blaming the printer.
+
+## What it checks
+
+Probes form a **dependency graph with independent branches**, so an unrelated
+failure never hides a working one: direct egress, QUIC, proxy egress, public and
+encrypted DNS, and the selected target path each run on their own, and the
+unprivileged path-MTU check hangs off the connect.
+
+| Branch | Rows |
+|---|---|
+| Local | Interface, Wi-Fi network |
+| Egress | Internet (TCP egress), QUIC / UDP 443, Internet (env proxy) |
+| Naming | DNS, DNS (public), DNS (encrypted DoH/DoT) |
+| Target path | TCP, Path MTU, TLS, HTTP, HTTPS, SSH/SMTP banner |
+
+Each row lands in one of five states, **✓ Pass**, **! Warn**, **✗ Fail**,
+**⊘ Skip**, and **– N/A**; Warn never counts as a failure. The full probe table
+with exact pass conditions, JSON causes, and the unprivileged path-MTU method is
+in **[docs/reference.md](docs/reference.md#how-it-diagnoses)**.
+
+## Capabilities
+
+Each one gets a sentence here and a complete contract in the reference.
+
+- **Service profiles.** `--profile github` composes ordinary runs into one
+  service-specific check with a single aggregate verdict, and every component
+  keeps its full report. Built-ins: `github`, `ssh`, `smtp`, `web`.
+  [Plans and aggregate rules](docs/reference.md#service-profiles).
+- **Watch Mode.** `--watch` re-runs continuously and keeps a bounded incident
+  timeline around each intermittent failure, from the last working state to the
+  recovery. Press `i` to inspect one, `w` to save it.
+  [Incident reconstruction](docs/reference.md#usage-details).
+- **Drill-down tools.** When a row is not proof enough, run the real tools as
+  cancellable streaming jobs, several at once, sanitized before the output hits
+  your terminal: route, socket, ping, DNS, curl, traceroute, mtr, and nmap are
+  one keypress each, `v` maps the local private network, and `S` opens an SSH
+  login. [Per-OS commands](docs/reference.md#drill-down-tools).
+- **Structured output and exit codes.** `--json` prints one document with stable
+  field names: `status` per row, and the `verdict` a script actually asks about
+  (`ok`, `degraded`, `dns`, `network`, `service`, `incomplete`). Exit `0` passed,
+  `1` failed or incomplete, `2` could not run.
+  [Fields](docs/reference.md#json-output),
+  [exit codes](docs/reference.md#exit-codes).
+- **Diagnostic snapshots.** `--save` writes a finished run to a portable `.ndoc`
+  for the failure you cannot reproduce on demand, `--support` writes it
+  pseudonymized for sharing, and `--compare good.ndoc bad.ndoc` reports what
+  changed between two saved runs without opening a socket.
+  [Format](docs/reference.md#diagnostic-snapshots),
+  [support policy](docs/reference.md#support-snapshots),
+  [comparison](docs/reference.md#comparing-two-snapshots).
+- **Remote and two-machine diagnosis.** `--via server host` runs the checks on
+  another machine through your own `ssh` client, installing nothing on the far
+  end. `--two-sided` asks why one target behaves differently from two vantage
+  points and places the failure on the side where it is specific.
+  `--peer-listen` and `--peer-connect` compare traffic observed at both ends of
+  an authenticated, directly connected TLS 1.3 session, with no relay or
+  account. [Remote](docs/reference.md#remote-diagnosis-over-ssh),
+  [two-sided](docs/reference.md#two-sided-diagnosis),
+  [peer](docs/reference.md#peer-diagnosis).
+- **Narrowing a run.** `--list-checks` prints the stable probe IDs that `--check`
+  and `--skip` accept, `--no-reference-egress` drops every check that would
+  contact netdoc's own reference services, and `--iface` binds probe traffic to
+  one interface or address. [Flag semantics](docs/reference.md#usage-details).
+
+## Challenge Mode
+
+Challenge Mode drops you into a deliberately broken network without telling you
+what is wrong, then lets Network Doctor take a shot at the same problem, with
+both graded against the simulator's independently observed ground truth. There
+is a daily challenge, and everybody who plays that day gets the same network:
 
 ```sh
-VERSION=X.Y.Z
-gh attestation verify "./netdoc_${VERSION}_linux_amd64" \
-  --repo heymaikol/network-doctor \
-  --signer-workflow heymaikol/network-doctor/.github/workflows/release.yml
-```
-
-This proves the bytes were built from the tagged commit by the release workflow. The source tarball, the `.deb`/`.rpm`/`.apk` packages, and the Windows `.zip` are attested too, so pass whichever filename you downloaded. The vendored-dependency tarball (`*-vendor.tar.gz`, which lets COPR build offline) is attested as well; COPR packages themselves are rebuilt on Fedora's own builders and carry COPR's signature instead.
-
-## How it diagnoses
-
-Probes form a **dependency graph with independent branches**, so an unrelated failure never hides a working one: direct egress, QUIC, proxy egress, public and encrypted DNS, and the selected target path each run on their own, and the unprivileged path-MTU check hangs off the connect. Each row lands in one of five states, **✓ Pass**, **! Warn**, **✗ Fail**, **⊘ Skip**, and **– N/A**; Warn never counts as a failure.
-
-After a target connection wins a same-family address race, Network Doctor may
-retry one canceled sibling from the system resolver's answers. It uses the same
-source binding and target port, with a one-second individual dial budget only
-when that full interval remains inside the target probe's timeout. Successes
-before a sibling starts trigger no retry, and the total stays within the 16-attempt cap.
-The canceled attempt remains non-failure evidence; a separate refusal or dial
-timeout can earn `partial_endpoint_reachability` alongside a successful address
-in that same family. Parent-probe cancellation never earns that finding. This
-is a bounded observation of the endpoint at that time, not proof of a permanent
-outage. Reports and snapshots retain both attempts with their existing `cause`
-and `aborted` fields.
-
-The full probe table with exact pass conditions, JSON causes, and the unprivileged path-MTU method is in **[docs/reference.md](docs/reference.md#how-it-diagnoses)**. The wiki's [How Network Doctor Works](https://github.com/heymaikol/network-doctor/wiki/How-Network-Doctor-Works) explains why the branches are independent, and [Understanding Your Diagnosis](https://github.com/heymaikol/network-doctor/wiki/Understanding-Your-Diagnosis) turns a row into a next action.
-
-## Think you can beat Network Doctor?
-
-Challenge Mode drops you into a deliberately broken network without telling you what's wrong, then lets Network Doctor take a shot at the exact same problem, with both graded against the simulator's independently observed ground truth. There's a daily challenge, and everybody who plays that day gets the same broken network:
-
-```sh
-netdoc-sim challenge -daily   # today's, the same one for everybody
+netdoc-sim challenge -daily          # today's, the same one for everybody
 netdoc-sim challenge -id V4-8F42C1   # replay the one a friend sent you
 ```
 
-It ends with a result you can post, and `-daily` puts it on your clipboard. On macOS, Windows, or Linux, one container image is the whole install:
+Everything is local and reproducible: no account, no server, no leaderboard, and
+a challenge id is the whole puzzle. The simulator builds its networks out of
+Linux namespaces, so macOS and Windows run one container image instead:
 
 ```sh
 docker run --rm -it --cap-add SYS_ADMIN ghcr.io/heymaikol/netdoc-sim:latest challenge -daily
 ```
 
-On Linux, any [package](#linux) installs `netdoc-sim` natively. Everything is local and reproducible: no account, no server, no leaderboard, and a challenge id is the whole puzzle. See the wiki's [Challenge Mode](https://github.com/heymaikol/network-doctor/wiki/Challenge-Mode) for the full walkthrough, and **[docs/simulation-challenge.md](docs/simulation-challenge.md)** for the contract behind scoring.
-
-## Usage
-
-```sh
-netdoc                  # generic local + internet diagnosis
-netdoc github.com       # diagnose the path to a host (→ HTTP + TLS + HTTPS)
-netdoc github.com:22    # port selects the protocol rows (→ SSH banner)
-netdoc https://host:80  # explicit scheme selects the protocol (→ TLS + HTTPS on :80)
-netdoc ssh://host:2222  # explicit scheme keeps SSH on a nonstandard port
-netdoc --json host      # headless: one JSON report on stdout (scripts, CI, bug reports)
-netdoc --save incident.ndoc host  # headless: save the finished run as a snapshot file
-netdoc --support support.ndoc host  # headless: save a sanitized snapshot for sharing
-netdoc --compare good.ndoc bad.ndoc  # headless: report what changed between two snapshots
-netdoc --watch host     # TUI: re-run continuously and track intermittent failures
-netdoc --json --watch host  # headless: one JSON report per line, until interrupted
-netdoc --list-checks        # list the stable IDs accepted by --check and --skip
-netdoc --check dns,target_tcp,tls example.com  # run only these IDs and their prerequisites
-netdoc --skip internet_tcp,quic_udp_443 example.com  # omit these probe branches
-netdoc --no-reference-egress host  # reach only the target and this machine's own network config
-netdoc --via server host  # run the checks on an SSH host and show the result here
-netdoc --two-sided --via server host  # run here and there, then localize the difference
-netdoc --iface wg0 host # bind probe traffic to wg0's source address
-netdoc --public-dns 9.9.9.9 host  # take the second opinion from Quad9 instead
-netdoc --no-history host          # don't read or save the target history file
-netdoc --peer-listen 192.168.1.20:4242  # wait for one directly reachable peer
-netdoc --peer-connect             # paste its temporary pairing string when prompted
-netdoc --two-sided here.ndoc there.ndoc  # which machine a failure belongs to
-```
-
-`--timeout` overrides the per-check probe timeout. `--list-checks` prints the stable IDs and names accepted by `--check`/`--skip`; those selectors choose probes by stable ID plus their dependency closure. `--no-reference-egress` drops every check that would contact netdoc's own reference services, leaving the target and an explicitly selected profile's endpoints as the only destinations, reached through this machine's own resolver and routing; `--iface` and address-only binding follow probe traffic through the drill-down tools too. Full flag semantics, the target-parsing rules, the TUI key table, the Actions menu, themes, and the history file are in **[docs/reference.md](docs/reference.md#usage-details)**.
-
-## Drill-down tools
-
-Each diagnosis row is *evidence*; when you want proof, run the real tools as cancellable streaming jobs, several at once, with `tab` switching between the live ones and output sanitized before it hits your terminal: `I`, `s`, `p`, `d`, `c`, `t`, `m`, and `n` run the OS's route, socket, ping, DNS, curl, traceroute, mtr, and nmap tools against the current target, `v` maps the local private network, and `S` opens a full interactive SSH login to it. Review your local copy before sharing, since tool evidence may contain sensitive data.
-
-The per-OS command table, binding rules, `--toolbox`, the LAN map flow, and the SSH login details are in **[docs/reference.md](docs/reference.md#drill-down-tools)** and **[SSH login](docs/reference.md#ssh-login)**.
-
-### JSON output
-
-`--json` runs the same probe DAG headless and prints one JSON document to stdout. `status` is one of `PASS`, `WARN`, `FAIL`, `SKIP`, `N/A`, and `verdict` is the class a script actually asks about: `ok`, `degraded`, `dns`, `network`, `service`, or `incomplete`. Field names and the status vocabulary are stable, so they are safe to script against.
-
-The full field reference, including `cause` values and the verdict table, is in **[docs/reference.md](docs/reference.md#json-output)**.
-
-### Diagnostic snapshots
-
-`--save file` runs the checks headless and writes the finished run to a versioned `.ndoc`, for the failure you cannot reproduce on demand; it never changes the diagnosis or the exit code, and combines with `--json`. `--support file` writes the same artifact pseudonymized for sharing, with an explicit redaction map; inspect it before sharing a sensitive environment.
-
-The format, the contents, the Watch Mode incident variant, and the full support policy are in **[docs/reference.md](docs/reference.md#diagnostic-snapshots)** and **[Support snapshots](docs/reference.md#support-snapshots)**.
-
-### Comparing two snapshots
-
-`--compare good.ndoc bad.ndoc` reports what changed between two saved runs. It runs no probes and opens no socket, so it works long after the fact, on a machine that has never seen either network. The comparison is semantic rather than a JSON diff, and it exits `0` when the runs describe the same state and `1` when they do not, so it is usable as a question in a script.
-
-The ignored fields, ordering, version compatibility, and different-target behavior are in **[docs/reference.md](docs/reference.md#comparing-two-snapshots)**.
-
-### Remote diagnosis over SSH
-
-`--via server host` runs the checks on another machine and presents the finished diagnosis here, for the machine whose network is broken in a way you cannot reproduce on yours. Add `--two-sided` to run the same target locally and remotely at the same time, then localize their completed snapshots with the ordinary two-sided engine. The destination goes to your own `ssh` client exactly as typed, so `~/.ssh/config` aliases, `user@host`, ports, and agent authentication all behave the way they do for `ssh server`, and netdoc installs nothing on the far end.
-
-A remote network that fails a check exits `1`, exactly as a local one does; a broken SSH connection, a missing remote `netdoc`, or a remote protocol mismatch exits `2` and says which it was, so a broken network is never confused with a broken connection.
-
-The protocol, exit codes, and limits are in **[docs/reference.md](docs/reference.md#remote-diagnosis-over-ssh)**.
-
-### Two-ended peer diagnosis
-
-Peer mode compares independently observed traffic in both directions instead of running the ordinary report twice: on the machine that can accept a direct connection, bind an exact address with `--peer-listen`, and paste the printed temporary pairing string into `--peer-connect` on the other machine. Each session uses a fresh pinned TLS 1.3 certificate and an expiring pairing string, and the reports never contain the token or pin.
-
-There is no relay, account, or NAT traversal: at least one advertised listener address must be directly reachable.
-
-The full security, privacy, protocol, and diagnosis contract is in **[docs/reference.md](docs/reference.md#peer-diagnosis)**.
-
-### Two-sided diagnosis
-
-Peer mode answers the path directly between two Network Doctor machines. Two-sided diagnosis asks why the same external target behaves differently from their two vantage points. The live form starts both ordinary runs together, with this machine as side A and the SSH destination as side B:
-
-```sh
-netdoc --two-sided --via other-host github.com
-netdoc --two-sided --via other-host --json github.com
-```
-
-The artifact form remains offline and network-free:
-
-```sh
-netdoc --save here.ndoc github.com                     # this machine
-netdoc --via other-host --save there.ndoc github.com   # the other machine
-netdoc --two-sided here.ndoc there.ndoc                # where is it broken?
-```
-
-Both forms use the same canonical snapshots, conservative localization, and `netdoc.twosided.v1` JSON schema. They place the failure on the vantage point where it is specific, report every caveat they cannot rule out, and make no claim about any device in between. `--compare` instead asks what changed between two saved states, while peer mode measures direct authenticated traffic between the Network Doctor endpoints.
-
-What a placement does and does not prove, and how the three two-machine commands divide the work, are in **[docs/reference.md](docs/reference.md#two-sided-diagnosis)**.
-
-### Exit codes
-
-`0` is a completed run with nothing failed, `1` is a failed or incomplete run, and `2` is a run that could not happen: bad arguments, a rejected pairing input, or a `--via` connection that never opened. The full table, per command, is in **[docs/reference.md](docs/reference.md#exit-codes)**.
-
-```sh
-netdoc github.com || echo "path to github is broken"
-```
-
-## Platform support
-
-All probes, the diagnosis engine, and the TUI are pure Go and identical on Linux, macOS, and Windows. Platform-specific garnish (the default gateway, the Wi-Fi SSID) degrades to empty rather than failing the probe when the OS lookup fails.
-
-`netdoc-sim` and Challenge Mode are the exception: their backend is Linux namespaces and there is no other one, so macOS and Windows run [the published image](docs/simulation.md#running-it-in-a-container) on a Linux container runtime rather than a port. `netdoc` itself needs no container anywhere.
+The walkthrough is in the wiki's
+[Challenge Mode](https://github.com/heymaikol/network-doctor/wiki/Challenge-Mode);
+the scoring contract is in
+**[docs/simulation-challenge.md](docs/simulation-challenge.md)** and the
+simulator in **[docs/simulation.md](docs/simulation.md)**.
 
 ## Documentation
 
-The **[wiki](https://github.com/heymaikol/network-doctor/wiki)** is the primary user-facing hub for how to use `netdoc` and what a diagnosis means; **[docs/reference.md](docs/reference.md)** is the full technical reference for exact CLI semantics, keybindings, exit codes, and schemas. Both are published at **[heymaikol.github.io/network-doctor](https://heymaikol.github.io/network-doctor/)**:
+The **[wiki](https://github.com/heymaikol/network-doctor/wiki)** is the
+user-facing hub for how to use `netdoc` and what a diagnosis means;
+**[docs/reference.md](docs/reference.md)** is the full technical reference for
+exact CLI semantics, keybindings, exit codes, and schemas. Both are published at
+**[heymaikol.github.io/network-doctor](https://heymaikol.github.io/network-doctor/)**:
 
 - [Getting Started](https://heymaikol.github.io/network-doctor/wiki/Getting-Started/): install, first run, and what the screen is showing you.
 - [Understanding Your Diagnosis](https://heymaikol.github.io/network-doctor/wiki/Understanding-Your-Diagnosis/): turning a verdict into a next action, including telling "my network" and "their service" apart.
 - [How Network Doctor Works](https://heymaikol.github.io/network-doctor/wiki/How-Network-Doctor-Works/): why the probe branches are independent, and how path MTU is measured without root.
 - [Troubleshooting and FAQ](https://heymaikol.github.io/network-doctor/wiki/Troubleshooting-and-FAQ/): the rows that behave surprisingly, and the questions that come up most.
-- [Reference](https://heymaikol.github.io/network-doctor/docs/reference/) and the [simulator guide](https://heymaikol.github.io/network-doctor/docs/simulation/): the same `docs/` files that live beside the code.
+- [Reference](https://heymaikol.github.io/network-doctor/docs/reference/), [installation details](https://heymaikol.github.io/network-doctor/docs/installation/), and the [simulator guide](https://heymaikol.github.io/network-doctor/docs/simulation/): the same `docs/` files that live beside the code.
 
 The site is built from `docs/` and the wiki, so each page is still edited exactly where it lives; nothing is duplicated to publish it.
 
-## Feature summary
+## Contributing
 
-Native DAG probes + diagnosis engine + authenticated two-ended peer diagnosis, built-in service profiles (`--profile`), two-pane UI, concurrent cancellable streaming tool jobs (`ping`/`dig`/`curl`/`traceroute`/`mtr`/`ss`/`ip`/`nmap`) + filterable output viewer + `--toolbox` mode, `Warn` state, proxy-aware diagnosis, unprivileged path-MTU check, public-DNS second opinion, LAN network map with per-device service selection, `S` SSH login, source-interface pinning (`--iface`), probe selection (`--check`/`--skip`), `--watch` with bounded incident reconstruction, TUI history strips and `--json` NDJSON, `--json` output, portable `.ndoc` diagnostic snapshots (`--save`), sanitized support snapshots (`--support`), semantic snapshot comparison (`--compare`), saved and live local-vs-remote two-sided localization (`--two-sided`), remote diagnosis over SSH (`--via`), report copy/save.
+Network Doctor actively welcomes external contributors, and many contributions
+need no networking expertise. Useful work includes Go and Bubble Tea / TUI
+development, Bash, Zsh, and Fish completions, CI / packaging / release tooling,
+documentation, Linux / macOS / Windows testing, and real-network field testing.
 
-## Built with
+- [Good first issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22good+first+issue%22)
+- [Help wanted issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22help+wanted%22)
 
-[Bubble Tea](https://github.com/charmbracelet/bubbletea),
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, choosing a task, and opening a
+pull request. An ordinary change runs `./scripts/check`; the complete gate and
+what each layer of evidence proves are in
+**[docs/validation.md](docs/validation.md)**. Please report suspected
+vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea),
 [Bubbles](https://github.com/charmbracelet/bubbles), and
 [Lip Gloss](https://github.com/charmbracelet/lipgloss).
 
-## Contributing
-
-Bug reports, focused pull requests, and platform testing are welcome. Please
-report suspected vulnerabilities privately as described in
-[SECURITY.md](SECURITY.md).
-
 ## Support
 
-### Personal Network Diagnosis
-
-Still stuck after running Network Doctor? I offer
-[Personal Network Diagnosis](https://tally.so/r/KYK7Y7) for one networking
+**Personal Network Diagnosis.** Still stuck after running Network Doctor? I
+offer [a paid personal diagnosis](https://tally.so/r/KYK7Y7) for one networking
 problem. Send a description, relevant context, and a sanitized report created
-locally with `netdoc --support support.ndoc example.com`, or omit the target for
-a general connectivity problem. Network Doctor does not upload the file.
+locally with `netdoc --support support.ndoc example.com`. I investigate the
+evidence and send a written diagnosis of the likely cause, concrete steps to try
+next, and one follow-up reply. The introductory price is **$25 USD as a one-time
+payment, limited to the first 5 cases**. This is diagnostic assistance, not a
+guarantee of repair. Network Doctor does not upload the file.
 
-I personally investigate the evidence and send a written diagnosis of the
-likely cause, concrete troubleshooting steps to try next, and one follow-up
-reply. The introductory price is **$25 USD as a one-time payment, limited to the
-first 5 cases**. This is diagnostic assistance, not a guarantee of repair.
-
-### GitHub Sponsors
-
-Network Doctor is free software maintained independently. If it saves you time,
-you can [sponsor its development](https://github.com/sponsors/heymaikol). Your
-support helps fund the time spent on cross-platform testing, packaging, releases,
-and ongoing maintenance. Sponsorship is optional and does not affect access to
-the software or how issues are prioritized.
-
-## Tests
-
-For an ordinary, focused pull request, run `./scripts/check` -- gofmt, `go vet`,
-a `CGO_ENABLED=0` build, macOS and Windows cross-compiles, a FreeBSD build that
-only proves the fallbacks for unsupported platforms still compile, and
-`go test ./...`, with no root and no Docker needed (a Go toolchain and a POSIX
-shell: on Windows, Git Bash or WSL). The checks make no network calls, though
-the Go toolchain downloads on a cold module cache or an out-of-date `toolchain`
-line.
-Then run the tests nearest your change and any additional checks clearly
-relevant to the files or behavior you changed. That is almost all a small
-external contribution needs.
-The exhaustive gate below exists for CI, maintainership, releases, and the
-specific checks that apply to your change; a small contribution does not have
-to reproduce every CI environment locally.
-
-The core Go checks run directly, and external validation tools use pinned
-`go run` commands, so a Go toolchain is the only prerequisite:
-
-```sh
-go vet ./...
-CGO_ENABLED=0 go build ./...
-go test ./...
-go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
-go test -tags acceptance -count=1 -run '^TestNative' . ./internal/ui
-go test -tags netns_integration -count=1 -v ./internal/simulation
-go test -race ./...
-go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
-go test -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
-go test -fuzz=FuzzEncryptedDNSResponseVerifier -fuzztime=10s ./internal/diagnostic
-go test -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic
-go test -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
-go test -fuzz=FuzzGenerateHuntCase -fuzztime=10s ./internal/simulation
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run ./...
-go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
-go run github.com/goreleaser/goreleaser/v2@v2.17.1 check
-```
-
-CI also syntax-checks every shipped Bash, Zsh, and Fish completion script with
-its native shell. Run the same focused check after changing a file under
-`packaging/completions/`:
-
-```sh
-(
-  set -e
-  for script in packaging/completions/*.bash; do bash -n "$script"; done
-  for script in packaging/completions/*.zsh; do zsh -n "$script"; done
-  for script in packaging/completions/*.fish; do fish -n "$script"; done
-)
-```
-
-If the change touched the `Dockerfile` or the image's release job, also build the
-image and test the artifact. It needs Docker or Podman, which is why it is not in
-the gate above:
-
-```sh
-docker build --build-arg VERSION=dev -t netdoc-sim:test .
-NETDOC_CONTAINER_IMAGE=netdoc-sim:test go test -tags container -count=1 -v .
-```
-
-If the change touched `docs/`, `site/`, or `cmd/docsite`, also build the
-documentation site the way [the pages workflow](.github/workflows/pages.yml)
-does. It needs the wiki checkout and the same container image GitHub Pages
-builds with, which is why it is not in the gate above:
-
-```sh
-git clone --depth 1 https://github.com/heymaikol/network-doctor.wiki.git ../network-doctor.wiki
-go run ./cmd/docsite -wiki ../network-doctor.wiki -out _docsite
-docker run --rm -v "$PWD":/gh -e GITHUB_WORKSPACE=/gh \
-  -e INPUT_SOURCE=_docsite -e INPUT_DESTINATION=_site \
-  -e GITHUB_REPOSITORY=heymaikol/network-doctor \
-  ghcr.io/actions/jekyll-build-pages:v1.0.13
-go run ./cmd/docsite -verify _site
-```
-
-If the change touched a build-tagged or `_linux`/`_darwin`/`_windows` suffixed
-file, also compile for macOS and Windows:
-
-```sh
-GOOS=darwin go build ./...
-GOOS=windows go build ./...
-```
-
-Race, fuzz, and network-namespace checks run only on Linux in CI. The
-`netns_integration` tests skip themselves on a host without unprivileged user
-namespaces; they never need root. That gate keeps `-v` because a skipped run and
-a real one both print just `ok` otherwise, and `-count=1` because a cached
-result would not have exercised any namespace at all.
-
-The `acceptance` command has tests only on macOS and Windows, and CI runs it on
-both native hosts. It builds the release-shaped `netdoc` and holds its native
-route evidence to observations the binary did not produce: the source address
-the kernel selects for a connected datagram socket, and the platform's own route
-tool, `Find-NetRoute` on Windows and `/sbin/route` on macOS. It also exercises
-loopback and the built-in route, socket, and ping drill-down commands. The route
-oracles send no application data: a route lookup and a connected UDP socket are
-local decisions, while the drill-down checks stay on loopback. It keeps
-`-count=1` so a cached result can never stand in for a run that actually touched
-the host.
-
-One acceptance test is opt-in, because no hosted runner has the topology it
-needs. `TestNativePreparedTargetRouteMatchesTheHostRouteTool` checks the route
-evidence netdoc publishes for a user-supplied target against the platform's own
-route tool on a host where a route narrower than the default covers that target
-and leaves by a different interface, which is how a split tunnel or a lab route
-over a second adapter looks. Set `NETDOC_ACCEPTANCE_TARGET` to the destination
-as an IP literal (`10.20.0.5`, `10.20.0.5:443` or `[2001:db8::5]:443`; a
-hostname is rejected, so no resolver picks which route is under test), and
-nothing needs to listen on it. Without the variable the test skips, while a
-variable that is present but empty fails, so a job whose value expanded to
-nothing hears about it; set `NETDOC_REQUIRE_ACCEPTANCE_TARGET=1` to turn the
-remaining skip into a failure too, so a job meant to run it cannot go green
-having skipped it. Once opted in, a host that is not actually in that shape
-fails rather than skips. The test only observes: it reads routes and opens a
-connected datagram socket, and never creates, changes, or removes a route,
-interface, tunnel, address, or firewall rule. Preparing that state is a manual
-step on a real machine, so CI sets neither variable.
-
-Three layers of evidence sit behind a release, and none of them substitutes for
-another:
-
-- **Deterministic tests and the Linux namespace simulator** prove the diagnosis
-  engine against controlled topologies. They prove nothing about whether the
-  Windows or macOS adapter reads its own operating system correctly.
-- **Native macOS and Windows acceptance** proves that reading, for the semantics
-  a GitHub-hosted runner genuinely exposes: route existence, the selected
-  interface, the IPv4 source address where the native API supplies it, IPv6
-  source ownership, the next hop, and the matched route entry. Windows also
-  checks the source and interface index/alias reported by `Find-NetRoute`. A
-  runner with no real tunnel cannot
-  prove VPN classification, so acceptance checks only that the native adapter
-  populated a structurally valid link classification.
-- **Field validation on real networks** is the only evidence for what CI cannot
-  manufacture: a real VPN tunnel, a captive portal, split DNS under enterprise
-  or VPN routing policy, an IPv6-only or DNS64/NAT64 network, live LAN DNS-SD
-  devices, and a managed proxy-only network. Those stay open as field-validation
-  issues, and a green CI run never closes one.
-
-## Development
-
-The package layout and the dependency rules between the packages are documented
-in [CONTRIBUTING.md](CONTRIBUTING.md#development).
+**GitHub Sponsors.** Network Doctor is free software maintained independently.
+If it saves you time, you can
+[sponsor its development](https://github.com/sponsors/heymaikol). Your support
+helps fund the time spent on cross-platform testing, packaging, releases, and
+ongoing maintenance. Sponsorship is optional and does not affect access to the
+software or how issues are prioritized.
 
 ## License
 

@@ -154,22 +154,15 @@ func TestPublicSupportUsesCanonicalURLs(t *testing.T) {
 	}
 }
 
-// The README's complete contributor gate promises to use the same tool
-// versions as CI. Keep that promise tied to the commands and action inputs that
-// actually run them, rather than to version strings copied into this test.
-func TestREADMEValidationToolVersionsMatchCI(t *testing.T) {
-	readme, err := os.ReadFile("README.md")
+// The complete contributor gate promises to use the same tool versions as CI.
+// Keep that promise tied to the commands and action inputs that actually run
+// them, rather than to version strings copied into this test.
+func TestValidationGateToolVersionsMatchCI(t *testing.T) {
+	gateDoc, err := os.ReadFile("docs/validation.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, gate, ok := strings.Cut(string(readme), "\n## Tests\n")
-	if !ok {
-		t.Fatal("README.md has no `## Tests` section")
-	}
-	gate, _, ok = strings.Cut(gate, "\n## ")
-	if !ok {
-		t.Fatal("README.md's `## Tests` section never ends; the heading structure changed")
-	}
+	gate := string(gateDoc)
 
 	data, err := os.ReadFile(".github/workflows/ci.yml")
 	if err != nil {
@@ -219,7 +212,7 @@ func TestREADMEValidationToolVersionsMatchCI(t *testing.T) {
 	} {
 		matches := regexp.MustCompile(`(?m)^\s*go run `+regexp.QuoteMeta(tool.module)+`@(\S+)\s`).FindAllStringSubmatch(gate+"\n", -1)
 		if len(matches) != 1 {
-			t.Errorf("README Tests gate has %d go run commands for %s, want exactly one", len(matches), tool.name)
+			t.Errorf("docs/validation.md has %d go run commands for %s, want exactly one", len(matches), tool.name)
 			continue
 		}
 		versions := ciVersions[tool.name]
@@ -228,7 +221,7 @@ func TestREADMEValidationToolVersionsMatchCI(t *testing.T) {
 			continue
 		}
 		if matches[0][1] != versions[0] {
-			t.Errorf("README Tests gate runs %s %s, but CI lint runs %s; keep the contributor gate and CI tool versions in sync", tool.name, matches[0][1], versions[0])
+			t.Errorf("docs/validation.md runs %s %s, but CI lint runs %s; keep the contributor gate and CI tool versions in sync", tool.name, matches[0][1], versions[0])
 		}
 	}
 }

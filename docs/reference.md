@@ -66,7 +66,65 @@ Three other fixed third-party endpoints are involved, all bounded by the normal 
 
 No verdict depends on ICMP: a failed `ping` proves nothing and a successful one proves less than a TCP connect, so RTT is measured from the TCP-connect handshake instead, with no ICMP and no root. `ping` remains available as a drill-down tool. The source IP and interface are read from the winning connection's `LocalAddr`, with a UDP-connect fallback (which sends no packets) for path identity on failure. Every probe is bounded by a 4-second timeout.
 
+### Sibling address retry
+
+After a target connection wins a same-family address race, `netdoc` may retry
+one canceled sibling from the system resolver's answers. It uses the same source
+binding and target port, with a one-second individual dial budget only when that
+full interval remains inside the target probe's timeout. A success that lands
+before a sibling starts triggers no retry, and the total stays within the
+16-attempt cap.
+
+The canceled attempt remains non-failure evidence. A separate refusal or dial
+timeout can earn [`partial_endpoint_reachability`](#diagnosis-findings) alongside
+a successful address in that same family, while parent-probe cancellation never
+earns that finding. This is a bounded observation of the endpoint at that time,
+not proof of a permanent outage. Reports and snapshots retain both attempts with
+their existing `cause` and `aborted` fields.
+
+### Platform support
+
+All probes, the diagnosis engine, and the TUI are pure Go and identical on
+Linux, macOS, and Windows. Platform-specific garnish (the default gateway, the
+Wi-Fi SSID) degrades to empty rather than failing the probe when the OS lookup
+fails. `netdoc-sim` and Challenge Mode are the exception: their backend is Linux
+namespaces and there is no other one, so macOS and Windows run
+[the published image](simulation.md#running-it-in-a-container) on a Linux
+container runtime rather than a port. `netdoc` itself needs no container
+anywhere.
+
 ## Usage details
+
+The command forms, in one place:
+
+```sh
+netdoc                  # generic local + internet diagnosis
+netdoc github.com       # diagnose the path to a host (HTTP + TLS + HTTPS)
+netdoc github.com:22    # port selects the protocol rows (SSH banner)
+netdoc https://host:80  # explicit scheme selects the protocol (TLS + HTTPS on :80)
+netdoc ssh://host:2222  # explicit scheme keeps SSH on a nonstandard port
+netdoc --json host      # headless: one JSON report on stdout (scripts, CI, bug reports)
+netdoc --save incident.ndoc host  # headless: save the finished run as a snapshot file
+netdoc --support support.ndoc host  # headless: save a sanitized snapshot for sharing
+netdoc --compare good.ndoc bad.ndoc  # headless: report what changed between two snapshots
+netdoc --watch host     # TUI: re-run continuously and track intermittent failures
+netdoc --json --watch host  # headless: one JSON report per line, until interrupted
+netdoc --profile list   # describe the built-in service profiles
+netdoc --profile github # GitHub web, API, and both SSH paths
+netdoc --profile ssh server.example.com  # SSH path, route, MTU, and banner evidence
+netdoc --list-checks        # list the stable IDs accepted by --check and --skip
+netdoc --check dns,target_tcp,tls example.com  # run only these IDs and their prerequisites
+netdoc --skip internet_tcp,quic_udp_443 example.com  # omit these probe branches
+netdoc --no-reference-egress host  # reach only the target and this machine's own network config
+netdoc --via server host  # run the checks on an SSH host and show the result here
+netdoc --two-sided --via server host  # run here and there, then localize the difference
+netdoc --two-sided here.ndoc there.ndoc  # two saved runs: which machine a failure belongs to
+netdoc --iface wg0 host # bind probe traffic to wg0's source address
+netdoc --public-dns 9.9.9.9 host  # take the second opinion from Quad9 instead
+netdoc --no-history host          # don't read or save the target history file
+netdoc --peer-listen 192.168.1.20:4242  # wait for one directly reachable peer
+netdoc --peer-connect             # paste its temporary pairing string when prompted
+```
 
 `--timeout` overrides the per-check probe timeout; see `netdoc --help` for the default. `--watch` starts another pass five seconds after each run; in the TUI it shows the last 20 states plus a failure count for every check, and with `--json` it streams the same report on stdout, one compact JSON object per line, until the process is interrupted. Those lines carry an extra `ts` field (RFC 3339, UTC) and are otherwise the one-shot report unchanged; one-shot output stays pretty-printed, with no `ts`.
 

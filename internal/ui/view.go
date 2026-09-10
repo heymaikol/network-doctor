@@ -496,7 +496,10 @@ func (m model) detailRows(deferred bool) []string {
 		if !answered || !quoted {
 			body.WriteString(m.st.status[r.Status].Render(r.Status.String()) + ": " + r.Detail + "\n")
 		}
-		if !answered && (r.Status == diagnostic.StatusFail || r.Status == diagnostic.StatusWarn) && r.Fix != "" {
+		// A working http:// proxy row keeps its earned status, so its advice
+		// would otherwise never be shown: the cleartext observation is the one
+		// non-failing result that carries a line worth reading.
+		if !answered && (r.Status == diagnostic.StatusFail || r.Status == diagnostic.StatusWarn || r.ConnectCleartext) && r.Fix != "" {
 			body.WriteString(m.st.skip.Render("Fix: ") + r.Fix + "\n")
 		}
 		// The remediation belongs to the diagnosis rather than to any one row,

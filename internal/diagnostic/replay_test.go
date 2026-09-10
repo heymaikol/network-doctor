@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
@@ -123,6 +124,46 @@ func TestResolverTargetsSurviveSnapshotReplay(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.ResolverTargets, targets) {
 		t.Errorf("resolver targets = %v, want %v", result.ResolverTargets, targets)
+	}
+}
+
+// connect_cleartext feeds no diagnosis rule, so the reasoning replays identically
+// with or without it and no diagnosis test can notice it going missing. Carry it
+// down the real path instead: live result, snapshot, encode, decode, replay.
+func TestConnectCleartextSurvivesSnapshotReplay(t *testing.T) {
+	probes := []Probe{{ID: ProbeProxy, Name: "Internet (env proxy)"}}
+	artifact := BuildSnapshot(nil, probes, map[ProbeID]ProbeResult{
+		ProbeProxy: {Status: StatusPass, Dur: 30 * time.Millisecond, Detail: "proxy tunnels", ConnectCleartext: true},
+	})
+	data, err := snapshot.Encode(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err = snapshot.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := replayResult(ProbeProxy, StatusPass, artifact.Checks[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ConnectCleartext {
+		t.Errorf("connect_cleartext did not survive the snapshot round trip:\n%s", data)
+	}
+}
+
+// The absent half of the same contract: a row that recorded no observation must
+// encode no field, so a reader never mistakes false for a confirmed TLS hop.
+func TestUnrecordedConnectCleartextIsOmittedFromTheSnapshot(t *testing.T) {
+	probes := []Probe{{ID: ProbeProxy, Name: "Internet (env proxy)"}}
+	data, err := snapshot.Encode(BuildSnapshot(nil, probes, map[ProbeID]ProbeResult{
+		ProbeProxy: {Status: StatusPass, Dur: 30 * time.Millisecond, Detail: "proxy tunnels"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "connect_cleartext") {
+		t.Errorf("a row with no observation still encoded the field:\n%s", data)
 	}
 }
 

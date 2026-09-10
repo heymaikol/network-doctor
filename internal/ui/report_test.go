@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
@@ -254,5 +255,53 @@ func TestRestartClearsToolOutputFromReport(t *testing.T) {
 
 	if rep := m.report(); strings.Contains(rep, "old.example") {
 		t.Errorf("restarted report contains previous tool output:\n%s", rep)
+	}
+}
+
+// The shareable report and the Details pane both hide a passing row's fix, and
+// a working http:// proxy is a passing row. Pin that the cleartext observation
+// is the one exception, so the advice the probe wrote is actually read.
+func TestCleartextProxyAdviceIsVisibleOnAPassingRow(t *testing.T) {
+	tgt, err := diagnostic.ParseTarget("example.com:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(tgt, false)
+	doneResults(&m, "")
+	const advice = "an http:// proxy sends the CONNECT destination hostname in cleartext"
+	if _, ok := m.results[diagnostic.ProbeProxy]; !ok {
+		t.Fatalf("the proxy row is not in this run's probe set")
+	}
+	m.results[diagnostic.ProbeProxy] = diagnostic.ProbeResult{
+		ID: diagnostic.ProbeProxy, Status: diagnostic.StatusPass,
+		Detail: "proxy tunnels; the CONNECT destination hostname is sent to the proxy without TLS",
+		Fix:    advice, ConnectCleartext: true,
+	}
+	// An ordinary passing row keeps its fix hidden, which is what makes the
+	// proxy row's visibility a decision rather than a blanket change.
+	other := m.probes[0].ID
+	if other == diagnostic.ProbeProxy {
+		other = m.probes[1].ID
+	}
+	m.results[other] = diagnostic.ProbeResult{
+		ID: other, Status: diagnostic.StatusPass, Detail: "ok", Fix: "not shown for a pass",
+	}
+
+	rep := m.report()
+	if !strings.Contains(rep, "fix: "+advice) {
+		t.Errorf("the shareable report hid the cleartext advice:\n%s", rep)
+	}
+	if strings.Contains(rep, "not shown for a pass") {
+		t.Errorf("an ordinary passing row started printing its fix:\n%s", rep)
+	}
+
+	for i, p := range m.probes {
+		if p.ID == diagnostic.ProbeProxy {
+			m.selected = i
+		}
+	}
+	details := ansi.Strip(strings.Join(m.detailRows(false), "\n"))
+	if !strings.Contains(details, "Fix: "+advice) {
+		t.Errorf("the Details pane hid the cleartext advice:\n%s", details)
 	}
 }

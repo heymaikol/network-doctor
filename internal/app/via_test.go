@@ -379,6 +379,32 @@ func TestRunRemoteWorkerRefusesABadRequestWithoutRunningProbes(t *testing.T) {
 	}
 }
 
+// A working http:// proxy row is a PASS, and a PASS prints no fix line. The
+// cleartext observation is the exception the renderer has to know about, or the
+// advice the probe wrote is never read by anyone.
+func TestReportTextShowsCleartextAdviceOnAPassingProxyRow(t *testing.T) {
+	rep := report.Report{
+		Version: "1.2.3", Verdict: diagnostic.VerdictOK, Summary: "The network works.",
+		Checks: []report.Check{
+			{ID: "dns", Name: "DNS", Status: "PASS", Detail: "resolved", Fix: "not shown for a pass"},
+			{
+				ID: "proxy_connect", Name: "Internet (env proxy)", Status: "PASS",
+				Detail: "proxy tunnels; the CONNECT destination hostname is sent to the proxy without TLS",
+				Fix:    "an http:// proxy sends the CONNECT destination hostname in cleartext",
+
+				ConnectCleartext: true,
+			},
+		},
+	}
+	text := reportText(rep)
+	if !strings.Contains(text, "fix: an http:// proxy sends the CONNECT destination hostname in cleartext") {
+		t.Errorf("the cleartext advice never reached the report:\n%s", text)
+	}
+	if strings.Contains(text, "not shown for a pass") {
+		t.Errorf("an ordinary passing row started printing its fix:\n%s", text)
+	}
+}
+
 func TestReportTextSaysTheVerdictAndCleansWhatTheProbesSaw(t *testing.T) {
 	rep := report.Report{
 		Version: "1.2.3",

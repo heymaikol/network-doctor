@@ -839,8 +839,8 @@ func TestProxyProbeConnectOK(t *testing.T) {
 }
 
 // A working http:// proxy carried the CONNECT over a bare TCP hop, so the row
-// records the cleartext-hostname observation and hedged advice, while staying a
-// clean PASS. The observation is deterministic from the scheme.
+// records the cleartext-hostname observation and hedged advice. The observation
+// does not move the status: this row earned no dial warning, so it stays PASS.
 func TestProxyProbeConnectCleartextObservation(t *testing.T) {
 	conn := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}
 	ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
@@ -895,6 +895,30 @@ func TestProxyProbeNonHTTPProxiesAreNotCleartext(t *testing.T) {
 			t.Error("socks5 proxy set ConnectCleartext, want false")
 		}
 	})
+}
+
+// A refused CONNECT had already put the destination hostname on the wire, yet
+// the observation is scoped to the successful tunnel and stays false here. Pin
+// that boundary, so a later reader does not take an absent connect_cleartext as
+// proof that no cleartext hostname was sent.
+func TestProxyProbeRefusedConnectRecordsNoCleartextObservation(t *testing.T) {
+	for _, status := range []string{"403 Forbidden", "407 Proxy Authentication Required"} {
+		conn := &scriptConn{r: strings.NewReader("HTTP/1.1 " + status + "\r\nContent-Length: 0\r\n\r\n")}
+		ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
+			return conn, nil
+		})
+		r := ops.proxyProbe(context.Background(), nil)
+		if r.Status != StatusFail {
+			t.Fatalf("%s = %v, want FAIL", status, r.Status)
+		}
+		if r.ConnectCleartext {
+			t.Errorf("%s set ConnectCleartext, want false: the field is success-only", status)
+		}
+		// The hostname really did leave: absence of the field is not evidence.
+		if !strings.Contains(conn.w.String(), "CONNECT "+ConnectivityProbeHost+":443") {
+			t.Errorf("%s: no CONNECT reached the wire:\n%s", status, conn.w.String())
+		}
+	}
 }
 
 func TestProxyProbeRejectsUnboundedRead(t *testing.T) {

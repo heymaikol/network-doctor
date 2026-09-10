@@ -337,11 +337,16 @@ func (r *redactor) check(c Check) Check {
 		return out
 	}
 	o := c.Observed
+	// ConnectCleartext is copied deliberately. It is a boolean observation about
+	// the proxy transport the configuration selected, so it carries no hostname,
+	// address, credential, identifier, or user-supplied string of its own, and
+	// nothing here could recompute it once the proxy row's text is rewritten.
 	observed := &Observed{
 		DNSNotFound: o.DNSNotFound, Resolver: r.address(o.Resolver),
 		SourceIP: r.address(o.SourceIP), Interface: r.alias("interface", o.Interface),
 		SSID: r.alias("ssid", o.SSID), Timeout: o.Timeout,
 		InterfaceAmbiguous: o.InterfaceAmbiguous, ClockOffsetMs: o.ClockOffsetMs,
+		ConnectCleartext: o.ConnectCleartext,
 	}
 	for _, target := range o.ResolverTargets {
 		observed.ResolverTargets = append(observed.ResolverTargets, r.resolverTarget(target))

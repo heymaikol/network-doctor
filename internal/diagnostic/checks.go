@@ -200,6 +200,12 @@ type ProbeResult struct {
 	// tunnel that succeeded, and it makes no claim that anything on the path read
 	// or acted on the exposed name. False on every other row, and on https:// and
 	// SOCKS5 proxies.
+	//
+	// The scope is deliberately the successful tunnel and nothing else. A
+	// refused CONNECT was written to the wire before the proxy answered, so its
+	// destination hostname was just as exposed, and this field is still false
+	// there. False therefore means "not recorded", never "no cleartext hostname
+	// was sent".
 	ConnectCleartext bool
 	// timedOut marks an HTTP/HTTPS failure that was a timeout, which is half
 	// the PMTU black-hole correlation. TLS reports the same fact through

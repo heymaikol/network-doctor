@@ -209,7 +209,10 @@ func reportText(r report.Report) string {
 	b.WriteString("\nchecks:\n")
 	for _, c := range r.Checks {
 		fmt.Fprintf(&b, "  [%s] %s: %s\n", clean(c.Status), clean(c.Name), clean(c.Detail))
-		if c.Fix != "" && (c.Status == diagnostic.StatusFail.String() || c.Status == diagnostic.StatusWarn.String()) {
+		// A working http:// proxy row keeps its earned status, so its advice
+		// would otherwise never be shown: the cleartext observation is the one
+		// non-failing result that carries a line worth reading.
+		if c.Fix != "" && (c.Status == diagnostic.StatusFail.String() || c.Status == diagnostic.StatusWarn.String() || c.ConnectCleartext) {
 			b.WriteString("        fix: " + clean(c.Fix) + "\n")
 		}
 		if c.Portal != nil && c.Portal.RedirectURL != "" {

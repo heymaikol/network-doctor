@@ -404,8 +404,9 @@ type Observed struct {
 	Routes []Route `json:"routes,omitempty"`
 	// ConnectCleartext is true when the row reached its result over a plaintext
 	// HTTP CONNECT: the destination hostname was sent to the proxy without TLS on
-	// the client-to-proxy hop. Absent means the observation was not recorded,
-	// never that a TLS hop to the proxy was confirmed.
+	// the client-to-proxy hop. It is recorded only for a tunnel that succeeded.
+	// Absent means the observation was not recorded, never that a TLS hop to the
+	// proxy was confirmed and never that no cleartext hostname was sent.
 	ConnectCleartext bool `json:"connect_cleartext,omitempty"`
 }
 

@@ -253,6 +253,55 @@ func TestTargetProbeDeadlineIsNotAddressFailure(t *testing.T) {
 	}
 }
 
+// dialIPs cancels its derived context to unblock the dials still in flight, so
+// an aborted attempt can report cancellation whichever way that races. What
+// ended the probe is the enclosing deadline, and the address that failed on its
+// own beforehand keeps its own cause.
+func TestTargetProbeDeadlineOverridesInternalCancellation(t *testing.T) {
+	refused, blocked := net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")
+	o := &netops{interfaces: func() ([]net.Interface, error) { return nil, nil }, dialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if network == "udp" {
+			return nil, syscall.ECONNREFUSED
+		}
+		if host, _, _ := net.SplitHostPort(addr); host == refused.String() {
+			return nil, syscall.ECONNREFUSED
+		}
+		<-ctx.Done()
+		return nil, context.Canceled
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{refused, blocked}}})
+	if len(r.Attempts) != 2 {
+		t.Fatalf("evidence=%+v", r.Attempts)
+	}
+	if a := r.Attempts[0]; !a.IP.Equal(refused) || a.Aborted || a.Cause != ConnectionCauseRefused {
+		t.Fatalf("completed failure rewritten: %+v", a)
+	}
+	if a := r.Attempts[1]; !a.IP.Equal(blocked) || !a.Aborted || a.Cause != ConnectionCauseTimeout {
+		t.Fatalf("deadline evidence=%+v", a)
+	}
+}
+
+// Explicit caller cancellation is not a timeout, so the same path has to keep
+// reporting it as cancellation.
+func TestTargetProbeCallerCancellationStaysCanceled(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
+	defer cancel()
+	o := &netops{interfaces: func() ([]net.Interface, error) { return nil, nil }, dialContext: func(dctx context.Context, network, _ string) (net.Conn, error) {
+		if network == "udp" {
+			return nil, syscall.ECONNREFUSED
+		}
+		cancel()
+		<-dctx.Done()
+		return nil, context.Canceled
+	}}
+	r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{net.ParseIP("192.0.2.1")}}})
+	if len(r.Attempts) != 1 || !r.Attempts[0].Aborted || r.Attempts[0].Cause != ConnectionCauseCanceled {
+		t.Fatalf("cancellation evidence=%+v", r.Attempts)
+	}
+}
+
 func TestTargetSuccessfulRaceLoserIsClosedWithoutFailure(t *testing.T) {
 	a, b := net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")
 	loser := &closeTrackingConn{closed: make(chan struct{})}

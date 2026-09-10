@@ -354,8 +354,17 @@ func (o *netops) dialIPs(ctx context.Context, ips []net.IP, port int) (net.Conn,
 		case <-ctx.Done():
 			before := len(attempts)
 			drain()
+			// drain cancels dctx to unblock the dials still in flight, so one of
+			// them can report context.Canceled even when the enclosing probe
+			// deadline is what actually ended it. The enclosing error is settled
+			// once ctx is done, so name that reason instead of the internal
+			// cancellation. Errors that completed on their own are left alone.
+			aborted := ConnectionFailureCause(ctx.Err())
 			for i := before; i < len(attempts); i++ {
 				attempts[i].Aborted = true
+				if errors.Is(attempts[i].Err, context.Canceled) {
+					attempts[i].Cause = aborted
+				}
 			}
 			return nil, nil, attempts, 0
 		}

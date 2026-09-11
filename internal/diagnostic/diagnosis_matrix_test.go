@@ -259,7 +259,7 @@ func diagnosisMatrix() []matrixCase {
 			res: map[ProbeID]ProbeResult{
 				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusFail), ProbeDNS: ok(StatusFail),
 			},
-			summary: "Offline: neither DNS nor direct TCP to the egress check's reference endpoints is working.",
+			summary: "Offline: neither the system resolver nor direct TCP to the egress check's reference endpoints is working.",
 			verdict: VerdictNetwork, focus: ProbeInternet,
 			id: "offline", evidence: []ProbeID{ProbeInternet, ProbeDNS},
 		},

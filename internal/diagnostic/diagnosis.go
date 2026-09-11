@@ -406,7 +406,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			// still have answered here, from off the network or from a
 			// middlebox standing in for it, and a sentence generalizing over
 			// both would be contradicted by the run's own evidence.
-			return blame(DiagnosisOffline, ProbeInternet, "Offline: neither DNS nor direct TCP to the egress check's reference endpoints is working.", gv, ProbeDNS)
+			return blame(DiagnosisOffline, ProbeInternet, "Offline: neither the system resolver nor direct TCP to the egress check's reference endpoints is working.", gv, ProbeDNS)
 		default:
 			return fallback()
 		}

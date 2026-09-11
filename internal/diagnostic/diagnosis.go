@@ -19,6 +19,11 @@ import (
 func Interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosis {
 	d := interpret(t, order, res)
 	var counterfactuals []DiagnosisFinding
+	// Behind a portal the rows a counterfactual compares are answering for the
+	// portal, which is why the truth table puts the portal ahead of every rung
+	// below it. A comparison drawn from intercepted rows describes the
+	// interception and publishes it under the name of the thing intercepted,
+	// so the same rule holds here: the portal is what this run observed.
 	if d.Verdict != VerdictIncomplete {
 		counterfactuals = counterfactualFindings(t, res)
 	}
@@ -328,7 +333,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			gv = VerdictDegraded
 		}
 		switch {
-		case hasInternet && res[ProbeInternet].Portal != nil:
+		case intercepted(res):
 			return blame(DiagnosisCaptivePortal, ProbeInternet, "Behind a captive portal: traffic is intercepted until you sign in to the network.", VerdictNetwork)
 		case directOK() && fail(ProbeDNS) && publicResolves:
 			evidence := addEvidence(supportRows(ProbeDNS, ProbeDNSPublic, ProbeInternet),
@@ -368,10 +373,6 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		case directOK() && warn(ProbeInternet) && dn:
 			return blame(DiagnosisDirectEgressDegraded, ProbeInternet, "Online but degraded: direct egress is impaired (see the ! row for details).", gv, ProbeDNS)
 		case directOK() && warn(ProbeInternet) && fail(ProbeDNS):
-			// directOK, so this is a Warn the egress probe raised itself: one
-			// family down, packet loss, and so on. Direct egress really does
-			// carry traffic here, which is what separates it from the case
-			// above.
 			evidence := addEvidence(supportRows(ProbeDNS, ProbeInternet),
 				rulesOut(DiagnosisOffline, ProbeInternet, ObservationStatusWarn))
 			return withEvidence(DiagnosisDNSFailure, ProbeDNS, "Internet egress works (degraded) but DNS resolution is failing.", gv, evidence)
@@ -384,6 +385,12 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		case fail(ProbeInternet) && fail(ProbeDNS):
 			// Egress, not the resolver: nothing this machine sends is
 			// arriving, so the resolver has not been given a fair test yet.
+			//
+			// The sentence names the row that failed rather than DNS as a
+			// whole. The second-opinion resolver is a separate row and can
+			// still have answered here, from off the network or from a
+			// middlebox standing in for it, and a sentence generalizing over
+			// both would be contradicted by the run's own evidence.
 			return blame(DiagnosisOffline, ProbeInternet, "Offline: neither DNS nor direct TCP to the egress check's reference endpoints is working.", gv, ProbeDNS)
 		default:
 			return fallback()
@@ -405,6 +412,11 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	for _, id := range endpoint {
 		targetOK = targetOK && has(id) && functional(res[id].Status)
 	}
+	// A sentence about the whole run passing has to be true of the whole run,
+	// and a working target is not that: the rows beside it are selected
+	// checks too. A failure none of the cases below is about is exactly what
+	// fallback names, and it says so without inventing a cause for it.
+	anyFailed := slices.ContainsFunc(order, fail)
 	// Protocol rungs that spent their whole budget rather than answering,
 	// which is half of the path-MTU correlation below and the evidence a
 	// path-MTU verdict cites. Immediate failures such as a bad certificate are
@@ -418,7 +430,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	}
 
 	switch {
-	case has(ProbeInternet) && res[ProbeInternet].Portal != nil:
+	case intercepted(res):
 		// Ahead of the DNS rung: behind a portal every rung below is answering
 		// for the portal, so nothing further down the stack means what it says.
 		return blame(DiagnosisCaptivePortal, ProbeInternet, "Behind a captive portal: sign in to the network before trusting anything about "+host+".", VerdictNetwork)
@@ -601,9 +613,9 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		return blame(DiagnosisDirectEgressDegraded, ProbeInternet, "The target works but direct egress to the egress check's reference endpoints is degraded (see the ! row for details).", VerdictDegraded, endpoint...)
 	case targetOK && warn(ProbeDNSPublic) && has(ProbeDNS) && functional(res[ProbeDNS].Status):
 		return blame(DiagnosisDNSDisagreement, ProbeDNSPublic, "The target works, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).", VerdictDegraded, ProbeDNS)
-	case targetOK && degraded:
+	case targetOK && !anyFailed && degraded:
 		return plain("The target works, but some checks are degraded (see the ! rows for details).", VerdictDegraded)
-	case targetOK:
+	case targetOK && !anyFailed:
 		return plain("All checks passed. "+hp+" looks healthy.", VerdictOK)
 	default:
 		return fallback()
@@ -723,6 +735,28 @@ func localIP(ip net.IP) bool {
 	}
 	addr = addr.Unmap()
 	return sharedIPv4Space.Contains(addr) || siteLocalIPv6.Contains(addr)
+}
+
+// intercepted reports whether the egress probe caught a captive portal
+// answering for the network. Every rung below it is then answering for the
+// portal too, so this is what the interpretation pass asks before reading one.
+func intercepted(res map[ProbeID]ProbeResult) bool {
+	r, ok := res[ProbeInternet]
+	return ok && r.Portal != nil
+}
+
+// certificateRejected reports whether the TLS row failed on the certificate
+// the far end presented, rather than on reaching it. These are the handshake
+// outcomes that prove the server answered and its certificate crossed the
+// path: a verdict about the path not carrying traffic cannot be drawn over
+// one of them.
+func certificateRejected(cause string) bool {
+	switch cause {
+	case TLSCauseCertificateExpired, TLSCauseCertificateNotYet,
+		TLSCauseHostnameMismatch, TLSCauseUntrustedIssuer:
+		return true
+	}
+	return false
 }
 
 // directEgressOK means direct egress genuinely worked: a Pass, or a Warn the

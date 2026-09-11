@@ -277,11 +277,17 @@ func TestPathStripMarksTheDiagnosisFocusNotTheFirstFailure(t *testing.T) {
 // the cursor; that is a presentation answer, and the strip must not repeat it
 // as a statement about cause.
 func TestPathStripNeverMarksAFallbackCursorRow(t *testing.T) {
-	m := pathRun(t, "example.com:443", map[diagnostic.ProbeID]diagnostic.Status{
-		diagnostic.ProbePMTU: diagnostic.StatusFail,
-		diagnostic.ProbeQUIC: diagnostic.StatusWarn,
-	})
+	// Mid-run, which is where a diagnosis names nothing while a row has
+	// already failed: a finished run with a failure names the row that
+	// carries it, so it is no longer the case this is about.
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	m.width = 100
+	m.results[diagnostic.ProbeIface] = diagnostic.ProbeResult{ID: diagnostic.ProbeIface, Status: diagnostic.StatusPass}
+	m.results[diagnostic.ProbeQUIC] = diagnostic.ProbeResult{ID: diagnostic.ProbeQUIC, Status: diagnostic.StatusFail}
 	d := m.diagnosis()
+	if d.Verdict != diagnostic.VerdictIncomplete {
+		t.Fatalf("verdict = %q, want an unfinished run", d.Verdict)
+	}
 	if d.Focus() != "" {
 		t.Fatalf("the diagnosis focuses %q, so this is no longer the fallback case", d.Focus())
 	}

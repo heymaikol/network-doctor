@@ -280,9 +280,9 @@ func TestCaptureGapIsACaveat(t *testing.T) {
 	}
 }
 
-// Support artifacts need no rule of their own: sanitization renames the target,
-// and it gives the same endpoint the same pseudonym on both machines, so the
-// same-target rule already sorts the readable pairs from the unreadable ones.
+// Preserve the existing target-spelling gate for support artifacts. Independent
+// redaction mappings do not prove original identity; the reading says so in a
+// caveat and never compares pseudonyms as address evidence.
 func TestSanitizedArtifactsFollowTheSameTargetRule(t *testing.T) {
 	a := snapshot.SanitizeForSupport(fixture(t))
 	b := snapshot.SanitizeForSupport(fixture(t))

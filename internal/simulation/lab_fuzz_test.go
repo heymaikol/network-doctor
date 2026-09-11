@@ -10,9 +10,39 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heymaikol/network-doctor/internal/compare"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
+
+func TestLabTwoSidedCausePreservationDetectsErasure(t *testing.T) {
+	a := snapshot.Snapshot{Schema: snapshot.Schema, Checks: []snapshot.Check{{ID: "tls", Status: snapshot.StatusFail, Cause: "hostname_mismatch"}}}
+	b := snapshot.Snapshot{Schema: snapshot.Schema, Checks: []snapshot.Check{{ID: "tls", Status: snapshot.StatusFail, Cause: "timeout"}}}
+	sides, err := compare.TwoSidedSnapshots(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := []LabReport{{Views: []LabObservation{{Snapshot: a}, {Snapshot: b}}, TwoSided: &sides}}
+	for _, p := range LabFuzzProperties() {
+		if p.Name != "two-sided-cause-preservation" {
+			continue
+		}
+		if !p.Applicable(LabFuzzCase{}, r) {
+			t.Fatal("property did not apply")
+		}
+		if violations, err := p.Evaluate(context.Background(), LabFuzzCase{}, r); err != nil || len(violations) != 0 {
+			t.Fatalf("valid report: %v %v", violations, err)
+		}
+		// Erase only the additive observation dimension, leaving exactly the
+		// status/placement reduction this investigation reproduced at HEAD.
+		sides.Checks[0].Evidence = nil
+		if violations, err := p.Evaluate(context.Background(), LabFuzzCase{}, r); err != nil || len(violations) != 1 {
+			t.Fatalf("erasure undetected: %v %v", violations, err)
+		}
+		return
+	}
+	t.Fatal("preservation property missing")
+}
 
 func TestLabFuzzGenerator(t *testing.T) {
 	ctx := context.Background()

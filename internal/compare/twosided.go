@@ -91,6 +91,9 @@ type SideRow struct {
 	// was skipped, did not apply, or never reported on either side measured
 	// nothing to compare, and the localization does not read it.
 	Comparable bool `json:"comparable"`
+	// Evidence compares recorded dimensions independently of failure placement.
+	// Absent means no structured dimension was compared, never equivalence.
+	Evidence []EvidenceComparison `json:"evidence,omitempty"`
 }
 
 // Localization is where the evidence places the failure, and what it does not
@@ -132,7 +135,7 @@ func TwoSidedSnapshots(a, b snapshot.Snapshot) (TwoSided, error) {
 	}
 	t := TwoSided{
 		Schema: TwoSidedSchema, A: sideOf(a), B: sideOf(b), SameTarget: true,
-		Checks: sideRows(a.Checks, b.Checks), Caveats: []string{},
+		Checks: sideRows(a.Checks, b.Checks, isSanitized(a) || isSanitized(b)), Caveats: []string{},
 	}
 	t.Caveats = caveats(a, b, t.Checks)
 	t.Diagnosis = localize(t.Checks)
@@ -144,7 +147,7 @@ func TwoSidedSnapshots(a, b snapshot.Snapshot) (TwoSided, error) {
 // it is a question left open, and it counts as placed for that reason.
 func (t TwoSided) Placed() bool { return t.Diagnosis.Side != SideNone }
 
-func sideRows(a, b []snapshot.Check) []SideRow {
+func sideRows(a, b []snapshot.Check, redacted bool) []SideRow {
 	byA, byB := checksByID(a), checksByID(b)
 	// b first inside mergedOrder means a's own order leads, since it takes the
 	// second argument first.
@@ -153,10 +156,14 @@ func sideRows(a, b []snapshot.Check) []SideRow {
 	for _, id := range order {
 		rowA, inA := byA[id]
 		rowB, inB := byB[id]
-		rows = append(rows, SideRow{
+		row := SideRow{
 			ID: id, A: rowA.Status, B: rowB.Status,
 			Comparable: inA && inB && measured(rowA.Status) && measured(rowB.Status),
-		})
+		}
+		if row.Comparable {
+			row.Evidence = checkEvidence(rowA, rowB, redacted)
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }
@@ -212,7 +219,7 @@ func localize(rows []SideRow) Localization {
 	case len(onlyA) > 0 && len(onlyB) > 0:
 		return Localization{
 			ID: TwoSidedDivergentFailures, Side: SideBoth, Evidence: append(append(append([]string{}, shared...), onlyA...), onlyB...),
-			Summary:   "Each machine fails checks the other passes, so the evidence describes two findings rather than one failure to place.",
+			Summary:   "Each machine has final FAIL checks with non-FAIL outcomes on the other. These are different placements by check, not proof of separate causes.",
 			Ambiguous: true,
 			Alternatives: []string{
 				"each machine has a separate fault",
@@ -256,15 +263,15 @@ func oneSided(onlyA, onlyB, shared []string) Localization {
 	if len(shared) == 0 {
 		return Localization{
 			ID: TwoSidedOneSideFails, Side: side, Evidence: only,
-			Summary: "Every failed check passes from side " + other + ", so failures were observed only from side " +
+			Summary: "Every check with a final FAIL has a non-FAIL outcome on side " + other + ", so final FAIL outcomes occur only on side " +
 				name + ". This does not locate the cause on that side or exclude an endpoint-specific cause.",
 			Ambiguous: true, Alternatives: alternatives,
 		}
 	}
 	return Localization{
 		ID: TwoSidedOneSideFailsMore, Side: side, Evidence: append(append([]string{}, shared...), only...),
-		Summary: "Some checks fail from both machines, and side " + name +
-			" fails others that pass from side " + other + ". Those additional failures were observed only from side " + name + "; their causes are not localized.",
+		Summary: "Some checks have final FAIL outcomes on both machines, and side " + name +
+			" has others with non-FAIL outcomes on side " + other + ". Those additional final FAIL outcomes occur only on side " + name + "; their causes are not localized.",
 		Ambiguous:    true,
 		Alternatives: append([]string{"a shared cause behind the checks that fail on both machines"}, alternatives...),
 	}
@@ -305,6 +312,9 @@ func caveats(a, b snapshot.Snapshot, rows []SideRow) []string {
 	}
 	if isSanitized(a) != isSanitized(b) {
 		out = append(out, "One side is a sanitized support artifact and the other is full fidelity, so the names and addresses below are not comparable.")
+	}
+	if isSanitized(a) || isSanitized(b) {
+		out = append(out, "Support pseudonyms are local to each artifact. Matching target names or addresses do not establish matching original identities; address-based evidence comparison is unknown.")
 	}
 	return out
 }
@@ -411,6 +421,23 @@ func (t TwoSided) text(aHeading, bHeading string) string {
 			notes[i] = sideNote(row)
 		}
 		writeColumns(&b, "Checks", aHeading, bHeading, checks, notes)
+	}
+	var observations [][3]string
+	var relations []string
+	for _, row := range t.Checks {
+		for _, e := range row.Evidence {
+			observations = append(observations, [3]string{row.ID + "/" + e.Dimension, evidenceWord(e.A), evidenceWord(e.B)})
+			note := e.Relation
+			if e.Reason != "" {
+				note += " (" + e.Reason + ")"
+			}
+			relations = append(relations, note)
+		}
+	}
+	if len(observations) > 0 {
+		b.WriteString("\n")
+		writeColumns(&b, "Recorded evidence", aHeading, bHeading, observations, relations)
+		b.WriteString("\nEquivalence applies only to the named dimension. Missing evidence is unknown. Differences describe observations, not different root causes or a localized cause.\n")
 	}
 	b.WriteString("\n" + placedWord(t.Diagnosis.Side) + "\n" + clean(t.Diagnosis.Summary) + "\n")
 	if len(t.Diagnosis.Evidence) > 0 {

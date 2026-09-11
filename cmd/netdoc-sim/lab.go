@@ -148,7 +148,7 @@ func printLabReport(out io.Writer, r simulation.LabReport, tunnels []string, tra
 		}
 	}
 	if r.TwoSided != nil {
-		fmt.Fprintf(out, "Two-sided diagnosis: %s side=%s ambiguous=%t\n  %s\n", r.TwoSided.Diagnosis.ID, r.TwoSided.Diagnosis.Side, r.TwoSided.Diagnosis.Ambiguous, r.TwoSided.Diagnosis.Summary)
+		fmt.Fprint(out, r.TwoSided.Text())
 		fmt.Fprint(out, "Snapshot/path comparison: ")
 		printLabJSON(out, r.Comparison)
 	}

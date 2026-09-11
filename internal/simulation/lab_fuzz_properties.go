@@ -8,6 +8,7 @@ import (
 
 	"github.com/heymaikol/network-doctor/internal/compare"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
 
 // Code is semantic failure identity, never a sentence selected from a report.
@@ -168,6 +169,41 @@ func LabFuzzProperties() []LabFuzzProperty {
 			}
 			return nil, nil
 		}},
+		// Stable causes are observations the report must carry faithfully when
+		// both measured sides supplied them. This is an information-preservation
+		// invariant, not the inverse of observational equivalence: no diagnosis,
+		// placement or root cause is required to change. It reads only artifacts,
+		// never simulator truth, and implements no diagnosis decision tree.
+		{"two-sided-cause-preservation", func(_ LabFuzzCase, r []LabReport) bool { return len(r[0].Views) == 2 }, func(_ context.Context, _ LabFuzzCase, reports []LabReport) ([]LabFuzzViolation, error) {
+			for _, r := range reports {
+				if r.TwoSided == nil {
+					continue
+				}
+				for _, a := range r.Views[0].Snapshot.Checks {
+					if a.Cause == "" || !slices.Contains([]string{"PASS", "WARN", "FAIL"}, a.Status) {
+						continue
+					}
+					other := slices.IndexFunc(r.Views[1].Snapshot.Checks, func(b snapshot.Check) bool { return b.ID == a.ID })
+					if other < 0 {
+						continue
+					}
+					b := r.Views[1].Snapshot.Checks[other]
+					if b.Cause == "" || !slices.Contains([]string{"PASS", "WARN", "FAIL"}, b.Status) {
+						continue
+					}
+					preserved := slices.ContainsFunc(r.TwoSided.Checks, func(row compare.SideRow) bool {
+						return row.ID == a.ID && slices.ContainsFunc(row.Evidence, func(e compare.EvidenceComparison) bool {
+							return e.Dimension == "cause" && len(e.A) == 1 && len(e.B) == 1 &&
+								e.A[0].Value == a.Cause && e.B[0].Value == b.Cause
+						})
+					})
+					if !preserved {
+						return labViolation("observed-causes-lost", a.ID+": report must retain both recorded causes"), nil
+					}
+				}
+			}
+			return nil, nil
+		}},
 		{"fault-commutativity", func(c LabFuzzCase, r []LabReport) bool { return labIndependent(c.Worlds[0].Faults) }, func(ctx context.Context, c LabFuzzCase, r []LabReport) ([]LabFuzzViolation, error) {
 			s := labCopy(c.Worlds[0])
 			slices.Reverse(s.Faults)
@@ -276,6 +312,11 @@ func labSideSemantics(t compare.TwoSided, swap bool) labSideMeaning {
 	for i := range rows {
 		if swap {
 			rows[i].A, rows[i].B = rows[i].B, rows[i].A
+			rows[i].Evidence = slices.Clone(rows[i].Evidence)
+			for j := range rows[i].Evidence {
+				e := &rows[i].Evidence[j]
+				e.A, e.B = e.B, e.A
+			}
 		}
 	}
 	slices.SortFunc(rows, func(a, b compare.SideRow) int { return strings.Compare(a.ID, b.ID) })

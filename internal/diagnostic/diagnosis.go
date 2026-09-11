@@ -346,6 +346,22 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 				rulesOut(DiagnosisSystemDNSFailure, ProbeDNSPublic, ObservationDNSNotFound),
 				rulesOut(DiagnosisOffline, ProbeInternet, ObservationStatusPass))
 			return withEvidence(DiagnosisDNSNameNotFound, ProbeDNS, "Internet egress works, but the DNS test name has no A/AAAA records according to either resolver.", gv, evidence)
+		case directOK() && fail(ProbeDNS):
+			// A resolver failure with egress up and no second opinion to
+			// narrow it. It stays above the sibling rungs below because those
+			// sentences all describe a network that resolves names: a run
+			// that cannot has lost something they would be reporting as
+			// intact.
+			summary, observation := "Internet egress works but DNS resolution is failing.", ObservationStatusPass
+			if warn(ProbeInternet) {
+				// directOK, so this is a Warn the egress probe raised itself:
+				// one family down, packet loss, and so on. Direct egress
+				// really does carry traffic here.
+				summary, observation = "Internet egress works (degraded) but DNS resolution is failing.", ObservationStatusWarn
+			}
+			evidence := addEvidence(supportRows(ProbeDNS, ProbeInternet),
+				rulesOut(DiagnosisOffline, ProbeInternet, observation))
+			return withEvidence(DiagnosisDNSFailure, ProbeDNS, summary, gv, evidence)
 		case directOK() && has(ProbeQUIC) && fail(ProbeQUIC):
 			return blame(DiagnosisQUICUnavailable, ProbeQUIC, "Direct TCP/443 works, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower.", VerdictDegraded, ProbeInternet)
 		case encryptedDNSBlocked(res):
@@ -372,14 +388,6 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			return blame(DiagnosisDNSFailure, ProbeDNS, "Direct egress is blocked and DNS resolution is failing; only the environment proxy is carrying traffic.", gv, ProbeInternet, ProbeProxy)
 		case directOK() && warn(ProbeInternet) && dn:
 			return blame(DiagnosisDirectEgressDegraded, ProbeInternet, "Online but degraded: direct egress is impaired (see the ! row for details).", gv, ProbeDNS)
-		case directOK() && warn(ProbeInternet) && fail(ProbeDNS):
-			evidence := addEvidence(supportRows(ProbeDNS, ProbeInternet),
-				rulesOut(DiagnosisOffline, ProbeInternet, ObservationStatusWarn))
-			return withEvidence(DiagnosisDNSFailure, ProbeDNS, "Internet egress works (degraded) but DNS resolution is failing.", gv, evidence)
-		case ip && fail(ProbeDNS):
-			evidence := addEvidence(supportRows(ProbeDNS, ProbeInternet),
-				rulesOut(DiagnosisOffline, ProbeInternet, ObservationStatusPass))
-			return withEvidence(DiagnosisDNSFailure, ProbeDNS, "Internet egress works but DNS resolution is failing.", gv, evidence)
 		case hasInternet && !directOK() && dn:
 			return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "DNS resolves but there's no direct TCP egress to the egress check's reference endpoints (proxy-only or filtered network?).", gv, ProbeDNS)
 		case fail(ProbeInternet) && fail(ProbeDNS):

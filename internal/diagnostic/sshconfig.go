@@ -35,6 +35,32 @@ func SSHHostAliases() map[string]string {
 	return parseSSHAliases(f)
 }
 
+// splitSSHConfigDirective parses one ssh_config line into a keyword and its
+// arguments. OpenSSH accepts "Keyword value", "Keyword=value", and
+// "Keyword = value" (optional whitespace around a single '=').
+func splitSSHConfigDirective(line string) (keyword string, args []string, ok bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", nil, false
+	}
+	i := 0
+	for i < len(line) && line[i] != '=' && line[i] != ' ' && line[i] != '\t' {
+		i++
+	}
+	if i == 0 {
+		return "", nil, false
+	}
+	keyword = line[:i]
+	rest := strings.TrimSpace(line[i:])
+	if strings.HasPrefix(rest, "=") {
+		rest = strings.TrimSpace(rest[1:])
+	}
+	if rest == "" {
+		return keyword, nil, true
+	}
+	return keyword, strings.Fields(rest), true
+}
+
 func parseSSHAliases(r io.Reader) map[string]string {
 	names := make(map[string]string)
 	var aliases []string
@@ -44,24 +70,24 @@ func parseSSHAliases(r io.Reader) map[string]string {
 	// ssh config never comes close, so truncating past it is the intent.
 	b, _ := io.ReadAll(io.LimitReader(r, 1<<20))
 	for _, line := range strings.Split(string(b), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 || strings.HasPrefix(fields[0], "#") {
+		keyword, args, ok := splitSSHConfigDirective(line)
+		if !ok || len(args) == 0 {
 			continue
 		}
-		switch strings.ToLower(fields[0]) {
+		switch strings.ToLower(keyword) {
 		case "host":
-			aliases = fields[1:]
+			aliases = args
 		case "hostname":
 			// ssh honors only the first HostName per block; so do we,
 			// even when it isn't an IP literal.
 			blockAliases := aliases
 			aliases = nil
-			if net.ParseIP(fields[1]) == nil {
+			if net.ParseIP(args[0]) == nil {
 				continue
 			}
 			for _, a := range blockAliases {
 				if sshAliasRe.MatchString(a) {
-					names[fields[1]] = a
+					names[args[0]] = a
 					break
 				}
 			}

@@ -196,6 +196,65 @@ func TestDegradedSiblingsDoNotOutrankAnUnexplainedResolverFailure(t *testing.T) 
 	}
 }
 
+// "Online" is a claim about this machine's path, and the resolver comparison
+// is not evidence for it. Behind a dead or proxy-only direct path the egress
+// cases are the answer; a difference between two answers is a detail of a
+// network that works.
+func TestResolverDisagreementDoesNotClaimOnlineWithoutEgress(t *testing.T) {
+	order := planOrder(t, nil)
+	system := net.ParseIP("192.0.2.10")
+	public := net.ParseIP("198.51.100.10")
+	disagreeing := map[ProbeID]ProbeResult{
+		ProbeDNS: {Status: StatusPass, Addrs: []net.IP{system}},
+		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{public},
+			resolver: "8.8.8.8", Detail: "second opinion"},
+	}
+
+	cases := []struct {
+		name    string
+		egress  ProbeResult
+		proxy   ProbeResult
+		wantID  DiagnosisID
+		wantVer string
+	}{{
+		name: "direct egress dead", egress: ProbeResult{Status: StatusFail, Cause: RouteCauseSelectedPathFailed},
+		proxy: ProbeResult{Status: StatusFail}, wantID: DiagnosisDirectEgressBlocked, wantVer: VerdictNetwork,
+	}, {
+		name: "proxy-only network", egress: ProbeResult{Status: StatusFail, Cause: RouteCauseNoDefaultRoute},
+		proxy: ProbeResult{Status: StatusPass}, wantID: DiagnosisProxyOnlyNetwork, wantVer: VerdictDegraded,
+	}, {
+		name: "configured proxy broken", egress: ProbeResult{Status: StatusPass},
+		proxy: ProbeResult{Status: StatusFail}, wantID: DiagnosisProxyFailure, wantVer: VerdictDegraded,
+	}}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			given := map[ProbeID]ProbeResult{ProbeInternet: c.egress, ProbeProxy: c.proxy}
+			for id, r := range disagreeing {
+				given[id] = r
+			}
+			res := settle(t, nil, order, given)
+			if res[ProbeDNSPublic].Status != StatusWarn {
+				t.Fatalf("the run recorded no disagreement (%v), so it tests nothing", res[ProbeDNSPublic].Status)
+			}
+			d := Interpret(nil, order, res)
+			if len(d.Findings) == 0 || d.Findings[0].ID != c.wantID {
+				t.Errorf("finding = %+v, want %q: %q", d.Findings, c.wantID, d.Summary)
+			}
+			if d.Verdict != c.wantVer {
+				t.Errorf("verdict = %q, want %q", d.Verdict, c.wantVer)
+			}
+		})
+	}
+
+	// The comparison is still the answer where the path did carry traffic.
+	healthy := settle(t, nil, order, disagreeing)
+	d := Interpret(nil, order, healthy)
+	if len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisDNSDisagreement {
+		t.Errorf("finding = %+v, want %q on a working path", d.Findings, DiagnosisDNSDisagreement)
+	}
+}
+
 // A run that says nothing failed has to be a run where nothing failed. This is
 // the general form of the defect the first test above reproduces, and it holds
 // over the whole reachable state space rather than over the two states that

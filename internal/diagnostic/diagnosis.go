@@ -366,10 +366,17 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			return blame(DiagnosisQUICUnavailable, ProbeQUIC, "Direct TCP/443 works, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower.", VerdictDegraded, ProbeInternet)
 		case encryptedDNSBlocked(res):
 			return blame(DiagnosisEncryptedDNSUnavailable, ProbeDNSEncrypted, encryptedDNSSummary, VerdictDegraded, ProbeDNS, ProbeDNSPublic, ProbeInternet)
-		case warn(ProbeDNSPublic) && has(ProbeDNS) && functional(res[ProbeDNS].Status):
-			return blame(DiagnosisDNSDisagreement, ProbeDNSPublic, "Online, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).", gv, ProbeDNS)
 		case ip && dn && prxDown:
 			return blame(DiagnosisProxyFailure, ProbeProxy, "Online directly, but the configured environment proxy check failed, so apps that use the proxy will fail (see the proxy row).", VerdictDegraded, ProbeInternet, ProbeDNS)
+		case directOK() && warn(ProbeDNSPublic) && has(ProbeDNS) && functional(res[ProbeDNS].Status):
+			// The sentence says the machine is online, so it is only ever
+			// reached where the direct path carried traffic. Without that the
+			// egress cases below are the answer: a resolver difference is a
+			// detail of a network that works, not a description of one that
+			// does not. It also sits under the failed rungs above rather than
+			// over them, because a difference between two answers is a
+			// degradation and they are outages.
+			return blame(DiagnosisDNSDisagreement, ProbeDNSPublic, "Online, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).", gv, ProbeDNS)
 		case ip && dn:
 			return plain("Online: direct TCP egress and DNS both work.", gv)
 		case warn(ProbeInternet) && res[ProbeInternet].downgraded && dn && prx:

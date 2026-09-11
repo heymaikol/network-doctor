@@ -90,6 +90,51 @@ func TestIdenticalSnapshotsHaveNoDifferences(t *testing.T) {
 	}
 }
 
+func TestConnectCleartextObservation(t *testing.T) {
+	states := []struct {
+		name     string
+		observed *snapshot.Observed
+		recorded bool
+		word     string
+	}{
+		{"absent", nil, false, "not recorded"},
+		{"false", &snapshot.Observed{}, false, "not recorded"},
+		{"true", &snapshot.Observed{ConnectCleartext: true}, true, "recorded"},
+	}
+	const path = "checks.proxy_connect.observed.connect_cleartext"
+	for _, before := range states {
+		for _, after := range states {
+			t.Run(before.name+" to "+after.name, func(t *testing.T) {
+				b, a := fixture(t), fixture(t)
+				b.Checks = []snapshot.Check{{ID: "proxy_connect", Status: snapshot.StatusPass, Ran: true, Observed: before.observed}}
+				a.Checks = []snapshot.Check{{ID: "proxy_connect", Status: snapshot.StatusPass, Ran: true, Observed: after.observed}}
+				c := Snapshots(b, a)
+				wantDiff := before.recorded != after.recorded
+				if c.Same() == wantDiff {
+					t.Errorf("Same() = %v, want %v", c.Same(), !wantDiff)
+				}
+				if len(c.Checks) != 1 {
+					t.Fatalf("check rows = %v, want only proxy_connect", c.Checks)
+				}
+				row := c.Checks[0]
+				if row.ID != "proxy_connect" || row.Differs != wantDiff || row.Kind != KindUnchanged || row.Direction != "" {
+					t.Errorf("row = %+v, want unchanged status and Differs = %v", row, wantDiff)
+				}
+				if !wantDiff {
+					return
+				}
+				if got := paths(c); !slices.Equal(got, []string{path}) {
+					t.Fatalf("changes = %v, want only %s", got, path)
+				}
+				change := changeAt(t, c, path)
+				if change.Before != before.word || change.After != after.word || change.Kind != KindChanged || change.Direction != "" {
+					t.Errorf("change = %+v, want %q to %q without a health direction", change, before.word, after.word)
+				}
+			})
+		}
+	}
+}
+
 func TestSanitizedSupportSnapshotComparesNormally(t *testing.T) {
 	s := fixture(t)
 	s.Options.Source = &snapshot.Source{Interface: "private-wg", IPv4: "10.20.30.40"}

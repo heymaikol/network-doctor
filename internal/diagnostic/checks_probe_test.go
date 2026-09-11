@@ -2249,10 +2249,46 @@ func TestHTTPSProbeSupportsHTTP2OnlyServer(t *testing.T) {
 	}
 }
 
+// bodyMatches accepts only the documented clean forms: the exact payload and
+// the same payload with a trailing CRLF. Truncation, an altered byte, or any
+// further trailing content is rejected, and the read stays bounded.
+func TestBodyMatches(t *testing.T) {
+	ep := portalEndpoint{body: ncsiCleanBody}
+	longSuffix := ncsiCleanBody + strings.Repeat("x", 4096)
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "exact expected payload", body: ncsiCleanBody, want: true},
+		{name: "expected plus documented CRLF", body: ncsiCleanBody + "\r\n", want: true},
+		{name: "truncated", body: ncsiCleanBody[:len(ncsiCleanBody)-1]},
+		{name: "one incorrect byte", body: "Microsoft Connect Fest"},
+		{name: "expected plus arbitrary HTML", body: ncsiCleanBody + "<html>intercepted</html>"},
+		{name: "expected plus long arbitrary suffix", body: longSuffix},
+		{name: "empty body", body: ""},
+		{name: "CRLF alone", body: "\r\n"},
+		{name: "LF only after payload", body: ncsiCleanBody + "\n"},
+		{name: "CR only after payload", body: ncsiCleanBody + "\r"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ep.bodyMatches(strings.NewReader(c.body))
+			if got != c.want {
+				t.Errorf("bodyMatches(%q) = %v, want %v", c.body, got, c.want)
+			}
+		})
+	}
+	// An endpoint that documents no body stays clean without consuming input.
+	if !((portalEndpoint{}).bodyMatches(strings.NewReader("anything"))) {
+		t.Error("empty documented body should match without reading")
+	}
+}
+
 // The real portalCheckWithDial round trip over in-memory pipes: an endpoint is
-// clean only when it answers exactly what it documents, status and payload
-// both, a redirect is reported rather than chased, and the proxy env never
-// enters the path.
+// clean only when it answers a documented clean form (exact payload or payload
+// plus CRLF), a redirect is reported rather than chased, and the proxy env
+// never enters the path. Prefix-plus-extra bodies are discrepant, not clean.
 func TestPortalCheck(t *testing.T) {
 	// internetProbe only runs the round trips below when the field is wired, so
 	// a nil here disables captive-portal detection with nothing else failing.
@@ -2290,6 +2326,12 @@ func TestPortalCheck(t *testing.T) {
 			// The shape of a filter's "everything is fine" page: a 200 that
 			// says something else entirely.
 			fmt.Fprint(w, "<html>You are connected to GuestWiFi</html>")
+		case "/prefix-html":
+			// Clean prefix followed by an interceptor's page: must not count
+			// as the documented NCSI answer.
+			fmt.Fprint(w, ncsiCleanBody+"<html>intercepted page...</html>")
+		case "/prefix-long":
+			fmt.Fprint(w, ncsiCleanBody+strings.Repeat("x", 4096))
 		case "/redirect":
 			http.Redirect(w, r, "/signin", http.StatusFound)
 		case "/unsafe":
@@ -2327,6 +2369,10 @@ func TestPortalCheck(t *testing.T) {
 		// clean NCSI answer, which is how a filter's own page gets counted.
 		{name: "200 with the wrong payload", ep: withBody("/wrongbody"), wantCode: http.StatusOK},
 		{name: "200 with a short payload", ep: withBody("/truncated"), wantCode: http.StatusOK},
+		// Prefix match alone is not enough: trailing HTML or a long suffix
+		// after the clean payload is discrepant, not clean.
+		{name: "200 with clean prefix plus HTML", ep: withBody("/prefix-html"), wantCode: http.StatusOK},
+		{name: "200 with clean prefix plus long suffix", ep: withBody("/prefix-long"), wantCode: http.StatusOK},
 		{name: "204 where a payload was documented", ep: withBody("/generate_204"), wantCode: http.StatusNoContent},
 		{name: "payload where a 204 was documented", ep: noBody("/connecttest.txt"), wantCode: http.StatusOK},
 		{name: "intercepted", ep: noBody("/redirect"), wantCode: http.StatusFound, wantRedirect: base + "/signin"},

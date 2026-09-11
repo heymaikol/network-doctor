@@ -2165,6 +2165,70 @@ func TestRunCompareIdenticalSnapshotsExitZero(t *testing.T) {
 	}
 }
 
+func TestRunCompareConnectCleartext(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		before, after bool
+		wantCode      int
+		wantText      string
+	}{
+		{"recorded", false, true, 1, "plaintext HTTP CONNECT observation changed from not recorded to recorded"},
+		{"not recorded", true, false, 1, "plaintext HTTP CONNECT observation changed from recorded to not recorded"},
+		{"both recorded", true, true, 0, "No meaningful differences."},
+		{"neither recorded", false, false, 0, "No meaningful differences."},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			before, after := comparableSnapshot(), comparableSnapshot()
+			before.Checks = append(before.Checks, snapshot.Check{
+				ID: "proxy_connect", Status: snapshot.StatusPass, Ran: true,
+				Observed: &snapshot.Observed{ConnectCleartext: tt.before},
+			})
+			after.Checks = append(after.Checks, snapshot.Check{
+				ID: "proxy_connect", Status: snapshot.StatusPass, Ran: true,
+				Observed: &snapshot.Observed{ConnectCleartext: tt.after},
+			})
+			beforePath := writeSnapshotFile(t, dir, "before", before)
+			afterPath := writeSnapshotFile(t, dir, "after", after)
+			for _, format := range []string{"text", "json"} {
+				t.Run(format, func(t *testing.T) {
+					args := []string{"--compare"}
+					if format == "json" {
+						args = append(args, "--json")
+					}
+					args = append(args, beforePath, afterPath)
+					var stdout, stderr bytes.Buffer
+					if got := run(args, &stdout, &stderr); got != tt.wantCode {
+						t.Fatalf("exit = %d, want %d; stderr: %s", got, tt.wantCode, stderr.String())
+					}
+					if stderr.Len() != 0 {
+						t.Errorf("stderr = %q, want empty", stderr.String())
+					}
+					if format == "text" {
+						if !strings.Contains(stdout.String(), tt.wantText) {
+							t.Errorf("output does not contain %q:\n%s", tt.wantText, stdout.String())
+						}
+						return
+					}
+					var got compare.Comparison
+					if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+						t.Fatalf("decode comparison: %v", err)
+					}
+					if tt.wantCode == 0 {
+						if !got.Same() {
+							t.Errorf("equal observations produced changes: %+v", got.Changes)
+						}
+						return
+					}
+					if len(got.Changes) != 1 || got.Changes[0].Path != "checks.proxy_connect.observed.connect_cleartext" {
+						t.Fatalf("changes = %+v, want only connect_cleartext", got.Changes)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestRunCompareJSON(t *testing.T) {
 	dir := t.TempDir()
 	before := comparableSnapshot()

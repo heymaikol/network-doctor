@@ -598,6 +598,10 @@ func diffObserved(d *diff, id string, before, after snapshot.Observed) {
 		portalWord(before.Portal), portalWord(after.Portal))
 	d.field(SectionCheck, id, path+"portal.redirect_url", id+" captive portal sign-in URL",
 		portalURL(before.Portal), portalURL(after.Portal))
+	// This is a positive-only observation: false does not establish that the
+	// client-to-proxy hop used TLS or that no cleartext hostname was sent.
+	d.field(SectionCheck, id, path+"connect_cleartext", id+" plaintext HTTP CONNECT observation",
+		recordedWord(before.ConnectCleartext), recordedWord(after.ConnectCleartext))
 	diffAttempts(d, id, path, before.Attempts, after.Attempts)
 	diffRoutes(d, id, path, before.Routes, after.Routes)
 	// A clock reading is a measurement, and its milliseconds drift between two
@@ -608,6 +612,13 @@ func diffObserved(d *diff, id string, before, after snapshot.Observed) {
 		clockOffset(before.ClockOffsetMs), clockOffset(after.ClockOffsetMs))
 	d.field(SectionCheck, id, path+"timeout", id+" failed by timing out",
 		yesNo(before.Timeout), yesNo(after.Timeout))
+}
+
+func recordedWord(recorded bool) string {
+	if recorded {
+		return "recorded"
+	}
+	return "not recorded"
 }
 
 func familiesOf(o snapshot.Observed) snapshot.Families {

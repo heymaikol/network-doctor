@@ -37,7 +37,7 @@ tests:
 
 expect:
   verdict: network
-  summary: "Offline: neither DNS nor direct TCP to the egress check's reference endpoints is working."
+  summary: "Offline: neither the system resolver nor direct TCP to the egress check's reference endpoints is working."
   checks:
     # The link is genuinely up, so reporting it as down would be the wrong story.
     - {id: iface, status: PASS}

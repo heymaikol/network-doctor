@@ -582,11 +582,19 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		}
 		id := tlsDiagnosisID(res[ProbeTLS].Cause)
 		evidence := supportRows(ProbeTLS, ProbeTargetTCP)
-		if id != DiagnosisTLSTCPUnreachable {
+		summary := "TCP reaches " + hp + " but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy."
+		if id == DiagnosisTLSTCPUnreachable {
+			// The handshake never started, so the three maybes above are
+			// about something this run did not observe. What it observed is
+			// two connections to the same endpoint disagreeing: the endpoint
+			// check reached it and the TLS check's own dial was refused or
+			// had no route.
+			summary = "The endpoint check reached " + hp + ", but the TLS check's own connection to it did not: the port may have stopped listening, or a filter may be rejecting some connections to it."
+		} else {
 			evidence = addEvidence(evidence,
 				rulesOut(DiagnosisTLSTCPUnreachable, ProbeTargetTCP, ObservationStatusPass))
 		}
-		return withEvidence(id, ProbeTLS, "TCP reaches "+hp+" but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.", VerdictService, evidence)
+		return withEvidence(id, ProbeTLS, summary, VerdictService, evidence)
 	case has(ProbeHTTPS) && fail(ProbeHTTPS):
 		evidence := addEvidence(supportRows(ProbeHTTPS, ProbeTLS),
 			rulesOut(DiagnosisTLSHandshakeFailure, ProbeTLS, ObservationStatusPass))

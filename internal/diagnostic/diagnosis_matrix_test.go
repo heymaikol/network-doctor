@@ -584,7 +584,7 @@ func diagnosisMatrix() []matrixCase {
 			res: with(map[ProbeID]ProbeResult{
 				ProbeTLS: {Status: StatusFail, Cause: TLSCauseTCPUnreachable}, ProbeHTTPS: {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.",
+			summary: "The endpoint check reached example.com:443, but the TLS check's own connection to it did not: the port may have stopped listening, or a filter may be rejecting some connections to it.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_tcp_unreachable", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},

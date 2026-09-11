@@ -29,5 +29,5 @@ package-lock.json
 
 # AI Stuff
 .codex/
-.claude/settings.local.json
+.claude/
 CLAUDE.local.md

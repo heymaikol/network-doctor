@@ -443,6 +443,13 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			stalled = append(stalled, id)
 		}
 	}
+	// The other half of the same rule, for the rung a stall on one row cannot
+	// speak for. A certificate this machine read and rejected arrived from the
+	// far end over this path, so the path carried the handshake and the
+	// service answered on it: the correlation below denies both in the same
+	// sentence, and one immediate rejection beside one stalled sibling is not
+	// evidence that it should.
+	certRejected := fail(ProbeTLS) && certificateRejected(res[ProbeTLS].Cause)
 
 	switch {
 	case intercepted(res):
@@ -547,7 +554,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			return blame(DiagnosisLocalEgressFailure, ProbeInternet, host+" resolves but neither it nor the egress check's reference endpoints are reachable, and this machine's own routing state says why: local egress problem.", VerdictNetwork, ProbeTargetTCP, ProbeDNS)
 		}
 		return blame(DiagnosisReachabilityUnlocalized, ProbeInternet, host+" resolves but neither it nor the egress check's reference endpoints answered, and nothing this run observed says where the path breaks.", VerdictNetwork, ProbeTargetTCP, ProbeDNS)
-	case warn(ProbePMTU) && len(stalled) > 0:
+	case warn(ProbePMTU) && len(stalled) > 0 && !certRejected:
 		// A protocol timeout and a separate bulk-write stall are correlated
 		// evidence for a path problem. Immediate failures such as a bad
 		// certificate must continue down to their service-specific verdict.

@@ -255,6 +255,53 @@ func TestResolverDisagreementDoesNotClaimOnlineWithoutEgress(t *testing.T) {
 	}
 }
 
+// A certificate this machine read and rejected crossed the path from the far
+// end, so the path carried the handshake and the service answered on it. The
+// path-MTU correlation denies both in one sentence, and a stall on a sibling
+// row is not evidence that it should.
+func TestRejectedCertificateOutranksThePathMTUCorrelation(t *testing.T) {
+	target := mustTarget(t, "github.com")
+	order := planOrder(t, target)
+	pub := net.ParseIP("140.82.121.4")
+	for _, cause := range []string{
+		TLSCauseHostnameMismatch, TLSCauseUntrustedIssuer,
+		TLSCauseCertificateExpired, TLSCauseCertificateNotYet,
+	} {
+		t.Run(cause, func(t *testing.T) {
+			res := settle(t, target, order, map[ProbeID]ProbeResult{
+				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
+				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
+				ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
+				ProbePMTU:      {Status: StatusWarn, Detail: "stalled without draining the send buffer"},
+				ProbeTLS:       {Status: StatusFail, Cause: cause},
+				// Plain HTTP on port 80 hangs off the resolver, not the TLS
+				// row, so it still runs and can still time out.
+				ProbeHTTP: {Status: StatusFail, timedOut: true},
+			})
+			d := Interpret(target, order, res)
+			if len(d.Findings) == 0 || d.Findings[0].ID != tlsDiagnosisID(cause) {
+				t.Fatalf("finding = %+v, want %q: %q", d.Findings, tlsDiagnosisID(cause), d.Summary)
+			}
+			if strings.Contains(d.Summary, "path MTU") {
+				t.Errorf("summary blames the path over a rejected certificate: %q", d.Summary)
+			}
+		})
+	}
+
+	// The correlation still stands where nothing classified the rejection:
+	// a handshake that timed out observed no certificate at all.
+	res := settle(t, target, order, map[ProbeID]ProbeResult{
+		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
+		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
+		ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
+		ProbePMTU:      {Status: StatusWarn},
+		ProbeTLS:       {Status: StatusFail, Cause: TLSCauseTimeout},
+	})
+	if d := Interpret(target, order, res); len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisProbablePathMTU {
+		t.Errorf("finding = %+v, want %q for two stalls: %q", d.Findings, DiagnosisProbablePathMTU, d.Summary)
+	}
+}
+
 // A run that says nothing failed has to be a run where nothing failed. This is
 // the general form of the defect the first test above reproduces, and it holds
 // over the whole reachable state space rather than over the two states that

@@ -24,7 +24,7 @@ func Interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	// below it. A comparison drawn from intercepted rows describes the
 	// interception and publishes it under the name of the thing intercepted,
 	// so the same rule holds here: the portal is what this run observed.
-	if d.Verdict != VerdictIncomplete {
+	if d.Verdict != VerdictIncomplete && !intercepted(res) {
 		counterfactuals = counterfactualFindings(t, res)
 	}
 	for _, finding := range counterfactuals {

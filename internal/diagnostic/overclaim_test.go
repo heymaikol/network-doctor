@@ -302,6 +302,32 @@ func TestRejectedCertificateOutranksThePathMTUCorrelation(t *testing.T) {
 	}
 }
 
+// Behind a portal every rung below it is answering for the portal, which is
+// why the truth table decides the portal first. The counterfactual pass reads
+// those same rows, so it has to stop at the same place.
+func TestNoCounterfactualIsDrawnFromInterceptedRows(t *testing.T) {
+	target := mustTarget(t, "github.com")
+	order := planOrder(t, target)
+	portalIP := net.ParseIP("192.0.2.1")
+	res := settle(t, target, order, map[ProbeID]ProbeResult{
+		ProbeInternet: {Status: StatusFail, Portal: &Portal{RedirectURL: "http://portal.example/login"}},
+		// The portal's resolver answers with the portal; the second opinion
+		// is let out to 8.8.8.8 and answers with the real address.
+		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{portalIP}},
+		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("140.82.121.4")}},
+		ProbeTargetTCP: {Status: StatusPass, SelectedIP: portalIP},
+	})
+	d := Interpret(target, order, res)
+	if len(d.Findings) != 1 || d.Findings[0].ID != DiagnosisCaptivePortal {
+		t.Fatalf("findings = %+v, want the portal alone: %q", d.Findings, d.Summary)
+	}
+	for _, f := range d.Findings {
+		if f.Counterfactual != nil {
+			t.Errorf("%s carries a comparison drawn from intercepted rows: %+v", f.ID, f.Counterfactual)
+		}
+	}
+}
+
 // A run that says nothing failed has to be a run where nothing failed. This is
 // the general form of the defect the first test above reproduces, and it holds
 // over the whole reachable state space rather than over the two states that

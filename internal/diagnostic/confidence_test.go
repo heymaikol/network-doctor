@@ -280,23 +280,27 @@ func skewAgainst(cause string) time.Duration {
 // The same identity, on the same observations, must not be more confident for
 // having been assembled by the shorter path.
 func TestConfidenceDoesNotDependOnWhichPassBuiltTheFinding(t *testing.T) {
-	target := &Target{Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
-	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeDNSPublic, ProbeTargetTCP, ProbeTLS}
+	target := &Target{Host: "example.com", Port: 9000}
+	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeDNSPublic, ProbeTargetTCP}
+	// One question, two resolvers, answers in different blocks: the comparison
+	// both passes are about. The outcome is the one the run recorded, so this
+	// reads the same live and replayed.
 	resolvers := map[ProbeID]ProbeResult{
-		ProbeDNS:       {Status: StatusFail},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("192.0.2.1")}},
+		ProbeDNS: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("192.0.2.1")}},
+		ProbeDNSPublic: {Status: StatusWarn, Addrs: []net.IP{net.ParseIP("198.51.100.1")},
+			answerComparison: comparisonDisagree},
 	}
-	// The truth table reaches the resolver comparison itself.
+	// A working target leaves the truth table free to reach the resolver
+	// comparison itself.
 	fromTable := map[ProbeID]ProbeResult{
 		ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusPass},
-		ProbeTargetTCP: SkipPrereq(ProbeTargetTCP), ProbeTLS: SkipPrereq(ProbeTLS),
+		ProbeTargetTCP: {Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.1")},
 	}
-	// A portal is decided ahead of the DNS rung, so here the same comparison
+	// A silent target is decided ahead of it, so here the same comparison
 	// arrives only as a counterfactual finding appended afterwards.
 	fromCounterfactual := map[ProbeID]ProbeResult{
-		ProbeIface:     {Status: StatusPass},
-		ProbeInternet:  {Status: StatusFail, Portal: &Portal{RedirectURL: "http://portal.example/"}},
-		ProbeTargetTCP: SkipPrereq(ProbeTargetTCP), ProbeTLS: SkipPrereq(ProbeTLS),
+		ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusPass},
+		ProbeTargetTCP: {Status: StatusFail, Cause: ConnectionCauseTimeout},
 	}
 	confidence := func(res map[ProbeID]ProbeResult) Confidence {
 		t.Helper()
@@ -304,20 +308,20 @@ func TestConfidenceDoesNotDependOnWhichPassBuiltTheFinding(t *testing.T) {
 			res[id] = r
 		}
 		for _, f := range Interpret(target, order, res).Findings {
-			if f.ID == DiagnosisSystemDNSFailure {
+			if f.ID == DiagnosisDNSDisagreement {
 				return f.Confidence
 			}
 		}
-		t.Fatalf("run produced no %s finding", DiagnosisSystemDNSFailure)
+		t.Fatalf("run produced no %s finding", DiagnosisDNSDisagreement)
 		return ""
 	}
 	table, counterfactual := confidence(fromTable), confidence(fromCounterfactual)
 	if table != counterfactual {
 		t.Errorf("%s = %q from the truth table but %q from the counterfactual pass",
-			DiagnosisSystemDNSFailure, table, counterfactual)
+			DiagnosisDNSDisagreement, table, counterfactual)
 	}
 	if table != ConfidenceMedium {
-		t.Errorf("%s = %q, want %q", DiagnosisSystemDNSFailure, table, ConfidenceMedium)
+		t.Errorf("%s = %q, want %q", DiagnosisDNSDisagreement, table, ConfidenceMedium)
 	}
 }
 

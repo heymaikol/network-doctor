@@ -299,3 +299,43 @@ func TestObservationValidationPreservesSupportErasure(t *testing.T) {
 	assertObservationBoundaries(t, s, "IP address")
 	assertObservationBoundaries(t, snapshot.SanitizeForSupport(s), "")
 }
+
+// Prefix is the route entry the kernel said it matched, and every platform
+// that fills it builds it out of the destination that was looked up: Windows
+// and Darwin both derive it with dst.Prefix on an unmapped destination, the
+// simulator discards the prefix its model computes, and Linux deliberately
+// leaves it unset. A prefix in the other address family is therefore an entry
+// no producer could have matched, whatever spelling the destination uses and
+// whether or not the row states its family.
+//
+// Gateway and Source stay in the family the seed gave them across the IPv6
+// cases on purpose: a cross-family next hop is a real Linux RTA_VIA route, and
+// no producer establishes a portable family rule for the preferred source.
+func TestRoutePrefixFamilyMatchesDestination(t *testing.T) {
+	targetRoute := func(s *snapshot.Snapshot) *snapshot.Route {
+		return &observationCheck(s, "target_tcp").Observed.Routes[0]
+	}
+	for _, tc := range []struct {
+		name, destination, family, prefix, other string
+	}{
+		{"IPv4 destination", "93.184.216.34", "ipv4", "0.0.0.0/0", "2001:db8::/32"},
+		{"IPv4 destination without family", "93.184.216.34", "", "93.184.216.34/32", "::/0"},
+		{"mapped IPv4 destination", "::ffff:93.184.216.34", "ipv4", "::ffff:93.184.216.34/128", "2001:db8::/32"},
+		{"IPv6 destination", "2001:db8::1", "ipv6", "::/0", "0.0.0.0/0"},
+		{"IPv6 destination without family", "2001:db8::1", "", "2001:db8::1/128", "10.0.0.0/8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, sanitized := range []bool{false, true} {
+				s := observationArtifact(t)
+				r := targetRoute(&s)
+				r.Destination, r.Family, r.Prefix = tc.destination, tc.family, tc.prefix
+				if sanitized {
+					s = snapshot.SanitizeForSupport(s)
+				}
+				assertObservationBoundaries(t, s, "")
+				targetRoute(&s).Prefix = tc.other
+				assertObservationBoundaries(t, s, "prefix")
+			}
+		})
+	}
+}

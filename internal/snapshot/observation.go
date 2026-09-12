@@ -92,8 +92,22 @@ func validateObservedRoute(r Route, sanitized bool) error {
 		}
 	}
 	if r.Prefix != "" {
-		if _, err := netip.ParsePrefix(r.Prefix); err != nil {
+		prefix, err := netip.ParsePrefix(r.Prefix)
+		if err != nil {
 			return fmt.Errorf("prefix is not CIDR: %q", r.Prefix)
+		}
+		// Prefix is the entry the kernel said it matched, and every producer
+		// that fills it builds it from the destination that was looked up:
+		// Windows and Darwin both derive it with dst.Prefix on an unmapped
+		// destination, and Linux leaves it unset. A prefix in the other family
+		// is an entry no platform could have matched. Unmap keeps a mapped
+		// IPv4 prefix reading as IPv4, the same way the destination does.
+		//
+		// Containment is deliberately not checked here: support
+		// pseudonymization maps a prefix and the addresses inside it
+		// separately and documents that it may lose that relationship.
+		if v4, known := routeAddressFamilyIsIPv4(r); known && prefix.Addr().Unmap().Is4() != v4 {
+			return fmt.Errorf("prefix %q is not in the route's address family", r.Prefix)
 		}
 	}
 	if r.InterfaceMTU < 0 {
@@ -110,4 +124,19 @@ func validateObservedRoute(r Route, sanitized bool) error {
 	// Table predates TableKnown in v1. A legacy name without the knowledge bit
 	// must remain readable as unknown; it must not be upgraded to known here.
 	return nil
+}
+
+// routeAddressFamilyIsIPv4 reports which address family a route decision is
+// about, and whether the artifact states it at all. The destination is the
+// identity of the decision, so it answers first, and the family label is
+// already validated against it. Support erasure can replace the destination,
+// and then the recorded family is the only surviving statement of that fact.
+func routeAddressFamilyIsIPv4(r Route) (bool, bool) {
+	if ip := net.ParseIP(r.Destination); ip != nil {
+		return ip.To4() != nil, true
+	}
+	if r.Family != "" {
+		return r.Family == "ipv4", true
+	}
+	return false, false
 }

@@ -657,6 +657,14 @@ func validStatus(status string) bool {
 	return false
 }
 
+// validCheckStatus is the ordinary check-row vocabulary, which is the profile
+// component vocabulary plus INCOMPLETE. The two are deliberately separate
+// functions: a component status is a profile's reading of a whole run and can
+// never be INCOMPLETE, while a check row is one probe's outcome and can.
+func validCheckStatus(status string) bool {
+	return validStatus(status) || status == StatusIncomplete
+}
+
 func validAggregateStatus(status string) bool {
 	return status == StatusPass || status == StatusWarn || status == StatusFail
 }
@@ -751,10 +759,18 @@ func validate(s Snapshot) error {
 		return fmt.Errorf("snapshot has invalid redaction metadata")
 	}
 	checks := make(map[string]Check, len(s.Checks))
+	impaired := ""
 	for _, c := range s.Checks {
+		_, repeated := checks[c.ID]
 		switch {
+		case c.ID == "":
+			return fmt.Errorf("snapshot has a check with no id: a row nothing can name is a row nothing can cite")
+		case repeated:
+			return fmt.Errorf("snapshot lists check %q twice: one run observes a check once, and two rows under one id let two readers read two different runs", c.ID)
 		case c.Status == "":
 			return fmt.Errorf("snapshot check %q has no status: a row with no completed result must say %s", c.ID, StatusIncomplete)
+		case !validCheckStatus(c.Status):
+			return fmt.Errorf("snapshot check %q has unknown status %q", c.ID, c.Status)
 		case c.CauseFamily != "" && c.Cause == "":
 			return fmt.Errorf("snapshot check %q has a cause family without a cause", c.ID)
 		case c.Derived != nil && !validAnswerComparison(c.Derived.AnswerComparison):
@@ -763,8 +779,21 @@ func validate(s Snapshot) error {
 			return fmt.Errorf("snapshot check %q is %s and also ran: a row that reported has an outcome", c.ID, StatusIncomplete)
 		case c.Status == StatusIncomplete && s.OK:
 			return fmt.Errorf("snapshot check %q is %s, so the run cannot be reported ok", c.ID, StatusIncomplete)
+		case c.Status == StatusFail && s.OK:
+			return fmt.Errorf("snapshot check %q is %s, so the run cannot be reported ok", c.ID, StatusFail)
 		}
 		checks[c.ID] = c
+		if impaired == "" && (c.Status == StatusFail || c.Status == StatusIncomplete) {
+			impaired = c.ID
+		}
+	}
+	// The other half of the same rule. ok is the one field a script reads
+	// first, and it is not an opinion the file gets to hold beside its rows:
+	// it means no check failed and none was left unreported, so a run that
+	// says otherwise while every row reported a survivable outcome is
+	// describing a failure none of its evidence recorded.
+	if !s.OK && impaired == "" {
+		return fmt.Errorf("snapshot is reported not ok, but no check is %s or %s", StatusFail, StatusIncomplete)
 	}
 	for _, finding := range s.Diagnosis.Findings {
 		if !validConfidence(finding.Confidence) {

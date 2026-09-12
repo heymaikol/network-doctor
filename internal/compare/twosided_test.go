@@ -505,7 +505,7 @@ func TestEndpointAlternativesSurviveTwoSidedPlacement(t *testing.T) {
 			b := snapshot.Snapshot{Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
 				{ID: "dns", Name: "dns", Status: snapshot.StatusPass, Ran: true, Observed: &snapshot.Observed{Addresses: tc.dnsB}},
 				{ID: "target_tcp", Name: "target_tcp", Status: snapshot.StatusPass, Ran: true, Observed: &snapshot.Observed{SelectedIP: tc.contactedB}},
-			}}
+			}, OK: true}
 			for _, s := range []snapshot.Snapshot{a, b} {
 				if _, err := snapshot.Encode(s); err != nil {
 					t.Fatal(err)
@@ -515,6 +515,7 @@ func TestEndpointAlternativesSurviveTwoSidedPlacement(t *testing.T) {
 				if shared {
 					a.Checks = append(a.Checks, snapshot.Check{ID: "tls", Status: snapshot.StatusFail})
 					b.Checks = append(b.Checks, snapshot.Check{ID: "tls", Status: snapshot.StatusFail})
+					b.OK = false
 				}
 				for _, reverse := range []bool{false, true} {
 					left, right, want := a, b, SideA

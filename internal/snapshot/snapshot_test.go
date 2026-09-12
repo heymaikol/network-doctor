@@ -244,7 +244,7 @@ func TestConfidenceRoundTripsAndRejectsUnknownValues(t *testing.T) {
 // Encode stamps the schema itself, so a caller cannot publish a file that
 // claims to be something else, or forget to claim anything.
 func TestEncodeStampsSchema(t *testing.T) {
-	data, err := Encode(Snapshot{Schema: "netdoc.snapshot.v99"})
+	data, err := Encode(Snapshot{Schema: "netdoc.snapshot.v99", OK: true})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -304,7 +304,7 @@ func topLevelKeys(t *testing.T, data []byte) []string {
 // A target-less run publishes target: null, not a missing key and not an empty
 // object, because "this run had no target" is a fact a comparison reads.
 func TestGenericRunKeepsExplicitNullTarget(t *testing.T) {
-	data, err := Encode(Snapshot{Checks: []Check{}})
+	data, err := Encode(Snapshot{Checks: []Check{}, OK: true})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -359,6 +359,7 @@ func TestRoundTripPreservesOptionalStates(t *testing.T) {
 			{ID: "downgraded", Name: "Downgraded", Status: "WARN", Ran: true, DurationMs: 5,
 				Derived: &Derived{StatusDowngraded: true}},
 		},
+		OK: true,
 	}
 	data, err := Encode(s)
 	if err != nil {
@@ -396,12 +397,19 @@ func TestRoundTripPreservesOptionalStates(t *testing.T) {
 	}
 }
 
+// outage is the one failing row that makes a run a failing run. A snapshot
+// reported not ok has to carry the evidence of what went wrong, so every
+// incident record below that is a failing pass says so with a row.
+func outage() Check {
+	return Check{ID: "target_tcp", Name: "TCP", Status: StatusFail, Ran: true, DurationMs: 1}
+}
+
 func TestIncidentRoundTripAndOlderV1Compatibility(t *testing.T) {
 	before := &Snapshot{CreatedAt: "2026-08-25T12:03:51Z", OK: true, Checks: []Check{}}
-	during := &Snapshot{CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{}}
+	during := &Snapshot{CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{outage()}}
 	recovered := &Snapshot{CreatedAt: "2026-08-25T12:04:06Z", OK: true, Checks: []Check{}}
 	onset := Snapshot{
-		CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{},
+		CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{outage()},
 		Incident: &Incident{
 			StartedAt: "2026-08-25T12:03:56Z", EndedAt: "2026-08-25T12:04:06Z", Passes: 2,
 			Before: before, During: during, Recovered: recovered,
@@ -445,11 +453,11 @@ func TestIncidentRoundTripAndOlderV1Compatibility(t *testing.T) {
 func TestIncidentValidationRejectsImpossibleHistory(t *testing.T) {
 	valid := func() Snapshot {
 		return Snapshot{
-			Schema: Schema, CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{},
+			Schema: Schema, CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{outage()},
 			Incident: &Incident{
 				StartedAt: "2026-08-25T12:03:56Z", EndedAt: "2026-08-25T12:04:06Z", Passes: 2,
 				Before:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:03:51Z", OK: true, Checks: []Check{}},
-				During:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{}},
+				During:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{outage()}},
 				Recovered: &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:06Z", OK: true, Checks: []Check{}},
 			},
 		}
@@ -461,12 +469,12 @@ func TestIncidentValidationRejectsImpossibleHistory(t *testing.T) {
 	}{
 		{"invalid start", func(s *Snapshot) { s.Incident.StartedAt = "yesterday" }, "RFC 3339 UTC"},
 		{"onset mismatch", func(s *Snapshot) { s.CreatedAt = "2026-08-25T12:03:55Z" }, "does not match"},
-		{"healthy onset", func(s *Snapshot) { s.OK = true }, "reported ok"},
+		{"healthy onset", func(s *Snapshot) { s.OK = true; s.Checks = []Check{} }, "reported ok"},
 		{"no passes", func(s *Snapshot) { s.Incident.Passes = 0 }, "at least the pass"},
 		{"missing recovered run", func(s *Snapshot) { s.Incident.Recovered = nil }, "end time without"},
 		{"end before start", func(s *Snapshot) { s.Incident.EndedAt = "2026-08-25T12:03:50Z" }, "ended before"},
 		{"late baseline", func(s *Snapshot) { s.Incident.Before.CreatedAt = "2026-08-25T12:03:57Z" }, "before state"},
-		{"healthy during", func(s *Snapshot) { s.Incident.During.OK = true }, "during state reports"},
+		{"healthy during", func(s *Snapshot) { s.Incident.During.OK = true; s.Incident.During.Checks = []Check{} }, "during state reports"},
 		{"late during", func(s *Snapshot) { s.Incident.During.CreatedAt = "2026-08-25T12:04:07Z" }, "outside"},
 		{"recovery mismatch", func(s *Snapshot) { s.Incident.Recovered.CreatedAt = "2026-08-25T12:04:07Z" }, "does not match"},
 		{"nested schema", func(s *Snapshot) { s.Incident.Before.Schema = "netdoc.snapshot.v2" }, "has schema"},
@@ -492,7 +500,7 @@ func TestIncidentValidationRejectsImpossibleHistory(t *testing.T) {
 
 func TestWriteFileRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "incident"+Extension)
-	want := Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Checks: []Check{{ID: "iface", Status: "PASS", Ran: true, DurationMs: 1}}}
+	want := Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Checks: []Check{{ID: "iface", Status: "PASS", Ran: true, DurationMs: 1}}, OK: true}
 	if err := WriteFile(path, want); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -530,7 +538,7 @@ func TestWriteFileReplacesAndLeavesNoTemporaries(t *testing.T) {
 	if err := os.WriteFile(path, []byte("stale"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteFile(path, Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Checks: []Check{}}); err != nil {
+	if err := WriteFile(path, Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Checks: []Check{}, OK: true}); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	entries, err := os.ReadDir(dir)
@@ -559,7 +567,7 @@ func TestWriteFileReplacesAndLeavesNoTemporaries(t *testing.T) {
 func TestWriteFileFailureLeavesTheOldFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "missing-dir", "incident"+Extension)
-	err := WriteFile(path, Snapshot{Checks: []Check{}})
+	err := WriteFile(path, Snapshot{Checks: []Check{}, OK: true})
 	if err == nil {
 		t.Fatal("WriteFile accepted a path whose directory does not exist")
 	}
@@ -568,7 +576,7 @@ func TestWriteFileFailureLeavesTheOldFile(t *testing.T) {
 	}
 
 	// And the same for a path that exists but is a directory.
-	if err := WriteFile(dir, Snapshot{Checks: []Check{}}); err == nil {
+	if err := WriteFile(dir, Snapshot{Checks: []Check{}, OK: true}); err == nil {
 		t.Error("WriteFile accepted a directory as the destination")
 	}
 }
@@ -938,7 +946,7 @@ func TestPublicDNSAutoIsAdditiveToTheV1Option(t *testing.T) {
 		{"switched off", Options{PublicDNS: ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			data, err := Encode(Snapshot{Options: tc.opts})
+			data, err := Encode(Snapshot{Options: tc.opts, OK: true})
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
 			}
@@ -983,7 +991,7 @@ func TestPublicDNSAutoIsAdditiveToTheV1Option(t *testing.T) {
 // means the run named the resolver it recorded. Reading it any other way would
 // credit an old snapshot with a fallback its probes never had.
 func TestDecodeReadsAMissingPublicDNSAutoAsAResolverThatWasNamed(t *testing.T) {
-	s, err := Decode([]byte(`{"schema":"` + Schema + `","options":{"public_dns":"8.8.8.8"}}`))
+	s, err := Decode([]byte(`{"schema":"` + Schema + `","options":{"public_dns":"8.8.8.8"},"ok":true}`))
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
@@ -1016,6 +1024,7 @@ func TestAnswerComparisonRoundTripsAndRejectsUnknownValues(t *testing.T) {
 				ID: "dns_public", Status: StatusWarn, Ran: true, DurationMs: 1,
 				Derived: &Derived{AnswerComparison: comparison},
 			}},
+			OK: true,
 		}
 	}
 	for _, comparison := range []AnswerComparison{"", AnswerComparisonAgree, AnswerComparisonDisagree} {
@@ -1045,5 +1054,135 @@ func TestAnswerComparisonRoundTripsAndRejectsUnknownValues(t *testing.T) {
 	future := strings.Replace(string(valid), `"answer_comparison": "agree"`, `"answer_comparison": "maybe"`, 1)
 	if _, err := Decode([]byte(future)); err == nil || !strings.Contains(err.Error(), "unknown answer comparison") {
 		t.Errorf("Decode error = %v, want it to refuse an unknown answer comparison", err)
+	}
+}
+
+// checkRow is a valid ordinary row, so each case below states only the one
+// fact it is about.
+func checkRow(id, status string) Check {
+	return Check{ID: id, Name: id, Status: status, Ran: status != StatusIncomplete, DurationMs: 1}
+}
+
+// rejectsBothWays proves Encode and Decode refuse the same artifact. Marshal
+// rather than Encode produces the bytes for the decode half, because Encode is
+// the writer being tested and cannot be used to build the file it must refuse.
+func rejectsBothWays(t *testing.T, s Snapshot, want string) {
+	t.Helper()
+	data, err := Encode(s)
+	if err == nil {
+		t.Fatalf("Encode published:\n%s", data)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("Encode error = %q, want it to say %q", err, want)
+	}
+	s.Schema = Schema
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Decode(raw)
+	if err == nil {
+		t.Fatalf("Decode accepted what Encode refused:\n%s", raw)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("Decode error = %q, want it to say %q", err, want)
+	}
+}
+
+// Check identity is what every other reader keys on. A row nobody can name,
+// and two rows sharing one name, are the states that let two subsystems read
+// one file as two different runs: this package's own validation keeps the last
+// duplicate, compare keeps the first. Neither reading is wrong once the file
+// is accepted, which is why the file is not.
+func TestValidationRejectsAmbiguousCheckIdentity(t *testing.T) {
+	tests := []struct {
+		name string
+		s    Snapshot
+		want string
+	}{
+		{
+			"a row with no id",
+			Snapshot{Checks: []Check{checkRow("", StatusPass)}, OK: true},
+			"no id",
+		},
+		{
+			"the same id twice",
+			Snapshot{Checks: []Check{checkRow("dns", StatusPass), checkRow("dns", StatusPass)}, OK: true},
+			"twice",
+		},
+		{
+			"the same id with conflicting outcomes",
+			Snapshot{Checks: []Check{checkRow("dns", StatusPass), checkRow("dns", StatusFail)}},
+			"twice",
+		},
+		{
+			"a status outside the vocabulary",
+			Snapshot{Checks: []Check{checkRow("dns", "BROKEN")}, OK: true},
+			"unknown status",
+		},
+		{
+			"a lowercase spelling of a valid status",
+			Snapshot{Checks: []Check{checkRow("dns", "pass")}, OK: true},
+			"unknown status",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) { rejectsBothWays(t, tt.s, tt.want) })
+	}
+}
+
+// ok is derived from the rows, so the two cannot disagree. Both directions are
+// refused: a run calling itself clean beside a failure, and a run calling
+// itself broken with nothing in it that broke.
+func TestValidationRejectsImpossibleRunOutcomes(t *testing.T) {
+	tests := []struct {
+		name string
+		s    Snapshot
+		want string
+	}{
+		{
+			"ok beside a failed row",
+			Snapshot{Checks: []Check{checkRow("dns", StatusPass), checkRow("target_tcp", StatusFail)}, OK: true},
+			"cannot be reported ok",
+		},
+		{
+			"ok beside an unreported row",
+			Snapshot{Checks: []Check{checkRow("dns", StatusPass), checkRow("tls", StatusIncomplete)}, OK: true},
+			"cannot be reported ok",
+		},
+		{
+			"not ok with every row survivable",
+			Snapshot{Checks: []Check{checkRow("dns", StatusPass), checkRow("proxy", StatusWarn), checkRow("tls", StatusSkip), checkRow("pmtu", StatusNA)}},
+			"no check is FAIL",
+		},
+		{
+			"not ok with no rows at all",
+			Snapshot{Checks: []Check{}},
+			"no check is FAIL",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) { rejectsBothWays(t, tt.s, tt.want) })
+	}
+}
+
+// The positive half. Every published status is still an outcome a row may
+// carry, and the two that take a run down still do so on their own.
+func TestEveryPublishedCheckStatusStaysAccepted(t *testing.T) {
+	for _, status := range []string{StatusPass, StatusWarn, StatusFail, StatusSkip, StatusNA, StatusIncomplete} {
+		t.Run(status, func(t *testing.T) {
+			ok := status != StatusFail && status != StatusIncomplete
+			data, err := Encode(Snapshot{Checks: []Check{checkRow("dns", status)}, OK: ok})
+			if err != nil {
+				t.Fatalf("Encode refused a %s row: %v", status, err)
+			}
+			got, err := Decode(data)
+			if err != nil {
+				t.Fatalf("Decode refused a %s row: %v", status, err)
+			}
+			if got.Checks[0].Status != status || got.OK != ok {
+				t.Errorf("round trip = %+v, ok=%v", got.Checks[0], got.OK)
+			}
+		})
 	}
 }

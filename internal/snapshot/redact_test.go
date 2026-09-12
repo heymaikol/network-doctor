@@ -479,6 +479,7 @@ func TestSupportKeepsTheRecordedAnswerComparison(t *testing.T) {
 				Observed: &Observed{Resolver: "9.9.9.9", Addresses: []string{"198.51.100.20"}},
 			}},
 			Diagnosis: Diagnosis{Verdict: "degraded", Summary: "The resolvers answer differently."},
+			OK:        true,
 		}
 		data, err := Encode(SanitizeForSupport(s))
 		if err != nil {
@@ -511,6 +512,7 @@ func TestSupportKeepsTheCleartextConnectObservation(t *testing.T) {
 			Observed: &Observed{ConnectCleartext: true, SourceIP: "192.0.2.44"},
 		}},
 		Diagnosis: Diagnosis{Verdict: "ok", Summary: "The network works."},
+		OK:        true,
 	}
 	data, err := Encode(SanitizeForSupport(s))
 	if err != nil {
@@ -538,6 +540,7 @@ func TestSupportOmitsAnUnrecordedCleartextObservation(t *testing.T) {
 			Detail: "proxy tunnels", Observed: &Observed{ConnectCleartext: false},
 		}},
 		Diagnosis: Diagnosis{Verdict: "ok", Summary: "The network works."},
+		OK:        true,
 	}
 	data, err := Encode(SanitizeForSupport(s))
 	if err != nil {

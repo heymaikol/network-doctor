@@ -29,6 +29,24 @@ import (
 // meant to be looked at rather than accepted.
 var goldenSnapshot = filepath.Join("..", "snapshot", "testdata", "example.ndoc")
 
+// timedResults stamps the duration a real run always records. Every probe the
+// DAG builds executes inside wrapRun, whose timer floors at one nanosecond, so
+// a result the run reported is a result with a duration, and the snapshot's
+// ran field is read straight off that. A result map written by hand in a test
+// has none, and an artifact built from one would claim an outcome no probe
+// body measured. A prerequisite skip is the exception, because the scheduler
+// records it without calling the probe at all.
+func timedResults(res map[ProbeID]ProbeResult) map[ProbeID]ProbeResult {
+	out := make(map[ProbeID]ProbeResult, len(res))
+	for id, r := range res {
+		if r.Dur == 0 && r.Status != StatusSkip {
+			r.Dur = time.Millisecond
+		}
+		out[id] = r
+	}
+	return out
+}
+
 // fixtureRun is one deliberately small, deliberately unhealthy run: a target
 // whose name resolves and whose port is refused, over a link that lost IPv6
 // and had its egress failure relaxed by later reasoning. It is written out by
@@ -686,5 +704,61 @@ func TestBuiltSnapshotDependencyGraphIsPublishable(t *testing.T) {
 					name, selection.Check, selection.Skip, !selection.NoReferenceEgress, err)
 			}
 		}
+	}
+}
+
+// The producer's own derivation of ran and the format's rule about it are two
+// halves of one contract, and the executor is what joins them: every probe the
+// DAG builds is timed, and the one result the scheduler records without
+// calling a probe is a prerequisite skip. This runs the real executor over a
+// graph that produces each of those and holds the artifact to the format's
+// rule, so a change to either half that parts them fails here.
+func TestExecutedRunsAgreeWithTheFormatAboutWhatRan(t *testing.T) {
+	probes := []Probe{
+		{ID: ProbeIface, Name: "Interface", Run: wrapRun(func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			return ProbeResult{Status: StatusPass}
+		})},
+		{ID: ProbeDNS, Name: "DNS", Deps: []ProbeID{ProbeIface}, Run: wrapRun(func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			return ProbeResult{Status: StatusFail, Detail: "no answer"}
+		})},
+		// Skipped by the scheduler, never called.
+		{ID: ProbeTargetTCP, Name: "TCP", Deps: []ProbeID{ProbeDNS}, Run: wrapRun(func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			t.Error("a probe behind a failed prerequisite was executed")
+			return ProbeResult{Status: StatusPass}
+		})},
+		// Executed and inapplicable, which is the shape N/A really has.
+		{ID: ProbeQUIC, Name: "QUIC", Deps: []ProbeID{ProbeIface}, Run: wrapRun(func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			return ProbeResult{Status: StatusNA, Detail: "no address family available"}
+		})},
+	}
+	results := RunAll(context.Background(), probes, DefaultProbeTimeout)
+	artifact := BuildSnapshot(nil, probes, results)
+	// One probe never reports, which is how an interrupted run leaves a row.
+	artifact.Checks = append(artifact.Checks, snapshot.Check{ID: string(ProbeTLS), Name: "TLS", Status: snapshot.StatusIncomplete})
+
+	want := map[ProbeID]struct {
+		status string
+		ran    bool
+	}{
+		ProbeIface:     {snapshot.StatusPass, true},
+		ProbeDNS:       {snapshot.StatusFail, true},
+		ProbeTargetTCP: {snapshot.StatusSkip, false},
+		ProbeQUIC:      {snapshot.StatusNA, true},
+		ProbeTLS:       {snapshot.StatusIncomplete, false},
+	}
+	for _, c := range artifact.Checks {
+		expected, known := want[ProbeID(c.ID)]
+		if !known {
+			t.Fatalf("unexpected row %q", c.ID)
+		}
+		if c.Status != expected.status || c.Ran != expected.ran {
+			t.Errorf("row %q = %s/ran=%t, want %s/ran=%t", c.ID, c.Status, c.Ran, expected.status, expected.ran)
+		}
+		if snapshot.ExecutionContradicts(c) {
+			t.Errorf("the producer wrote row %q, which the format calls impossible: %s/ran=%t", c.ID, c.Status, c.Ran)
+		}
+	}
+	if _, err := snapshot.Encode(artifact); err != nil {
+		t.Fatalf("the format refused an artifact the executor produced: %v", err)
 	}
 }

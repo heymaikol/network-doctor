@@ -198,7 +198,7 @@ func TestSupportProseFieldsStillLoseKnownValues(t *testing.T) {
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
 		Target: &Target{Raw: "labbox:8443", Host: "labbox", Port: 8443, Protocol: "tls"},
 		Checks: []Check{{
-			ID: "dns", Name: "DNS labbox", Status: StatusFail,
+			ID: "dns", Name: "DNS labbox", Status: StatusFail, Ran: true, DurationMs: 1,
 			Detail: "labbox did not resolve via 192.168.31.7 on wlan0 (Cafe Wifi 5G)",
 			Fix:    "check labbox in /home/jrivera/hosts",
 			Observed: &Observed{

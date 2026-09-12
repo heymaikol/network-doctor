@@ -223,10 +223,16 @@ func mirrored(r report.Report) snapshot.Snapshot {
 		s.Target = &snapshot.Target{Raw: r.Target.Host, Host: r.Target.Host, Port: r.Target.Port, Protocol: r.Target.Protocol}
 	}
 	for _, check := range r.Checks {
-		s.Checks = append(s.Checks, snapshot.Check{
+		row := snapshot.Check{
 			ID: check.ID, Name: check.ID, Status: check.Status,
-			Ran: check.Status != snapshot.StatusIncomplete, DurationMs: 1,
-		})
+			// ran follows the status, asked of the format rather than
+			// restated here, so one rule covers both.
+			Ran: !snapshot.ExecutionContradicts(snapshot.Check{Status: check.Status, Ran: true}),
+		}
+		if row.Ran {
+			row.DurationMs = 1
+		}
+		s.Checks = append(s.Checks, row)
 	}
 	return s
 }

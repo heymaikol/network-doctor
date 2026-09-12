@@ -87,7 +87,7 @@ func TestReplaySnapshotRoundTripSemantics(t *testing.T) {
 				probes[i] = Probe{ID: id, Name: string(id)}
 			}
 			want := Interpret(test.target, test.order, test.res)
-			data, err := snapshot.Encode(BuildSnapshot(test.target, probes, test.res))
+			data, err := snapshot.Encode(BuildSnapshot(test.target, probes, timedResults(test.res)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -107,9 +107,9 @@ func TestReplaySnapshotRoundTripSemantics(t *testing.T) {
 func TestResolverTargetsSurviveSnapshotReplay(t *testing.T) {
 	targets := []string{"192.0.2.53:53", "[2001:db8::53]:53"}
 	probes := []Probe{{ID: ProbeDNS, Name: "DNS"}}
-	artifact := BuildSnapshot(nil, probes, map[ProbeID]ProbeResult{
+	artifact := BuildSnapshot(nil, probes, timedResults(map[ProbeID]ProbeResult{
 		ProbeDNS: {Status: StatusPass, ResolverTargets: targets},
-	})
+	}))
 	data, err := snapshot.Encode(artifact)
 	if err != nil {
 		t.Fatal(err)
@@ -346,7 +346,7 @@ func TestReplayAfterSupportSanitizationKeepsTheConclusion(t *testing.T) {
 				probes[i] = Probe{ID: id, Name: string(id)}
 			}
 			want := Interpret(test.target, test.order, test.res)
-			data, err := snapshot.Encode(snapshot.SanitizeForSupport(BuildSnapshot(test.target, probes, test.res)))
+			data, err := snapshot.Encode(snapshot.SanitizeForSupport(BuildSnapshot(test.target, probes, timedResults(test.res))))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -526,7 +526,7 @@ func sanitizedReplayInput(t *testing.T, target *Target, order []ProbeID, res map
 	}
 	Finalize(res)
 	want := Interpret(target, order, res)
-	data, err := snapshot.Encode(snapshot.SanitizeForSupport(BuildSnapshot(target, probes, res)))
+	data, err := snapshot.Encode(snapshot.SanitizeForSupport(BuildSnapshot(target, probes, timedResults(res))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,7 +674,7 @@ func TestEveryReconciledDNSStateReplays(t *testing.T) {
 		name   string
 		result ProbeResult
 	}
-	for _, status := range []Status{StatusPass, StatusWarn, StatusFail, StatusNA, StatusSkip} {
+	for _, status := range []Status{StatusPass, StatusWarn, StatusFail, StatusNA} {
 		for _, answer := range answers {
 			for _, notFound := range []bool{false, true} {
 				states = append(states, struct {
@@ -687,6 +687,14 @@ func TestEveryReconciledDNSStateReplays(t *testing.T) {
 			}
 		}
 	}
+	// A prerequisite skip is the one state the scheduler records without
+	// calling the probe, so the row has no answers, no resolver, and no
+	// not-found reading to cross the others with. Sweeping it against them
+	// would sweep rows no run produces.
+	states = append(states, struct {
+		name   string
+		result ProbeResult
+	}{StatusSkip.String(), ProbeResult{Status: StatusSkip}})
 
 	probes := []Probe{{ID: ProbeDNS, Name: "DNS"}, {ID: ProbeDNSPublic, Name: "Public DNS"}}
 	for _, system := range states {
@@ -694,7 +702,7 @@ func TestEveryReconciledDNSStateReplays(t *testing.T) {
 			res := map[ProbeID]ProbeResult{ProbeDNS: system.result, ProbeDNSPublic: public.result}
 			Finalize(res)
 			want := res[ProbeDNSPublic].answerComparison
-			data, err := snapshot.Encode(BuildSnapshot(nil, probes, res))
+			data, err := snapshot.Encode(BuildSnapshot(nil, probes, timedResults(res)))
 			if err != nil {
 				t.Fatalf("system %s, public %s: encode: %v", system.name, public.name, err)
 			}

@@ -3,6 +3,7 @@ package snapshot
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -1074,7 +1075,15 @@ func TestAnswerComparisonRoundTripsAndRejectsUnknownValues(t *testing.T) {
 // checkRow is a valid ordinary row, so each case below states only the one
 // fact it is about.
 func checkRow(id, status string) Check {
-	return Check{ID: id, Name: id, Status: status, Ran: status != StatusIncomplete, DurationMs: 1}
+	// ran follows the status, because the format now holds the two together:
+	// a skipped row was recorded without calling the probe and an incomplete
+	// one was never called at all, so neither is timed.
+	ran := status != StatusIncomplete && status != StatusSkip
+	row := Check{ID: id, Name: id, Status: status, Ran: ran}
+	if ran {
+		row.DurationMs = 1
+	}
+	return row
 }
 
 // rejectsBothWays proves Encode and Decode refuse the same artifact. Marshal
@@ -1411,5 +1420,200 @@ func TestNestedRunsAreHeldToTheDependencyGraphRule(t *testing.T) {
 	}
 	if err := decodeIncident(t, incident); err == nil || !strings.Contains(err.Error(), "dependency cycle") {
 		t.Errorf("Decode error = %v, want it to refuse an incident whose rows wait on each other", err)
+	}
+}
+
+// executionLedger classifies every published status against the one question
+// ran answers: did the probe body execute. A status has to be in here to be
+// written, so adding one to the vocabulary is a decision about execution state
+// rather than a silently unconstrained row.
+//
+// ran is true where only an executed body can have produced the outcome, false
+// where the run recorded the row without calling the probe, and unconstrained
+// only for N/A, which a probe decides from inside its own body after looking
+// while a later netdoc could rule a row inapplicable before calling it.
+var executionLedger = []struct {
+	status     string
+	mustRun    bool
+	mustNotRun bool
+	why        string
+}{
+	{status: StatusPass, mustRun: true, why: "a passing row is an outcome a probe body measured"},
+	{status: StatusWarn, mustRun: true, why: "a warned row is an outcome a probe body measured"},
+	{status: StatusFail, mustRun: true, why: "a failed row is an outcome a probe body measured"},
+	{status: StatusSkip, mustNotRun: true, why: "a prerequisite skip is recorded without calling the probe"},
+	{status: StatusIncomplete, mustNotRun: true, why: "an unreported row was never called at all"},
+	{status: StatusNA, why: "a probe reports N/A from inside its own body, and a later netdoc may decide it earlier"},
+}
+
+// The vocabulary is closed and the ledger covers it, so a new status cannot
+// arrive without a line above saying what running means for it.
+func TestExecutionLedgerCoversTheStatusVocabulary(t *testing.T) {
+	seen := map[string]bool{}
+	for _, entry := range executionLedger {
+		if seen[entry.status] {
+			t.Errorf("%s is classified twice", entry.status)
+		}
+		seen[entry.status] = true
+		if !validCheckStatus(entry.status) {
+			t.Errorf("the ledger classifies %q, which is not a status this build writes", entry.status)
+		}
+		if entry.mustRun && entry.mustNotRun {
+			t.Errorf("%s cannot be required to both run and not run", entry.status)
+		}
+		if entry.why == "" {
+			t.Errorf("%s is classified without saying why", entry.status)
+		}
+	}
+	for _, status := range []string{"", "ok", "PASSED", "skip", "n/a", "UNKNOWN"} {
+		if validCheckStatus(status) && !seen[status] {
+			t.Errorf("%q is a status this build writes but the ledger does not classify", status)
+		}
+	}
+}
+
+// The behavioral half of the ledger, through all three public paths. A file
+// that one of them accepts and another refuses is a file whose validity
+// depends on which door it came through.
+func TestExecutionStateIsEnforcedTheSameWayEverywhere(t *testing.T) {
+	for _, entry := range executionLedger {
+		for _, ran := range []bool{true, false} {
+			name := fmt.Sprintf("%s/ran=%t", entry.status, ran)
+			t.Run(name, func(t *testing.T) {
+				row := checkRow("dns", entry.status)
+				row.Ran = ran
+				row.DurationMs = 0
+				if ran {
+					row.DurationMs = 1
+				}
+				s := Snapshot{
+					Checks: []Check{row},
+					OK:     entry.status != StatusFail && entry.status != StatusIncomplete,
+				}
+				if entry.status == StatusFail {
+					s.Diagnosis.FailedStage = "dns"
+				}
+				impossible := entry.mustRun && !ran || entry.mustNotRun && ran
+				if impossible {
+					rejectsBothWays(t, s, "dns")
+					if !ExecutionContradicts(row) {
+						t.Errorf("ExecutionContradicts disagrees with the validator about %s", name)
+					}
+					return
+				}
+				if ExecutionContradicts(row) {
+					t.Fatalf("ExecutionContradicts refuses %s, which %s", name, entry.why)
+				}
+				data, err := Encode(s)
+				if err != nil {
+					t.Fatalf("Encode refused %s, which %s: %v", name, entry.why, err)
+				}
+				if err := Validate(stamped(s)); err != nil {
+					t.Fatalf("Validate refused %s: %v", name, err)
+				}
+				if _, err := Decode(data); err != nil {
+					t.Fatalf("Decode refused what Encode wrote for %s: %v", name, err)
+				}
+			})
+		}
+	}
+}
+
+// A row that never ran spent no time, because ran is the recorded duration
+// read as a yes or no. The other direction is deliberately left alone: a probe
+// body faster than the unit can round to zero milliseconds.
+func TestValidationRejectsTimeSpentByARowThatNeverRan(t *testing.T) {
+	s := Snapshot{Checks: []Check{checkRow("dns", StatusPass), func() Check {
+		row := checkRow("tls", StatusSkip)
+		row.DurationMs = 41
+		return row
+	}()}}
+	s.OK = true
+	rejectsBothWays(t, s, "tls")
+
+	row := checkRow("dns", StatusPass)
+	row.DurationMs = 0
+	if ExecutionContradicts(row) {
+		t.Error("a sub-millisecond probe body is not a contradiction")
+	}
+}
+
+// Causal evidence is a claim about what a row observed, so it rests on a row
+// that was observed. N/A is the status that isolates this rule from the row
+// rule above, being the one a valid row may carry either way.
+func TestCausalEvidenceCannotReadAnUnexecutedRow(t *testing.T) {
+	build := func(ran bool) Snapshot {
+		row := Check{ID: "dns", Name: "dns", Status: StatusNA, Ran: ran,
+			Observed: &Observed{Addresses: []string{"192.0.2.1"}}}
+		if ran {
+			row.DurationMs = 1
+		}
+		return Snapshot{
+			Checks: []Check{row},
+			OK:     true,
+			Diagnosis: Diagnosis{
+				Verdict: "ok", Summary: "Everything checked out.",
+				Findings: []Finding{{
+					ID: "resolution", Verdict: "ok", Summary: "The name resolves.",
+					Focus: "dns", Confidence: ConfidenceHigh, Evidence: []string{"dns"},
+					CausalEvidence: []CausalEvidence{
+						{Kind: EvidenceSupport, Check: "dns", Observation: ObservationDNSAnswers},
+					},
+				}},
+			},
+		}
+	}
+	if _, err := Encode(build(true)); err != nil {
+		t.Fatalf("Encode refused evidence read off a measured row: %v", err)
+	}
+	rejectsBothWays(t, build(false), "did not run")
+
+	// The same rule for the two kinds that name an alternative.
+	for _, kind := range []string{EvidenceContradiction, EvidenceRuledOut} {
+		s := build(false)
+		s.Diagnosis.Findings[0].CausalEvidence[0] = CausalEvidence{
+			Kind: kind, Check: "dns", Observation: ObservationDNSAnswers, Candidate: "dns_name_not_found",
+		}
+		rejectsBothWays(t, s, "did not run")
+	}
+}
+
+// The other half: a not-evaluated claim says the row was not measured, and it
+// keeps meaning that. A prerequisite skip is the execution state it names, so
+// evidence pointing at a row that ran is refused whichever way it is written.
+func TestPrerequisiteEvidenceRequiresTheSkippedExecutionState(t *testing.T) {
+	build := func(edit func(*Check)) Snapshot {
+		row := checkRow("tls", StatusSkip)
+		edit(&row)
+		return Snapshot{
+			Checks: []Check{checkRow("target_tcp", StatusFail), row},
+			Diagnosis: Diagnosis{
+				Verdict: "network", Summary: "The target is unreachable.", FailedStage: "target_tcp",
+				Findings: []Finding{{
+					ID: "target_unreachable", Verdict: "network", Summary: "The target is unreachable.",
+					Focus: "target_tcp", Confidence: ConfidenceHigh, Evidence: []string{"target_tcp"},
+					CausalEvidence: []CausalEvidence{
+						{Kind: EvidenceSupport, Check: "target_tcp", Observation: ObservationStatusFail},
+						{Kind: EvidenceNotEvaluated, Check: "tls", Observation: ObservationStatusSkip,
+							Reason: NotEvaluatedPrerequisite},
+					},
+				}},
+			},
+		}
+	}
+	if _, err := Encode(build(func(*Check) {})); err != nil {
+		t.Fatalf("Encode refused a prerequisite skip the run really recorded: %v", err)
+	}
+	rejectsBothWays(t, build(func(c *Check) { c.Ran, c.DurationMs = true, 1 }), "tls")
+
+	// not_evaluated keeps its own meaning: it is the one kind that may name a
+	// row nothing measured, which is why the rule above cannot simply demand
+	// ran of every piece of evidence.
+	s := build(func(*Check) {})
+	if got := s.Diagnosis.Findings[0].CausalEvidence[1].Kind; got != EvidenceNotEvaluated {
+		t.Fatalf("evidence kind = %q", got)
+	}
+	if s.Checks[1].Ran {
+		t.Error("a prerequisite skip is recorded without calling the probe")
 	}
 }

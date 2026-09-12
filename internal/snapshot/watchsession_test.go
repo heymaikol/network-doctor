@@ -127,6 +127,7 @@ func TestIncidentAcceptsRealEvidenceMovingDuringTheFailure(t *testing.T) {
 	during.Checks[0].Observed = &Observed{DNSNotFound: true}
 	during.Checks[0].Status, during.Checks[0].Cause = StatusFail, "dns_nxdomain"
 	during.Checks[1].Status, during.Checks[1].Cause = StatusSkip, ""
+	during.Checks[1].Ran, during.Checks[1].DurationMs = false, 0
 	during.Checks[1].Observed = nil
 	during.Diagnosis = Diagnosis{
 		Verdict: "dns", Summary: "The name no longer resolves.", Blamed: "dns", FailedStage: "dns",
@@ -207,7 +208,12 @@ var varies = map[string]func(*Snapshot){
 	"Check.CauseFamily": func(s *Snapshot) {
 		s.Checks[0].Cause, s.Checks[0].CauseFamily = "dns_slow", "ipv6"
 	},
-	"Check.Ran":        func(s *Snapshot) { s.Checks[0].Ran = false },
+	// ran moves with the status it belongs to, because the execution-state
+	// rule holds the two together: the pass that skipped this row for a failed
+	// prerequisite recorded it without calling the probe.
+	"Check.Ran": func(s *Snapshot) {
+		s.Checks[0].Status, s.Checks[0].Ran, s.Checks[0].DurationMs = StatusSkip, false, 0
+	},
 	"Check.DurationMs": func(s *Snapshot) { s.Checks[0].DurationMs = 4001 },
 	"Check.Detail":     func(s *Snapshot) { s.Checks[0].Detail = "Resolution took four seconds." },
 	"Check.Fix":        func(s *Snapshot) { s.Checks[0].Fix = "Try another resolver." },

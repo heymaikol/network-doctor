@@ -471,7 +471,9 @@ func validateLabDiagnosis(e LabExpected, s snapshot.Snapshot, d diagnostic.Diagn
 	}
 	for _, want := range e.Checks {
 		got, ok := checks[want.ID]
-		if ok && ((got.Status == snapshot.StatusPass || got.Status == snapshot.StatusWarn || got.Status == snapshot.StatusFail) && !got.Ran || got.Status == snapshot.StatusSkip && got.Ran) {
+		// One rule, owned by the format. The lab used to spell it a second
+		// time here, and a second spelling is a second rule to drift.
+		if ok && snapshot.ExecutionContradicts(got) {
 			problems = append(problems, "check execution contradicts status: "+want.ID)
 		}
 		if !ok || got.Status != want.Status || want.Cause != "" && got.Cause != want.Cause {

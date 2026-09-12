@@ -338,7 +338,7 @@ func TestSupportRedactsLocalMachineIdentity(t *testing.T) {
 	s := Snapshot{
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
 		Checks: []Check{{
-			ID: "tls", Name: "TLS", Status: StatusFail,
+			ID: "tls", Name: "TLS", Status: StatusFail, Ran: true, DurationMs: 1,
 			Detail: "certificate is for sanitizer-test-box.example, presented to sanitizer-test-box",
 			Fix:    "run as sanitizer-test-account or fix the name",
 		}},
@@ -427,7 +427,7 @@ func TestSupportRedactsAddressesFoundOnlyInText(t *testing.T) {
 	pinLocalIdentity(t)
 	s := Snapshot{
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
-		Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail,
+		Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail, Ran: true, DurationMs: 1,
 			Detail: "no route to 192.168.7.31.",
 			Fix:    "check the gateway at 192.168.7.31, then retry"}},
 		Diagnosis: Diagnosis{Verdict: "route", Summary: "unreachable via 192.168.7.31.", FailedStage: "route"},

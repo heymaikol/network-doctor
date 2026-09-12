@@ -270,7 +270,7 @@ func TestRouteSelectionDoesNotLocateFailure(t *testing.T) {
 					} else if d.Verdict != control.Verdict || d.Summary != control.Summary {
 						t.Fatal("route metadata changed verdict or summary")
 					}
-					data, err := snapshot.Encode(BuildSnapshot(target, probes, res))
+					data, err := snapshot.Encode(BuildSnapshot(target, probes, timedResults(res)))
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -342,7 +342,7 @@ func TestFailedRouteFamiliesPreserveUncertaintyAndContext(t *testing.T) {
 							t.Errorf("missing route context %+v", e)
 						}
 					}
-					data, err := snapshot.Encode(BuildSnapshot(target, probes, res))
+					data, err := snapshot.Encode(BuildSnapshot(target, probes, timedResults(res)))
 					if err != nil {
 						t.Fatal(err)
 					}

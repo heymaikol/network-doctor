@@ -57,7 +57,7 @@ func remoteAnswer(ok bool) remote.Response {
 		Snapshot: &snapshot.Snapshot{
 			Schema: snapshot.Schema, CreatedAt: "2026-03-04T05:06:07Z", Tool: remoteTool, OK: ok,
 			Target: &snapshot.Target{Raw: "example.com", Host: "example.com", Port: 443, Protocol: "tcp"},
-			Checks: []snapshot.Check{{ID: "dns", Name: "DNS", Status: snapshot.StatusPass}},
+			Checks: []snapshot.Check{{ID: "dns", Name: "DNS", Status: snapshot.StatusPass, Ran: true, DurationMs: 1}},
 		},
 	}
 }

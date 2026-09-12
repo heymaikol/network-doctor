@@ -665,6 +665,40 @@ func validCheckStatus(status string) bool {
 	return validStatus(status) || status == StatusIncomplete
 }
 
+// ExecutionContradicts reports whether a row's status and its ran flag
+// describe an execution no run could have performed.
+//
+// The two fields are not independent. ran is the probe body's own measured
+// duration read as a yes or no, so a row carrying a measured outcome ran, and
+// a row nothing executed cannot carry one: a check skipped for a failed
+// prerequisite is recorded by the scheduler without calling the probe, and an
+// incomplete row was never called at all, so both read false.
+//
+// N/A is deliberately outside the rule. It is the one surviving status a probe
+// decides from inside its own body after looking, which is why an N/A row
+// normally ran, while a later netdoc that rules a row inapplicable before
+// calling it would still be writing a v1 file rather than a broken one.
+//
+// It is exported because the scenario lab holds the same expectation over the
+// artifacts it builds, and two spellings of one rule are two rules.
+func ExecutionContradicts(c Check) bool {
+	// The same fact read off the other field. ran is the duration asked
+	// whether it is greater than zero, so a row that reports time spent ran,
+	// whatever its status says. This direction only: a probe body that
+	// finished faster than the unit could still round to zero in an artifact
+	// an older netdoc wrote, and that file is not the contradiction.
+	if !c.Ran && c.DurationMs != 0 {
+		return true
+	}
+	switch c.Status {
+	case StatusPass, StatusWarn, StatusFail:
+		return !c.Ran
+	case StatusSkip, StatusIncomplete:
+		return c.Ran
+	}
+	return false
+}
+
 func validAggregateStatus(status string) bool {
 	return status == StatusPass || status == StatusWarn || status == StatusFail
 }
@@ -834,8 +868,12 @@ func validate(s Snapshot) error {
 			return fmt.Errorf("snapshot check %q has a cause family without a cause", c.ID)
 		case c.Derived != nil && !validAnswerComparison(c.Derived.AnswerComparison):
 			return fmt.Errorf("snapshot check %q has unknown answer comparison %q", c.ID, c.Derived.AnswerComparison)
-		case c.Status == StatusIncomplete && c.Ran:
-			return fmt.Errorf("snapshot check %q is %s and also ran: a row that reported has an outcome", c.ID, StatusIncomplete)
+		case !c.Ran && c.DurationMs != 0:
+			return fmt.Errorf("snapshot check %q never ran and reports %dms: ran is that duration read as a yes or no", c.ID, c.DurationMs)
+		case ExecutionContradicts(c) && c.Ran:
+			return fmt.Errorf("snapshot check %q is %s and also ran: a row that reported has an outcome", c.ID, c.Status)
+		case ExecutionContradicts(c):
+			return fmt.Errorf("snapshot check %q is %s and never ran: an outcome is what a probe body measured", c.ID, c.Status)
 		case c.Status == StatusIncomplete && s.OK:
 			return fmt.Errorf("snapshot check %q is %s, so the run cannot be reported ok", c.ID, StatusIncomplete)
 		case c.Status == StatusFail && s.OK:
@@ -1264,6 +1302,16 @@ func validateCausalEvidence(e CausalEvidence, checks map[string]Check) error {
 	}
 	if !exists {
 		return fmt.Errorf("causal evidence references check %q, which is not in the snapshot", e.Check)
+	}
+	// Measured evidence, so the row it rests on has to have been measured. A
+	// support, contradiction, or ruled-out claim reads a row's recorded fields
+	// as what a probe saw, and a row whose body never executed has fields only
+	// because every row carries them: the status and the observation can still
+	// line up, and the claim would be built out of nothing observed. The
+	// not-evaluated kinds return above precisely because they claim the
+	// opposite, and they keep their own meaning.
+	if !check.Ran {
+		return fmt.Errorf("%s evidence for check %q reads an observation off a row whose probe body did not run", e.Kind, e.Check)
 	}
 	if !observationMatches(e, check) {
 		return fmt.Errorf("causal evidence references %s on check %q, but that observation is absent", e.Observation, e.Check)

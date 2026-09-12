@@ -59,9 +59,19 @@ func readSnapshotPair(mode string, paths []string, usage string, stderr io.Write
 	for i, path := range paths {
 		// #nosec G304 -- the path is the user's own argument, and reading the
 		// file they named is the whole command.
-		data, err := os.ReadFile(path)
+		f, err := os.Open(path)
 		if err != nil {
 			fmt.Fprintf(stderr, "netdoc: -%s: %s\n", mode, textsafe.Clean(err.Error()))
+			return snapshots, false
+		}
+		data, err := io.ReadAll(io.LimitReader(f, snapshot.MaxArtifactBytes+1))
+		f.Close()
+		if err != nil {
+			fmt.Fprintf(stderr, "netdoc: -%s: %s\n", mode, textsafe.Clean(err.Error()))
+			return snapshots, false
+		}
+		if len(data) > snapshot.MaxArtifactBytes {
+			fmt.Fprintf(stderr, "netdoc: -%s: %s: exceeds maximum artifact size of %d bytes\n", mode, textsafe.Clean(path), snapshot.MaxArtifactBytes)
 			return snapshots, false
 		}
 		// One decoder for both files, the same one that reads a snapshot

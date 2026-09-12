@@ -44,6 +44,15 @@ const ProfileSchema = "netdoc.profile.v1"
 // schema string in the file is the identity, not the name it was saved under.
 const Extension = ".ndoc"
 
+// MaxArtifactBytes bounds an ordinary offline .ndoc read. The format has no
+// declared maximum row or dependency count, so this is deliberately generous
+// rather than derived from a field-level limit: it exists to stop a corrupt
+// or deliberately oversized file from being fully read into memory before
+// validation, not to constrain any legitimate snapshot. Set above
+// remote.MaxResponseBytes (8 MiB) since one snapshot can bundle more data
+// than a single remote response.
+const MaxArtifactBytes = 16 << 20 // 16 MiB
+
 // The outcomes a check row can carry. They are written down here rather than
 // borrowed from the runtime status type, because the vocabulary of the file is
 // part of the file format: a reader decides what a row means by comparing

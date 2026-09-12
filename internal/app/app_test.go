@@ -1974,6 +1974,81 @@ func TestRunTwoSidedExitsZeroWhenNothingFailed(t *testing.T) {
 	}
 }
 
+// Offline .ndoc reads must stay bounded before JSON decoding: a corrupt or
+// deliberately oversized artifact should not be fully read into memory just
+// because it has a .ndoc path.
+func TestReadSnapshotPairEnforcesMaxArtifactSize(t *testing.T) {
+	dir := t.TempDir()
+
+	// A normal, legitimately small snapshot must still work exactly as before.
+	normalPath := writeSnapshotFile(t, dir, "normal", comparableSnapshot())
+
+	// A file sitting exactly at the accepted boundary. It won't decode as a
+	// valid snapshot, but it must NOT be rejected for size.
+	atBoundaryPath := filepath.Join(dir, "boundary"+snapshot.Extension)
+	writeSizedFile(t, atBoundaryPath, snapshot.MaxArtifactBytes)
+
+	// One byte over the boundary: must be rejected for size, before decode.
+	overBoundaryPath := filepath.Join(dir, "over"+snapshot.Extension)
+	writeSizedFile(t, overBoundaryPath, snapshot.MaxArtifactBytes+1)
+
+	// A sparse file far larger than the boundary, to prove the read itself
+	// stays bounded rather than relying on Stat().Size() alone.
+	sparsePath := filepath.Join(dir, "sparse"+snapshot.Extension)
+	writeSparseFile(t, sparsePath, snapshot.MaxArtifactBytes*4)
+
+	cases := []struct {
+		name        string
+		path        string
+		wantSizeErr bool
+	}{
+		{"normal snapshot", normalPath, false},
+		{"at accepted boundary", atBoundaryPath, false},
+		{"exceeds boundary", overBoundaryPath, true},
+		{"oversized sparse file", sparsePath, true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			// --compare needs two paths; pair each file with itself so we
+			// only exercise the read/bound path, not comparison semantics.
+			got := run([]string{"--compare", c.path, c.path}, &stdout, &stderr)
+
+			gotSizeErr := strings.Contains(stderr.String(), "exceeds maximum artifact size")
+			if gotSizeErr != c.wantSizeErr {
+				t.Fatalf("size-limit error = %v, want %v; exit = %d, stderr: %s", gotSizeErr, c.wantSizeErr, got, stderr.String())
+			}
+			if c.wantSizeErr && got != 2 {
+				t.Errorf("exit = %d, want 2 for an unusable artifact; stderr: %s", got, stderr.String())
+			}
+		})
+	}
+}
+
+// writeSizedFile writes exactly n bytes of filler content to path.
+func writeSizedFile(t *testing.T, path string, n int) {
+	t.Helper()
+	data := bytes.Repeat([]byte("x"), n)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// writeSparseFile creates a file that reports size n without allocating n
+// real bytes on disk, so the test itself stays fast and light.
+func writeSparseFile(t *testing.T, path string, n int) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create %s: %v", path, err)
+	}
+	defer f.Close()
+	if err := f.Truncate(int64(n)); err != nil {
+		t.Fatalf("truncate %s: %v", path, err)
+	}
+}
+
 func TestRunTwoSidedJSON(t *testing.T) {
 	dir := t.TempDir()
 	here := comparableSnapshot()

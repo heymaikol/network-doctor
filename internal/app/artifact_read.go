@@ -65,7 +65,7 @@ func readSnapshotPair(mode string, paths []string, usage string, stderr io.Write
 			return snapshots, false
 		}
 		data, err := io.ReadAll(io.LimitReader(f, snapshot.MaxArtifactBytes+1))
-		f.Close()
+		_ = f.Close() // #nosec G104 -- read-only handle; a close error here cannot affect data already read
 		if err != nil {
 			fmt.Fprintf(stderr, "netdoc: -%s: %s\n", mode, textsafe.Clean(err.Error()))
 			return snapshots, false

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/simulation"
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
@@ -155,8 +156,11 @@ func (f *challengeFlags) parse(args []string) error {
 	if *f.json && *f.answer == "" && !*f.giveUp {
 		return errors.New("-json runs without a terminal, so it needs -answer or -give-up")
 	}
-	if *f.timeout <= 0 {
-		return errors.New("-timeout must be positive")
+	// Validated the way netdoc validates its own -timeout: this value is spelled
+	// onto the child's command line, so a value netdoc refuses would otherwise
+	// surface as every spawned run exiting 2.
+	if err := diagnostic.ValidateProbeTimeout(*f.timeout); err != nil {
+		return err
 	}
 	return nil
 }

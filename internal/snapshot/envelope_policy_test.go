@@ -37,7 +37,7 @@ func TestEnvelopeValidationPolicyIsComplete(t *testing.T) {
 			"PortExplicit": "runtime: deriving this requires parsing Raw using producer-specific target grammar",
 		},
 		reflect.TypeOf(Options{}): {
-			"ProbeTimeoutMs": "validated: nonnegative milliseconds; positive sub-millisecond durations serialize as zero",
+			"ProbeTimeoutMs": "validated: nonnegative milliseconds; zero means unrecorded, since netdoc accepts only whole positive milliseconds to run",
 			"PublicDNS":      "validated: IP address or empty, as the published v1 contract promises",
 			"PublicDNSAuto":  "runtime: resolver default and fallback policy belong to probes; the remote worker permits empty resolver with auto",
 			"Check":          "forward-compatible: nonblank IDs; selections can be absent from this graph and future IDs stay readable",

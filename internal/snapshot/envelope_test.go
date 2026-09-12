@@ -44,7 +44,7 @@ func TestEnvelopeBoundaries(t *testing.T) {
 		}, true},
 		{"generic", func(s *Snapshot) { s.Target = nil }, true},
 		{"timeout negative", func(s *Snapshot) { s.Options.ProbeTimeoutMs = -1 }, false},
-		{"timeout rounded zero", func(s *Snapshot) { s.Options.ProbeTimeoutMs = 0 }, true},
+		{"timeout unrecorded", func(s *Snapshot) { s.Options.ProbeTimeoutMs = 0 }, true},
 		{"resolver malformed", func(s *Snapshot) { s.Options.PublicDNS = "auto" }, false},
 		{"auto without resolver", func(s *Snapshot) { s.Options.PublicDNS = ""; s.Options.PublicDNSAuto = true }, true},
 		{"check blank", func(s *Snapshot) { s.Options.Check = []string{""} }, false},

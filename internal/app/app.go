@@ -213,8 +213,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		profilePlan = &plan
 	}
-	if *timeout <= 0 {
-		fmt.Fprintln(stderr, "netdoc: -timeout must be positive")
+	if err := diagnostic.ValidateProbeTimeout(*timeout); err != nil {
+		fmt.Fprintln(stderr, "netdoc:", err)
 		return 2
 	}
 	peerMode := len(peerListen) > 0 || *peerConnect

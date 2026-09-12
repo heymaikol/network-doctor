@@ -37,8 +37,11 @@ func validateInvocation(target *Target, options Options) error {
 			return fmt.Errorf("snapshot target IP does not agree with its literal host")
 		}
 	}
-	// Milliseconds truncates a positive sub-millisecond timeout to zero. The
-	// artifact cannot distinguish that from an omitted numeric field.
+	// Zero is not rejected, and deliberately: it is what an artifact written
+	// before this field existed decodes to, and it is indistinguishable from an
+	// absent number. A current producer cannot write it for a run that had a
+	// timeout, because netdoc accepts only whole positive milliseconds here, so
+	// the only remaining reading of zero is "this artifact does not say".
 	if options.ProbeTimeoutMs < 0 {
 		return fmt.Errorf("snapshot probe timeout must not be negative")
 	}

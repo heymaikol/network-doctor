@@ -274,7 +274,7 @@ func RunLab(ctx context.Context, s LabScenario) (LabReport, error) {
 		artifact := diagnostic.BuildSnapshot(target, probes, results)
 		artifact.Tool = snapshot.Tool{Version: "scenario-lab", OS: "model", Arch: "model"}
 		artifact.CreatedAt = "2000-01-01T00:00:00Z"
-		artifact.Options = snapshot.Options{ProbeTimeoutMs: diagnostic.DefaultProbeTimeout.Milliseconds(), PublicDNS: diagnostic.DefaultPublicDNS}
+		artifact.Options = snapshot.Options{ProbeTimeoutMs: diagnostic.ProbeTimeoutMs(diagnostic.DefaultProbeTimeout), PublicDNS: diagnostic.DefaultPublicDNS}
 		if v.SourceSegment != "" {
 			binding := &snapshot.Source{Interface: v.SourceSegment}
 			for _, iface := range m.scenario.Topology.node(v.Node).Interfaces {

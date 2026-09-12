@@ -2039,6 +2039,7 @@ func writeSizedFile(t *testing.T, path string, n int) {
 // real bytes on disk, so the test itself stays fast and light.
 func writeSparseFile(t *testing.T, path string, n int) {
 	t.Helper()
+	// #nosec G304 -- path is built from t.TempDir() in this test, not user input.
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create %s: %v", path, err)

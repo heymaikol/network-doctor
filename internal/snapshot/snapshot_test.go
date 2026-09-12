@@ -1292,3 +1292,26 @@ func TestLegacyAndFutureDiagnosisFindingsStayValid(t *testing.T) {
 		t.Errorf("Encode refused an unfamiliar finding id: %v", err)
 	}
 }
+
+// Validate is for a snapshot that arrived inside another envelope, where
+// Encode is the wrong check: Encode stamps the schema, so it would repair a
+// mislabelled artifact and then approve the repair.
+func TestValidateReadsTheSnapshotItWasGiven(t *testing.T) {
+	s := diagnosed()
+	s.Schema = Schema
+	if err := Validate(s); err != nil {
+		t.Fatalf("Validate refused a valid snapshot: %v", err)
+	}
+	mislabelled := s
+	mislabelled.Schema = "netdoc.snapshot.v2"
+	if _, err := Encode(mislabelled); err != nil {
+		t.Fatalf("Encode stamps the schema, so it should still accept this: %v", err)
+	}
+	var unsupported UnsupportedSchemaError
+	if err := Validate(mislabelled); !errors.As(err, &unsupported) {
+		t.Fatalf("Validate = %v, want an unsupported schema error", err)
+	}
+	if s.Schema != Schema || mislabelled.Schema != "netdoc.snapshot.v2" {
+		t.Error("Validate changed the snapshot it was given")
+	}
+}

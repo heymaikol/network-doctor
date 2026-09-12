@@ -200,8 +200,17 @@ func decodeResponse(r io.Reader) (Response, error) {
 	if resp.Protocol != Protocol {
 		return Response{}, unsupportedProtocol(resp)
 	}
-	if resp.Error == "" && (resp.Report == nil || resp.Snapshot == nil) {
-		return Response{}, errors.New("the remote response carried no diagnosis and no error")
+	if resp.Error == "" {
+		if resp.Report == nil || resp.Snapshot == nil {
+			return Response{}, errors.New("the remote response carried no diagnosis and no error")
+		}
+		// Both artifacts are about to be spent separately by the caller, one
+		// for what it prints and exits with and one for what it stores, so
+		// this is the last point at which anything can still ask whether they
+		// are two readings of one run.
+		if err := agree(resp.Tool, *resp.Report, *resp.Snapshot); err != nil {
+			return Response{}, err
+		}
 	}
 	return resp, nil
 }

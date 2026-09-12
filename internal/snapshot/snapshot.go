@@ -748,6 +748,21 @@ func stamped(s Snapshot) Snapshot {
 	return s
 }
 
+// Validate applies the same rules to a snapshot that arrived already decoded,
+// and changes nothing about it.
+//
+// Decode is the reader for .ndoc bytes. This is for a snapshot that travelled
+// inside some other envelope, where re-encoding it to reuse Encode would be
+// the wrong check: Encode stamps the schema on the way through, so it would
+// repair the one discrepancy most worth catching and then pronounce the
+// repaired copy valid.
+func Validate(s Snapshot) error {
+	if s.Schema != Schema {
+		return UnsupportedSchemaError{Found: s.Schema}
+	}
+	return validate(s)
+}
+
 // validate holds the rules a snapshot has to satisfy to be a snapshot, rather
 // than valid JSON that happens to have these keys. Both directions apply them:
 // Encode so a file that says nothing about a row never gets published, and

@@ -10,7 +10,10 @@ import (
 	ndoc "github.com/heymaikol/network-doctor/internal/snapshot"
 )
 
-func recordWatchPass(m *model, at time.Time, failing bool, iface string) {
+// recordWatchPass records one finished watch pass. Each also takes the run's
+// evidence before it is finalized, which is how a test varies a reading other
+// than the interface without a second pass being recorded for it.
+func recordWatchPass(m *model, at time.Time, failing bool, iface string, also ...func(map[diagnostic.ProbeID]diagnostic.ProbeResult)) {
 	m.results = make(map[diagnostic.ProbeID]diagnostic.ProbeResult, len(m.probes))
 	for _, probe := range m.probes {
 		status := diagnostic.StatusPass
@@ -22,6 +25,9 @@ func recordWatchPass(m *model, at time.Time, failing bool, iface string) {
 	result := m.results[diagnostic.ProbeTargetTCP]
 	result.Iface = iface
 	m.results[diagnostic.ProbeTargetTCP] = result
+	for _, apply := range also {
+		apply(m.results)
+	}
 	diagnostic.Finalize(m.results)
 	m.now = func() time.Time { return at }
 	m.recordRun()
@@ -187,4 +193,44 @@ func publicRowName(m *model) string {
 		}
 	}
 	return ""
+}
+
+// resolverTargets sets the DNS row's dialed resolver service addresses, which
+// is what a change of nameserver looks like in a snapshot.
+func resolverTargets(target string) func(map[diagnostic.ProbeID]diagnostic.ProbeResult) {
+	return func(results map[diagnostic.ProbeID]diagnostic.ProbeResult) {
+		dns := results[diagnostic.ProbeDNS]
+		dns.ResolverTargets = []string{target}
+		results[diagnostic.ProbeDNS] = dns
+	}
+}
+
+func TestIncidentReportsAResolverTargetChangeAsEnvironmental(t *testing.T) {
+	start := time.Date(2026, 9, 12, 9, 0, 0, 0, time.UTC)
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	m.watch, m.width, m.height = true, 100, 40
+	// The interface is held still, so the resolver targets are the only thing
+	// about the path that moves between the two passes.
+	recordWatchPass(&m, start, false, "wlan0", resolverTargets("192.168.1.1:53"))
+	recordWatchPass(&m, start.Add(5*time.Second), true, "wlan0", resolverTargets("10.0.0.53:53"))
+
+	selected, ok := m.incidents.Latest()
+	if !ok {
+		t.Fatal("no incident was recorded")
+	}
+	report := incidentReport(selected, 1, 1, start.Add(5*time.Second))
+	environment, outcomes, found := strings.Cut(report, "Diagnostic outcome changes")
+	if !found {
+		t.Fatalf("incident report has no outcome section:\n%s", report)
+	}
+	if !strings.Contains(environment, "resolver target tried 10.0.0.53:53") ||
+		!strings.Contains(environment, "resolver target tried 192.168.1.1:53") {
+		t.Errorf("recorded path and configuration changes omit the resolver targets:\n%s", report)
+	}
+	if strings.Contains(outcomes, "resolver target tried") {
+		t.Errorf("resolver targets are reported as diagnostic outcomes as well:\n%s", report)
+	}
+	if strings.Contains(report, "No recorded change in how this machine reaches the network") {
+		t.Errorf("incident claims a steady environment while reporting a resolver change:\n%s", report)
+	}
 }

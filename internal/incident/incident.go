@@ -348,6 +348,16 @@ type Timeline struct {
 // one comparison whatever the session's length, and what is retained is capped
 // whatever its shape.
 func (t *Timeline) Observe(at time.Time, s snapshot.Snapshot) Transition {
+	// A pass that disagrees with the retained ones about the target, the tool,
+	// the run options or the check graph is not a later pass of this session,
+	// and folding it in would produce an incident claiming two sessions were
+	// one. Production reaches this only through a target switch, which already
+	// discards the timeline, so this is the same rule stated where the state
+	// lives rather than a second policy: what cannot be the same session
+	// starts a new one, and nothing incompatible is ever compared or retained.
+	if held, ok := t.held(); ok && snapshot.WatchSessionMismatch(held, s) != "" {
+		*t = Timeline{}
+	}
 	health := Classify(s)
 	state := State{At: at, Snap: s}
 	if health == Failing {
@@ -369,6 +379,19 @@ func (t *Timeline) Observe(at time.Time, s snapshot.Snapshot) Transition {
 	baseline := state
 	t.baseline = &baseline
 	return transition
+}
+
+// held is any run this timeline still retains, which is enough to decide
+// session compatibility: everything retained was already checked against
+// everything else retained, so one is representative of all of them.
+func (t *Timeline) held() (snapshot.Snapshot, bool) {
+	if t.baseline != nil {
+		return t.baseline.Snap, true
+	}
+	if len(t.incidents) > 0 {
+		return t.incidents[len(t.incidents)-1].Onset.Snap, true
+	}
+	return snapshot.Snapshot{}, false
 }
 
 func (t *Timeline) begin(state State) {

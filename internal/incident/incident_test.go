@@ -162,3 +162,46 @@ func TestActiveIncidentDurationAndArtifactAreDeterministic(t *testing.T) {
 		t.Fatalf("active incident artifact does not encode: %v", err)
 	}
 }
+
+// A timeline is one watch session, and a pass that cannot belong to it starts
+// a new one rather than being folded into the incident already open. Nothing
+// in production reaches this without also rebuilding the model, so what this
+// pins is that the state machine cannot hold the impossible artifact even when
+// driven directly.
+func TestTimelineStartsOverOnAPassFromAnotherSession(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	var timeline Timeline
+	timeline.Observe(start, observed(start, Healthy, "wg0"))
+	timeline.Observe(start.Add(5*time.Second), observed(start.Add(5*time.Second), Failing, "wg0"))
+	if _, open := timeline.Active(); !open {
+		t.Fatal("the failing pass did not open an incident")
+	}
+
+	elsewhere := observed(start.Add(10*time.Second), Failing, "wg0")
+	elsewhere.Target = &snapshot.Target{Raw: "other.example.net", Host: "other.example.net", Port: 443, Protocol: "tls+http"}
+	if got := timeline.Observe(start.Add(10*time.Second), elsewhere); got != TransitionBegan {
+		t.Errorf("transition = %q, want %q: a foreign pass opens its own incident", got, TransitionBegan)
+	}
+	if n := len(timeline.Incidents()); n != 1 {
+		t.Fatalf("incidents = %d, want 1: the old session was not discarded", n)
+	}
+	if opened, _ := timeline.Latest(); opened.Before != nil {
+		t.Error("the new session inherited a baseline from the old one")
+	}
+
+	// The new session keeps folding in, so the guard costs a legitimate pass
+	// nothing, and the artifact it produces carries a nested state that has to
+	// satisfy the same rule at the file boundary.
+	recovery := observed(start.Add(15*time.Second), Healthy, "wg0")
+	recovery.Target = elsewhere.Target
+	if got := timeline.Observe(start.Add(15*time.Second), recovery); got != TransitionRecovered {
+		t.Fatalf("transition = %q, want %q: a pass of the new session was treated as foreign", got, TransitionRecovered)
+	}
+	fresh, _ := timeline.Latest()
+	if fresh.Recovered == nil {
+		t.Fatal("the recovering pass was not retained")
+	}
+	if _, err := snapshot.Encode(fresh.Artifact()); err != nil {
+		t.Fatalf("the artifact of the new session does not encode: %v", err)
+	}
+}

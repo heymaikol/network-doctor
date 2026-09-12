@@ -408,10 +408,17 @@ func outage() Check {
 
 func outageDiagnosis() Diagnosis { return Diagnosis{FailedStage: "target_tcp"} }
 
+// restored is the same row as outage on a pass that was not failing. A watch
+// session runs one check graph, so the states around an incident list the row
+// the onset lists and differ only in what it reported.
+func restored() Check {
+	return Check{ID: "target_tcp", Name: "TCP", Status: StatusPass, Ran: true, DurationMs: 1}
+}
+
 func TestIncidentRoundTripAndOlderV1Compatibility(t *testing.T) {
-	before := &Snapshot{CreatedAt: "2026-08-25T12:03:51Z", OK: true, Checks: []Check{}}
+	before := &Snapshot{CreatedAt: "2026-08-25T12:03:51Z", OK: true, Checks: []Check{restored()}}
 	during := &Snapshot{CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{outage()}, Diagnosis: outageDiagnosis()}
-	recovered := &Snapshot{CreatedAt: "2026-08-25T12:04:06Z", OK: true, Checks: []Check{}}
+	recovered := &Snapshot{CreatedAt: "2026-08-25T12:04:06Z", OK: true, Checks: []Check{restored()}}
 	onset := Snapshot{
 		CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{outage()}, Diagnosis: outageDiagnosis(),
 		Incident: &Incident{
@@ -460,9 +467,9 @@ func TestIncidentValidationRejectsImpossibleHistory(t *testing.T) {
 			Schema: Schema, CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{outage()}, Diagnosis: outageDiagnosis(),
 			Incident: &Incident{
 				StartedAt: "2026-08-25T12:03:56Z", EndedAt: "2026-08-25T12:04:06Z", Passes: 2,
-				Before:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:03:51Z", OK: true, Checks: []Check{}},
+				Before:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:03:51Z", OK: true, Checks: []Check{restored()}},
 				During:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{outage()}, Diagnosis: outageDiagnosis()},
-				Recovered: &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:06Z", OK: true, Checks: []Check{}},
+				Recovered: &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:06Z", OK: true, Checks: []Check{restored()}},
 			},
 		}
 	}
@@ -473,13 +480,13 @@ func TestIncidentValidationRejectsImpossibleHistory(t *testing.T) {
 	}{
 		{"invalid start", func(s *Snapshot) { s.Incident.StartedAt = "yesterday" }, "RFC 3339 UTC"},
 		{"onset mismatch", func(s *Snapshot) { s.CreatedAt = "2026-08-25T12:03:55Z" }, "does not match"},
-		{"healthy onset", func(s *Snapshot) { s.OK = true; s.Checks, s.Diagnosis = []Check{}, Diagnosis{} }, "reported ok"},
+		{"healthy onset", func(s *Snapshot) { s.OK = true; s.Checks, s.Diagnosis = []Check{restored()}, Diagnosis{} }, "reported ok"},
 		{"no passes", func(s *Snapshot) { s.Incident.Passes = 0 }, "at least the pass"},
 		{"missing recovered run", func(s *Snapshot) { s.Incident.Recovered = nil }, "end time without"},
 		{"end before start", func(s *Snapshot) { s.Incident.EndedAt = "2026-08-25T12:03:50Z" }, "ended before"},
 		{"late baseline", func(s *Snapshot) { s.Incident.Before.CreatedAt = "2026-08-25T12:03:57Z" }, "before state"},
 		{"healthy during", func(s *Snapshot) {
-			s.Incident.During.OK, s.Incident.During.Checks, s.Incident.During.Diagnosis = true, []Check{}, Diagnosis{}
+			s.Incident.During.OK, s.Incident.During.Checks, s.Incident.During.Diagnosis = true, []Check{restored()}, Diagnosis{}
 		}, "during state reports"},
 		{"late during", func(s *Snapshot) { s.Incident.During.CreatedAt = "2026-08-25T12:04:07Z" }, "outside"},
 		{"recovery mismatch", func(s *Snapshot) { s.Incident.Recovered.CreatedAt = "2026-08-25T12:04:07Z" }, "does not match"},

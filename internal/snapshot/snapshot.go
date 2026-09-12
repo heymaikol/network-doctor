@@ -1019,6 +1019,9 @@ func validateIncident(s Snapshot) error {
 		if state.record.OK == state.failing {
 			return fmt.Errorf("snapshot incident %s state reports ok=%v, which is not what that point in an incident is", state.name, state.record.OK)
 		}
+		if reason := WatchSessionMismatch(s, *state.record); reason != "" {
+			return fmt.Errorf("snapshot incident %s state has a different %s from its onset: an incident is one watch session, and passes of one session cannot disagree about it", state.name, reason)
+		}
 		if err := validate(*state.record); err != nil {
 			return fmt.Errorf("snapshot incident %s state: %w", state.name, err)
 		}
@@ -1042,6 +1045,79 @@ func validateIncident(s Snapshot) error {
 		}
 	}
 	return nil
+}
+
+// WatchSessionMismatch is the one definition of what a watch session fixes:
+// it names the first run setting two snapshots disagree about, and returns the
+// empty string when they could be two passes of one session.
+//
+// A watch session is a single netdoc process watching one target with one set
+// of run settings. Everything below is decided once, before the first pass,
+// and cannot move while the session lasts: the tool is the running build, the
+// target and the options come from the command line, and the check graph is
+// built from those two and reused unchanged for every pass. The one setting a
+// user can change from inside the TUI is the target, and changing it throws
+// the incident timeline away and starts a new session, so even a respelling of
+// a logically identical endpoint ends the old one.
+//
+// Everything else a snapshot carries is what the pass observed, which is the
+// whole point of watching: statuses, causes, timings, routes, resolved
+// addresses, resolvers, interfaces, network names and the diagnosis made of
+// them are all expected to move, and an incident is the record of them moving.
+//
+// The check graph counts as a setting rather than an observation because a run
+// records every probe it built, including the ones that were skipped, did not
+// apply, or never reported. Two passes of one session therefore always list
+// the same rows, under the same ids and names, with the same dependencies, in
+// the same order. Only the outcomes differ.
+func WatchSessionMismatch(a, b Snapshot) string {
+	switch {
+	case a.Tool != b.Tool:
+		return "tool identity"
+	case (a.Target == nil) != (b.Target == nil):
+		return "target"
+	case a.Target != nil && *a.Target != *b.Target:
+		return "target"
+	}
+	if reason := watchOptionsMismatch(a.Options, b.Options); reason != "" {
+		return reason
+	}
+	return watchGraphMismatch(a.Checks, b.Checks)
+}
+
+// watchOptionsMismatch reads the run settings one at a time rather than
+// comparing the struct, because Options carries slices and because the name
+// this returns is what the error tells a reader to look at.
+func watchOptionsMismatch(a, b Options) string {
+	switch {
+	case a.ProbeTimeoutMs != b.ProbeTimeoutMs:
+		return "probe timeout"
+	case a.PublicDNS != b.PublicDNS || a.PublicDNSAuto != b.PublicDNSAuto:
+		return "public DNS configuration"
+	case !slices.Equal(a.Check, b.Check) || !slices.Equal(a.Skip, b.Skip):
+		return "probe selection"
+	case (a.Source == nil) != (b.Source == nil):
+		return "source binding"
+	case a.Source != nil && *a.Source != *b.Source:
+		return "source binding"
+	}
+	return ""
+}
+
+// watchGraphMismatch compares the rows as a graph and not as results: the ids,
+// the names, the dependencies, and the order they were executed in. What each
+// row reported is deliberately not read here, since that is the evidence a
+// watch session exists to collect.
+func watchGraphMismatch(a, b []Check) string {
+	if len(a) != len(b) {
+		return "check graph"
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Name != b[i].Name || !slices.Equal(a[i].Deps, b[i].Deps) {
+			return "check graph"
+		}
+	}
+	return ""
 }
 
 func parseIncidentTime(name, value string) (time.Time, error) {

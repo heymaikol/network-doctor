@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
+
+	"golang.org/x/net/idna"
 
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
@@ -56,8 +59,41 @@ const TargetForms = `  example.com            hostname (default port 443)
 
 // hostnameRe is a strict RFC-1123-ish hostname allowlist (labels of
 // alphanumerics + internal hyphens, dot-separated). Everything else is rejected
-// so nothing user-supplied is ever fed to a probe or (later) a command.
+// so nothing user-supplied is ever fed to a probe or (later) a command. An
+// internationalized name reaches it as the A-label canonicalHostname produced,
+// never as the Unicode a person typed.
 var hostnameRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
+
+// canonicalHostname converts an internationalized hostname to the A-label
+// spelling DNS actually carries. An all-ASCII host is returned byte for byte,
+// so every target that parsed before this existed still parses to the same
+// Target, mixed case and trailing root dot included; only a name carrying a
+// non-ASCII rune is converted.
+//
+// idna.Lookup is the profile because looking the name up is what netdoc does
+// with it: resolve it, offer it as SNI, verify a certificate against it, name
+// it as an HTTP or proxy destination. Its mapping is what makes a person's
+// spelling and the A-label one destination, case-folding and the Unicode label
+// separators (U+3002 and friends) included. Registration would reject the
+// mixed case a person types, and Punycode encodes without validating at all,
+// which is how a bidi override would reach a probe.
+//
+// The profile is not the whole check, and is not trusted as one. idna.Lookup
+// enforces neither label nor name length and accepts an empty label, so the
+// converted name goes back through the same allowlist and 253-byte limit every
+// ASCII target passes. A label that only overflows once punycoded, a name that
+// only overflows once converted, and a label that maps away to nothing are all
+// rejected there, before a probe or a command sees the target.
+func canonicalHostname(host string) (string, bool) {
+	if !strings.ContainsFunc(host, func(r rune) bool { return r >= utf8.RuneSelf }) {
+		return host, true
+	}
+	ascii, err := idna.Lookup.ToASCII(host)
+	if err != nil {
+		return "", false
+	}
+	return ascii, true
+}
 
 // ParseTarget parses a CLI target: <host> | <host>:<port> | <ipv6> |
 // [<ipv6>][:<port>] | <scheme>://<host>[:port][/path], where scheme is HTTP,
@@ -104,7 +140,7 @@ func parseTarget(raw string) (*Target, error) {
 		return nil, errors.New("missing host")
 	}
 
-	host := u.Host
+	host, rawHost := u.Host, u.Host
 	// Brackets belong to IPv6 literals and nothing else. Go 1.26's url.Parse
 	// enforces that itself, but go.mod still supports 1.25, where
 	// SplitHostPort happily peels the brackets off "[1.2.3.4]:80" and
@@ -132,6 +168,31 @@ func parseTarget(raw string) (*Target, error) {
 	}
 	if host == "" {
 		return nil, errors.New("missing host")
+	}
+	// The one canonicalization. DNS, SNI, certificate verification, the HTTP
+	// and proxy destination, the durable snapshot identity, a comparison's
+	// notion of which endpoint was asked about, and the spelling a remote
+	// worker reparses all read Host or Raw, so the A-label is derived once
+	// here and never recomputed downstream, where the five implementations
+	// would be free to drift apart. Before ParseIP, not after: a name whose
+	// labels map to digits is an IP literal once converted, and classifying it
+	// as a hostname would leave Host and IP disagreeing.
+	canonical, ok := canonicalHostname(host)
+	if !ok {
+		return nil, fmt.Errorf("invalid hostname %q", host)
+	}
+	if canonical != host {
+		// Raw is not the verbatim input and never was: it is already the
+		// validated endpoint, lowercased scheme and no path. Canonical here
+		// too, so the restart prompt, the history, an ssh drill-down's
+		// arguments and a support artifact carry ASCII only, one .ndoc target
+		// identity answers for both spellings, and a worker that predates this
+		// still parses what -via sends it.
+		host = canonical
+		rawHost = host
+		if t.PortExplicit {
+			rawHost = net.JoinHostPort(host, strconv.Itoa(t.Port))
+		}
 	}
 
 	if ip := net.ParseIP(host); ip != nil {
@@ -186,9 +247,9 @@ func parseTarget(raw string) (*Target, error) {
 			t.Proto = ProtoNone
 		}
 	}
-	t.Raw = u.Host
+	t.Raw = rawHost
 	if scheme != "" {
-		t.Raw = scheme + "://" + u.Host
+		t.Raw = scheme + "://" + rawHost
 	}
 	return t, nil
 }

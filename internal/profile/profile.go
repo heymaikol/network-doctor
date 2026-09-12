@@ -201,10 +201,11 @@ func BuildResult(plan Plan, reports []report.Report) (Result, error) {
 		Title: plan.Title, Description: plan.Description,
 		Components: make([]Component, len(plan.Runs)),
 	}
-	for i, run := range plan.Runs {
+	for i, r := range reports {
+		run := plan.Runs[i]
 		result.Components[i] = Component{
-			ID: run.ID, Label: run.Label, Target: reports[i].Target, Focus: string(run.Focus),
-			Status: componentStatus(reports[i], run.Focus), Fallback: run.FallbackFor, Report: reports[i],
+			ID: run.ID, Label: run.Label, Target: r.Target, Focus: string(run.Focus),
+			Status: componentStatus(r, run.Focus), Fallback: run.FallbackFor, Report: r,
 		}
 	}
 	result.Aggregate = aggregate(plan, result.Components)

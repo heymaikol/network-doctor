@@ -12,6 +12,7 @@ import (
 
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/report"
+	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
 
 const ReportSchema = "netdoc.profile-report.v1"
@@ -219,59 +220,53 @@ const (
 	StatusNA   = "N/A"
 )
 
+// componentStatus reads one finished run the way a profile reads it. The rule
+// itself lives in internal/snapshot, which is where the .ndoc validator can
+// also reach it: a component status that the artifact's own nested run does
+// not support is the envelope contradicting its evidence, and one
+// implementation is what makes that impossible rather than merely tested for.
 func componentStatus(r report.Report, focus diagnostic.ProbeID) string {
+	focusStatus := ""
 	for _, check := range r.Checks {
-		if check.ID != string(focus) {
-			continue
+		if check.ID == string(focus) {
+			focusStatus = check.Status
+			break
 		}
-		switch check.Status {
-		case StatusFail, StatusSkip, StatusNA:
-			return check.Status
-		case StatusWarn:
-			return StatusWarn
-		}
-		if !r.OK || r.Verdict == diagnostic.VerdictDegraded {
-			return StatusWarn
-		}
-		return StatusPass
 	}
-	return StatusSkip
+	return snapshot.ProfileComponentStatus(focusStatus, r.Verdict, r.OK)
 }
 
 func aggregate(plan Plan, components []Component) Aggregate {
-	var working, affected []string
-	allPass := true
-	for _, component := range components {
-		if component.Status == StatusPass || component.Status == StatusWarn {
-			working = append(working, component.ID)
-		}
-		if component.Status != StatusPass {
-			affected = append(affected, component.ID)
-			allPass = false
-		}
+	outcomes := make([]snapshot.ProfileComponentOutcome, len(components))
+	for i, component := range components {
+		outcomes[i] = snapshot.ProfileComponentOutcome{ID: component.ID, Status: component.Status, Fallback: component.Fallback}
 	}
-	if allPass {
-		return Aggregate{Status: StatusPass, Summary: "All " + plan.Title + " components are reachable."}
-	}
-	finding := &Finding{AffectedComponents: affected, WorkingComponents: working}
-	if len(working) == 0 {
-		finding.ID = plan.Name + "_unreachable"
-		return Aggregate{Status: StatusFail, Summary: "No " + plan.Title + " component completed its service check.", Finding: finding}
-	}
-	if len(affected) == 1 {
-		affectedRun := runByID(plan.Runs, affected[0])
-		if fallback := workingFallback(plan.Runs, components, affectedRun.ID); fallback != nil {
-			finding.ID = plan.Name + "_fallback_available"
-			return Aggregate{Status: StatusWarn, Summary: affectedRun.Label + " is unavailable, but " + fallback.Label + " works.", Finding: finding}
-		}
-		if affectedRun.FallbackFor != "" && slices.Contains(working, affectedRun.FallbackFor) {
-			primary := runByID(plan.Runs, affectedRun.FallbackFor)
-			finding.ID = plan.Name + "_fallback_unavailable"
-			return Aggregate{Status: StatusWarn, Summary: primary.Label + " works, but " + affectedRun.Label + " is unavailable.", Finding: finding}
+	// The conclusion, the status and the two component lists come from the
+	// shared rule. What stays here is the sentence, which needs the labels this
+	// package has and the artifact format has no business regenerating.
+	conclusion := snapshot.AggregateProfile(outcomes)
+	result := Aggregate{Status: conclusion.Status}
+	if id := conclusion.FindingID(plan.Name); id != "" {
+		result.Finding = &Finding{
+			ID:                 id,
+			AffectedComponents: conclusion.Affected,
+			WorkingComponents:  conclusion.Working,
 		}
 	}
-	finding.ID = plan.Name + "_partial_reachability"
-	return Aggregate{Status: StatusWarn, Summary: "Some " + plan.Title + " components are unavailable or degraded while others work.", Finding: finding}
+	label := func(id string) string { return runByID(plan.Runs, id).Label }
+	switch conclusion.Conclusion {
+	case snapshot.ProfileAllReachable:
+		result.Summary = "All " + plan.Title + " components are reachable."
+	case snapshot.ProfileNoneReachable:
+		result.Summary = "No " + plan.Title + " component completed its service check."
+	case snapshot.ProfileFallbackAvailable:
+		result.Summary = label(conclusion.Unavailable) + " is unavailable, but " + label(conclusion.Available) + " works."
+	case snapshot.ProfileFallbackUnavailable:
+		result.Summary = label(conclusion.Available) + " works, but " + label(conclusion.Unavailable) + " is unavailable."
+	default:
+		result.Summary = "Some " + plan.Title + " components are unavailable or degraded while others work."
+	}
+	return result
 }
 
 func runByID(runs []Run, id string) Run {
@@ -281,15 +276,6 @@ func runByID(runs []Run, id string) Run {
 		}
 	}
 	return Run{}
-}
-
-func workingFallback(runs []Run, components []Component, primary string) *Run {
-	for i, run := range runs {
-		if run.FallbackFor == primary && (components[i].Status == StatusPass || components[i].Status == StatusWarn) {
-			return &run
-		}
-	}
-	return nil
 }
 
 func serviceChecks(focus diagnostic.ProbeID) []diagnostic.ProbeID {

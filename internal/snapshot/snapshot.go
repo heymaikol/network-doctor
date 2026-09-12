@@ -686,7 +686,8 @@ func validateProfile(profile ProfileSnapshot) error {
 		return fmt.Errorf("profile snapshot has invalid redaction metadata")
 	}
 	ids := make(map[string]bool, len(profile.Components))
-	for _, component := range profile.Components {
+	outcomes := make([]ProfileComponentOutcome, len(profile.Components))
+	for i, component := range profile.Components {
 		if component.ID == "" || component.Label == "" || component.Focus == "" || !validStatus(component.Status) || ids[component.ID] {
 			return fmt.Errorf("profile snapshot has invalid component %q", component.ID)
 		}
@@ -701,26 +702,69 @@ func validateProfile(profile ProfileSnapshot) error {
 			profile.Redaction != nil && *profile.Redaction != *component.Snapshot.Redaction {
 			return fmt.Errorf("profile component %q has different redaction metadata", component.ID)
 		}
+		// The component's status is the envelope's one-word reading of the run
+		// nested directly beneath it. A file where the two disagree tells a
+		// script one thing and its own evidence another, and there is no third
+		// place to look to find out which was the run.
+		want := ProfileComponentStatus(focusStatus(component), component.Snapshot.Diagnosis.Verdict, component.Snapshot.OK)
+		if component.Status != want {
+			return fmt.Errorf("profile component %q is %s, but its run reads as %s", component.ID, component.Status, want)
+		}
+		outcomes[i] = ProfileComponentOutcome{ID: component.ID, Status: component.Status, Fallback: component.Fallback}
 	}
 	for _, component := range profile.Components {
 		if component.Fallback != "" && (!ids[component.Fallback] || component.Fallback == component.ID) {
 			return fmt.Errorf("profile component %q has invalid fallback reference %q", component.ID, component.Fallback)
 		}
 	}
-	if profile.Aggregate.Finding != nil {
-		finding := profile.Aggregate.Finding
-		if finding.ID == "" {
-			return fmt.Errorf("profile snapshot aggregate finding has no ID")
+	return validateProfileAggregate(profile, AggregateProfile(outcomes))
+}
+
+// focusStatus is the status of the row the component was about, or empty when
+// the nested run holds no such row. Empty is unambiguous: validate refuses a
+// check with no status, so nothing else can produce it.
+func focusStatus(component ProfileComponent) string {
+	for _, check := range component.Snapshot.Checks {
+		if check.ID == component.Focus {
+			return check.Status
 		}
-		for _, list := range [][]string{finding.AffectedComponents, finding.WorkingComponents} {
-			seen := map[string]bool{}
-			for _, id := range list {
-				if !ids[id] || seen[id] {
-					return fmt.Errorf("profile snapshot aggregate finding references invalid component %q", id)
-				}
-				seen[id] = true
-			}
+	}
+	return ""
+}
+
+// validateProfileAggregate holds the envelope's own conclusion to the one the
+// components determine. Every field here is structurally derived, so there is
+// nothing for a producer to decide and nothing for a reader to interpret: the
+// artifact either says what its components say or it is two artifacts.
+//
+// The summary is the exception and is checked only for being present. It is a
+// sentence built from labels this package does not have, and regenerating
+// prose to compare it against would make a wording change a format break.
+func validateProfileAggregate(profile ProfileSnapshot, conclusion ProfileAggregation) error {
+	if profile.Aggregate.Status != conclusion.Status {
+		return fmt.Errorf("profile snapshot aggregate is %s, but its components read as %s",
+			profile.Aggregate.Status, conclusion.Status)
+	}
+	wantID := conclusion.FindingID(profile.Profile.Name)
+	finding := profile.Aggregate.Finding
+	if (finding == nil) != (wantID == "") {
+		if wantID == "" {
+			return fmt.Errorf("profile snapshot names aggregate finding %q, but every component passed", finding.ID)
 		}
+		return fmt.Errorf("profile snapshot names no aggregate finding, but its components read as %q", wantID)
+	}
+	if finding == nil {
+		return nil
+	}
+	switch {
+	case finding.ID != wantID:
+		return fmt.Errorf("profile snapshot names aggregate finding %q, but its components read as %q", finding.ID, wantID)
+	case !slices.Equal(finding.AffectedComponents, conclusion.Affected):
+		return fmt.Errorf("profile snapshot finding %q lists affected components %v, but %v are not passing",
+			finding.ID, finding.AffectedComponents, conclusion.Affected)
+	case !slices.Equal(finding.WorkingComponents, conclusion.Working):
+		return fmt.Errorf("profile snapshot finding %q lists working components %v, but %v are working",
+			finding.ID, finding.WorkingComponents, conclusion.Working)
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/report"
+	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
 
 func TestBuiltinRegistry(t *testing.T) {
@@ -164,10 +165,14 @@ func TestAggregateFallbackAndFailure(t *testing.T) {
 }
 
 func serviceReport(run Run, status string) report.Report {
+	failedStage := ""
+	if status == StatusFail {
+		failedStage = string(run.Focus)
+	}
 	return report.Report{
 		Target:  &report.Target{Host: run.Target.Host, Port: run.Target.Port, Protocol: run.Target.Proto.String()},
 		Checks:  []report.Check{{ID: string(run.Focus), Status: status}},
-		Verdict: diagnostic.VerdictOK, OK: status != StatusFail,
+		Verdict: diagnostic.VerdictOK, FailedStage: failedStage, OK: status != StatusFail,
 	}
 }
 
@@ -190,5 +195,124 @@ func TestInheritedPMTUIsNotExplicitForUnknownProtocol(t *testing.T) {
 		if got := slices.ContainsFunc(probes, func(p diagnostic.Probe) bool { return p.ID == diagnostic.ProbePMTU }); got != explicit {
 			t.Fatalf("selected PMTU = %t, want %t", got, explicit)
 		}
+	}
+}
+
+// The profile's reading of a component turns on this one verdict, and the
+// artifact format has to spell it without being able to import the package
+// that defines it.
+func TestProfileRulesMatchTheDiagnosisVocabulary(t *testing.T) {
+	if snapshot.VerdictDegraded != diagnostic.VerdictDegraded {
+		t.Fatalf("snapshot.VerdictDegraded = %q, diagnostic.VerdictDegraded = %q",
+			snapshot.VerdictDegraded, diagnostic.VerdictDegraded)
+	}
+}
+
+// mirrored is the component run spelled as the .ndoc artifact records it,
+// built from the same facts the report carries. The app assembles the real
+// artifact this way, and what matters here is that both halves come from one
+// run rather than being written to match.
+func mirrored(r report.Report) snapshot.Snapshot {
+	s := snapshot.Snapshot{
+		Schema: snapshot.Schema, CreatedAt: "2026-01-02T03:04:05Z",
+		Tool:      snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		OK:        r.OK,
+		Diagnosis: snapshot.Diagnosis{Verdict: r.Verdict, Summary: r.Summary, FailedStage: r.FailedStage},
+	}
+	if r.Target != nil {
+		s.Target = &snapshot.Target{Raw: r.Target.Host, Host: r.Target.Host, Port: r.Target.Port, Protocol: r.Target.Protocol}
+	}
+	for _, check := range r.Checks {
+		s.Checks = append(s.Checks, snapshot.Check{
+			ID: check.ID, Name: check.ID, Status: check.Status,
+			Ran: check.Status != snapshot.StatusIncomplete, DurationMs: 1,
+		})
+	}
+	return s
+}
+
+// Every conclusion the producer can reach has to be one the artifact format
+// accepts. The two now share the rule rather than each spelling it, and this
+// is what keeps that true through the whole reachable space instead of at the
+// handful of points a hand-written fixture covers.
+func TestEveryProfileResultEncodesAsACoherentArtifact(t *testing.T) {
+	definition, _ := Builtins().Lookup("github")
+	plan, err := definition.Plan("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses := []string{StatusPass, StatusWarn, StatusFail, StatusSkip, StatusNA}
+	reports := make([]report.Report, len(plan.Runs))
+	var walk func(int)
+	walk = func(i int) {
+		if i == len(plan.Runs) {
+			for _, verdict := range []string{diagnostic.VerdictOK, diagnostic.VerdictDegraded} {
+				for j := range reports {
+					reports[j].Verdict = verdict
+				}
+				result, err := BuildResult(plan, reports)
+				if err != nil {
+					t.Fatal(err)
+				}
+				artifact := snapshot.ProfileSnapshot{
+					Schema: snapshot.ProfileSchema, CreatedAt: "2026-01-02T03:04:06Z",
+					Tool:    snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+					Profile: snapshot.ProfileIdentity{Name: result.Profile, Version: result.ProfileVersion, Title: result.Title},
+					Aggregate: snapshot.ProfileAggregate{
+						Status: result.Aggregate.Status, Summary: result.Aggregate.Summary,
+					},
+					OK: result.OK,
+				}
+				if finding := result.Aggregate.Finding; finding != nil {
+					artifact.Aggregate.Finding = &snapshot.ProfileFinding{
+						ID:                 finding.ID,
+						AffectedComponents: finding.AffectedComponents,
+						WorkingComponents:  finding.WorkingComponents,
+					}
+				}
+				for k, component := range result.Components {
+					artifact.Components = append(artifact.Components, snapshot.ProfileComponent{
+						ID: component.ID, Label: component.Label, Focus: component.Focus,
+						Status: component.Status, Fallback: component.Fallback,
+						Snapshot: mirrored(reports[k]),
+					})
+				}
+				if _, err := snapshot.EncodeProfile(artifact); err != nil {
+					var got []string
+					for _, component := range result.Components {
+						got = append(got, component.ID+"="+component.Status)
+					}
+					t.Fatalf("a result the producer reached is not a valid artifact: %v (verdict %s, %v)", err, verdict, got)
+				}
+			}
+			return
+		}
+		for _, status := range statuses {
+			reports[i] = serviceReport(plan.Runs[i], status)
+			walk(i + 1)
+		}
+	}
+	walk(0)
+}
+
+// A component whose service check never ran at all was not tested, and both
+// halves have to read it that way rather than as a pass.
+func TestAComponentWithNoFocusRowIsNotTested(t *testing.T) {
+	definition, _ := Builtins().Lookup("ssh")
+	plan, err := definition.Plan("server.internal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := serviceReport(plan.Runs[0], StatusPass)
+	r.Checks = nil
+	result, err := BuildResult(plan, []report.Report{r})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Components[0].Status != StatusSkip {
+		t.Fatalf("component status = %s, want %s", result.Components[0].Status, StatusSkip)
+	}
+	if snapshot.ProfileComponentStatus("", r.Verdict, r.OK) != StatusSkip {
+		t.Error("the artifact format reads a missing focus row differently")
 	}
 }

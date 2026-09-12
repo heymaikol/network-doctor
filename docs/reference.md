@@ -288,6 +288,21 @@ working primary produces
 stable affected and working component IDs. The detailed cause remains the
 ordinary report finding and causal evidence inside each component.
 
+Every one of those conclusions is derived, never chosen. A `netdoc.profile.v1`
+artifact carries each component's complete ordinary run nested under the
+component that names it, so the envelope a script reads and the evidence it
+would read next are both in the file, and the format holds them to each other:
+a component status has to be the reading of its own nested run, and the
+aggregate status, the finding ID, and the affected and working component lists
+have to be what those component statuses add up to. An artifact where they
+disagree is refused when it is written and when it is read, because there is no
+third place for a later reader to look to find out which half was the run.
+
+The rule is written once, in the package that owns the file format, and the
+producer calls the same function rather than a second copy of it. The aggregate
+summary is the exception: it is a sentence built from component labels, it is
+checked only for being present, and rewording it is not a format change.
+
 Human output lists every component and endpoint, then the aggregate verdict.
 For affected components it shows the existing finding ID and the check rows
 that support it. It does not replace the evidence model with profile prose.

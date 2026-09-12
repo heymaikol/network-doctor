@@ -342,8 +342,18 @@ func maximalTarget() *Target {
 func projected(t *testing.T) ([]byte, snapshot.Snapshot, ProbeResult) {
 	t.Helper()
 	live := maximalResult()
-	probes := []Probe{{ID: ProbeDNSPublic, Name: "Public DNS", Deps: []ProbeID{ProbeIface}}}
-	s := BuildSnapshot(maximalTarget(), probes, map[ProbeID]ProbeResult{ProbeDNSPublic: live})
+	// The row the fixture is about waits on the interface row, so that row is
+	// in the graph beside it: a snapshot whose deps named a check it does not
+	// carry is refused, and the fixture has to be an artifact a run could
+	// produce before it can prove anything about what artifacts carry.
+	probes := []Probe{
+		{ID: ProbeDNSPublic, Name: "Public DNS", Deps: []ProbeID{ProbeIface}},
+		{ID: ProbeIface, Name: "Interface"},
+	}
+	s := BuildSnapshot(maximalTarget(), probes, map[ProbeID]ProbeResult{
+		ProbeDNSPublic: live,
+		ProbeIface:     {ID: ProbeIface, Status: StatusPass, Dur: time.Millisecond},
+	})
 	data, err := snapshot.Encode(s)
 	if err != nil {
 		t.Fatalf("the projection fixture is not a valid snapshot: %v", err)

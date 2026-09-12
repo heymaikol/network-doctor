@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -1320,5 +1321,95 @@ func TestValidateReadsTheSnapshotItWasGiven(t *testing.T) {
 	}
 	if s.Schema != Schema || mislabelled.Schema != "netdoc.snapshot.v2" {
 		t.Error("Validate changed the snapshot it was given")
+	}
+}
+
+// graphed is a valid snapshot carrying the shape a run has: one root, two rows
+// off it, and a row that waited on both, so each case below breaks one edge.
+func graphed() Snapshot {
+	row := func(id string, deps ...string) Check {
+		c := checkRow(id, StatusPass)
+		c.Deps = deps
+		return c
+	}
+	return Snapshot{
+		Checks: []Check{row("iface"), row("dns", "iface"), row("internet_tcp", "iface"), row("target_tcp", "dns", "internet_tcp")},
+		OK:     true,
+	}
+}
+
+// deps is the only record of what the run's shape was, and a reader is invited
+// to rebuild the graph from it. These are the shapes no run can have executed:
+// an edge into a row that is not in the file, an edge counted twice, and rows
+// that wait on each other and so could never have started.
+func TestValidationRejectsImpossibleDependencyGraphs(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*Snapshot)
+		want string
+	}{
+		{"waiting on a row that is not there", func(s *Snapshot) { s.Checks[1].Deps = []string{"pmtu"} }, "not in the snapshot"},
+		{"waiting on nothing, under an empty id", func(s *Snapshot) { s.Checks[1].Deps = []string{""} }, "not in the snapshot"},
+		{"the same dependency twice", func(s *Snapshot) { s.Checks[1].Deps = []string{"iface", "iface"} }, "twice"},
+		{"a row that waits on itself", func(s *Snapshot) { s.Checks[1].Deps = []string{"dns"} }, "dependency cycle"},
+		{"two rows that wait on each other", func(s *Snapshot) {
+			s.Checks[1].Deps = []string{"target_tcp"}
+			s.Checks[3].Deps = []string{"dns"}
+		}, "dependency cycle"},
+		{"a cycle through a third row", func(s *Snapshot) {
+			s.Checks[1].Deps = []string{"target_tcp"}
+			s.Checks[2].Deps = []string{"dns"}
+			s.Checks[3].Deps = []string{"internet_tcp"}
+		}, "dependency cycle"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := graphed()
+			tt.edit(&s)
+			rejectsBothWays(t, s, tt.want)
+		})
+	}
+	if _, err := Encode(graphed()); err != nil {
+		t.Errorf("Encode refused an ordinary dependency graph: %v", err)
+	}
+}
+
+// The other half: deps names a shape, not a running order. Both executors
+// release a row once the rows it waits on have results rather than when the
+// slice reaches it, so a file listing a dependency after its dependent is
+// still a record of a run that happened and is not refused.
+func TestDependencyGraphIsNotRequiredToBeInTopologicalOrder(t *testing.T) {
+	s := graphed()
+	slices.Reverse(s.Checks)
+	data, err := Encode(s)
+	if err != nil {
+		t.Fatalf("Encode refused a graph listed leaves first: %v", err)
+	}
+	got, err := Decode(data)
+	if err != nil {
+		t.Fatalf("Decode refused a graph listed leaves first: %v", err)
+	}
+	if got.Checks[0].ID != "target_tcp" || got.Checks[3].ID != "iface" {
+		t.Errorf("round trip reordered the rows: %+v", got.Checks)
+	}
+}
+
+// A nested run is held to the rule by the same walk rather than by a second
+// copy of it: a profile component carries a complete snapshot and is validated
+// as one, and so is every state of a watch incident.
+func TestNestedRunsAreHeldToTheDependencyGraphRule(t *testing.T) {
+	profile := profileFixture()
+	profile.Components[0].Snapshot.Checks[0].Deps = []string{"target_tcp"}
+	profileRejectsBothWays(t, profile, "a component whose row waits on itself")
+
+	incident := watchIncident()
+	for _, state := range []*Snapshot{&incident, incident.Incident.Before, incident.Incident.During, incident.Incident.Recovered} {
+		state.Checks[0].Deps = []string{"target_tcp"}
+	}
+	if _, err := Encode(incident); err == nil || !strings.Contains(err.Error(), "dependency cycle") {
+		t.Errorf("Encode error = %v, want it to refuse an incident whose rows wait on each other", err)
+	}
+	if err := decodeIncident(t, incident); err == nil || !strings.Contains(err.Error(), "dependency cycle") {
+		t.Errorf("Decode error = %v, want it to refuse an incident whose rows wait on each other", err)
 	}
 }

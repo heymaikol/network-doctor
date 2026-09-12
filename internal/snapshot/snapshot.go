@@ -866,6 +866,9 @@ func validate(s Snapshot) error {
 		return fmt.Errorf("snapshot diagnosis names failed stage %q, but the first failed check is %q",
 			s.Diagnosis.FailedStage, firstFailed)
 	}
+	if err := validateDependencyGraph(s.Checks, checks); err != nil {
+		return err
+	}
 	if s.Diagnosis.Blamed != "" {
 		if _, exists := checks[s.Diagnosis.Blamed]; !exists {
 			return fmt.Errorf("snapshot diagnosis blames check %q, which is not in the snapshot", s.Diagnosis.Blamed)
@@ -944,6 +947,78 @@ func validate(s Snapshot) error {
 		}
 	}
 	return validateIncident(s)
+}
+
+// validateDependencyGraph holds a row's deps to what a run can have executed:
+// the ids of other rows in this same snapshot, each named once, arranged so
+// that every row could eventually have been reached.
+//
+// deps is the one field that says what the run's shape was, and the file is
+// the only place that shape survives. A dependency on a row that is not here
+// is an edge into nothing, a row that waits on itself never becomes ready, and
+// a cycle is a set of rows none of which could have started, since a probe
+// runs only once every row it waits on has a result. None of the three is a
+// graph netdoc could have run, and a reader rebuilding one from the file gets
+// a different answer about the run depending on how it walks the edges.
+//
+// What is deliberately not required is that a row's dependencies appear
+// earlier in the slice. The order of checks is the order the graph was built,
+// and both executors schedule by whether a row's dependencies have results
+// rather than by position, so a graph listing a dependency after its dependent
+// is executable and its snapshot is a real record of a real run.
+//
+// Unknown ids stay acceptable, as everywhere else here: this reads the rows
+// against each other and never against this build's probe list, so a snapshot
+// naming a check a later netdoc added is still a valid v1 file.
+func validateDependencyGraph(order []Check, checks map[string]Check) error {
+	for _, c := range order {
+		named := make(map[string]bool, len(c.Deps))
+		for _, dep := range c.Deps {
+			switch {
+			case named[dep]:
+				return fmt.Errorf("snapshot check %q lists dependency %q twice: a row waits on another row once", c.ID, dep)
+			case !checkExists(checks, dep):
+				return fmt.Errorf("snapshot check %q depends on check %q, which is not in the snapshot", c.ID, dep)
+			}
+			named[dep] = true
+		}
+	}
+	// Resolved the way the executor schedules a run, releasing a row once
+	// every row it waits on is out, rather than by walking the edges: a file
+	// arrives from outside and a walk over its edges is a recursion whose
+	// depth it chooses, which is the same reason an incident's states are
+	// checked one level deep.
+	waiting := make(map[string]int, len(order))
+	blocks := make(map[string][]string, len(order))
+	ready := make([]string, 0, len(order))
+	for _, c := range order {
+		waiting[c.ID] = len(c.Deps)
+		if len(c.Deps) == 0 {
+			ready = append(ready, c.ID)
+		}
+		for _, dep := range c.Deps {
+			blocks[dep] = append(blocks[dep], c.ID)
+		}
+	}
+	for len(ready) > 0 {
+		id := ready[len(ready)-1]
+		ready = ready[:len(ready)-1]
+		for _, dependent := range blocks[id] {
+			waiting[dependent]--
+			if waiting[dependent] == 0 {
+				ready = append(ready, dependent)
+			}
+		}
+	}
+	// Whatever is still waiting is waiting on something that never came out,
+	// which with every dependency present means a cycle. Reported in the
+	// order the rows are written so one file always names the same row.
+	for _, c := range order {
+		if waiting[c.ID] > 0 {
+			return fmt.Errorf("snapshot check %q waits on a dependency cycle: a row cannot wait on itself, directly or through the rows it waits on", c.ID)
+		}
+	}
+	return nil
 }
 
 // validateIncident holds an incident record to what a watch session can

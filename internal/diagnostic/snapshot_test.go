@@ -656,3 +656,35 @@ func TestBuiltSnapshotEvidenceProjectionsAgree(t *testing.T) {
 		t.Fatalf("EvidenceRows no longer produces the projection the snapshot format validates: %v", err)
 	}
 }
+
+// The graph netdoc builds has to be a graph the artifact can state. Encode
+// refuses a dependency naming no row, a dependency counted twice, and a cycle,
+// so a probe that gains a dependency on a row the graph does not always carry
+// beside it, or a selection that keeps a dependent without what it waits on,
+// fails here rather than publishing a run that could not have executed.
+func TestBuiltSnapshotDependencyGraphIsPublishable(t *testing.T) {
+	ops := &netops{}
+	targets := []*Target{nil}
+	for proto := range protoNames {
+		targets = append(targets, &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: Proto(proto)})
+	}
+	selections := []ProbeSelection{{}, {NoReferenceEgress: true}}
+	for _, id := range selectableProbeIDs() {
+		selections = append(selections, ProbeSelection{Check: probeSet(id)}, ProbeSelection{Skip: probeSet(id)})
+	}
+	for _, target := range targets {
+		name := "generic"
+		if target != nil {
+			name = target.Proto.String()
+		}
+		// Naming the opt-in row explicitly keeps the widest graph in the set.
+		full := ops.buildProbes(target, DefaultPublicDNS, true, ProbePMTU)
+		for _, selection := range selections {
+			probes := selection.Apply(full)
+			if _, err := snapshot.Encode(BuildSnapshot(target, probes, nil)); err != nil {
+				t.Errorf("%s graph with selection check=%v skip=%v reference=%v: %v",
+					name, selection.Check, selection.Skip, !selection.NoReferenceEgress, err)
+			}
+		}
+	}
+}

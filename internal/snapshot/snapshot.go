@@ -1331,85 +1331,191 @@ func validateCausalEvidence(e CausalEvidence, checks map[string]Check) error {
 	return nil
 }
 
-func observationMatches(e CausalEvidence, check Check) bool {
-	switch e.Observation {
-	case ObservationStatusPass:
+// CausalEvidence.Value semantics, part of the v1 file contract. An
+// observation either names a recorded value or it does not, and which one it
+// is decides what a reader may do with the field: "absent" means the
+// observation is the whole claim and the field carries nothing to check,
+// "optional" means a producer may name one recorded value and need not,
+// "required" means the claim is about one named value and is unreadable
+// without it.
+const (
+	EvidenceValueAbsent   = "absent"
+	EvidenceValueOptional = "optional"
+	EvidenceValueRequired = "required"
+)
+
+// ClockOffsetEvidenceMs is how far this machine's clock has to be off before a
+// recorded offset is evidence of anything. A smaller offset is measured and
+// stored like any other reading, and nothing concludes from it, so an artifact
+// citing one as causal evidence is claiming reasoning no netdoc performed.
+const ClockOffsetEvidenceMs = 5 * 60 * 1000
+
+// causalObservation is the whole v1 rule for one observation: how its evidence
+// items may use Value, and what the row they reference has to have recorded
+// for the claim to be true. The two belong together because they are one
+// question asked twice: whether this artifact could have come from a run.
+type causalObservation struct {
+	value   string
+	present func(e CausalEvidence, check Check) bool
+}
+
+// causalObservations is the authoritative description of the causal-evidence
+// vocabulary. Every observation the format defines has exactly one entry, and
+// an observation this build does not know stays refused rather than accepted
+// unchecked: evidence is the one part of a snapshot whose whole purpose is to
+// be verifiable against the rows beside it.
+var causalObservations = map[string]causalObservation{
+	// A row's outcome is the entire observation. There is no second thing to
+	// name, and an item that names one is not something a run wrote.
+	ObservationStatusPass: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusPass
-	case ObservationStatusWarn:
+	}},
+	ObservationStatusWarn: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusWarn && (check.Derived == nil || !check.Derived.StatusDowngraded)
-	case ObservationStatusFail:
+	}},
+	ObservationStatusFail: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusFail
-	case ObservationStatusSkip:
+	}},
+	ObservationStatusSkip: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusSkip
-	case ObservationStatusNA:
+	}},
+	ObservationStatusNA: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusNA
-	case ObservationCause:
-		return check.Cause != "" && (e.Value == "" || check.CauseFamily == "" || e.Value == check.CauseFamily)
-	case ObservationDNSAnswers:
+	}},
+	// The address family that supplied the cause, which is this row's own
+	// cause_family. Evidence that only points at the cause names nothing.
+	//
+	// A row written before cause_family existed carries none, and the evidence
+	// beside it still named a family, so a value there is checked against the
+	// family vocabulary rather than against the row: that artifact is real and
+	// stays readable, and an arbitrary string was never one of its states.
+	ObservationCause: {EvidenceValueOptional, func(e CausalEvidence, check Check) bool {
+		return check.Cause != "" && (e.Value == "" || e.Value == check.CauseFamily ||
+			check.CauseFamily == "" && validObservationFamily(e.Value))
+	}},
+	// One of the answers this row recorded, when the claim is about a single
+	// address rather than about there having been answers at all.
+	ObservationDNSAnswers: {EvidenceValueOptional, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && len(check.Observed.Addresses) > 0 &&
 			(e.Value == "" || slices.Contains(check.Observed.Addresses, e.Value))
-	case ObservationDNSNotFound:
+	}},
+	ObservationDNSNotFound: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Observed != nil && check.Observed.DNSNotFound
-	case ObservationCaptivePortal:
+	}},
+	ObservationCaptivePortal: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Observed != nil && check.Observed.Portal != nil
-	case ObservationTimeout:
+	}},
+	ObservationTimeout: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return (check.Observed != nil && check.Observed.Timeout) || check.Cause == "timeout"
-	case ObservationClockOffset:
-		return check.Observed != nil && check.Observed.ClockOffsetMs != nil
-	case ObservationStatusDowngraded:
+	}},
+	// A stored offset is a measurement; only one past the threshold is a
+	// reason for anything, so the magnitude is part of the observation.
+	ObservationClockOffset: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
+		if check.Observed == nil || check.Observed.ClockOffsetMs == nil {
+			return false
+		}
+		offset := *check.Observed.ClockOffsetMs
+		return offset >= ClockOffsetEvidenceMs || offset <= -ClockOffsetEvidenceMs
+	}},
+	ObservationStatusDowngraded: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Derived != nil && check.Derived.StatusDowngraded
-	case ObservationFamilyReachable:
+	}},
+	// The family the claim is about. Neither state is readable without it.
+	ObservationFamilyReachable: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return familyObservation(check, e.Value) == "reachable"
-	case ObservationFamilyFailed:
+	}},
+	ObservationFamilyFailed: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return familyObservation(check, e.Value) == "unreachable"
-	case ObservationAddressSucceeded:
+	}},
+	// The address that was tried.
+	ObservationAddressSucceeded: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && slices.ContainsFunc(check.Observed.Attempts, func(a Attempt) bool {
 			return a.IP == e.Value && a.Error == ""
 		})
-	case ObservationAddressFailed:
+	}},
+	ObservationAddressFailed: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && slices.ContainsFunc(check.Observed.Attempts, func(a Attempt) bool {
 			return a.IP == e.Value && a.Error != "" && !a.Aborted && a.Cause != "" && a.Cause != "canceled"
 		})
-	case ObservationRouteTunneled:
+	}},
+	// The interface this row's traffic left by. A path with no interface was
+	// never classified, so it is never one of these two states either.
+	ObservationRouteTunneled: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
 			return r.Interface == e.Value && (r.Tunnel == TunnelStateTunnel || r.Tunnel == TunnelStateLikely)
 		})
-	case ObservationRouteDirect:
+	}},
+	ObservationRouteDirect: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
 			return r.Interface == e.Value && r.Tunnel == TunnelStateDirect
 		})
-	case ObservationRouteUnreachable:
+	}},
+	// The destination the kernel refused to route.
+	ObservationRouteUnreachable: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool { return r.Destination == e.Value && r.Unreachable })
-	case ObservationRoutePathDiffers:
-		// The value names the other path. The claim is checkable from this row
-		// alone: its own selected interface is not that one.
-		return e.Value != "" && routeMatches(check, func(r Route) bool {
+	}},
+	// The value names the other path. The claim is checkable from this row
+	// alone: its own selected interface is not that one.
+	ObservationRoutePathDiffers: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
+		return routeMatches(check, func(r Route) bool {
 			return r.Interface != "" && r.Interface != e.Value
 		})
-	case ObservationRouteNextHopDiffers:
-		// The value names the other path's next hop. The claim is checkable
-		// from this row alone: it has a next hop of its own and it is not that
-		// one.
-		return e.Value != "" && routeMatches(check, func(r Route) bool {
+	}},
+	// The value names the other path's next hop. The claim is checkable from
+	// this row alone: it has a next hop of its own and it is not that one.
+	ObservationRouteNextHopDiffers: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
+		return routeMatches(check, func(r Route) bool {
 			return r.Gateway != "" && r.Gateway != e.Value
 		})
-	case ObservationRouteTableDiffers:
-		// This row's own routing domain, named by the platform and not the
-		// main one. The value stays empty because there is nothing about the
-		// other row to name: it is the main table or unknown, and neither is
-		// a value a reader could check.
+	}},
+	// This row's own routing domain, named by the platform and not the main
+	// one. The value stays empty because there is nothing about the other row
+	// to name: it is the main table or unknown, and neither is a value a
+	// reader could check.
+	ObservationRouteTableDiffers: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
 			domain, _ := r.RoutingDomain()
 			return domain != ""
 		})
-	case ObservationRouteFamilySplit:
+	}},
+	// The split is the whole observation, and it is stated about the row that
+	// holds both families, so neither family is a value to name.
+	ObservationRouteFamilySplit: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return routeFamilySplit(check)
-	case ObservationRouteInterfaceMTU:
+	}},
+	// The interface whose MTU this is.
+	ObservationRouteInterfaceMTU: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
 			return r.Interface == e.Value && r.InterfaceMTU > 0
 		})
+	}},
+}
+
+// CausalEvidenceValueSemantics reports how each observation in the v1
+// causal-evidence vocabulary reads CausalEvidence.Value. It is the validator's
+// own table rather than a restatement of it, exported so that a producer can
+// be held to the same contract without this package learning anything about
+// probes.
+func CausalEvidenceValueSemantics() map[string]string {
+	out := make(map[string]string, len(causalObservations))
+	for id, rule := range causalObservations {
+		out[id] = rule.value
 	}
-	return false
+	return out
+}
+
+func observationMatches(e CausalEvidence, check Check) bool {
+	rule, known := causalObservations[e.Observation]
+	if !known {
+		return false
+	}
+	switch {
+	case rule.value == EvidenceValueAbsent && e.Value != "":
+		return false
+	case rule.value == EvidenceValueRequired && e.Value == "":
+		return false
+	}
+	return rule.present(e, check)
 }
 
 // The tunnel-state vocabulary, part of the v1 file contract. An absent state

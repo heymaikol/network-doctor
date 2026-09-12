@@ -1360,7 +1360,7 @@ The comparison is semantic, not a JSON diff. Every field it reads is named in th
 | Target | `host`, `ip`, `port`, `protocol`, and `port_explicit`, then `raw` on its own, so "the same host, entered differently" and "a different host" are separate answers |
 | Tool | `version`, `os`, and `arch`, because a diagnosis and its advice are chosen per platform |
 | Run settings | the probe timeout, the second-opinion resolver, the `--iface` binding, and the `--check`/`--skip` selection as **sets** |
-| Diagnosis | `ok`, `verdict`, `blamed`, `failed_stage`, the findings as a **set** keyed by `id`, the first finding as the primary conclusion, and each finding's ordered `evidence` and `causal_evidence` |
+| Diagnosis | `ok`, `verdict`, `blamed`, `failed_stage`, the findings as a **set** keyed by `id`, the first finding as the primary conclusion, and within each finding its `verdict`, `focus`, `confidence`, ordered `evidence` and `causal_evidence`, and its `counterfactual`: whether the finding carries one at all, the variable it held, and the alternatives with their values, outcomes and evidence |
 | Checks | membership, `status`, `cause`, `ran`, and `deps` in order |
 | Reasoning | `derived.status_downgraded`, so an inferred outcome and a measured one are not read as the same state, and `derived.answer_comparison`, so two runs whose resolvers went from agreeing to disagreeing are not read as the same state either |
 | Evidence | everything under `observed`: resolved addresses, resolver targets tried, and connection attempts as **sets**, and the selected address, source address, interface, SSID, second-opinion resolver, per-family reachability, captive-portal state, and timeout flags as values |
@@ -1394,7 +1394,9 @@ These change between two runs of a machine that did not change, so treating them
 - The order of resolved addresses, connection attempts, findings, and the `--check`/`--skip` selection. Order there is the resolver's, the dialer's, or the order you typed, and it is not the shape of anything. Order **is** kept where it carries meaning: a check's `deps`, a finding's `evidence`, and its `causal_evidence` are compared as ordered lists.
 - Sub-second movement in `clock_offset_ms`. The offset is compared at whole-second resolution, which keeps the sign and the magnitude the diagnosis reasons about and drops the jitter of a clock that is fine.
 
-An optional field added to a future snapshot version is not compared until it is named here, which is deliberate: a new field cannot start producing differences on its own.
+An optional field added to a future snapshot version is not compared until it is named here, which is deliberate: a new field cannot start producing differences on its own. For the diagnosis, where a silent omission would let two contradictory conclusions compare as one, that decision is forced rather than left to notice: a parity test enumerates every field of a finding, its causal evidence and its counterfactual, and fails until each one is listed as compared or as ignored prose, with the classification checked against the comparison rather than taken on trust.
+
+Structured values are compared structurally. A causal-evidence row names the observation member it cites, which is routinely an IPv6 address, so joining its fields into one string with a separator would let two different rows compare equal wherever the separator can fall inside a value.
 
 ### Ordering and determinism
 

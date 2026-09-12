@@ -759,7 +759,7 @@ func validate(s Snapshot) error {
 		return fmt.Errorf("snapshot has invalid redaction metadata")
 	}
 	checks := make(map[string]Check, len(s.Checks))
-	impaired := ""
+	impaired, firstFailed := "", ""
 	for _, c := range s.Checks {
 		_, repeated := checks[c.ID]
 		switch {
@@ -786,6 +786,9 @@ func validate(s Snapshot) error {
 		if impaired == "" && (c.Status == StatusFail || c.Status == StatusIncomplete) {
 			impaired = c.ID
 		}
+		if firstFailed == "" && c.Status == StatusFail {
+			firstFailed = c.ID
+		}
 	}
 	// The other half of the same rule. ok is the one field a script reads
 	// first, and it is not an opinion the file gets to hold beside its rows:
@@ -795,9 +798,52 @@ func validate(s Snapshot) error {
 	if !s.OK && impaired == "" {
 		return fmt.Errorf("snapshot is reported not ok, but no check is %s or %s", StatusFail, StatusIncomplete)
 	}
+	// failed_stage is the field a triage script reads to route a bug report,
+	// and it is derived the same way ok is: the first row that failed, in the
+	// order the run executed them. Naming any other row, or naming none while
+	// one failed, is the file disagreeing with its own evidence about where
+	// the run broke.
+	if s.Diagnosis.FailedStage != firstFailed {
+		return fmt.Errorf("snapshot diagnosis names failed stage %q, but the first failed check is %q",
+			s.Diagnosis.FailedStage, firstFailed)
+	}
+	if s.Diagnosis.Blamed != "" {
+		if _, exists := checks[s.Diagnosis.Blamed]; !exists {
+			return fmt.Errorf("snapshot diagnosis blames check %q, which is not in the snapshot", s.Diagnosis.Blamed)
+		}
+	}
+	findings := make(map[string]bool, len(s.Diagnosis.Findings))
 	for _, finding := range s.Diagnosis.Findings {
-		if !validConfidence(finding.Confidence) {
+		// Identity first. Every consumer keys findings by this id, and a
+		// diagnosis carrying an empty or a repeated one is read differently
+		// depending on whether the reader takes list order, the primary
+		// position, or a map: exactly the ambiguity the check rows above
+		// refuse. The set of ids is deliberately not checked against this
+		// build's vocabulary, because a newer netdoc naming a conclusion this
+		// one has never heard of is an additive change, not a broken file.
+		switch {
+		case finding.ID == "":
+			return fmt.Errorf("snapshot diagnosis has a finding with no id: a conclusion nothing can name is a conclusion nothing can act on")
+		case findings[finding.ID]:
+			return fmt.Errorf("snapshot diagnosis lists finding %q twice", finding.ID)
+		case !validConfidence(finding.Confidence):
 			return fmt.Errorf("snapshot finding %q has unknown confidence %q", finding.ID, finding.Confidence)
+		}
+		findings[finding.ID] = true
+		if finding.Focus != "" {
+			if _, exists := checks[finding.Focus]; !exists {
+				return fmt.Errorf("snapshot finding %q focuses on check %q, which is not in the snapshot", finding.ID, finding.Focus)
+			}
+		}
+		cited := make(map[string]bool, len(finding.Evidence))
+		for _, id := range finding.Evidence {
+			switch {
+			case cited[id]:
+				return fmt.Errorf("snapshot finding %q cites check %q twice", finding.ID, id)
+			case !checkExists(checks, id):
+				return fmt.Errorf("snapshot finding %q cites check %q, which is not in the snapshot", finding.ID, id)
+			}
+			cited[id] = true
 		}
 		seen := make(map[CausalEvidence]bool, len(finding.CausalEvidence))
 		for _, evidence := range finding.CausalEvidence {
@@ -811,6 +857,16 @@ func validate(s Snapshot) error {
 			if err := validateCausalEvidence(evidence, checks); err != nil {
 				return fmt.Errorf("snapshot finding %q: %w", finding.ID, err)
 			}
+		}
+		// The two spellings of one fact have to agree where both are present.
+		// Evidence is the compatibility projection of the typed evidence, so a
+		// file carrying both and disagreeing gives an old consumer and a new
+		// one different answers about what the conclusion rests on. A snapshot
+		// written before typed evidence existed carries only the projection,
+		// and nothing here asks it to invent the rest.
+		if len(finding.CausalEvidence) > 0 && !slices.Equal(finding.Evidence, evidenceRows(finding.CausalEvidence)) {
+			return fmt.Errorf("snapshot finding %q lists evidence %v, which is not the compatibility projection %v of its causal evidence",
+				finding.ID, finding.Evidence, evidenceRows(finding.CausalEvidence))
 		}
 		if finding.Counterfactual != nil {
 			if finding.Counterfactual.Variable == "" || len(finding.Counterfactual.Alternatives) < 2 {
@@ -1278,4 +1334,31 @@ func writeFile(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// checkExists reports whether the snapshot holds a row under this id. An empty
+// id is never a row, because validate refuses one, so a reference to "" is a
+// reference to nothing rather than a lookup that happens to miss.
+func checkExists(checks map[string]Check, id string) bool {
+	_, exists := checks[id]
+	return id != "" && exists
+}
+
+// evidenceRows is the compatibility projection a finding's Evidence field has
+// always been: the unique check ids the typed evidence observed, in reasoning
+// order. A not_evaluated item is absent because it supplied no observation.
+//
+// The rule is written here rather than imported because this package cannot
+// see internal/diagnostic, which is where the producer spells the same rule
+// for a live finding. TestBuiltSnapshotEvidenceProjectionsAgree encodes a
+// built finding and so fails if the two ever part company.
+func evidenceRows(evidence []CausalEvidence) []string {
+	var rows []string
+	for _, e := range evidence {
+		if e.Kind == EvidenceNotEvaluated || e.Check == "" || slices.Contains(rows, e.Check) {
+			continue
+		}
+		rows = append(rows, e.Check)
+	}
+	return rows
 }

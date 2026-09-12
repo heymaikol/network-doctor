@@ -13,6 +13,9 @@ import (
 func evidenceArtifact(t *testing.T, check snapshot.Check) snapshot.Snapshot {
 	t.Helper()
 	s := snapshot.Snapshot{Schema: snapshot.Schema, Checks: []snapshot.Check{check}, OK: check.Status != snapshot.StatusFail && check.Status != snapshot.StatusIncomplete}
+	if check.Status == snapshot.StatusFail {
+		s.Diagnosis.FailedStage = check.ID
+	}
 	data, err := snapshot.Encode(s)
 	if err != nil {
 		t.Fatal(err)

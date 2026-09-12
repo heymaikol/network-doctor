@@ -132,7 +132,7 @@ func TestDecodeIgnoresUnknownFields(t *testing.T) {
 }
 
 func TestDecodePreEvidenceV1DoesNotInventCausalEvidence(t *testing.T) {
-	data := []byte(`{"schema":"` + Schema + `","checks":[{"id":"dns","status":"FAIL","ran":true,"duration_ms":1}],"diagnosis":{"verdict":"dns","summary":"DNS failed","findings":[{"id":"dns_failure","verdict":"dns","summary":"DNS failed","focus":"dns","evidence":["dns"]}]},"ok":false}`)
+	data := []byte(`{"schema":"` + Schema + `","checks":[{"id":"dns","status":"FAIL","ran":true,"duration_ms":1}],"diagnosis":{"verdict":"dns","summary":"DNS failed","failed_stage":"dns","findings":[{"id":"dns_failure","verdict":"dns","summary":"DNS failed","focus":"dns","evidence":["dns"]}]},"ok":false}`)
 	s, err := Decode(data)
 	if err != nil {
 		t.Fatalf("Decode pre-evidence v1: %v", err)
@@ -158,8 +158,8 @@ func TestCausalEvidenceValidation(t *testing.T) {
 					Observed: &Observed{Addresses: []string{"192.0.2.1"}}},
 				{ID: "target_tcp", Status: StatusSkip},
 			},
-			Diagnosis: Diagnosis{Findings: []Finding{{
-				ID: "system_dns_failure",
+			Diagnosis: Diagnosis{FailedStage: "dns", Findings: []Finding{{
+				ID: "system_dns_failure", Evidence: []string{"dns", "public_dns"},
 				CausalEvidence: []CausalEvidence{
 					{Kind: EvidenceSupport, Check: "dns", Observation: ObservationStatusFail},
 					{Kind: EvidenceRuledOut, Check: "public_dns", Observation: ObservationDNSAnswers, Candidate: "dns_name_not_found"},
@@ -206,7 +206,7 @@ func TestConfidenceRoundTripsAndRejectsUnknownValues(t *testing.T) {
 	base := func(confidence string) Snapshot {
 		return Snapshot{
 			Checks: []Check{{ID: "dns", Status: StatusFail, Ran: true, DurationMs: 1}},
-			Diagnosis: Diagnosis{Findings: []Finding{{
+			Diagnosis: Diagnosis{FailedStage: "dns", Findings: []Finding{{
 				ID: "dns_failure", Verdict: "dns", Summary: "DNS is failing.", Confidence: confidence,
 			}}},
 		}
@@ -397,19 +397,23 @@ func TestRoundTripPreservesOptionalStates(t *testing.T) {
 	}
 }
 
-// outage is the one failing row that makes a run a failing run. A snapshot
-// reported not ok has to carry the evidence of what went wrong, so every
-// incident record below that is a failing pass says so with a row.
+// outage is the one failing row that makes a run a failing run, and
+// outageDiagnosis is the diagnosis that names it. A snapshot reported not ok
+// has to carry the evidence of what went wrong and has to point at the row it
+// went wrong on, so every incident record below that is a failing pass says
+// both.
 func outage() Check {
 	return Check{ID: "target_tcp", Name: "TCP", Status: StatusFail, Ran: true, DurationMs: 1}
 }
 
+func outageDiagnosis() Diagnosis { return Diagnosis{FailedStage: "target_tcp"} }
+
 func TestIncidentRoundTripAndOlderV1Compatibility(t *testing.T) {
 	before := &Snapshot{CreatedAt: "2026-08-25T12:03:51Z", OK: true, Checks: []Check{}}
-	during := &Snapshot{CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{outage()}}
+	during := &Snapshot{CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{outage()}, Diagnosis: outageDiagnosis()}
 	recovered := &Snapshot{CreatedAt: "2026-08-25T12:04:06Z", OK: true, Checks: []Check{}}
 	onset := Snapshot{
-		CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{outage()},
+		CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{outage()}, Diagnosis: outageDiagnosis(),
 		Incident: &Incident{
 			StartedAt: "2026-08-25T12:03:56Z", EndedAt: "2026-08-25T12:04:06Z", Passes: 2,
 			Before: before, During: during, Recovered: recovered,
@@ -453,11 +457,11 @@ func TestIncidentRoundTripAndOlderV1Compatibility(t *testing.T) {
 func TestIncidentValidationRejectsImpossibleHistory(t *testing.T) {
 	valid := func() Snapshot {
 		return Snapshot{
-			Schema: Schema, CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{outage()},
+			Schema: Schema, CreatedAt: "2026-08-25T12:03:56Z", Checks: []Check{outage()}, Diagnosis: outageDiagnosis(),
 			Incident: &Incident{
 				StartedAt: "2026-08-25T12:03:56Z", EndedAt: "2026-08-25T12:04:06Z", Passes: 2,
 				Before:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:03:51Z", OK: true, Checks: []Check{}},
-				During:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{outage()}},
+				During:    &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:01Z", Checks: []Check{outage()}, Diagnosis: outageDiagnosis()},
 				Recovered: &Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:04:06Z", OK: true, Checks: []Check{}},
 			},
 		}
@@ -469,12 +473,14 @@ func TestIncidentValidationRejectsImpossibleHistory(t *testing.T) {
 	}{
 		{"invalid start", func(s *Snapshot) { s.Incident.StartedAt = "yesterday" }, "RFC 3339 UTC"},
 		{"onset mismatch", func(s *Snapshot) { s.CreatedAt = "2026-08-25T12:03:55Z" }, "does not match"},
-		{"healthy onset", func(s *Snapshot) { s.OK = true; s.Checks = []Check{} }, "reported ok"},
+		{"healthy onset", func(s *Snapshot) { s.OK = true; s.Checks, s.Diagnosis = []Check{}, Diagnosis{} }, "reported ok"},
 		{"no passes", func(s *Snapshot) { s.Incident.Passes = 0 }, "at least the pass"},
 		{"missing recovered run", func(s *Snapshot) { s.Incident.Recovered = nil }, "end time without"},
 		{"end before start", func(s *Snapshot) { s.Incident.EndedAt = "2026-08-25T12:03:50Z" }, "ended before"},
 		{"late baseline", func(s *Snapshot) { s.Incident.Before.CreatedAt = "2026-08-25T12:03:57Z" }, "before state"},
-		{"healthy during", func(s *Snapshot) { s.Incident.During.OK = true; s.Incident.During.Checks = []Check{} }, "during state reports"},
+		{"healthy during", func(s *Snapshot) {
+			s.Incident.During.OK, s.Incident.During.Checks, s.Incident.During.Diagnosis = true, []Check{}, Diagnosis{}
+		}, "during state reports"},
 		{"late during", func(s *Snapshot) { s.Incident.During.CreatedAt = "2026-08-25T12:04:07Z" }, "outside"},
 		{"recovery mismatch", func(s *Snapshot) { s.Incident.Recovered.CreatedAt = "2026-08-25T12:04:07Z" }, "does not match"},
 		{"nested schema", func(s *Snapshot) { s.Incident.Before.Schema = "netdoc.snapshot.v2" }, "has schema"},
@@ -590,7 +596,7 @@ func TestSerializedStatusDistinguishesRowStates(t *testing.T) {
 		{ID: "failed", Status: StatusFail, Ran: true, DurationMs: 2},
 		{ID: "skipped", Status: StatusSkip},
 		{ID: "unreported", Status: StatusIncomplete},
-	}})
+	}, Diagnosis: Diagnosis{FailedStage: "failed"}})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -773,7 +779,7 @@ func TestRoundTripPreservesRouteDecisions(t *testing.T) {
 		{Destination: "192.168.1.1", Family: "ipv4", Interface: "eth0", Gateway: "192.168.1.1", Tunnel: TunnelStateDirect},
 		{Destination: "1.1.1.1", Family: "ipv4", Interface: "eth0", TableKnown: true},
 	}
-	s := Snapshot{Schema: Schema, Checks: []Check{routeCheck("target_tcp", routes...)}}
+	s := Snapshot{Schema: Schema, Checks: []Check{routeCheck("target_tcp", routes...)}, Diagnosis: Diagnosis{FailedStage: "target_tcp"}}
 	data, err := Encode(s)
 	if err != nil {
 		t.Fatal(err)
@@ -822,7 +828,7 @@ func TestRoundTripPreservesRouteDecisions(t *testing.T) {
 // routing at all.
 func TestDecodePreTableKnowledgeV1ReadsAsUnknown(t *testing.T) {
 	data := []byte(`{"schema":"` + Schema + `","checks":[{"id":"target_tcp","status":"FAIL","ran":true,"duration_ms":1,` +
-		`"observed":{"routes":[{"destination":"198.51.100.7","family":"ipv4","interface":"eth0"}]}}],"ok":false}`)
+		`"observed":{"routes":[{"destination":"198.51.100.7","family":"ipv4","interface":"eth0"}]}}],"diagnosis":{"failed_stage":"target_tcp"},"ok":false}`)
 	s, err := Decode(data)
 	if err != nil {
 		t.Fatalf("Decode pre-table v1: %v", err)
@@ -836,7 +842,7 @@ func TestDecodePreTableKnowledgeV1ReadsAsUnknown(t *testing.T) {
 // "this run recorded no route decisions", and does not gain any on the way
 // back out.
 func TestDecodePreRouteV1DoesNotInventRoutes(t *testing.T) {
-	data := []byte(`{"schema":"` + Schema + `","checks":[{"id":"target_tcp","status":"FAIL","ran":true,"duration_ms":1,"observed":{"addresses":["198.51.100.7"]}}],"ok":false}`)
+	data := []byte(`{"schema":"` + Schema + `","checks":[{"id":"target_tcp","status":"FAIL","ran":true,"duration_ms":1,"observed":{"addresses":["198.51.100.7"]}}],"diagnosis":{"failed_stage":"target_tcp"},"ok":false}`)
 	s, err := Decode(data)
 	if err != nil {
 		t.Fatalf("Decode pre-route v1: %v", err)
@@ -1142,7 +1148,7 @@ func TestValidationRejectsImpossibleRunOutcomes(t *testing.T) {
 	}{
 		{
 			"ok beside a failed row",
-			Snapshot{Checks: []Check{checkRow("dns", StatusPass), checkRow("target_tcp", StatusFail)}, OK: true},
+			Snapshot{Checks: []Check{checkRow("dns", StatusPass), checkRow("target_tcp", StatusFail)}, Diagnosis: Diagnosis{FailedStage: "target_tcp"}, OK: true},
 			"cannot be reported ok",
 		},
 		{
@@ -1172,7 +1178,11 @@ func TestEveryPublishedCheckStatusStaysAccepted(t *testing.T) {
 	for _, status := range []string{StatusPass, StatusWarn, StatusFail, StatusSkip, StatusNA, StatusIncomplete} {
 		t.Run(status, func(t *testing.T) {
 			ok := status != StatusFail && status != StatusIncomplete
-			data, err := Encode(Snapshot{Checks: []Check{checkRow("dns", status)}, OK: ok})
+			diagnosis := Diagnosis{}
+			if status == StatusFail {
+				diagnosis.FailedStage = "dns"
+			}
+			data, err := Encode(Snapshot{Checks: []Check{checkRow("dns", status)}, Diagnosis: diagnosis, OK: ok})
 			if err != nil {
 				t.Fatalf("Encode refused a %s row: %v", status, err)
 			}
@@ -1184,5 +1194,101 @@ func TestEveryPublishedCheckStatusStaysAccepted(t *testing.T) {
 				t.Errorf("round trip = %+v, ok=%v", got.Checks[0], got.OK)
 			}
 		})
+	}
+}
+
+// diagnosed is a valid snapshot whose diagnosis references its rows correctly,
+// so each case below states only the one reference it breaks.
+func diagnosed() Snapshot {
+	return Snapshot{
+		Checks: []Check{
+			checkRow("dns", StatusFail),
+			{ID: "public_dns", Name: "public_dns", Status: StatusPass, Ran: true, DurationMs: 1,
+				Observed: &Observed{Addresses: []string{"192.0.2.1"}}},
+		},
+		Diagnosis: Diagnosis{
+			Verdict: "dns", Summary: "DNS is failing.", Blamed: "dns", FailedStage: "dns",
+			Findings: []Finding{{
+				ID: "system_dns_failure", Verdict: "dns", Summary: "The system resolver is failing.",
+				Focus: "dns", Confidence: ConfidenceHigh, Evidence: []string{"dns", "public_dns"},
+				CausalEvidence: []CausalEvidence{
+					{Kind: EvidenceSupport, Check: "dns", Observation: ObservationStatusFail},
+					{Kind: EvidenceRuledOut, Check: "public_dns", Observation: ObservationDNSAnswers, Candidate: "dns_name_not_found"},
+				},
+			}},
+		},
+	}
+}
+
+// A diagnosis is read by keying on finding IDs and by following its references
+// to check rows. Both have to be unambiguous for the file to have one meaning:
+// a repeated finding id is resolved differently by a reader that takes list
+// order, one that takes the primary position, and one that builds a map, and a
+// reference to a row that is not there is a claim the file cannot support.
+func TestValidationRejectsUnresolvableDiagnosisReferences(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*Snapshot)
+		want string
+	}{
+		{"a finding with no id", func(s *Snapshot) { s.Diagnosis.Findings[0].ID = "" }, "no id"},
+		{"the same finding id twice", func(s *Snapshot) {
+			second := s.Diagnosis.Findings[0]
+			second.Verdict = "network"
+			s.Diagnosis.Findings = append(s.Diagnosis.Findings, second)
+		}, "twice"},
+		{"blaming a row that is not there", func(s *Snapshot) { s.Diagnosis.Blamed = "tls" }, "blames check"},
+		{"a failed stage that is not there", func(s *Snapshot) { s.Diagnosis.FailedStage = "tls" }, "failed stage"},
+		{"a failed stage that did not fail", func(s *Snapshot) { s.Diagnosis.FailedStage = "public_dns" }, "failed stage"},
+		{"a failure with no failed stage", func(s *Snapshot) { s.Diagnosis.FailedStage = "" }, "failed stage"},
+		{"focusing on a row that is not there", func(s *Snapshot) { s.Diagnosis.Findings[0].Focus = "tls" }, "focuses on check"},
+		{"citing a row that is not there", func(s *Snapshot) {
+			s.Diagnosis.Findings[0].Evidence = []string{"dns", "tls"}
+			s.Diagnosis.Findings[0].CausalEvidence = nil
+		}, "cites check"},
+		{"citing the same row twice", func(s *Snapshot) {
+			s.Diagnosis.Findings[0].Evidence = []string{"dns", "dns"}
+			s.Diagnosis.Findings[0].CausalEvidence = nil
+		}, "twice"},
+		{"a projection that drops a cited row", func(s *Snapshot) {
+			s.Diagnosis.Findings[0].Evidence = []string{"dns"}
+		}, "compatibility projection"},
+		{"a projection in the wrong order", func(s *Snapshot) {
+			s.Diagnosis.Findings[0].Evidence = []string{"public_dns", "dns"}
+		}, "compatibility projection"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := diagnosed()
+			tt.edit(&s)
+			rejectsBothWays(t, s, tt.want)
+		})
+	}
+	if _, err := Encode(diagnosed()); err != nil {
+		t.Errorf("Encode refused a well-referenced diagnosis: %v", err)
+	}
+}
+
+// The v1 compatibility half. A snapshot written before typed causal evidence
+// existed carries only the projection, and nothing above asks it to invent the
+// relationships it never recorded. A finding id this build has never heard of
+// is additive vocabulary rather than a broken file, so it is not refused
+// either: the invariant is internal consistency, not a frozen catalogue.
+func TestLegacyAndFutureDiagnosisFindingsStayValid(t *testing.T) {
+	legacy := []byte(`{"schema":"` + Schema + `","checks":[{"id":"dns","status":"FAIL","ran":true,"duration_ms":1}],` +
+		`"diagnosis":{"verdict":"dns","summary":"DNS failed","failed_stage":"dns","findings":[` +
+		`{"id":"dns_failure","verdict":"dns","summary":"DNS failed","focus":"dns","evidence":["dns"]}]},"ok":false}`)
+	s, err := Decode(legacy)
+	if err != nil {
+		t.Fatalf("Decode legacy-only evidence: %v", err)
+	}
+	if f := s.Diagnosis.Findings[0]; f.CausalEvidence != nil || len(f.Evidence) != 1 {
+		t.Errorf("legacy finding changed shape: %+v", f)
+	}
+
+	future := diagnosed()
+	future.Diagnosis.Findings[0].ID = "a_conclusion_from_a_later_netdoc"
+	if _, err := Encode(future); err != nil {
+		t.Errorf("Encode refused an unfamiliar finding id: %v", err)
 	}
 }

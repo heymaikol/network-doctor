@@ -242,10 +242,10 @@ func TestSupportIncidentUsesOneMappingAndMarksNestedSnapshots(t *testing.T) {
 	onset.CreatedAt = "2026-08-25T17:00:00Z"
 	before := supportFixture()
 	before.CreatedAt, before.OK = "2026-08-25T16:59:55Z", true
-	before.Checks[0].Status = StatusPass
+	before.Checks[0].Status, before.Diagnosis.FailedStage = StatusPass, ""
 	recovered := supportFixture()
 	recovered.CreatedAt, recovered.OK = "2026-08-25T17:00:05Z", true
-	recovered.Checks[0].Status = StatusPass
+	recovered.Checks[0].Status, recovered.Diagnosis.FailedStage = StatusPass, ""
 	onset.Incident = &Incident{
 		StartedAt: onset.CreatedAt, EndedAt: recovered.CreatedAt, Passes: 1,
 		Before: &before, Recovered: &recovered,
@@ -342,7 +342,7 @@ func TestSupportRedactsLocalMachineIdentity(t *testing.T) {
 			Detail: "certificate is for sanitizer-test-box.example, presented to sanitizer-test-box",
 			Fix:    "run as sanitizer-test-account or fix the name",
 		}},
-		Diagnosis: Diagnosis{Verdict: "tls", Summary: "sanitizer-test-box.example is not the expected name"},
+		Diagnosis: Diagnosis{Verdict: "tls", Summary: "sanitizer-test-box.example is not the expected name", FailedStage: "tls"},
 	}
 	data, err := Encode(SanitizeForSupport(s))
 	if err != nil {
@@ -430,7 +430,7 @@ func TestSupportRedactsAddressesFoundOnlyInText(t *testing.T) {
 		Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail,
 			Detail: "no route to 192.168.7.31.",
 			Fix:    "check the gateway at 192.168.7.31, then retry"}},
-		Diagnosis: Diagnosis{Verdict: "route", Summary: "unreachable via 192.168.7.31."},
+		Diagnosis: Diagnosis{Verdict: "route", Summary: "unreachable via 192.168.7.31.", FailedStage: "route"},
 	}
 	got := SanitizeForSupport(s)
 	data, err := Encode(got)

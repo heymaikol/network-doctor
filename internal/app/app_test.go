@@ -1943,7 +1943,7 @@ func TestRunTwoSidedPlacesTheFailure(t *testing.T) {
 	dir := t.TempDir()
 	here := comparableSnapshot()
 	here.Checks[1].Status = snapshot.StatusFail
-	here.Diagnosis.Verdict, here.OK = "dns", false
+	here.Diagnosis.Verdict, here.Diagnosis.FailedStage, here.OK = "dns", "dns", false
 	there := comparableSnapshot()
 	therePath := writeSnapshotFile(t, dir, "there", there)
 	herePath := writeSnapshotFile(t, dir, "here", here)
@@ -1978,7 +1978,7 @@ func TestRunTwoSidedJSON(t *testing.T) {
 	dir := t.TempDir()
 	here := comparableSnapshot()
 	here.Checks[1].Status = snapshot.StatusFail
-	here.OK = false
+	here.Diagnosis.FailedStage, here.OK = "dns", false
 	herePath := writeSnapshotFile(t, dir, "here", here)
 	therePath := writeSnapshotFile(t, dir, "there", comparableSnapshot())
 
@@ -2119,7 +2119,7 @@ func TestRunCompareReportsWhatChanged(t *testing.T) {
 	after.CreatedAt = "2026-03-05T05:06:07Z"
 	after.Checks[1].Status = snapshot.StatusFail
 	after.Checks[0].Observed.Interface = "wg0"
-	after.Diagnosis.Verdict = "dns"
+	after.Diagnosis.Verdict, after.Diagnosis.FailedStage = "dns", "dns"
 	after.OK = false
 
 	beforePath := writeSnapshotFile(t, dir, "before", before)
@@ -2234,7 +2234,7 @@ func TestRunCompareJSON(t *testing.T) {
 	before := comparableSnapshot()
 	after := comparableSnapshot()
 	after.Checks[1].Status = snapshot.StatusFail
-	after.OK = false
+	after.Diagnosis.FailedStage, after.OK = "dns", false
 
 	beforePath := writeSnapshotFile(t, dir, "before", before)
 	afterPath := writeSnapshotFile(t, dir, "after", after)

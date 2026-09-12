@@ -206,7 +206,7 @@ func TestSupportProseFieldsStillLoseKnownValues(t *testing.T) {
 				Attempts: []Attempt{{IP: "192.168.31.7", Error: "no route to 192.168.31.7."}},
 			},
 		}},
-		Diagnosis: Diagnosis{Verdict: "dns", Summary: "labbox unreachable from wlan0"},
+		Diagnosis: Diagnosis{Verdict: "dns", Summary: "labbox unreachable from wlan0", FailedStage: "dns"},
 	}
 	data, err := Encode(SanitizeForSupport(s))
 	if err != nil {

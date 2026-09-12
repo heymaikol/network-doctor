@@ -8,13 +8,17 @@ import (
 
 func profileFixture() ProfileSnapshot {
 	component := func(id, status string, ok bool) ProfileComponent {
+		failedStage := ""
+		if status == StatusFail {
+			failedStage = "target_tcp"
+		}
 		return ProfileComponent{
 			ID: id, Label: id, Focus: "target_tcp", Status: status,
 			Snapshot: Snapshot{
 				Schema: Schema, CreatedAt: "2026-08-26T12:00:00Z", Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 				Target:    &Target{Raw: "server.internal:22", Host: "server.internal", Port: 22, Protocol: "ssh", PortExplicit: true},
 				Checks:    []Check{{ID: "target_tcp", Name: "TCP server.internal:22", Status: status, Ran: true, DurationMs: 1}},
-				Diagnosis: Diagnosis{Verdict: "service", Summary: "server.internal result"}, OK: ok,
+				Diagnosis: Diagnosis{Verdict: "service", Summary: "server.internal result", FailedStage: failedStage}, OK: ok,
 			},
 		}
 	}

@@ -605,3 +605,54 @@ func probeIDs(probes []Probe) []ProbeID {
 	}
 	return order
 }
+
+// The compatibility Evidence field and the typed CausalEvidence beside it are
+// two spellings of one fact, and a snapshot carrying both has to agree with
+// itself: internal/snapshot refuses a file whose Evidence is not the
+// projection of its causal evidence. The projection rule is written in two
+// places, because the file format cannot import this package and this package
+// owns the live finding, so the two are pinned here.
+//
+// The evidence below is deliberately awkward for the rule: a repeated check, a
+// not-evaluated item that supplies no observation, and a later observation of
+// a row that was already cited. If EvidenceRows and the validator ever stop
+// agreeing about any of those, Encode refuses this snapshot.
+func TestBuiltSnapshotEvidenceProjectionsAgree(t *testing.T) {
+	finding := DiagnosisFinding{
+		ID: DiagnosisSystemDNSFailure, Verdict: VerdictDNS, Summary: "The system resolver is failing.",
+		Focus: ProbeDNS, Confidence: ConfidenceHigh,
+		Evidence: []CausalEvidence{
+			{Kind: EvidenceSupport, Check: ProbeDNS, Observation: ObservationStatusFail},
+			{Kind: EvidenceNotEvaluated, Check: ProbeTargetTCP, Observation: ObservationStatusSkip, Reason: NotEvaluatedPrerequisite},
+			{Kind: EvidenceRuledOut, Check: ProbeDNSPublic, Observation: ObservationDNSAnswers, Candidate: DiagnosisDNSNameNotFound},
+			{Kind: EvidenceSupport, Check: ProbeDNS, Observation: ObservationCause},
+		},
+	}
+	s := snapshot.Snapshot{
+		Checks: []snapshot.Check{
+			{ID: string(ProbeDNS), Name: "DNS", Status: snapshot.StatusFail, Cause: "timeout", Ran: true, DurationMs: 1},
+			{ID: string(ProbeDNSPublic), Name: "Public DNS", Status: snapshot.StatusPass, Ran: true, DurationMs: 1,
+				Observed: &snapshot.Observed{Addresses: []string{"192.0.2.1"}}},
+			{ID: string(ProbeTargetTCP), Name: "TCP", Status: snapshot.StatusSkip},
+		},
+		Diagnosis: snapshot.Diagnosis{
+			Verdict: finding.Verdict, Summary: finding.Summary, Blamed: string(ProbeDNS), FailedStage: string(ProbeDNS),
+			Findings: []snapshot.Finding{{
+				ID: string(finding.ID), Verdict: finding.Verdict, Summary: finding.Summary,
+				Focus: string(finding.Focus), Confidence: string(finding.Confidence),
+			}},
+		},
+	}
+	for _, id := range finding.EvidenceRows() {
+		s.Diagnosis.Findings[0].Evidence = append(s.Diagnosis.Findings[0].Evidence, string(id))
+	}
+	for _, e := range finding.Evidence {
+		s.Diagnosis.Findings[0].CausalEvidence = append(s.Diagnosis.Findings[0].CausalEvidence, snapshot.CausalEvidence{
+			Kind: string(e.Kind), Check: string(e.Check), Observation: string(e.Observation),
+			Value: e.Value, Candidate: string(e.Candidate), Reason: string(e.Reason),
+		})
+	}
+	if _, err := snapshot.Encode(s); err != nil {
+		t.Fatalf("EvidenceRows no longer produces the projection the snapshot format validates: %v", err)
+	}
+}

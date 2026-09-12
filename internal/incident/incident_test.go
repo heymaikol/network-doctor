@@ -12,12 +12,12 @@ import (
 )
 
 func observed(at time.Time, health Health, iface string) snapshot.Snapshot {
-	status, ok, verdict := snapshot.StatusPass, true, "ok"
+	status, ok, verdict, failedStage := snapshot.StatusPass, true, "ok", ""
 	if health == Degraded {
 		status, verdict = snapshot.StatusWarn, "degraded"
 	}
 	if health == Failing {
-		status, ok, verdict = snapshot.StatusFail, false, "network"
+		status, ok, verdict, failedStage = snapshot.StatusFail, false, "network", "target_tcp"
 	}
 	return snapshot.Snapshot{
 		Schema: snapshot.Schema, CreatedAt: stamp(at), OK: ok,
@@ -28,7 +28,7 @@ func observed(at time.Time, health Health, iface string) snapshot.Snapshot {
 				Destination: "198.51.100.7", Family: "ipv4", Interface: iface,
 			}}},
 		}},
-		Diagnosis: snapshot.Diagnosis{Verdict: verdict, Summary: string(health)},
+		Diagnosis: snapshot.Diagnosis{Verdict: verdict, Summary: string(health), FailedStage: failedStage},
 	}
 }
 

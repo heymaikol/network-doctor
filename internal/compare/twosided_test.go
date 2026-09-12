@@ -230,28 +230,9 @@ func TestDifferentToolsAreNotACaveat(t *testing.T) {
 	}
 }
 
-func TestSettingsThatChangeWhatWasMeasuredAreCaveats(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		mutate func(*snapshot.Snapshot)
-		want   string
-	}{
-		{"timeout", func(s *snapshot.Snapshot) { s.Options.ProbeTimeoutMs = 9000 }, "probe timeouts differ"},
-		{"public dns", func(s *snapshot.Snapshot) { s.Options.PublicDNS = "9.9.9.9" }, "second-opinion resolvers differ"},
-		{"selection", func(s *snapshot.Snapshot) { s.Options.Skip = []string{"dns"} }, "selected different probes"},
-		// The same resolver, reached two different ways: only the side that did
-		// not name it could have crossed to the other address family.
-		{"public dns chosen two ways", func(s *snapshot.Snapshot) { s.Options.PublicDNSAuto = true }, "took the default"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			a, b := fixture(t), fixture(t)
-			tc.mutate(&b)
-			if got := twoSided(t, a, b); !hasCaveat(got, tc.want) {
-				t.Errorf("caveats = %v, want one mentioning %q", got.Caveats, tc.want)
-			}
-		})
-	}
-}
+// TestSettingsThatChangeWhatWasMeasuredAreCaveats lives in
+// twosided_options_test.go, beside the ledger it now reads: every field of
+// snapshot.Options carries a decision there, and the test drives it.
 
 // The selection is compared as a set, the same rule the comparison applies: the
 // order probe IDs were typed in is not the shape of anything.

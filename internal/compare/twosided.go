@@ -306,6 +306,9 @@ func caveats(a, b snapshot.Snapshot, rows []SideRow) []string {
 	if !sameSet(a.Options.Check, b.Options.Check) || !sameSet(a.Options.Skip, b.Options.Skip) {
 		out = append(out, "The two runs selected different probes, so they did not measure the same set of checks.")
 	}
+	if binding := sourceBindingCaveat(a.Options.Source, b.Options.Source); binding != "" {
+		out = append(out, binding)
+	}
 	if n := incomparable(rows); n > 0 {
 		out = append(out, strconv.Itoa(n)+" "+plural(n, "check")+" did not produce a measured outcome on both machines and "+
 			plural2(n, "was", "were")+" not read.")
@@ -317,6 +320,51 @@ func caveats(a, b snapshot.Snapshot, rows []SideRow) []string {
 		out = append(out, "Support pseudonyms are local to each artifact. Matching target names or addresses do not establish matching original identities; address-based evidence comparison is unknown.")
 	}
 	return out
+}
+
+// sourceBindingCaveat reads the two runs' --iface bindings as policy, never as
+// identity. Two machines have different interface names and different local
+// addresses the same way they have different hostnames, so setting those values
+// against each other would report the premise of the reading as a warning. This
+// is also the one path where independently bound runs are supposed to meet:
+// live --two-sided --via refuses --iface because one spelling cannot name an
+// interface on both machines, and the documented answer is to save two ordinary
+// snapshots and read them here.
+//
+// What is comparable is what the binding did to the probes. They bind by the
+// resolved addresses rather than by the interface name, so the two facts that
+// changed what was measured are whether a source was chosen at all and which
+// address families the chosen source could dial from. Both are read from the
+// artifact's structure and never from a value, so a sanitized support artifact
+// yields the same sentence as the run behind it and no interface name or
+// address reaches this text.
+func sourceBindingCaveat(a, b *snapshot.Source) string {
+	switch {
+	case (a == nil) != (b == nil):
+		return "One run bound its probes to a chosen local source and the other used the machine's own routing choice, " +
+			"so a row that fails on one side may follow from that binding rather than from the machine."
+	case a == nil:
+		return ""
+	case bindingFamilies(a) != bindingFamilies(b):
+		return "The two source bindings did not cover the same address families (side A " + bindingFamilies(a) +
+			", side B " + bindingFamilies(b) + "), so one run could attempt an address family the other never tried."
+	}
+	return ""
+}
+
+// bindingFamilies is the address families a binding left probes able to dial
+// from. It reads which fields are present, never what they hold, so a pseudonym
+// in a support artifact answers the same as the address it stands for.
+func bindingFamilies(s *snapshot.Source) string {
+	switch {
+	case s.IPv4 != "" && s.IPv6 != "":
+		return "IPv4 and IPv6"
+	case s.IPv4 != "":
+		return "IPv4 only"
+	case s.IPv6 != "":
+		return "IPv6 only"
+	}
+	return "no address family"
 }
 
 func incomparable(rows []SideRow) int {

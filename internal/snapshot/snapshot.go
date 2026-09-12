@@ -888,6 +888,9 @@ func validate(s Snapshot) error {
 		case c.Status == StatusFail && s.OK:
 			return fmt.Errorf("snapshot check %q is %s, so the run cannot be reported ok", c.ID, StatusFail)
 		}
+		if err := validateObservation(c, s.Redaction != nil); err != nil {
+			return fmt.Errorf("snapshot check %q: %w", c.ID, err)
+		}
 		checks[c.ID] = c
 		if impaired == "" && (c.Status == StatusFail || c.Status == StatusIncomplete) {
 			impaired = c.ID

@@ -550,3 +550,28 @@ func TestSupportOmitsAnUnrecordedCleartextObservation(t *testing.T) {
 		t.Errorf("false connect_cleartext was encoded rather than omitted:\n%s", data)
 	}
 }
+
+// A mapped IPv4 prefix has a 96-bit wrapper, unlike a native IPv6 prefix.
+// Removing only the address wrapper produced the string "invalid Prefix".
+func TestSupportMappedPrefixesRemainCIDR(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		bits  int
+		ipv4  bool
+	}{
+		{"::ffff:192.0.2.1/128", 32, true},
+		{"::ffff:192.0.2.0/120", 24, true},
+		{"::ffff:0.0.0.0/96", 24, true},
+		{"::ffff:192.0.2.1/95", 95, false},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			got := pseudonymPrefix(netip.MustParsePrefix(tc.input), 1)
+			if !got.IsValid() || got.Bits() != tc.bits || got.Addr().Is4() != tc.ipv4 {
+				t.Fatalf("pseudonym = %v, want IPv4=%t /%d", got, tc.ipv4, tc.bits)
+			}
+			if got.String() == tc.input {
+				t.Fatal("prefix was not pseudonymized")
+			}
+		})
+	}
+}

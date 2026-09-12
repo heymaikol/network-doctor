@@ -696,8 +696,13 @@ func (r *redactor) prefix(value string) string {
 }
 
 func pseudonymPrefix(prefix netip.Prefix, n uint32) netip.Prefix {
-	address := prefix.Addr().Unmap()
+	address := prefix.Addr()
 	bits := prefix.Bits()
+	// Unmapping removes the 96-bit IPv6 wrapper from the prefix too. A
+	// broader prefix still covers native IPv6 and must stay in that family.
+	if address.Is4In6() && bits >= 96 {
+		address, bits = address.Unmap(), bits-96
+	}
 	var counter [4]byte
 	binary.BigEndian.PutUint32(counter[:], n)
 	if address.Is4() {

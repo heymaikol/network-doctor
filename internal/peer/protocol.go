@@ -548,13 +548,22 @@ func validateObservation(observation Observation) error {
 	if observation.TLSAuthenticated && !observation.TCPConnected || observation.ApplicationTraffic && !observation.TLSAuthenticated {
 		return errInvalidMessage
 	}
+	// dialPeerTLS records the socket pair exactly when the TCP connection is
+	// established, so a connected attempt without them, or an unconnected one
+	// carrying them, is not an attempt this protocol can have made.
+	if observation.TCPConnected != (observation.Source != "") {
+		return errInvalidMessage
+	}
 	switch observation.Status {
 	case "PASS":
-		if observation.Cause != "" || !observation.TCPConnected || !observation.TLSAuthenticated || !observation.ApplicationTraffic || observation.PayloadBytes != payloadSize {
+		if observation.Cause != "" || !observation.TCPConnected || !observation.TLSAuthenticated || !observation.ApplicationTraffic || observation.PayloadBytes != payloadSize || observation.Destination == "" {
 			return errInvalidMessage
 		}
 	case "FAIL":
-		if observation.ApplicationTraffic || observation.PayloadBytes != 0 || !validFailureCause(observation.Cause) {
+		// The destination is set before the dial, so every tested attempt
+		// names the address it tried.
+		if observation.ApplicationTraffic || observation.PayloadBytes != 0 || observation.Destination == "" ||
+			!validFailureCause(observation.Cause, observationPhaseOf(observation)) {
 			return errInvalidMessage
 		}
 	case "N/A":
@@ -564,23 +573,57 @@ func validateObservation(observation Observation) error {
 	default:
 		return errInvalidMessage
 	}
+	// A probe dials one family over tcp4 or tcp6, so both socket endpoints
+	// belong to the family the row is filed under. normalizeEndpoint decides
+	// that the same way the rest of the protocol does, which keeps an
+	// IPv4-mapped form IPv4 and keeps a link-local zone attached.
 	for _, address := range []string{observation.Source, observation.Destination} {
 		if address == "" {
 			continue
 		}
-		if _, _, err := normalizeEndpoint(address, false); err != nil {
+		_, family, err := normalizeEndpoint(address, false)
+		if err != nil || family != observation.Family {
 			return errInvalidMessage
 		}
 	}
 	return nil
 }
 
-func validFailureCause(cause string) bool {
+// observationPhase is how far one attempt got before it stopped. dialPeerTLS
+// establishes the TCP connection, then authenticates the TLS peer, and only
+// then can probeEndpoint reach the fixed payload exchange.
+type observationPhase int
+
+const (
+	phaseConnecting observationPhase = iota
+	phaseSecuring
+	phaseExchanging
+)
+
+func observationPhaseOf(observation Observation) observationPhase {
+	switch {
+	case observation.TLSAuthenticated:
+		return phaseExchanging
+	case observation.TCPConnected:
+		return phaseSecuring
+	default:
+		return phaseConnecting
+	}
+}
+
+// validFailureCause reports whether the v1 producer can record this cause in
+// this phase. The bounded deadline and a canceled session end any phase, so
+// they match everywhere; every other cause names the one phase that emits it.
+func validFailureCause(cause string, phase observationPhase) bool {
 	switch cause {
-	case diagnostic.ConnectionCauseRefused, diagnostic.ConnectionCauseTimeout,
-		diagnostic.ConnectionCauseUnreachable, diagnostic.ConnectionCauseCanceled,
-		CauseTLSAuthenticationFailed, CauseApplicationTrafficFailed:
+	case diagnostic.ConnectionCauseTimeout, diagnostic.ConnectionCauseCanceled:
 		return true
+	case diagnostic.ConnectionCauseRefused, diagnostic.ConnectionCauseUnreachable:
+		return phase == phaseConnecting
+	case CauseTLSAuthenticationFailed:
+		return phase == phaseSecuring
+	case CauseApplicationTrafficFailed:
+		return phase == phaseExchanging
 	default:
 		return false
 	}

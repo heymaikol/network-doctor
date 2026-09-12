@@ -179,6 +179,9 @@ func TestProbePhaseFailuresRemainDistinct(t *testing.T) {
 		if !observation.TCPConnected || observation.TLSAuthenticated || observation.Cause != CauseTLSAuthenticationFailed {
 			t.Fatalf("TLS observation = %+v", observation)
 		}
+		if err := validateObservation(observation); err != nil {
+			t.Fatalf("wire validation rejected a real TLS-phase observation: %v", err)
+		}
 	})
 
 	t.Run("application", func(t *testing.T) {
@@ -219,6 +222,9 @@ func TestProbePhaseFailuresRemainDistinct(t *testing.T) {
 		}
 		if !observation.TCPConnected || !observation.TLSAuthenticated || observation.ApplicationTraffic || observation.Cause != CauseApplicationTrafficFailed {
 			t.Fatalf("application observation = %+v", observation)
+		}
+		if err := validateObservation(observation); err != nil {
+			t.Fatalf("wire validation rejected a real application-phase observation: %v", err)
 		}
 		got := Analyze(EndpointIdentity{}, EndpointIdentity{}, []Observation{observation})
 		if got.ID != DiagnosisApplicationFailure {

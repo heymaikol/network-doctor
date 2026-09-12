@@ -2365,7 +2365,7 @@ func TestRunCompareRejectsUnusableArtifacts(t *testing.T) {
 	}
 	garbage := write("garbage.ndoc", "not json at all")
 	future := write("future.ndoc", `{"schema":"netdoc.snapshot.v2","checks":[]}`)
-	unlabelled := write("unlabelled.ndoc", `{"schema":"`+snapshot.Schema+`","checks":[{"id":"iface"}]}`)
+	unlabelled := write("unlabelled.ndoc", `{"schema":"`+snapshot.Schema+`","created_at":"2026-01-02T03:04:05Z","tool":{"version":"dev","os":"linux","arch":"amd64"},"checks":[{"id":"iface"}]}`)
 	missing := filepath.Join(dir, "nothing-here.ndoc")
 
 	tests := []struct {
@@ -2494,5 +2494,17 @@ func TestRunSaveRecordsWhetherThePublicResolverWasChosen(t *testing.T) {
 				t.Errorf("options.public_dns = %q, want an address or empty", got)
 			}
 		})
+	}
+}
+
+// The artifact stores milliseconds, not the CLI duration. A positive timeout
+// can round to zero without making the invocation invalid.
+func TestSnapshotPreservesSubMillisecondTimeout(t *testing.T) {
+	s := buildSnapshotArtifact(headless{timeout: time.Nanosecond}, nil, nil)
+	if s.Options.ProbeTimeoutMs != 0 {
+		t.Fatalf("timeout = %d, want rounded zero", s.Options.ProbeTimeoutMs)
+	}
+	if _, err := snapshot.Encode(s); err != nil {
+		t.Fatal(err)
 	}
 }

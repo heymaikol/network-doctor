@@ -707,6 +707,9 @@ func validateProfile(profile ProfileSnapshot) error {
 	if profile.Schema != ProfileSchema {
 		return fmt.Errorf("profile snapshot has schema %q, want %q", profile.Schema, ProfileSchema)
 	}
+	if err := validateProvenance(profile.CreatedAt, profile.Tool); err != nil {
+		return err
+	}
 	if !validProfileName(profile.Profile.Name) || profile.Profile.Version < 1 || profile.Profile.Title == "" {
 		return fmt.Errorf("profile snapshot has invalid profile identity")
 	}
@@ -848,6 +851,12 @@ func Validate(s Snapshot) error {
 // as one where a row simply had nothing to say. A reader that accepted what the
 // writer refuses is a reader whose invariants are only true by luck.
 func validate(s Snapshot) error {
+	if err := validateProvenance(s.CreatedAt, s.Tool); err != nil {
+		return err
+	}
+	if err := validateInvocation(s.Target, s.Options); err != nil {
+		return err
+	}
 	if s.Redaction != nil && (!s.Redaction.Sanitized || s.Redaction.Policy != SupportRedactionPolicy) {
 		return fmt.Errorf("snapshot has invalid redaction metadata")
 	}

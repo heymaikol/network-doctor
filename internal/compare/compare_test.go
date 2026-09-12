@@ -880,7 +880,7 @@ func TestEmptyCollectionsEncodeAsArrays(t *testing.T) {
 	if !strings.Contains(string(data), `"changes":[]`) {
 		t.Errorf("an unchanged comparison does not encode empty changes as an array: %s", data)
 	}
-	empty := snapshot.Snapshot{Schema: snapshot.Schema, Checks: []snapshot.Check{}}
+	empty := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Schema: snapshot.Schema, Checks: []snapshot.Check{}}
 	data, err = json.Marshal(Snapshots(empty, empty))
 	if err != nil {
 		t.Fatal(err)

@@ -118,7 +118,7 @@ func TestTwoSidedProductionEvidence(t *testing.T) {
 		Finalize(results)
 		s := BuildSnapshot(target, probes, timedResults(results))
 		s.CreatedAt = "2000-01-01T00:00:00Z"
-		data, err := snapshot.Encode(s)
+		data, err := snapshot.Encode(withSnapshotProvenance(s))
 		if err != nil {
 			t.Fatal(err)
 		}

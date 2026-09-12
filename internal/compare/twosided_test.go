@@ -472,18 +472,18 @@ func TestEndpointAlternativesSurviveTwoSidedPlacement(t *testing.T) {
 		{"IP literal", nil, nil, second, second, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			target := &snapshot.Target{Host: "app.test", Port: 443, Protocol: "tls+http"}
+			target := &snapshot.Target{Raw: "app.test", Host: "app.test", Port: 443, Protocol: "tls+http"}
 			if tc.literal {
 				target.Host, target.IP = second, second
 			}
-			a := snapshot.Snapshot{Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
+			a := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
 				{ID: "dns", Name: "dns", Status: snapshot.StatusPass, Ran: true, Observed: &snapshot.Observed{Addresses: tc.dnsA}},
 				{ID: "target_tcp", Name: "target_tcp", Status: snapshot.StatusFail, Ran: true},
 			}, Diagnosis: snapshot.Diagnosis{FailedStage: "target_tcp"}}
 			if tc.contactedA != "" {
 				a.Checks[1].Observed = &snapshot.Observed{Attempts: []snapshot.Attempt{{IP: tc.contactedA, Cause: "connection_refused"}}}
 			}
-			b := snapshot.Snapshot{Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
+			b := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
 				{ID: "dns", Name: "dns", Status: snapshot.StatusPass, Ran: true, Observed: &snapshot.Observed{Addresses: tc.dnsB}},
 				{ID: "target_tcp", Name: "target_tcp", Status: snapshot.StatusPass, Ran: true, Observed: &snapshot.Observed{SelectedIP: tc.contactedB}},
 			}, OK: true}

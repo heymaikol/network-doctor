@@ -19,7 +19,7 @@ func evidenceArtifact(t *testing.T, check snapshot.Check) snapshot.Snapshot {
 	if check.Ran && check.DurationMs == 0 {
 		check.DurationMs = 1
 	}
-	s := snapshot.Snapshot{Schema: snapshot.Schema, Checks: []snapshot.Check{check}, OK: check.Status != snapshot.StatusFail && check.Status != snapshot.StatusIncomplete}
+	s := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Schema: snapshot.Schema, Checks: []snapshot.Check{check}, OK: check.Status != snapshot.StatusFail && check.Status != snapshot.StatusIncomplete}
 	if check.Status == snapshot.StatusFail {
 		s.Diagnosis.FailedStage = check.ID
 	}

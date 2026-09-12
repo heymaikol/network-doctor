@@ -290,7 +290,7 @@ func TestOlderSnapshotRemainsFullFidelity(t *testing.T) {
 		t.Errorf("ordinary snapshot was unexpectedly sanitized: %+v", decoded)
 	}
 
-	old, err := Decode([]byte(`{"schema":"` + Schema + `","created_at":"2026-08-25T12:00:00Z","target":null,"options":{"probe_timeout_ms":0,"public_dns":""},"checks":[],"diagnosis":{"verdict":"ok","summary":"healthy"},"ok":true}`))
+	old, err := Decode([]byte(`{"schema":"` + Schema + `","created_at":"2026-08-25T12:00:00Z","tool":{"version":"dev","os":"linux","arch":"amd64"},"target":null,"options":{"probe_timeout_ms":0,"public_dns":""},"checks":[],"diagnosis":{"verdict":"ok","summary":"healthy"},"ok":true}`))
 	if err != nil || old.Redaction != nil {
 		t.Fatalf("older v1 compatibility changed: redaction=%+v err=%v", old.Redaction, err)
 	}
@@ -303,7 +303,7 @@ func TestOlderSnapshotRemainsFullFidelity(t *testing.T) {
 // search was bounded.
 func TestSupportSanitizerTerminatesOnNarrowRoutePrefix(t *testing.T) {
 	pinLocalIdentity(t)
-	s := Snapshot{
+	s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
 		Checks: []Check{{ID: "route", Name: "route", Status: StatusPass, Observed: &Observed{
 			// 10.0.1.0 is the address the mapped /32 below wants to hand out,
@@ -335,7 +335,7 @@ func TestSupportSanitizerTerminatesOnNarrowRoutePrefix(t *testing.T) {
 // way they replace any other known value.
 func TestSupportRedactsLocalMachineIdentity(t *testing.T) {
 	pinLocalIdentity(t)
-	s := Snapshot{
+	s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
 		Checks: []Check{{
 			ID: "tls", Name: "TLS", Status: StatusFail, Ran: true, DurationMs: 1,
@@ -372,7 +372,7 @@ func TestSupportLeavesGenericLocalIdentityAlone(t *testing.T) {
 	original := localIdentity
 	localIdentity = func() (string, string) { return "localhost", "root" }
 	t.Cleanup(func() { localIdentity = original })
-	s := Snapshot{
+	s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
 		Checks:    []Check{{ID: "dns", Name: "DNS", Status: StatusPass, Detail: "resolved via localhost as root"}},
 		Diagnosis: Diagnosis{Verdict: "ok", Summary: "healthy"},
@@ -388,7 +388,7 @@ func TestSupportLeavesGenericLocalIdentityAlone(t *testing.T) {
 // it was rewritten.
 func TestSupportKeepsUnrelatedTextIntact(t *testing.T) {
 	pinLocalIdentity(t)
-	s := Snapshot{
+	s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
 		Checks: []Check{
 			{ID: "quic", Name: "QUIC / UDP 443", Status: StatusPass,
@@ -425,7 +425,7 @@ func TestSupportKeepsUnrelatedTextIntact(t *testing.T) {
 // than as part of the address before it.
 func TestSupportRedactsAddressesFoundOnlyInText(t *testing.T) {
 	pinLocalIdentity(t)
-	s := Snapshot{
+	s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
 		Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail, Ran: true, DurationMs: 1,
 			Detail: "no route to 192.168.7.31.",
@@ -456,7 +456,7 @@ func TestSupportRedactsAddressesFoundOnlyInText(t *testing.T) {
 // well-known resolver the address pass already keeps.
 func TestSanitizeKeepsWhetherThePublicResolverWasChosen(t *testing.T) {
 	for _, auto := range []bool{true, false} {
-		s := Snapshot{Schema: Schema, Options: Options{PublicDNS: "8.8.8.8", PublicDNSAuto: auto}}
+		s := Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Schema: Schema, Options: Options{PublicDNS: "8.8.8.8", PublicDNSAuto: auto}}
 		got := SanitizeForSupport(s).Options
 		if got.PublicDNS != "8.8.8.8" || got.PublicDNSAuto != auto {
 			t.Errorf("options = %+v, want 8.8.8.8 with auto=%v", got, auto)
@@ -471,7 +471,7 @@ func TestSanitizeKeepsWhetherThePublicResolverWasChosen(t *testing.T) {
 // routability of its own, which is why copying it is allowed at all.
 func TestSupportKeepsTheRecordedAnswerComparison(t *testing.T) {
 	for _, comparison := range []AnswerComparison{AnswerComparisonAgree, AnswerComparisonDisagree} {
-		s := Snapshot{
+		s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 			Schema: Schema, CreatedAt: "2026-08-25T17:00:00Z",
 			Checks: []Check{{
 				ID: "dns_public", Name: "Public DNS", Status: StatusWarn, Ran: true, DurationMs: 1,
@@ -504,7 +504,7 @@ func TestSupportKeepsTheRecordedAnswerComparison(t *testing.T) {
 // artifact that lost it would report a proxied run as if the hop had never been
 // looked at.
 func TestSupportKeepsTheCleartextConnectObservation(t *testing.T) {
-	s := Snapshot{
+	s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: Schema, CreatedAt: "2026-08-25T17:00:00Z",
 		Checks: []Check{{
 			ID: "proxy_connect", Name: "Internet (env proxy)", Status: StatusPass, Ran: true, DurationMs: 30,
@@ -533,7 +533,7 @@ func TestSupportKeepsTheCleartextConnectObservation(t *testing.T) {
 // The other half of the policy: false is absent, so an artifact never asserts a
 // TLS hop it did not confirm.
 func TestSupportOmitsAnUnrecordedCleartextObservation(t *testing.T) {
-	s := Snapshot{
+	s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: Schema, CreatedAt: "2026-08-25T17:00:00Z",
 		Checks: []Check{{
 			ID: "proxy_connect", Name: "Internet (env proxy)", Status: StatusPass, Ran: true, DurationMs: 30,

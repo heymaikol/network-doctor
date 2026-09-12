@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
@@ -340,17 +339,6 @@ func validateSnapshot(path string, fieldCase Case) error {
 	}
 	if s.Redaction.Policy != snapshot.SupportRedactionPolicy {
 		return fmt.Errorf("%s: redaction policy is %q, want %q", path, s.Redaction.Policy, snapshot.SupportRedactionPolicy)
-	}
-	if blank(s.CreatedAt) {
-		return fmt.Errorf("%s: snapshot has no creation time", path)
-	}
-	createdAt, err := time.Parse(time.RFC3339, s.CreatedAt)
-	_, offset := createdAt.Zone()
-	if err != nil || offset != 0 {
-		return fmt.Errorf("%s: snapshot creation time %q is not RFC 3339 UTC", path, s.CreatedAt)
-	}
-	if blank(s.Tool.Version) || blank(s.Tool.OS) || blank(s.Tool.Arch) {
-		return fmt.Errorf("%s: snapshot has incomplete tool provenance", path)
 	}
 	if s.Tool.Version != fieldCase.NetworkDoctor.Version {
 		return fmt.Errorf("%s: snapshot tool version %q does not match case version %q", path, s.Tool.Version, fieldCase.NetworkDoctor.Version)

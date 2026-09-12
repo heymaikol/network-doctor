@@ -53,7 +53,7 @@ func hasEvidenceItem(evidence []CausalEvidence, want CausalEvidence) bool {
 // That success is not a mitigating detail, it is a refutation, so the run may
 // report the reference endpoints as unreachable and nothing more.
 func TestReachedTargetRefutesABlockedEgressVerdict(t *testing.T) {
-	target := &Target{Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
+	target := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbeTLS, ProbeHTTP, ProbeHTTPS}
 	build := func() map[ProbeID]ProbeResult {
 		return map[ProbeID]ProbeResult{
@@ -142,8 +142,8 @@ func TestReachedTargetRefutesABlockedEgressVerdict(t *testing.T) {
 // looked at local routing state, so the run has a correlation and no location.
 // It may say what did not answer; it may not say whose fault that is.
 func TestBothPathsFailingDoesNotLocateTheBreak(t *testing.T) {
-	remote := &Target{Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
-	device := &Target{Host: "192.168.1.10", IP: net.ParseIP("192.168.1.10"), Port: 9100, Proto: ProtoNone}
+	remote := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
+	device := &Target{Raw: "192.168.1.10", Host: "192.168.1.10", IP: net.ParseIP("192.168.1.10"), Port: 9100, Proto: ProtoNone}
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
 
 	for _, tc := range []struct {
@@ -192,7 +192,7 @@ func TestBothPathsFailingDoesNotLocateTheBreak(t *testing.T) {
 // beyond route selection metadata and failed connections, so
 // the stronger conclusion and its route-specific repair must both survive.
 func TestObservedRouteStateStillLocatesTheBreak(t *testing.T) {
-	target := &Target{Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
+	target := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
 	for _, tc := range []struct {
 		cause  string
@@ -240,7 +240,7 @@ func TestRouteSelectionDoesNotLocateFailure(t *testing.T) {
 		}
 		for _, host := range []string{"example.com", "192.168.1.10"} {
 			t.Run(cause+"/"+host, func(t *testing.T) {
-				target := &Target{Host: host, IP: net.ParseIP(host), Port: 443, Proto: ProtoNone}
+				target := &Target{Raw: host, Host: host, IP: net.ParseIP(host), Port: 443, Proto: ProtoNone}
 				order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
 				probes := make([]Probe, len(order))
 				for i, id := range order {
@@ -270,7 +270,7 @@ func TestRouteSelectionDoesNotLocateFailure(t *testing.T) {
 					} else if d.Verdict != control.Verdict || d.Summary != control.Summary {
 						t.Fatal("route metadata changed verdict or summary")
 					}
-					data, err := snapshot.Encode(BuildSnapshot(target, probes, timedResults(res)))
+					data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(target, probes, timedResults(res))))
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -290,7 +290,7 @@ func TestRouteSelectionDoesNotLocateFailure(t *testing.T) {
 }
 
 func TestFailedRouteFamiliesPreserveUncertaintyAndContext(t *testing.T) {
-	target := &Target{Host: "example.com", Port: 443, Proto: ProtoNone}
+	target := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoNone}
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
 	probes := []Probe{{ID: ProbeIface}, {ID: ProbeInternet}, {ID: ProbeDNS}, {ID: ProbeTargetTCP}}
 	causes := []string{RouteCauseNoDefaultRoute, RouteCauseGatewayUnreachable, RouteCauseSelectedPathFailed, RouteCausePreferredPathFailed, ""}
@@ -342,7 +342,7 @@ func TestFailedRouteFamiliesPreserveUncertaintyAndContext(t *testing.T) {
 							t.Errorf("missing route context %+v", e)
 						}
 					}
-					data, err := snapshot.Encode(BuildSnapshot(target, probes, timedResults(res)))
+					data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(target, probes, timedResults(res))))
 					if err != nil {
 						t.Fatal(err)
 					}

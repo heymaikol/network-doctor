@@ -19,7 +19,7 @@ func observed(at time.Time, health Health, iface string) snapshot.Snapshot {
 	if health == Failing {
 		status, ok, verdict, failedStage = snapshot.StatusFail, false, "network", "target_tcp"
 	}
-	return snapshot.Snapshot{
+	return snapshot.Snapshot{Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: snapshot.Schema, CreatedAt: stamp(at), OK: ok,
 		Target: &snapshot.Target{Raw: "example.com", Host: "example.com", Port: 443, Protocol: "tls+http"},
 		Checks: []snapshot.Check{{

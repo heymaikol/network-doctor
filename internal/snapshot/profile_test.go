@@ -66,7 +66,7 @@ func TestProfileAndSingleSnapshotSchemasStayDistinct(t *testing.T) {
 			t.Fatalf("single-run decode error = %v", err)
 		}
 	}
-	singleData, err := Encode(Snapshot{Checks: []Check{}, OK: true})
+	singleData, err := Encode(Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Checks: []Check{}, OK: true})
 	if err != nil {
 		t.Fatal(err)
 	}

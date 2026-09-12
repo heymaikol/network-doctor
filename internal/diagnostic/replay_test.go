@@ -87,7 +87,7 @@ func TestReplaySnapshotRoundTripSemantics(t *testing.T) {
 				probes[i] = Probe{ID: id, Name: string(id)}
 			}
 			want := Interpret(test.target, test.order, test.res)
-			data, err := snapshot.Encode(BuildSnapshot(test.target, probes, timedResults(test.res)))
+			data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(test.target, probes, timedResults(test.res))))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -110,7 +110,7 @@ func TestResolverTargetsSurviveSnapshotReplay(t *testing.T) {
 	artifact := BuildSnapshot(nil, probes, timedResults(map[ProbeID]ProbeResult{
 		ProbeDNS: {Status: StatusPass, ResolverTargets: targets},
 	}))
-	data, err := snapshot.Encode(artifact)
+	data, err := snapshot.Encode(withSnapshotProvenance(artifact))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestConnectCleartextSurvivesSnapshotReplay(t *testing.T) {
 	artifact := BuildSnapshot(nil, probes, map[ProbeID]ProbeResult{
 		ProbeProxy: {Status: StatusPass, Dur: 30 * time.Millisecond, Detail: "proxy tunnels", ConnectCleartext: true},
 	})
-	data, err := snapshot.Encode(artifact)
+	data, err := snapshot.Encode(withSnapshotProvenance(artifact))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,9 +156,9 @@ func TestConnectCleartextSurvivesSnapshotReplay(t *testing.T) {
 // encode no field, so a reader never mistakes false for a confirmed TLS hop.
 func TestUnrecordedConnectCleartextIsOmittedFromTheSnapshot(t *testing.T) {
 	probes := []Probe{{ID: ProbeProxy, Name: "Internet (env proxy)"}}
-	data, err := snapshot.Encode(BuildSnapshot(nil, probes, map[ProbeID]ProbeResult{
+	data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(nil, probes, map[ProbeID]ProbeResult{
 		ProbeProxy: {Status: StatusPass, Dur: 30 * time.Millisecond, Detail: "proxy tunnels"},
-	}))
+	})))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestReplayAfterSupportSanitizationKeepsTheConclusion(t *testing.T) {
 				probes[i] = Probe{ID: id, Name: string(id)}
 			}
 			want := Interpret(test.target, test.order, test.res)
-			data, err := snapshot.Encode(snapshot.SanitizeForSupport(BuildSnapshot(test.target, probes, timedResults(test.res))))
+			data, err := snapshot.Encode(withSnapshotProvenance(snapshot.SanitizeForSupport(BuildSnapshot(test.target, probes, timedResults(test.res)))))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -526,7 +526,7 @@ func sanitizedReplayInput(t *testing.T, target *Target, order []ProbeID, res map
 	}
 	Finalize(res)
 	want := Interpret(target, order, res)
-	data, err := snapshot.Encode(snapshot.SanitizeForSupport(BuildSnapshot(target, probes, timedResults(res))))
+	data, err := snapshot.Encode(withSnapshotProvenance(snapshot.SanitizeForSupport(BuildSnapshot(target, probes, timedResults(res)))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +702,7 @@ func TestEveryReconciledDNSStateReplays(t *testing.T) {
 			res := map[ProbeID]ProbeResult{ProbeDNS: system.result, ProbeDNSPublic: public.result}
 			Finalize(res)
 			want := res[ProbeDNSPublic].answerComparison
-			data, err := snapshot.Encode(BuildSnapshot(nil, probes, timedResults(res)))
+			data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(nil, probes, timedResults(res))))
 			if err != nil {
 				t.Fatalf("system %s, public %s: encode: %v", system.name, public.name, err)
 			}

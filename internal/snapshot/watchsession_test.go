@@ -167,7 +167,6 @@ var identity = map[string]func(*Snapshot){
 	"Snapshot.Target":     func(s *Snapshot) { s.Target.Host = "elsewhere.example.net" },
 	"Target.Raw":          func(s *Snapshot) { s.Target.Raw = "example.com" },
 	"Target.Host":         func(s *Snapshot) { s.Target.Host = "elsewhere.example.net" },
-	"Target.IP":           func(s *Snapshot) { s.Target.IP = "198.51.100.7" },
 	"Target.Port":         func(s *Snapshot) { s.Target.Port = 8443 },
 	"Target.Protocol":     func(s *Snapshot) { s.Target.Protocol = "tcp" },
 	"Target.PortExplicit": func(s *Snapshot) { s.Target.PortExplicit = false },
@@ -227,6 +226,7 @@ var varies = map[string]func(*Snapshot){
 // shape, by a rule this one would duplicate. Naming the rule is the point, so
 // that adding a field here is a decision and not an escape hatch.
 var elsewhere = map[string]string{
+	"Target.IP":          "Invocation validation derives IP from Host; it cannot vary independently. TestEnvelopeBoundaries covers disagreement.",
 	"Snapshot.Schema":    "the nested schema rule: every state carries this build's schema",
 	"Snapshot.OK":        "the incident phase rule: the onset and the during state failed, the before and recovered states did not",
 	"Snapshot.Redaction": "the incident redaction rule: every state is sanitized or none is",

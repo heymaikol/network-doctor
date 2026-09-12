@@ -194,7 +194,7 @@ func TestSupportPolicySetsNameOnlyRealFields(t *testing.T) {
 // keep a value the sanitizer already knows about from a structured field.
 func TestSupportProseFieldsStillLoseKnownValues(t *testing.T) {
 	pinLocalIdentity(t)
-	s := Snapshot{
+	s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
 		Target: &Target{Raw: "labbox:8443", Host: "labbox", Port: 8443, Protocol: "tls"},
 		Checks: []Check{{

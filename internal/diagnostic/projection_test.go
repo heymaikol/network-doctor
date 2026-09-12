@@ -332,7 +332,7 @@ func maximalResult() ProbeResult {
 const transientSentinel = "zz-transient-alternate-zz"
 
 func maximalTarget() *Target {
-	return &Target{Raw: "example.com:443", Host: "example.com", IP: net.ParseIP("192.0.2.10"),
+	return &Target{Raw: "192.0.2.10:443", Host: "192.0.2.10", IP: net.ParseIP("192.0.2.10"),
 		Port: 443, Proto: ProtoTLSHTTP, PortExplicit: true}
 }
 
@@ -354,7 +354,7 @@ func projected(t *testing.T) ([]byte, snapshot.Snapshot, ProbeResult) {
 		ProbeDNSPublic: live,
 		ProbeIface:     {ID: ProbeIface, Status: StatusPass, Dur: time.Millisecond},
 	})
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatalf("the projection fixture is not a valid snapshot: %v", err)
 	}

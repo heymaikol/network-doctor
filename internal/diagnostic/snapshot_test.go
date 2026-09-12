@@ -227,7 +227,7 @@ func TestBuildSnapshotShape(t *testing.T) {
 func TestBuildSnapshotCausalEvidenceRoundTrip(t *testing.T) {
 	target, probes, results := fixtureRun()
 	want := BuildSnapshot(target, probes, results)
-	data, err := snapshot.Encode(want)
+	data, err := snapshot.Encode(withSnapshotProvenance(want))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestBuildSnapshotGenericRun(t *testing.T) {
 	if !s.OK || s.Checks == nil || len(s.Checks) != 0 {
 		t.Errorf("empty run = %+v, want ok with an empty (not null) check list", s)
 	}
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestBuildSnapshotCoversTheRealProbeGraph(t *testing.T) {
 			t.Errorf("check %d = %+v, want a named row that ran", i, c)
 		}
 	}
-	if _, err := snapshot.Encode(s); err != nil {
+	if _, err := snapshot.Encode(withSnapshotProvenance(s)); err != nil {
 		t.Errorf("the real graph does not encode: %v", err)
 	}
 }
@@ -322,7 +322,7 @@ func TestBuildSnapshotKeepsHostileTextInert(t *testing.T) {
 	}}}
 	probes[0].Run = wrapRun(probes[0].Run)
 	results := RunAll(context.Background(), probes, time.Second)
-	data, err := snapshot.Encode(BuildSnapshot(nil, probes, results))
+	data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(nil, probes, results)))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestBuildSnapshotOmitsProxyCredentials(t *testing.T) {
 	probes := []Probe{{ID: ProbeProxy, Name: "Internet (env proxy)", Run: wrapRun(ops.proxyProbe)}}
 	results := RunAll(context.Background(), probes, 2*time.Second)
 
-	data, err := snapshot.Encode(BuildSnapshot(nil, probes, results))
+	data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(nil, probes, results)))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestSnapshotCarriesNoEnvironmentDump(t *testing.T) {
 	target, probes, results := fixtureRun()
 	s := BuildSnapshot(target, probes, results)
 	s.Tool = snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestBuildSnapshotMarksUnreportedChecksIncomplete(t *testing.T) {
 	}
 	// And what the builder produces is what the format accepts: the guard in
 	// Encode and the rule here cannot drift apart without this failing.
-	if _, err := snapshot.Encode(s); err != nil {
+	if _, err := snapshot.Encode(withSnapshotProvenance(s)); err != nil {
 		t.Errorf("the builder produced a snapshot the format refuses: %v", err)
 	}
 }
@@ -541,7 +541,7 @@ func TestSnapshotPreservesCounterfactualDiagnosisAndAttemptEvidence(t *testing.T
 			}},
 	}
 	s := BuildSnapshot(target, probes, results)
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,7 +605,7 @@ func TestBuildSnapshotOmitsRoutesWhenThePlatformAnsweredNothing(t *testing.T) {
 	if s.Checks[0].Observed != nil && s.Checks[0].Observed.Routes != nil {
 		t.Errorf("routes = %+v, want none", s.Checks[0].Observed.Routes)
 	}
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -646,7 +646,7 @@ func TestBuiltSnapshotEvidenceProjectionsAgree(t *testing.T) {
 			{Kind: EvidenceSupport, Check: ProbeDNS, Observation: ObservationCause},
 		},
 	}
-	s := snapshot.Snapshot{
+	s := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Checks: []snapshot.Check{
 			{ID: string(ProbeDNS), Name: "DNS", Status: snapshot.StatusFail, Cause: "timeout", Ran: true, DurationMs: 1},
 			{ID: string(ProbeDNSPublic), Name: "Public DNS", Status: snapshot.StatusPass, Ran: true, DurationMs: 1,
@@ -670,7 +670,7 @@ func TestBuiltSnapshotEvidenceProjectionsAgree(t *testing.T) {
 			Value: e.Value, Candidate: string(e.Candidate), Reason: string(e.Reason),
 		})
 	}
-	if _, err := snapshot.Encode(s); err != nil {
+	if _, err := snapshot.Encode(withSnapshotProvenance(s)); err != nil {
 		t.Fatalf("EvidenceRows no longer produces the projection the snapshot format validates: %v", err)
 	}
 }
@@ -699,7 +699,7 @@ func TestBuiltSnapshotDependencyGraphIsPublishable(t *testing.T) {
 		full := ops.buildProbes(target, DefaultPublicDNS, true, ProbePMTU)
 		for _, selection := range selections {
 			probes := selection.Apply(full)
-			if _, err := snapshot.Encode(BuildSnapshot(target, probes, nil)); err != nil {
+			if _, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(target, probes, nil))); err != nil {
 				t.Errorf("%s graph with selection check=%v skip=%v reference=%v: %v",
 					name, selection.Check, selection.Skip, !selection.NoReferenceEgress, err)
 			}
@@ -758,7 +758,25 @@ func TestExecutedRunsAgreeWithTheFormatAboutWhatRan(t *testing.T) {
 			t.Errorf("the producer wrote row %q, which the format calls impossible: %s/ran=%t", c.ID, c.Status, c.Ran)
 		}
 	}
-	if _, err := snapshot.Encode(artifact); err != nil {
+	if _, err := snapshot.Encode(withSnapshotProvenance(artifact)); err != nil {
 		t.Fatalf("the format refused an artifact the executor produced: %v", err)
 	}
+}
+
+// BuildSnapshot intentionally leaves invocation provenance to its caller.
+// Tests that serialize its output supply the same required envelope as app.
+func withSnapshotProvenance(s snapshot.Snapshot) snapshot.Snapshot {
+	if s.CreatedAt == "" {
+		s.CreatedAt = "2026-01-02T03:04:05Z"
+	}
+	if s.Tool.Version == "" {
+		s.Tool.Version = "dev"
+	}
+	if s.Tool.OS == "" {
+		s.Tool.OS = "linux"
+	}
+	if s.Tool.Arch == "" {
+		s.Tool.Arch = "amd64"
+	}
+	return s
 }

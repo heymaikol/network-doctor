@@ -274,7 +274,7 @@ func RunLab(ctx context.Context, s LabScenario) (LabReport, error) {
 		artifact := diagnostic.BuildSnapshot(target, probes, results)
 		artifact.Tool = snapshot.Tool{Version: "scenario-lab", OS: "model", Arch: "model"}
 		artifact.CreatedAt = "2000-01-01T00:00:00Z"
-		artifact.Options = snapshot.Options{ProbeTimeoutMs: diagnostic.DefaultProbeTimeout.Milliseconds(), PublicDNS: diagnostic.DefaultPublicDNS}
+		artifact.Options = snapshot.Options{ProbeTimeoutMs: diagnostic.ProbeTimeoutMs(diagnostic.DefaultProbeTimeout), PublicDNS: diagnostic.DefaultPublicDNS}
 		if v.SourceSegment != "" {
 			binding := &snapshot.Source{Interface: v.SourceSegment}
 			for _, iface := range m.scenario.Topology.node(v.Node).Interfaces {
@@ -471,7 +471,9 @@ func validateLabDiagnosis(e LabExpected, s snapshot.Snapshot, d diagnostic.Diagn
 	}
 	for _, want := range e.Checks {
 		got, ok := checks[want.ID]
-		if ok && ((got.Status == snapshot.StatusPass || got.Status == snapshot.StatusWarn || got.Status == snapshot.StatusFail) && !got.Ran || got.Status == snapshot.StatusSkip && got.Ran) {
+		// One rule, owned by the format. The lab used to spell it a second
+		// time here, and a second spelling is a second rule to drift.
+		if ok && snapshot.ExecutionContradicts(got) {
 			problems = append(problems, "check execution contradicts status: "+want.ID)
 		}
 		if !ok || got.Status != want.Status || want.Cause != "" && got.Cause != want.Cause {

@@ -12,7 +12,17 @@ import (
 
 func evidenceArtifact(t *testing.T, check snapshot.Check) snapshot.Snapshot {
 	t.Helper()
-	s := snapshot.Snapshot{Schema: snapshot.Schema, Checks: []snapshot.Check{check}, OK: check.Status != snapshot.StatusFail && check.Status != snapshot.StatusIncomplete}
+	// ran follows the status the caller asked for, because the format holds
+	// the two together: only a probe body that executed reports an outcome,
+	// and a skipped or unreported row was never called.
+	check.Ran = !snapshot.ExecutionContradicts(snapshot.Check{Status: check.Status, Ran: true})
+	if check.Ran && check.DurationMs == 0 {
+		check.DurationMs = 1
+	}
+	s := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Schema: snapshot.Schema, Checks: []snapshot.Check{check}, OK: check.Status != snapshot.StatusFail && check.Status != snapshot.StatusIncomplete}
+	if check.Status == snapshot.StatusFail {
+		s.Diagnosis.FailedStage = check.ID
+	}
 	data, err := snapshot.Encode(s)
 	if err != nil {
 		t.Fatal(err)

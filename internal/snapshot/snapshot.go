@@ -657,6 +657,48 @@ func validStatus(status string) bool {
 	return false
 }
 
+// validCheckStatus is the ordinary check-row vocabulary, which is the profile
+// component vocabulary plus INCOMPLETE. The two are deliberately separate
+// functions: a component status is a profile's reading of a whole run and can
+// never be INCOMPLETE, while a check row is one probe's outcome and can.
+func validCheckStatus(status string) bool {
+	return validStatus(status) || status == StatusIncomplete
+}
+
+// ExecutionContradicts reports whether a row's status and its ran flag
+// describe an execution no run could have performed.
+//
+// The two fields are not independent. ran is the probe body's own measured
+// duration read as a yes or no, so a row carrying a measured outcome ran, and
+// a row nothing executed cannot carry one: a check skipped for a failed
+// prerequisite is recorded by the scheduler without calling the probe, and an
+// incomplete row was never called at all, so both read false.
+//
+// N/A is deliberately outside the rule. It is the one surviving status a probe
+// decides from inside its own body after looking, which is why an N/A row
+// normally ran, while a later netdoc that rules a row inapplicable before
+// calling it would still be writing a v1 file rather than a broken one.
+//
+// It is exported because the scenario lab holds the same expectation over the
+// artifacts it builds, and two spellings of one rule are two rules.
+func ExecutionContradicts(c Check) bool {
+	// The same fact read off the other field. ran is the duration asked
+	// whether it is greater than zero, so a row that reports time spent ran,
+	// whatever its status says. This direction only: a probe body that
+	// finished faster than the unit could still round to zero in an artifact
+	// an older netdoc wrote, and that file is not the contradiction.
+	if !c.Ran && c.DurationMs != 0 {
+		return true
+	}
+	switch c.Status {
+	case StatusPass, StatusWarn, StatusFail:
+		return !c.Ran
+	case StatusSkip, StatusIncomplete:
+		return c.Ran
+	}
+	return false
+}
+
 func validAggregateStatus(status string) bool {
 	return status == StatusPass || status == StatusWarn || status == StatusFail
 }
@@ -664,6 +706,9 @@ func validAggregateStatus(status string) bool {
 func validateProfile(profile ProfileSnapshot) error {
 	if profile.Schema != ProfileSchema {
 		return fmt.Errorf("profile snapshot has schema %q, want %q", profile.Schema, ProfileSchema)
+	}
+	if err := validateProvenance(profile.CreatedAt, profile.Tool); err != nil {
+		return err
 	}
 	if !validProfileName(profile.Profile.Name) || profile.Profile.Version < 1 || profile.Profile.Title == "" {
 		return fmt.Errorf("profile snapshot has invalid profile identity")
@@ -678,7 +723,8 @@ func validateProfile(profile ProfileSnapshot) error {
 		return fmt.Errorf("profile snapshot has invalid redaction metadata")
 	}
 	ids := make(map[string]bool, len(profile.Components))
-	for _, component := range profile.Components {
+	outcomes := make([]ProfileComponentOutcome, len(profile.Components))
+	for i, component := range profile.Components {
 		if component.ID == "" || component.Label == "" || component.Focus == "" || !validStatus(component.Status) || ids[component.ID] {
 			return fmt.Errorf("profile snapshot has invalid component %q", component.ID)
 		}
@@ -693,26 +739,69 @@ func validateProfile(profile ProfileSnapshot) error {
 			profile.Redaction != nil && *profile.Redaction != *component.Snapshot.Redaction {
 			return fmt.Errorf("profile component %q has different redaction metadata", component.ID)
 		}
+		// The component's status is the envelope's one-word reading of the run
+		// nested directly beneath it. A file where the two disagree tells a
+		// script one thing and its own evidence another, and there is no third
+		// place to look to find out which was the run.
+		want := ProfileComponentStatus(focusStatus(component), component.Snapshot.Diagnosis.Verdict, component.Snapshot.OK)
+		if component.Status != want {
+			return fmt.Errorf("profile component %q is %s, but its run reads as %s", component.ID, component.Status, want)
+		}
+		outcomes[i] = ProfileComponentOutcome{ID: component.ID, Status: component.Status, Fallback: component.Fallback}
 	}
 	for _, component := range profile.Components {
 		if component.Fallback != "" && (!ids[component.Fallback] || component.Fallback == component.ID) {
 			return fmt.Errorf("profile component %q has invalid fallback reference %q", component.ID, component.Fallback)
 		}
 	}
-	if profile.Aggregate.Finding != nil {
-		finding := profile.Aggregate.Finding
-		if finding.ID == "" {
-			return fmt.Errorf("profile snapshot aggregate finding has no ID")
+	return validateProfileAggregate(profile, AggregateProfile(outcomes))
+}
+
+// focusStatus is the status of the row the component was about, or empty when
+// the nested run holds no such row. Empty is unambiguous: validate refuses a
+// check with no status, so nothing else can produce it.
+func focusStatus(component ProfileComponent) string {
+	for _, check := range component.Snapshot.Checks {
+		if check.ID == component.Focus {
+			return check.Status
 		}
-		for _, list := range [][]string{finding.AffectedComponents, finding.WorkingComponents} {
-			seen := map[string]bool{}
-			for _, id := range list {
-				if !ids[id] || seen[id] {
-					return fmt.Errorf("profile snapshot aggregate finding references invalid component %q", id)
-				}
-				seen[id] = true
-			}
+	}
+	return ""
+}
+
+// validateProfileAggregate holds the envelope's own conclusion to the one the
+// components determine. Every field here is structurally derived, so there is
+// nothing for a producer to decide and nothing for a reader to interpret: the
+// artifact either says what its components say or it is two artifacts.
+//
+// The summary is the exception and is checked only for being present. It is a
+// sentence built from labels this package does not have, and regenerating
+// prose to compare it against would make a wording change a format break.
+func validateProfileAggregate(profile ProfileSnapshot, conclusion ProfileAggregation) error {
+	if profile.Aggregate.Status != conclusion.Status {
+		return fmt.Errorf("profile snapshot aggregate is %s, but its components read as %s",
+			profile.Aggregate.Status, conclusion.Status)
+	}
+	wantID := conclusion.FindingID(profile.Profile.Name)
+	finding := profile.Aggregate.Finding
+	if (finding == nil) != (wantID == "") {
+		if wantID == "" {
+			return fmt.Errorf("profile snapshot names aggregate finding %q, but every component passed", finding.ID)
 		}
+		return fmt.Errorf("profile snapshot names no aggregate finding, but its components read as %q", wantID)
+	}
+	if finding == nil {
+		return nil
+	}
+	switch {
+	case finding.ID != wantID:
+		return fmt.Errorf("profile snapshot names aggregate finding %q, but its components read as %q", finding.ID, wantID)
+	case !slices.Equal(finding.AffectedComponents, conclusion.Affected):
+		return fmt.Errorf("profile snapshot finding %q lists affected components %v, but %v are not passing",
+			finding.ID, finding.AffectedComponents, conclusion.Affected)
+	case !slices.Equal(finding.WorkingComponents, conclusion.Working):
+		return fmt.Errorf("profile snapshot finding %q lists working components %v, but %v are working",
+			finding.ID, finding.WorkingComponents, conclusion.Working)
 	}
 	return nil
 }
@@ -740,6 +829,21 @@ func stamped(s Snapshot) Snapshot {
 	return s
 }
 
+// Validate applies the same rules to a snapshot that arrived already decoded,
+// and changes nothing about it.
+//
+// Decode is the reader for .ndoc bytes. This is for a snapshot that travelled
+// inside some other envelope, where re-encoding it to reuse Encode would be
+// the wrong check: Encode stamps the schema on the way through, so it would
+// repair the one discrepancy most worth catching and then pronounce the
+// repaired copy valid.
+func Validate(s Snapshot) error {
+	if s.Schema != Schema {
+		return UnsupportedSchemaError{Found: s.Schema}
+	}
+	return validate(s)
+}
+
 // validate holds the rules a snapshot has to satisfy to be a snapshot, rather
 // than valid JSON that happens to have these keys. Both directions apply them:
 // Encode so a file that says nothing about a row never gets published, and
@@ -747,28 +851,111 @@ func stamped(s Snapshot) Snapshot {
 // as one where a row simply had nothing to say. A reader that accepted what the
 // writer refuses is a reader whose invariants are only true by luck.
 func validate(s Snapshot) error {
+	if err := validateProvenance(s.CreatedAt, s.Tool); err != nil {
+		return err
+	}
+	if err := validateInvocation(s.Target, s.Options); err != nil {
+		return err
+	}
 	if s.Redaction != nil && (!s.Redaction.Sanitized || s.Redaction.Policy != SupportRedactionPolicy) {
 		return fmt.Errorf("snapshot has invalid redaction metadata")
 	}
 	checks := make(map[string]Check, len(s.Checks))
+	impaired, firstFailed := "", ""
 	for _, c := range s.Checks {
+		_, repeated := checks[c.ID]
 		switch {
+		case c.ID == "":
+			return fmt.Errorf("snapshot has a check with no id: a row nothing can name is a row nothing can cite")
+		case repeated:
+			return fmt.Errorf("snapshot lists check %q twice: one run observes a check once, and two rows under one id let two readers read two different runs", c.ID)
 		case c.Status == "":
 			return fmt.Errorf("snapshot check %q has no status: a row with no completed result must say %s", c.ID, StatusIncomplete)
+		case !validCheckStatus(c.Status):
+			return fmt.Errorf("snapshot check %q has unknown status %q", c.ID, c.Status)
 		case c.CauseFamily != "" && c.Cause == "":
 			return fmt.Errorf("snapshot check %q has a cause family without a cause", c.ID)
 		case c.Derived != nil && !validAnswerComparison(c.Derived.AnswerComparison):
 			return fmt.Errorf("snapshot check %q has unknown answer comparison %q", c.ID, c.Derived.AnswerComparison)
-		case c.Status == StatusIncomplete && c.Ran:
-			return fmt.Errorf("snapshot check %q is %s and also ran: a row that reported has an outcome", c.ID, StatusIncomplete)
+		case !c.Ran && c.DurationMs != 0:
+			return fmt.Errorf("snapshot check %q never ran and reports %dms: ran is that duration read as a yes or no", c.ID, c.DurationMs)
+		case ExecutionContradicts(c) && c.Ran:
+			return fmt.Errorf("snapshot check %q is %s and also ran: a row that reported has an outcome", c.ID, c.Status)
+		case ExecutionContradicts(c):
+			return fmt.Errorf("snapshot check %q is %s and never ran: an outcome is what a probe body measured", c.ID, c.Status)
 		case c.Status == StatusIncomplete && s.OK:
 			return fmt.Errorf("snapshot check %q is %s, so the run cannot be reported ok", c.ID, StatusIncomplete)
+		case c.Status == StatusFail && s.OK:
+			return fmt.Errorf("snapshot check %q is %s, so the run cannot be reported ok", c.ID, StatusFail)
+		}
+		if err := validateObservation(c, s.Redaction != nil); err != nil {
+			return fmt.Errorf("snapshot check %q: %w", c.ID, err)
 		}
 		checks[c.ID] = c
+		if impaired == "" && (c.Status == StatusFail || c.Status == StatusIncomplete) {
+			impaired = c.ID
+		}
+		if firstFailed == "" && c.Status == StatusFail {
+			firstFailed = c.ID
+		}
 	}
+	// The other half of the same rule. ok is the one field a script reads
+	// first, and it is not an opinion the file gets to hold beside its rows:
+	// it means no check failed and none was left unreported, so a run that
+	// says otherwise while every row reported a survivable outcome is
+	// describing a failure none of its evidence recorded.
+	if !s.OK && impaired == "" {
+		return fmt.Errorf("snapshot is reported not ok, but no check is %s or %s", StatusFail, StatusIncomplete)
+	}
+	// failed_stage is the field a triage script reads to route a bug report,
+	// and it is derived the same way ok is: the first row that failed, in the
+	// order the run executed them. Naming any other row, or naming none while
+	// one failed, is the file disagreeing with its own evidence about where
+	// the run broke.
+	if s.Diagnosis.FailedStage != firstFailed {
+		return fmt.Errorf("snapshot diagnosis names failed stage %q, but the first failed check is %q",
+			s.Diagnosis.FailedStage, firstFailed)
+	}
+	if err := validateDependencyGraph(s.Checks, checks); err != nil {
+		return err
+	}
+	if s.Diagnosis.Blamed != "" {
+		if _, exists := checks[s.Diagnosis.Blamed]; !exists {
+			return fmt.Errorf("snapshot diagnosis blames check %q, which is not in the snapshot", s.Diagnosis.Blamed)
+		}
+	}
+	findings := make(map[string]bool, len(s.Diagnosis.Findings))
 	for _, finding := range s.Diagnosis.Findings {
-		if !validConfidence(finding.Confidence) {
+		// Identity first. Every consumer keys findings by this id, and a
+		// diagnosis carrying an empty or a repeated one is read differently
+		// depending on whether the reader takes list order, the primary
+		// position, or a map: exactly the ambiguity the check rows above
+		// refuse. The set of ids is deliberately not checked against this
+		// build's vocabulary, because a newer netdoc naming a conclusion this
+		// one has never heard of is an additive change, not a broken file.
+		switch {
+		case finding.ID == "":
+			return fmt.Errorf("snapshot diagnosis has a finding with no id: a conclusion nothing can name is a conclusion nothing can act on")
+		case findings[finding.ID]:
+			return fmt.Errorf("snapshot diagnosis lists finding %q twice", finding.ID)
+		case !validConfidence(finding.Confidence):
 			return fmt.Errorf("snapshot finding %q has unknown confidence %q", finding.ID, finding.Confidence)
+		}
+		findings[finding.ID] = true
+		if finding.Focus != "" {
+			if _, exists := checks[finding.Focus]; !exists {
+				return fmt.Errorf("snapshot finding %q focuses on check %q, which is not in the snapshot", finding.ID, finding.Focus)
+			}
+		}
+		cited := make(map[string]bool, len(finding.Evidence))
+		for _, id := range finding.Evidence {
+			switch {
+			case cited[id]:
+				return fmt.Errorf("snapshot finding %q cites check %q twice", finding.ID, id)
+			case !checkExists(checks, id):
+				return fmt.Errorf("snapshot finding %q cites check %q, which is not in the snapshot", finding.ID, id)
+			}
+			cited[id] = true
 		}
 		seen := make(map[CausalEvidence]bool, len(finding.CausalEvidence))
 		for _, evidence := range finding.CausalEvidence {
@@ -782,6 +969,16 @@ func validate(s Snapshot) error {
 			if err := validateCausalEvidence(evidence, checks); err != nil {
 				return fmt.Errorf("snapshot finding %q: %w", finding.ID, err)
 			}
+		}
+		// The two spellings of one fact have to agree where both are present.
+		// Evidence is the compatibility projection of the typed evidence, so a
+		// file carrying both and disagreeing gives an old consumer and a new
+		// one different answers about what the conclusion rests on. A snapshot
+		// written before typed evidence existed carries only the projection,
+		// and nothing here asks it to invent the rest.
+		if len(finding.CausalEvidence) > 0 && !slices.Equal(finding.Evidence, evidenceRows(finding.CausalEvidence)) {
+			return fmt.Errorf("snapshot finding %q lists evidence %v, which is not the compatibility projection %v of its causal evidence",
+				finding.ID, finding.Evidence, evidenceRows(finding.CausalEvidence))
 		}
 		if finding.Counterfactual != nil {
 			if finding.Counterfactual.Variable == "" || len(finding.Counterfactual.Alternatives) < 2 {
@@ -800,6 +997,78 @@ func validate(s Snapshot) error {
 		}
 	}
 	return validateIncident(s)
+}
+
+// validateDependencyGraph holds a row's deps to what a run can have executed:
+// the ids of other rows in this same snapshot, each named once, arranged so
+// that every row could eventually have been reached.
+//
+// deps is the one field that says what the run's shape was, and the file is
+// the only place that shape survives. A dependency on a row that is not here
+// is an edge into nothing, a row that waits on itself never becomes ready, and
+// a cycle is a set of rows none of which could have started, since a probe
+// runs only once every row it waits on has a result. None of the three is a
+// graph netdoc could have run, and a reader rebuilding one from the file gets
+// a different answer about the run depending on how it walks the edges.
+//
+// What is deliberately not required is that a row's dependencies appear
+// earlier in the slice. The order of checks is the order the graph was built,
+// and both executors schedule by whether a row's dependencies have results
+// rather than by position, so a graph listing a dependency after its dependent
+// is executable and its snapshot is a real record of a real run.
+//
+// Unknown ids stay acceptable, as everywhere else here: this reads the rows
+// against each other and never against this build's probe list, so a snapshot
+// naming a check a later netdoc added is still a valid v1 file.
+func validateDependencyGraph(order []Check, checks map[string]Check) error {
+	for _, c := range order {
+		named := make(map[string]bool, len(c.Deps))
+		for _, dep := range c.Deps {
+			switch {
+			case named[dep]:
+				return fmt.Errorf("snapshot check %q lists dependency %q twice: a row waits on another row once", c.ID, dep)
+			case !checkExists(checks, dep):
+				return fmt.Errorf("snapshot check %q depends on check %q, which is not in the snapshot", c.ID, dep)
+			}
+			named[dep] = true
+		}
+	}
+	// Resolved the way the executor schedules a run, releasing a row once
+	// every row it waits on is out, rather than by walking the edges: a file
+	// arrives from outside and a walk over its edges is a recursion whose
+	// depth it chooses, which is the same reason an incident's states are
+	// checked one level deep.
+	waiting := make(map[string]int, len(order))
+	blocks := make(map[string][]string, len(order))
+	ready := make([]string, 0, len(order))
+	for _, c := range order {
+		waiting[c.ID] = len(c.Deps)
+		if len(c.Deps) == 0 {
+			ready = append(ready, c.ID)
+		}
+		for _, dep := range c.Deps {
+			blocks[dep] = append(blocks[dep], c.ID)
+		}
+	}
+	for len(ready) > 0 {
+		id := ready[len(ready)-1]
+		ready = ready[:len(ready)-1]
+		for _, dependent := range blocks[id] {
+			waiting[dependent]--
+			if waiting[dependent] == 0 {
+				ready = append(ready, dependent)
+			}
+		}
+	}
+	// Whatever is still waiting is waiting on something that never came out,
+	// which with every dependency present means a cycle. Reported in the
+	// order the rows are written so one file always names the same row.
+	for _, c := range order {
+		if waiting[c.ID] > 0 {
+			return fmt.Errorf("snapshot check %q waits on a dependency cycle: a row cannot wait on itself, directly or through the rows it waits on", c.ID)
+		}
+	}
+	return nil
 }
 
 // validateIncident holds an incident record to what a watch session can
@@ -875,6 +1144,9 @@ func validateIncident(s Snapshot) error {
 		if state.record.OK == state.failing {
 			return fmt.Errorf("snapshot incident %s state reports ok=%v, which is not what that point in an incident is", state.name, state.record.OK)
 		}
+		if reason := WatchSessionMismatch(s, *state.record); reason != "" {
+			return fmt.Errorf("snapshot incident %s state has a different %s from its onset: an incident is one watch session, and passes of one session cannot disagree about it", state.name, reason)
+		}
 		if err := validate(*state.record); err != nil {
 			return fmt.Errorf("snapshot incident %s state: %w", state.name, err)
 		}
@@ -898,6 +1170,79 @@ func validateIncident(s Snapshot) error {
 		}
 	}
 	return nil
+}
+
+// WatchSessionMismatch is the one definition of what a watch session fixes:
+// it names the first run setting two snapshots disagree about, and returns the
+// empty string when they could be two passes of one session.
+//
+// A watch session is a single netdoc process watching one target with one set
+// of run settings. Everything below is decided once, before the first pass,
+// and cannot move while the session lasts: the tool is the running build, the
+// target and the options come from the command line, and the check graph is
+// built from those two and reused unchanged for every pass. The one setting a
+// user can change from inside the TUI is the target, and changing it throws
+// the incident timeline away and starts a new session, so even a respelling of
+// a logically identical endpoint ends the old one.
+//
+// Everything else a snapshot carries is what the pass observed, which is the
+// whole point of watching: statuses, causes, timings, routes, resolved
+// addresses, resolvers, interfaces, network names and the diagnosis made of
+// them are all expected to move, and an incident is the record of them moving.
+//
+// The check graph counts as a setting rather than an observation because a run
+// records every probe it built, including the ones that were skipped, did not
+// apply, or never reported. Two passes of one session therefore always list
+// the same rows, under the same ids and names, with the same dependencies, in
+// the same order. Only the outcomes differ.
+func WatchSessionMismatch(a, b Snapshot) string {
+	switch {
+	case a.Tool != b.Tool:
+		return "tool identity"
+	case (a.Target == nil) != (b.Target == nil):
+		return "target"
+	case a.Target != nil && *a.Target != *b.Target:
+		return "target"
+	}
+	if reason := watchOptionsMismatch(a.Options, b.Options); reason != "" {
+		return reason
+	}
+	return watchGraphMismatch(a.Checks, b.Checks)
+}
+
+// watchOptionsMismatch reads the run settings one at a time rather than
+// comparing the struct, because Options carries slices and because the name
+// this returns is what the error tells a reader to look at.
+func watchOptionsMismatch(a, b Options) string {
+	switch {
+	case a.ProbeTimeoutMs != b.ProbeTimeoutMs:
+		return "probe timeout"
+	case a.PublicDNS != b.PublicDNS || a.PublicDNSAuto != b.PublicDNSAuto:
+		return "public DNS configuration"
+	case !slices.Equal(a.Check, b.Check) || !slices.Equal(a.Skip, b.Skip):
+		return "probe selection"
+	case (a.Source == nil) != (b.Source == nil):
+		return "source binding"
+	case a.Source != nil && *a.Source != *b.Source:
+		return "source binding"
+	}
+	return ""
+}
+
+// watchGraphMismatch compares the rows as a graph and not as results: the ids,
+// the names, the dependencies, and the order they were executed in. What each
+// row reported is deliberately not read here, since that is the evidence a
+// watch session exists to collect.
+func watchGraphMismatch(a, b []Check) string {
+	if len(a) != len(b) {
+		return "check graph"
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Name != b[i].Name || !slices.Equal(a[i].Deps, b[i].Deps) {
+			return "check graph"
+		}
+	}
+	return ""
 }
 
 func parseIncidentTime(name, value string) (time.Time, error) {
@@ -970,91 +1315,207 @@ func validateCausalEvidence(e CausalEvidence, checks map[string]Check) error {
 	if !exists {
 		return fmt.Errorf("causal evidence references check %q, which is not in the snapshot", e.Check)
 	}
+	// Measured evidence, so the row it rests on has to have been measured. A
+	// support, contradiction, or ruled-out claim reads a row's recorded fields
+	// as what a probe saw, and a row whose body never executed has fields only
+	// because every row carries them: the status and the observation can still
+	// line up, and the claim would be built out of nothing observed. The
+	// not-evaluated kinds return above precisely because they claim the
+	// opposite, and they keep their own meaning.
+	if !check.Ran {
+		return fmt.Errorf("%s evidence for check %q reads an observation off a row whose probe body did not run", e.Kind, e.Check)
+	}
 	if !observationMatches(e, check) {
 		return fmt.Errorf("causal evidence references %s on check %q, but that observation is absent", e.Observation, e.Check)
 	}
 	return nil
 }
 
-func observationMatches(e CausalEvidence, check Check) bool {
-	switch e.Observation {
-	case ObservationStatusPass:
+// CausalEvidence.Value semantics, part of the v1 file contract. An
+// observation either names a recorded value or it does not, and which one it
+// is decides what a reader may do with the field: "absent" means the
+// observation is the whole claim and the field carries nothing to check,
+// "optional" means a producer may name one recorded value and need not,
+// "required" means the claim is about one named value and is unreadable
+// without it.
+const (
+	EvidenceValueAbsent   = "absent"
+	EvidenceValueOptional = "optional"
+	EvidenceValueRequired = "required"
+)
+
+// ClockOffsetEvidenceMs is how far this machine's clock has to be off before a
+// recorded offset is evidence of anything. A smaller offset is measured and
+// stored like any other reading, and nothing concludes from it, so an artifact
+// citing one as causal evidence is claiming reasoning no netdoc performed.
+const ClockOffsetEvidenceMs = 5 * 60 * 1000
+
+// causalObservation is the whole v1 rule for one observation: how its evidence
+// items may use Value, and what the row they reference has to have recorded
+// for the claim to be true. The two belong together because they are one
+// question asked twice: whether this artifact could have come from a run.
+type causalObservation struct {
+	value   string
+	present func(e CausalEvidence, check Check) bool
+}
+
+// causalObservations is the authoritative description of the causal-evidence
+// vocabulary. Every observation the format defines has exactly one entry, and
+// an observation this build does not know stays refused rather than accepted
+// unchecked: evidence is the one part of a snapshot whose whole purpose is to
+// be verifiable against the rows beside it.
+var causalObservations = map[string]causalObservation{
+	// A row's outcome is the entire observation. There is no second thing to
+	// name, and an item that names one is not something a run wrote.
+	ObservationStatusPass: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusPass
-	case ObservationStatusWarn:
+	}},
+	ObservationStatusWarn: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusWarn && (check.Derived == nil || !check.Derived.StatusDowngraded)
-	case ObservationStatusFail:
+	}},
+	ObservationStatusFail: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusFail
-	case ObservationStatusSkip:
+	}},
+	ObservationStatusSkip: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusSkip
-	case ObservationStatusNA:
+	}},
+	ObservationStatusNA: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Status == StatusNA
-	case ObservationCause:
-		return check.Cause != "" && (e.Value == "" || check.CauseFamily == "" || e.Value == check.CauseFamily)
-	case ObservationDNSAnswers:
+	}},
+	// The address family that supplied the cause, which is this row's own
+	// cause_family. Evidence that only points at the cause names nothing.
+	//
+	// A row written before cause_family existed carries none, and the evidence
+	// beside it still named a family, so a value there is checked against the
+	// family vocabulary rather than against the row: that artifact is real and
+	// stays readable, and an arbitrary string was never one of its states.
+	ObservationCause: {EvidenceValueOptional, func(e CausalEvidence, check Check) bool {
+		return check.Cause != "" && (e.Value == "" || e.Value == check.CauseFamily ||
+			check.CauseFamily == "" && validObservationFamily(e.Value))
+	}},
+	// One of the answers this row recorded, when the claim is about a single
+	// address rather than about there having been answers at all.
+	ObservationDNSAnswers: {EvidenceValueOptional, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && len(check.Observed.Addresses) > 0 &&
 			(e.Value == "" || slices.Contains(check.Observed.Addresses, e.Value))
-	case ObservationDNSNotFound:
+	}},
+	ObservationDNSNotFound: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Observed != nil && check.Observed.DNSNotFound
-	case ObservationCaptivePortal:
+	}},
+	ObservationCaptivePortal: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Observed != nil && check.Observed.Portal != nil
-	case ObservationTimeout:
+	}},
+	ObservationTimeout: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return (check.Observed != nil && check.Observed.Timeout) || check.Cause == "timeout"
-	case ObservationClockOffset:
-		return check.Observed != nil && check.Observed.ClockOffsetMs != nil
-	case ObservationStatusDowngraded:
+	}},
+	// A stored offset is a measurement; only one past the threshold is a
+	// reason for anything, so the magnitude is part of the observation.
+	ObservationClockOffset: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
+		if check.Observed == nil || check.Observed.ClockOffsetMs == nil {
+			return false
+		}
+		offset := *check.Observed.ClockOffsetMs
+		return offset >= ClockOffsetEvidenceMs || offset <= -ClockOffsetEvidenceMs
+	}},
+	ObservationStatusDowngraded: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Derived != nil && check.Derived.StatusDowngraded
-	case ObservationFamilyReachable:
+	}},
+	// The family the claim is about. Neither state is readable without it.
+	ObservationFamilyReachable: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return familyObservation(check, e.Value) == "reachable"
-	case ObservationFamilyFailed:
+	}},
+	ObservationFamilyFailed: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return familyObservation(check, e.Value) == "unreachable"
-	case ObservationAddressSucceeded:
+	}},
+	// The address that was tried.
+	ObservationAddressSucceeded: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && slices.ContainsFunc(check.Observed.Attempts, func(a Attempt) bool {
 			return a.IP == e.Value && a.Error == ""
 		})
-	case ObservationAddressFailed:
+	}},
+	ObservationAddressFailed: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && slices.ContainsFunc(check.Observed.Attempts, func(a Attempt) bool {
 			return a.IP == e.Value && a.Error != "" && !a.Aborted && a.Cause != "" && a.Cause != "canceled"
 		})
-	case ObservationRouteTunneled:
+	}},
+	// The interface this row's traffic left by. A path with no interface was
+	// never classified, so it is never one of these two states either.
+	ObservationRouteTunneled: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
 			return r.Interface == e.Value && (r.Tunnel == TunnelStateTunnel || r.Tunnel == TunnelStateLikely)
 		})
-	case ObservationRouteDirect:
+	}},
+	ObservationRouteDirect: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
 			return r.Interface == e.Value && r.Tunnel == TunnelStateDirect
 		})
-	case ObservationRouteUnreachable:
+	}},
+	// The destination the kernel refused to route.
+	ObservationRouteUnreachable: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool { return r.Destination == e.Value && r.Unreachable })
-	case ObservationRoutePathDiffers:
-		// The value names the other path. The claim is checkable from this row
-		// alone: its own selected interface is not that one.
-		return e.Value != "" && routeMatches(check, func(r Route) bool {
+	}},
+	// The value names the other path. The claim is checkable from this row
+	// alone: its own selected interface is not that one.
+	ObservationRoutePathDiffers: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
+		return routeMatches(check, func(r Route) bool {
 			return r.Interface != "" && r.Interface != e.Value
 		})
-	case ObservationRouteNextHopDiffers:
-		// The value names the other path's next hop. The claim is checkable
-		// from this row alone: it has a next hop of its own and it is not that
-		// one.
-		return e.Value != "" && routeMatches(check, func(r Route) bool {
+	}},
+	// The value names the other path's next hop. The claim is checkable from
+	// this row alone: it has a next hop of its own and it is not that one.
+	ObservationRouteNextHopDiffers: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
+		return routeMatches(check, func(r Route) bool {
 			return r.Gateway != "" && r.Gateway != e.Value
 		})
-	case ObservationRouteTableDiffers:
-		// This row's own routing domain, named by the platform and not the
-		// main one. The value stays empty because there is nothing about the
-		// other row to name: it is the main table or unknown, and neither is
-		// a value a reader could check.
+	}},
+	// This row's own routing domain, named by the platform and not the main
+	// one. The value stays empty because there is nothing about the other row
+	// to name: it is the main table or unknown, and neither is a value a
+	// reader could check.
+	ObservationRouteTableDiffers: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
 			domain, _ := r.RoutingDomain()
 			return domain != ""
 		})
-	case ObservationRouteFamilySplit:
+	}},
+	// The split is the whole observation, and it is stated about the row that
+	// holds both families, so neither family is a value to name.
+	ObservationRouteFamilySplit: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return routeFamilySplit(check)
-	case ObservationRouteInterfaceMTU:
+	}},
+	// The interface whose MTU this is.
+	ObservationRouteInterfaceMTU: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
 			return r.Interface == e.Value && r.InterfaceMTU > 0
 		})
+	}},
+}
+
+// CausalEvidenceValueSemantics reports how each observation in the v1
+// causal-evidence vocabulary reads CausalEvidence.Value. It is the validator's
+// own table rather than a restatement of it, exported so that a producer can
+// be held to the same contract without this package learning anything about
+// probes.
+func CausalEvidenceValueSemantics() map[string]string {
+	out := make(map[string]string, len(causalObservations))
+	for id, rule := range causalObservations {
+		out[id] = rule.value
 	}
-	return false
+	return out
+}
+
+func observationMatches(e CausalEvidence, check Check) bool {
+	rule, known := causalObservations[e.Observation]
+	if !known {
+		return false
+	}
+	switch {
+	case rule.value == EvidenceValueAbsent && e.Value != "":
+		return false
+	case rule.value == EvidenceValueRequired && e.Value == "":
+		return false
+	}
+	return rule.present(e, check)
 }
 
 // The tunnel-state vocabulary, part of the v1 file contract. An absent state
@@ -1249,4 +1710,31 @@ func writeFile(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// checkExists reports whether the snapshot holds a row under this id. An empty
+// id is never a row, because validate refuses one, so a reference to "" is a
+// reference to nothing rather than a lookup that happens to miss.
+func checkExists(checks map[string]Check, id string) bool {
+	_, exists := checks[id]
+	return id != "" && exists
+}
+
+// evidenceRows is the compatibility projection a finding's Evidence field has
+// always been: the unique check ids the typed evidence observed, in reasoning
+// order. A not_evaluated item is absent because it supplied no observation.
+//
+// The rule is written here rather than imported because this package cannot
+// see internal/diagnostic, which is where the producer spells the same rule
+// for a live finding. TestBuiltSnapshotEvidenceProjectionsAgree encodes a
+// built finding and so fails if the two ever part company.
+func evidenceRows(evidence []CausalEvidence) []string {
+	var rows []string
+	for _, e := range evidence {
+		if e.Kind == EvidenceNotEvaluated || e.Check == "" || slices.Contains(rows, e.Check) {
+			continue
+		}
+		rows = append(rows, e.Check)
+	}
+	return rows
 }

@@ -39,7 +39,9 @@ func capturePasses(t *testing.T) *[][]diagnostic.ProbeID {
 		results := make(map[diagnostic.ProbeID]diagnostic.ProbeResult, len(probes))
 		pass := make([]diagnostic.ProbeID, 0, len(probes))
 		for _, p := range probes {
-			results[p.ID] = diagnostic.ProbeResult{ID: p.ID, Status: diagnostic.StatusPass}
+			// Timed, the way every probe the DAG builds is: a row that
+			// reported an outcome ran, and the artifact says so.
+			results[p.ID] = diagnostic.ProbeResult{ID: p.ID, Status: diagnostic.StatusPass, Dur: time.Millisecond}
 			pass = append(pass, p.ID)
 		}
 		mu.Lock()

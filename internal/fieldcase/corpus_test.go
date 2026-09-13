@@ -131,12 +131,12 @@ func TestValidateCorpus(t *testing.T) {
 		{"missing tool provenance", func(t *testing.T, _, dir string) {
 			s := snapshot.SanitizeForSupport(baseSnapshot())
 			s.Tool.Arch = ""
-			writeSnapshot(t, dir, s)
+			writeInvalidSnapshot(t, dir, s)
 		}, "incomplete tool provenance"},
 		{"invalid creation time", func(t *testing.T, _, dir string) {
 			s := snapshot.SanitizeForSupport(baseSnapshot())
 			s.CreatedAt = "yesterday"
-			writeSnapshot(t, dir, s)
+			writeInvalidSnapshot(t, dir, s)
 		}, "not RFC 3339 UTC"},
 		{"unexpected case file", func(t *testing.T, _, dir string) {
 			write(t, filepath.Join(dir, "notes.txt"), []byte("raw report"))
@@ -295,4 +295,15 @@ func remove(t *testing.T, path string) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Invalid artifacts must bypass Encode so this tests the corpus read boundary.
+func writeInvalidSnapshot(t *testing.T, dir string, s snapshot.Snapshot) {
+	t.Helper()
+	s.Schema = snapshot.Schema
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, SnapshotFilename), data)
 }

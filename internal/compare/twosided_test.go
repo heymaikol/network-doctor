@@ -230,28 +230,9 @@ func TestDifferentToolsAreNotACaveat(t *testing.T) {
 	}
 }
 
-func TestSettingsThatChangeWhatWasMeasuredAreCaveats(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		mutate func(*snapshot.Snapshot)
-		want   string
-	}{
-		{"timeout", func(s *snapshot.Snapshot) { s.Options.ProbeTimeoutMs = 9000 }, "probe timeouts differ"},
-		{"public dns", func(s *snapshot.Snapshot) { s.Options.PublicDNS = "9.9.9.9" }, "second-opinion resolvers differ"},
-		{"selection", func(s *snapshot.Snapshot) { s.Options.Skip = []string{"dns"} }, "selected different probes"},
-		// The same resolver, reached two different ways: only the side that did
-		// not name it could have crossed to the other address family.
-		{"public dns chosen two ways", func(s *snapshot.Snapshot) { s.Options.PublicDNSAuto = true }, "took the default"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			a, b := fixture(t), fixture(t)
-			tc.mutate(&b)
-			if got := twoSided(t, a, b); !hasCaveat(got, tc.want) {
-				t.Errorf("caveats = %v, want one mentioning %q", got.Caveats, tc.want)
-			}
-		})
-	}
-}
+// TestSettingsThatChangeWhatWasMeasuredAreCaveats lives in
+// twosided_options_test.go, beside the ledger it now reads: every field of
+// snapshot.Options carries a decision there, and the test drives it.
 
 // The selection is compared as a set, the same rule the comparison applies: the
 // order probe IDs were typed in is not the shape of anything.
@@ -491,21 +472,21 @@ func TestEndpointAlternativesSurviveTwoSidedPlacement(t *testing.T) {
 		{"IP literal", nil, nil, second, second, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			target := &snapshot.Target{Host: "app.test", Port: 443, Protocol: "tls+http"}
+			target := &snapshot.Target{Raw: "app.test", Host: "app.test", Port: 443, Protocol: "tls+http"}
 			if tc.literal {
 				target.Host, target.IP = second, second
 			}
-			a := snapshot.Snapshot{Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
+			a := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
 				{ID: "dns", Name: "dns", Status: snapshot.StatusPass, Ran: true, Observed: &snapshot.Observed{Addresses: tc.dnsA}},
 				{ID: "target_tcp", Name: "target_tcp", Status: snapshot.StatusFail, Ran: true},
-			}}
+			}, Diagnosis: snapshot.Diagnosis{FailedStage: "target_tcp"}}
 			if tc.contactedA != "" {
 				a.Checks[1].Observed = &snapshot.Observed{Attempts: []snapshot.Attempt{{IP: tc.contactedA, Cause: "connection_refused"}}}
 			}
-			b := snapshot.Snapshot{Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
+			b := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Schema: snapshot.Schema, Target: target, Checks: []snapshot.Check{
 				{ID: "dns", Name: "dns", Status: snapshot.StatusPass, Ran: true, Observed: &snapshot.Observed{Addresses: tc.dnsB}},
 				{ID: "target_tcp", Name: "target_tcp", Status: snapshot.StatusPass, Ran: true, Observed: &snapshot.Observed{SelectedIP: tc.contactedB}},
-			}}
+			}, OK: true}
 			for _, s := range []snapshot.Snapshot{a, b} {
 				if _, err := snapshot.Encode(s); err != nil {
 					t.Fatal(err)
@@ -515,6 +496,7 @@ func TestEndpointAlternativesSurviveTwoSidedPlacement(t *testing.T) {
 				if shared {
 					a.Checks = append(a.Checks, snapshot.Check{ID: "tls", Status: snapshot.StatusFail})
 					b.Checks = append(b.Checks, snapshot.Check{ID: "tls", Status: snapshot.StatusFail})
+					b.OK, b.Diagnosis.FailedStage = false, "tls"
 				}
 				for _, reverse := range []bool{false, true} {
 					left, right, want := a, b, SideA

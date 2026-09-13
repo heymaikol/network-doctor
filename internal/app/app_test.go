@@ -1943,7 +1943,7 @@ func TestRunTwoSidedPlacesTheFailure(t *testing.T) {
 	dir := t.TempDir()
 	here := comparableSnapshot()
 	here.Checks[1].Status = snapshot.StatusFail
-	here.Diagnosis.Verdict, here.OK = "dns", false
+	here.Diagnosis.Verdict, here.Diagnosis.FailedStage, here.OK = "dns", "dns", false
 	there := comparableSnapshot()
 	therePath := writeSnapshotFile(t, dir, "there", there)
 	herePath := writeSnapshotFile(t, dir, "here", here)
@@ -1978,7 +1978,7 @@ func TestRunTwoSidedJSON(t *testing.T) {
 	dir := t.TempDir()
 	here := comparableSnapshot()
 	here.Checks[1].Status = snapshot.StatusFail
-	here.OK = false
+	here.Diagnosis.FailedStage, here.OK = "dns", false
 	herePath := writeSnapshotFile(t, dir, "here", here)
 	therePath := writeSnapshotFile(t, dir, "there", comparableSnapshot())
 
@@ -2119,7 +2119,7 @@ func TestRunCompareReportsWhatChanged(t *testing.T) {
 	after.CreatedAt = "2026-03-05T05:06:07Z"
 	after.Checks[1].Status = snapshot.StatusFail
 	after.Checks[0].Observed.Interface = "wg0"
-	after.Diagnosis.Verdict = "dns"
+	after.Diagnosis.Verdict, after.Diagnosis.FailedStage = "dns", "dns"
 	after.OK = false
 
 	beforePath := writeSnapshotFile(t, dir, "before", before)
@@ -2165,12 +2165,76 @@ func TestRunCompareIdenticalSnapshotsExitZero(t *testing.T) {
 	}
 }
 
+func TestRunCompareConnectCleartext(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		before, after bool
+		wantCode      int
+		wantText      string
+	}{
+		{"recorded", false, true, 1, "plaintext HTTP CONNECT observation changed from not recorded to recorded"},
+		{"not recorded", true, false, 1, "plaintext HTTP CONNECT observation changed from recorded to not recorded"},
+		{"both recorded", true, true, 0, "No meaningful differences."},
+		{"neither recorded", false, false, 0, "No meaningful differences."},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			before, after := comparableSnapshot(), comparableSnapshot()
+			before.Checks = append(before.Checks, snapshot.Check{
+				ID: "proxy_connect", Status: snapshot.StatusPass, Ran: true,
+				Observed: &snapshot.Observed{ConnectCleartext: tt.before},
+			})
+			after.Checks = append(after.Checks, snapshot.Check{
+				ID: "proxy_connect", Status: snapshot.StatusPass, Ran: true,
+				Observed: &snapshot.Observed{ConnectCleartext: tt.after},
+			})
+			beforePath := writeSnapshotFile(t, dir, "before", before)
+			afterPath := writeSnapshotFile(t, dir, "after", after)
+			for _, format := range []string{"text", "json"} {
+				t.Run(format, func(t *testing.T) {
+					args := []string{"--compare"}
+					if format == "json" {
+						args = append(args, "--json")
+					}
+					args = append(args, beforePath, afterPath)
+					var stdout, stderr bytes.Buffer
+					if got := run(args, &stdout, &stderr); got != tt.wantCode {
+						t.Fatalf("exit = %d, want %d; stderr: %s", got, tt.wantCode, stderr.String())
+					}
+					if stderr.Len() != 0 {
+						t.Errorf("stderr = %q, want empty", stderr.String())
+					}
+					if format == "text" {
+						if !strings.Contains(stdout.String(), tt.wantText) {
+							t.Errorf("output does not contain %q:\n%s", tt.wantText, stdout.String())
+						}
+						return
+					}
+					var got compare.Comparison
+					if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+						t.Fatalf("decode comparison: %v", err)
+					}
+					if tt.wantCode == 0 {
+						if !got.Same() {
+							t.Errorf("equal observations produced changes: %+v", got.Changes)
+						}
+						return
+					}
+					if len(got.Changes) != 1 || got.Changes[0].Path != "checks.proxy_connect.observed.connect_cleartext" {
+						t.Fatalf("changes = %+v, want only connect_cleartext", got.Changes)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestRunCompareJSON(t *testing.T) {
 	dir := t.TempDir()
 	before := comparableSnapshot()
 	after := comparableSnapshot()
 	after.Checks[1].Status = snapshot.StatusFail
-	after.OK = false
+	after.Diagnosis.FailedStage, after.OK = "dns", false
 
 	beforePath := writeSnapshotFile(t, dir, "before", before)
 	afterPath := writeSnapshotFile(t, dir, "after", after)
@@ -2301,7 +2365,7 @@ func TestRunCompareRejectsUnusableArtifacts(t *testing.T) {
 	}
 	garbage := write("garbage.ndoc", "not json at all")
 	future := write("future.ndoc", `{"schema":"netdoc.snapshot.v2","checks":[]}`)
-	unlabelled := write("unlabelled.ndoc", `{"schema":"`+snapshot.Schema+`","checks":[{"id":"iface"}]}`)
+	unlabelled := write("unlabelled.ndoc", `{"schema":"`+snapshot.Schema+`","created_at":"2026-01-02T03:04:05Z","tool":{"version":"dev","os":"linux","arch":"amd64"},"checks":[{"id":"iface"}]}`)
 	missing := filepath.Join(dir, "nothing-here.ndoc")
 
 	tests := []struct {
@@ -2430,5 +2494,32 @@ func TestRunSaveRecordsWhetherThePublicResolverWasChosen(t *testing.T) {
 				t.Errorf("options.public_dns = %q, want an address or empty", got)
 			}
 		})
+	}
+}
+
+// The artifact stores milliseconds, not the CLI duration, so a sub-millisecond
+// timeout has nowhere to go in it. That is settled at the invocation instead of
+// here: the run is refused before it starts, which is why no artifact a run can
+// produce records a timeout it did not have. The remaining zero means absent,
+// and an artifact carrying it still encodes and reads.
+func TestSubMillisecondTimeoutIsRefusedBeforeAnArtifactExists(t *testing.T) {
+	orig := runAll
+	t.Cleanup(func() { runAll = orig })
+	runAll = func(context.Context, []diagnostic.Probe, time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {
+		t.Fatal("probes ran for a timeout the artifact cannot record")
+		return nil
+	}
+	path := filepath.Join(t.TempDir(), "run.ndoc")
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"--save", path, "--no-history", "--timeout", "1ns", "example.com"}, &stdout, &stderr); got != 2 {
+		t.Fatalf("exit = %d, want 2; stderr: %s", got, stderr.String())
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("a refused invocation wrote a snapshot")
+	}
+	if s, err := snapshot.Encode(buildSnapshotArtifact(headless{}, nil, nil)); err != nil {
+		t.Fatalf("an artifact with no recorded timeout must still encode: %v", err)
+	} else if _, err := snapshot.Decode(s); err != nil {
+		t.Fatalf("an artifact with no recorded timeout must still decode: %v", err)
 	}
 }

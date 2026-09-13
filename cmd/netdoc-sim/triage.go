@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/simulation"
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
@@ -99,8 +100,12 @@ func (f *triageFlags) parse(args []string) (*triageOptions, error) {
 	if !slices.Contains(simulation.HuntLaneNames(), *f.lane) {
 		return nil, fmt.Errorf("-lane must be one of %s", strings.Join(simulation.HuntLaneNames(), ", "))
 	}
-	if *f.timeout <= 0 {
-		return nil, errors.New("-timeout must be positive")
+	// Validated the way netdoc validates its own -timeout, because that is
+	// where this value is going: runner.go spells it onto the child's command
+	// line. A value netdoc refuses would otherwise surface as every spawned run
+	// exiting 2 with the real complaint buried in a child process.
+	if err := diagnostic.ValidateProbeTimeout(*f.timeout); err != nil {
+		return nil, err
 	}
 	baselines := simulation.TriageBaselines()
 	if *f.scenarios != "" {

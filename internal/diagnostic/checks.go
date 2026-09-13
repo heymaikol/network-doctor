@@ -394,8 +394,8 @@ func publicDNSServer(ip string) string { return net.JoinHostPort(ip, "53") }
 const ncsiProbeHost = "www.msftconnecttest.com"
 
 // ncsiCleanBody is what ncsiProbeHost serves on an unintercepted path. The real
-// payload ends in CRLF; this prefix is all that is read, so an interceptor's
-// page is never searched for it.
+// payload ends in CRLF; bodyMatches accepts this exact string and the same
+// string with a trailing CRLF, and rejects anything beyond those forms.
 const ncsiCleanBody = "Microsoft Connect Test"
 
 // portalEndpoint is one plain-HTTP connectivity observation point. want and
@@ -404,9 +404,11 @@ const ncsiCleanBody = "Microsoft Connect Test"
 type portalEndpoint struct {
 	url  string
 	want int
-	// body is what a clean response begins with, empty where a clean response
-	// carries none. That is the 204's whole contract, and checking a 200 for
-	// its documented payload is what keeps a filter's "OK" page off the clean
+	// body is the documented clean payload, empty where a clean response
+	// carries none. bodyMatches accepts this exact value and, when non-empty,
+	// the same value with a trailing CRLF; arbitrary trailing content is not
+	// clean. That is the 204's whole contract, and checking a 200 for its
+	// documented payload is what keeps a filter's "OK" page off the clean
 	// side of the ledger.
 	body string
 }

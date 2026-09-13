@@ -62,15 +62,15 @@ func disagreed(addrs ...net.IP) ProbeResult {
 }
 
 func diagnosisMatrix() []matrixCase {
-	tls := &Target{Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
-	local := &Target{Host: "192.168.1.10", IP: net.ParseIP("192.168.1.10"), Port: 9100, Proto: ProtoNone}
+	tls := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
+	local := &Target{Raw: "192.168.1.10", Host: "192.168.1.10", IP: net.ParseIP("192.168.1.10"), Port: 9100, Proto: ProtoNone}
 	// RFC 6598 shared address space: a CGNAT or tailnet peer. Reaching it is
 	// not reaching the public internet, so it belongs with the local device
 	// above rather than with a public endpoint.
-	shared := &Target{Host: "100.100.100.100", IP: net.ParseIP("100.100.100.100"), Port: 9100, Proto: ProtoNone}
-	httpOnly := &Target{Host: "example.com", Port: 80, Proto: ProtoHTTP}
-	ssh := &Target{Host: "example.com", Port: 22, Proto: ProtoSSH}
-	tcp := &Target{Host: "example.com", Port: 443, Proto: ProtoNone}
+	shared := &Target{Raw: "100.100.100.100", Host: "100.100.100.100", IP: net.ParseIP("100.100.100.100"), Port: 9100, Proto: ProtoNone}
+	httpOnly := &Target{Raw: "example.com", Host: "example.com", Port: 80, Proto: ProtoHTTP}
+	ssh := &Target{Raw: "example.com", Host: "example.com", Port: 22, Proto: ProtoSSH}
+	tcp := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoNone}
 
 	webOrder := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTP, ProbeHTTPS}
 	// The endpoint row carries the address that answered, as a real run's does.

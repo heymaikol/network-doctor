@@ -16,6 +16,7 @@
 package compare
 
 import (
+	"encoding/json"
 	"slices"
 	"strconv"
 	"strings"
@@ -396,21 +397,64 @@ func diffDiagnosis(d *diff, before, after snapshot.Snapshot) {
 		}
 		d.field(SectionDiagnosis, "", "diagnosis.findings."+id+".verdict", "finding "+id+" verdict", b.Verdict, a.Verdict)
 		d.field(SectionDiagnosis, "", "diagnosis.findings."+id+".focus", "finding "+id+" focus", b.Focus, a.Focus)
+		// Confidence is how strongly the run's observations supported this
+		// conclusion. It decides nothing, but it is the producer's assessment
+		// and a published vocabulary, so a move between two levels is a change
+		// in the diagnosis rather than noise.
+		d.field(SectionDiagnosis, "", "diagnosis.findings."+id+".confidence", "finding "+id+" confidence",
+			b.Confidence, a.Confidence)
 		// Evidence keeps its order: the diagnosis lists the rows it reasoned
 		// from in the order it reasoned over them.
 		d.field(SectionDiagnosis, "", "diagnosis.findings."+id+".evidence", "finding "+id+" evidence",
 			strings.Join(b.Evidence, ","), strings.Join(a.Evidence, ","))
 		d.field(SectionDiagnosis, "", "diagnosis.findings."+id+".causal_evidence", "finding "+id+" causal evidence",
-			causalEvidenceValue(b.CausalEvidence), causalEvidenceValue(a.CausalEvidence))
+			canonicalList(b.CausalEvidence), canonicalList(a.CausalEvidence))
+		diffCounterfactual(d, id, b.Counterfactual, a.Counterfactual)
 	}
 }
 
-func causalEvidenceValue(evidence []snapshot.CausalEvidence) string {
-	items := make([]string, len(evidence))
-	for i, e := range evidence {
-		items[i] = strings.Join([]string{e.Kind, e.Check, e.Observation, e.Candidate, e.Reason}, ":")
+// diffCounterfactual compares the controlled alternatives a finding observed.
+// Presence is its own difference: a conclusion that stopped carrying one, or
+// started, is a different conclusion. When both sides have one, the variable
+// and the alternatives are reported apart, so a reader sees which of the two
+// moved.
+func diffCounterfactual(d *diff, id string, before, after *snapshot.Counterfactual) {
+	path := "diagnosis.findings." + id + ".counterfactual"
+	label := "finding " + id + " counterfactual"
+	if before == nil || after == nil {
+		d.field(SectionDiagnosis, "", path, label, canonicalValue(before), canonicalValue(after))
+		return
 	}
-	return strings.Join(items, ",")
+	d.field(SectionDiagnosis, "", path+".variable", label+" variable", before.Variable, after.Variable)
+	d.field(SectionDiagnosis, "", path+".alternatives", label+" alternatives",
+		canonicalList(before.Alternatives), canonicalList(after.Alternatives))
+}
+
+// canonicalList and canonicalValue spell a structured value as one comparable
+// string. JSON rather than a joined string, because every field inside is
+// external text: an address carries colons, and a separator that can occur
+// inside a field makes two different structures compare equal. That is not a
+// theoretical worry, since the causal-evidence value names the observation
+// member being cited, which is routinely an IPv6 address.
+//
+// Empty is spelled as the empty string rather than as "null" or "[]", so a
+// value that appears on one side only is reported as added or removed like
+// every other absence in this file. Encoding cannot fail: these are structs of
+// strings and slices of them, with no map and no channel in reach.
+func canonicalList[T any](items []T) string {
+	if len(items) == 0 {
+		return ""
+	}
+	data, _ := json.Marshal(items)
+	return string(data)
+}
+
+func canonicalValue[T any](value *T) string {
+	if value == nil {
+		return ""
+	}
+	data, _ := json.Marshal(value)
+	return string(data)
 }
 
 func okWord(ok bool) string {
@@ -598,6 +642,10 @@ func diffObserved(d *diff, id string, before, after snapshot.Observed) {
 		portalWord(before.Portal), portalWord(after.Portal))
 	d.field(SectionCheck, id, path+"portal.redirect_url", id+" captive portal sign-in URL",
 		portalURL(before.Portal), portalURL(after.Portal))
+	// This is a positive-only observation: false does not establish that the
+	// client-to-proxy hop used TLS or that no cleartext hostname was sent.
+	d.field(SectionCheck, id, path+"connect_cleartext", id+" plaintext HTTP CONNECT observation",
+		recordedWord(before.ConnectCleartext), recordedWord(after.ConnectCleartext))
 	diffAttempts(d, id, path, before.Attempts, after.Attempts)
 	diffRoutes(d, id, path, before.Routes, after.Routes)
 	// A clock reading is a measurement, and its milliseconds drift between two
@@ -608,6 +656,13 @@ func diffObserved(d *diff, id string, before, after snapshot.Observed) {
 		clockOffset(before.ClockOffsetMs), clockOffset(after.ClockOffsetMs))
 	d.field(SectionCheck, id, path+"timeout", id+" failed by timing out",
 		yesNo(before.Timeout), yesNo(after.Timeout))
+}
+
+func recordedWord(recorded bool) string {
+	if recorded {
+		return "recorded"
+	}
+	return "not recorded"
 }
 
 func familiesOf(o snapshot.Observed) snapshot.Families {

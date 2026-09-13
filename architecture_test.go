@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -101,4 +102,131 @@ func TestPackageLayering(t *testing.T) {
 	if scanned < 20 || len(edges) < 3 {
 		t.Errorf("scan reached only %d production Go files and %d internal package edges; the guard is not reaching the repository", scanned, len(edges))
 	}
+}
+
+// The probe timeout has one canonical representation and one place that decides
+// it, and that is an invariant a reviewer cannot hold in their head: the setting
+// is written into two published integer-millisecond fields from three
+// producers, sent by one, and rebuilt by one. A second normalization added
+// later would not fail any existing test, it would just drift.
+//
+// So the two shapes that went wrong are pinned here. Writing a millisecond
+// field from anything but the canonical projection is how precision used to
+// disappear after the invocation was already accepted. Multiplying a millisecond
+// field back into nanoseconds inline is how an out-of-range wire value used to
+// overflow into a small positive duration that a sign check accepted.
+func TestProbeTimeoutHasOneCanonicalConversion(t *testing.T) {
+	const canonical = "internal/diagnostic/timeout.go"
+	msFields := map[string]bool{"ProbeTimeoutMs": true, "TimeoutMs": true}
+
+	writes, rebuilds := 0, 0
+	roots := []string{"internal", "cmd"}
+	walk := func(root string, path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if name := d.Name(); path != root && (name == "testdata" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		slash := filepath.ToSlash(path)
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.KeyValueExpr:
+				// A millisecond field being written. Either the canonical
+				// projection produced the number, or it is a field that already
+				// held a canonical one being carried across unchanged.
+				key, ok := node.Key.(*ast.Ident)
+				if !ok || !msFields[key.Name] {
+					return true
+				}
+				writes++
+				switch value := node.Value.(type) {
+				case *ast.CallExpr:
+					if canonicalProjection(value.Fun) {
+						return true
+					}
+				case *ast.SelectorExpr:
+					if msFields[value.Sel.Name] {
+						return true
+					}
+				case *ast.BasicLit:
+					// A literal in a fixed scenario, not a conversion.
+					return true
+				}
+				t.Errorf("%s: %s is written from something other than diagnostic.ProbeTimeoutMs; a second projection can drift from the rule that makes it lossless", slash, key.Name)
+			case *ast.BinaryExpr:
+				// A millisecond field being rebuilt into a Duration. Only the
+				// canonical converter may, because only it bounds the number
+				// before the multiplication can overflow.
+				if node.Op != token.MUL || slash == canonical {
+					return true
+				}
+				for _, side := range []ast.Expr{node.X, node.Y} {
+					if namesAMillisecondField(side, msFields) {
+						rebuilds++
+						t.Errorf("%s: a millisecond timeout is multiplied into nanoseconds outside %s; an out-of-range value overflows before any check sees it", slash, canonical)
+					}
+				}
+			}
+			return true
+		})
+		return nil
+	}
+	for _, root := range roots {
+		if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			return walk(root, path, d, err)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The producers this is meant to cover: the two snapshot builders, the
+	// simulated lab's artifact, the redaction pass-through, and the request.
+	if writes < 5 {
+		t.Errorf("swept %d millisecond-field writes, want at least 5: the guard is not reaching the producers", writes)
+	}
+	if rebuilds != 0 {
+		t.Errorf("found %d inline rebuilds, want 0", rebuilds)
+	}
+}
+
+// canonicalProjection reports whether fun is the one function allowed to turn a
+// probe timeout into milliseconds, named from inside internal/diagnostic or from
+// another package.
+func canonicalProjection(fun ast.Expr) bool {
+	switch f := fun.(type) {
+	case *ast.Ident:
+		return f.Name == "ProbeTimeoutMs"
+	case *ast.SelectorExpr:
+		return f.Sel.Name == "ProbeTimeoutMs"
+	}
+	return false
+}
+
+// namesAMillisecondField reports whether e reads one of the millisecond fields,
+// through any number of conversions such as time.Duration(req.TimeoutMs).
+func namesAMillisecondField(e ast.Expr, fields map[string]bool) bool {
+	switch v := e.(type) {
+	case *ast.SelectorExpr:
+		return fields[v.Sel.Name]
+	case *ast.CallExpr:
+		for _, arg := range v.Args {
+			if namesAMillisecondField(arg, fields) {
+				return true
+			}
+		}
+	case *ast.ParenExpr:
+		return namesAMillisecondField(v.X, fields)
+	}
+	return false
 }

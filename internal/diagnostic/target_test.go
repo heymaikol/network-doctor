@@ -3,7 +3,11 @@
 package diagnostic
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -39,6 +43,23 @@ func TestParseTarget(t *testing.T) {
 		{"[::1]", "::1", 443, ProtoTLSHTTP, true},
 		{"[2001:db8::1]:22", "2001:db8::1", 22, ProtoSSH, true},
 		{"https://[2001:db8::1]:8443/path", "2001:db8::1", 8443, ProtoTLSHTTP, true},
+
+		// Internationalized names arrive as the A-label DNS carries, whether
+		// the person typed the A-label or the Unicode it stands for. The
+		// lookup profile maps the case and the Unicode label separators on
+		// the way, and an ASCII spelling is still returned untouched.
+		{"xn--bcher-kva.example", "xn--bcher-kva.example", 443, ProtoTLSHTTP, false},
+		{"bücher.example", "xn--bcher-kva.example", 443, ProtoTLSHTTP, false},
+		{"BÜCHER.example", "xn--bcher-kva.example", 443, ProtoTLSHTTP, false},
+		{"bücher.example.", "xn--bcher-kva.example.", 443, ProtoTLSHTTP, false},
+		{"bücher。example", "xn--bcher-kva.example", 443, ProtoTLSHTTP, false},
+		{"bücher.example:8022", "xn--bcher-kva.example", 8022, ProtoNone, false},
+		{"ssh://bücher.example", "xn--bcher-kva.example", 22, ProtoSSH, false},
+		{"https://bücher.example:8443/path", "xn--bcher-kva.example", 8443, ProtoTLSHTTP, false},
+		// Fullwidth digits map to the ASCII ones, which makes this an address
+		// rather than a name. Classified as the literal it converted into, so
+		// Host and IP cannot disagree about which it is.
+		{"１.１.１.１", "1.1.1.1", 443, ProtoTLSHTTP, true},
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
@@ -66,7 +87,22 @@ func TestParseTargetErrors(t *testing.T) {
 	bad := []string{"", "host:0", "host:99999", "ftp://host", "bad_host!",
 		"[::1", "[::1]x", "[1.2.3.4]:80", "[hostname]:80", "[]:80", "[fe80::1%eth0]", "a:b:c",
 		"https://user@example.com", "https://host:not-a-port", "host:65536", "host:-1",
-		"host:9999999999999999999999999999999999999999", "host:\x0080"}
+		"host:9999999999999999999999999999999999999999", "host:\x0080",
+		// Internationalized names get no relaxation: the A-label the lookup
+		// profile produces goes back through the same allowlist and the same
+		// 253-byte limit, so everything an ASCII target is rejected for is
+		// still rejected after conversion.
+		"bücher..example",                    // empty label
+		"-bücher.example", "bücher-.example", // label edge hyphens
+		"bü_cher.example",                    // disallowed rune
+		strings.Repeat("ü", 63) + ".example", // 69-byte label once punycoded
+		strings.Repeat("ü", 30) + strings.Repeat("."+strings.Repeat("ü", 30), 6), // 265 bytes once converted
+		"\u200b.example.com",          // first label maps away to nothing
+		"\u202ebücher.example",        // bidi override, rejected by the profile
+		"[bücher.example]:80",         // brackets are still IPv6 only
+		"https://usér@bücher.example", // userinfo is still refused
+		"\xff.example",                // invalid UTF-8
+	}
 	for _, in := range bad {
 		if tg, err := ParseTarget(in); err == nil {
 			t.Errorf("ParseTarget(%q) = %+v, want error", in, tg)
@@ -128,6 +164,82 @@ func TestParseTargetCanonicalRaw(t *testing.T) {
 	}
 }
 
+// The Unicode spelling and the A-label are one target, not two that happen to
+// resolve alike. Every field has to agree, Raw included, because Raw is the
+// endpoint identity that reaches a .ndoc, a comparison's "target as typed",
+// the restart prompt, and the worker that -via hands it to for reparsing. A
+// Unicode Raw would make that worker's answer depend on its netdoc version.
+func TestParseTargetInternationalizedIsOneIdentity(t *testing.T) {
+	for _, c := range []struct{ unicode, alabel string }{
+		{"bücher.example", "xn--bcher-kva.example"},
+		{"BÜCHER.example", "xn--bcher-kva.example"},
+		{"bücher。example", "xn--bcher-kva.example"},
+		{"https://bücher.example:8443/path", "https://xn--bcher-kva.example:8443"},
+		{"ssh://bücher.example", "ssh://xn--bcher-kva.example"},
+		{"bücher.example:8022", "xn--bcher-kva.example:8022"},
+	} {
+		got, err := ParseTarget(c.unicode)
+		if err != nil {
+			t.Fatalf("ParseTarget(%q): %v", c.unicode, err)
+		}
+		if got.Raw != c.alabel {
+			t.Errorf("ParseTarget(%q).Raw = %q, want the canonical %q", c.unicode, got.Raw, c.alabel)
+		}
+		want, err := ParseTarget(c.alabel)
+		if err != nil {
+			t.Fatalf("ParseTarget(%q): %v", c.alabel, err)
+		}
+		if !reflect.DeepEqual(*got, *want) {
+			t.Errorf("ParseTarget(%q) = %+v, ParseTarget(%q) = %+v, want one target", c.unicode, *got, c.alabel, *want)
+		}
+		// What a .ndoc carries and what replay rebuilds from it. Both halves
+		// of the durable identity, so neither path can reinterpret the name.
+		snap := BuildSnapshot(got, nil, nil).Target
+		if snap.Raw != c.alabel || snap.Host != got.Host {
+			t.Errorf("snapshot target of %q = %+v, want Raw %q and Host %q", c.unicode, snap, c.alabel, got.Host)
+		}
+	}
+}
+
+// Normalization that stops at the parser is decoration. These two probes decide
+// which destination the run is actually talking about: the name the resolver is
+// asked for, and the name TLS offers as SNI and verifies the certificate
+// against. Neither is handed in by the test, both are read off the graph the
+// Unicode target built.
+func TestInternationalizedTargetReachesDNSAndTLSAsASCII(t *testing.T) {
+	const want = "xn--bcher-kva.example"
+	target := mustTarget(t, "https://bücher.example")
+	var queried, sni string
+	ops := &netops{
+		lookupIP: func(_ context.Context, host string) ([]net.IP, []string, error) {
+			queried = host
+			return []net.IP{net.ParseIP("192.0.2.10")}, nil, nil
+		},
+		dialTLS: func(_ context.Context, _, _ string, cfg *tls.Config) (net.Conn, error) {
+			sni = cfg.ServerName
+			return nil, errors.New("stopped after the ClientHello")
+		},
+	}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.10")}}
+	for _, p := range ops.buildProbes(target, "", true) {
+		switch p.ID {
+		case ProbeDNS, ProbeTLS:
+			p.Run(context.Background(), deps)
+		}
+		// The row labels travel with the answer, into the TUI, the report and
+		// the artifact, so no probe in the graph may name the Unicode spelling.
+		if p.Name != textsafe.Clean(p.Name) || strings.ContainsFunc(p.Name, func(r rune) bool { return r >= 0x80 }) {
+			t.Errorf("probe %s is named %q, want an ASCII row label", p.ID, p.Name)
+		}
+	}
+	if queried != want {
+		t.Errorf("DNS resolved %q, want the A-label %q", queried, want)
+	}
+	if sni != want {
+		t.Errorf("TLS ServerName = %q, want the A-label %q", sni, want)
+	}
+}
+
 func FuzzParseTarget(f *testing.F) {
 	seeds := []string{
 		// Ordinary host, address, port, and URL forms.
@@ -150,6 +262,14 @@ func FuzzParseTarget(f *testing.F) {
 		"", " ", "\t\r\n", " example.com ", "\x00", "\n", "\r", "\t", "\x1f",
 		"exam\x00ple.com", "host:\n80", "https://example.com/path\x1b[31m", "...", ":::[]",
 		strings.Repeat("a", 300) + ".example", strings.Repeat("[]:.\x00", 256),
+
+		// Internationalized spellings and the runes the lookup profile maps,
+		// rejects, or folds away to nothing.
+		"bücher.example", "xn--bcher-kva.example", "BÜCHER.example", "bücher.example.",
+		"bücher。example", "https://bücher.example:8443/path", "[bücher.example]:80",
+		"bücher..example", "-bücher.example", "ü", "\u200b.example", "\u202ebücher.example",
+		"１.１.１.１", "faß.example", "\xff.example", strings.Repeat("ü", 63) + ".example",
+		strings.Repeat("ü", 30) + strings.Repeat("."+strings.Repeat("ü", 30), 6),
 	}
 	for _, seed := range seeds {
 		f.Add(seed)

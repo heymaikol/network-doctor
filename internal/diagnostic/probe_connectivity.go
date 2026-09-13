@@ -71,16 +71,30 @@ func portalCheckWithDial(ctx context.Context, ep portalEndpoint, dial func(conte
 	return o, nil
 }
 
-// bodyMatches reads exactly as many bytes as the documented payload and not one
-// more, so an endpoint that promises a body has to send that body and an
-// intercepting page cannot be scanned for it.
+// bodyMatches reports whether body is a documented clean payload for this
+// endpoint. The accepted forms are the exact body and, when a body is
+// documented, that same body with a trailing CRLF (what the real NCSI endpoint
+// serves). Truncation, an altered byte, or any further trailing content is
+// rejected. The read stops after len(body)+3 bytes so an interceptor's page is
+// never scanned unboundedly.
 func (ep portalEndpoint) bodyMatches(body io.Reader) bool {
 	if ep.body == "" {
 		return true
 	}
-	buf := make([]byte, len(ep.body))
-	_, err := io.ReadFull(body, buf)
-	return err == nil && string(buf) == ep.body
+	// Exact payload, or exact payload + CRLF. One extra byte past those forms
+	// detects trailing content without reading the rest of the response.
+	limit := len(ep.body) + len("\r\n") + 1
+	buf := make([]byte, limit)
+	n, err := io.ReadFull(body, buf)
+	if err == nil {
+		// Full buffer: more than body+CRLF.
+		return false
+	}
+	if err != io.ErrUnexpectedEOF && err != io.EOF {
+		return false
+	}
+	got := string(buf[:n])
+	return got == ep.body || got == ep.body+"\r\n"
 }
 
 // portalNote states what the discrepant endpoints answered, for a detail

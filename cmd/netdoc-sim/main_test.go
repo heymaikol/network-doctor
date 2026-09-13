@@ -1074,6 +1074,14 @@ func TestDirectDispatchRejects(t *testing.T) {
 			code: exitUsage, stderr: "netdoc-sim: -repeat must be at least 1\n"},
 		{name: "non-positive timeout", args: []string{directorCommand, "-timeout", "0s", "--", "healthy"},
 			code: exitUsage, stderr: "netdoc-sim: -timeout must be positive\n"},
+		// -timeout is spelled onto the spawned netdoc's command line, so the
+		// precision netdoc accepts is the precision this accepts. Refusing here
+		// is the difference between one usage error and a run of child processes
+		// that all exit 2 for a reason nothing up here reported.
+		{name: "sub-millisecond timeout", args: []string{directorCommand, "-timeout", "500us", "--", "healthy"},
+			code: exitUsage, stderr: "netdoc-sim: -timeout must be a whole number of milliseconds, not 500\u00b5s\n"},
+		{name: "fractional millisecond timeout", args: []string{directorCommand, "-timeout", "1.9ms", "--", "healthy"},
+			code: exitUsage, stderrHas: "whole number of milliseconds"},
 		{name: "two scenarios", args: []string{directorCommand, "healthy", "healthy"}, code: exitUsage,
 			stderr: "netdoc-sim: unexpected argument \"healthy\"\n"},
 		{name: "unknown scenario", args: []string{directorCommand, "--", "no-such-scenario"},

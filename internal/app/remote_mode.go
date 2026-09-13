@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"slices"
 	"syscall"
-	"time"
 
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/remote"
@@ -35,7 +34,7 @@ func needsPMTUCompatibilitySkip(h headless) bool {
 func requestForRemote(h headless) remote.Request {
 	req := remote.Request{
 		Iface: h.iface, PublicDNS: h.publicDNS, PublicDNSAuto: h.publicDNSAuto,
-		TimeoutMs: h.timeout.Milliseconds(),
+		TimeoutMs: diagnostic.ProbeTimeoutMs(h.timeout),
 		Check:     h.check.strings(), Skip: h.skip.strings(),
 	}
 	if h.target != nil {
@@ -165,11 +164,21 @@ func diagnoseRemote(ctx context.Context, req remote.Request) (*report.Report, *s
 		// means false: an old local side named this resolver as far as it knew,
 		// and reinterpreting its request would answer a question it never asked.
 		publicDNSAuto: req.PublicDNSAuto,
-		timeout:       time.Duration(req.TimeoutMs) * time.Millisecond,
 	}
-	if h.timeout <= 0 {
-		return nil, nil, errors.New("-timeout must be positive")
+	// Rebuilt through the canonical converter, which bounds the number before
+	// it becomes nanoseconds: this field is untrusted int64 off a pipe, and a
+	// value too large for a Duration wraps to a small positive one that a
+	// sign check cannot tell from a timeout someone meant.
+	//
+	// Nothing here has to allow for a finer remote timeout than milliseconds,
+	// because no netdoc has ever been able to send one: protocol 1 has carried
+	// whole milliseconds since it existed, and a local side that now refuses
+	// anything else sends exactly what every worker already reads.
+	timeout, err := diagnostic.ProbeTimeoutFromMs(req.TimeoutMs)
+	if err != nil {
+		return nil, nil, err
 	}
+	h.timeout = timeout
 	if req.Target != "" {
 		t, err := diagnostic.ParseTarget(req.Target)
 		if err != nil {

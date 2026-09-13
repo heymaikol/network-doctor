@@ -287,11 +287,52 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		m.themeSel = themeIndex(m.theme.Name)
 		return m, nil
 	case actActions:
-		m.actionsOpen, m.actionsSel = true, 0
+		m.actionsOpen = true
+		m.selectRow(m.actionItems(), 0)
 		return m, nil
 	case actHelp:
 		m.helping = true
+		m.helpVP = viewport.New(max(m.width, 1), 1)
+		m.helpVP.KeyMap = viewport.KeyMap{}
+		m.refreshHelpViewport(true)
 		return m, nil
+	}
+	return m, nil
+}
+
+// handleHelpKey reserves the viewer's movement keys while a clipped
+// cheatsheet needs them. Every other key keeps the original close behavior.
+func (m model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if !m.helpScrolls() {
+		m.helping = false
+		m.pendingKeys = nil
+		return m, nil
+	}
+	act, pending := m.resolveKey(ctxViewer, msg.String())
+	m.pendingKeys = pending
+	if len(pending) > 0 {
+		return m, nil
+	}
+	switch act {
+	case actUp:
+		m.helpVP.ScrollUp(1)
+	case actDown:
+		m.helpVP.ScrollDown(1)
+	case actTop:
+		m.helpVP.GotoTop()
+	case actBottom:
+		m.helpVP.GotoBottom()
+	case actPageUp:
+		m.helpVP.PageUp()
+	case actPageDown:
+		m.helpVP.PageDown()
+	case actHalfPageUp:
+		m.helpVP.HalfPageUp()
+	case actHalfPageDown:
+		m.helpVP.HalfPageDown()
+	default:
+		m.helping = false
+		m.pendingKeys = nil
 	}
 	return m, nil
 }
@@ -360,7 +401,7 @@ func (m model) diagnoseService() (tea.Model, tea.Cmd) {
 	if err != nil {
 		return m, m.setNotice("invalid discovered target: "+err.Error(), false)
 	}
-	return m.restartWithTarget(t)
+	return m.restartWithTarget(t, true)
 }
 
 // moveRow walks the cursor delta rows through the Checks panel's row list and
@@ -537,7 +578,7 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.entering = false
-		return m.restartWithTarget(t)
+		return m.restartWithTarget(t, true)
 	case "up":
 		if m.histIdx == 0 {
 			return m, nil
@@ -581,7 +622,7 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // its way out, and it is the only thing on screen that says a second run
 // started: the checks it reruns are the same ones that were already listed.
 func (m model) retest() (tea.Model, tea.Cmd) {
-	next, cmd := m.restartWithTarget(m.target)
+	next, cmd := m.restartWithTarget(m.target, false)
 	restarted, ok := next.(model)
 	if !ok {
 		return next, cmd
@@ -594,13 +635,16 @@ func (m model) retest() (tea.Model, tea.Cmd) {
 	return restarted, tea.Batch(cmd, notice)
 }
 
-func (m model) restartWithTarget(t *diagnostic.Target) (tea.Model, tea.Cmd) {
+// restartWithTarget restarts the run against t. newQuestion says whether that
+// is a different diagnostic question than the one on screen, which is the only
+// thing separating a retest from a target switch: see applyTarget.
+func (m model) restartWithTarget(t *diagnostic.Target, newQuestion bool) (tea.Model, tea.Cmd) {
 	if m.jobsRunning() {
 		m.cancelJobs()
-		m.pending = &pendingAction{kind: pendRestart, target: t}
+		m.pending = &pendingAction{kind: pendRestart, target: t, newQuestion: newQuestion}
 		return m, nil
 	}
-	m.applyTarget(t)
+	m.applyTarget(t, newQuestion)
 	return m, m.doRestart()
 }
 
@@ -623,10 +667,34 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 	return diagnostic.ParseTarget(fields[0])
 }
 
-// applyTarget swaps the run target and rebuilds its probes.
-func (m *model) applyTarget(t *diagnostic.Target) {
+// applyTarget swaps the run target and rebuilds its probes. newQuestion is the
+// watch session's lifecycle boundary, and it is the caller's to state.
+//
+// Everything below the target swap is the session: the per-probe pass history
+// the sparklines are drawn from and the incidents recorded against it. All of
+// it describes one diagnostic question, so asking a different one has to start
+// it over, and a reader must never see a target's sparkline carry glyphs from
+// the target before it. Asking the same question again is the opposite case: a
+// retest restarts probe execution, and the session it is part of continues
+// across it rather than being thrown away by it.
+//
+// The same question means the same run configuration, and the target is the
+// whole of what can change here. The rest of what decides a run (the source
+// addresses, the resolver, the probe selection, the timeout) is fixed when the
+// model is built and never moves again, so a retest cannot silently change one
+// underneath the preserved history.
+func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
 	m.probes = m.selection.BuildProbesFromSources(t, m.sources, m.publicDNS, m.publicDNSAuto)
+	if !newQuestion {
+		return
+	}
+	// The cursor is an index into the probe list, so it only has to go back to
+	// the top when that list is rebuilt into a different one. It belongs below
+	// the return rather than above it because a preserved session takes the
+	// changed-row branch of focusTarget, which deliberately moves nothing when
+	// a pass reports what the one before it did: a retest that reset the cursor
+	// would leave it parked on the first row with nothing to put it back.
 	m.selected = 0
 	m.runHistory = map[diagnostic.ProbeID][]diagnostic.Status{}
 	m.incidents = incident.Timeline{}
@@ -639,40 +707,71 @@ func (m model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 		m.clearCancel()
 		return m, tea.Quit
 	case pendRestart:
-		m.applyTarget(p.target)
+		m.applyTarget(p.target, p.newQuestion)
 		return m, m.doRestart()
 	}
 	return m, nil
 }
 
-// doRestart bumps the generation (invalidating outstanding probe/job messages),
-// clears run state and old tool output, resets the context, and reschedules
-// from the root.
+// doRestart is a full restart: the run starts over and the screen starts over
+// with it. It is what the restart prompt, a retest and a deferred restart all
+// take, because each of them is the user asking for a different run than the
+// one on screen.
+//
+// A periodic watch pass is the one restart that is not that, and it calls
+// restartRun alone. The split is the invariant: restartRun owns everything
+// scoped to a generation, resetPresentation owns everything the reader is
+// looking at, and a watch pass replaces the first without touching the second.
+// It is a split rather than a list of fields to carry across, so a new piece of
+// presentation state cannot be forgotten by a pass that never resets any.
 func (m *model) doRestart() tea.Cmd {
+	cmd := m.restartRun()
+	m.resetPresentation()
+	if m.viewing {
+		m.refreshViewport()
+	}
+	return cmd
+}
+
+// restartRun bumps the generation (invalidating outstanding probe/job
+// messages), clears the previous run's results, resets the context, and
+// reschedules from the root. Everything it touches belongs to the run being
+// replaced and to nothing else.
+//
+// namesPending is part of that: it tracks lookups issued under the old
+// generation, whose replies this restart drops, so those rows fall back to
+// nmap's own name instead of spinning forever. The names already resolved are
+// presentation and survive with the map that shows them.
+func (m *model) restartRun() tea.Cmd {
 	wasTicking := m.spinnerActive()
 	m.clearCancel()
 	m.ctx = nil
 	m.tools = toolsFor(m.target, runtime.GOOS, bindFor(m.sources))
 	m.generation++
-	m.selMoved = false
-	m.explaining = false
 	m.results = map[diagnostic.ProbeID]diagnostic.ProbeResult{}
 	m.started = map[diagnostic.ProbeID]bool{}
-	m.pending, m.confirmTool, m.sshPrompt = nil, nil, false
-	m.dropJobs()
-	m.networkMap, m.mapSelected, m.networkCIDR = false, 0, ""
-	m.svc = serviceChoice{}
-	m.hostNames, m.namesPending = nil, nil
-	m.notice = ""
-	if m.viewing {
-		m.refreshViewport()
-	}
+	m.namesPending = nil
 	gen := m.generation
 	cmds := []tea.Cmd{func() tea.Msg { return scheduleMsg{gen: gen} }}
 	if !wasTicking {
 		cmds = append(cmds, m.spinner.Tick)
 	}
 	return tea.Batch(cmds...)
+}
+
+// resetPresentation clears what the screen was showing about the run that just
+// ended: open modals and their typed contents, the last notice, an explanation
+// of a diagnosis that is about to be recomputed, a cursor the user moved, the
+// LAN map and the device opened on it, and the parked tool output.
+func (m *model) resetPresentation() {
+	m.selMoved = false
+	m.explaining = false
+	m.pending, m.confirmTool, m.sshPrompt = nil, nil, false
+	m.dropJobs()
+	m.networkMap, m.mapSelected, m.networkCIDR = false, 0, ""
+	m.svc = serviceChoice{}
+	m.hostNames = nil
+	m.notice = ""
 }
 
 func (m *model) launchTool(tool Tool) tea.Cmd {

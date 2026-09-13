@@ -12,14 +12,14 @@ import (
 )
 
 func observed(at time.Time, health Health, iface string) snapshot.Snapshot {
-	status, ok, verdict := snapshot.StatusPass, true, "ok"
+	status, ok, verdict, failedStage := snapshot.StatusPass, true, "ok", ""
 	if health == Degraded {
 		status, verdict = snapshot.StatusWarn, "degraded"
 	}
 	if health == Failing {
-		status, ok, verdict = snapshot.StatusFail, false, "network"
+		status, ok, verdict, failedStage = snapshot.StatusFail, false, "network", "target_tcp"
 	}
-	return snapshot.Snapshot{
+	return snapshot.Snapshot{Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 		Schema: snapshot.Schema, CreatedAt: stamp(at), OK: ok,
 		Target: &snapshot.Target{Raw: "example.com", Host: "example.com", Port: 443, Protocol: "tls+http"},
 		Checks: []snapshot.Check{{
@@ -28,7 +28,7 @@ func observed(at time.Time, health Health, iface string) snapshot.Snapshot {
 				Destination: "198.51.100.7", Family: "ipv4", Interface: iface,
 			}}},
 		}},
-		Diagnosis: snapshot.Diagnosis{Verdict: verdict, Summary: string(health)},
+		Diagnosis: snapshot.Diagnosis{Verdict: verdict, Summary: string(health), FailedStage: failedStage},
 	}
 }
 
@@ -160,5 +160,134 @@ func TestActiveIncidentDurationAndArtifactAreDeterministic(t *testing.T) {
 	}
 	if _, err := snapshot.Encode(artifact); err != nil {
 		t.Fatalf("active incident artifact does not encode: %v", err)
+	}
+}
+
+// A timeline is one watch session, and a pass that cannot belong to it starts
+// a new one rather than being folded into the incident already open. Nothing
+// in production reaches this without also rebuilding the model, so what this
+// pins is that the state machine cannot hold the impossible artifact even when
+// driven directly.
+func TestTimelineStartsOverOnAPassFromAnotherSession(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	var timeline Timeline
+	timeline.Observe(start, observed(start, Healthy, "wg0"))
+	timeline.Observe(start.Add(5*time.Second), observed(start.Add(5*time.Second), Failing, "wg0"))
+	if _, open := timeline.Active(); !open {
+		t.Fatal("the failing pass did not open an incident")
+	}
+
+	elsewhere := observed(start.Add(10*time.Second), Failing, "wg0")
+	elsewhere.Target = &snapshot.Target{Raw: "other.example.net", Host: "other.example.net", Port: 443, Protocol: "tls+http"}
+	if got := timeline.Observe(start.Add(10*time.Second), elsewhere); got != TransitionBegan {
+		t.Errorf("transition = %q, want %q: a foreign pass opens its own incident", got, TransitionBegan)
+	}
+	if n := len(timeline.Incidents()); n != 1 {
+		t.Fatalf("incidents = %d, want 1: the old session was not discarded", n)
+	}
+	if opened, _ := timeline.Latest(); opened.Before != nil {
+		t.Error("the new session inherited a baseline from the old one")
+	}
+
+	// The new session keeps folding in, so the guard costs a legitimate pass
+	// nothing, and the artifact it produces carries a nested state that has to
+	// satisfy the same rule at the file boundary.
+	recovery := observed(start.Add(15*time.Second), Healthy, "wg0")
+	recovery.Target = elsewhere.Target
+	if got := timeline.Observe(start.Add(15*time.Second), recovery); got != TransitionRecovered {
+		t.Fatalf("transition = %q, want %q: a pass of the new session was treated as foreign", got, TransitionRecovered)
+	}
+	fresh, _ := timeline.Latest()
+	if fresh.Recovered == nil {
+		t.Fatal("the recovering pass was not retained")
+	}
+	if _, err := snapshot.Encode(fresh.Artifact()); err != nil {
+		t.Fatalf("the artifact of the new session does not encode: %v", err)
+	}
+}
+
+// withResolverTargets puts a system DNS row in front of the pass, carrying the
+// resolver service addresses that row's lookup dialed. That row is where a
+// change of nameserver reaches a comparison: Observed.Resolver names the
+// second-opinion server a run was told to ask and nothing else.
+func withResolverTargets(s snapshot.Snapshot, targets ...string) snapshot.Snapshot {
+	s.Checks = append([]snapshot.Check{{
+		ID: "dns", Name: "DNS", Status: snapshot.StatusPass, Ran: true, DurationMs: 1,
+		Observed: &snapshot.Observed{ResolverTargets: targets},
+	}}, s.Checks...)
+	return s
+}
+
+func TestResolverTargetChangeIsEnvironmentalAtOnset(t *testing.T) {
+	start := time.Date(2026, 9, 12, 9, 0, 0, 0, time.UTC)
+	onset := start.Add(5 * time.Second)
+
+	var timeline Timeline
+	timeline.Observe(start, withResolverTargets(observed(start, Healthy, "wlan0"), "192.168.1.1:53"))
+	timeline.Observe(onset, withResolverTargets(observed(onset, Failing, "wlan0"), "10.0.0.53:53"))
+	i, ok := timeline.Latest()
+	if !ok {
+		t.Fatal("no incident was opened")
+	}
+
+	// The interface is the same in both passes, so the resolver targets are
+	// the only thing about the path that moved.
+	targets := func(changes []compare.Change) []string {
+		var paths []string
+		for _, c := range changes {
+			if strings.Contains(c.Path, ".observed.resolver_targets.") {
+				paths = append(paths, c.Path)
+			}
+		}
+		return paths
+	}
+	want := []string{
+		"checks.dns.observed.resolver_targets.10.0.0.53:53",
+		"checks.dns.observed.resolver_targets.192.168.1.1:53",
+	}
+	if got := targets(i.OnsetChanges); !slices.Equal(got, want) {
+		t.Fatalf("comparison reported resolver target changes %v, want %v", got, want)
+	}
+	if got := targets(Environment(i.OnsetChanges)); !slices.Equal(got, want) {
+		t.Errorf("environment changes = %v, want the resolver targets %v", got, want)
+	}
+	if got := targets(Outcome(i.OnsetChanges)); len(got) != 0 {
+		t.Errorf("resolver targets counted as diagnostic outcomes too: %v", got)
+	}
+	if i.Coincidence() != CoincidenceEnvironmentChanged {
+		t.Errorf("coincidence = %s, want %s", i.Coincidence(), CoincidenceEnvironmentChanged)
+	}
+	if note := i.Note(); !strings.Contains(note, "in how this machine reaches the network") ||
+		strings.Contains(note, "No recorded change") {
+		t.Errorf("note = %q, want one that reports the recorded path change", note)
+	}
+	// The failure itself stays where it was.
+	if !slices.ContainsFunc(Outcome(i.OnsetChanges), func(c compare.Change) bool {
+		return c.Path == "checks.target_tcp.status"
+	}) {
+		t.Errorf("outcome changes do not include the failed check: %+v", Outcome(i.OnsetChanges))
+	}
+}
+
+func TestSteadyResolverTargetsLeaveTheEnvironmentSteady(t *testing.T) {
+	start := time.Date(2026, 9, 12, 9, 0, 0, 0, time.UTC)
+	onset := start.Add(5 * time.Second)
+
+	var timeline Timeline
+	timeline.Observe(start, withResolverTargets(observed(start, Healthy, "wlan0"), "192.168.1.1:53"))
+	timeline.Observe(onset, withResolverTargets(observed(onset, Failing, "wlan0"), "192.168.1.1:53"))
+	i, _ := timeline.Latest()
+
+	if got := Environment(i.OnsetChanges); len(got) != 0 {
+		t.Errorf("environment changes = %+v, want none when only the outcome moved", got)
+	}
+	if len(Outcome(i.OnsetChanges)) == 0 {
+		t.Error("the failure produced no outcome changes")
+	}
+	if i.Coincidence() != CoincidenceEnvironmentSteady {
+		t.Errorf("coincidence = %s, want %s", i.Coincidence(), CoincidenceEnvironmentSteady)
+	}
+	if note := i.Note(); !strings.Contains(note, "No recorded change") {
+		t.Errorf("note = %q, want the steady-environment sentence", note)
 	}
 }

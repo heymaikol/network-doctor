@@ -5,6 +5,8 @@ package ui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"regexp"
@@ -46,14 +48,104 @@ func doneResults(m *model, failID diagnostic.ProbeID) {
 
 func TestHelpOverlay(t *testing.T) {
 	m := newModel(nil, false)
+	m.width, m.height = 100, 40
 	u, _ := m.Update(keyMsg("?"))
 	hm := asModel(t, u)
-	if !hm.helping || !strings.Contains(hm.View(), "Output viewer") {
+	view := ansi.Strip(hm.View())
+	if !hm.helping || !strings.Contains(view, "Output viewer") || !strings.Contains(view, "any key close") {
 		t.Fatal("? must show the key cheatsheet")
+	}
+	if strings.Contains(view, "lines 1-") {
+		t.Error("a complete cheatsheet must not show scrolling controls")
 	}
 	u, _ = hm.Update(keyMsg("x"))
 	if asModel(t, u).helping {
 		t.Error("any key must close the cheatsheet")
+	}
+}
+
+func TestHelpOverlayScrolls(t *testing.T) {
+	open := func(width, height int) model {
+		m := newModel(nil, false)
+		u, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+		u, _ = asModel(t, u).Update(keyMsg("?"))
+		return asModel(t, u)
+	}
+	press := func(m model, key tea.KeyMsg) model {
+		u, _ := m.Update(key)
+		return asModel(t, u)
+	}
+
+	for _, height := range []int{32, 30, 24, 20, 16, 10} {
+		t.Run(fmt.Sprintf("100x%d", height), func(t *testing.T) {
+			m := open(100, height)
+			top := ansi.Strip(m.View())
+			if !strings.Contains(top, "lines 1-") || !strings.Contains(top, "scroll") {
+				t.Fatalf("short help has no continuation indication:\n%s", top)
+			}
+			seen := top
+			for range 20 {
+				m = press(m, keyPress("pgdown"))
+				seen += "\n" + ansi.Strip(m.View())
+			}
+			if !strings.Contains(seen, "Output viewer") {
+				t.Fatalf("paging never reached the Output viewer section:\n%s", seen)
+			}
+			m = press(m, keyPress("end"))
+			bottom := ansi.Strip(m.View())
+			if !m.helping || !strings.Contains(bottom, "clear the filter, or back when none is set") ||
+				!strings.Contains(bottom, "close") {
+				t.Fatalf("bottom of help is not reachable:\n%s", bottom)
+			}
+			if got := ansi.Strip(press(m, keyPress("down")).View()); got != bottom {
+				t.Error("help scrolled beyond the bottom")
+			}
+			m = press(m, keyPress("home"))
+			if got := ansi.Strip(m.View()); got != top {
+				t.Error("home did not return help to the top")
+			}
+			if got := ansi.Strip(press(m, keyPress("up")).View()); got != top {
+				t.Error("help scrolled beyond the top")
+			}
+		})
+	}
+
+	m := open(100, 24)
+	m = press(m, keyPress("end"))
+	m = press(m, keyMsg("x"))
+	if m.helping {
+		t.Fatal("ordinary key did not close scrolled help")
+	}
+	m = press(m, keyMsg("?"))
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "lines 1-") {
+		t.Fatalf("reopened help did not reset to the top:\n%s", view)
+	}
+	for _, key := range []tea.KeyMsg{keyPress("esc"), keyMsg("q"), keyMsg("?"), {Type: tea.KeyCtrlC}} {
+		m := open(100, 24)
+		if m = press(m, key); m.helping {
+			t.Errorf("%s did not close help", key.String())
+		}
+	}
+}
+
+func TestHelpOverlayResize(t *testing.T) {
+	m := newModel(nil, false)
+	u, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	u, _ = asModel(t, u).Update(keyMsg("?"))
+	m = asModel(t, u)
+
+	u, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	m = asModel(t, u)
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "lines 1-") {
+		t.Fatalf("tall-to-short resize did not make help scrollable:\n%s", view)
+	}
+	u, _ = m.Update(keyPress("end"))
+	m = asModel(t, u)
+	u, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = asModel(t, u)
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "Keys\n") || !strings.Contains(view, "any key close") || regexp.MustCompile(`(?m)^lines `).MatchString(view) {
+		t.Fatalf("short-to-tall resize did not reveal complete help:\n%s", view)
 	}
 }
 
@@ -70,11 +162,30 @@ func TestHelpOverlayFitsNarrowTerminal(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, w := range []int{24, 30, 40, 60, 100} {
+		for _, size := range [][2]int{{100, 40}, {100, 32}, {100, 30}, {100, 24}, {100, 20}, {100, 16}, {100, 10}, {60, 40}, {40, 40}, {30, 40}, {24, 40}, {40, 24}} {
+			w, h := size[0], size[1]
 			m := newModel(nil, false)
-			m.keys, m.width, m.height, m.helping = km, w, 24, true
-			if v := m.View(); lipgloss.Height(v) > m.height {
-				t.Errorf("%s %dx%d: view is %d display rows tall:\n%s", preset, w, m.height, lipgloss.Height(v), v)
+			m.keys = km
+			u, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+			u, _ = asModel(t, u).Update(keyMsg("?"))
+			m = asModel(t, u)
+			v := m.View()
+			if lipgloss.Height(v) > m.height {
+				t.Errorf("%s %dx%d: view is %d display rows tall:\n%s", preset, w, h, lipgloss.Height(v), v)
+			} else {
+				for _, line := range strings.Split(v, "\n") {
+					if got := lipgloss.Width(line); got > w {
+						t.Errorf("%s %dx%d: line is %d columns wide: %q", preset, w, h, got, ansi.Strip(line))
+					}
+				}
+			}
+			bottom := ansi.Strip(v)
+			if !strings.Contains(bottom, "any key close") {
+				u, _ = m.Update(keyPress("end"))
+				bottom = ansi.Strip(asModel(t, u).View())
+			}
+			if !regexp.MustCompile(`(?m)^  q +back *$`).MatchString(bottom) || !strings.Contains(bottom, "close") {
+				t.Errorf("%s %dx%d: final help is not reachable:\n%s", preset, w, h, bottom)
 			}
 			m.height = 0 // unclipped: every entry must survive wrapping
 			sheet := ansi.Strip(m.helpOverlay())
@@ -456,7 +567,7 @@ func TestRestartClosesNmapConfirmGate(t *testing.T) {
 			if target != "" {
 				next = mustTarget(t, target)
 			}
-			m.applyTarget(next)
+			m.applyTarget(next, true)
 			m.doRestart()
 
 			if m.confirmTool != nil {
@@ -807,6 +918,70 @@ func TestCtrlCWarnsThenQuits(t *testing.T) {
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Errorf("second ctrl+c command = %T, want tea.QuitMsg", cmd())
+	}
+}
+
+// TestCtrlCNoticeVisibleInOverlays pins the armed-quit invariant: whenever
+// Ctrl+C has armed the whole-program quit, the screen the reader is actually
+// looking at has to say so. These overlays draw their own footer where the
+// help bar goes, so each one is checked through View() rather than through
+// m.notice: the state was always set, it was the rendering that dropped it.
+func TestCtrlCNoticeVisibleInOverlays(t *testing.T) {
+	cases := []struct {
+		name string
+		open func(m *model)
+		// footer is a word from the overlay's own footer, which must be back
+		// once the notice clears.
+		footer string
+	}{
+		{"theme picker", func(m *model) { m.theming = true }, "preview"},
+		{"actions menu", func(m *model) { m.actionsOpen = true }, "close"},
+		{"ssh form", func(m *model) { m.sshPrompt = true; m.ssh.host = "host" }, "connect"},
+		{"ssh form checking config", func(m *model) {
+			m.sshPrompt, m.ssh.host, m.ssh.pending = true, "host", &sshPending{}
+		}, "back"},
+		{"restart prompt", func(m *model) { m.entering = true }, "history"},
+		{"output viewer filtering", func(m *model) { m.viewing, m.filtering = true, true }, "apply"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(nil, false)
+			m.width, m.height = 100, 40
+			tc.open(&m)
+			if before := m.View(); !strings.Contains(before, tc.footer) {
+				t.Fatalf("overlay footer %q missing before the notice", tc.footer)
+			}
+
+			u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+			armed := asModel(t, u)
+			if cmd == nil {
+				t.Fatal("first ctrl+c must schedule the notice timeout")
+			}
+			if !strings.Contains(armed.View(), ctrlCNotice) {
+				t.Errorf("armed quit is invisible: View() lacks %q", ctrlCNotice)
+			}
+
+			// The notice takes the footer's slot rather than sitting under it,
+			// so the overlay's keys come back only once it clears.
+			expired, _ := armed.Update(noticeDoneMsg{deadline: armed.noticeDeadline})
+			cleared := asModel(t, expired)
+			if strings.Contains(cleared.View(), ctrlCNotice) {
+				t.Errorf("quit notice must clear after the timeout")
+			}
+			if !strings.Contains(cleared.View(), tc.footer) {
+				t.Errorf("overlay footer %q did not come back after the notice cleared", tc.footer)
+			}
+
+			// Second ctrl+c inside the window still quits the program.
+			u, cmd = armed.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+			_ = asModel(t, u)
+			if cmd == nil {
+				t.Fatal("second ctrl+c must quit")
+			}
+			if _, ok := cmd().(tea.QuitMsg); !ok {
+				t.Errorf("second ctrl+c command = %T, want tea.QuitMsg", cmd())
+			}
+		})
 	}
 }
 
@@ -1276,6 +1451,101 @@ func TestPromptViewNarrowNoOverflow(t *testing.T) {
 	for _, line := range strings.Split(nm.promptView(true), "\n") {
 		if w := lipgloss.Width(line); w > 40 {
 			t.Errorf("prompt line %d cols wide, terminal is 40: %q", w, line)
+		}
+	}
+}
+
+// An interactive ssh session ends by taking over the selected job slot, which
+// is the slot the network map draws from. The map must detach rather than read
+// the ssh exit as the LAN scan's outcome.
+func sshMapModel(t *testing.T) model {
+	t.Helper()
+	m := newModel(mustTarget(t, "example.com:22"), false)
+	doneResults(&m, "")
+	r := m.results[diagnostic.ProbeInternet]
+	r.Source = net.ParseIP("192.168.12.34")
+	m.results[diagnostic.ProbeInternet] = r
+	m.width, m.height = 100, 30
+	m.networkMap, m.networkCIDR = true, "192.168.12.0/24"
+	m.cur = jobState{name: lanDiscoveryName, status: JobDone, lines: []string{
+		"Host: 192.168.12.1 (router.lan)\tStatus: Up",
+		"Host: 192.168.12.50 (printer.lan)\tStatus: Up",
+	}}
+	return m
+}
+
+func TestNetworkMapDetachesWhenSSHFinishes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msg  sshDoneMsg
+	}{
+		{"ssh fails", sshDoneMsg{
+			err:     errors.New("exit status 255"),
+			display: "ssh alice@example.com",
+			output:  "alice@example.com: Permission denied (publickey).\n",
+		}},
+		{"ssh succeeds", sshDoneMsg{display: "ssh alice@example.com"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := sshMapModel(t)
+			u, _ := m.Update(tc.msg)
+			nm := asModel(t, u)
+			if nm.networkMap {
+				t.Fatalf("the map stayed open over the %q job", nm.cur.name)
+			}
+			view := ansi.Strip(nm.View())
+			if strings.Contains(view, "Discovery ") || strings.Contains(view, "No other devices replied") {
+				t.Fatalf("an ssh exit was reported as a LAN discovery outcome:\n%s", view)
+			}
+			// The scan itself is untouched: v brings its devices straight back.
+			u, _ = nm.Update(keyMsg("v"))
+			back := asModel(t, u)
+			if back.confirmTool != nil || !back.networkMap || back.cur.name != lanDiscoveryName {
+				t.Fatalf("v must re-show the parked scan, got cur=%q confirm=%v", back.cur.name, back.confirmTool != nil)
+			}
+			if got := ansi.Strip(back.View()); !strings.Contains(got, "192.168.12.1 (router)") || !strings.Contains(got, "192.168.12.50 (printer)") {
+				t.Fatalf("the recalled map lost the discovered devices:\n%s", got)
+			}
+		})
+	}
+}
+
+// Whatever the map does when ssh finishes, it does every time: a second and a
+// third session must not find it attached to the ssh job.
+func TestNetworkMapDetachesOnRepeatedSSH(t *testing.T) {
+	m := sshMapModel(t)
+	for i := range 3 {
+		u, _ := m.Update(sshDoneMsg{err: errors.New("exit status 255"), display: "ssh alice@example.com"})
+		m = asModel(t, u)
+		if m.networkMap {
+			t.Fatalf("attempt %d left the map open over %q", i+1, m.cur.name)
+		}
+		if view := ansi.Strip(m.View()); strings.Contains(view, "Discovery ") || strings.Contains(view, "No other devices replied") {
+			t.Fatalf("attempt %d reported ssh as a LAN discovery outcome:\n%s", i+1, view)
+		}
+		u, _ = m.Update(keyMsg("v"))
+		m = asModel(t, u)
+		if !m.networkMap || m.cur.name != lanDiscoveryName {
+			t.Fatalf("attempt %d could not re-show the scan, got cur=%q", i+1, m.cur.name)
+		}
+	}
+}
+
+// Tab walks the ring; no stop on it may bring the map back up over a job that
+// is not the scan.
+func TestJobSwitchingNeverRevivesStaleMap(t *testing.T) {
+	m := sshMapModel(t)
+	m.otherJobs = []jobState{{name: "ping", status: JobDone}}
+	u, _ := m.Update(sshDoneMsg{err: errors.New("exit status 255"), display: "ssh alice@example.com"})
+	m = asModel(t, u)
+	for i := range 4 {
+		u, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = asModel(t, u)
+		if m.networkMap {
+			t.Fatalf("tab %d reopened the map on %q", i+1, m.cur.name)
+		}
+		if view := ansi.Strip(m.View()); strings.Contains(view, "Network map:") {
+			t.Fatalf("tab %d drew the map over %q:\n%s", i+1, m.cur.name, view)
 		}
 	}
 }

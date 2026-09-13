@@ -58,7 +58,7 @@ func TestLabHasNoLiveNetworkOrClockFallback(t *testing.T) {
 			case "time":
 				t.Errorf("%s calls time.%s; model must not read or wait on the clock", path, sel.Sel.Name)
 			case "diagnostic", "d":
-				if !slices.Contains([]string{"ParseTarget", "ProbePlan", "RunAll", "BuildSnapshot", "ReplaySnapshot", "Interpret", "InternetProbeEndpoints"}, sel.Sel.Name) {
+				if !slices.Contains([]string{"ParseTarget", "ProbePlan", "RunAll", "BuildSnapshot", "ReplaySnapshot", "Interpret", "InternetProbeEndpoints", "ProbeTimeoutMs"}, sel.Sel.Name) {
 					t.Errorf("%s calls diagnostic.%s; audit offline boundary", path, sel.Sel.Name)
 				}
 			}

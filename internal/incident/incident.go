@@ -231,7 +231,8 @@ func plural(n int, word string) string {
 
 // Environment keeps the changes that describe how this machine reaches the
 // network: the derived paths reading, and the route, interface, source
-// address, resolver, network name and resolved addresses a check recorded.
+// address, resolvers named and dialed, network name and resolved addresses a
+// check recorded.
 //
 // The rest of a comparison is what the checks made of that environment, which
 // is the failure itself rather than a candidate explanation for it. The split
@@ -265,9 +266,26 @@ func filter(changes []compare.Change, want bool) []compare.Change {
 // path traffic took rather than what happened on it. They are matched against
 // the stable path a comparison gives every change, which is the identity that
 // exists to be keyed on.
+//
+// The scalar ones end the path, so they are matched at its end. A field the
+// comparison reports per member does not: its path carries the member after
+// the field name, and those are listed separately below.
 var environmentalFields = []string{
 	".observed.interface", ".observed.source_ip", ".observed.ssid",
 	".observed.resolver", ".observed.selected_ip",
+}
+
+// environmentalCollections are the observed fields a comparison reports one
+// member at a time, so the field name sits in the middle of the path and the
+// member the run recorded follows it. The trailing dot is what keeps a
+// prefix from matching a longer field name that starts the same way.
+//
+// resolver_targets is here because it is where a system resolver's identity
+// now lives. Observed.Resolver is only ever the second-opinion server this run
+// was told to ask, so the nameserver the machine itself was handed reaches a
+// comparison through this field and through no other.
+var environmentalCollections = []string{
+	".observed.routes.", ".observed.addresses.", ".observed.resolver_targets.",
 }
 
 func environmental(c compare.Change) bool {
@@ -275,8 +293,10 @@ func environmental(c compare.Change) bool {
 	case compare.SectionPaths:
 		return true
 	case compare.SectionCheck:
-		if strings.Contains(c.Path, ".observed.routes.") || strings.Contains(c.Path, ".observed.addresses.") {
-			return true
+		for _, collection := range environmentalCollections {
+			if strings.Contains(c.Path, collection) {
+				return true
+			}
 		}
 		for _, field := range environmentalFields {
 			if strings.HasSuffix(c.Path, field) {
@@ -348,6 +368,16 @@ type Timeline struct {
 // one comparison whatever the session's length, and what is retained is capped
 // whatever its shape.
 func (t *Timeline) Observe(at time.Time, s snapshot.Snapshot) Transition {
+	// A pass that disagrees with the retained ones about the target, the tool,
+	// the run options or the check graph is not a later pass of this session,
+	// and folding it in would produce an incident claiming two sessions were
+	// one. Production reaches this only through a target switch, which already
+	// discards the timeline, so this is the same rule stated where the state
+	// lives rather than a second policy: what cannot be the same session
+	// starts a new one, and nothing incompatible is ever compared or retained.
+	if held, ok := t.held(); ok && snapshot.WatchSessionMismatch(held, s) != "" {
+		*t = Timeline{}
+	}
 	health := Classify(s)
 	state := State{At: at, Snap: s}
 	if health == Failing {
@@ -369,6 +399,19 @@ func (t *Timeline) Observe(at time.Time, s snapshot.Snapshot) Transition {
 	baseline := state
 	t.baseline = &baseline
 	return transition
+}
+
+// held is any run this timeline still retains, which is enough to decide
+// session compatibility: everything retained was already checked against
+// everything else retained, so one is representative of all of them.
+func (t *Timeline) held() (snapshot.Snapshot, bool) {
+	if t.baseline != nil {
+		return t.baseline.Snap, true
+	}
+	if len(t.incidents) > 0 {
+		return t.incidents[len(t.incidents)-1].Onset.Snap, true
+	}
+	return snapshot.Snapshot{}, false
 }
 
 func (t *Timeline) begin(state State) {

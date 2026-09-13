@@ -101,6 +101,10 @@ const (
 type pendingAction struct {
 	kind   pendingKind
 	target *diagnostic.Target
+	// newQuestion travels with the deferred restart because it is the caller's
+	// intent, not a property of the target: a retest and a restart prompt
+	// holding the same target want opposite things from the watch session.
+	newQuestion bool
 }
 
 // jobState is one tool run's process and display state. The selected run is
@@ -229,14 +233,17 @@ type model struct {
 	// showing the exact command until 'y' runs it or esc cancels.
 	confirmTool *Tool
 
-	helping bool // ?: full-screen key cheatsheet; any key closes it
+	helping bool // ?: full-screen key cheatsheet
+	helpVP  viewport.Model
 
 	// Actions menu (space): the actions and tools that fit the current state,
-	// drawn where the help bar goes. actionsSel is the highlighted row. It is
-	// discovery, not a second command system: every row runs through the same
-	// dispatch its key does.
-	actionsOpen bool
-	actionsSel  int
+	// drawn where the help bar goes. actionsSelID is the action the cursor is
+	// on and actionsSel the row it was last on, the fallback for when that
+	// action stops applying. It is discovery, not a second command system:
+	// every row runs through the same dispatch its key does.
+	actionsOpen  bool
+	actionsSel   int
+	actionsSelID actionID
 
 	// theme is this model's own palette and the styles every view draws
 	// with. Both are values rather than package state, so a second model or a
@@ -533,6 +540,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.helping {
+			m.refreshHelpViewport(false)
+		}
 		if m.incidentViewing {
 			m.refreshIncidentViewport(false)
 		}
@@ -543,8 +553,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if m.helping {
-			m.helping = false
-			return m, nil
+			return m.handleHelpKey(msg)
 		}
 		// Runes read from stdin in one batch arrive as a single KeyMsg ("jjj"), which
 		// matches no binding; replay them one at a time, so a fast chord and a
@@ -664,30 +673,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.watchCmd()
 		}
 		// A watch pass refreshes results underneath the user, so it must leave
-		// everything they are mid-way through alone: open modals and their typed
-		// contents, the last notice, and a cursor they moved themselves.
-		cur, other := m.cur, m.otherJobs
-		pending, confirm, ssh := m.pending, m.confirmTool, m.sshPrompt
-		notice, selMoved := m.notice, m.selMoved
-		// The LAN map is drawn from the parked scan job, so restoring the job
-		// without its map state leaves the user staring at the checks list.
-		// networkCIDR is copied, not recomputed: it labels the sweep that
-		// actually ran, and this pass's source address may differ.
-		// namesPending is deliberately not carried over, since it tracks lookups
-		// issued under the old generation, whose replies this restart drops,
-		// so those rows fall back to nmap's own name instead of spinning
-		// forever.
-		mapOpen, mapSel, cidr, names := m.networkMap, m.mapSelected, m.networkCIDR, m.hostNames
-		// The opened device's service list is carried over for the same
-		// reason: a pass that happens while the user is reading it must not
-		// throw the list away and drop them back on the device rows.
-		svc := m.svc
-		cmd := m.doRestart()
-		m.cur, m.otherJobs = cur, other
-		m.pending, m.confirmTool, m.sshPrompt = pending, confirm, ssh
-		m.notice, m.selMoved = notice, selMoved
-		m.networkMap, m.mapSelected, m.networkCIDR, m.hostNames = mapOpen, mapSel, cidr, names
-		m.svc = svc
+		// everything they are mid-way through alone: open modals and their
+		// typed contents, the last notice, a cursor they moved themselves, the
+		// LAN map and the device opened on it, the parked tool output the map
+		// is drawn from, and an open explanation of the diagnosis. That is
+		// restartRun without resetPresentation, so the set is not a list this
+		// branch has to keep in step with doRestart.
+		//
+		// Nothing stale survives it: every one of those views is recomputed
+		// from the new run each frame. The explanation in particular holds no
+		// copy of the evidence it showed, so it redraws from this pass's
+		// diagnosis, and the panel falls back to Details by itself once the
+		// cursor is no longer on the row the new diagnosis blames.
+		cmd := m.restartRun()
 		if m.viewing {
 			m.refreshViewport()
 		}

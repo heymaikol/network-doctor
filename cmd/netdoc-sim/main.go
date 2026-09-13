@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/simulation"
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
@@ -356,8 +357,12 @@ func (f *huntFlags) parse(args []string) (string, error) {
 		return "", err
 	}
 	*f.lane = string(lane)
-	if *f.timeout <= 0 {
-		return "", errors.New("-timeout must be positive")
+	// Validated the way netdoc validates its own -timeout, because that is
+	// where this value is going: runner.go spells it onto the child's command
+	// line. A value netdoc refuses would otherwise surface as every spawned run
+	// exiting 2 with the real complaint buried in a child process.
+	if err := diagnostic.ValidateProbeTimeout(*f.timeout); err != nil {
+		return "", err
 	}
 	if !slices.Contains(simulation.HuntBaseNames(), ref) {
 		return "", fmt.Errorf("unsupported hunt base %q (have: %s)", textsafe.Clean(ref), strings.Join(simulation.HuntBaseNames(), ", "))
@@ -459,8 +464,9 @@ func (f *campaignFlags) parse(args []string) (string, error) {
 	if *f.iteration < -1 || *f.iteration > 999999 {
 		return "", errors.New("-iteration must be between 0 and 999999")
 	}
-	if *f.timeout <= 0 {
-		return "", errors.New("-timeout must be positive")
+	// Netdoc's own -timeout contract, for the reason huntFlags.parse gives.
+	if err := diagnostic.ValidateProbeTimeout(*f.timeout); err != nil {
+		return "", err
 	}
 	return ref, nil
 }
@@ -505,8 +511,9 @@ func (f *runFlags) parse(args []string) (string, error) {
 	if *f.repeat < 1 {
 		return "", errors.New("-repeat must be at least 1")
 	}
-	if *f.timeout <= 0 {
-		return "", errors.New("-timeout must be positive")
+	// Netdoc's own -timeout contract, for the reason huntFlags.parse gives.
+	if err := diagnostic.ValidateProbeTimeout(*f.timeout); err != nil {
+		return "", err
 	}
 	return ref, nil
 }

@@ -11,9 +11,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net"
 	"net/netip"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -406,5 +409,260 @@ func TestEndpointsCarryTheIPv6LinkLocalZone(t *testing.T) {
 	}
 	if got := advertisedEndpoint("192.0.2.10:0", "192.0.2.10:38825"); got != "192.0.2.10:38825" {
 		t.Errorf("advertised endpoint = %q, want 192.0.2.10:38825", got)
+	}
+}
+
+// producerCauses restates, from the producer and not from the validator, the
+// causes a v1 endpoint can record once it has stopped where these two phase
+// booleans say it stopped. dialPeerTLS either never connects, or connects and
+// fails the pinned TLS handshake; only probeEndpoint, on an authenticated
+// connection, can fail the fixed payload exchange. A bounded deadline or a
+// canceled session ends any of the three, so those two belong everywhere.
+func producerCauses(tcpConnected, tlsAuthenticated bool) []string {
+	shared := []string{diagnostic.ConnectionCauseTimeout, diagnostic.ConnectionCauseCanceled}
+	switch {
+	case tlsAuthenticated:
+		return append(shared, CauseApplicationTrafficFailed)
+	case tcpConnected:
+		return append(shared, CauseTLSAuthenticationFailed)
+	default:
+		return append(shared, diagnostic.ConnectionCauseRefused, diagnostic.ConnectionCauseUnreachable)
+	}
+}
+
+// producerCanEmit describes one wire observation the producers can actually
+// build. It is written from dialPeerTLS, probeEndpoint, probeOffer and
+// markPass so that it disagrees with validateObservation whenever either one
+// drifts away from the protocol contract.
+func producerCanEmit(observation Observation, sourceFamily, destinationFamily string) bool {
+	if observation.Direction != DirectionListenerToConnector && observation.Direction != DirectionConnectorToListener {
+		return false
+	}
+	if observation.Family != FamilyIPv4 && observation.Family != FamilyIPv6 {
+		return false
+	}
+	if observation.Status == diagnostic.StatusNA.String() {
+		// An untested family measures nothing: probeOffer reports an
+		// unverified peer address, and completeObservations fills in a family
+		// that was never dialed. Neither records an attempt.
+		return (observation.Cause == CausePeerAddressUnverified || observation.Cause == CauseFamilyUnavailable) &&
+			observation.Source == "" && observation.Destination == "" &&
+			!observation.TCPConnected && !observation.TLSAuthenticated && !observation.ApplicationTraffic &&
+			observation.PayloadBytes == 0 && observation.Ms == 0
+	}
+	// Every tested row comes from a dial. dialPeerTLS names the destination
+	// before it connects, adds the local socket exactly when the connection is
+	// established, and dials one family over tcp4 or tcp6, so both socket
+	// endpoints belong to the family the row is filed under.
+	if observation.Destination == "" || destinationFamily != observation.Family {
+		return false
+	}
+	if observation.TCPConnected != (observation.Source != "") ||
+		observation.Source != "" && sourceFamily != observation.Family {
+		return false
+	}
+	if observation.TLSAuthenticated && !observation.TCPConnected {
+		return false
+	}
+	switch observation.Status {
+	case diagnostic.StatusPass.String():
+		// markPass runs only on an authenticated connection that completed the
+		// fixed exchange, and it clears the cause.
+		return observation.Cause == "" && observation.TCPConnected && observation.TLSAuthenticated &&
+			observation.ApplicationTraffic && observation.PayloadBytes == payloadSize
+	case diagnostic.StatusFail.String():
+		return !observation.ApplicationTraffic && observation.PayloadBytes == 0 &&
+			slices.Contains(producerCauses(observation.TCPConnected, observation.TLSAuthenticated), observation.Cause)
+	default:
+		return false
+	}
+}
+
+func TestObservationValidatorAcceptsExactlyTheProducerStates(t *testing.T) {
+	// The family travels with each spelling so the expectation never depends
+	// on the parser the validator uses. An IPv4-mapped address is the IPv4
+	// address it carries, and a link-local address keeps its zone.
+	endpoints := []struct{ address, family string }{
+		{"", ""},
+		{"192.0.2.10:4242", FamilyIPv4},
+		{"[2001:db8::10]:4242", FamilyIPv6},
+		{"[::ffff:192.0.2.10]:4242", FamilyIPv4},
+		{"[fe80::10%eth0]:4242", FamilyIPv6},
+	}
+	causes := []string{
+		"", CauseFamilyUnavailable, CausePeerAddressUnverified, CauseTLSAuthenticationFailed,
+		CauseApplicationTrafficFailed, diagnostic.ConnectionCauseRefused, diagnostic.ConnectionCauseUnreachable,
+		diagnostic.ConnectionCauseTimeout, diagnostic.ConnectionCauseCanceled, diagnostic.ConnectionCauseReset,
+	}
+	booleans := []bool{false, true}
+	var states []Observation
+	for _, status := range []string{"PASS", "FAIL", "N/A", "SKIP"} {
+		for _, cause := range causes {
+			for _, tcpConnected := range booleans {
+				for _, tlsAuthenticated := range booleans {
+					for _, applicationTraffic := range booleans {
+						for _, payload := range []int{0, payloadSize} {
+							for _, ms := range []int64{0, 1} {
+								states = append(states, Observation{
+									Status: status, Cause: cause, TCPConnected: tcpConnected,
+									TLSAuthenticated: tlsAuthenticated, ApplicationTraffic: applicationTraffic,
+									PayloadBytes: payload, Ms: ms,
+								})
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	accepted := map[string]bool{}
+	for _, family := range []string{FamilyIPv4, FamilyIPv6} {
+		for _, source := range endpoints {
+			for _, destination := range endpoints {
+				for _, state := range states {
+					observation := state
+					observation.Direction = DirectionConnectorToListener
+					observation.Family = family
+					observation.Source, observation.Destination = source.address, destination.address
+					want := producerCanEmit(observation, source.family, destination.family)
+					if got := validateObservation(observation) == nil; got != want {
+						t.Fatalf("validateObservation(%+v) accepted = %v, want %v", observation, got, want)
+					}
+					if want {
+						accepted[observation.Status+"/"+observation.Cause+"/"+
+							strconv.FormatBool(observation.TCPConnected)+"/"+strconv.FormatBool(observation.TLSAuthenticated)] = true
+					}
+				}
+			}
+		}
+	}
+	// Every state the producer reaches has to remain reachable, so an
+	// over-restrictive validator fails here rather than silently discarding
+	// honest peer evidence.
+	want := map[string]bool{
+		"PASS//true/true":                           true,
+		"FAIL/connection_refused/false/false":       true,
+		"FAIL/unreachable/false/false":              true,
+		"FAIL/timeout/false/false":                  true,
+		"FAIL/canceled/false/false":                 true,
+		"FAIL/tls_authentication_failed/true/false": true,
+		"FAIL/timeout/true/false":                   true,
+		"FAIL/canceled/true/false":                  true,
+		"FAIL/application_traffic_failed/true/true": true,
+		"FAIL/timeout/true/true":                    true,
+		"FAIL/canceled/true/true":                   true,
+		"N/A/family_unavailable/false/false":        true,
+		"N/A/peer_address_unverified/false/false":   true,
+	}
+	if !maps.Equal(accepted, want) {
+		t.Fatalf("accepted producer states = %v, want %v", slices.Sorted(maps.Keys(accepted)), slices.Sorted(maps.Keys(want)))
+	}
+}
+
+func TestObservationValidatorBoundsMeasurements(t *testing.T) {
+	valid := Observation{
+		Direction: DirectionConnectorToListener, Family: FamilyIPv4, Destination: "192.0.2.10:4242",
+		Status: "FAIL", Cause: diagnostic.ConnectionCauseRefused, Ms: 1,
+	}
+	if err := validateObservation(valid); err != nil {
+		t.Fatalf("refused observation: %v", err)
+	}
+	for name, mutate := range map[string]func(*Observation){
+		"negative duration":         func(o *Observation) { o.Ms = -1 },
+		"duration past the session": func(o *Observation) { o.Ms = SessionLifetime.Milliseconds() + 1 },
+		"oversized cause":           func(o *Observation) { o.Cause = strings.Repeat("x", 49) },
+		"oversized endpoint":        func(o *Observation) { o.Destination = strings.Repeat("x", maxEndpointSize+1) },
+		"negative payload":          func(o *Observation) { o.PayloadBytes = -1 },
+		"unusable endpoint port":    func(o *Observation) { o.Destination = "192.0.2.10:0" },
+	} {
+		observation := valid
+		mutate(&observation)
+		if err := validateObservation(observation); !errors.Is(err, errInvalidMessage) {
+			t.Errorf("%s error = %v, want invalid message", name, err)
+		}
+	}
+}
+
+func TestContradictoryEvidenceCannotReachTheDiagnosis(t *testing.T) {
+	listenerIdentity := EndpointIdentity{Role: RoleListener, ListenAddresses: []string{"192.0.2.1:4242"}}
+	connectorIdentity := EndpointIdentity{Role: RoleConnector, ListenAddresses: []string{"192.0.2.2:4242"}}
+	observedInbound := Observation{Source: "192.0.2.2:5000", Destination: "192.0.2.1:4242"}
+	refusedAfterTLS := Observation{
+		Direction: DirectionConnectorToListener, Family: FamilyIPv4,
+		Source: "192.0.2.2:5000", Destination: "192.0.2.1:4242", Status: "FAIL",
+		Cause: diagnostic.ConnectionCauseRefused, TCPConnected: true, TLSAuthenticated: true, Ms: 5,
+	}
+	mislabeledFamily := Observation{
+		Direction: DirectionConnectorToListener, Family: FamilyIPv6,
+		Source: "192.0.2.2:5001", Destination: "192.0.2.1:4242", Status: "FAIL",
+		Cause: CauseConnectionUnreachable, TCPConnected: true, Ms: 5,
+	}
+	honestRefusal := Observation{
+		Direction: DirectionConnectorToListener, Family: FamilyIPv4, Destination: "192.0.2.1:4242",
+		Status: "FAIL", Cause: diagnostic.ConnectionCauseRefused, Ms: 5,
+	}
+	honestPass := Observation{
+		Direction: DirectionConnectorToListener, Family: FamilyIPv4,
+		Source: "192.0.2.2:5000", Destination: "192.0.2.1:4242", Status: "PASS",
+		TCPConnected: true, TLSAuthenticated: true, ApplicationTraffic: true, PayloadBytes: payloadSize, Ms: 5,
+	}
+	tests := []struct {
+		name        string
+		contradicts Observation
+		honest      []Observation
+		inbound     map[string]Observation
+		wantID      string
+		wantVerdict string
+	}{
+		{
+			// A refused connection never reached an endpoint, so it cannot
+			// also have connected and authenticated TLS. Analyze reads those
+			// phase booleans, so the row used to be read as a working
+			// connection whose application failed.
+			name:        "connection refusal after authenticated TLS",
+			contradicts: refusedAfterTLS, honest: []Observation{honestRefusal},
+			wantID: DiagnosisDirectionalFailure, wantVerdict: diagnostic.VerdictService,
+		},
+		{
+			// Both socket endpoints are IPv4, so this row measured IPv4. Filed
+			// under IPv6 it used to invent a second tested family and turn a
+			// healthy session into an address-family asymmetry.
+			name:        "IPv6 row carrying the IPv4 socket pair",
+			contradicts: mislabeledFamily, honest: []Observation{honestPass},
+			inbound: map[string]Observation{FamilyIPv4: observedInbound},
+			wantID:  DiagnosisBidirectionalOK, wantVerdict: diagnostic.VerdictOK,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateObservation(test.contradicts); !errors.Is(err, errInvalidMessage) {
+				t.Fatalf("contradictory observation error = %v, want invalid message", err)
+			}
+			// The attack arrives as bytes, so the read side has to refuse it
+			// before verifyReported or Analyze ever see it.
+			conn := &memoryConn{}
+			_, _ = conn.Write(framedJSON(t, wireMessage{
+				Version: ProtocolVersion, Type: "evidence", Observations: []Observation{test.contradicts},
+			}))
+			if _, err := readMessage(context.Background(), conn, time.Second); !errors.Is(err, errInvalidMessage) {
+				t.Fatalf("wire evidence error = %v, want invalid message", err)
+			}
+			// The honest report of the same session still reaches its
+			// diagnosis through the real verifier.
+			inbound := test.inbound
+			if inbound == nil {
+				inbound = map[string]Observation{}
+			}
+			server := &endpointServer{inbound: inbound}
+			verified, err := server.verifyReported(test.honest, DirectionConnectorToListener)
+			if err != nil {
+				t.Fatalf("honest evidence: %v", err)
+			}
+			got := Analyze(listenerIdentity, connectorIdentity,
+				append([]Observation{pass(DirectionListenerToConnector, FamilyIPv4)}, verified...))
+			if got.ID != test.wantID || got.Verdict != test.wantVerdict {
+				t.Fatalf("honest diagnosis = %s/%s, want %s/%s", got.ID, got.Verdict, test.wantID, test.wantVerdict)
+			}
+		})
 	}
 }

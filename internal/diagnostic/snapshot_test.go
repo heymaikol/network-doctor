@@ -29,6 +29,24 @@ import (
 // meant to be looked at rather than accepted.
 var goldenSnapshot = filepath.Join("..", "snapshot", "testdata", "example.ndoc")
 
+// timedResults stamps the duration a real run always records. Every probe the
+// DAG builds executes inside wrapRun, whose timer floors at one nanosecond, so
+// a result the run reported is a result with a duration, and the snapshot's
+// ran field is read straight off that. A result map written by hand in a test
+// has none, and an artifact built from one would claim an outcome no probe
+// body measured. A prerequisite skip is the exception, because the scheduler
+// records it without calling the probe at all.
+func timedResults(res map[ProbeID]ProbeResult) map[ProbeID]ProbeResult {
+	out := make(map[ProbeID]ProbeResult, len(res))
+	for id, r := range res {
+		if r.Dur == 0 && r.Status != StatusSkip {
+			r.Dur = time.Millisecond
+		}
+		out[id] = r
+	}
+	return out
+}
+
 // fixtureRun is one deliberately small, deliberately unhealthy run: a target
 // whose name resolves and whose port is refused, over a link that lost IPv6
 // and had its egress failure relaxed by later reasoning. It is written out by
@@ -209,7 +227,7 @@ func TestBuildSnapshotShape(t *testing.T) {
 func TestBuildSnapshotCausalEvidenceRoundTrip(t *testing.T) {
 	target, probes, results := fixtureRun()
 	want := BuildSnapshot(target, probes, results)
-	data, err := snapshot.Encode(want)
+	data, err := snapshot.Encode(withSnapshotProvenance(want))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +260,7 @@ func TestBuildSnapshotGenericRun(t *testing.T) {
 	if !s.OK || s.Checks == nil || len(s.Checks) != 0 {
 		t.Errorf("empty run = %+v, want ok with an empty (not null) check list", s)
 	}
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -289,7 +307,7 @@ func TestBuildSnapshotCoversTheRealProbeGraph(t *testing.T) {
 			t.Errorf("check %d = %+v, want a named row that ran", i, c)
 		}
 	}
-	if _, err := snapshot.Encode(s); err != nil {
+	if _, err := snapshot.Encode(withSnapshotProvenance(s)); err != nil {
 		t.Errorf("the real graph does not encode: %v", err)
 	}
 }
@@ -304,7 +322,7 @@ func TestBuildSnapshotKeepsHostileTextInert(t *testing.T) {
 	}}}
 	probes[0].Run = wrapRun(probes[0].Run)
 	results := RunAll(context.Background(), probes, time.Second)
-	data, err := snapshot.Encode(BuildSnapshot(nil, probes, results))
+	data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(nil, probes, results)))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -333,7 +351,7 @@ func TestBuildSnapshotOmitsProxyCredentials(t *testing.T) {
 	probes := []Probe{{ID: ProbeProxy, Name: "Internet (env proxy)", Run: wrapRun(ops.proxyProbe)}}
 	results := RunAll(context.Background(), probes, 2*time.Second)
 
-	data, err := snapshot.Encode(BuildSnapshot(nil, probes, results))
+	data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(nil, probes, results)))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -362,7 +380,7 @@ func TestSnapshotCarriesNoEnvironmentDump(t *testing.T) {
 	target, probes, results := fixtureRun()
 	s := BuildSnapshot(target, probes, results)
 	s.Tool = snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"}
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -455,7 +473,7 @@ func TestBuildSnapshotMarksUnreportedChecksIncomplete(t *testing.T) {
 	}
 	// And what the builder produces is what the format accepts: the guard in
 	// Encode and the rule here cannot drift apart without this failing.
-	if _, err := snapshot.Encode(s); err != nil {
+	if _, err := snapshot.Encode(withSnapshotProvenance(s)); err != nil {
 		t.Errorf("the builder produced a snapshot the format refuses: %v", err)
 	}
 }
@@ -523,7 +541,7 @@ func TestSnapshotPreservesCounterfactualDiagnosisAndAttemptEvidence(t *testing.T
 			}},
 	}
 	s := BuildSnapshot(target, probes, results)
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +605,7 @@ func TestBuildSnapshotOmitsRoutesWhenThePlatformAnsweredNothing(t *testing.T) {
 	if s.Checks[0].Observed != nil && s.Checks[0].Observed.Routes != nil {
 		t.Errorf("routes = %+v, want none", s.Checks[0].Observed.Routes)
 	}
-	data, err := snapshot.Encode(s)
+	data, err := snapshot.Encode(withSnapshotProvenance(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,4 +622,161 @@ func probeIDs(probes []Probe) []ProbeID {
 		order[i] = p.ID
 	}
 	return order
+}
+
+// The compatibility Evidence field and the typed CausalEvidence beside it are
+// two spellings of one fact, and a snapshot carrying both has to agree with
+// itself: internal/snapshot refuses a file whose Evidence is not the
+// projection of its causal evidence. The projection rule is written in two
+// places, because the file format cannot import this package and this package
+// owns the live finding, so the two are pinned here.
+//
+// The evidence below is deliberately awkward for the rule: a repeated check, a
+// not-evaluated item that supplies no observation, and a later observation of
+// a row that was already cited. If EvidenceRows and the validator ever stop
+// agreeing about any of those, Encode refuses this snapshot.
+func TestBuiltSnapshotEvidenceProjectionsAgree(t *testing.T) {
+	finding := DiagnosisFinding{
+		ID: DiagnosisSystemDNSFailure, Verdict: VerdictDNS, Summary: "The system resolver is failing.",
+		Focus: ProbeDNS, Confidence: ConfidenceHigh,
+		Evidence: []CausalEvidence{
+			{Kind: EvidenceSupport, Check: ProbeDNS, Observation: ObservationStatusFail},
+			{Kind: EvidenceNotEvaluated, Check: ProbeTargetTCP, Observation: ObservationStatusSkip, Reason: NotEvaluatedPrerequisite},
+			{Kind: EvidenceRuledOut, Check: ProbeDNSPublic, Observation: ObservationDNSAnswers, Candidate: DiagnosisDNSNameNotFound},
+			{Kind: EvidenceSupport, Check: ProbeDNS, Observation: ObservationCause},
+		},
+	}
+	s := snapshot.Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: snapshot.Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Checks: []snapshot.Check{
+			{ID: string(ProbeDNS), Name: "DNS", Status: snapshot.StatusFail, Cause: "timeout", Ran: true, DurationMs: 1},
+			{ID: string(ProbeDNSPublic), Name: "Public DNS", Status: snapshot.StatusPass, Ran: true, DurationMs: 1,
+				Observed: &snapshot.Observed{Addresses: []string{"192.0.2.1"}}},
+			{ID: string(ProbeTargetTCP), Name: "TCP", Status: snapshot.StatusSkip},
+		},
+		Diagnosis: snapshot.Diagnosis{
+			Verdict: finding.Verdict, Summary: finding.Summary, Blamed: string(ProbeDNS), FailedStage: string(ProbeDNS),
+			Findings: []snapshot.Finding{{
+				ID: string(finding.ID), Verdict: finding.Verdict, Summary: finding.Summary,
+				Focus: string(finding.Focus), Confidence: string(finding.Confidence),
+			}},
+		},
+	}
+	for _, id := range finding.EvidenceRows() {
+		s.Diagnosis.Findings[0].Evidence = append(s.Diagnosis.Findings[0].Evidence, string(id))
+	}
+	for _, e := range finding.Evidence {
+		s.Diagnosis.Findings[0].CausalEvidence = append(s.Diagnosis.Findings[0].CausalEvidence, snapshot.CausalEvidence{
+			Kind: string(e.Kind), Check: string(e.Check), Observation: string(e.Observation),
+			Value: e.Value, Candidate: string(e.Candidate), Reason: string(e.Reason),
+		})
+	}
+	if _, err := snapshot.Encode(withSnapshotProvenance(s)); err != nil {
+		t.Fatalf("EvidenceRows no longer produces the projection the snapshot format validates: %v", err)
+	}
+}
+
+// The graph netdoc builds has to be a graph the artifact can state. Encode
+// refuses a dependency naming no row, a dependency counted twice, and a cycle,
+// so a probe that gains a dependency on a row the graph does not always carry
+// beside it, or a selection that keeps a dependent without what it waits on,
+// fails here rather than publishing a run that could not have executed.
+func TestBuiltSnapshotDependencyGraphIsPublishable(t *testing.T) {
+	ops := &netops{}
+	targets := []*Target{nil}
+	for proto := range protoNames {
+		targets = append(targets, &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: Proto(proto)})
+	}
+	selections := []ProbeSelection{{}, {NoReferenceEgress: true}}
+	for _, id := range selectableProbeIDs() {
+		selections = append(selections, ProbeSelection{Check: probeSet(id)}, ProbeSelection{Skip: probeSet(id)})
+	}
+	for _, target := range targets {
+		name := "generic"
+		if target != nil {
+			name = target.Proto.String()
+		}
+		// Naming the opt-in row explicitly keeps the widest graph in the set.
+		full := ops.buildProbes(target, DefaultPublicDNS, true, ProbePMTU)
+		for _, selection := range selections {
+			probes := selection.Apply(full)
+			if _, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(target, probes, nil))); err != nil {
+				t.Errorf("%s graph with selection check=%v skip=%v reference=%v: %v",
+					name, selection.Check, selection.Skip, !selection.NoReferenceEgress, err)
+			}
+		}
+	}
+}
+
+// The producer's own derivation of ran and the format's rule about it are two
+// halves of one contract, and the executor is what joins them: every probe the
+// DAG builds is timed, and the one result the scheduler records without
+// calling a probe is a prerequisite skip. This runs the real executor over a
+// graph that produces each of those and holds the artifact to the format's
+// rule, so a change to either half that parts them fails here.
+func TestExecutedRunsAgreeWithTheFormatAboutWhatRan(t *testing.T) {
+	probes := []Probe{
+		{ID: ProbeIface, Name: "Interface", Run: wrapRun(func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			return ProbeResult{Status: StatusPass}
+		})},
+		{ID: ProbeDNS, Name: "DNS", Deps: []ProbeID{ProbeIface}, Run: wrapRun(func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			return ProbeResult{Status: StatusFail, Detail: "no answer"}
+		})},
+		// Skipped by the scheduler, never called.
+		{ID: ProbeTargetTCP, Name: "TCP", Deps: []ProbeID{ProbeDNS}, Run: wrapRun(func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			t.Error("a probe behind a failed prerequisite was executed")
+			return ProbeResult{Status: StatusPass}
+		})},
+		// Executed and inapplicable, which is the shape N/A really has.
+		{ID: ProbeQUIC, Name: "QUIC", Deps: []ProbeID{ProbeIface}, Run: wrapRun(func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			return ProbeResult{Status: StatusNA, Detail: "no address family available"}
+		})},
+	}
+	results := RunAll(context.Background(), probes, DefaultProbeTimeout)
+	artifact := BuildSnapshot(nil, probes, results)
+	// One probe never reports, which is how an interrupted run leaves a row.
+	artifact.Checks = append(artifact.Checks, snapshot.Check{ID: string(ProbeTLS), Name: "TLS", Status: snapshot.StatusIncomplete})
+
+	want := map[ProbeID]struct {
+		status string
+		ran    bool
+	}{
+		ProbeIface:     {snapshot.StatusPass, true},
+		ProbeDNS:       {snapshot.StatusFail, true},
+		ProbeTargetTCP: {snapshot.StatusSkip, false},
+		ProbeQUIC:      {snapshot.StatusNA, true},
+		ProbeTLS:       {snapshot.StatusIncomplete, false},
+	}
+	for _, c := range artifact.Checks {
+		expected, known := want[ProbeID(c.ID)]
+		if !known {
+			t.Fatalf("unexpected row %q", c.ID)
+		}
+		if c.Status != expected.status || c.Ran != expected.ran {
+			t.Errorf("row %q = %s/ran=%t, want %s/ran=%t", c.ID, c.Status, c.Ran, expected.status, expected.ran)
+		}
+		if snapshot.ExecutionContradicts(c) {
+			t.Errorf("the producer wrote row %q, which the format calls impossible: %s/ran=%t", c.ID, c.Status, c.Ran)
+		}
+	}
+	if _, err := snapshot.Encode(withSnapshotProvenance(artifact)); err != nil {
+		t.Fatalf("the format refused an artifact the executor produced: %v", err)
+	}
+}
+
+// BuildSnapshot intentionally leaves invocation provenance to its caller.
+// Tests that serialize its output supply the same required envelope as app.
+func withSnapshotProvenance(s snapshot.Snapshot) snapshot.Snapshot {
+	if s.CreatedAt == "" {
+		s.CreatedAt = "2026-01-02T03:04:05Z"
+	}
+	if s.Tool.Version == "" {
+		s.Tool.Version = "dev"
+	}
+	if s.Tool.OS == "" {
+		s.Tool.OS = "linux"
+	}
+	if s.Tool.Arch == "" {
+		s.Tool.Arch = "amd64"
+	}
+	return s
 }

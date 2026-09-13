@@ -213,8 +213,9 @@ const detailsMinWidth = 36
 
 // checksWidth is the Checks section's usual width beside Details, wide enough
 // for the longest probe name a targeted run draws plus its marker, glyph and
-// watch sparkline. A labelled row may claim more, up to what Details is
-// guaranteed.
+// watch sparkline. A row that comes to more than that, whether from a long
+// target name, a grown sparkline or a label, claims the columns it needs, up
+// to what Details is guaranteed.
 const checksWidth = 36
 
 // bodyGutter is the blank columns between the two sections in the side-by-side
@@ -302,19 +303,35 @@ func (m model) bodyView(deferred bool, rows int) string {
 	// render, so a watch pass that repairs the path takes the labels with it.
 	collateral := diagnostic.Collateral(m.target, m.probeOrder(), m.results)
 
-	// The rows are built before the section has a width, because a labelled row
-	// is what decides that width, so the labels are placed in a second pass.
-	// A row can carry both of them: a check that changed this pass and is also
-	// downstream of another failure is two separate things worth saying.
+	// The rows are built before the section has a width, because what the rows
+	// come to is what decides that width, so the labels are placed in a second
+	// pass. A row can carry both of them: a check that changed this pass and
+	// is also downstream of another failure is two separate things worth
+	// saying.
 	changed, consequence := m.st.faint.Render(changedLabel), m.st.faint.Render(consequenceLabel)
 	checks := make([]string, 0, len(shown))
 	labels := make([]string, 0, len(shown))
+	// want is the width the widest Checks row would need to stay on one line,
+	// measured from the row as it will be drawn: marker, glyph, probe name and
+	// watch sparkline are all in it already, and a label is a gap and a word
+	// more. Measuring the whole row is the point. A width taken from the label
+	// alone leaves every unlabelled row to wrap against the section's usual
+	// width while the Details section beside it still has columns to spare.
 	want := 0
+	wantRow := func(row, label string) {
+		w := lipgloss.Width(row)
+		if label != "" {
+			w += 1 + lipgloss.Width(label)
+		}
+		want = max(want, w)
+	}
 	for _, i := range shown {
 		probe := m.probes[i]
 		if deferred {
-			checks = append(checks, m.st.faint.Render("  · "+probe.Name))
+			row := m.st.faint.Render("  · " + probe.Name)
+			checks = append(checks, row)
 			labels = append(labels, "")
+			wantRow(row, "")
 			continue
 		}
 		marker, name := "  ", probe.Name
@@ -342,9 +359,27 @@ func (m model) bodyView(deferred bool, rows int) string {
 		text := strings.Join(label, "  ")
 		checks = append(checks, row)
 		labels = append(labels, text)
-		if text != "" {
-			want = max(want, lipgloss.Width(row)+1+lipgloss.Width(text))
+		wantRow(row, text)
+	}
+	if hiddenPass+hiddenNA > 0 {
+		wantRow(m.collapsedChecksRow(hiddenPass, hiddenNA), "")
+	}
+	// hangIndent is the marker and glyph a probe row opens with, so a
+	// continuation indented by it lands under the probe name.
+	const hangIndent = 4
+	// hang wraps a row the section is too narrow to hold on one line, with its
+	// continuation under the probe name rather than back at the left margin,
+	// where the marker column reads it as a row of its own. Only a terminal
+	// with no columns to spare gets here: a wider one gave those columns to
+	// the section instead. ansi.Wrap leaves the row alone when it fits, and
+	// the indent is dropped rather than eating the whole column when the
+	// section is narrower than the indent itself.
+	hang := func(row string, width int) string {
+		if width <= hangIndent*2 || lipgloss.Width(row) <= width {
+			return row
 		}
+		indent := strings.Repeat(" ", hangIndent)
+		return strings.ReplaceAll(ansi.Wrap(row, width-hangIndent, ""), "\n", "\n"+indent)
 	}
 	// checksSection is the Checks rows under their heading once the section
 	// width is settled: the labels are placed against that width, so they land
@@ -353,13 +388,14 @@ func (m model) bodyView(deferred bool, rows int) string {
 		out := make([]string, 0, len(checks)+2)
 		out = append(out, m.st.panelTitle.Render("Checks"))
 		for j, row := range checks {
+			row = hang(row, width)
 			if labels[j] != "" {
 				row = labelRight(row, labels[j], width)
 			}
 			out = append(out, row)
 		}
 		if hiddenPass+hiddenNA > 0 {
-			out = append(out, m.collapsedChecksRow(hiddenPass, hiddenNA))
+			out = append(out, hang(m.collapsedChecksRow(hiddenPass, hiddenNA), width))
 		}
 		return sectionHead(m.st, out, width)
 	}
@@ -418,11 +454,12 @@ func (m model) bodyView(deferred bool, rows int) string {
 	}
 	leftW := checksWidth
 	if want > leftW {
-		// A label pushes the widest probe row past the section's usual width,
-		// and a row that wraps costs the block a display row its budget never
-		// saw coming. Take the columns those rows ask for, but never out of
-		// the width the Details section is guaranteed beside them: a terminal
-		// with nothing to spare takes the wrap instead.
+		// A long target name, a watch sparkline or a label pushes the widest
+		// row past the section's usual width, and a row that wraps costs the
+		// block a display row its budget never saw coming. Take the columns
+		// those rows ask for, but never out of the width the Details section
+		// is guaranteed beside them: a terminal with nothing to spare takes
+		// the wrap instead.
 		leftW = min(want, max(m.width-detailsMinWidth-bodyGutter, leftW))
 	}
 	leftRows := checksSection(leftW)
@@ -1106,7 +1143,7 @@ func (m model) serviceChooserView() string {
 		b.WriteString(m.st.faint.Render(fmt.Sprintf("└─ Nothing answered on any of the %d ports checked: the device may be powered off, may have left the network, or may be dropping connections.", scan.Checked())) + "\n")
 		b.WriteString(m.st.faint.Render("Press "+m.keys.label(ctxList, actRestart)+" to name a port yourself.") + "\n")
 	}
-	return m.st.panel.Width(max(m.width-2, 24)).Render(strings.TrimRight(b.String(), "\n"))
+	return m.st.panel.Width(fitPanelWidth(m.st.panel, m.width)).Render(strings.TrimRight(b.String(), "\n"))
 }
 
 // networkMapView renders hosts found by the LAN scan, or the services of the
@@ -1136,7 +1173,7 @@ func (m model) networkMapView() string {
 		}
 	}
 
-	panelWidth := max(m.width-2, 24)
+	panelWidth := fitPanelWidth(m.st.panel, m.width)
 	title := m.st.panelTitle.Render("Network map: " + lanDiscoveryName + " · " + m.networkCIDR)
 	if commonDomain != "" {
 		domain := m.st.faint.Render("Domain: " + commonDomain)
@@ -1204,14 +1241,20 @@ func (m model) discoveryNetwork() (net.IP, string) {
 	return nil, ""
 }
 
-// joinChips joins styled chips with sep, wrapping to width only at chip
-// boundaries so a "[k] label" pair is never split mid-word.
+// joinChips joins styled chips with sep, normally wrapping at chip boundaries.
+// A chip wider than the terminal wraps on its own rather than overrunning it.
 func joinChips(width int, sep string, chips []string) string {
 	var lines []string
 	cur := ""
 	for _, c := range chips {
+		if width > 0 {
+			c = ansi.Wrap(c, width, "")
+		}
 		switch {
 		case cur == "":
+			cur = c
+		case strings.Contains(cur, "\n") || strings.Contains(c, "\n"):
+			lines = append(lines, cur)
 			cur = c
 		case lipgloss.Width(cur)+lipgloss.Width(sep)+lipgloss.Width(c) <= width:
 			cur += sep + c
@@ -1224,6 +1267,12 @@ func joinChips(width int, sep string, chips []string) string {
 		lines = append(lines, cur)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// fitPanelWidth returns the Lip Gloss width that fits a bordered style in the
+// terminal. Style.Width includes padding but excludes borders and margins.
+func fitPanelWidth(style lipgloss.Style, terminalWidth int) int {
+	return max(terminalWidth-style.GetHorizontalBorderSize()-style.GetHorizontalMargins(), 0)
 }
 
 // helpKeys renders key/description pairs as a dim help bar with the keys
@@ -1243,7 +1292,7 @@ func (m model) confirmView() string {
 	body := m.st.panelTitle.Render("Run "+m.confirmTool.Name+"?") + "\n" +
 		m.st.faint.Render("Actively probes the shown scope, and may trip intrusion detection.") + "\n" +
 		"$ " + display
-	w := max(min(m.width-2, 76), 24)
+	w := min(fitPanelWidth(m.st.focusPanel, m.width), 76)
 	return m.st.focusPanel.Width(w).Render(body) + "\n" + helpKeys(m.st, m.width, "y", "run", "esc", "cancel")
 }
 
@@ -1263,11 +1312,8 @@ func (m model) promptView(withForms bool) string {
 	}
 	// 88, not 76: the longest target-form line needs ~86 content cols to
 	// render unwrapped on wide terminals.
-	w := max(min(m.width-2, 88), 24)
-	footer := helpKeys(m.st, m.width, "↑/↓", "history", "enter", "run", "esc", "back")
-	if m.notice == ctrlCNotice {
-		footer = m.noticeView()
-	}
+	w := min(fitPanelWidth(m.st.focusPanel, m.width), 88)
+	footer := m.quitNoticeFooter(helpKeys(m.st, m.width, "↑/↓", "history", "enter", "run", "esc", "back"))
 	return m.st.focusPanel.Width(w).Render(body) + "\n" + footer
 }
 
@@ -1275,7 +1321,7 @@ func (m model) promptView(withForms bool) string {
 // value receiver is doing real work here: the inputs are resized to the
 // terminal on the copy, never on the model.
 func (m model) sshFormView() string {
-	w := max(min(m.width-2, 76), 24)
+	w := min(fitPanelWidth(m.st.focusPanel, m.width), 76)
 	// 6 = panel border + padding + the gutter the key row's ▸ marker sits in.
 	inputW := func(prompt string) int { return max(w-6-lipgloss.Width(prompt), 8) }
 	m.ssh.user.Width = inputW(m.ssh.user.Prompt)
@@ -1306,10 +1352,10 @@ func (m model) sshFormView() string {
 	}
 	if m.ssh.pending != nil {
 		body += "\n" + m.spinner.View() + " checking ssh config…"
-		return m.st.focusPanel.Width(w).Render(body) + "\n" + helpKeys(m.st, m.width, "esc", "back")
+		return m.st.focusPanel.Width(w).Render(body) + "\n" + m.quitNoticeFooter(helpKeys(m.st, m.width, "esc", "back"))
 	}
 	return m.st.focusPanel.Width(w).Render(body) + "\n" +
-		helpKeys(m.st, m.width, "tab", "next field", "enter", "connect", "esc", "back")
+		m.quitNoticeFooter(helpKeys(m.st, m.width, "tab", "next field", "enter", "connect", "esc", "back"))
 }
 
 // themeView is the theme picker. It is drawn where the help bar goes, like the
@@ -1331,9 +1377,9 @@ func (m model) themeView() string {
 		pad := strings.Repeat(" ", names-lipgloss.Width(t.Name)+2)
 		b.WriteString(marker + name + pad + m.st.faint.Render(t.About) + "\n")
 	}
-	w := max(m.width-2, 24)
+	w := fitPanelWidth(m.st.focusPanel, m.width)
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" +
-		helpKeys(m.st, m.width, "\u2191/\u2193", "preview", "enter", "keep", "esc", "cancel")
+		m.quitNoticeFooter(helpKeys(m.st, m.width, "\u2191/\u2193", "preview", "enter", "keep", "esc", "cancel"))
 }
 
 // actionsView is the Actions menu (space): what the run can do right now, each
@@ -1345,12 +1391,12 @@ func (m model) themeView() string {
 // distinction every terminal or every reader has.
 func (m model) actionsView(avail int) string {
 	items := m.actionItems()
-	sel := min(m.actionsSel, max(len(items)-1, 0))
+	sel := m.actionsRow(items)
 	keyWidth := 0
 	for _, item := range items {
 		keyWidth = max(keyWidth, lipgloss.Width(item.key))
 	}
-	footer := helpKeys(m.st, m.width, m.keys.pairLabel(ctxList, actUp, actDown), "select", "enter", "run", "esc", "close")
+	footer := m.quitNoticeFooter(helpKeys(m.st, m.width, m.keys.pairLabel(ctxList, actUp, actDown), "select", "enter", "run", "esc", "close"))
 	// What is left for the list once the panel's own two borders, its title
 	// and the footer under it are paid for.
 	rows := len(items)
@@ -1379,7 +1425,7 @@ func (m model) actionsView(avail int) string {
 	if len(items) == 0 {
 		b.WriteString(m.st.faint.Render("nothing to do yet: the checks are still running") + "\n")
 	}
-	w := max(min(m.width-2, 56), 24)
+	w := min(fitPanelWidth(m.st.focusPanel, m.width), 56)
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" + footer
 }
 
@@ -1508,8 +1554,8 @@ func (m model) chordHint(help string) string {
 	return m.st.key.Render(displaySeq(strings.Join(m.pendingKeys, " "))+"…") + m.st.faint.Render("  ·  ") + help
 }
 
-// helpOverlay is generated from the same actions and bindings used by dispatch.
-func (m model) helpOverlay() string {
+// helpContent is generated from the same actions and bindings used by dispatch.
+func (m model) helpContent() string {
 	keyWidth := 8
 	for _, def := range actionDefs {
 		for ctx := range def.help {
@@ -1519,14 +1565,17 @@ func (m model) helpOverlay() string {
 	// A description wraps in its own column, with a hanging indent, rather than
 	// running past the terminal: the display rows the terminal would hard-wrap
 	// it into are not in MaxHeight's accounting, so they would push the bottom
-	// of the sheet off the screen. ansi.Wrap leaves the text alone when the
-	// width is unknown or narrower than the key column.
+	// of the sheet off the screen. A terminal narrower than that indent falls
+	// back to wrapping the whole row.
 	indent := strings.Repeat(" ", 2+keyWidth+2)
 	row := func(k, desc string) string {
-		desc = ansi.Wrap(m.st.faint.Render(desc), m.width-len(indent), "")
-		return "  " + m.st.key.Render(k) +
-			strings.Repeat(" ", max(keyWidth-lipgloss.Width(k), 0)+2) +
-			strings.ReplaceAll(desc, "\n", "\n"+indent) + "\n"
+		prefix := "  " + m.st.key.Render(k) + strings.Repeat(" ", max(keyWidth-lipgloss.Width(k), 0)+2)
+		desc = m.st.faint.Render(desc)
+		if m.width > 0 && m.width <= len(indent) {
+			return ansi.Wrap(prefix+desc, m.width, "") + "\n"
+		}
+		desc = ansi.Wrap(desc, m.width-len(indent), "")
+		return prefix + strings.ReplaceAll(desc, "\n", "\n"+indent) + "\n"
 	}
 	// Both sections are generated from the same table dispatch indexes.
 	section := func(b *strings.Builder, ctx keyContext) {
@@ -1542,18 +1591,70 @@ func (m model) helpOverlay() string {
 		}
 	}
 	var b strings.Builder
-	b.WriteString(m.st.panelTitle.Render("Keys") + "\n")
+	b.WriteString(m.wrap(m.st.panelTitle.Render("Keys")) + "\n")
 	section(&b, ctxList)
 	for _, tool := range m.tools {
 		b.WriteString(row(tool.Key, "run "+tool.Name))
 	}
-	b.WriteString("\n" + m.st.panelTitle.Render("Output viewer") + "\n")
+	b.WriteString("\n" + m.wrap(m.st.panelTitle.Render("Output viewer")) + "\n")
 	section(&b, ctxViewer)
-	out := b.String() + "\n" + helpKeys(m.st, m.width, "any key", "close")
-	if m.height > 0 {
-		out = lipgloss.NewStyle().MaxHeight(m.height).Render(out)
+	return b.String()
+}
+
+func (m model) helpScrollFooter() string {
+	var kv []string
+	addPair := func(a, b keyAction, desc string) {
+		if label := m.keys.pairLabel(ctxViewer, a, b); label != "" {
+			kv = append(kv, label, desc)
+		}
 	}
-	return out
+	addPair(actUp, actDown, "scroll")
+	addPair(actPageUp, actPageDown, "page")
+	addPair(actHalfPageUp, actHalfPageDown, "half page")
+	addPair(actTop, actBottom, "top/bottom")
+	return helpKeys(m.st, m.width, append(kv, "other key", "close")...)
+}
+
+func (m model) helpFullView() string {
+	return m.helpContent() + "\n" + helpKeys(m.st, m.width, "any key", "close")
+}
+
+func (m model) helpScrolls() bool {
+	return m.height > 0 && lipgloss.Height(m.helpFullView()) > m.height
+}
+
+func (m *model) refreshHelpViewport(reset bool) {
+	offset := m.helpVP.YOffset
+	m.helpVP.Width = max(m.width, 1)
+	m.helpVP.Height = 20
+	if m.height > 0 {
+		m.helpVP.Height = max(m.height-1-lipgloss.Height(m.helpScrollFooter()), 1)
+	}
+	m.helpVP.SetContent(m.helpContent())
+	if reset {
+		m.helpVP.GotoTop()
+	} else {
+		m.helpVP.SetYOffset(offset)
+	}
+}
+
+// helpOverlay shows the complete sheet when it fits, otherwise the same
+// viewport controls used by the output and incident viewers reveal every row.
+func (m model) helpOverlay() string {
+	if !m.helpScrolls() {
+		return m.helpFullView()
+	}
+	if m.helpVP.TotalLineCount() == 0 {
+		m.refreshHelpViewport(true)
+	}
+	total := m.helpVP.TotalLineCount()
+	top := m.helpVP.YOffset + 1
+	bottom := min(m.helpVP.YOffset+m.helpVP.Height, total)
+	context := fmt.Sprintf("lines %d-%d of %d", min(top, bottom), bottom, total)
+	if m.width > 0 {
+		context = ansi.Truncate(context, m.width, "")
+	}
+	return m.helpVP.View() + "\n" + m.st.faint.Render(context) + "\n" + m.helpScrollFooter()
 }
 
 func (m model) noticeView() string {
@@ -1567,6 +1668,18 @@ func (m model) noticeView() string {
 		return m.st.pass.Render("✓ " + m.notice)
 	}
 	return m.st.fail.Render("✗ " + m.notice)
+}
+
+// quitNoticeFooter swaps a panel's own footer for the armed-quit notice. The
+// overlays draw their footer where the help bar goes, and that footer must not
+// be the reason an armed Ctrl+C goes unseen: the next one quits the whole
+// program. Only the Ctrl+C notice takes the slot, so an overlay's keys are
+// still on screen for every other notice, and they come back as it clears.
+func (m model) quitNoticeFooter(footer string) string {
+	if m.notice == ctrlCNotice {
+		return m.noticeView()
+	}
+	return footer
 }
 
 // banner is the full-width guidance block under the header: what is happening,
@@ -1874,10 +1987,10 @@ func (m model) checkRows() []int {
 // network and "N/A" is a claim about the question having no answer here.
 //
 // It sits in the marker column rather than indented with the probe rows,
-// which is also what keeps it inside the 36 columns the Checks panel has:
-// a row that wraps costs the panel a second display row that no row count
-// saw coming, and the block has a row budget to stay inside. That budget is
-// why the mixed wording is the terse one and why "N/A" is not spelled out.
+// which is also what keeps it inside the columns the Checks section has:
+// a row that wraps costs the section a second display row, and the block has
+// a row budget to stay inside. That budget is why the mixed wording is the
+// terse one and why "N/A" is not spelled out.
 func (m model) collapsedChecksRow(hiddenPass, hiddenNA int) string {
 	checks := func(n int) string {
 		if n == 1 {
@@ -2048,7 +2161,7 @@ func (m model) outputView() string {
 
 func (m model) viewerFooter() string {
 	if m.filtering {
-		return m.filterInput.View() + "\n" + helpKeys(m.st, m.width, "enter", "apply", "esc", "clear")
+		return m.filterInput.View() + "\n" + m.quitNoticeFooter(helpKeys(m.st, m.width, "enter", "apply", "esc", "clear"))
 	}
 	if notice := m.noticeView(); notice != "" {
 		return notice

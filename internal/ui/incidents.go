@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,7 +24,7 @@ func (m *model) recordIncident(at time.Time) {
 	s.CreatedAt = at.UTC().Format(time.RFC3339)
 	s.Tool = ndoc.Tool{Version: m.version, OS: runtime.GOOS, Arch: runtime.GOARCH}
 	s.Options = ndoc.Options{
-		ProbeTimeoutMs: m.probeTimeout.Milliseconds(),
+		ProbeTimeoutMs: diagnostic.ProbeTimeoutMs(m.probeTimeout),
 		PublicDNS:      m.publicDNS, PublicDNSAuto: m.publicDNSAuto,
 		Check: append([]string(nil), m.snapshotCheck...), Skip: append([]string(nil), m.snapshotSkip...),
 	}
@@ -37,12 +38,26 @@ func (m *model) recordIncident(at time.Time) {
 		}
 		s.Options.Source = &source
 	}
+	// Which incident the reader has open, rather than which row it sits on:
+	// the retention bound drops the oldest from the front of a full list, and
+	// that slides every later one down a row. An index alone would leave the
+	// viewer showing a different failure than the one it was opened on, with
+	// no keypress and no notice. Started is the identity, since it is what
+	// opened the incident and nothing later moves it.
+	reading := time.Time{}
+	if selected, ok := m.selectedIncident(); ok && m.incidentViewing {
+		reading = selected.Started
+	}
 	m.incidents.Observe(at, s)
+	items := m.incidents.Incidents()
 	if !m.incidentViewing {
-		m.incidentSelected = max(len(m.incidents.Incidents())-1, 0)
+		m.incidentSelected = max(len(items)-1, 0)
 		return
 	}
-	m.incidentSelected = min(m.incidentSelected, max(len(m.incidents.Incidents())-1, 0))
+	m.incidentSelected = min(m.incidentSelected, max(len(items)-1, 0))
+	if row := slices.IndexFunc(items, func(i incident.Incident) bool { return i.Started.Equal(reading) }); row >= 0 {
+		m.incidentSelected = row
+	}
 	m.refreshIncidentViewport(false)
 }
 
@@ -98,6 +113,9 @@ func (m model) incidentView() string {
 	if dropped := m.incidents.Dropped(); dropped > 0 {
 		header += m.st.faint.Render(fmt.Sprintf("  ·  %d older discarded", dropped))
 	}
+	if m.width > 0 {
+		header = ansi.Truncate(header, m.width, "")
+	}
 	top, bottom, lines := m.incidentVP.YOffset+1, m.incidentVP.YOffset+m.incidentVP.Height, m.incidentVP.TotalLineCount()
 	if bottom > lines {
 		bottom = lines
@@ -106,6 +124,9 @@ func (m model) incidentView() string {
 		top = bottom
 	}
 	context := m.st.faint.Render(fmt.Sprintf("lines %d-%d of %d", top, bottom, lines))
+	if m.width > 0 {
+		context = ansi.Truncate(context, m.width, "")
+	}
 	footer := helpKeys(m.st, m.width, "←/→", "incident", "↑/↓", "scroll", "pgup/pgdn", "page", "y", "copy", "w", "save .ndoc", "esc/q", "back")
 	if notice := m.noticeView(); notice != "" {
 		footer = notice

@@ -69,7 +69,16 @@ func (m *model) cancelJobs() {
 // stashJob parks the selected run at the end of the ring, leaving the slot free
 // for a new one. An empty slot is dropped rather than parked: a zero jobState
 // must never become a tab stop.
+//
+// The network map is a rendering of the selected slot, not a view of its own:
+// it reads the scan's hosts and status straight out of m.cur. Freeing the slot
+// therefore closes the map, and every path that replaces the selected run comes
+// through here. Callers that mean to keep it open reopen it afterwards, which
+// is what launching the scan and recalling a parked one already do; without
+// this, a run that lands in the slot from elsewhere, such as a finished ssh
+// session, would be read as the scan's own outcome.
 func (m *model) stashJob() {
+	m.networkMap = false
 	if m.hasJob() {
 		m.otherJobs = append(m.otherJobs, m.cur)
 		m.cur = jobState{}
@@ -107,7 +116,6 @@ func (m *model) switchJob() tea.Cmd {
 		return nil
 	}
 	m.selectJob(0)
-	m.networkMap = false
 	if m.viewing {
 		m.follow = true
 	}

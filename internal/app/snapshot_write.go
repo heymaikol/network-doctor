@@ -32,7 +32,7 @@ func buildSnapshotArtifact(h headless, probes []diagnostic.Probe, results map[di
 	s.Tool = snapshot.Tool{Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH}
 	s.CreatedAt = timeNow().UTC().Format(time.RFC3339)
 	s.Options = snapshot.Options{
-		ProbeTimeoutMs: h.timeout.Milliseconds(),
+		ProbeTimeoutMs: diagnostic.ProbeTimeoutMs(h.timeout),
 		PublicDNS:      h.publicDNS,
 		PublicDNSAuto:  h.publicDNSAuto,
 	}

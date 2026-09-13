@@ -51,6 +51,9 @@ func TestPeerSessionLoopback(t *testing.T) {
 		}
 		passes := 0
 		for _, observation := range result.Observations {
+			if err := validateObservation(observation); err != nil {
+				t.Errorf("%s observation fails wire validation: %+v: %v", role, observation, err)
+			}
 			if observation.Status == "PASS" {
 				passes++
 				if !observation.TCPConnected || !observation.TLSAuthenticated || !observation.ApplicationTraffic || observation.PayloadBytes != payloadSize {
@@ -111,6 +114,11 @@ func TestPeerSessionDualStackLoopback(t *testing.T) {
 	for _, observation := range result.Observations {
 		if observation.Status != "PASS" {
 			t.Errorf("dual-stack observation = %+v", observation)
+		}
+		// Both families carry real socket endpoints here, so this is where a
+		// validator that misjudges an address family stops the session.
+		if err := validateObservation(observation); err != nil {
+			t.Errorf("dual-stack observation fails wire validation: %+v: %v", observation, err)
 		}
 	}
 }

@@ -31,7 +31,7 @@ func TestNoReferenceEgressSurvivesATargetSwitchToAGenericRun(t *testing.T) {
 		t.Fatalf("the target's own DNS row was dropped; rows were %v", probeIDs(m))
 	}
 
-	m.applyTarget(nil)
+	m.applyTarget(nil, true)
 	after := probeIDs(m)
 	for _, id := range diagnostic.ReferenceEgressProbes(false, false) {
 		if slices.Contains(after, id) {
@@ -46,7 +46,7 @@ func TestNoReferenceEgressSurvivesATargetSwitchToAGenericRun(t *testing.T) {
 func TestTheResolvedSkipListAloneWouldNotSurviveTheSwitch(t *testing.T) {
 	m := NewWithSelection(mustTarget(t, "example.com"), nil, false, false, "", "test",
 		diagnostic.DefaultPublicDNS, true, referenceSelection(true)).(model)
-	m.applyTarget(nil)
+	m.applyTarget(nil, true)
 	if !slices.Contains(probeIDs(m), diagnostic.ProbeDNS) {
 		t.Fatal("the stale list no longer leaks the compiled-in DNS row, so ProbeSelection.NoReferenceEgress may have become redundant; confirm that before removing it")
 	}
@@ -56,7 +56,7 @@ func TestTheResolvedSkipListAloneWouldNotSurviveTheSwitch(t *testing.T) {
 func TestATargetSwitchWithoutTheModeKeepsTheReferenceRows(t *testing.T) {
 	m := NewWithSelection(mustTarget(t, "example.com"), nil, false, false, "", "test",
 		diagnostic.DefaultPublicDNS, true, diagnostic.ProbeSelection{}).(model)
-	m.applyTarget(nil)
+	m.applyTarget(nil, true)
 	after := probeIDs(m)
 	for _, id := range diagnostic.ReferenceEgressProbes(false, false) {
 		if !slices.Contains(after, id) {

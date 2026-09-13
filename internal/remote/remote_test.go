@@ -78,19 +78,15 @@ func fakeSSH(mode string) int {
 	resp := Response{Protocol: Protocol, Tool: snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}}
 	switch mode {
 	case "ok", "unhealthy":
-		rep := &report.Report{Version: "9.9.9", OK: mode == "ok", Verdict: "ok", Checks: []report.Check{}}
-		if mode == "unhealthy" {
-			rep.Verdict, rep.FailedStage = "network", "internet"
-		}
-		resp.Report = rep
-		resp.Snapshot = &snapshot.Snapshot{Schema: snapshot.Schema, Tool: resp.Tool, OK: rep.OK}
+		rep, snap := diagnosedPair(resp.Tool, mode == "ok")
+		resp.Report, resp.Snapshot = &rep, &snap
 	case "refuse":
 		resp.Error = "-public-dns: \"nope\" is not an IP address"
 	case "protocol2":
 		resp.Protocol = 2
 	case "twice":
-		resp.Report = &report.Report{OK: true}
-		resp.Snapshot = &snapshot.Snapshot{Schema: snapshot.Schema}
+		rep, snap := diagnosedPair(resp.Tool, true)
+		resp.Report, resp.Snapshot = &rep, &snap
 		enc := json.NewEncoder(os.Stdout)
 		_ = enc.Encode(resp)
 		_ = enc.Encode(resp)
@@ -544,4 +540,27 @@ func TestPublicDNSAutoCrossesProtocolOneAsAnAdditiveField(t *testing.T) {
 	if newer.PublicDNS != "8.8.8.8" || !newer.PublicDNSAuto {
 		t.Errorf("newer request = %+v, want 8.8.8.8 with auto=true", newer)
 	}
+}
+
+// diagnosedPair is one run spelled in both formats, which is the only shape a
+// successful response is allowed to carry. It is written once here so that a
+// test about the transport is not quietly also a test that two hand-written
+// artifacts happened to match.
+func diagnosedPair(tool snapshot.Tool, ok bool) (report.Report, snapshot.Snapshot) {
+	status, verdict, failed := "PASS", "ok", ""
+	if !ok {
+		status, verdict, failed = "FAIL", "network", "internet"
+	}
+	rep := report.Report{
+		Version: tool.Version, OK: ok, Verdict: verdict, FailedStage: failed,
+		Target: &report.Target{Host: "example.com", Port: 443, Protocol: "tls+http"},
+		Checks: []report.Check{{ID: "internet", Name: "Internet", Status: status, Ms: 4}},
+	}
+	snap := snapshot.Snapshot{
+		Schema: snapshot.Schema, Tool: tool, CreatedAt: "2026-01-02T03:04:05Z", OK: ok,
+		Target:    &snapshot.Target{Raw: "example.com", Host: "example.com", Port: 443, Protocol: "tls+http"},
+		Checks:    []snapshot.Check{{ID: "internet", Name: "Internet", Status: status, Ran: true, DurationMs: 4}},
+		Diagnosis: snapshot.Diagnosis{Verdict: verdict, FailedStage: failed},
+	}
+	return rep, snap
 }

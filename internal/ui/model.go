@@ -101,6 +101,10 @@ const (
 type pendingAction struct {
 	kind   pendingKind
 	target *diagnostic.Target
+	// newQuestion travels with the deferred restart because it is the caller's
+	// intent, not a property of the target: a retest and a restart prompt
+	// holding the same target want opposite things from the watch session.
+	newQuestion bool
 }
 
 // jobState is one tool run's process and display state. The selected run is

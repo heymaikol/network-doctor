@@ -457,7 +457,7 @@ func TestRestartClosesNmapConfirmGate(t *testing.T) {
 			if target != "" {
 				next = mustTarget(t, target)
 			}
-			m.applyTarget(next)
+			m.applyTarget(next, true)
 			m.doRestart()
 
 			if m.confirmTool != nil {

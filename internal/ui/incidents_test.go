@@ -170,7 +170,7 @@ func TestTargetSwitchAndIncidentKeepHowThePublicResolverWasChosen(t *testing.T) 
 			if got := publicRowName(&m); got != tc.wantRow {
 				t.Errorf("public DNS row = %q, want %q", got, tc.wantRow)
 			}
-			m.applyTarget(mustTarget(t, "other.test:443"))
+			m.applyTarget(mustTarget(t, "other.test:443"), true)
 			if got := publicRowName(&m); got != tc.wantRow {
 				t.Errorf("after a target switch the public DNS row = %q, want %q", got, tc.wantRow)
 			}

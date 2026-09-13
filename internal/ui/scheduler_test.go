@@ -177,7 +177,7 @@ func TestWatchAndTargetRestartPreserveProbeSelection(t *testing.T) {
 	if got := ids(m.probes); !reflect.DeepEqual(got, want) {
 		t.Errorf("watch restart probes = %v, want %v", got, want)
 	}
-	m.applyTarget(mustTarget(t, "example.org"))
+	m.applyTarget(mustTarget(t, "example.org"), true)
 	if got := ids(m.probes); !reflect.DeepEqual(got, want) {
 		t.Errorf("target restart probes = %v, want %v", got, want)
 	}
@@ -187,7 +187,7 @@ func TestWatchAndTargetRestartPreserveProbeSelection(t *testing.T) {
 	if len(m.probes) != 0 {
 		t.Fatalf("generic SSH selection = %v, want empty", ids(m.probes))
 	}
-	m.applyTarget(mustTarget(t, "ssh://example.org"))
+	m.applyTarget(mustTarget(t, "ssh://example.org"), true)
 	want = []diagnostic.ProbeID{diagnostic.ProbeIface, diagnostic.ProbeDNS, diagnostic.ProbeTargetTCP, diagnostic.ProbeSSH}
 	if got := ids(m.probes); !reflect.DeepEqual(got, want) {
 		t.Errorf("conditional selection after target change = %v, want %v", got, want)

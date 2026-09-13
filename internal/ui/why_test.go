@@ -261,7 +261,7 @@ func TestRestartClosesTheExplanation(t *testing.T) {
 		}},
 		{"new target", func(t *testing.T, m model) model {
 			t.Helper()
-			next, _ := m.restartWithTarget(mustTarget(t, "example.net:443"))
+			next, _ := m.restartWithTarget(mustTarget(t, "example.net:443"), true)
 			return asModel(t, next)
 		}},
 	} {

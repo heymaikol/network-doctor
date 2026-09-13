@@ -361,7 +361,7 @@ func (m model) diagnoseService() (tea.Model, tea.Cmd) {
 	if err != nil {
 		return m, m.setNotice("invalid discovered target: "+err.Error(), false)
 	}
-	return m.restartWithTarget(t)
+	return m.restartWithTarget(t, true)
 }
 
 // moveRow walks the cursor delta rows through the Checks panel's row list and
@@ -538,7 +538,7 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.entering = false
-		return m.restartWithTarget(t)
+		return m.restartWithTarget(t, true)
 	case "up":
 		if m.histIdx == 0 {
 			return m, nil
@@ -582,7 +582,7 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // its way out, and it is the only thing on screen that says a second run
 // started: the checks it reruns are the same ones that were already listed.
 func (m model) retest() (tea.Model, tea.Cmd) {
-	next, cmd := m.restartWithTarget(m.target)
+	next, cmd := m.restartWithTarget(m.target, false)
 	restarted, ok := next.(model)
 	if !ok {
 		return next, cmd
@@ -595,13 +595,16 @@ func (m model) retest() (tea.Model, tea.Cmd) {
 	return restarted, tea.Batch(cmd, notice)
 }
 
-func (m model) restartWithTarget(t *diagnostic.Target) (tea.Model, tea.Cmd) {
+// restartWithTarget restarts the run against t. newQuestion says whether that
+// is a different diagnostic question than the one on screen, which is the only
+// thing separating a retest from a target switch: see applyTarget.
+func (m model) restartWithTarget(t *diagnostic.Target, newQuestion bool) (tea.Model, tea.Cmd) {
 	if m.jobsRunning() {
 		m.cancelJobs()
-		m.pending = &pendingAction{kind: pendRestart, target: t}
+		m.pending = &pendingAction{kind: pendRestart, target: t, newQuestion: newQuestion}
 		return m, nil
 	}
-	m.applyTarget(t)
+	m.applyTarget(t, newQuestion)
 	return m, m.doRestart()
 }
 
@@ -624,10 +627,34 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 	return diagnostic.ParseTarget(fields[0])
 }
 
-// applyTarget swaps the run target and rebuilds its probes.
-func (m *model) applyTarget(t *diagnostic.Target) {
+// applyTarget swaps the run target and rebuilds its probes. newQuestion is the
+// watch session's lifecycle boundary, and it is the caller's to state.
+//
+// Everything below the target swap is the session: the per-probe pass history
+// the sparklines are drawn from and the incidents recorded against it. All of
+// it describes one diagnostic question, so asking a different one has to start
+// it over, and a reader must never see a target's sparkline carry glyphs from
+// the target before it. Asking the same question again is the opposite case: a
+// retest restarts probe execution, and the session it is part of continues
+// across it rather than being thrown away by it.
+//
+// The same question means the same run configuration, and the target is the
+// whole of what can change here. The rest of what decides a run (the source
+// addresses, the resolver, the probe selection, the timeout) is fixed when the
+// model is built and never moves again, so a retest cannot silently change one
+// underneath the preserved history.
+func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
 	m.probes = m.selection.BuildProbesFromSources(t, m.sources, m.publicDNS, m.publicDNSAuto)
+	if !newQuestion {
+		return
+	}
+	// The cursor is an index into the probe list, so it only has to go back to
+	// the top when that list is rebuilt into a different one. It belongs below
+	// the return rather than above it because a preserved session takes the
+	// changed-row branch of focusTarget, which deliberately moves nothing when
+	// a pass reports what the one before it did: a retest that reset the cursor
+	// would leave it parked on the first row with nothing to put it back.
 	m.selected = 0
 	m.runHistory = map[diagnostic.ProbeID][]diagnostic.Status{}
 	m.incidents = incident.Timeline{}
@@ -640,7 +667,7 @@ func (m model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 		m.clearCancel()
 		return m, tea.Quit
 	case pendRestart:
-		m.applyTarget(p.target)
+		m.applyTarget(p.target, p.newQuestion)
 		return m, m.doRestart()
 	}
 	return m, nil

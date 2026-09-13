@@ -137,7 +137,10 @@ reconstruction separately retains at most 10 incidents and at most eight state
 changes inside one incident. Press `i` to inspect the
 latest incident, left/right to select another retained incident, and `w` there
 to save the selected incident as `.ndoc`. A target restart clears the incident
-timeline because the new endpoint is a new Watch session.
+timeline because the new endpoint is a new Watch session. Retest (`R`) does not:
+it asks the same question again against the same target and the same run
+configuration, so the per-check strip and the incident timeline carry on across
+it rather than starting over.
 
 The onset and recovery views use the same canonical snapshot conversion and
 semantic comparison as `--save` and `--compare`. A path change observed in the

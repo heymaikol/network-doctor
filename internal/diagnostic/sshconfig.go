@@ -54,6 +54,10 @@ func splitSSHConfigDirective(line string) (keyword string, args []string, ok boo
 	rest := strings.TrimSpace(line[i:])
 	if strings.HasPrefix(rest, "=") {
 		rest = strings.TrimSpace(rest[1:])
+		// OpenSSH allows only one '=' separator; a second one is malformed.
+		if strings.HasPrefix(rest, "=") {
+			return "", nil, false
+		}
 	}
 	if rest == "" {
 		return keyword, nil, true

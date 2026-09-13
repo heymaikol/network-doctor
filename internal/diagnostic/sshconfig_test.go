@@ -85,6 +85,8 @@ func TestSplitSSHConfigDirective(t *testing.T) {
 		{"Host pihole", "Host", []string{"pihole"}, true},
 		{"Host=pihole", "Host", []string{"pihole"}, true},
 		{"Host = pihole", "Host", []string{"pihole"}, true},
+		{"Host == alias", "", nil, false},
+		{"Host==alias", "", nil, false},
 		{"HostName 192.168.1.1", "HostName", []string{"192.168.1.1"}, true},
 		{"HostName=192.168.1.1", "HostName", []string{"192.168.1.1"}, true},
 		{"HostName = 192.168.1.1", "HostName", []string{"192.168.1.1"}, true},

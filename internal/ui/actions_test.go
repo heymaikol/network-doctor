@@ -5,6 +5,7 @@
 package ui
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -64,7 +65,8 @@ func selectMenu(t *testing.T, m model, name string) model {
 	if i < 0 {
 		t.Fatalf("the Actions menu has no %q row: %v", name, menuNames(m))
 	}
-	m.actionsOpen, m.actionsSel = true, i
+	m.actionsOpen = true
+	m.selectRow(m.actionItems(), i)
 	return m
 }
 
@@ -443,5 +445,158 @@ func TestActionsMenuYieldsToTheOtherModals(t *testing.T) {
 	theming := sendKey(t, m, "T")
 	if space := sendKey(t, theming, " "); space.actionsOpen {
 		t.Error("space opened the menu behind the theme picker")
+	}
+}
+
+// highlighted is the row the reader can see is selected: the one the menu
+// draws its cursor marker on. Tests that pair it with what enter runs are
+// checking the promise that the two cannot disagree.
+func highlighted(t *testing.T, m model) string {
+	t.Helper()
+	m.actionsOpen = true
+	// The menu is drawn where the help bar goes, under the checks, which carry
+	// a cursor marker of their own, so the menu's is the last one on screen.
+	lines := strings.Split(ansi.Strip(m.View()), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		at := strings.Index(lines[i], "› ")
+		if at < 0 {
+			continue
+		}
+		// The row reads: marker, key, padding, name, then the panel border.
+		row := strings.TrimRight(lines[i][at+len("› "):], " │")
+		_, name, _ := strings.Cut(row, "  ")
+		return strings.TrimSpace(name)
+	}
+	t.Fatalf("the menu drew no cursor:\n%s", ansi.Strip(m.View()))
+	return ""
+}
+
+// finish is the asynchronous half of the bug: the checks complete under an
+// open menu, which is when the rows that need a finished run appear, all of
+// them above the tools.
+func finish(m model) model {
+	for _, p := range m.probes {
+		if _, ok := m.results[p.ID]; !ok {
+			m.results[p.ID] = diagnostic.ProbeResult{ID: p.ID, Status: diagnostic.StatusFail}
+		}
+	}
+	return m
+}
+
+func unfinish(m model) model {
+	m.results = maps.Clone(m.results)
+	delete(m.results, m.probes[len(m.probes)-1].ID)
+	return m
+}
+
+// The menu's rows come and go with the state behind it: Copy report, Save
+// report, Expand checks, Explain why and Retest all appear when the run
+// finishes, and every one of them sorts above the drill-down tools. A cursor
+// that remembered only its row number would slide onto whatever moved into
+// that slot, so a reader who picked a tool mid-run and waited would press
+// enter on something they never chose. Quit is five rows below Web check here,
+// which is how this was found.
+func TestActionsMenuCursorFollowsTheActionNotTheRow(t *testing.T) {
+	m := unfinish(menuModel(t))
+	m = selectMenu(t, m, "Web check")
+	if got := highlighted(t, m); got != "Web check" {
+		t.Fatalf("the menu opened on %q", got)
+	}
+
+	done := finish(m)
+	if got := highlighted(t, done); got != "Web check" {
+		t.Errorf("the run finishing moved the cursor to %q with no keypress", got)
+	}
+	run := sendKey(t, done, "enter")
+	if run.cur.name != "web check" {
+		t.Errorf("enter ran %q, want the web check the menu was showing", run.cur.name)
+	}
+	if run.actionsOpen {
+		t.Error("enter left the menu open")
+	}
+}
+
+// A watch pass empties the results map and fills it again every few seconds,
+// so the rows that need a finished run appear and disappear on a cadence for
+// as long as the session runs. An open menu must sit still through all of it.
+func TestActionsMenuCursorHoldsThroughWatchPasses(t *testing.T) {
+	m := menuModel(t)
+	m.watch = true
+	m = selectMenu(t, m, "Trace the path")
+	for pass := range 6 {
+		m = unfinish(m)
+		if got := highlighted(t, m); got != "Trace the path" {
+			t.Fatalf("pass %d: mid-pass the cursor read %q", pass, got)
+		}
+		m = finish(m)
+		if got := highlighted(t, m); got != "Trace the path" {
+			t.Fatalf("pass %d: the finished pass moved the cursor to %q", pass, got)
+		}
+	}
+	if run := sendKey(t, m, "enter"); run.cur.name != "trace the path" {
+		t.Errorf("enter ran %q after six passes", run.cur.name)
+	}
+}
+
+// When the selected action genuinely stops applying there is nothing to
+// follow, so the cursor falls back to the row it was on, clamped into the
+// shorter list. What matters is that the fallback is not a quiet
+// misdispatch: enter still runs the row the menu is drawing its cursor on.
+func TestActionsMenuFallsBackWhenTheSelectedActionGoesAway(t *testing.T) {
+	m := selectMenu(t, menuModel(t), "Retest")
+	// Retest is offered for a chain that ran; an unrun chain withdraws it.
+	m.started = nil
+
+	if slices.Contains(menuNames(m), "Retest") {
+		t.Fatal("Retest is still on the menu, so this proves nothing")
+	}
+	shown := highlighted(t, m)
+	run := sendKey(t, m, "enter")
+	if i := slices.Index(menuNames(m), shown); i < 0 {
+		t.Fatalf("the cursor landed on %q, which is not on the menu: %v", shown, menuNames(m))
+	}
+	// The fallback is the row, so it stays next to where the reader left it.
+	if shown != "Theme" {
+		t.Fatalf("the cursor fell back to %q, want the row Retest vacated", shown)
+	}
+	// And enter runs that row rather than the one the index used to name.
+	if !run.theming || run.actionsOpen {
+		t.Errorf("enter on the fallback row left theming=%v open=%v", run.theming, run.actionsOpen)
+	}
+}
+
+// The list is rebuilt on every keypress and every frame, so a cursor left over
+// from a longer list must never index past a shorter one, however many times
+// the list changes shape underneath it.
+func TestActionsMenuCursorStaysInRangeAcrossRepeatedChanges(t *testing.T) {
+	m := menuModel(t)
+	m.actionsOpen = true
+	m.selectRow(m.actionItems(), len(menuNames(m))-1)
+	for round := range 8 {
+		switch round % 4 {
+		case 0:
+			m = unfinish(m)
+		case 1:
+			m.tools = nil
+		case 2:
+			m = finish(m)
+		case 3:
+			m.tools = toolsFor(m.target, "linux", toolBind{})
+		}
+		items := m.actionItems()
+		if row := m.actionsRow(items); row < 0 || row > max(len(items)-1, 0) {
+			t.Fatalf("round %d: row %d of %d items", round, row, len(items))
+		}
+		m = sendKey(t, m, "down")
+		m = sendKey(t, m, "up")
+		if _, ok := m.View(), true; !ok {
+			t.Fatal("unreachable")
+		}
+	}
+	// An empty list is the degenerate case: nothing to select, nothing to run.
+	m.tools, m.results, m.started = nil, nil, nil
+	m.probes = nil
+	if run := sendKey(t, m, "enter"); run.actionsOpen {
+		t.Error("enter must close the menu even with nothing on it")
 	}
 }

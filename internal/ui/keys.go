@@ -287,7 +287,8 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		m.themeSel = themeIndex(m.theme.Name)
 		return m, nil
 	case actActions:
-		m.actionsOpen, m.actionsSel = true, 0
+		m.actionsOpen = true
+		m.selectRow(m.actionItems(), 0)
 		return m, nil
 	case actHelp:
 		m.helping = true

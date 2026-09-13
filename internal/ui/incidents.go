@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,12 +38,26 @@ func (m *model) recordIncident(at time.Time) {
 		}
 		s.Options.Source = &source
 	}
+	// Which incident the reader has open, rather than which row it sits on:
+	// the retention bound drops the oldest from the front of a full list, and
+	// that slides every later one down a row. An index alone would leave the
+	// viewer showing a different failure than the one it was opened on, with
+	// no keypress and no notice. Started is the identity, since it is what
+	// opened the incident and nothing later moves it.
+	reading := time.Time{}
+	if selected, ok := m.selectedIncident(); ok && m.incidentViewing {
+		reading = selected.Started
+	}
 	m.incidents.Observe(at, s)
+	items := m.incidents.Incidents()
 	if !m.incidentViewing {
-		m.incidentSelected = max(len(m.incidents.Incidents())-1, 0)
+		m.incidentSelected = max(len(items)-1, 0)
 		return
 	}
-	m.incidentSelected = min(m.incidentSelected, max(len(m.incidents.Incidents())-1, 0))
+	m.incidentSelected = min(m.incidentSelected, max(len(items)-1, 0))
+	if row := slices.IndexFunc(items, func(i incident.Incident) bool { return i.Started.Equal(reading) }); row >= 0 {
+		m.incidentSelected = row
+	}
 	m.refreshIncidentViewport(false)
 }
 

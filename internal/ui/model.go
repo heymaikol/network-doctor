@@ -232,11 +232,13 @@ type model struct {
 	helping bool // ?: full-screen key cheatsheet; any key closes it
 
 	// Actions menu (space): the actions and tools that fit the current state,
-	// drawn where the help bar goes. actionsSel is the highlighted row. It is
-	// discovery, not a second command system: every row runs through the same
-	// dispatch its key does.
-	actionsOpen bool
-	actionsSel  int
+	// drawn where the help bar goes. actionsSelID is the action the cursor is
+	// on and actionsSel the row it was last on, the fallback for when that
+	// action stops applying. It is discovery, not a second command system:
+	// every row runs through the same dispatch its key does.
+	actionsOpen  bool
+	actionsSel   int
+	actionsSelID actionID
 
 	// theme is this model's own palette and the styles every view draws
 	// with. Both are values rather than package state, so a second model or a

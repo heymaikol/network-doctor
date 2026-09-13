@@ -1345,7 +1345,7 @@ func (m model) themeView() string {
 // distinction every terminal or every reader has.
 func (m model) actionsView(avail int) string {
 	items := m.actionItems()
-	sel := min(m.actionsSel, max(len(items)-1, 0))
+	sel := m.actionsRow(items)
 	keyWidth := 0
 	for _, item := range items {
 		keyWidth = max(keyWidth, lipgloss.Width(item.key))

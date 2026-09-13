@@ -21,6 +21,50 @@ type actionItem struct {
 	act  keyAction
 }
 
+// actionID names the logical action a row runs, which is what the cursor is
+// attached to: the keyAction for a built-in, the hotkey for a drill-down tool,
+// which carries none. The zero value names no action, so a cursor that was
+// never anchored falls back to its row.
+type actionID struct {
+	act keyAction
+	key string
+}
+
+func (i actionItem) id() actionID {
+	if i.act != actNone {
+		return actionID{act: i.act}
+	}
+	return actionID{key: i.key}
+}
+
+// actionsRow is the row the cursor is on now. The list is rebuilt from live
+// state, so checks finishing or a watch pass landing under an open menu can
+// insert and remove rows above the cursor. Following the selected action
+// rather than its index is what keeps the highlight, and enter with it, on the
+// action the reader aimed at. The remembered row is only the fallback for when
+// that action genuinely stops applying, clamped so it cannot point past the
+// end.
+func (m model) actionsRow(items []actionItem) int {
+	if m.actionsSelID != (actionID{}) {
+		for i, item := range items {
+			if item.id() == m.actionsSelID {
+				return i
+			}
+		}
+	}
+	return min(max(m.actionsSel, 0), max(len(items)-1, 0))
+}
+
+// selectRow puts the cursor on row i and anchors it to that row's action, so
+// the row and the action it names are always written together.
+func (m *model) selectRow(items []actionItem, i int) {
+	i = min(max(i, 0), max(len(items)-1, 0))
+	m.actionsSel, m.actionsSelID = i, actionID{}
+	if i < len(items) {
+		m.actionsSelID = items[i].id()
+	}
+}
+
 // actionAvailable reports whether act would do something in the current state.
 // It is the single answer both the help bar and the Actions menu ask, so what
 // a reader is offered cannot drift from what the key actually does.
@@ -140,16 +184,18 @@ func (m model) actionItems() []actionItem {
 func (m model) handleActionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	items := m.actionItems()
 	last := max(len(items)-1, 0)
-	// The list is rebuilt from live state, so a row that went away under an
-	// open menu must not leave the cursor past the end.
-	m.actionsSel = min(m.actionsSel, last)
+	// Resolve the selection against the list as it is right now, and re-anchor
+	// it: dispatch below acts on this same resolved row, so what enter runs is
+	// what the frame the reader is looking at has highlighted.
+	sel := m.actionsRow(items)
+	m.selectRow(items, sel)
 	switch msg.String() {
 	case "enter":
 		m.actionsOpen = false
 		if len(items) == 0 {
 			return m, nil
 		}
-		item := items[m.actionsSel]
+		item := items[sel]
 		if item.act == actNone {
 			if tool, ok := m.toolForKey(item.key); ok {
 				return m.runTool(tool)
@@ -175,13 +221,13 @@ func (m model) handleActionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case actActions:
 		m.actionsOpen = false
 	case actUp:
-		m.actionsSel = max(m.actionsSel-1, 0)
+		m.selectRow(items, sel-1)
 	case actDown:
-		m.actionsSel = min(m.actionsSel+1, last)
+		m.selectRow(items, sel+1)
 	case actTop:
-		m.actionsSel = 0
+		m.selectRow(items, 0)
 	case actBottom:
-		m.actionsSel = last
+		m.selectRow(items, last)
 	default:
 		m.actionsOpen = false
 		return m.runAction(act)

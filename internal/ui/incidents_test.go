@@ -2,9 +2,12 @@ package ui
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/heymaikol/network-doctor/internal/incident"
 
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	ndoc "github.com/heymaikol/network-doctor/internal/snapshot"
@@ -232,5 +235,63 @@ func TestIncidentReportsAResolverTargetChangeAsEnvironmental(t *testing.T) {
 	}
 	if strings.Contains(report, "No recorded change in how this machine reaches the network") {
 		t.Errorf("incident claims a steady environment while reporting a resolver change:\n%s", report)
+	}
+}
+
+// The session's list is bounded: the eleventh incident drops the first, which
+// slides every remaining one down a row. A viewer that held only the row
+// number would then be showing a different failure than the one it was opened
+// on, silently, while its header still claimed the old position.
+func TestIncidentViewerFollowsTheIncidentPastTheRetentionBound(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	m.watch, m.width, m.height = true, 100, 30
+	cycle := func(n int) {
+		base := start.Add(time.Duration(n*20) * time.Second)
+		recordWatchPass(&m, base, false, "wlan0")
+		recordWatchPass(&m, base.Add(5*time.Second), true, "wg0")
+		recordWatchPass(&m, base.Add(10*time.Second), false, "wlan0")
+	}
+	// Ten fills the list exactly, so the next one has to discard the oldest.
+	for n := range 10 {
+		cycle(n)
+	}
+	m.openIncidentViewer()
+	u, _ := m.handleIncidentKey(keyPress("left"))
+	m = asModel(t, u)
+	was, ok := m.selectedIncident()
+	if !ok || m.incidentSelected != 8 {
+		t.Fatalf("the viewer opened on incident %d of %d", m.incidentSelected, len(m.incidents.Incidents()))
+	}
+
+	cycle(10)
+	if dropped := m.incidents.Dropped(); dropped != 1 {
+		t.Fatalf("the retention bound discarded %d incidents, want 1", dropped)
+	}
+	now, _ := m.selectedIncident()
+	if !now.Started.Equal(was.Started) {
+		t.Errorf("the reader was moved from the incident at %s to the one at %s", was.Started, now.Started)
+	}
+	if m.incidentSelected != 7 {
+		t.Errorf("the incident is on row %d after the list slid down one", m.incidentSelected)
+	}
+	// The header counts rows, so it has to agree with where the cursor is.
+	if view := m.incidentView(); !strings.Contains(view, "8 of 10") {
+		t.Errorf("the header does not read 8 of 10:\n%s", view)
+	}
+
+	// It holds for as long as that incident is retained, and when the bound
+	// finally discards the one being read the cursor stays in range.
+	for n := 11; n < 20; n++ {
+		cycle(n)
+		items := m.incidents.Incidents()
+		if m.incidentSelected < 0 || m.incidentSelected >= len(items) {
+			t.Fatalf("cycle %d: row %d of %d incidents", n, m.incidentSelected, len(items))
+		}
+		retained := slices.ContainsFunc(items, func(i incident.Incident) bool { return i.Started.Equal(was.Started) })
+		if now, _ = m.selectedIncident(); now.Started.Equal(was.Started) != retained {
+			t.Fatalf("cycle %d: the cursor is on the incident at %s, the one being read is retained=%v",
+				n, now.Started, retained)
+		}
 	}
 }

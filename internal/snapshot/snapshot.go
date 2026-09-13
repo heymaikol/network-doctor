@@ -643,6 +643,9 @@ func EncodeProfile(profile ProfileSnapshot) ([]byte, error) {
 	if err := enc.Encode(profile); err != nil {
 		return nil, err
 	}
+	if buf.Len() > MaxArtifactBytes {
+		return nil, fmt.Errorf("snapshot exceeds maximum artifact size of %d bytes; the format has no smaller declared limit, so this reflects the actual encoded size", MaxArtifactBytes)
+	}
 	return buf.Bytes(), nil
 }
 

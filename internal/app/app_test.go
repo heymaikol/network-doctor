@@ -23,6 +23,7 @@ import (
 
 	"github.com/heymaikol/network-doctor/internal/compare"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/incident"
 	"github.com/heymaikol/network-doctor/internal/peer"
 	"github.com/heymaikol/network-doctor/internal/report"
 	"github.com/heymaikol/network-doctor/internal/snapshot"
@@ -2010,19 +2011,57 @@ func TestReadSnapshotPairEnforcesMaxArtifactSize(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			// --compare needs two paths; pair each file with itself so we
-			// only exercise the read/bound path, not comparison semantics.
-			got := run([]string{"--compare", c.path, c.path}, &stdout, &stderr)
+			for _, mode := range []string{"--compare", "--two-sided"} {
+				var stdout, stderr bytes.Buffer
+				got := run([]string{mode, c.path, c.path}, &stdout, &stderr)
 
-			gotSizeErr := strings.Contains(stderr.String(), "exceeds maximum artifact size")
-			if gotSizeErr != c.wantSizeErr {
-				t.Fatalf("size-limit error = %v, want %v; exit = %d, stderr: %s", gotSizeErr, c.wantSizeErr, got, stderr.String())
-			}
-			if c.wantSizeErr && got != 2 {
-				t.Errorf("exit = %d, want 2 for an unusable artifact; stderr: %s", got, stderr.String())
+				gotSizeErr := strings.Contains(stderr.String(), "exceeds maximum artifact size")
+				if gotSizeErr != c.wantSizeErr {
+					t.Fatalf("%s: size-limit error = %v, want %v; exit = %d, stderr: %s", mode, gotSizeErr, c.wantSizeErr, got, stderr.String())
+				}
+				if c.wantSizeErr && got != 2 {
+					t.Errorf("%s: exit = %d, want 2 for an unusable artifact; stderr: %s", mode, got, stderr.String())
+				}
 			}
 		})
+	}
+}
+
+// A snapshot produced by the real watch-incident machinery, not a
+// hand-built one, must remain readable by the bounded offline reader.
+func TestReadSnapshotPairAcceptsGeneratedWatchIncidentArtifact(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.FixedZone("test", -5*60*60))
+
+	failing := func(at time.Time) snapshot.Snapshot {
+		return snapshot.Snapshot{
+			Schema:    snapshot.Schema,
+			CreatedAt: at.UTC().Format(time.RFC3339),
+			Target:    &snapshot.Target{Raw: "example.com", Host: "example.com", Port: 443, Protocol: "tls+http"},
+			Checks: []snapshot.Check{{
+				ID: "target_tcp", Name: "Target TCP", Status: snapshot.StatusFail, Ran: true, DurationMs: 1,
+			}},
+			Diagnosis: snapshot.Diagnosis{Verdict: "network", Summary: "failing", FailedStage: "target_tcp"},
+		}
+	}
+
+	var timeline incident.Timeline
+	timeline.Observe(start, failing(start))
+	timeline.Observe(start.Add(5*time.Second), failing(start.Add(5*time.Second)))
+	active, ok := timeline.Active()
+	if !ok {
+		t.Fatal("expected an active incident")
+	}
+	artifact := active.Artifact()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "watch-incident"+snapshot.Extension)
+	if err := snapshot.WriteFile(path, artifact); err != nil {
+		t.Fatalf("write generated watch-incident artifact: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"--compare", path, path}, &stdout, &stderr); got != 0 {
+		t.Fatalf("exit = %d, want 0 for a real watch-incident artifact compared with itself; stderr: %s", got, stderr.String())
 	}
 }
 

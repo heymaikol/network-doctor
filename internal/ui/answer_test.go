@@ -288,8 +288,24 @@ func TestAnswerBlockCarriesTheDiagnosisGuidance(t *testing.T) {
 			if m.selected != i {
 				t.Errorf("cursor is on row %d, want the blamed row %d", m.selected, i)
 			}
+			// The remedy reaches the reader exactly once. Where the diagnosis
+			// reached an action of its own that is the "Do:" line, and the
+			// row's own wording waits in that row's Details; where it did not,
+			// the row's hint is the only advice there is and stays up here.
 			r := m.results[s.blamed]
-			if r.Fix != "" && !strings.Contains(banner, "Fix: "+r.Fix) {
+			rem, advised := m.remediation()
+			switch {
+			case advised:
+				if strings.Contains(banner, "Fix: ") {
+					t.Errorf("the answer block states the remedy twice:\n%s", banner)
+				}
+				if !strings.Contains(ansi.Strip(strings.Join(m.answerRemediation(), "\n")), "Do: "+rem.Action) {
+					t.Errorf("the answer block lost the diagnosis's action %q", rem.Action)
+				}
+				if r.Fix != "" && !strings.Contains(answerRowDetails(m), "Fix: "+r.Fix) {
+					t.Errorf("the blamed row's details lost the remedy %q", r.Fix)
+				}
+			case r.Fix != "" && !strings.Contains(banner, "Fix: "+r.Fix):
 				t.Errorf("the answer block lost the remedy %q:\n%s", r.Fix, banner)
 			}
 			if r.Detail != "" && !strings.Contains(banner, "Evidence: ") {
@@ -302,10 +318,13 @@ func TestAnswerBlockCarriesTheDiagnosisGuidance(t *testing.T) {
 	}
 }
 
-// TestBlamedRowGuidanceIsStatedOnce: the Details panel used to print the same
-// remedy the banner was already showing, four rows apart, which reads as a
-// second answer competing with the first. Every other row keeps its own remedy,
-// because nothing else on screen is saying it.
+// TestBlamedRowGuidanceIsStatedOnce: the screen states the blamed row's remedy
+// in one place, never two. It used to appear in the banner and again in the
+// Details panel four rows apart, which reads as a second answer competing with
+// the first; it must not come back the other way round either, now that the
+// answer block prints the diagnosis's own action and hands the row's wording
+// down to that row's Details. Every other row keeps its own remedy, because
+// nothing else on screen is saying it.
 func TestBlamedRowGuidanceIsStatedOnce(t *testing.T) {
 	for _, s := range answerScenarios(t) {
 		if s.blamed == "" {
@@ -314,17 +333,28 @@ func TestBlamedRowGuidanceIsStatedOnce(t *testing.T) {
 		t.Run(s.name, func(t *testing.T) {
 			m := s.build(t)
 			_, v := renderAt(t, m)
-			plain := ansi.Strip(v)
 			fix := m.results[s.blamed].Fix
 			if fix == "" {
 				t.Skip("this row carries no remedy to duplicate")
 			}
-			if n := strings.Count(plain, fix); n != 1 {
-				t.Errorf("the remedy for %s appears %d times on one screen:\n%s", s.blamed, n, v)
+			// Both places wrap their text to their own column, so each is
+			// compared with its whitespace collapsed rather than as it sits on
+			// screen. The two are counted separately: collapsing the whole
+			// screen would run the Checks column into the Details one.
+			answer := strings.Count(reflowed(ansi.Strip(m.answerBlock())), reflowed(fix))
+			details := strings.Count(reflowed(strings.Join(detailsRows(v), " ")), reflowed(fix))
+			if answer+details != 1 {
+				t.Errorf("the remedy for %s appears %d times in the answer and %d times in Details:\n%s",
+					s.blamed, answer, details, v)
 			}
 		})
 	}
 }
+
+// reflowed collapses the runs of whitespace a panel's own wrapping introduces,
+// so a string can be looked for in rendered output without knowing which column
+// it was broken in.
+func reflowed(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // TestOtherRowsKeepTheirOwnGuidance: the de-duplication is scoped to the one
 // row the answer block quotes. Walking the cursor onto an independent failure
@@ -349,10 +379,10 @@ func TestOtherRowsKeepTheirOwnGuidance(t *testing.T) {
 	}
 }
 
-// TestAnswerBlockStaysFourRows: the evidence quote is clipped to one row, so
-// however long a probe's detail runs the answer block is a fixed size and
+// TestAnswerBlockStaysAFixedHeight: the evidence quote is clipped to one row,
+// so however long a probe's detail runs the answer block is a fixed size and
 // cannot crowd out the machinery below it on a short terminal.
-func TestAnswerBlockStaysFourRows(t *testing.T) {
+func TestAnswerBlockStaysAFixedHeight(t *testing.T) {
 	long := strings.Repeat("stalled after 64KiB without draining the send buffer; ", 8)
 	m := answerScenario{
 		target: "example.com:443",
@@ -365,8 +395,11 @@ func TestAnswerBlockStaysFourRows(t *testing.T) {
 		},
 	}.build(t)
 	m.width = 100
-	if n := len(strings.Split(m.banner(), "\n")); n != 4 {
-		t.Errorf("the answer block is %d lines, want the verdict plus Fix, Next and Evidence:\n%s", n, m.banner())
+	// The verdict, the drill-down hint and the one-row evidence quote. The
+	// blamed row's own hint is not among them: this run reaches a diagnosis
+	// with an action of its own, which is printed instead.
+	if n := len(strings.Split(m.banner(), "\n")); n != 3 {
+		t.Errorf("the answer block is %d lines, want the verdict plus Next and Evidence:\n%s", n, m.banner())
 	}
 	line, whole := m.evidenceLine(long)
 	if whole {
@@ -477,7 +510,14 @@ func TestNarrowAndShortTerminalsKeepTheAnswer(t *testing.T) {
 				if lineWith(lines, answerLead(summary)) != 0 {
 					t.Errorf("%dx%d: the verdict is not the first row:\n%s", size.w, size.h, v)
 				}
-				if fix := m.results[s.blamed].Fix; fix != "" && lineWith(lines, answerLead(fix)) < 0 {
+				// Whichever of the two the answer block is carrying: the
+				// diagnosis's action where it reached one, and otherwise the
+				// blamed row's own hint.
+				remedy := m.results[s.blamed].Fix
+				if rem, ok := m.remediation(); ok {
+					remedy = rem.Action
+				}
+				if remedy != "" && lineWith(lines, answerLead(remedy)) < 0 {
 					t.Errorf("%dx%d: the remedy was shed:\n%s", size.w, size.h, v)
 				}
 			})

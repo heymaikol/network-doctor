@@ -17,12 +17,13 @@ import (
 )
 
 // persistentLines is the block that must survive every size and every scroll
-// position: the plain-English verdict, its two remediation lines, and the help
-// bar. The context strip is checked separately by hasLine, because the target
-// it names also appears inside the verdict sentence.
+// position: the plain-English verdict, its drill-down hint, and the help bar.
+// The diagnosis's own action is checked from the model in checkPersistent,
+// since it is the line whose wording the diagnosis owns. The context strip is
+// checked separately by hasLine, because the target it names also appears
+// inside the verdict sentence.
 var persistentLines = []string{
 	"path MTU black hole",
-	"Fix: " + blackHolePMTUFix,
 	"Next: press t for trace the path (traceroute)",
 	"? help",
 }
@@ -60,6 +61,11 @@ func checkPersistent(t *testing.T, m model, where, v string) {
 	}
 	if strip := m.headerView(); !hasLine(v, strip) {
 		t.Errorf("%s: the context strip %q must stay on screen:\n%s", where, strip, v)
+	}
+	// What to do outranks every row below it, at every size: it is the second
+	// of the two questions the screen exists to answer.
+	if rem, ok := m.remediation(); ok && !strings.Contains(v, "Do: "+rem.Action) {
+		t.Errorf("%s: %q must stay on screen:\n%s", where, "Do: "+rem.Action, v)
 	}
 }
 

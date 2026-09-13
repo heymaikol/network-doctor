@@ -11,8 +11,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
+
+// answerRowDetails is the Details section for the row the diagnosis blames.
+// That row's own "Fix:" hint lives there whenever the answer block is carrying
+// the diagnosis's action instead of it, which is every run that reaches a
+// remediation at all.
+func answerRowDetails(m model) string {
+	m.selected = m.answerRow()
+	return ansi.Strip(strings.Join(m.detailRows(false), "\n"))
+}
 
 // TestBannerFailureGuidance pins the whole failure banner for several result
 // maps. It is deliberately an exact comparison of a three-line block, not a
@@ -60,6 +70,10 @@ func TestBannerFailureGuidance(t *testing.T) {
 		// results overrides the all-pass baseline; every other probe passes.
 		results map[diagnostic.ProbeID]diagnostic.ProbeResult
 		want    string
+		// fix is the blamed row's own hint, which the answer block hands to
+		// that row's Details rather than printing beside the diagnosis's own
+		// action. It still has to come from the blamed row.
+		fix string
 	}{
 		{
 			name: "egress alone fails",
@@ -73,8 +87,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 			// painting a red failure over a sentence that says so. The
 			// remediation block is unchanged by that.
 			want: "! The target answered a direct connection, so direct egress works; the egress check's own fixed reference endpoints are what did not answer.\n" +
-				"  Fix: " + egressFix + "\n" +
 				"  Next: press p for ping the host (ping)",
+			fix: egressFix,
 		},
 		{
 			name: "egress fails and every rung below it fails too",
@@ -87,8 +101,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTPS:     fail(httpsFix),
 			},
 			want: "✗ example.com resolves but neither it nor the egress check's reference endpoints are reachable, and this machine's own routing state says why: local egress problem.\n" +
-				"  Fix: " + egressFix + "\n" +
 				"  Next: press p for ping the host (ping)",
+			fix: egressFix,
 		},
 		{
 			name: "resolver fails and the target rungs fail behind it",
@@ -100,8 +114,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTPS:     fail(httpsFix),
 			},
 			want: "✗ Cannot resolve example.com: DNS failure. (The general internet is reachable.)\n" +
-				"  Fix: " + dnsFix + "\n" +
 				"  Next: press d for DNS lookup (dig)",
+			fix: dnsFix,
 		},
 		{
 			name: "protocol rows stall behind a path MTU warning",
@@ -112,8 +126,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTPS: fail(httpsFix),
 			},
 			want: "✗ TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.\n" +
-				"  Fix: " + tlsFix + "\n" +
 				"  Next: press c for web check (curl)",
+			fix: tlsFix,
 		},
 		{
 			name: "protocol rows stall behind a path MTU warning and TLS times out",
@@ -124,8 +138,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTPS: fail(httpsFix),
 			},
 			want: "✗ TCP reaches example.com:443 but the protocol and bulk-transfer checks both stall, which is evidence of a path MTU black hole rather than a broken service (see the Path MTU row).\n" +
-				"  Fix: " + pmtuFix + "\n" +
 				"  Next: press t for trace the path (traceroute)",
+			fix: pmtuFix,
 		},
 	}
 
@@ -147,6 +161,11 @@ func TestBannerFailureGuidance(t *testing.T) {
 			}
 			if got := m.banner(); got != tt.want {
 				t.Errorf("banner() =\n%s\n\nwant\n%s", got, tt.want)
+			}
+			// The hint moved, it did not vanish, and it still comes from the
+			// row the verdict blames rather than from the first failure.
+			if details := answerRowDetails(m); !strings.Contains(details, "Fix: "+tt.fix) {
+				t.Errorf("the blamed row's details lost %q:\n%s", tt.fix, details)
 			}
 		})
 	}
@@ -274,9 +293,13 @@ func TestBannerSeverityFollowsVerdict(t *testing.T) {
 				t.Errorf("verdictLine = %q, want %q", line, tt.wantPrefix+summary)
 			}
 			// A degraded diagnosis must not cost the reader the remediation
-			// the failing row carries.
-			if tt.wantFix != "" && !strings.Contains(banner, "Fix: "+tt.wantFix) {
-				t.Errorf("banner lost the fix for the failing row:\n%s", banner)
+			// the failing row carries. It reads it from that row's Details,
+			// which is where the answer block hands it once the diagnosis has
+			// an action of its own to print.
+			if tt.wantFix != "" {
+				if details := answerRowDetails(m); !strings.Contains(details, "Fix: "+tt.wantFix) {
+					t.Errorf("the failing row lost its fix:\n%s", details)
+				}
 			}
 			if got := ExitCode(m); got != tt.wantExit {
 				t.Errorf("ExitCode = %d, want %d", got, tt.wantExit)
@@ -348,11 +371,11 @@ func TestBannerActionFollowsBlamedRowNotFirstFailure(t *testing.T) {
 	}
 
 	banner := m.banner()
-	if !strings.Contains(banner, "Fix: "+blackHolePMTUFix) {
-		t.Errorf("Fix: must come from the blamed row:\n%s", banner)
+	if details := answerRowDetails(m); !strings.Contains(details, "Fix: "+blackHolePMTUFix) {
+		t.Errorf("Fix: must come from the blamed row:\n%s", details)
 	}
-	if strings.Contains(banner, blackHoleTLSFix) {
-		t.Errorf("Fix: still follows the first failing row:\n%s", banner)
+	if strings.Contains(banner+answerRowDetails(m), blackHoleTLSFix) {
+		t.Errorf("the guidance still follows the first failing row:\n%s", banner)
 	}
 	if !strings.Contains(banner, "Next: press t for trace the path (traceroute)") {
 		t.Errorf("Next: must come from the blamed row:\n%s", banner)

@@ -27,6 +27,52 @@ func (m model) wrap(s string) string {
 	return ansi.Wrap(s, m.width, "")
 }
 
+// answerWrap reflows the answer block so a line indented to mark it
+// subordinate keeps that indent when it wraps. Without it a long "Fix:"
+// continues at column 0, where it reads as a new top-level statement rather
+// than as the rest of the line above it, and the indent that carries the
+// block's hierarchy on a monochrome terminal survives only on short lines.
+//
+// A line that already fits is returned exactly as it is, which is what keeps
+// the pre-clipped evidence quote to the single row it was clipped to.
+func (m model) answerWrap(block string) string {
+	if m.width <= 0 {
+		return block
+	}
+	lines := strings.Split(block, "\n")
+	for i, line := range lines {
+		if lipgloss.Width(line) <= m.width {
+			continue
+		}
+		// The answer block writes its indent outside the styling, so it can be
+		// lifted off here and put back on every row the content wraps to. The
+		// content is then wrapped in the columns that are actually left, which
+		// is what stops an indented line from being charged for its indent
+		// twice and breaking a row earlier than the terminal requires.
+		body := strings.TrimLeft(line, " ")
+		indent := len(line) - len(body)
+		if indent == 0 || m.width <= indent*2 {
+			lines[i] = ansi.Wrap(line, m.width, "")
+			continue
+		}
+		pad := strings.Repeat(" ", indent)
+		lines[i] = pad + strings.ReplaceAll(ansi.Wrap(body, m.width-indent, ""), "\n", "\n"+pad)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// answerBlock is the whole primary block: the verdict, the remedy under it and
+// the diagnosis's next action, wrapped so every one of those lines keeps its
+// indent. It is the answer to "what is wrong" and "what do I do", and the
+// layout below it yields rows to it rather than the other way round.
+func (m model) answerBlock() string {
+	block := m.banner()
+	if rem := m.answerRemediation(); len(rem) > 0 {
+		block += "\n" + strings.Join(rem, "\n")
+	}
+	return m.answerWrap(block)
+}
+
 func (m model) glyph(id diagnostic.ProbeID) string {
 	r, ok := m.results[id]
 	if !ok {
@@ -90,7 +136,17 @@ func (m model) View() string {
 		}
 	}
 	body := shrink(0)
-	banner := m.wrap(m.banner()) + "\n"
+	answer := m.answerBlock() + "\n"
+	// The blank row under a multi-line answer is the boundary between what the
+	// run concluded and everything that merely supports it: the context strip,
+	// the causal path and the sections are all about the block above them, and
+	// without a gap the six of them read as one undifferentiated list. A
+	// one-line answer has no parts to hold together, so it buys nothing there
+	// and is not charged for one.
+	gap := ""
+	if strings.Contains(strings.TrimSuffix(answer, "\n"), "\n") {
+		gap = "\n"
+	}
 	header := ""
 	if h := m.wrap(m.headerView()); h != "" {
 		header = h + "\n"
@@ -116,9 +172,9 @@ func (m model) View() string {
 		help = m.themeView()
 	}
 	if m.actionsOpen {
-		// The banner and the header outrank the menu, so it is given the rows
+		// The answer and the header outrank the menu, so it is given the rows
 		// they leave rather than pushing them off the top of the screen.
-		help = m.actionsView(m.height - strings.Count(banner+header+path, "\n"))
+		help = m.actionsView(m.height - strings.Count(answer+gap+header+path, "\n"))
 	}
 	tail := help + "\n"
 	// Adaptive tail: the job pane gets whatever rows the rest doesn't use.
@@ -127,7 +183,7 @@ func (m model) View() string {
 	var fixed string
 	var avail int
 	budget := func() {
-		fixed = banner + header + path
+		fixed = answer + gap + header + path
 		if body != "" {
 			// Blank rows above and below: with no border around the sections,
 			// the space is what holds the block off the context strip over it
@@ -153,9 +209,10 @@ func (m model) View() string {
 	// Still overflowing: shed in order of what the reader can do without. The
 	// results block scrolls down toward a single probe row, then the causal strip
 	// goes, then the block goes entirely.
-	// The banner carries the answer with its Fix, Next and Evidence lines, the
-	// header carries the target that answer is about, and the help bar is the
-	// way to anywhere else, so those three never yield to the results block.
+	// The answer block carries the verdict, its Fix and Next lines and the
+	// diagnosis's next action, the header carries the target that answer is
+	// about, and the help bar is the way to anywhere else, so those three
+	// never yield to the results block.
 	if m.height > 0 && avail < minAvail {
 		body = shrink(max(lipgloss.Height(body)+avail-minAvail, bodyMinRows))
 		budget()
@@ -170,6 +227,14 @@ func (m model) View() string {
 	}
 	if m.height > 0 && avail < minAvail && body != "" {
 		body = ""
+		budget()
+	}
+	// The separator is the last thing above the help bar to go: with the path
+	// and the sections already shed there is nothing left under the answer for
+	// it to hold apart, and the row is worth more to the bar that says how to
+	// get anywhere else.
+	if m.height > 0 && avail < minAvail && gap != "" {
+		gap = ""
 		budget()
 	}
 	job := m.jobView(avail)
@@ -536,7 +601,11 @@ func (m model) detailRows(deferred bool) []string {
 		// A working http:// proxy row keeps its earned status, so its advice
 		// would otherwise never be shown: the cleartext observation is the one
 		// non-failing result that carries a line worth reading.
-		if !answered && (r.Status == diagnostic.StatusFail || r.Status == diagnostic.StatusWarn || r.ConnectCleartext) && r.Fix != "" {
+		// The answered row keeps its hint here whenever the answer block gave
+		// the diagnosis's action instead of it, which is the one thing the
+		// quote above did leave out.
+		_, advised := m.remediation()
+		if (!answered || advised) && (r.Status == diagnostic.StatusFail || r.Status == diagnostic.StatusWarn || r.ConnectCleartext) && r.Fix != "" {
 			body.WriteString(m.st.skip.Render("Fix: ") + r.Fix + "\n")
 		}
 		// The remediation belongs to the diagnosis rather than to any one row,
@@ -870,40 +939,63 @@ func (m model) remediation() (diagnostic.Remediation, bool) {
 	return diagnostic.Remediate(m.diagnosis(), m.results, runtime.GOOS)
 }
 
-// remediationBlock is the Details remediation block, newline
-// terminated and empty when there is nothing to advise. It is progressive
-// disclosure rather than a screen of its own: the answer block above the
-// body already carries the verdict, the row's own hint and the evidence, and
-// this is the part a reader who wants to act on it opens the row for.
+// answerRemediation is the acted-on half of the diagnosis's next action: what
+// to do, the command that inspects it, and the key that asks the question
+// again. It is part of the answer block rather than of the Details section,
+// because "what do I do" is half of what the whole screen exists to answer,
+// and beside the probe table it read as a footnote to whichever row the
+// cursor happened to be on. Nil when the diagnosis supports no action.
+//
+// The elaboration stays in Details (see remediationBlock): why this action,
+// the ways to carry it out, and what success looks like are all background to
+// the three lines here, and a reader who wants them has a section to open.
 //
 // The command is shown, never run. netdoc is a diagnostic tool, and a
 // remediation command is a thing to read and decide about, which is also why
 // it is only ever a read-only inspection of local state.
+func (m model) answerRemediation() []string {
+	rem, ok := m.remediation()
+	if !ok {
+		return nil
+	}
+	// Indented by the same two columns as Fix and Next: everything under the
+	// verdict sentence is subordinate to it, and the indent is what says so on
+	// a terminal that renders no colour and no weight at all.
+	lines := []string{"  " + m.st.skip.Render("Do: ") + rem.Action}
+	if line := rem.CommandLine(); line != "" {
+		lines = append(lines, "  "+m.st.faint.Render("Run: ")+line)
+	}
+	// The payoff line: the advice is only half a workflow without the way to
+	// ask the same question again. Dropped when the action has no key, since a
+	// custom keymap is free to leave it unbound.
+	if m.keys.bound(ctxList, actRetest) {
+		lines = append(lines, "  "+m.st.faint.Render("Then press ")+m.st.sel.Render(m.keys.label(ctxList, actRetest))+
+			m.st.faint.Render(" to retest"))
+	}
+	return lines
+}
+
+// remediationBlock is the Details half of the same remediation, newline
+// terminated and empty when there is nothing to advise: why the action is the
+// right one, the ways to carry it out, and what confirms it worked. It is
+// progressive disclosure rather than a screen of its own, and it deliberately
+// repeats none of the three lines the answer block is already showing at the
+// top of the screen, because a section that says again what the answer said
+// reads as a second, competing answer.
 func (m model) remediationBlock() string {
 	rem, ok := m.remediation()
 	if !ok {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(m.st.skip.Render("Do: ") + rem.Action + "\n")
 	if rem.Why != "" {
 		b.WriteString(m.st.faint.Render(rem.Why) + "\n")
 	}
 	for _, step := range rem.Steps {
 		b.WriteString("· " + step + "\n")
 	}
-	if line := rem.CommandLine(); line != "" {
-		b.WriteString(m.st.faint.Render("Run: ") + line + "\n")
-	}
 	if rem.Expect != "" {
 		b.WriteString(m.st.faint.Render("Expect: "+rem.Expect) + "\n")
-	}
-	// The payoff line: the advice is only half a workflow without the way to
-	// ask the same question again. Dropped when the action has no key, since a
-	// custom keymap is free to leave it unbound.
-	if m.keys.bound(ctxList, actRetest) {
-		b.WriteString(m.st.faint.Render("Then press ") + m.st.sel.Render(m.keys.label(ctxList, actRetest)) +
-			m.st.faint.Render(" to retest") + "\n")
 	}
 	return b.String()
 }
@@ -1730,8 +1822,20 @@ func (m model) banner() string {
 		return lines[0]
 	}
 	blamed := m.probes[i].ID
-	if fix := m.results[blamed].Fix; fix != "" {
-		lines = append(lines, m.st.faint.Render("  Fix: "+fix))
+	// The row's own hint is shown here only when the diagnosis reached no
+	// action of its own. Where it did, the two say the same thing one level
+	// apart ("lower the interface MTU" against "Try a lower MTU on the path"),
+	// and two adjacent lines of the same instruction make the primary answer
+	// longer without making it say more. The hint is not dropped: it carries
+	// the dates, names and commands only the probe held, so it moves down to
+	// that row's Details, which is the row the cursor is already parked on.
+	//
+	// This is structural rather than a judgement about particular wordings.
+	// Every diagnosis that blames a row also reaches a remediation about it,
+	// so the pair appears together or not at all.
+	_, advised := m.remediation()
+	if fix := m.results[blamed].Fix; fix != "" && !advised {
+		lines = append(lines, "  "+m.st.faint.Render("Fix: "+fix))
 	}
 	if next := m.nextStep(blamed); next != "" {
 		lines = append(lines, "  "+next)

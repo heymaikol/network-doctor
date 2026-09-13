@@ -12,11 +12,13 @@ import (
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
-// TestRemediationBlockFollowsTheDiagnosis: the Details panel's next action is
-// the diagnosis's, on the row the diagnosis focuses, and nowhere else. A block
-// repeated under every cursor position would read as advice about whichever
-// row the reader happened to land on.
-func TestRemediationBlockFollowsTheDiagnosis(t *testing.T) {
+// TestRemediationSplitsActionFromElaboration: the action, the command and the
+// retest key are part of the answer block, where a reader who never moves the
+// cursor still sees them; the reasoning, the ways to carry it out and the
+// expected result stay in Details, where a reader who wants them opens a row.
+// Neither half repeats the other: the same advice in two places reads as two
+// competing answers.
+func TestRemediationSplitsActionFromElaboration(t *testing.T) {
 	m := pinnedRun(t, nil)
 	rem, ok := m.remediation()
 	if !ok || rem.ID != diagnostic.RemedyRestoreDefaultRoute {
@@ -26,10 +28,22 @@ func TestRemediationBlockFollowsTheDiagnosis(t *testing.T) {
 		t.Fatalf("the diagnosis focuses %q, not the egress row", m.probes[m.answerRow()].ID)
 	}
 
-	block := ansi.Strip(strings.Join(m.detailRows(false), "\n"))
-	for _, want := range []string{"Do: " + rem.Action, rem.Why, rem.Steps[0], "Run: " + rem.CommandLine(), rem.Expect, "Then press R to retest"} {
-		if !strings.Contains(block, want) {
-			t.Errorf("the focused row's details must carry %q:\n%s", want, block)
+	answer := ansi.Strip(strings.Join(m.answerRemediation(), "\n"))
+	for _, want := range []string{"Do: " + rem.Action, "Run: " + rem.CommandLine(), "Then press R to retest"} {
+		if !strings.Contains(answer, want) {
+			t.Errorf("the answer block must carry %q:\n%s", want, answer)
+		}
+	}
+
+	details := ansi.Strip(strings.Join(m.detailRows(false), "\n"))
+	for _, want := range []string{rem.Why, rem.Steps[0], rem.Expect} {
+		if !strings.Contains(details, want) {
+			t.Errorf("the focused row's details must carry %q:\n%s", want, details)
+		}
+	}
+	for _, unwanted := range []string{"Do: ", "Run: ", "Then press R to retest"} {
+		if strings.Contains(details, unwanted) {
+			t.Errorf("details repeat %q, which the answer block is already showing:\n%s", unwanted, details)
 		}
 	}
 
@@ -40,7 +54,7 @@ func TestRemediationBlockFollowsTheDiagnosis(t *testing.T) {
 		t.Fatal("no DNS row in this run")
 	}
 	m.selected = other
-	if got := ansi.Strip(strings.Join(m.detailRows(false), "\n")); strings.Contains(got, "Do: ") {
+	if got := ansi.Strip(strings.Join(m.detailRows(false), "\n")); strings.Contains(got, rem.Expect) {
 		t.Errorf("a row the diagnosis is not about carries its remediation:\n%s", got)
 	}
 }
@@ -56,6 +70,9 @@ func TestRemediationBlockIsAbsentWithoutADiagnosis(t *testing.T) {
 	}
 	if healthy.remediationBlock() != "" {
 		t.Error("a healthy run rendered a remediation block")
+	}
+	if len(healthy.answerRemediation()) != 0 {
+		t.Error("a healthy run rendered a next action in its answer block")
 	}
 
 	running := newModel(nil, false)

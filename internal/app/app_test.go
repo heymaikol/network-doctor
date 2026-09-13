@@ -2033,16 +2033,15 @@ func TestReadSnapshotPairAcceptsGeneratedWatchIncidentArtifact(t *testing.T) {
 	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.FixedZone("test", -5*60*60))
 
 	failing := func(at time.Time) snapshot.Snapshot {
-		return snapshot.Snapshot{
-			Schema:    snapshot.Schema,
-			CreatedAt: at.UTC().Format(time.RFC3339),
-			Target:    &snapshot.Target{Raw: "example.com", Host: "example.com", Port: 443, Protocol: "tls+http"},
-			Checks: []snapshot.Check{{
-				ID: "target_tcp", Name: "Target TCP", Status: snapshot.StatusFail, Ran: true, DurationMs: 1,
-			}},
-			Diagnosis: snapshot.Diagnosis{Verdict: "network", Summary: "failing", FailedStage: "target_tcp"},
-		}
+	s := comparableSnapshot()
+	s.CreatedAt = at.UTC().Format(time.RFC3339)
+	s.Checks = []snapshot.Check{
+		{ID: "target_tcp", Name: "Target TCP", Status: snapshot.StatusFail, Ran: true, DurationMs: 1},
 	}
+	s.Diagnosis = snapshot.Diagnosis{Verdict: "network", Summary: "failing", FailedStage: "target_tcp"}
+	s.OK = false
+	return s
+}
 
 	var timeline incident.Timeline
 	timeline.Observe(start, failing(start))

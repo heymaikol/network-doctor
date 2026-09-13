@@ -288,6 +288,31 @@ const checksWidth = 36
 // is all the body spends on separating them.
 const bodyGutter = 2
 
+// The orientation headings. Every region the cursor can be in opens with one
+// of these, and a region nested inside another names the one it is nested in,
+// so "where am I" is answered by the screen rather than by remembering which
+// key was pressed to get here. They are words rather than colours or glyphs:
+// a monochrome terminal has to carry the same answer.
+const (
+	mapTitle     = "Network map"
+	viewerTitle  = "Full output"
+	jobPaneTitle = "Tool output"
+)
+
+// ruleTitle names the block under it on the rule that already separated it,
+// so the heading costs no row of its own. The job pane is the one region that
+// is drawn without a panel border to hang a title on, and it is the region
+// most easily mistaken for the full-output viewer, which opens with the same
+// command row.
+func (m model) ruleTitle(name string) string {
+	label := m.st.panelTitle.Render(name)
+	gap := m.width - lipgloss.Width(label) - 1
+	if m.width <= 0 || gap < 1 {
+		return label
+	}
+	return label + " " + m.st.faint.Render(strings.Repeat("─", gap))
+}
+
 // labelRight sets label against the right edge of a row in a section width
 // columns wide, the way the network map pairs its title with the shared
 // domain. A row too long to share its line keeps the label on a second one,
@@ -1208,7 +1233,7 @@ func (m model) namePending(address string) bool {
 // are none, exactly what was learned instead of guessing at one.
 func (m model) serviceChooserView() string {
 	var b strings.Builder
-	b.WriteString(m.st.panelTitle.Render("Services on "+m.svc.name) + "\n")
+	b.WriteString(m.st.panelTitle.Render(mapTitle+" · Services on "+m.svc.name) + "\n")
 	scan := m.svc.scan
 	switch {
 	case !m.svc.done:
@@ -1266,7 +1291,7 @@ func (m model) networkMapView() string {
 	}
 
 	panelWidth := fitPanelWidth(m.st.panel, m.width)
-	title := m.st.panelTitle.Render("Network map: " + lanDiscoveryName + " · " + m.networkCIDR)
+	title := m.st.panelTitle.Render(mapTitle + ": " + lanDiscoveryName + " · " + m.networkCIDR)
 	if commonDomain != "" {
 		domain := m.st.faint.Render("Domain: " + commonDomain)
 		contentWidth := panelWidth - m.st.panel.GetHorizontalPadding()
@@ -2290,10 +2315,17 @@ func jobStripWidth(used, sepW int, chips []string, n int) int {
 	return total
 }
 
-// viewerHeader is the command line and status above the viewport, wrapped:
-// nothing else reflows them, and vpHeight has to know how many rows they cost.
+// viewerHeader is the viewer's heading, the command line and the run status
+// above the viewport, wrapped: nothing else reflows them, and vpHeight has to
+// know how many rows they cost.
+//
+// The heading is what says which screen this is. Without it the viewer opens
+// on the same "$ command" row the job pane on the main screen opens with, and
+// the two are then told apart only by what is missing from one of them, which
+// is not something a reader can check before pressing a key.
 func (m model) viewerHeader() string {
-	return m.wrap(m.st.title.Render("$ "+m.cur.display)) + "\n" + m.wrap(m.jobStrip())
+	return m.wrap(m.st.panelTitle.Render(viewerTitle)) + "\n" +
+		m.wrap(m.st.title.Render("$ "+m.cur.display)) + "\n" + m.wrap(m.jobStrip())
 }
 
 // outputView is the full-screen scrollable output viewer (Enter).
@@ -2418,7 +2450,7 @@ func (m model) jobView(avail int) string {
 		}
 	}
 	var b strings.Builder
-	b.WriteString(m.st.faint.Render(strings.Repeat("─", m.width)) + "\n")
+	b.WriteString(m.ruleTitle(jobPaneTitle) + "\n")
 	b.WriteString(title + "\n")
 	b.WriteString(status + "\n")
 

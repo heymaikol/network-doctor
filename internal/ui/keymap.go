@@ -110,7 +110,7 @@ var actionDefs = []actionDef{
 	{actExplain, "explain", "Explain why", map[keyContext]actionHelp{ctxList: {"why", "show why the selected diagnosis follows from the observed checks"}}},
 	{actIncidents, "incidents", "Incidents", map[keyContext]actionHelp{ctxList: {"incidents", "inspect failures recorded during this watch session"}}},
 	{actRestart, "restart", "Restart", map[keyContext]actionHelp{ctxList: {"restart", "restart with a new target"}}},
-	{actRetest, "retest", "Retest", map[keyContext]actionHelp{ctxList: {"retest", "rerun the same checks on the same target, after acting on the remediation"}}},
+	{actRetest, "retest", "Retest checks", map[keyContext]actionHelp{ctxList: {"retest", "rerun the same checks on the same target, after acting on the remediation"}}},
 	{actSSH, "ssh", "SSH login", map[keyContext]actionHelp{ctxList: {"ssh login", "log in to a host, handing the terminal to ssh"}}},
 	{actClearFilter, "clear-filter", "", map[keyContext]actionHelp{ctxViewer: {"clear filter", "clear the filter, or back when none is set"}}},
 	{actBack, "back", "", map[keyContext]actionHelp{ctxViewer: {"back", "back"}}},

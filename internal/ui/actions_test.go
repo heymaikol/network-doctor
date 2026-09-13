@@ -166,7 +166,7 @@ func TestActionsMenuCursorSurvivesAShrinkingList(t *testing.T) {
 func TestActionsMenuOffersOnlyWhatTheStateCanDo(t *testing.T) {
 	running := newModel(mustTarget(t, "example.com:443"), false)
 	running.width, running.height = 100, 40
-	for _, name := range []string{"Retest", "Save report", "Switch job", "Explain why", "Full output", "Cancel job", "Incidents", "SSH login"} {
+	for _, name := range []string{"Retest checks", "Save report", "Switch job", "Explain why", "Full output", "Cancel job", "Incidents", "SSH login"} {
 		if slices.Contains(menuNames(running), name) {
 			t.Errorf("an unfinished run offers %q: %v", name, menuNames(running))
 		}
@@ -179,7 +179,7 @@ func TestActionsMenuOffersOnlyWhatTheStateCanDo(t *testing.T) {
 	}
 
 	done := menuModel(t)
-	for _, name := range []string{"Retest", "Save report", "Copy report", "Explain why"} {
+	for _, name := range []string{"Retest checks", "Save report", "Copy report", "Explain why"} {
 		if !slices.Contains(menuNames(done), name) {
 			t.Errorf("a finished run hides %q: %v", name, menuNames(done))
 		}
@@ -274,14 +274,14 @@ func TestActionsMenuNamesFollowTheState(t *testing.T) {
 // the menu itself.
 func TestActionsMenuKeysComeFromTheActivePreset(t *testing.T) {
 	m := menuModel(t)
-	if key, _ := menuKey(m, "Retest"); key != "R" {
+	if key, _ := menuKey(m, "Retest checks"); key != "R" {
 		t.Errorf("Retest shows key %q, want R", key)
 	}
 	rebound := clonePreset(defaultPreset)
 	rebound[ctxList][actRetest] = []string{"X"}
 	rebound[ctxList][actExplain] = nil
 	m.keys = newKeymap(rebound)
-	if key, _ := menuKey(m, "Retest"); key != "X" {
+	if key, _ := menuKey(m, "Retest checks"); key != "X" {
 		t.Errorf("the rebound Retest shows key %q, want X", key)
 	}
 	// An action the preset does not bind cannot be run from the menu either.
@@ -550,11 +550,11 @@ func TestActionsMenuCursorHoldsThroughWatchPasses(t *testing.T) {
 // shorter list. What matters is that the fallback is not a quiet
 // misdispatch: enter still runs the row the menu is drawing its cursor on.
 func TestActionsMenuFallsBackWhenTheSelectedActionGoesAway(t *testing.T) {
-	m := selectMenu(t, menuModel(t), "Retest")
+	m := selectMenu(t, menuModel(t), "Retest checks")
 	// Retest is offered for a chain that ran; an unrun chain withdraws it.
 	m.started = nil
 
-	if slices.Contains(menuNames(m), "Retest") {
+	if slices.Contains(menuNames(m), "Retest checks") {
 		t.Fatal("Retest is still on the menu, so this proves nothing")
 	}
 	shown := highlighted(t, m)
@@ -681,7 +681,7 @@ func TestActionsMenuRanksDiagnosisAboveHousekeeping(t *testing.T) {
 		}
 		return i
 	}
-	for _, next := range []string{"Explain why", "Expand checks", "Retest"} {
+	for _, next := range []string{"Explain why", "Expand checks", "Retest checks"} {
 		for _, chrome := range []string{"Copy report", "Save report", "Restart", "Theme", "Help", "Quit"} {
 			if rank(next) > rank(chrome) {
 				t.Errorf("%q sorts below %q: %v", next, chrome, names)

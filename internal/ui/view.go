@@ -1235,6 +1235,17 @@ func (m model) serviceChooserView() string {
 	var b strings.Builder
 	b.WriteString(m.st.panelTitle.Render(mapTitle+" · Services on "+m.svc.name) + "\n")
 	scan := m.svc.scan
+	// Two things a reader cannot see from the list itself: the device is a row
+	// of the snapshot rather than a live connection, and enter here does not
+	// inspect the service, it points this run's checks at it.
+	origin := "From the snapshot"
+	if !m.cur.start.IsZero() {
+		origin += " captured " + durationText(m.mapAge(m.cur.start.Add(m.cur.dur))) + " ago"
+	}
+	if m.svc.done && len(scan.Open) > 0 {
+		origin += " · " + m.keys.label(ctxList, actOpen) + " restarts the checks against the selected service"
+	}
+	b.WriteString(m.st.faint.Render(origin) + "\n")
 	switch {
 	case !m.svc.done:
 		b.WriteString(m.spinner.View() + m.st.faint.Render(" checking common service ports…") + "\n")
@@ -1261,6 +1272,57 @@ func (m model) serviceChooserView() string {
 		b.WriteString(m.st.faint.Render("Press "+m.keys.label(ctxList, actRestart)+" to name a port yourself.") + "\n")
 	}
 	return m.st.panel.Width(fitPanelWidth(m.st.panel, m.width)).Render(strings.TrimRight(b.String(), "\n"))
+}
+
+// snapshotLine says what the device list under it is: a scan running now, or
+// cached evidence from one that already finished, how old that evidence is,
+// and how the scan ended. The first two words carry the live-or-cached answer
+// on their own, so a monochrome terminal and a reader who has never met the
+// job model are told the same thing as everyone else.
+func (m model) snapshotLine(hosts bool) string {
+	if m.cur.active != nil {
+		return "Live scan · started " + durationText(m.mapAge(m.cur.start)) + " ago"
+	}
+	if m.cur.start.IsZero() {
+		// No measurement was ever taken: the binary was missing, or the launch
+		// itself failed. Naming a capture time here would invent one.
+		return "Cached snapshot · scan " + m.cur.status.String()
+	}
+	at := m.cur.start.Add(m.cur.dur)
+	when := durationText(m.mapAge(at)) + " ago (" + at.Format("2006-01-02 15:04:05 MST") + ")"
+	if m.cur.status == JobDone {
+		return "Cached snapshot · captured " + when
+	}
+	line := "Cached snapshot · scan " + m.cur.status.String() + " " + when
+	if hosts {
+		line += " · partial results"
+	}
+	return line
+}
+
+// mapAge is how long ago t was, floored at zero: a clock that stepped backwards
+// must not report a capture from the future.
+func (m model) mapAge(t time.Time) time.Duration { return max(m.incidentNow().Sub(t), 0) }
+
+// lastSuccessfulScan is the newest completed LAN scan other than the one on
+// screen. It exists for the states where the displayed scan is not one: while a
+// fresh sweep runs, and after one fails, is canceled, or times out, the earlier
+// evidence is still in the ring, and the map says so rather than leaving the
+// reader to guess whether it was thrown away.
+func (m *model) lastSuccessfulScan() *jobState {
+	if m.cur.name == lanDiscoveryName && m.cur.active == nil && m.cur.status == JobDone {
+		return nil // the displayed scan is the successful one
+	}
+	var newest *jobState
+	for j := range m.jobs {
+		if j == &m.cur || j.name != lanDiscoveryName || j.status != JobDone {
+			continue
+		}
+		if newest == nil || j.start.After(newest.start) {
+			newest = j
+		}
+	}
+	return newest
 }
 
 // networkMapView renders hosts found by the LAN scan, or the services of the
@@ -1303,15 +1365,9 @@ func (m model) networkMapView() string {
 	}
 	var b strings.Builder
 	b.WriteString(title + "\n")
-	if m.cur.active == nil {
-		status := "Status: " + m.cur.status.String()
-		if !m.cur.start.IsZero() {
-			status = "Captured: " + m.cur.start.Add(m.cur.dur).Format("2006-01-02 15:04:05 MST") + " · " + status
-		}
-		if m.cur.status != JobDone && len(hosts) > 0 {
-			status += " · partial results"
-		}
-		b.WriteString(m.st.faint.Render(status) + "\n")
+	b.WriteString(m.st.faint.Render(m.snapshotLine(len(hosts) > 0)) + "\n")
+	if prev := (&m).lastSuccessfulScan(); prev != nil {
+		b.WriteString(m.st.faint.Render("Earlier successful scan from "+durationText(m.mapAge(prev.start.Add(prev.dur)))+" ago is still in the job list ("+m.keys.label(ctxList, actSwitchJob)+")") + "\n")
 	}
 	b.WriteString(m.st.sel.Render("◆") + " This device")
 	if m.watch {
@@ -1616,6 +1672,16 @@ func (m model) helpView(deferred bool) string {
 			add(m.keys.label(ctxList, act), help.bar)
 		}
 	}
+	// Rescan is deliberately menu-only. On the map the bar spends its Actions
+	// chip saying where a fresh snapshot lives, rather than growing a second
+	// key for it, so "how do I refresh this" is answered where the keys are.
+	addActions := func() {
+		desc := "actions"
+		if m.networkMap && m.actionAvailable(actRescanNetwork) {
+			desc = "actions: rescan"
+		}
+		add(m.keys.label(ctxList, actActions), desc)
+	}
 	addPair := func(a, b keyAction) {
 		help, ok := actionHelpFor(ctxList, a)
 		if ok {
@@ -1652,7 +1718,7 @@ func (m model) helpView(deferred bool) string {
 		}
 	default:
 		addPair(actUp, actDown)
-		addAction(actActions)
+		addActions()
 		addAction(actHelp)
 		addAction(actQuit)
 		return withNotice(m.chordHint(helpKeys(m.st, m.width, kv...)))
@@ -1674,7 +1740,7 @@ func (m model) helpView(deferred bool) string {
 		if m.networkMap {
 			add(m.keys.label(ctxList, actRestart), "run the checks")
 		}
-		addAction(actActions)
+		addActions()
 		addAction(actHelp)
 		addAction(actQuit)
 		return withNotice(m.chordHint(helpKeys(m.st, m.width, kv...)))
@@ -1705,7 +1771,7 @@ func (m model) helpView(deferred bool) string {
 	}
 	addAction(actRestart)
 	addAction(actTheme)
-	addAction(actActions)
+	addActions()
 	addAction(actHelp)
 	addAction(actQuit)
 	return withNotice(m.chordHint(helpKeys(m.st, m.width, kv...)))

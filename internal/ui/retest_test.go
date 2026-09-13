@@ -194,7 +194,7 @@ func TestRetestRemainsDiscoverableWithoutClutteringTheFooter(t *testing.T) {
 	if bar := ansi.Strip(m.helpView(false)); strings.Contains(bar, "retest") {
 		t.Errorf("a finished run advertises retest in the footer: %q", bar)
 	}
-	if !slices.Contains(menuNames(m), "Retest") {
+	if !slices.Contains(menuNames(m), "Retest checks") {
 		t.Errorf("the Actions menu is missing Retest: %v", menuNames(m))
 	}
 	if sheet := ansi.Strip(m.helpOverlay()); !strings.Contains(sheet, "rerun the same checks on the same target") {

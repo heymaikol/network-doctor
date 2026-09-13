@@ -1542,8 +1542,8 @@ func (m model) chordHint(help string) string {
 	return m.st.key.Render(displaySeq(strings.Join(m.pendingKeys, " "))+"…") + m.st.faint.Render("  ·  ") + help
 }
 
-// helpOverlay is generated from the same actions and bindings used by dispatch.
-func (m model) helpOverlay() string {
+// helpContent is generated from the same actions and bindings used by dispatch.
+func (m model) helpContent() string {
 	keyWidth := 8
 	for _, def := range actionDefs {
 		for ctx := range def.help {
@@ -1583,11 +1583,63 @@ func (m model) helpOverlay() string {
 	}
 	b.WriteString("\n" + m.st.panelTitle.Render("Output viewer") + "\n")
 	section(&b, ctxViewer)
-	out := b.String() + "\n" + helpKeys(m.st, m.width, "any key", "close")
-	if m.height > 0 {
-		out = lipgloss.NewStyle().MaxHeight(m.height).Render(out)
+	return b.String()
+}
+
+func (m model) helpScrollFooter() string {
+	var kv []string
+	addPair := func(a, b keyAction, desc string) {
+		if label := m.keys.pairLabel(ctxViewer, a, b); label != "" {
+			kv = append(kv, label, desc)
+		}
 	}
-	return out
+	addPair(actUp, actDown, "scroll")
+	addPair(actPageUp, actPageDown, "page")
+	addPair(actHalfPageUp, actHalfPageDown, "half page")
+	addPair(actTop, actBottom, "top/bottom")
+	return helpKeys(m.st, m.width, append(kv, "other key", "close")...)
+}
+
+func (m model) helpFullView() string {
+	return m.helpContent() + "\n" + helpKeys(m.st, m.width, "any key", "close")
+}
+
+func (m model) helpScrolls() bool {
+	return m.height > 0 && lipgloss.Height(m.helpFullView()) > m.height
+}
+
+func (m *model) refreshHelpViewport(reset bool) {
+	offset := m.helpVP.YOffset
+	m.helpVP.Width = max(m.width, 1)
+	m.helpVP.Height = 20
+	if m.height > 0 {
+		m.helpVP.Height = max(m.height-1-lipgloss.Height(m.helpScrollFooter()), 1)
+	}
+	m.helpVP.SetContent(m.helpContent())
+	if reset {
+		m.helpVP.GotoTop()
+	} else {
+		m.helpVP.SetYOffset(offset)
+	}
+}
+
+// helpOverlay shows the complete sheet when it fits, otherwise the same
+// viewport controls used by the output and incident viewers reveal every row.
+func (m model) helpOverlay() string {
+	if !m.helpScrolls() {
+		return m.helpFullView()
+	}
+	if m.helpVP.TotalLineCount() == 0 {
+		m.refreshHelpViewport(true)
+	}
+	total := m.helpVP.TotalLineCount()
+	top := m.helpVP.YOffset + 1
+	bottom := min(m.helpVP.YOffset+m.helpVP.Height, total)
+	context := fmt.Sprintf("lines %d-%d of %d", min(top, bottom), bottom, total)
+	if m.width > 0 {
+		context = ansi.Truncate(context, m.width, "")
+	}
+	return m.helpVP.View() + "\n" + m.st.faint.Render(context) + "\n" + m.helpScrollFooter()
 }
 
 func (m model) noticeView() string {

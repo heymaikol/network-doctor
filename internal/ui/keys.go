@@ -292,7 +292,47 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		return m, nil
 	case actHelp:
 		m.helping = true
+		m.helpVP = viewport.New(max(m.width, 1), 1)
+		m.helpVP.KeyMap = viewport.KeyMap{}
+		m.refreshHelpViewport(true)
 		return m, nil
+	}
+	return m, nil
+}
+
+// handleHelpKey reserves the viewer's movement keys while a clipped
+// cheatsheet needs them. Every other key keeps the original close behavior.
+func (m model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if !m.helpScrolls() {
+		m.helping = false
+		m.pendingKeys = nil
+		return m, nil
+	}
+	act, pending := m.resolveKey(ctxViewer, msg.String())
+	m.pendingKeys = pending
+	if len(pending) > 0 {
+		return m, nil
+	}
+	switch act {
+	case actUp:
+		m.helpVP.ScrollUp(1)
+	case actDown:
+		m.helpVP.ScrollDown(1)
+	case actTop:
+		m.helpVP.GotoTop()
+	case actBottom:
+		m.helpVP.GotoBottom()
+	case actPageUp:
+		m.helpVP.PageUp()
+	case actPageDown:
+		m.helpVP.PageDown()
+	case actHalfPageUp:
+		m.helpVP.HalfPageUp()
+	case actHalfPageDown:
+		m.helpVP.HalfPageDown()
+	default:
+		m.helping = false
+		m.pendingKeys = nil
 	}
 	return m, nil
 }

@@ -233,7 +233,8 @@ type model struct {
 	// showing the exact command until 'y' runs it or esc cancels.
 	confirmTool *Tool
 
-	helping bool // ?: full-screen key cheatsheet; any key closes it
+	helping bool // ?: full-screen key cheatsheet
+	helpVP  viewport.Model
 
 	// Actions menu (space): the actions and tools that fit the current state,
 	// drawn where the help bar goes. actionsSelID is the action the cursor is
@@ -539,6 +540,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.helping {
+			m.refreshHelpViewport(false)
+		}
 		if m.incidentViewing {
 			m.refreshIncidentViewport(false)
 		}
@@ -549,8 +553,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if m.helping {
-			m.helping = false
-			return m, nil
+			return m.handleHelpKey(msg)
 		}
 		// Runes read from stdin in one batch arrive as a single KeyMsg ("jjj"), which
 		// matches no binding; replay them one at a time, so a fast chord and a

@@ -6,6 +6,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"regexp"
@@ -47,14 +48,104 @@ func doneResults(m *model, failID diagnostic.ProbeID) {
 
 func TestHelpOverlay(t *testing.T) {
 	m := newModel(nil, false)
+	m.width, m.height = 100, 40
 	u, _ := m.Update(keyMsg("?"))
 	hm := asModel(t, u)
-	if !hm.helping || !strings.Contains(hm.View(), "Output viewer") {
+	view := ansi.Strip(hm.View())
+	if !hm.helping || !strings.Contains(view, "Output viewer") || !strings.Contains(view, "any key close") {
 		t.Fatal("? must show the key cheatsheet")
+	}
+	if strings.Contains(view, "lines 1-") {
+		t.Error("a complete cheatsheet must not show scrolling controls")
 	}
 	u, _ = hm.Update(keyMsg("x"))
 	if asModel(t, u).helping {
 		t.Error("any key must close the cheatsheet")
+	}
+}
+
+func TestHelpOverlayScrolls(t *testing.T) {
+	open := func(width, height int) model {
+		m := newModel(nil, false)
+		u, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+		u, _ = asModel(t, u).Update(keyMsg("?"))
+		return asModel(t, u)
+	}
+	press := func(m model, key tea.KeyMsg) model {
+		u, _ := m.Update(key)
+		return asModel(t, u)
+	}
+
+	for _, height := range []int{32, 30, 24, 20, 16, 10} {
+		t.Run(fmt.Sprintf("100x%d", height), func(t *testing.T) {
+			m := open(100, height)
+			top := ansi.Strip(m.View())
+			if !strings.Contains(top, "lines 1-") || !strings.Contains(top, "scroll") {
+				t.Fatalf("short help has no continuation indication:\n%s", top)
+			}
+			seen := top
+			for range 20 {
+				m = press(m, keyPress("pgdown"))
+				seen += "\n" + ansi.Strip(m.View())
+			}
+			if !strings.Contains(seen, "Output viewer") {
+				t.Fatalf("paging never reached the Output viewer section:\n%s", seen)
+			}
+			m = press(m, keyPress("end"))
+			bottom := ansi.Strip(m.View())
+			if !m.helping || !strings.Contains(bottom, "clear the filter, or back when none is set") ||
+				!strings.Contains(bottom, "close") {
+				t.Fatalf("bottom of help is not reachable:\n%s", bottom)
+			}
+			if got := ansi.Strip(press(m, keyPress("down")).View()); got != bottom {
+				t.Error("help scrolled beyond the bottom")
+			}
+			m = press(m, keyPress("home"))
+			if got := ansi.Strip(m.View()); got != top {
+				t.Error("home did not return help to the top")
+			}
+			if got := ansi.Strip(press(m, keyPress("up")).View()); got != top {
+				t.Error("help scrolled beyond the top")
+			}
+		})
+	}
+
+	m := open(100, 24)
+	m = press(m, keyPress("end"))
+	m = press(m, keyMsg("x"))
+	if m.helping {
+		t.Fatal("ordinary key did not close scrolled help")
+	}
+	m = press(m, keyMsg("?"))
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "lines 1-") {
+		t.Fatalf("reopened help did not reset to the top:\n%s", view)
+	}
+	for _, key := range []tea.KeyMsg{keyPress("esc"), keyMsg("q"), keyMsg("?"), {Type: tea.KeyCtrlC}} {
+		m := open(100, 24)
+		if m = press(m, key); m.helping {
+			t.Errorf("%s did not close help", key.String())
+		}
+	}
+}
+
+func TestHelpOverlayResize(t *testing.T) {
+	m := newModel(nil, false)
+	u, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	u, _ = asModel(t, u).Update(keyMsg("?"))
+	m = asModel(t, u)
+
+	u, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	m = asModel(t, u)
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "lines 1-") {
+		t.Fatalf("tall-to-short resize did not make help scrollable:\n%s", view)
+	}
+	u, _ = m.Update(keyPress("end"))
+	m = asModel(t, u)
+	u, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = asModel(t, u)
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "Keys\n") || !strings.Contains(view, "any key close") || regexp.MustCompile(`(?m)^lines `).MatchString(view) {
+		t.Fatalf("short-to-tall resize did not reveal complete help:\n%s", view)
 	}
 }
 
@@ -71,11 +162,30 @@ func TestHelpOverlayFitsNarrowTerminal(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, w := range []int{24, 30, 40, 60, 100} {
+		for _, size := range [][2]int{{100, 40}, {100, 32}, {100, 30}, {100, 24}, {100, 20}, {100, 16}, {100, 10}, {60, 40}, {40, 40}, {30, 40}, {24, 40}, {40, 24}} {
+			w, h := size[0], size[1]
 			m := newModel(nil, false)
-			m.keys, m.width, m.height, m.helping = km, w, 24, true
-			if v := m.View(); lipgloss.Height(v) > m.height {
-				t.Errorf("%s %dx%d: view is %d display rows tall:\n%s", preset, w, m.height, lipgloss.Height(v), v)
+			m.keys = km
+			u, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+			u, _ = asModel(t, u).Update(keyMsg("?"))
+			m = asModel(t, u)
+			v := m.View()
+			if lipgloss.Height(v) > m.height {
+				t.Errorf("%s %dx%d: view is %d display rows tall:\n%s", preset, w, h, lipgloss.Height(v), v)
+			} else {
+				for _, line := range strings.Split(v, "\n") {
+					if got := lipgloss.Width(line); got > w {
+						t.Errorf("%s %dx%d: line is %d columns wide: %q", preset, w, h, got, ansi.Strip(line))
+					}
+				}
+			}
+			bottom := ansi.Strip(v)
+			if !strings.Contains(bottom, "any key close") {
+				u, _ = m.Update(keyPress("end"))
+				bottom = ansi.Strip(asModel(t, u).View())
+			}
+			if !regexp.MustCompile(`(?m)^  q +back *$`).MatchString(bottom) || !strings.Contains(bottom, "close") {
+				t.Errorf("%s %dx%d: final help is not reachable:\n%s", preset, w, h, bottom)
 			}
 			m.height = 0 // unclipped: every entry must survive wrapping
 			sheet := ansi.Strip(m.helpOverlay())

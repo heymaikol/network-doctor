@@ -23,6 +23,7 @@ import (
 
 	"github.com/heymaikol/network-doctor/internal/compare"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/internal/incident"
 	"github.com/heymaikol/network-doctor/internal/peer"
 	"github.com/heymaikol/network-doctor/internal/report"
 	"github.com/heymaikol/network-doctor/internal/snapshot"
@@ -1971,6 +1972,123 @@ func TestRunTwoSidedExitsZeroWhenNothingFailed(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "neither side") {
 		t.Errorf("stdout = %q", stdout.String())
+	}
+}
+
+// Offline .ndoc reads must stay bounded before JSON decoding: a corrupt or
+// deliberately oversized artifact should not be fully read into memory just
+// because it has a .ndoc path.
+func TestReadSnapshotPairEnforcesMaxArtifactSize(t *testing.T) {
+	dir := t.TempDir()
+
+	// A normal, legitimately small snapshot must still work exactly as before.
+	normalPath := writeSnapshotFile(t, dir, "normal", comparableSnapshot())
+
+	// A file sitting exactly at the accepted boundary. It won't decode as a
+	// valid snapshot, but it must NOT be rejected for size.
+	atBoundaryPath := filepath.Join(dir, "boundary"+snapshot.Extension)
+	writeSizedFile(t, atBoundaryPath, snapshot.MaxArtifactBytes)
+
+	// One byte over the boundary: must be rejected for size, before decode.
+	overBoundaryPath := filepath.Join(dir, "over"+snapshot.Extension)
+	writeSizedFile(t, overBoundaryPath, snapshot.MaxArtifactBytes+1)
+
+	// A sparse file far larger than the boundary, to prove the read itself
+	// stays bounded rather than relying on Stat().Size() alone.
+	sparsePath := filepath.Join(dir, "sparse"+snapshot.Extension)
+	writeSparseFile(t, sparsePath, snapshot.MaxArtifactBytes*4)
+
+	cases := []struct {
+		name         string
+		path         string
+		wantSizeErr  bool
+		wantExitCode int
+	}{
+		{"normal snapshot", normalPath, false, 0},
+		{"at accepted boundary", atBoundaryPath, false, 2},
+		{"exceeds boundary", overBoundaryPath, true, 2},
+		{"oversized sparse file", sparsePath, true, 2},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for _, mode := range []string{"--compare", "--two-sided"} {
+				var stdout, stderr bytes.Buffer
+				got := run([]string{mode, c.path, c.path}, &stdout, &stderr)
+
+				gotSizeErr := strings.Contains(stderr.String(), "exceeds maximum artifact size")
+				if gotSizeErr != c.wantSizeErr {
+					t.Fatalf("%s: size-limit error = %v, want %v; exit = %d, stderr: %s", mode, gotSizeErr, c.wantSizeErr, got, stderr.String())
+				}
+				if got != c.wantExitCode {
+					t.Errorf("%s: exit = %d, want %d for %s; stderr: %s", mode, got, c.wantExitCode, c.name, stderr.String())
+				}
+				if c.wantSizeErr && !strings.Contains(stderr.String(), c.path) {
+					t.Errorf("%s: stderr missing artifact path %q; stderr: %s", mode, c.path, stderr.String())
+				}
+			}
+		})
+	}
+}
+
+// A snapshot produced by the real watch-incident machinery, not a
+// hand-built one, must remain readable by the bounded offline reader.
+func TestReadSnapshotPairAcceptsGeneratedWatchIncidentArtifact(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.FixedZone("test", -5*60*60))
+
+	failing := func(at time.Time) snapshot.Snapshot {
+		s := comparableSnapshot()
+		s.CreatedAt = at.UTC().Format(time.RFC3339)
+		s.Checks = []snapshot.Check{
+			{ID: "target_tcp", Name: "Target TCP", Status: snapshot.StatusFail, Ran: true, DurationMs: 1},
+		}
+		s.Diagnosis = snapshot.Diagnosis{Verdict: "network", Summary: "failing", FailedStage: "target_tcp"}
+		s.OK = false
+		return s
+	}
+
+	var timeline incident.Timeline
+	timeline.Observe(start, failing(start))
+	timeline.Observe(start.Add(5*time.Second), failing(start.Add(5*time.Second)))
+	active, ok := timeline.Active()
+	if !ok {
+		t.Fatal("expected an active incident")
+	}
+	artifact := active.Artifact()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "watch-incident"+snapshot.Extension)
+	if err := snapshot.WriteFile(path, artifact); err != nil {
+		t.Fatalf("write generated watch-incident artifact: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"--compare", path, path}, &stdout, &stderr); got != 0 {
+		t.Fatalf("exit = %d, want 0 for a real watch-incident artifact compared with itself; stderr: %s", got, stderr.String())
+	}
+}
+
+// writeSizedFile writes exactly n bytes of filler content to path.
+func writeSizedFile(t *testing.T, path string, n int) {
+	t.Helper()
+	data := bytes.Repeat([]byte("x"), n)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// writeSparseFile creates a file that reports size n without allocating n
+// real bytes on disk, so the test itself stays fast and light.
+func writeSparseFile(t *testing.T, path string, n int) {
+	t.Helper()
+	// #nosec G304 -- path is built from t.TempDir() in this test, not user input.
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create %s: %v", path, err)
+	}
+	defer f.Close()
+	if err := f.Truncate(int64(n)); err != nil {
+		t.Fatalf("truncate %s: %v", path, err)
 	}
 }
 

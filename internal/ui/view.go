@@ -213,8 +213,9 @@ const detailsMinWidth = 36
 
 // checksWidth is the Checks section's usual width beside Details, wide enough
 // for the longest probe name a targeted run draws plus its marker, glyph and
-// watch sparkline. A labelled row may claim more, up to what Details is
-// guaranteed.
+// watch sparkline. A row that comes to more than that, whether from a long
+// target name, a grown sparkline or a label, claims the columns it needs, up
+// to what Details is guaranteed.
 const checksWidth = 36
 
 // bodyGutter is the blank columns between the two sections in the side-by-side
@@ -302,19 +303,35 @@ func (m model) bodyView(deferred bool, rows int) string {
 	// render, so a watch pass that repairs the path takes the labels with it.
 	collateral := diagnostic.Collateral(m.target, m.probeOrder(), m.results)
 
-	// The rows are built before the section has a width, because a labelled row
-	// is what decides that width, so the labels are placed in a second pass.
-	// A row can carry both of them: a check that changed this pass and is also
-	// downstream of another failure is two separate things worth saying.
+	// The rows are built before the section has a width, because what the rows
+	// come to is what decides that width, so the labels are placed in a second
+	// pass. A row can carry both of them: a check that changed this pass and
+	// is also downstream of another failure is two separate things worth
+	// saying.
 	changed, consequence := m.st.faint.Render(changedLabel), m.st.faint.Render(consequenceLabel)
 	checks := make([]string, 0, len(shown))
 	labels := make([]string, 0, len(shown))
+	// want is the width the widest Checks row would need to stay on one line,
+	// measured from the row as it will be drawn: marker, glyph, probe name and
+	// watch sparkline are all in it already, and a label is a gap and a word
+	// more. Measuring the whole row is the point. A width taken from the label
+	// alone leaves every unlabelled row to wrap against the section's usual
+	// width while the Details section beside it still has columns to spare.
 	want := 0
+	wantRow := func(row, label string) {
+		w := lipgloss.Width(row)
+		if label != "" {
+			w += 1 + lipgloss.Width(label)
+		}
+		want = max(want, w)
+	}
 	for _, i := range shown {
 		probe := m.probes[i]
 		if deferred {
-			checks = append(checks, m.st.faint.Render("  · "+probe.Name))
+			row := m.st.faint.Render("  · " + probe.Name)
+			checks = append(checks, row)
 			labels = append(labels, "")
+			wantRow(row, "")
 			continue
 		}
 		marker, name := "  ", probe.Name
@@ -342,9 +359,27 @@ func (m model) bodyView(deferred bool, rows int) string {
 		text := strings.Join(label, "  ")
 		checks = append(checks, row)
 		labels = append(labels, text)
-		if text != "" {
-			want = max(want, lipgloss.Width(row)+1+lipgloss.Width(text))
+		wantRow(row, text)
+	}
+	if hiddenPass+hiddenNA > 0 {
+		wantRow(m.collapsedChecksRow(hiddenPass, hiddenNA), "")
+	}
+	// hangIndent is the marker and glyph a probe row opens with, so a
+	// continuation indented by it lands under the probe name.
+	const hangIndent = 4
+	// hang wraps a row the section is too narrow to hold on one line, with its
+	// continuation under the probe name rather than back at the left margin,
+	// where the marker column reads it as a row of its own. Only a terminal
+	// with no columns to spare gets here: a wider one gave those columns to
+	// the section instead. ansi.Wrap leaves the row alone when it fits, and
+	// the indent is dropped rather than eating the whole column when the
+	// section is narrower than the indent itself.
+	hang := func(row string, width int) string {
+		if width <= hangIndent*2 || lipgloss.Width(row) <= width {
+			return row
 		}
+		indent := strings.Repeat(" ", hangIndent)
+		return strings.ReplaceAll(ansi.Wrap(row, width-hangIndent, ""), "\n", "\n"+indent)
 	}
 	// checksSection is the Checks rows under their heading once the section
 	// width is settled: the labels are placed against that width, so they land
@@ -353,13 +388,14 @@ func (m model) bodyView(deferred bool, rows int) string {
 		out := make([]string, 0, len(checks)+2)
 		out = append(out, m.st.panelTitle.Render("Checks"))
 		for j, row := range checks {
+			row = hang(row, width)
 			if labels[j] != "" {
 				row = labelRight(row, labels[j], width)
 			}
 			out = append(out, row)
 		}
 		if hiddenPass+hiddenNA > 0 {
-			out = append(out, m.collapsedChecksRow(hiddenPass, hiddenNA))
+			out = append(out, hang(m.collapsedChecksRow(hiddenPass, hiddenNA), width))
 		}
 		return sectionHead(m.st, out, width)
 	}
@@ -418,11 +454,12 @@ func (m model) bodyView(deferred bool, rows int) string {
 	}
 	leftW := checksWidth
 	if want > leftW {
-		// A label pushes the widest probe row past the section's usual width,
-		// and a row that wraps costs the block a display row its budget never
-		// saw coming. Take the columns those rows ask for, but never out of
-		// the width the Details section is guaranteed beside them: a terminal
-		// with nothing to spare takes the wrap instead.
+		// A long target name, a watch sparkline or a label pushes the widest
+		// row past the section's usual width, and a row that wraps costs the
+		// block a display row its budget never saw coming. Take the columns
+		// those rows ask for, but never out of the width the Details section
+		// is guaranteed beside them: a terminal with nothing to spare takes
+		// the wrap instead.
 		leftW = min(want, max(m.width-detailsMinWidth-bodyGutter, leftW))
 	}
 	leftRows := checksSection(leftW)
@@ -1883,10 +1920,10 @@ func (m model) checkRows() []int {
 // network and "N/A" is a claim about the question having no answer here.
 //
 // It sits in the marker column rather than indented with the probe rows,
-// which is also what keeps it inside the 36 columns the Checks panel has:
-// a row that wraps costs the panel a second display row that no row count
-// saw coming, and the block has a row budget to stay inside. That budget is
-// why the mixed wording is the terse one and why "N/A" is not spelled out.
+// which is also what keeps it inside the columns the Checks section has:
+// a row that wraps costs the section a second display row, and the block has
+// a row budget to stay inside. That budget is why the mixed wording is the
+// terse one and why "N/A" is not spelled out.
 func (m model) collapsedChecksRow(hiddenPass, hiddenNA int) string {
 	checks := func(n int) string {
 		if n == 1 {

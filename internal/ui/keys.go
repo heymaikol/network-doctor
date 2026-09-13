@@ -646,34 +646,65 @@ func (m model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// doRestart bumps the generation (invalidating outstanding probe/job messages),
-// clears run state and old tool output, resets the context, and reschedules
-// from the root.
+// doRestart is a full restart: the run starts over and the screen starts over
+// with it. It is what the restart prompt, a retest and a deferred restart all
+// take, because each of them is the user asking for a different run than the
+// one on screen.
+//
+// A periodic watch pass is the one restart that is not that, and it calls
+// restartRun alone. The split is the invariant: restartRun owns everything
+// scoped to a generation, resetPresentation owns everything the reader is
+// looking at, and a watch pass replaces the first without touching the second.
+// It is a split rather than a list of fields to carry across, so a new piece of
+// presentation state cannot be forgotten by a pass that never resets any.
 func (m *model) doRestart() tea.Cmd {
+	cmd := m.restartRun()
+	m.resetPresentation()
+	if m.viewing {
+		m.refreshViewport()
+	}
+	return cmd
+}
+
+// restartRun bumps the generation (invalidating outstanding probe/job
+// messages), clears the previous run's results, resets the context, and
+// reschedules from the root. Everything it touches belongs to the run being
+// replaced and to nothing else.
+//
+// namesPending is part of that: it tracks lookups issued under the old
+// generation, whose replies this restart drops, so those rows fall back to
+// nmap's own name instead of spinning forever. The names already resolved are
+// presentation and survive with the map that shows them.
+func (m *model) restartRun() tea.Cmd {
 	wasTicking := m.spinnerActive()
 	m.clearCancel()
 	m.ctx = nil
 	m.tools = toolsFor(m.target, runtime.GOOS, bindFor(m.sources))
 	m.generation++
-	m.selMoved = false
-	m.explaining = false
 	m.results = map[diagnostic.ProbeID]diagnostic.ProbeResult{}
 	m.started = map[diagnostic.ProbeID]bool{}
-	m.pending, m.confirmTool, m.sshPrompt = nil, nil, false
-	m.dropJobs()
-	m.networkMap, m.mapSelected, m.networkCIDR = false, 0, ""
-	m.svc = serviceChoice{}
-	m.hostNames, m.namesPending = nil, nil
-	m.notice = ""
-	if m.viewing {
-		m.refreshViewport()
-	}
+	m.namesPending = nil
 	gen := m.generation
 	cmds := []tea.Cmd{func() tea.Msg { return scheduleMsg{gen: gen} }}
 	if !wasTicking {
 		cmds = append(cmds, m.spinner.Tick)
 	}
 	return tea.Batch(cmds...)
+}
+
+// resetPresentation clears what the screen was showing about the run that just
+// ended: open modals and their typed contents, the last notice, an explanation
+// of a diagnosis that is about to be recomputed, a cursor the user moved, the
+// LAN map and the device opened on it, and the parked tool output.
+func (m *model) resetPresentation() {
+	m.selMoved = false
+	m.explaining = false
+	m.pending, m.confirmTool, m.sshPrompt = nil, nil, false
+	m.dropJobs()
+	m.networkMap, m.mapSelected, m.networkCIDR = false, 0, ""
+	m.svc = serviceChoice{}
+	m.hostNames = nil
+	m.notice = ""
 }
 
 func (m *model) launchTool(tool Tool) tea.Cmd {

@@ -666,30 +666,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.watchCmd()
 		}
 		// A watch pass refreshes results underneath the user, so it must leave
-		// everything they are mid-way through alone: open modals and their typed
-		// contents, the last notice, and a cursor they moved themselves.
-		cur, other := m.cur, m.otherJobs
-		pending, confirm, ssh := m.pending, m.confirmTool, m.sshPrompt
-		notice, selMoved := m.notice, m.selMoved
-		// The LAN map is drawn from the parked scan job, so restoring the job
-		// without its map state leaves the user staring at the checks list.
-		// networkCIDR is copied, not recomputed: it labels the sweep that
-		// actually ran, and this pass's source address may differ.
-		// namesPending is deliberately not carried over, since it tracks lookups
-		// issued under the old generation, whose replies this restart drops,
-		// so those rows fall back to nmap's own name instead of spinning
-		// forever.
-		mapOpen, mapSel, cidr, names := m.networkMap, m.mapSelected, m.networkCIDR, m.hostNames
-		// The opened device's service list is carried over for the same
-		// reason: a pass that happens while the user is reading it must not
-		// throw the list away and drop them back on the device rows.
-		svc := m.svc
-		cmd := m.doRestart()
-		m.cur, m.otherJobs = cur, other
-		m.pending, m.confirmTool, m.sshPrompt = pending, confirm, ssh
-		m.notice, m.selMoved = notice, selMoved
-		m.networkMap, m.mapSelected, m.networkCIDR, m.hostNames = mapOpen, mapSel, cidr, names
-		m.svc = svc
+		// everything they are mid-way through alone: open modals and their
+		// typed contents, the last notice, a cursor they moved themselves, the
+		// LAN map and the device opened on it, the parked tool output the map
+		// is drawn from, and an open explanation of the diagnosis. That is
+		// restartRun without resetPresentation, so the set is not a list this
+		// branch has to keep in step with doRestart.
+		//
+		// Nothing stale survives it: every one of those views is recomputed
+		// from the new run each frame. The explanation in particular holds no
+		// copy of the evidence it showed, so it redraws from this pass's
+		// diagnosis, and the panel falls back to Details by itself once the
+		// cursor is no longer on the row the new diagnosis blames.
+		cmd := m.restartRun()
 		if m.viewing {
 			m.refreshViewport()
 		}

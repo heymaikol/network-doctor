@@ -7,18 +7,57 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// actionGroup is what an action acts on, and it is the menu's hierarchy: rows
+// are sorted by it, and each run of one group is introduced by that group's
+// heading.
+//
+// The order of the constants is the order of the menu, derived from how far
+// the action is from the question a reader opens the menu with, "what do I do
+// about this run?". The run itself answers it directly; the network it sits on
+// is the next ring out; the external tools look closer still but cost a job to
+// find out; the report is what you do once the answer is in hand; and the
+// session is the application rather than the run at all. Nothing here is
+// ordered by how the keys happen to be laid out.
+type actionGroup int
+
+const (
+	groupRun actionGroup = iota
+	groupNetwork
+	groupTools
+	groupReport
+	groupSession
+)
+
+// groupNames are the menu's headings. They are indented differently from the
+// rows they introduce and carry no key column, so the hierarchy survives a
+// terminal with no colour and a reader who never sees the bold.
+var groupNames = [...]string{
+	groupRun:     "This run",
+	groupNetwork: "This network",
+	groupTools:   "Drill down",
+	groupReport:  "Report",
+	groupSession: "Session",
+}
+
 // actionItem is one row of the Actions menu: what to call it, the key that
-// runs it under the active preset, and which action or tool it is. A tool row
-// leaves act zero; enter finds the tool by that key, the way the keyboard does.
+// runs it under the active preset, which action or tool it is, and the group
+// it is filed under. A tool row leaves act zero; enter finds the tool by that
+// key, the way the keyboard does.
+//
+// Every item is selectable. The headings are drawn from the group field at
+// render time rather than being rows of their own, so there is nothing in the
+// list the cursor has to learn to skip and nothing enter has to refuse.
 type actionItem struct {
-	name string
-	key  string
-	act  keyAction
+	name  string
+	key   string
+	act   keyAction
+	group actionGroup
 }
 
 // actionID names the logical action a row runs, which is what the cursor is
@@ -150,9 +189,42 @@ func (m model) actionName(def actionDef) string {
 	return def.menu
 }
 
-// actionItems is what the current state can do: available built-ins in
-// cheatsheet order, then the drill-down tools whose binary is installed.
+// actionGroupFor files a built-in under what it acts on. Two actions change
+// what they act on with the screen, and both change their wording for the same
+// reason, so this reads the same state actionName does: on the network map,
+// enter walks the device list and esc steps back through it, which makes both
+// of them map actions rather than actions on this run's own job pane.
+func (m model) actionGroupFor(act keyAction) actionGroup {
+	switch act {
+	case actOpen:
+		if m.networkMap && (m.svc.host != "" || len(m.networkHosts()) > 0) {
+			return groupNetwork
+		}
+		return groupRun
+	case actCancelJob:
+		if m.networkMap && m.svc.host != "" {
+			return groupNetwork
+		}
+		return groupRun
+	case actSwitchJob, actExpand, actExplain, actIncidents, actRetest:
+		return groupRun
+	case actNetworkMap, actRescanNetwork, actSSH:
+		return groupNetwork
+	case actCopy, actSave:
+		return groupReport
+	}
+	// Restart, Theme, Help and Quit: the application, not the run.
+	return groupSession
+}
+
+// actionItems is what the current state can do: available built-ins and the
+// drill-down tools whose binary is installed, sorted into the menu's groups.
 // Built-ins require a list binding except for the explicitly menu-only Rescan.
+//
+// The sort is stable over the shared table's order, so within a group the rows
+// keep the order the cheatsheet and help bar give them. That is what stops an
+// action sliding around relative to its neighbours as other rows come and go:
+// state can move a row between groups, never inside one.
 func (m model) actionItems() []actionItem {
 	var items []actionItem
 	for _, def := range actionDefs {
@@ -162,9 +234,10 @@ func (m model) actionItems() []actionItem {
 			continue
 		}
 		items = append(items, actionItem{
-			name: m.actionName(def),
-			key:  m.keys.label(ctxList, def.act),
-			act:  def.act,
+			name:  m.actionName(def),
+			key:   m.keys.label(ctxList, def.act),
+			act:   def.act,
+			group: m.actionGroupFor(def.act),
 		})
 	}
 	for _, tool := range m.tools {
@@ -173,10 +246,12 @@ func (m model) actionItems() []actionItem {
 			continue
 		}
 		items = append(items, actionItem{
-			name: strings.ToUpper(tool.Name[:1]) + tool.Name[1:],
-			key:  tool.Key,
+			name:  strings.ToUpper(tool.Name[:1]) + tool.Name[1:],
+			key:   tool.Key,
+			group: groupTools,
 		})
 	}
+	slices.SortStableFunc(items, func(a, b actionItem) int { return int(a.group) - int(b.group) })
 	return items
 }
 

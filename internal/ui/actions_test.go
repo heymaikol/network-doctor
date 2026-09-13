@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
@@ -302,9 +303,15 @@ func TestActionsMenuToolsComeFromToolMetadata(t *testing.T) {
 	for _, tool := range m.tools {
 		want = append(want, strings.ToUpper(tool.Name[:1])+tool.Name[1:])
 	}
-	names := menuNames(m)
-	if got := names[len(names)-len(want):]; !slices.Equal(got, want) {
-		t.Errorf("tool rows = %v, want %v", got, want)
+	// The tools are one run of rows under one heading, in their table's order.
+	// Where that run sits is the hierarchy's business, tested separately; what
+	// matters here is that every installed tool is in it and nothing else is.
+	names, got := menuNames(m), groupOnly(m, groupTools)
+	if !slices.Equal(got, want) {
+		t.Errorf("tool rows = %v, want %v (menu: %v)", got, want, names)
+	}
+	if at := slices.Index(names, want[0]); !slices.Equal(names[at:at+len(want)], want) {
+		t.Errorf("the tool rows are not contiguous: %v", names)
 	}
 	for _, tool := range m.tools {
 		key, ok := menuKey(m, strings.ToUpper(tool.Name[:1])+tool.Name[1:])
@@ -555,13 +562,17 @@ func TestActionsMenuFallsBackWhenTheSelectedActionGoesAway(t *testing.T) {
 	if i := slices.Index(menuNames(m), shown); i < 0 {
 		t.Fatalf("the cursor landed on %q, which is not on the menu: %v", shown, menuNames(m))
 	}
-	// The fallback is the row, so it stays next to where the reader left it.
-	if shown != "Theme" {
+	// The fallback is the row, so it stays next to where the reader left it:
+	// Retest is the last of "This run" here, and the row that slides into its
+	// slot is the first of "This network".
+	if shown != "Network map" {
 		t.Fatalf("the cursor fell back to %q, want the row Retest vacated", shown)
 	}
-	// And enter runs that row rather than the one the index used to name.
-	if !run.theming || run.actionsOpen {
-		t.Errorf("enter on the fallback row left theming=%v open=%v", run.theming, run.actionsOpen)
+	// And enter runs that row rather than the one the index used to name: this
+	// fixture has no private source address, so the map says so and nothing
+	// about the theme the old index pointed at changes.
+	if !strings.Contains(run.notice, "private IPv4 network") || run.theming || run.actionsOpen {
+		t.Errorf("enter on the fallback row left notice=%q theming=%v open=%v", run.notice, run.theming, run.actionsOpen)
 	}
 }
 
@@ -598,5 +609,319 @@ func TestActionsMenuCursorStaysInRangeAcrossRepeatedChanges(t *testing.T) {
 	m.probes = nil
 	if run := sendKey(t, m, "enter"); run.actionsOpen {
 		t.Error("enter must close the menu even with nothing on it")
+	}
+}
+
+// groupOnly is the menu narrowed to one group, so a test can name the run of
+// rows a heading introduces without hard-coding where it starts.
+func groupOnly(m model, g actionGroup) []string {
+	var kept []string
+	for _, item := range m.actionItems() {
+		if item.group == g {
+			kept = append(kept, item.name)
+		}
+	}
+	return kept
+}
+
+// menuGroups is the sequence of groups the rows fall into, collapsed to one
+// entry per run: the hierarchy as a reader scanning down the menu meets it.
+func menuGroups(m model) []actionGroup {
+	var out []actionGroup
+	for i, item := range m.actionItems() {
+		if i == 0 || item.group != out[len(out)-1] {
+			out = append(out, item.group)
+		}
+	}
+	return out
+}
+
+// The ordering rule: every row is filed under what it acts on, the groups run
+// in a fixed order, and a group appears at most once. A reader who has found
+// where the report actions live has found where they will always live.
+func TestActionsMenuGroupsRunInOrderAndOnlyOnce(t *testing.T) {
+	states := map[string]model{
+		"running": func() model {
+			m := newModel(mustTarget(t, "example.com:443"), false)
+			m.width, m.height = 100, 40
+			return m
+		}(),
+		"finished": menuModel(t),
+		"no tools": func() model { m := menuModel(t); m.tools = nil; return m }(),
+		"map":      func() model { m := mapModel(t); m.tools = toolsFor(m.target, "linux", toolBind{}); return m }(),
+		"jobs": func() model {
+			m := menuModel(t)
+			m.cur.name, m.cur.status, m.cur.active = "ping the host", JobRunning, &job{cancel: func() {}}
+			m.otherJobs = []jobState{{name: "trace the path", status: JobDone}}
+			return m
+		}(),
+	}
+	for name, m := range states {
+		groups := menuGroups(m)
+		if !slices.IsSorted(groups) {
+			t.Errorf("%s: the groups are out of order: %v (%v)", name, groups, menuNames(m))
+		}
+		// Sorted plus no repeats is exactly "each group is one run of rows",
+		// which is what lets a single heading stand for the whole run.
+		if len(slices.Compact(slices.Clone(groups))) != len(groups) {
+			t.Errorf("%s: a group is split across the menu: %v (%v)", name, groups, menuNames(m))
+		}
+	}
+}
+
+// The point of the hierarchy: the things that move the diagnosis forward are
+// reachable before the things that only manage the application.
+func TestActionsMenuRanksDiagnosisAboveHousekeeping(t *testing.T) {
+	m := menuModel(t)
+	names := menuNames(m)
+	rank := func(name string) int {
+		i := slices.Index(names, name)
+		if i < 0 {
+			t.Fatalf("the menu has no %q row: %v", name, names)
+		}
+		return i
+	}
+	for _, next := range []string{"Explain why", "Expand checks", "Retest"} {
+		for _, chrome := range []string{"Copy report", "Save report", "Restart", "Theme", "Help", "Quit"} {
+			if rank(next) > rank(chrome) {
+				t.Errorf("%q sorts below %q: %v", next, chrome, names)
+			}
+		}
+	}
+	// And the installed tools are next-step actions too, so they outrank the
+	// report and session utilities rather than trailing them.
+	for _, chrome := range []string{"Copy report", "Theme", "Quit"} {
+		if rank("Ping the host") > rank(chrome) {
+			t.Errorf("the tools sort below %q: %v", chrome, names)
+		}
+	}
+	// Quit is the floor: nothing useful is below the way out.
+	if rank("Quit") != len(names)-1 {
+		t.Errorf("Quit is not the last row: %v", names)
+	}
+}
+
+// The two actions whose wording follows the screen change what they act on
+// with it, so they change group with it too and never appear twice.
+func TestActionsMenuFilesMapActionsUnderTheNetwork(t *testing.T) {
+	off := menuModel(t)
+	off.cur.name, off.cur.status, off.cur.active = "ping the host", JobRunning, &job{cancel: func() {}}
+	for _, name := range []string{"Full output", "Cancel job"} {
+		i := slices.Index(menuNames(off), name)
+		if i < 0 || off.actionItems()[i].group != groupRun {
+			t.Errorf("off the map %q is not filed under this run: %v", name, menuNames(off))
+		}
+	}
+
+	on := mapModel(t)
+	on.svc.host, on.svc.done = "192.168.12.1", true
+	on.svc.scan = diagnostic.ServiceScan{Open: []diagnostic.LocalService{{Port: 80, Name: "http"}}}
+	for _, name := range []string{"Diagnose service", "Back to devices", "Back to checks", "Rescan network"} {
+		i := slices.Index(menuNames(on), name)
+		if i < 0 || on.actionItems()[i].group != groupNetwork {
+			t.Errorf("on the map %q is not filed under the network: %v", name, menuNames(on))
+		}
+	}
+}
+
+// Every available action is on the menu exactly once, and the sort invents
+// nothing: the grouped list is a permutation of the ungrouped one.
+func TestActionsMenuRowsAppearExactlyOnce(t *testing.T) {
+	for _, m := range []model{menuModel(t), mapModel(t), newModel(mustTarget(t, "example.com:443"), false)} {
+		names := menuNames(m)
+		if seen := slices.Compact(slices.Sorted(slices.Values(names))); len(seen) != len(names) {
+			t.Errorf("a row is on the menu twice: %v", names)
+		}
+		ids := map[actionID]bool{}
+		for _, item := range m.actionItems() {
+			if ids[item.id()] {
+				t.Errorf("action %+v is on the menu twice: %v", item.id(), names)
+			}
+			ids[item.id()] = true
+		}
+		// Nothing the state can do went missing on the way through the sort.
+		for _, def := range actionDefs {
+			want := def.menu != "" && (def.act == actRescanNetwork || m.keys.bound(ctxList, def.act)) && m.actionAvailable(def.act)
+			if got := ids[actionID{act: def.act}]; got != want {
+				t.Errorf("%s: on the menu=%v, available=%v: %v", def.name, got, want, names)
+			}
+		}
+	}
+}
+
+// A group with nothing in it prints no heading, because the headings come off
+// the rows rather than from a list of groups that might be empty.
+func TestActionsMenuDrawsNoHeadingForAnEmptyGroup(t *testing.T) {
+	m := menuModel(t)
+	m.tools = nil
+	m.actionsOpen = true
+	v := ansi.Strip(m.View())
+	if strings.Contains(v, groupNames[groupTools]) {
+		t.Errorf("a run with no installed tools still prints the tools heading:\n%s", v)
+	}
+	for _, g := range []actionGroup{groupRun, groupNetwork, groupReport, groupSession} {
+		if !strings.Contains(v, groupNames[g]) {
+			t.Errorf("the %q heading is missing from a menu that has its rows:\n%s", groupNames[g], v)
+		}
+	}
+	// Headings are drawn, not selectable: the cursor and enter only ever see
+	// actions, so walking the whole list can never land on one.
+	items := m.actionItems()
+	for i := range items {
+		m.selectRow(items, i)
+		if got := highlighted(t, m); got != items[i].name {
+			t.Fatalf("row %d highlighted %q, want %q", i, got, items[i].name)
+		}
+	}
+	if slices.ContainsFunc(items, func(it actionItem) bool {
+		return slices.Contains(groupNames[:], it.name)
+	}) {
+		t.Errorf("a heading leaked into the selectable rows: %v", menuNames(m))
+	}
+}
+
+// The headings have to survive a theme with no colour at all, so the structure
+// has to be in the text: a heading sits in the marker column the rows indent
+// past, and carries no key.
+func TestActionsMenuGroupingSurvivesMonochrome(t *testing.T) {
+	m := menuModel(t)
+	m.st = newStyles(resolveTheme("monochrome"))
+	m.actionsOpen = true
+	m.selectRow(m.actionItems(), 0)
+	var headings, rows int
+	for _, line := range strings.Split(ansi.Strip(m.View()), "\n") {
+		body, ok := strings.CutPrefix(line, "│ ")
+		if !ok {
+			continue
+		}
+		body = strings.TrimRight(body, " │")
+		switch {
+		case body == "" || strings.HasPrefix(body, "Actions"):
+		case slices.Contains(groupNames[:], body):
+			headings++
+		default:
+			if !strings.HasPrefix(body, "  ") && !strings.HasPrefix(body, "› ") {
+				t.Errorf("row %q does not indent past the heading column", body)
+			}
+			rows++
+		}
+	}
+	if headings != 5 || rows != len(menuNames(m)) {
+		t.Errorf("monochrome menu drew %d headings and %d rows, want 5 and %d", headings, rows, len(menuNames(m)))
+	}
+}
+
+// menuPanelLines is the body of the menu panel: its rows and headings, without
+// the border, the title, or the footer under it.
+func menuPanelLines(v string) []string {
+	var out []string
+	for _, line := range strings.Split(ansi.Strip(v), "\n") {
+		body, ok := strings.CutPrefix(line, "│ ")
+		if !ok {
+			continue
+		}
+		if body = strings.TrimRight(body, " │"); body != "" && !strings.HasPrefix(body, "Actions") {
+			out = append(out, body)
+		}
+	}
+	return out
+}
+
+// A short terminal has to spend its rows on actions, not on labels. The menu
+// windows down to the selected row and, once the labels would outnumber what
+// they label, drops them entirely rather than clipping the list to a heading.
+func TestActionsMenuHierarchyDegradesOnShortTerminals(t *testing.T) {
+	for _, height := range []int{40, 30, 24, 20, 16, 14, 12, 10, 8, 6} {
+		for _, sel := range []int{0, 6, 17} {
+			m := menuModel(t)
+			m.width, m.height = 80, height
+			m.actionsOpen = true
+			m.selectRow(m.actionItems(), sel)
+			v := m.View()
+			if rows := lipgloss.Height(v); rows > height {
+				t.Errorf("80x%d sel=%d: the view is %d rows tall", height, sel, rows)
+			}
+			body := menuPanelLines(v)
+			var headings, actions int
+			for _, line := range body {
+				if slices.Contains(groupNames[:], line) {
+					headings++
+					continue
+				}
+				actions++
+			}
+			// Below a certain height the answer above the menu needs every row
+			// and the panel is clipped away wholesale, which is the behavior
+			// the theme picker has always had here. What must not happen is a
+			// menu that draws headings and no actions.
+			if len(body) == 0 {
+				continue
+			}
+			if actions == 0 {
+				t.Errorf("80x%d sel=%d: the menu drew headings and no actions:\n%v", height, sel, body)
+			}
+			// The selected action is the one row that must never be windowed
+			// out, whatever the labels cost.
+			if want := menuNames(m)[sel]; !slices.ContainsFunc(body, func(l string) bool {
+				return strings.HasPrefix(l, "› ") && strings.HasSuffix(l, want)
+			}) {
+				t.Errorf("80x%d sel=%d: %q is not on screen:\n%v", height, sel, want, body)
+			}
+			// Labels are drawn only while they explain more rows than they cost.
+			if headings > 0 && actions < 2*headings {
+				t.Errorf("80x%d sel=%d: %d headings over %d actions:\n%v", height, sel, headings, actions, body)
+			}
+			// A window that opens inside a group still says which group, so a
+			// scrolled menu is never a list of rows with no heading above them.
+			if headings == 0 && actions > 1 && height >= 20 {
+				t.Errorf("80x%d sel=%d: a roomy menu dropped its headings:\n%v", height, sel, body)
+			}
+			if headings > 0 && !slices.Contains(groupNames[:], body[0]) {
+				t.Errorf("80x%d sel=%d: the window opens on a row with no heading:\n%v", height, sel, body)
+			}
+		}
+	}
+}
+
+// The whole point of anchoring: groups appearing and disappearing underneath
+// an open menu move rows around, and the cursor has to stay on the action the
+// reader aimed at rather than on the row number it happened to have.
+func TestActionsMenuSelectionSurvivesGroupsComingAndGoing(t *testing.T) {
+	m := menuModel(t)
+	m = selectMenu(t, m, "Quit")
+	for round := range 8 {
+		switch round % 4 {
+		case 0: // the tools group vanishes from the middle of the menu
+			m.tools = nil
+		case 1: // the report group vanishes with the finished run
+			m = unfinish(m)
+		case 2:
+			m.tools = toolsFor(m.target, "linux", toolBind{})
+		case 3:
+			m = finish(m)
+		}
+		if got := highlighted(t, m); got != "Quit" {
+			t.Fatalf("round %d: the cursor moved to %q", round, got)
+		}
+	}
+	u, cmd := m.Update(keyPress("enter"))
+	if asModel(t, u).actionsOpen {
+		t.Error("enter left the menu open")
+	}
+	if msgs := msgsFrom(t, cmd); !slices.ContainsFunc(msgs, func(msg tea.Msg) bool {
+		_, ok := msg.(tea.QuitMsg)
+		return ok
+	}) {
+		t.Errorf("enter ran something other than Quit after the groups churned: %v", msgs)
+	}
+
+	// The same holds for a row whose own group is the one that empties: it has
+	// nowhere to follow to, so the cursor falls back to the row and enter
+	// still runs what the reader can see is selected.
+	tool := selectMenu(t, menuModel(t), "Port scan")
+	tool.tools = nil
+	shown := highlighted(t, tool)
+	if !slices.Contains(menuNames(tool), shown) {
+		t.Fatalf("the cursor landed on %q, which is not on the menu: %v", shown, menuNames(tool))
 	}
 }

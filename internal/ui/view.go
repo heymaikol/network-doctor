@@ -1487,6 +1487,19 @@ func (m model) themeView() string {
 		m.quitNoticeFooter(helpKeys(m.st, m.width, "\u2191/\u2193", "preview", "enter", "keep", "esc", "cancel"))
 }
 
+// menuHeadings is how many group labels the window items[first:first+n) draws:
+// one for the group it opens in and one wherever the group changes inside it.
+// The menu's height budget has to pay for them alongside the rows.
+func menuHeadings(items []actionItem, first, n int) int {
+	count := 0
+	for i := first; i < min(first+n, len(items)); i++ {
+		if i == first || items[i].group != items[i-1].group {
+			count++
+		}
+	}
+	return count
+}
+
 // actionsView is the Actions menu (space): what the run can do right now, each
 // row carrying the key that does it. Like the theme picker and the confirm
 // gate it is drawn where the help bar goes rather than as an overlay, so the
@@ -1502,16 +1515,34 @@ func (m model) actionsView(avail int) string {
 		keyWidth = max(keyWidth, lipgloss.Width(item.key))
 	}
 	footer := m.quitNoticeFooter(helpKeys(m.st, m.width, m.keys.pairLabel(ctxList, actUp, actDown), "select", "enter", "run", "esc", "close"))
+	// The window always starts far enough back that the selected row is the
+	// last one in it, which is the rule that keeps the cursor on screen.
+	windowStart := func(n int) int {
+		if sel >= n {
+			return sel - n + 1
+		}
+		return 0
+	}
 	// What is left for the list once the panel's own two borders, its title
-	// and the footer under it are paid for.
-	rows := len(items)
+	// and the footer under it are paid for. Headings come out of the same
+	// budget as the rows they introduce, so the window shrinks until both fit.
+	rows, labeled := len(items), true
 	if m.height > 0 {
-		rows = min(rows, max(avail-3-lipgloss.Height(footer), 1))
+		budget := max(avail-3-lipgloss.Height(footer), 1)
+		rows = min(rows, budget)
+		// ponytail: a walk down from the whole list, at most one step per row
+		// and a handful of groups, rather than solving for the window.
+		for rows > 1 && rows+menuHeadings(items, windowStart(rows), rows) > budget {
+			rows--
+		}
+		// A heading earns its line by introducing rows. On a terminal short
+		// enough that the labels would outnumber what they label two to one,
+		// the menu drops them and spends every line it has on actions.
+		if labeled = rows >= 2*menuHeadings(items, windowStart(rows), rows); !labeled {
+			rows = min(len(items), budget)
+		}
 	}
-	first := 0
-	if sel >= rows {
-		first = sel - rows + 1
-	}
+	first := windowStart(rows)
 	var b strings.Builder
 	b.WriteString(m.st.panelTitle.Render("Actions"))
 	if rows < len(items) {
@@ -1520,6 +1551,11 @@ func (m model) actionsView(avail int) string {
 	b.WriteString("\n")
 	for i := first; i < min(first+rows, len(items)); i++ {
 		item := items[i]
+		// The group the window opens in is labelled too, so a menu scrolled
+		// into the middle of a group still says which one it is in.
+		if labeled && (i == first || items[i-1].group != item.group) {
+			b.WriteString(m.st.faint.Render(groupNames[item.group]) + "\n")
+		}
 		marker, key, name := "  ", m.st.key.Render(item.key), item.name
 		if i == sel {
 			marker, key, name = m.st.sel.Render("\u203a "), m.st.sel.Render(item.key), m.st.sel.Render(item.name)

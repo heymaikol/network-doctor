@@ -630,7 +630,7 @@ func Encode(s Snapshot) ([]byte, error) {
 	if err := enc.Encode(s); err != nil {
 		return nil, err
 	}
-		return checkArtifactSize(buf.Bytes())
+	return checkArtifactSize(buf.Bytes())
 }
 
 // EncodeProfile renders a multi-run profile artifact without changing the
@@ -649,7 +649,7 @@ func EncodeProfile(profile ProfileSnapshot) ([]byte, error) {
 	if err := enc.Encode(profile); err != nil {
 		return nil, err
 	}
-		return checkArtifactSize(buf.Bytes())
+	return checkArtifactSize(buf.Bytes())
 }
 
 func validProfileName(name string) bool {

@@ -1998,14 +1998,14 @@ func TestReadSnapshotPairEnforcesMaxArtifactSize(t *testing.T) {
 	sparsePath := filepath.Join(dir, "sparse"+snapshot.Extension)
 	writeSparseFile(t, sparsePath, snapshot.MaxArtifactBytes*4)
 
-		cases := []struct {
+	cases := []struct {
 		name         string
 		path         string
 		wantSizeErr  bool
 		wantExitCode int
 	}{
 		{"normal snapshot", normalPath, false, 0},
-	    {"at accepted boundary", atBoundaryPath, false, 2},
+		{"at accepted boundary", atBoundaryPath, false, 2},
 		{"exceeds boundary", overBoundaryPath, true, 2},
 		{"oversized sparse file", sparsePath, true, 2},
 	}
@@ -2016,7 +2016,7 @@ func TestReadSnapshotPairEnforcesMaxArtifactSize(t *testing.T) {
 				var stdout, stderr bytes.Buffer
 				got := run([]string{mode, c.path, c.path}, &stdout, &stderr)
 
-						gotSizeErr := strings.Contains(stderr.String(), "exceeds maximum artifact size")
+				gotSizeErr := strings.Contains(stderr.String(), "exceeds maximum artifact size")
 				if gotSizeErr != c.wantSizeErr {
 					t.Fatalf("%s: size-limit error = %v, want %v; exit = %d, stderr: %s", mode, gotSizeErr, c.wantSizeErr, got, stderr.String())
 				}
@@ -2037,15 +2037,15 @@ func TestReadSnapshotPairAcceptsGeneratedWatchIncidentArtifact(t *testing.T) {
 	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.FixedZone("test", -5*60*60))
 
 	failing := func(at time.Time) snapshot.Snapshot {
-	s := comparableSnapshot()
-	s.CreatedAt = at.UTC().Format(time.RFC3339)
-	s.Checks = []snapshot.Check{
-		{ID: "target_tcp", Name: "Target TCP", Status: snapshot.StatusFail, Ran: true, DurationMs: 1},
+		s := comparableSnapshot()
+		s.CreatedAt = at.UTC().Format(time.RFC3339)
+		s.Checks = []snapshot.Check{
+			{ID: "target_tcp", Name: "Target TCP", Status: snapshot.StatusFail, Ran: true, DurationMs: 1},
+		}
+		s.Diagnosis = snapshot.Diagnosis{Verdict: "network", Summary: "failing", FailedStage: "target_tcp"}
+		s.OK = false
+		return s
 	}
-	s.Diagnosis = snapshot.Diagnosis{Verdict: "network", Summary: "failing", FailedStage: "target_tcp"}
-	s.OK = false
-	return s
-}
 
 	var timeline incident.Timeline
 	timeline.Observe(start, failing(start))

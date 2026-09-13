@@ -113,6 +113,9 @@ func (m model) incidentView() string {
 	if dropped := m.incidents.Dropped(); dropped > 0 {
 		header += m.st.faint.Render(fmt.Sprintf("  ·  %d older discarded", dropped))
 	}
+	if m.width > 0 {
+		header = ansi.Truncate(header, m.width, "")
+	}
 	top, bottom, lines := m.incidentVP.YOffset+1, m.incidentVP.YOffset+m.incidentVP.Height, m.incidentVP.TotalLineCount()
 	if bottom > lines {
 		bottom = lines
@@ -121,6 +124,9 @@ func (m model) incidentView() string {
 		top = bottom
 	}
 	context := m.st.faint.Render(fmt.Sprintf("lines %d-%d of %d", top, bottom, lines))
+	if m.width > 0 {
+		context = ansi.Truncate(context, m.width, "")
+	}
 	footer := helpKeys(m.st, m.width, "←/→", "incident", "↑/↓", "scroll", "pgup/pgdn", "page", "y", "copy", "w", "save .ndoc", "esc/q", "back")
 	if notice := m.noticeView(); notice != "" {
 		footer = notice

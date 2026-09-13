@@ -1143,7 +1143,7 @@ func (m model) serviceChooserView() string {
 		b.WriteString(m.st.faint.Render(fmt.Sprintf("└─ Nothing answered on any of the %d ports checked: the device may be powered off, may have left the network, or may be dropping connections.", scan.Checked())) + "\n")
 		b.WriteString(m.st.faint.Render("Press "+m.keys.label(ctxList, actRestart)+" to name a port yourself.") + "\n")
 	}
-	return m.st.panel.Width(max(m.width-2, 24)).Render(strings.TrimRight(b.String(), "\n"))
+	return m.st.panel.Width(fitPanelWidth(m.st.panel, m.width)).Render(strings.TrimRight(b.String(), "\n"))
 }
 
 // networkMapView renders hosts found by the LAN scan, or the services of the
@@ -1173,7 +1173,7 @@ func (m model) networkMapView() string {
 		}
 	}
 
-	panelWidth := max(m.width-2, 24)
+	panelWidth := fitPanelWidth(m.st.panel, m.width)
 	title := m.st.panelTitle.Render("Network map: " + lanDiscoveryName + " · " + m.networkCIDR)
 	if commonDomain != "" {
 		domain := m.st.faint.Render("Domain: " + commonDomain)
@@ -1241,14 +1241,20 @@ func (m model) discoveryNetwork() (net.IP, string) {
 	return nil, ""
 }
 
-// joinChips joins styled chips with sep, wrapping to width only at chip
-// boundaries so a "[k] label" pair is never split mid-word.
+// joinChips joins styled chips with sep, normally wrapping at chip boundaries.
+// A chip wider than the terminal wraps on its own rather than overrunning it.
 func joinChips(width int, sep string, chips []string) string {
 	var lines []string
 	cur := ""
 	for _, c := range chips {
+		if width > 0 {
+			c = ansi.Wrap(c, width, "")
+		}
 		switch {
 		case cur == "":
+			cur = c
+		case strings.Contains(cur, "\n") || strings.Contains(c, "\n"):
+			lines = append(lines, cur)
 			cur = c
 		case lipgloss.Width(cur)+lipgloss.Width(sep)+lipgloss.Width(c) <= width:
 			cur += sep + c
@@ -1261,6 +1267,12 @@ func joinChips(width int, sep string, chips []string) string {
 		lines = append(lines, cur)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// fitPanelWidth returns the Lip Gloss width that fits a bordered style in the
+// terminal. Style.Width includes padding but excludes borders and margins.
+func fitPanelWidth(style lipgloss.Style, terminalWidth int) int {
+	return max(terminalWidth-style.GetHorizontalBorderSize()-style.GetHorizontalMargins(), 0)
 }
 
 // helpKeys renders key/description pairs as a dim help bar with the keys
@@ -1280,7 +1292,7 @@ func (m model) confirmView() string {
 	body := m.st.panelTitle.Render("Run "+m.confirmTool.Name+"?") + "\n" +
 		m.st.faint.Render("Actively probes the shown scope, and may trip intrusion detection.") + "\n" +
 		"$ " + display
-	w := max(min(m.width-2, 76), 24)
+	w := min(fitPanelWidth(m.st.focusPanel, m.width), 76)
 	return m.st.focusPanel.Width(w).Render(body) + "\n" + helpKeys(m.st, m.width, "y", "run", "esc", "cancel")
 }
 
@@ -1300,7 +1312,7 @@ func (m model) promptView(withForms bool) string {
 	}
 	// 88, not 76: the longest target-form line needs ~86 content cols to
 	// render unwrapped on wide terminals.
-	w := max(min(m.width-2, 88), 24)
+	w := min(fitPanelWidth(m.st.focusPanel, m.width), 88)
 	footer := m.quitNoticeFooter(helpKeys(m.st, m.width, "↑/↓", "history", "enter", "run", "esc", "back"))
 	return m.st.focusPanel.Width(w).Render(body) + "\n" + footer
 }
@@ -1309,7 +1321,7 @@ func (m model) promptView(withForms bool) string {
 // value receiver is doing real work here: the inputs are resized to the
 // terminal on the copy, never on the model.
 func (m model) sshFormView() string {
-	w := max(min(m.width-2, 76), 24)
+	w := min(fitPanelWidth(m.st.focusPanel, m.width), 76)
 	// 6 = panel border + padding + the gutter the key row's ▸ marker sits in.
 	inputW := func(prompt string) int { return max(w-6-lipgloss.Width(prompt), 8) }
 	m.ssh.user.Width = inputW(m.ssh.user.Prompt)
@@ -1365,7 +1377,7 @@ func (m model) themeView() string {
 		pad := strings.Repeat(" ", names-lipgloss.Width(t.Name)+2)
 		b.WriteString(marker + name + pad + m.st.faint.Render(t.About) + "\n")
 	}
-	w := max(m.width-2, 24)
+	w := fitPanelWidth(m.st.focusPanel, m.width)
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" +
 		m.quitNoticeFooter(helpKeys(m.st, m.width, "\u2191/\u2193", "preview", "enter", "keep", "esc", "cancel"))
 }
@@ -1413,7 +1425,7 @@ func (m model) actionsView(avail int) string {
 	if len(items) == 0 {
 		b.WriteString(m.st.faint.Render("nothing to do yet: the checks are still running") + "\n")
 	}
-	w := max(min(m.width-2, 56), 24)
+	w := min(fitPanelWidth(m.st.focusPanel, m.width), 56)
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" + footer
 }
 
@@ -1553,14 +1565,17 @@ func (m model) helpContent() string {
 	// A description wraps in its own column, with a hanging indent, rather than
 	// running past the terminal: the display rows the terminal would hard-wrap
 	// it into are not in MaxHeight's accounting, so they would push the bottom
-	// of the sheet off the screen. ansi.Wrap leaves the text alone when the
-	// width is unknown or narrower than the key column.
+	// of the sheet off the screen. A terminal narrower than that indent falls
+	// back to wrapping the whole row.
 	indent := strings.Repeat(" ", 2+keyWidth+2)
 	row := func(k, desc string) string {
-		desc = ansi.Wrap(m.st.faint.Render(desc), m.width-len(indent), "")
-		return "  " + m.st.key.Render(k) +
-			strings.Repeat(" ", max(keyWidth-lipgloss.Width(k), 0)+2) +
-			strings.ReplaceAll(desc, "\n", "\n"+indent) + "\n"
+		prefix := "  " + m.st.key.Render(k) + strings.Repeat(" ", max(keyWidth-lipgloss.Width(k), 0)+2)
+		desc = m.st.faint.Render(desc)
+		if m.width > 0 && m.width <= len(indent) {
+			return ansi.Wrap(prefix+desc, m.width, "") + "\n"
+		}
+		desc = ansi.Wrap(desc, m.width-len(indent), "")
+		return prefix + strings.ReplaceAll(desc, "\n", "\n"+indent) + "\n"
 	}
 	// Both sections are generated from the same table dispatch indexes.
 	section := func(b *strings.Builder, ctx keyContext) {
@@ -1576,12 +1591,12 @@ func (m model) helpContent() string {
 		}
 	}
 	var b strings.Builder
-	b.WriteString(m.st.panelTitle.Render("Keys") + "\n")
+	b.WriteString(m.wrap(m.st.panelTitle.Render("Keys")) + "\n")
 	section(&b, ctxList)
 	for _, tool := range m.tools {
 		b.WriteString(row(tool.Key, "run "+tool.Name))
 	}
-	b.WriteString("\n" + m.st.panelTitle.Render("Output viewer") + "\n")
+	b.WriteString("\n" + m.wrap(m.st.panelTitle.Render("Output viewer")) + "\n")
 	section(&b, ctxViewer)
 	return b.String()
 }

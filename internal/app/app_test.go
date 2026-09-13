@@ -1998,15 +1998,16 @@ func TestReadSnapshotPairEnforcesMaxArtifactSize(t *testing.T) {
 	sparsePath := filepath.Join(dir, "sparse"+snapshot.Extension)
 	writeSparseFile(t, sparsePath, snapshot.MaxArtifactBytes*4)
 
-	cases := []struct {
-		name        string
-		path        string
-		wantSizeErr bool
+		cases := []struct {
+		name         string
+		path         string
+		wantSizeErr  bool
+		wantExitCode int
 	}{
-		{"normal snapshot", normalPath, false},
-		{"at accepted boundary", atBoundaryPath, false},
-		{"exceeds boundary", overBoundaryPath, true},
-		{"oversized sparse file", sparsePath, true},
+		{"normal snapshot", normalPath, false, 0},
+	    {"at accepted boundary", atBoundaryPath, false, 2},
+		{"exceeds boundary", overBoundaryPath, true, 2},
+		{"oversized sparse file", sparsePath, true, 2},
 	}
 
 	for _, c := range cases {
@@ -2015,12 +2016,15 @@ func TestReadSnapshotPairEnforcesMaxArtifactSize(t *testing.T) {
 				var stdout, stderr bytes.Buffer
 				got := run([]string{mode, c.path, c.path}, &stdout, &stderr)
 
-				gotSizeErr := strings.Contains(stderr.String(), "exceeds maximum artifact size")
+						gotSizeErr := strings.Contains(stderr.String(), "exceeds maximum artifact size")
 				if gotSizeErr != c.wantSizeErr {
 					t.Fatalf("%s: size-limit error = %v, want %v; exit = %d, stderr: %s", mode, gotSizeErr, c.wantSizeErr, got, stderr.String())
 				}
-				if c.wantSizeErr && got != 2 {
-					t.Errorf("%s: exit = %d, want 2 for an unusable artifact; stderr: %s", mode, got, stderr.String())
+				if got != c.wantExitCode {
+					t.Errorf("%s: exit = %d, want %d for %s; stderr: %s", mode, got, c.wantExitCode, c.name, stderr.String())
+				}
+				if c.wantSizeErr && !strings.Contains(stderr.String(), c.path) {
+					t.Errorf("%s: stderr missing artifact path %q; stderr: %s", mode, c.path, stderr.String())
 				}
 			}
 		})

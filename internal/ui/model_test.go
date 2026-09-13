@@ -5,6 +5,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"regexp"
@@ -1276,6 +1277,101 @@ func TestPromptViewNarrowNoOverflow(t *testing.T) {
 	for _, line := range strings.Split(nm.promptView(true), "\n") {
 		if w := lipgloss.Width(line); w > 40 {
 			t.Errorf("prompt line %d cols wide, terminal is 40: %q", w, line)
+		}
+	}
+}
+
+// An interactive ssh session ends by taking over the selected job slot, which
+// is the slot the network map draws from. The map must detach rather than read
+// the ssh exit as the LAN scan's outcome.
+func sshMapModel(t *testing.T) model {
+	t.Helper()
+	m := newModel(mustTarget(t, "example.com:22"), false)
+	doneResults(&m, "")
+	r := m.results[diagnostic.ProbeInternet]
+	r.Source = net.ParseIP("192.168.12.34")
+	m.results[diagnostic.ProbeInternet] = r
+	m.width, m.height = 100, 30
+	m.networkMap, m.networkCIDR = true, "192.168.12.0/24"
+	m.cur = jobState{name: lanDiscoveryName, status: JobDone, lines: []string{
+		"Host: 192.168.12.1 (router.lan)\tStatus: Up",
+		"Host: 192.168.12.50 (printer.lan)\tStatus: Up",
+	}}
+	return m
+}
+
+func TestNetworkMapDetachesWhenSSHFinishes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msg  sshDoneMsg
+	}{
+		{"ssh fails", sshDoneMsg{
+			err:     errors.New("exit status 255"),
+			display: "ssh alice@example.com",
+			output:  "alice@example.com: Permission denied (publickey).\n",
+		}},
+		{"ssh succeeds", sshDoneMsg{display: "ssh alice@example.com"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := sshMapModel(t)
+			u, _ := m.Update(tc.msg)
+			nm := asModel(t, u)
+			if nm.networkMap {
+				t.Fatalf("the map stayed open over the %q job", nm.cur.name)
+			}
+			view := ansi.Strip(nm.View())
+			if strings.Contains(view, "Discovery ") || strings.Contains(view, "No other devices replied") {
+				t.Fatalf("an ssh exit was reported as a LAN discovery outcome:\n%s", view)
+			}
+			// The scan itself is untouched: v brings its devices straight back.
+			u, _ = nm.Update(keyMsg("v"))
+			back := asModel(t, u)
+			if back.confirmTool != nil || !back.networkMap || back.cur.name != lanDiscoveryName {
+				t.Fatalf("v must re-show the parked scan, got cur=%q confirm=%v", back.cur.name, back.confirmTool != nil)
+			}
+			if got := ansi.Strip(back.View()); !strings.Contains(got, "192.168.12.1 (router)") || !strings.Contains(got, "192.168.12.50 (printer)") {
+				t.Fatalf("the recalled map lost the discovered devices:\n%s", got)
+			}
+		})
+	}
+}
+
+// Whatever the map does when ssh finishes, it does every time: a second and a
+// third session must not find it attached to the ssh job.
+func TestNetworkMapDetachesOnRepeatedSSH(t *testing.T) {
+	m := sshMapModel(t)
+	for i := range 3 {
+		u, _ := m.Update(sshDoneMsg{err: errors.New("exit status 255"), display: "ssh alice@example.com"})
+		m = asModel(t, u)
+		if m.networkMap {
+			t.Fatalf("attempt %d left the map open over %q", i+1, m.cur.name)
+		}
+		if view := ansi.Strip(m.View()); strings.Contains(view, "Discovery ") || strings.Contains(view, "No other devices replied") {
+			t.Fatalf("attempt %d reported ssh as a LAN discovery outcome:\n%s", i+1, view)
+		}
+		u, _ = m.Update(keyMsg("v"))
+		m = asModel(t, u)
+		if !m.networkMap || m.cur.name != lanDiscoveryName {
+			t.Fatalf("attempt %d could not re-show the scan, got cur=%q", i+1, m.cur.name)
+		}
+	}
+}
+
+// Tab walks the ring; no stop on it may bring the map back up over a job that
+// is not the scan.
+func TestJobSwitchingNeverRevivesStaleMap(t *testing.T) {
+	m := sshMapModel(t)
+	m.otherJobs = []jobState{{name: "ping", status: JobDone}}
+	u, _ := m.Update(sshDoneMsg{err: errors.New("exit status 255"), display: "ssh alice@example.com"})
+	m = asModel(t, u)
+	for i := range 4 {
+		u, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = asModel(t, u)
+		if m.networkMap {
+			t.Fatalf("tab %d reopened the map on %q", i+1, m.cur.name)
+		}
+		if view := ansi.Strip(m.View()); strings.Contains(view, "Network map:") {
+			t.Fatalf("tab %d drew the map over %q:\n%s", i+1, m.cur.name, view)
 		}
 	}
 }

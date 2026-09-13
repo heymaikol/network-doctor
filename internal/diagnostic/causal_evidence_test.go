@@ -275,7 +275,7 @@ func TestRoutingCauseRemainsTheSupportingObservation(t *testing.T) {
 // about. A new observation cannot land without an entry here, and an entry
 // that disagrees with the validator fails below, so the two halves cannot
 // drift apart in silence.
-var producerEvidenceValues = map[ObservationID]string{
+var producerEvidenceValues = map[ObservationID]string{ //nolint:gosec // G101: observation labels, not credentials
 	ObservationStatusPass:          "absent: a row's outcome is the whole observation",
 	ObservationStatusWarn:          "absent: a row's outcome is the whole observation",
 	ObservationStatusFail:          "absent: a row's outcome is the whole observation",

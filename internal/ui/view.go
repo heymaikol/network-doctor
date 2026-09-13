@@ -1264,10 +1264,7 @@ func (m model) promptView(withForms bool) string {
 	// 88, not 76: the longest target-form line needs ~86 content cols to
 	// render unwrapped on wide terminals.
 	w := max(min(m.width-2, 88), 24)
-	footer := helpKeys(m.st, m.width, "↑/↓", "history", "enter", "run", "esc", "back")
-	if m.notice == ctrlCNotice {
-		footer = m.noticeView()
-	}
+	footer := m.quitNoticeFooter(helpKeys(m.st, m.width, "↑/↓", "history", "enter", "run", "esc", "back"))
 	return m.st.focusPanel.Width(w).Render(body) + "\n" + footer
 }
 
@@ -1306,10 +1303,10 @@ func (m model) sshFormView() string {
 	}
 	if m.ssh.pending != nil {
 		body += "\n" + m.spinner.View() + " checking ssh config…"
-		return m.st.focusPanel.Width(w).Render(body) + "\n" + helpKeys(m.st, m.width, "esc", "back")
+		return m.st.focusPanel.Width(w).Render(body) + "\n" + m.quitNoticeFooter(helpKeys(m.st, m.width, "esc", "back"))
 	}
 	return m.st.focusPanel.Width(w).Render(body) + "\n" +
-		helpKeys(m.st, m.width, "tab", "next field", "enter", "connect", "esc", "back")
+		m.quitNoticeFooter(helpKeys(m.st, m.width, "tab", "next field", "enter", "connect", "esc", "back"))
 }
 
 // themeView is the theme picker. It is drawn where the help bar goes, like the
@@ -1333,7 +1330,7 @@ func (m model) themeView() string {
 	}
 	w := max(m.width-2, 24)
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" +
-		helpKeys(m.st, m.width, "\u2191/\u2193", "preview", "enter", "keep", "esc", "cancel")
+		m.quitNoticeFooter(helpKeys(m.st, m.width, "\u2191/\u2193", "preview", "enter", "keep", "esc", "cancel"))
 }
 
 // actionsView is the Actions menu (space): what the run can do right now, each
@@ -1350,7 +1347,7 @@ func (m model) actionsView(avail int) string {
 	for _, item := range items {
 		keyWidth = max(keyWidth, lipgloss.Width(item.key))
 	}
-	footer := helpKeys(m.st, m.width, m.keys.pairLabel(ctxList, actUp, actDown), "select", "enter", "run", "esc", "close")
+	footer := m.quitNoticeFooter(helpKeys(m.st, m.width, m.keys.pairLabel(ctxList, actUp, actDown), "select", "enter", "run", "esc", "close"))
 	// What is left for the list once the panel's own two borders, its title
 	// and the footer under it are paid for.
 	rows := len(items)
@@ -1567,6 +1564,18 @@ func (m model) noticeView() string {
 		return m.st.pass.Render("✓ " + m.notice)
 	}
 	return m.st.fail.Render("✗ " + m.notice)
+}
+
+// quitNoticeFooter swaps a panel's own footer for the armed-quit notice. The
+// overlays draw their footer where the help bar goes, and that footer must not
+// be the reason an armed Ctrl+C goes unseen: the next one quits the whole
+// program. Only the Ctrl+C notice takes the slot, so an overlay's keys are
+// still on screen for every other notice, and they come back as it clears.
+func (m model) quitNoticeFooter(footer string) string {
+	if m.notice == ctrlCNotice {
+		return m.noticeView()
+	}
+	return footer
 }
 
 // banner is the full-width guidance block under the header: what is happening,
@@ -2048,7 +2057,7 @@ func (m model) outputView() string {
 
 func (m model) viewerFooter() string {
 	if m.filtering {
-		return m.filterInput.View() + "\n" + helpKeys(m.st, m.width, "enter", "apply", "esc", "clear")
+		return m.filterInput.View() + "\n" + m.quitNoticeFooter(helpKeys(m.st, m.width, "enter", "apply", "esc", "clear"))
 	}
 	if notice := m.noticeView(); notice != "" {
 		return notice

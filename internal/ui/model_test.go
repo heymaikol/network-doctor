@@ -811,6 +811,70 @@ func TestCtrlCWarnsThenQuits(t *testing.T) {
 	}
 }
 
+// TestCtrlCNoticeVisibleInOverlays pins the armed-quit invariant: whenever
+// Ctrl+C has armed the whole-program quit, the screen the reader is actually
+// looking at has to say so. These overlays draw their own footer where the
+// help bar goes, so each one is checked through View() rather than through
+// m.notice: the state was always set, it was the rendering that dropped it.
+func TestCtrlCNoticeVisibleInOverlays(t *testing.T) {
+	cases := []struct {
+		name string
+		open func(m *model)
+		// footer is a word from the overlay's own footer, which must be back
+		// once the notice clears.
+		footer string
+	}{
+		{"theme picker", func(m *model) { m.theming = true }, "preview"},
+		{"actions menu", func(m *model) { m.actionsOpen = true }, "close"},
+		{"ssh form", func(m *model) { m.sshPrompt = true; m.ssh.host = "host" }, "connect"},
+		{"ssh form checking config", func(m *model) {
+			m.sshPrompt, m.ssh.host, m.ssh.pending = true, "host", &sshPending{}
+		}, "back"},
+		{"restart prompt", func(m *model) { m.entering = true }, "history"},
+		{"output viewer filtering", func(m *model) { m.viewing, m.filtering = true, true }, "apply"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newModel(nil, false)
+			m.width, m.height = 100, 40
+			tc.open(&m)
+			if before := m.View(); !strings.Contains(before, tc.footer) {
+				t.Fatalf("overlay footer %q missing before the notice", tc.footer)
+			}
+
+			u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+			armed := asModel(t, u)
+			if cmd == nil {
+				t.Fatal("first ctrl+c must schedule the notice timeout")
+			}
+			if !strings.Contains(armed.View(), ctrlCNotice) {
+				t.Errorf("armed quit is invisible: View() lacks %q", ctrlCNotice)
+			}
+
+			// The notice takes the footer's slot rather than sitting under it,
+			// so the overlay's keys come back only once it clears.
+			expired, _ := armed.Update(noticeDoneMsg{deadline: armed.noticeDeadline})
+			cleared := asModel(t, expired)
+			if strings.Contains(cleared.View(), ctrlCNotice) {
+				t.Errorf("quit notice must clear after the timeout")
+			}
+			if !strings.Contains(cleared.View(), tc.footer) {
+				t.Errorf("overlay footer %q did not come back after the notice cleared", tc.footer)
+			}
+
+			// Second ctrl+c inside the window still quits the program.
+			u, cmd = armed.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+			_ = asModel(t, u)
+			if cmd == nil {
+				t.Fatal("second ctrl+c must quit")
+			}
+			if _, ok := cmd().(tea.QuitMsg); !ok {
+				t.Errorf("second ctrl+c command = %T, want tea.QuitMsg", cmd())
+			}
+		})
+	}
+}
+
 func TestReportNoticeExpires(t *testing.T) {
 	restore := captureStderr(t)
 	defer restore()

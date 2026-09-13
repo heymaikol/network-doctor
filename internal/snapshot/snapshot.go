@@ -611,6 +611,12 @@ type CounterfactualAlternative struct {
 // is the zero value of a Go string and not an outcome, and a run holding a
 // check that never reported is not a clean one, so neither can be published:
 // the absence of evidence never leaves here looking like evidence.
+func checkArtifactSize(buf []byte) ([]byte, error) {
+	if len(buf) > MaxArtifactBytes {
+		return nil, fmt.Errorf("snapshot exceeds maximum artifact size of %d bytes; the format has no smaller declared representation", MaxArtifactBytes)
+	}
+	return buf, nil
+}
 func Encode(s Snapshot) ([]byte, error) {
 	s = stamped(s)
 	if err := validate(s); err != nil {
@@ -624,7 +630,7 @@ func Encode(s Snapshot) ([]byte, error) {
 	if err := enc.Encode(s); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+		return checkArtifactSize(buf.Bytes())
 }
 
 // EncodeProfile renders a multi-run profile artifact without changing the
@@ -643,10 +649,7 @@ func EncodeProfile(profile ProfileSnapshot) ([]byte, error) {
 	if err := enc.Encode(profile); err != nil {
 		return nil, err
 	}
-	if buf.Len() > MaxArtifactBytes {
-		return nil, fmt.Errorf("snapshot exceeds maximum artifact size of %d bytes; the format has no smaller declared limit, so this reflects the actual encoded size", MaxArtifactBytes)
-	}
-	return buf.Bytes(), nil
+		return checkArtifactSize(buf.Bytes())
 }
 
 func validProfileName(name string) bool {

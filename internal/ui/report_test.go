@@ -300,7 +300,7 @@ func TestCleartextProxyAdviceIsVisibleOnAPassingRow(t *testing.T) {
 			m.selected = i
 		}
 	}
-	details := ansi.Strip(strings.Join(m.detailRows(false), "\n"))
+	details := ansi.Strip(strings.Join(m.detailRows(false, max(m.width, 1)), "\n"))
 	if !strings.Contains(details, "Fix: "+advice) {
 		t.Errorf("the Details pane hid the cleartext advice:\n%s", details)
 	}

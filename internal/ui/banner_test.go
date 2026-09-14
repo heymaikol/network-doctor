@@ -21,7 +21,7 @@ import (
 // remediation at all.
 func answerRowDetails(m model) string {
 	m.selected = m.answerRow()
-	return ansi.Strip(strings.Join(m.detailRows(false), "\n"))
+	return ansi.Strip(strings.Join(m.detailRows(false, max(m.width, 1)), "\n"))
 }
 
 // TestBannerFailureGuidance pins the whole failure banner for several result

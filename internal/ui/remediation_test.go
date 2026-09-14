@@ -35,7 +35,7 @@ func TestRemediationSplitsActionFromElaboration(t *testing.T) {
 		}
 	}
 
-	details := ansi.Strip(strings.Join(m.detailRows(false), "\n"))
+	details := ansi.Strip(strings.Join(m.detailRows(false, max(m.width, 1)), "\n"))
 	for _, want := range []string{rem.Why, rem.Steps[0], rem.Expect} {
 		if !strings.Contains(details, want) {
 			t.Errorf("the focused row's details must carry %q:\n%s", want, details)
@@ -54,7 +54,7 @@ func TestRemediationSplitsActionFromElaboration(t *testing.T) {
 		t.Fatal("no DNS row in this run")
 	}
 	m.selected = other
-	if got := ansi.Strip(strings.Join(m.detailRows(false), "\n")); strings.Contains(got, rem.Expect) {
+	if got := ansi.Strip(strings.Join(m.detailRows(false, max(m.width, 1)), "\n")); strings.Contains(got, rem.Expect) {
 		t.Errorf("a row the diagnosis is not about carries its remediation:\n%s", got)
 	}
 }

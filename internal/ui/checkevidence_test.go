@@ -21,7 +21,7 @@ import (
 // plainDetails is the selected row's evidence as text, its heading dropped and
 // its styling stripped, one entry per logical row.
 func plainDetails(m model) []string {
-	rows := m.detailRows(false)
+	rows := m.detailRows(false, max(m.width, 1))
 	if len(rows) > 0 {
 		rows = rows[1:]
 	}

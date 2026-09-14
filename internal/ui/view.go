@@ -517,7 +517,11 @@ func (m model) bodyView(deferred bool, rows int) string {
 		return sectionHead(m.st, out, width)
 	}
 
-	rightRows := m.detailRows(deferred)
+	// detailsSection is the Details rows once the section width is settled.
+	// Like checksSection above it is called from inside each layout branch
+	// rather than before them, because the evidence packs its grouped
+	// measurement lists against the column it actually landed in.
+	detailsSection := func(width int) []string { return m.detailRows(deferred, width) }
 	// column lays a section out in its own width, which is what wraps the rows
 	// and what squares the block off for a side-by-side join.
 	column := func(width int, rows []string) string {
@@ -541,7 +545,7 @@ func (m model) bodyView(deferred bool, rows int) string {
 			w = 24
 		}
 		leftRows := checksSection(w)
-		rightRows = sectionHead(m.st, rightRows, w)
+		rightRows := sectionHead(m.st, detailsSection(w), w)
 		stack := func(left, right []string) string {
 			if len(right) == 0 {
 				return column(w, left)
@@ -581,7 +585,7 @@ func (m model) bodyView(deferred bool, rows int) string {
 	}
 	leftRows := checksSection(leftW)
 	rightW := max(m.width-leftW-bodyGutter, detailsMinWidth)
-	rightRows = sectionHead(m.st, rightRows, rightW)
+	rightRows := sectionHead(m.st, detailsSection(rightW), rightW)
 	if rows > 0 {
 		leftRows = windowRows(m.st, leftRows, sel, rows, leftW)
 		rightRows = sectionBody(fitRows(rightRows, rows, rightW))
@@ -616,7 +620,7 @@ func sectionHead(st styles, rows []string, width int) []string {
 // the cursor row, or nil when there is no evidence to show. A heading with
 // nothing under it is left out rather than drawn empty, and it comes back the
 // moment the cursor row has something to say.
-func (m model) detailRows(deferred bool) []string {
+func (m model) detailRows(deferred bool, width int) []string {
 	if deferred {
 		return []string{
 			m.st.panelTitle.Render("Details"),
@@ -676,11 +680,14 @@ func (m model) detailRows(deferred bool) []string {
 			body.WriteString(m.remediationBlock())
 		}
 		// The mechanics last, under a word that says what they are. Nothing is
-		// dropped and nothing is folded away: they are grouped and labelled so
-		// that the interpretation above them is the part a reader meets first,
-		// and so that a row with sixteen connection attempts still reads as
-		// one block of measurements rather than as the section itself.
-		for _, line := range observedLines(r) {
+		// dropped: measurements a probe reported the same outcome for are said
+		// once with a count and the list of everything that had it, which is a
+		// rearrangement of the record rather than a cut of it. They are grouped
+		// and labelled so that the interpretation above them is the part a
+		// reader meets first, and so that a row with sixteen connection
+		// attempts still reads as one block of measurements rather than as the
+		// section itself.
+		for _, line := range observedLines(r, width) {
 			body.WriteString(m.st.faint.Render(line) + "\n")
 		}
 	} else {
@@ -739,9 +746,18 @@ func (m model) consequenceLine(id diagnostic.ProbeID, status diagnostic.Status) 
 }
 
 // observedLines is everything a probe measured, as the Observed block: the
-// label, then one indented line per measurement. Empty when the probe recorded
-// no measurements at all, so no labelled block is drawn over nothing.
-func observedLines(r diagnostic.ProbeResult) []string {
+// label, then the measurements under it. Empty when the probe recorded no
+// measurements at all, so no labelled block is drawn over nothing.
+//
+// Measurements that a probe reported the same outcome for are said once, with
+// a count and the list of everything that had it, rather than once per line: a
+// row that tried sixteen addresses and was refused by fifteen of them is one
+// fact about fifteen addresses, and fifteen copies of one sentence bury the
+// sixteenth line that is not a copy. Nothing is dropped to do it. Every
+// address, every destination and every timing is still in the block, so the
+// grouping is a rearrangement of the record rather than a summary standing in
+// for one, and the full-screen viewer needs nothing extra to be complete.
+func observedLines(r diagnostic.ProbeResult, width int) []string {
 	var out []string
 	if r.Portal != nil && r.Portal.RedirectURL != "" {
 		out = append(out, "  portal "+r.Portal.RedirectURL)
@@ -749,25 +765,149 @@ func observedLines(r diagnostic.ProbeResult) []string {
 	if r.Source != nil {
 		out = append(out, "  src "+r.Source.String()+" "+r.Iface)
 	}
-	// One line per destination the operating system was asked about, and only
-	// where it answered. A platform that cannot answer shows nothing here
-	// rather than a row of empty fields.
-	for _, route := range r.Routes {
-		if summary := route.Summary(); summary != "" {
-			out = append(out, "  route "+route.Destination.String()+": "+summary)
-		}
-	}
-	for _, a := range r.Attempts {
-		st := "ok"
-		if a.Err != nil {
-			st = a.Err.Error()
-		}
-		out = append(out, fmt.Sprintf("  %s %dms %s", a.IP, diagnostic.Ms(a.Dur), st))
-	}
+	out = append(out, observedRunLines(routeRuns(r.Routes), "destinations", width)...)
+	out = append(out, observedRunLines(attemptRuns(r.Attempts), "addresses", width)...)
 	if len(out) == 0 {
 		return nil
 	}
 	return append([]string{observedTitle}, out...)
+}
+
+// observedRun is a run of consecutive measurements a probe reported the same
+// outcome for. Members are in the order they were measured, and only
+// neighbours are ever grouped, so the block never reorders the sequence: the
+// address families are contiguous in a recorded run, and a family that stopped
+// working part-way through stays two runs rather than becoming one.
+type observedRun struct {
+	outcome string   // what the probe reported, for every member of this run
+	solo    string   // the whole line, for a run that has just one member
+	members []string // one short entry per measurement, in measured order
+}
+
+// appendRun adds one measurement, extending the open run when it reported the
+// same outcome and starting a new one when it did not.
+func appendRun(runs []observedRun, outcome, solo, member string) []observedRun {
+	if n := len(runs); n > 0 && runs[n-1].outcome == outcome {
+		runs[n-1].members = append(runs[n-1].members, member)
+		return runs
+	}
+	return append(runs, observedRun{outcome: outcome, solo: solo, members: []string{member}})
+}
+
+// routeRuns are the operating system's route decisions, grouped by the path
+// they selected. Destinations that leave by the same interface and next hop
+// are one answer about several addresses; a destination the platform could not
+// answer for is left out entirely rather than drawn as a row of empty fields.
+func routeRuns(routes []diagnostic.RouteDecision) []observedRun {
+	var runs []observedRun
+	for _, route := range routes {
+		summary := route.Summary()
+		if summary == "" {
+			continue
+		}
+		destination := route.Destination.String()
+		runs = appendRun(runs, summary, "route "+destination+": "+summary, destination)
+	}
+	return runs
+}
+
+// attemptRuns are the connection attempts, grouped by what came back.
+func attemptRuns(attempts []diagnostic.Attempt) []observedRun {
+	var runs []observedRun
+	for _, a := range attempts {
+		outcome := attemptOutcome(a)
+		member := fmt.Sprintf("%s %dms", a.IP, diagnostic.Ms(a.Dur))
+		runs = appendRun(runs, outcome, member+" "+outcome, member)
+	}
+	return runs
+}
+
+// attemptOutcome is what one connection attempt reported, with the leading
+// part of the error that only restates this attempt's own address taken back
+// off. Go spells a dial failure as "dial tcp6 [addr]:port: reason", so the
+// address is already the first thing on the line: left in, it pushes the
+// reason off the end of a narrow column, and it makes two addresses that
+// failed for the same reason read as two unrelated failures.
+//
+// Only that one shape is recognised, and it is recognised from the attempt's
+// own address rather than by matching a pattern: the cut is the text's first
+// ": ", taken only when this attempt's address is in front of it, so an error
+// that names the address somewhere later in a sentence keeps all of its text.
+// An address family that writes ":" without a following space, which is every
+// IPv6 literal, cannot move that cut.
+func attemptOutcome(a diagnostic.Attempt) string {
+	if a.Err == nil {
+		return "ok"
+	}
+	text := a.Err.Error()
+	cut := strings.Index(text, ": ")
+	if cut < 0 || !strings.Contains(text[:cut], a.IP.String()) {
+		return text
+	}
+	if rest := text[cut+2:]; strings.TrimSpace(rest) != "" {
+		return rest
+	}
+	return text
+}
+
+// observedRunLines draws the runs: a lone measurement as the single line it
+// has always been, and a repeated outcome as that outcome said once with a
+// count, over the list of every measurement that had it. noun names what is
+// being counted, because a count with no noun reads as a line number.
+func observedRunLines(runs []observedRun, noun string, width int) []string {
+	total := 0
+	for _, run := range runs {
+		total += len(run.members)
+	}
+	var out []string
+	for _, run := range runs {
+		if len(run.members) == 1 {
+			out = append(out, "  "+run.solo)
+			continue
+		}
+		out = append(out, "  "+run.outcome+" ("+observedCount(len(run.members), total, noun)+")")
+		out = append(out, packEntries(run.members, width, "    ")...)
+	}
+	return out
+}
+
+// observedCount says how much of the record one run accounts for. It is words
+// and digits rather than a colour or a glyph, so it survives a monochrome
+// terminal, and it names the total whenever the run is not the whole of it:
+// "15 of 16" is the reading that says the sixteenth was something else.
+func observedCount(n, total int, noun string) string {
+	if n == total {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d of %d %s", n, total, noun)
+}
+
+// observedListMinWidth floors the width the grouped member list is packed to,
+// for the first render before a terminal size is known and for a column too
+// narrow to hold an entry at all. Below it the list packs one entry per line,
+// which is what it would have done anyway.
+const observedListMinWidth = 24
+
+// packEntries lays entries out as a comma list, breaking to a new line at
+// width rather than per entry. Every entry is kept, in order.
+func packEntries(entries []string, width int, indent string) []string {
+	width = max(width, observedListMinWidth)
+	var out []string
+	line := indent
+	for i, entry := range entries {
+		if i < len(entries)-1 {
+			entry += ","
+		}
+		switch {
+		case line == indent:
+			line += entry
+		case len(line)+1+len(entry) <= width:
+			line += " " + entry
+		default:
+			out, line = append(out, line), indent+entry
+		}
+	}
+	return append(out, line)
 }
 
 func (m model) whyLines() []string {
@@ -2160,7 +2300,7 @@ func (m model) detailsHeader() string {
 }
 
 func (m model) detailsContent() string {
-	rows := m.detailRows(false)
+	rows := m.detailRows(false, max(m.width, 1))
 	if len(rows) > 0 {
 		rows = rows[1:]
 	}

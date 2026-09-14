@@ -452,7 +452,7 @@ func TestThemesRenderIdenticalVisibleContent(t *testing.T) {
 		"help bar": func(m model) string { doneResults(&m, ""); return m.helpView(false) },
 		"detail rows": func(m model) string {
 			doneResults(&m, diagnostic.ProbeDNS)
-			return strings.Join(m.detailRows(false), "\n")
+			return strings.Join(m.detailRows(false, max(m.width, 1)), "\n")
 		},
 		"theme picker": func(m model) string { m.themeSel = 3; return m.themeView() },
 		"actions menu": func(m model) string { m.actionsOpen = true; return m.View() },

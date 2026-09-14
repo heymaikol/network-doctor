@@ -38,7 +38,7 @@ func TestWhyActionUsesTheExistingDetailsPanel(t *testing.T) {
 	if len(d.Findings) != 1 || d.Findings[0].ID != diagnostic.DiagnosisSystemDNSFailure {
 		t.Fatalf("diagnosis = %+v", d)
 	}
-	if strings.Contains(ansi.Strip(strings.Join(m.detailRows(false), "\n")), "Ruled out") {
+	if strings.Contains(ansi.Strip(strings.Join(m.detailRows(false, max(m.width, 1)), "\n")), "Ruled out") {
 		t.Fatal("details panel showed the causal explanation before e was pressed")
 	}
 	if bar := ansi.Strip(m.helpView(false)); strings.Contains(bar, "e why") {
@@ -49,7 +49,7 @@ func TestWhyActionUsesTheExistingDetailsPanel(t *testing.T) {
 	if !m.explaining || m.selected != m.answerRow() {
 		t.Fatalf("explanation state = %v, selected = %d, answer = %d", m.explaining, m.selected, m.answerRow())
 	}
-	view := ansi.Strip(strings.Join(m.detailRows(false), "\n"))
+	view := ansi.Strip(strings.Join(m.detailRows(false, max(m.width, 1)), "\n"))
 	for _, want := range []string{
 		"Why: DNS example.com",
 		// The system resolver failed where an independent one answered, which
@@ -78,7 +78,7 @@ func TestWhyActionUsesTheExistingDetailsPanel(t *testing.T) {
 	}
 
 	m = pressed(t, m, keyPress("e"))
-	if m.explaining || !strings.Contains(ansi.Strip(strings.Join(m.detailRows(false), "\n")), "Details: DNS example.com") {
+	if m.explaining || !strings.Contains(ansi.Strip(strings.Join(m.detailRows(false, max(m.width, 1)), "\n")), "Details: DNS example.com") {
 		t.Errorf("second e did not restore normal details: explaining=%v", m.explaining)
 	}
 }
@@ -166,7 +166,7 @@ func whyOnWatch(t *testing.T) model {
 // for the ordinary evidence.
 func whyTitle(t *testing.T, m model) string {
 	t.Helper()
-	rows := m.detailRows(false)
+	rows := m.detailRows(false, max(m.width, 1))
 	if len(rows) == 0 {
 		t.Fatal("the details panel drew nothing")
 	}

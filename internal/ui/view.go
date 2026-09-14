@@ -17,6 +17,18 @@ import (
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
+// wrapText is ansi.Wrap without the trailing space it leaves on a line it
+// breaks after a word that exactly fills the width. That space costs the line a
+// column it was never given, and a block padded out to it spills past the
+// terminal it was wrapped for.
+func wrapText(s string, width int) string {
+	lines := strings.Split(ansi.Wrap(s, width, ""), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // wrap reflows a full-width block that no panel is wrapping for us. Without
 // it the terminal hard-wraps mid-word, and the extra display rows aren't in
 // View's newline budget, so the renderer eats the top of the screen.
@@ -24,7 +36,7 @@ func (m model) wrap(s string) string {
 	if m.width <= 0 {
 		return s
 	}
-	return ansi.Wrap(s, m.width, "")
+	return wrapText(s, m.width)
 }
 
 // answerWrap reflows the answer block so a line indented to mark it
@@ -52,11 +64,11 @@ func (m model) answerWrap(block string) string {
 		body := strings.TrimLeft(line, " ")
 		indent := len(line) - len(body)
 		if indent == 0 || m.width <= indent*2 {
-			lines[i] = ansi.Wrap(line, m.width, "")
+			lines[i] = wrapText(line, m.width)
 			continue
 		}
 		pad := strings.Repeat(" ", indent)
-		lines[i] = pad + strings.ReplaceAll(ansi.Wrap(body, m.width-indent, ""), "\n", "\n"+pad)
+		lines[i] = pad + strings.ReplaceAll(wrapText(body, m.width-indent), "\n", "\n"+pad)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -519,7 +531,7 @@ func (m model) bodyView(deferred bool, rows int) string {
 			return row
 		}
 		indent := strings.Repeat(" ", hangIndent)
-		return strings.ReplaceAll(ansi.Wrap(row, width-hangIndent, ""), "\n", "\n"+indent)
+		return strings.ReplaceAll(wrapText(row, width-hangIndent), "\n", "\n"+indent)
 	}
 	// checksSection is the Checks rows under their heading once the section
 	// width is settled: the labels are placed against that width, so they land
@@ -1735,7 +1747,7 @@ func joinChips(width int, sep string, chips []string) string {
 	cur := ""
 	for _, c := range chips {
 		if width > 0 {
-			c = ansi.Wrap(c, width, "")
+			c = wrapText(c, width)
 		}
 		switch {
 		case cur == "":
@@ -2230,9 +2242,9 @@ func (m model) helpContent() string {
 		prefix := "  " + m.st.key.Render(k) + strings.Repeat(" ", max(keyWidth-lipgloss.Width(k), 0)+2)
 		desc = m.st.faint.Render(desc)
 		if m.width > 0 && m.width <= len(indent) {
-			return ansi.Wrap(prefix+desc, m.width, "") + "\n"
+			return wrapText(prefix+desc, m.width) + "\n"
 		}
-		desc = ansi.Wrap(desc, m.width-len(indent), "")
+		desc = wrapText(desc, m.width-len(indent))
 		return prefix + strings.ReplaceAll(desc, "\n", "\n"+indent) + "\n"
 	}
 	// Both sections are generated from the same table dispatch indexes.

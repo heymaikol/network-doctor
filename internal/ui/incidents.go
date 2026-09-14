@@ -99,7 +99,7 @@ func (m *model) refreshIncidentViewport(reset bool) {
 	offset := m.incidentVP.YOffset
 	m.incidentVP.Width, m.incidentVP.Height = width, height
 	report := incidentReport(selected, m.incidentSelected+1, len(m.incidents.Incidents()), m.incidentNow())
-	m.incidentVP.SetContent(ansi.Wrap(report, width, ""))
+	m.incidentVP.SetContent(wrapText(report, width))
 	if reset {
 		m.incidentVP.GotoTop()
 	} else {

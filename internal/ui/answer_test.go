@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
@@ -626,5 +627,21 @@ func TestToolboxModeHasNoAnswerYet(t *testing.T) {
 	}
 	if m.answerRow() >= 0 {
 		t.Errorf("--toolbox blames row %d before the checks have run", m.answerRow())
+	}
+}
+
+// TestAnswerWrapKeepsEveryLineInsideTheTerminal: ansi.Wrap keeps the space
+// after a word that exactly fills the width, so a "Run: ifconfig -a" row spills
+// a column past the terminal on the OSes whose remediation command wraps that
+// way. The wrap is fixed rather than the wording, since which command the
+// remediation names is a per-OS table.
+func TestAnswerWrapKeepsEveryLineInsideTheTerminal(t *testing.T) {
+	m := blackHoleModel(t)
+	m.width, m.height = 10, 80
+	block := m.banner() + "\n  " + m.st.faint.Render("Run: ") + "ifconfig -a"
+	for _, line := range strings.Split(m.answerWrap(block), "\n") {
+		if got := lipgloss.Width(line); got > m.width {
+			t.Errorf("line is %d columns wide, want at most %d: %q", got, m.width, ansi.Strip(line))
+		}
 	}
 }

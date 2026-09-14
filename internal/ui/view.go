@@ -1720,6 +1720,18 @@ func (m model) actionsView(avail int) string {
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" + footer
 }
 
+// helpView is the bottom bar. It teaches the region on screen, never the whole
+// keyboard: a chip earns its place only by answering one of three questions a
+// reader has about what is in front of them right now, which is how do I move
+// here, what does the primary key do to the thing I have selected, and how do
+// I leave. Every other binding, including the ones the bar used to carry into
+// screens they had nothing to do with, is one keypress away in the Actions
+// menu and written out in full behind the help key, so the tail naming those
+// two plus quit is the only part of the bar that is the same on every screen.
+//
+// The rule is what stops the bar growing back: an action is never added here
+// because it is useful, only because the region on screen cannot be operated
+// without knowing it.
 func (m model) helpView(deferred bool) string {
 	// Only the device-list branch cares how many devices there are, and
 	// networkHosts walks the whole job line buffer, so don't pay for it on
@@ -1751,23 +1763,13 @@ func (m model) helpView(deferred bool) string {
 		}
 		add(m.keys.label(ctxList, actActions), desc)
 	}
-	addPair := func(a, b keyAction) {
-		help, ok := actionHelpFor(ctxList, a)
-		if ok {
-			add(m.keys.pairLabel(ctxList, a, b), help.bar)
-		}
-	}
-	withNotice := func(help string) string {
-		if notice := m.noticeView(); notice != "" {
-			return notice + "\n" + help
-		}
-		return help
-	}
 	switch {
 	case m.networkMap && m.svc.host != "":
+		// An opened device is two levels deep, so both ways out are named:
+		// leaving is what the reader came here needing, and a bar that showed
+		// only one of them would make the other look unavailable.
 		if len(m.svc.scan.Open) > 0 {
 			add(m.keys.pairLabel(ctxList, actUp, actDown), "select service")
-			addPair(actTop, actBottom)
 			add(m.keys.label(ctxList, actOpen), "diagnose it")
 		}
 		add(m.keys.label(ctxList, actCancelJob), "devices")
@@ -1775,75 +1777,39 @@ func (m model) helpView(deferred bool) string {
 	case m.networkMap:
 		if hosts > 0 {
 			add(m.keys.pairLabel(ctxList, actUp, actDown), "select device")
-			addPair(actTop, actBottom)
 			add(m.keys.label(ctxList, actOpen), "open device")
 		}
 		add(m.keys.label(ctxList, actNetworkMap), "checks")
 	case deferred:
+		// Nothing has run, so there is no region to move in: the bar's job is
+		// to say what starts one.
 		add(m.keys.label(ctxList, actRestart), "run the checks")
-		addAction(actNetworkMap)
 		if len(m.tools) > 0 {
 			kv = append(kv, "letter", "runs that tool")
 		}
+		if m.actionAvailable(actOpen) {
+			add(m.keys.label(ctxList, actOpen), "full output")
+		}
+		if m.actionAvailable(actSwitchJob) {
+			addAction(actSwitchJob)
+		}
 	default:
+		addPair := func(a, b keyAction) {
+			help, ok := actionHelpFor(ctxList, a)
+			if ok {
+				add(m.keys.pairLabel(ctxList, a, b), help.bar)
+			}
+		}
 		addPair(actUp, actDown)
-		addActions()
-		addAction(actHelp)
-		addAction(actQuit)
-		return withNotice(m.chordHint(helpKeys(m.st, m.width, kv...)))
 	}
-	// Open works whenever a job pane exists (same condition as jobView), so the
-	// hint tracks exactly when the key does something. On the map it opens a
-	// device or diagnoses a service instead, so it is only the empty device
-	// list that leaves the key free.
-	if m.actionAvailable(actOpen) && (!m.networkMap || m.svc.host == "" && hosts == 0) {
-		add(m.keys.label(ctxList, actOpen), "full output")
-	}
-	if !deferred && m.cur.active != nil {
-		addAction(actCancelJob)
-	}
-	if m.actionAvailable(actSwitchJob) {
-		addAction(actSwitchJob)
-	}
-	if deferred {
-		if m.networkMap {
-			add(m.keys.label(ctxList, actRestart), "run the checks")
-		}
-		addActions()
-		addAction(actHelp)
-		addAction(actQuit)
-		return withNotice(m.chordHint(helpKeys(m.st, m.width, kv...)))
-	}
-	if m.actionAvailable(actExplain) {
-		if m.explaining {
-			add(m.keys.label(ctxList, actExplain), "details")
-		} else {
-			addAction(actExplain)
-		}
-	}
-	if m.actionAvailable(actIncidents) {
-		addAction(actIncidents)
-	}
-	if m.selectedPortalURL() != "" {
-		add(m.keys.label(ctxList, actCopy), "copy portal URL")
-	} else if m.actionAvailable(actCopy) {
-		add(m.keys.label(ctxList, actCopy), "copy report")
-	}
-	if m.actionAvailable(actSave) {
-		addAction(actSave)
-	}
-	if m.actionAvailable(actRetest) {
-		addAction(actRetest)
-	}
-	if m.actionAvailable(actSSH) {
-		addAction(actSSH)
-	}
-	addAction(actRestart)
-	addAction(actTheme)
 	addActions()
 	addAction(actHelp)
 	addAction(actQuit)
-	return withNotice(m.chordHint(helpKeys(m.st, m.width, kv...)))
+	help := m.chordHint(helpKeys(m.st, m.width, kv...))
+	if notice := m.noticeView(); notice != "" {
+		return notice + "\n" + help
+	}
+	return help
 }
 
 // compactHelpView keeps only the controls needed to navigate the region on
@@ -2011,26 +1977,51 @@ func (m model) helpContent() string {
 		return prefix + strings.ReplaceAll(desc, "\n", "\n"+indent) + "\n"
 	}
 	// Both sections are generated from the same table dispatch indexes.
-	section := func(b *strings.Builder, ctx keyContext) {
-		for _, def := range actionDefs {
-			help, ok := def.help[ctx]
-			if !ok || !m.keys.bound(ctx, def.act) {
-				continue
-			}
-			if def.act == actSSH && !m.sshDetected() {
-				continue
-			}
-			b.WriteString(row(m.keys.label(ctx, def.act), help.details))
+	listed := func(ctx keyContext, def actionDef) (actionHelp, bool) {
+		help, ok := def.help[ctx]
+		if !ok || !m.keys.bound(ctx, def.act) {
+			return actionHelp{}, false
 		}
+		// SSH is the one row whose key is offered only where it applies, so a
+		// sheet that listed it unconditionally would promise a login the run
+		// has no host for.
+		if def.act == actSSH && !m.sshDetected() {
+			return actionHelp{}, false
+		}
+		return help, true
 	}
 	var b strings.Builder
 	b.WriteString(m.wrap(m.st.panelTitle.Render("Keys")) + "\n")
-	section(&b, ctxList)
-	for _, tool := range m.tools {
-		b.WriteString(row(tool.Key, "run "+tool.Name))
+	// The list context is sectioned by the same groups the Actions menu is
+	// sorted into, so the sheet and the menu teach one hierarchy rather than
+	// two orders of the same keys. It is also what separates the drill-down
+	// tools from the built-in actions: as one flat list they read as more
+	// vocabulary to learn rather than as the installed binaries they are.
+	for group := range groupNames {
+		var rows strings.Builder
+		for _, def := range actionDefs {
+			help, ok := listed(ctxList, def)
+			if !ok || m.actionGroupFor(def.act) != actionGroup(group) {
+				continue
+			}
+			rows.WriteString(row(m.keys.label(ctxList, def.act), help.details))
+		}
+		if actionGroup(group) == groupTools {
+			for _, tool := range m.tools {
+				rows.WriteString(row(tool.Key, "run "+tool.Name))
+			}
+		}
+		if rows.Len() == 0 {
+			continue
+		}
+		b.WriteString(m.wrap(m.st.faint.Render(groupNames[group])) + "\n" + rows.String())
 	}
 	b.WriteString("\n" + m.wrap(m.st.panelTitle.Render("Output viewer")) + "\n")
-	section(&b, ctxViewer)
+	for _, def := range actionDefs {
+		if help, ok := listed(ctxViewer, def); ok {
+			b.WriteString(row(m.keys.label(ctxViewer, def.act), help.details))
+		}
+	}
 	return b.String()
 }
 

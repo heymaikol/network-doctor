@@ -27,7 +27,15 @@ import (
 type actionGroup int
 
 const (
-	groupRun actionGroup = iota
+	// groupMove is navigation, and it is the zero value because it is what an
+	// action that acts on nothing belongs to: the movement keys walk whatever
+	// list is on screen. The menu never renders it, since moving the menu is
+	// not something the menu offers to do, so it exists for the cheatsheet,
+	// which does have to say how to move. Viewer-only actions keep the zero
+	// value too: the cheatsheet's viewer section is one coherent list and is
+	// not grouped.
+	groupMove actionGroup = iota
+	groupRun
 	groupNetwork
 	groupTools
 	groupReport
@@ -38,6 +46,7 @@ const (
 // rows they introduce and carry no key column, so the hierarchy survives a
 // terminal with no colour and a reader who never sees the bold.
 var groupNames = [...]string{
+	groupMove:    "Move",
 	groupRun:     "This run",
 	groupNetwork: "This network",
 	groupTools:   "Drill down",
@@ -191,32 +200,25 @@ func (m model) actionName(def actionDef) string {
 	return def.menu
 }
 
-// actionGroupFor files a built-in under what it acts on. Two actions change
-// what they act on with the screen, and both change their wording for the same
-// reason, so this reads the same state actionName does: on the network map,
-// enter walks the device list and esc steps back through it, which makes both
-// of them map actions rather than actions on this run's own job pane.
+// actionGroupFor files a built-in under what it acts on. The group is the
+// shared table's, so the menu and the cheatsheet file an action the same way
+// and cannot drift. Two actions change what they act on with the screen, and
+// both change their wording for the same reason, so this reads the same state
+// actionName does: on the network map, enter walks the device list and esc
+// steps back through it, which makes both of them map actions rather than
+// actions on this run's own job pane.
 func (m model) actionGroupFor(act keyAction) actionGroup {
 	switch act {
 	case actOpen:
 		if m.networkMap && (m.svc.host != "" || len(m.networkHosts()) > 0) {
 			return groupNetwork
 		}
-		return groupRun
 	case actCancelJob:
 		if m.networkMap && m.svc.host != "" {
 			return groupNetwork
 		}
-		return groupRun
-	case actSwitchJob, actExpand, actExplain, actCheckDetails, actIncidents, actRetest:
-		return groupRun
-	case actNetworkMap, actRescanNetwork, actSSH:
-		return groupNetwork
-	case actCopy, actSave:
-		return groupReport
 	}
-	// Restart, Theme, Help and Quit: the application, not the run.
-	return groupSession
+	return actionGroupOf(act)
 }
 
 // actionItems is what the current state can do: available built-ins and the

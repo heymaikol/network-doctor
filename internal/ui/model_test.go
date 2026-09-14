@@ -48,7 +48,9 @@ func doneResults(m *model, failID diagnostic.ProbeID) {
 
 func TestHelpOverlay(t *testing.T) {
 	m := newModel(nil, false)
-	m.width, m.height = 100, 40
+	// Tall enough for the complete grouped sheet: the scrolling path is
+	// TestHelpOverlayScrolls's, and this one is about the unscrolled sheet.
+	m.width, m.height = 100, 50
 	u, _ := m.Update(keyMsg("?"))
 	hm := asModel(t, u)
 	view := ansi.Strip(hm.View())
@@ -130,7 +132,7 @@ func TestHelpOverlayScrolls(t *testing.T) {
 
 func TestHelpOverlayResize(t *testing.T) {
 	m := newModel(nil, false)
-	u, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	u, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
 	u, _ = asModel(t, u).Update(keyMsg("?"))
 	m = asModel(t, u)
 
@@ -141,7 +143,7 @@ func TestHelpOverlayResize(t *testing.T) {
 	}
 	u, _ = m.Update(keyPress("end"))
 	m = asModel(t, u)
-	u, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	u, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
 	m = asModel(t, u)
 	view := ansi.Strip(m.View())
 	if !strings.Contains(view, "Keys\n") || !strings.Contains(view, "any key close") || regexp.MustCompile(`(?m)^lines `).MatchString(view) {

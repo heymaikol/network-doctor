@@ -59,7 +59,12 @@ type actionDef struct {
 	// the action off the menu, which is where the movement keys belong: they
 	// move the menu itself.
 	menu string
-	help map[keyContext]actionHelp
+	// group is what the action acts on. The Actions menu sorts by it and the
+	// cheatsheet sections by it, so both teach one hierarchy. The zero value,
+	// groupMove, is navigation, which is also where the viewer-only actions
+	// sit unread: the cheatsheet's viewer section is not grouped.
+	group actionGroup
+	help  map[keyContext]actionHelp
 }
 
 type actionHelp struct {
@@ -70,56 +75,66 @@ type actionHelp struct {
 // actionDefs is the shared dispatch context, help text, menu wording, and
 // cheatsheet order.
 var actionDefs = []actionDef{
-	{actUp, "up", "", map[keyContext]actionHelp{
+	{actUp, "up", "", groupMove, map[keyContext]actionHelp{
 		ctxList:   {"select", "previous check, or device/service on the network map"},
 		ctxViewer: {"scroll", "scroll up"},
 	}},
-	{actDown, "down", "", map[keyContext]actionHelp{
+	{actDown, "down", "", groupMove, map[keyContext]actionHelp{
 		ctxList:   {"select", "next check, or device/service on the network map"},
 		ctxViewer: {"scroll", "scroll down"},
 	}},
-	{actTop, "top", "", map[keyContext]actionHelp{
+	{actTop, "top", "", groupMove, map[keyContext]actionHelp{
 		ctxList:   {"first/last", "first check, or device/service on the network map"},
 		ctxViewer: {"top/bottom", "jump to top"},
 	}},
-	{actBottom, "bottom", "", map[keyContext]actionHelp{
+	{actBottom, "bottom", "", groupMove, map[keyContext]actionHelp{
 		ctxList:   {"first/last", "last check, or device/service on the network map"},
 		ctxViewer: {"top/bottom", "jump to bottom (re-enables follow)"},
 	}},
-	{actPageUp, "page-up", "", map[keyContext]actionHelp{ctxViewer: {"page", "page up"}}},
-	{actPageDown, "page-down", "", map[keyContext]actionHelp{ctxViewer: {"page", "page down"}}},
-	{actHalfPageUp, "half-page-up", "", map[keyContext]actionHelp{ctxViewer: {"half page", "half page up"}}},
-	{actHalfPageDown, "half-page-down", "", map[keyContext]actionHelp{ctxViewer: {"half page", "half page down"}}},
-	{actOpen, "open", "Full output", map[keyContext]actionHelp{ctxList: {"open", "full output; on the network map, open a device then diagnose one of its services"}}},
-	{actFilter, "filter", "", map[keyContext]actionHelp{ctxViewer: {"filter", "filter lines"}}},
-	{actCopy, "copy", "Copy report", map[keyContext]actionHelp{
+	{actPageUp, "page-up", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"page", "page up"}}},
+	{actPageDown, "page-down", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"page", "page down"}}},
+	{actHalfPageUp, "half-page-up", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"half page", "half page up"}}},
+	{actHalfPageDown, "half-page-down", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"half page", "half page down"}}},
+	{actOpen, "open", "Full output", groupRun, map[keyContext]actionHelp{ctxList: {"open", "full output; on the network map, open a device then diagnose one of its services"}}},
+	{actFilter, "filter", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"filter", "filter lines"}}},
+	{actCopy, "copy", "Copy report", groupReport, map[keyContext]actionHelp{
 		ctxList:   {"copy", "copy selected portal URL, otherwise report"},
 		ctxViewer: {"copy output", "copy output (filtered if a filter is on)"},
 	}},
-	{actSave, "save", "Save report", map[keyContext]actionHelp{
+	{actSave, "save", "Save report", groupReport, map[keyContext]actionHelp{
 		ctxList:   {"save report", "save report"},
 		ctxViewer: {"save output", "save output (filtered if a filter is on)"},
 	}},
-	{actSwitchJob, "switch-job", "Switch job", map[keyContext]actionHelp{
+	{actSwitchJob, "switch-job", "Switch job", groupRun, map[keyContext]actionHelp{
 		ctxList:   {"switch job", "switch job"},
 		ctxViewer: {"switch job", "switch job"},
 	}},
-	{actCancelJob, "cancel-job", "Cancel job", map[keyContext]actionHelp{ctxList: {"cancel job", "cancel the focused job, or leave an opened device on the network map"}}},
-	{actNetworkMap, "network-map", "Network map", map[keyContext]actionHelp{ctxList: {"network map", "show the latest LAN snapshot, or discover the local network when none exists"}}},
-	{actRescanNetwork, "rescan-network", "Rescan network", map[keyContext]actionHelp{ctxList: {"", "run fresh LAN discovery from the Actions menu"}}},
-	{actExpand, "expand", "Expand checks", map[keyContext]actionHelp{ctxList: {"expand", "show the collapsed passing checks"}}},
-	{actExplain, "explain", "Explain why", map[keyContext]actionHelp{ctxList: {"why", "show why the selected diagnosis follows from the observed checks"}}},
-	{actCheckDetails, "check-details", "Check details", map[keyContext]actionHelp{ctxList: {"details", "open the selected check's complete evidence"}}},
-	{actIncidents, "incidents", "Incidents", map[keyContext]actionHelp{ctxList: {"incidents", "inspect failures recorded during this watch session"}}},
-	{actRestart, "restart", "Restart", map[keyContext]actionHelp{ctxList: {"restart", "restart with a new target"}}},
-	{actRetest, "retest", "Retest checks", map[keyContext]actionHelp{ctxList: {"retest", "rerun the same checks on the same target, after acting on the remediation"}}},
-	{actSSH, "ssh", "SSH login", map[keyContext]actionHelp{ctxList: {"ssh login", "log in to a host, handing the terminal to ssh"}}},
-	{actClearFilter, "clear-filter", "", map[keyContext]actionHelp{ctxViewer: {"clear filter", "clear the filter, or back when none is set"}}},
-	{actBack, "back", "", map[keyContext]actionHelp{ctxViewer: {"back", "back"}}},
-	{actActions, "actions", "", map[keyContext]actionHelp{ctxList: {"actions", "list what the run can do right now, and run one without knowing its key"}}},
-	{actTheme, "theme", "Theme", map[keyContext]actionHelp{ctxList: {"theme", "pick a colour theme, previewed as you move and remembered between sessions"}}},
-	{actHelp, "help", "Help", map[keyContext]actionHelp{ctxList: {"help", "full-screen key cheatsheet"}}},
-	{actQuit, "quit", "Quit", map[keyContext]actionHelp{ctxList: {"quit", "quit"}}},
+	{actCancelJob, "cancel-job", "Cancel job", groupRun, map[keyContext]actionHelp{ctxList: {"cancel job", "cancel the focused job, or leave an opened device on the network map"}}},
+	{actNetworkMap, "network-map", "Network map", groupNetwork, map[keyContext]actionHelp{ctxList: {"network map", "show the latest LAN snapshot, or discover the local network when none exists"}}},
+	{actRescanNetwork, "rescan-network", "Rescan network", groupNetwork, map[keyContext]actionHelp{ctxList: {"", "run fresh LAN discovery from the Actions menu"}}},
+	{actExpand, "expand", "Expand checks", groupRun, map[keyContext]actionHelp{ctxList: {"expand", "show the collapsed passing checks"}}},
+	{actExplain, "explain", "Explain why", groupRun, map[keyContext]actionHelp{ctxList: {"why", "show why the selected diagnosis follows from the observed checks"}}},
+	{actCheckDetails, "check-details", "Check details", groupRun, map[keyContext]actionHelp{ctxList: {"details", "open the selected check's complete evidence"}}},
+	{actIncidents, "incidents", "Incidents", groupRun, map[keyContext]actionHelp{ctxList: {"incidents", "inspect failures recorded during this watch session"}}},
+	{actRestart, "restart", "Restart", groupSession, map[keyContext]actionHelp{ctxList: {"restart", "restart with a new target"}}},
+	{actRetest, "retest", "Retest checks", groupRun, map[keyContext]actionHelp{ctxList: {"retest", "rerun the same checks on the same target, after acting on the remediation"}}},
+	{actSSH, "ssh", "SSH login", groupNetwork, map[keyContext]actionHelp{ctxList: {"ssh login", "log in to a host, handing the terminal to ssh"}}},
+	{actClearFilter, "clear-filter", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"clear filter", "clear the filter, or back when none is set"}}},
+	{actBack, "back", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"back", "back"}}},
+	{actActions, "actions", "", groupSession, map[keyContext]actionHelp{ctxList: {"actions", "list what the run can do right now, and run one without knowing its key"}}},
+	{actTheme, "theme", "Theme", groupSession, map[keyContext]actionHelp{ctxList: {"theme", "pick a colour theme, previewed as you move and remembered between sessions"}}},
+	{actHelp, "help", "Help", groupSession, map[keyContext]actionHelp{ctxList: {"help", "full-screen key cheatsheet"}}},
+	{actQuit, "quit", "Quit", groupSession, map[keyContext]actionHelp{ctxList: {"quit", "quit"}}},
+}
+
+// actionGroupOf is what act acts on, independent of what is on screen.
+func actionGroupOf(act keyAction) actionGroup {
+	for _, def := range actionDefs {
+		if def.act == act {
+			return def.group
+		}
+	}
+	return groupMove
 }
 
 func actionHelpFor(ctx keyContext, act keyAction) (actionHelp, bool) {

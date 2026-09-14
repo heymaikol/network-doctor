@@ -63,11 +63,10 @@ func checksLines(v string) []string {
 	return nil
 }
 
-// sectionRuleWidth is the columns a section was laid out in, read off the rule
-// under its heading. That rule is as wide as the section, so it is the
-// rendered output's own account of the width the layout settled on. The
-// heading is matched by prefix, because the Details heading names the probe it
-// is describing and is cut to its own column when that will not fit.
+// sectionRuleWidth is the columns a section was laid out in, inferred from the
+// padded row carrying the short rule under its heading. The heading is matched
+// by prefix because Details names the probe it is describing and is cut to its
+// own column when that will not fit.
 func sectionRuleWidth(v, title string) int {
 	lines := strings.Split(v, "\n")
 	for i, line := range lines {

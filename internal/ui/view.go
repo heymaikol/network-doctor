@@ -314,6 +314,10 @@ const checksWidth = 36
 // is all the body spends on separating them.
 const bodyGutter = 2
 
+// sectionRuleMaxWidth keeps a section boundary visible without turning the
+// supporting-evidence headings into a terminal-wide visual band.
+const sectionRuleMaxWidth = 12
+
 // The orientation headings. Every region the cursor can be in opens with one
 // of these, and a region nested inside another names the one it is nested in,
 // so "where am I" is answered by the screen rather than by remembering which
@@ -529,10 +533,15 @@ func (m model) bodyView(deferred bool, rows int) string {
 		// cellbuf.Wrap can leave a trailing space on the line that breaks at a
 		// hyphen, and lipgloss then pads the whole block out to that over-wide
 		// line, so a "Run: ifconfig -a" row would spill a column past the
-		// section at any width. Trim the ragged edge back to the column.
+		// section at any width. Trim and cap that edge, then pad to the requested
+		// width so layout geometry does not depend on visible section chrome.
 		lines := strings.Split(out, "\n")
 		for i, l := range lines {
-			lines[i] = strings.TrimRight(l, " ")
+			l = strings.TrimRight(l, " ")
+			if lipgloss.Width(l) > width {
+				l = ansi.Cut(l, 0, width)
+			}
+			lines[i] = l + strings.Repeat(" ", width-lipgloss.Width(l))
 		}
 		return strings.Join(lines, "\n")
 	}
@@ -598,10 +607,9 @@ func (m model) bodyView(deferred bool, rows int) string {
 		strings.Repeat(" ", bodyGutter), column(rightW, rightRows)), rows)
 }
 
-// sectionHead pins a section's title over a rule as wide as the section's own
-// column, which is what marks the body's two areas off now that neither is
-// drawn inside a border. The rule is a character rather than a colour, so the
-// boundary survives NO_COLOR and a monochrome terminal.
+// sectionHead pins a section's title over a short rule. The rule is a
+// character rather than a colour, so the boundary survives NO_COLOR and a
+// monochrome terminal without competing with the answer above it.
 //
 // Title and rule are one entry in the row list: the windowing keeps the pair
 // whole, and the block's budget prices both of its display rows. The title is
@@ -612,7 +620,7 @@ func sectionHead(st styles, rows []string, width int) []string {
 		return rows
 	}
 	out := slices.Clone(rows)
-	out[0] = ansi.Truncate(out[0], width, "…") + "\n" + st.faint.Render(strings.Repeat("─", width))
+	out[0] = ansi.Truncate(out[0], width, "…") + "\n" + st.faint.Render(strings.Repeat("─", min(width, sectionRuleMaxWidth)))
 	return out
 }
 

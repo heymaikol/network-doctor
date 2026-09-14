@@ -1,7 +1,7 @@
 // The main diagnostic body's section treatment: Checks and Details are drawn
-// as a heading over a rule rather than inside a box, so what these tests hold
-// is that the sections stay legible and stay inside their columns without a
-// frame to close them, and that the surfaces that are still boxed still are.
+// as a heading over a short rule rather than inside a box, so what these tests
+// hold is that the sections stay legible and stay inside their columns without
+// a frame to close them, and that the surfaces that are still boxed still are.
 
 package ui
 
@@ -58,8 +58,8 @@ func bodyStates(t *testing.T) []struct {
 }
 
 // boxDrawing is the border characters the sections used to be framed in. The
-// body draws none of them now: the only rule character it uses is the one
-// under a section heading, which ruleSpans reads.
+// body draws none of them now: the only rule character it uses is the short
+// marker under a section heading, which chromeSpans reads.
 const boxDrawing = "╭╮╰╯│┌┐└┘"
 
 // TestBodyDrawsSectionsRatherThanBoxes is the shape of the change: at every
@@ -68,7 +68,10 @@ const boxDrawing = "╭╮╰╯│┌┐└┘"
 func TestBodyDrawsSectionsRatherThanBoxes(t *testing.T) {
 	for _, s := range bodyStates(t) {
 		t.Run(s.name, func(t *testing.T) {
-			for _, size := range [][2]int{{120, 40}, {100, 30}, {80, 24}, {79, 24}, {60, 24}, {40, 20}, {100, 12}} {
+			for _, size := range [][2]int{
+				{120, 40}, {100, 30}, {80, 24}, {79, 24}, {70, 20},
+				{60, 24}, {40, 20}, {80, 16}, {80, 12}, {80, 10},
+			} {
 				m := s.build(t)
 				m.width, m.height = size[0], size[1]
 				block := m.bodyView(false, 0)
@@ -85,9 +88,8 @@ func TestBodyDrawsSectionsRatherThanBoxes(t *testing.T) {
 }
 
 // TestBodySectionsStayInsideTheTerminal walks the widths either side of the
-// two-column breakpoint. A rule is drawn to its own section's width, so the
-// rules are what say whether the columns still add up: nothing they cover, and
-// nothing the rows under them carry, may run past the terminal.
+// two-column breakpoint. Nothing the section markers or the rows under them
+// carry may run past the terminal.
 func TestBodySectionsStayInsideTheTerminal(t *testing.T) {
 	for _, s := range bodyStates(t) {
 		t.Run(s.name, func(t *testing.T) {
@@ -101,7 +103,7 @@ func TestBodySectionsStayInsideTheTerminal(t *testing.T) {
 					}
 					for _, sp := range ruleSpans(line) {
 						if sp.col+sp.width > w {
-							t.Fatalf("%d cols: a section rule ends at column %d: %q", w, sp.col+sp.width, line)
+							t.Fatalf("%d cols: a section ends at column %d: %q", w, sp.col+sp.width, line)
 						}
 					}
 				}
@@ -111,10 +113,9 @@ func TestBodySectionsStayInsideTheTerminal(t *testing.T) {
 }
 
 // TestWideLayoutSetsTheSectionsSideBySide: past the breakpoint the two
-// headings share a line and their rules share the line under it, separated by
-// the gutter and nothing else. The Details column keeps its minimum width, and
-// the columns account for the whole terminal rather than leaving space to a
-// frame that is no longer drawn.
+// headings share a line and their short rules share the line under it. The
+// Details column keeps its minimum width, and the columns account for the
+// whole terminal rather than leaving space to a frame that is no longer drawn.
 func TestWideLayoutSetsTheSectionsSideBySide(t *testing.T) {
 	for _, w := range []int{80, 81, 100, 120, 200} {
 		m := evidenceModel(t)
@@ -175,7 +176,7 @@ func TestNarrowLayoutStacksSectionsWithAGap(t *testing.T) {
 }
 
 // TestSectionHeadingsSurviveWithoutColour: the boundary between the sections is
-// a heading and a rule, both of them characters. Stripping every escape
+// a heading and a short rule, both of them characters. Stripping every escape
 // sequence, which is what NO_COLOR and a monochrome terminal leave, must not
 // take the boundary with it, in any theme.
 func TestSectionHeadingsSurviveWithoutColour(t *testing.T) {
@@ -196,10 +197,66 @@ func TestSectionHeadingsSurviveWithoutColour(t *testing.T) {
 	}
 }
 
+// TestSectionChromeIsBounded keeps the supporting region structurally marked
+// without allowing either rule to grow back into a terminal-wide band. The
+// labels and selected-check identity carry orientation in every theme; the
+// character rule and the stacked gap keep it when colour is unavailable.
+func TestSectionChromeIsBounded(t *testing.T) {
+	for _, theme := range themes {
+		for w := 1; w <= sectionRuleMaxWidth; w++ {
+			m := evidenceModel(t)
+			m.setTheme(theme)
+			headed := sectionHead(m.st, []string{m.st.panelTitle.Render("Checks"), "body"}, w)
+			if len(headed) != 2 || lipgloss.Height(strings.Join(headed, "\n")) != 3 {
+				t.Fatalf("%s at %d cols: heading is not exactly two rows: %q", theme.Name, w, headed)
+			}
+			spans := chromeSpans(strings.Split(headed[0], "\n")[1])
+			if len(spans) != 1 || spans[0].width != w {
+				t.Errorf("%s at %d cols: rule spans = %v, want one rule of width %d", theme.Name, w, spans, w)
+			}
+		}
+		for _, w := range []int{60, 100} {
+			m := evidenceModel(t)
+			m.setTheme(theme)
+			m.width, m.height = w, 40
+			block := m.bodyView(false, 0)
+			plain := ansi.Strip(block)
+			selected := m.probes[m.selected].Name
+			if !strings.Contains(plain, "Checks") || !strings.Contains(plain, "Details: "+selected) ||
+				!hasCursorRow(plain, selected) {
+				t.Errorf("%s at %d cols: headings or selected identity missing:\n%s", theme.Name, w, plain)
+			}
+			for _, line := range strings.Split(block, "\n") {
+				for _, sp := range chromeSpans(line) {
+					if sp.width < 1 || sp.width > sectionRuleMaxWidth {
+						t.Errorf("%s at %d cols: rule width = %d, want 1..%d", theme.Name, w, sp.width, sectionRuleMaxWidth)
+					}
+					if w >= sectionRuleMaxWidth && sp.width != 12 {
+						t.Errorf("%s at %d cols: rule width = %d, want 12", theme.Name, w, sp.width)
+					}
+				}
+				if got := lipgloss.Width(line); got > w {
+					t.Errorf("%s at %d cols: line is %d columns wide", theme.Name, w, got)
+				}
+			}
+		}
+	}
+}
+
+// TestToolOutputKeepsItsFullWidthRule protects the separate zero-row-cost
+// title treatment. It is not evidence-section chrome and remains full width.
+func TestToolOutputKeepsItsFullWidthRule(t *testing.T) {
+	m := jobModel(t, 100, 40)
+	line, _, _ := strings.Cut(ansi.Strip(m.jobView(20)), "\n")
+	if !strings.HasPrefix(line, jobPaneTitle+" ") || lipgloss.Width(line) != m.width {
+		t.Errorf("Tool output rule = %q (%d columns), want its title across %d columns", line, lipgloss.Width(line), m.width)
+	}
+}
+
 // TestRowLabelsLandInsideTheChecksColumn: a "changed" or "consequence" label is
-// set against the Checks section's own right edge, which is where its rule
-// ends. A label past that edge would read as part of the Details column beside
-// it, and a row carrying both labels is the widest case there is.
+// set against the Checks section's own right edge. A label past that edge would
+// read as part of the Details column beside it, and a row carrying both labels
+// is the widest case there is.
 func TestRowLabelsLandInsideTheChecksColumn(t *testing.T) {
 	// Egress was already down and stays down; QUIC and encrypted DNS joining it
 	// this pass are the same outage seen again, so those rows are changed and
@@ -246,7 +303,7 @@ func TestRowLabelsLandInsideTheChecksColumn(t *testing.T) {
 		t.Fatalf("%d labelled rows, %d carrying both labels:\n%s", labelled, both, block)
 	}
 	if checks.width < 1 {
-		t.Fatalf("no Checks rule to measure the column against:\n%s", block)
+		t.Fatalf("no Checks section span to measure the column against:\n%s", block)
 	}
 	// QUIC is one of the rows carrying both labels. Its exact sparkline must
 	// remain on that row, rather than merely leaving a status glyph elsewhere.

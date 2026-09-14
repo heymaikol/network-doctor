@@ -15,16 +15,14 @@ import (
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
-// sectionSpan is where one body section sits on screen: the display column its
-// rule starts at, and how many columns wide that rule is. The sections are not
-// boxed, so the rule under a heading is what says which columns belong to it.
+// sectionSpan is where one body section sits on screen: its first display
+// column and the number of columns reserved for it.
 type sectionSpan struct{ col, width int }
 
-// ruleSpans is the runs of rule characters on one rendered line, or nil when
-// the line is not a rule. A rule line carries nothing but rule characters and
-// the gutter between two of them, so a row that happens to contain one is not
-// mistaken for a section boundary.
-func ruleSpans(line string) []sectionSpan {
+// chromeSpans returns the actual runs of section-rule characters. Keeping
+// these separate from ruleSpans lets the decorative rule stay short while
+// tests still reason about the full columns reserved by the layout.
+func chromeSpans(line string) []sectionSpan {
 	runes := []rune(ansi.Strip(line))
 	var spans []sectionSpan
 	for i := 0; i < len(runes); i++ {
@@ -44,6 +42,26 @@ func ruleSpans(line string) []sectionSpan {
 	return spans
 }
 
+// ruleSpans returns the logical section columns on a rule line. column pads
+// every rendered row to its requested width, so the next rule locates the
+// side-by-side boundary and the line width locates the final right edge.
+func ruleSpans(line string) []sectionSpan {
+	spans := chromeSpans(line)
+	if len(spans) == 0 {
+		return nil
+	}
+	lineWidth := lipgloss.Width(line)
+	if len(spans) == 1 {
+		spans[0].width = lineWidth - spans[0].col
+		return spans
+	}
+	for i := range spans[:len(spans)-1] {
+		spans[i].width = spans[i+1].col - bodyGutter - spans[i].col
+	}
+	spans[len(spans)-1].width = lineWidth - spans[len(spans)-1].col
+	return spans
+}
+
 // sectionCell is the text one section's columns carry on a rendered line.
 func sectionCell(line string, sp sectionSpan) string {
 	plain := ansi.Strip(line)
@@ -54,11 +72,11 @@ func sectionCell(line string, sp sectionSpan) string {
 }
 
 // bodySections is the rendered body's sections keyed by their heading. The
-// heading sits over a rule as wide as the section's own column, and the rows
-// under it are that column's slice of the lines below, down to the blank row
-// that closes the block or the rule that opens the next section. Reading the
-// columns rather than the whole line matters side by side, where the Details
-// section repeats probe names the Checks section is not showing as rows.
+// heading sits over a short rule on a row padded to the section's own width.
+// The rows under it are that column's slice of the lines below, down to the
+// blank row that closes the block or the rule that opens the next section.
+// Reading the columns rather than the whole line matters side by side, where
+// Details repeats probe names the Checks section is not showing as rows.
 func bodySections(v string) map[string][]string {
 	lines := strings.Split(v, "\n")
 	out := map[string][]string{}

@@ -95,7 +95,9 @@ var actionDefs = []actionDef{
 	{actPageDown, "page-down", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"page", "page down"}}},
 	{actHalfPageUp, "half-page-up", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"half page", "half page up"}}},
 	{actHalfPageDown, "half-page-down", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"half page", "half page down"}}},
-	{actOpen, "open", "Full output", groupRun, map[keyContext]actionHelp{ctxList: {"open", "full output; on the network map, open a device then diagnose one of its services"}}},
+	// "full output" rather than "open": the Checks bar carries this chip
+	// beside the selected check's own key, so it has to name what it opens.
+	{actOpen, "open", "Full output", groupRun, map[keyContext]actionHelp{ctxList: {"full output", "full output; on the network map, open a device then diagnose one of its services"}}},
 	{actFilter, "filter", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"filter", "filter lines"}}},
 	{actCopy, "copy", "Copy report", groupReport, map[keyContext]actionHelp{
 		ctxList:   {"copy", "copy selected portal URL, otherwise report"},

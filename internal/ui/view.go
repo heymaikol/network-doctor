@@ -2010,6 +2010,27 @@ func (m model) helpView(deferred bool) string {
 			}
 		}
 		addPair(actUp, actDown)
+		// The only key that acts on the selected check. enter is not it: it
+		// opens the focused job's output, which is a different region and is
+		// there whether or not a check is selected, so without this chip the
+		// bar answers how to move and how to leave but never what the primary
+		// key does to the thing under the cursor. Availability is the same
+		// selection test the compact bar uses, so the route to selected
+		// evidence stops appearing and disappearing with the terminal height.
+		if m.actionAvailable(actCheckDetails) {
+			addAction(actCheckDetails)
+		}
+		// What enter does here. The Tool output pane shows a tail, so once a
+		// job exists the screen is already carrying output the reader cannot
+		// read all of, and the route to the rest was named only by the bars a
+		// short terminal swaps in: the tall window showed the pane and said
+		// nothing. The predicate is the dispatch's own, so the chip cannot
+		// promise a key that would do something else, and it is the job's
+		// existence rather than the pane's visibility, which the layout takes
+		// away and gives back as rows come and go.
+		if m.actionAvailable(actOpen) {
+			addAction(actOpen)
+		}
 	}
 	addActions()
 	addAction(actHelp)
@@ -2135,7 +2156,9 @@ func (m model) hiddenRegionHelp(deferred bool) string {
 		context = fmt.Sprintf("Check %d/%d: %s", at+1, len(rows), m.probes[m.selected].Name)
 	}
 	add(m.keys.pairLabel(ctxList, actUp, actDown), "move")
-	add(m.keys.label(ctxList, actCheckDetails), "details")
+	if m.actionAvailable(actCheckDetails) {
+		add(m.keys.label(ctxList, actCheckDetails), "details")
+	}
 	if m.hasJob() {
 		add(m.keys.label(ctxList, actOpen), "full output")
 	} else {

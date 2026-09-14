@@ -217,7 +217,9 @@ func TestChecksFooterIsCompactAndUsesTheActiveKeymap(t *testing.T) {
 			m.keys, m.width = km, 200
 			bar := ansi.Strip(m.helpView(false))
 			var kv []string
-			for _, act := range []keyAction{actActions, actHelp, actQuit} {
+			// Check details is the only key that acts on the selected check,
+			// so it is bar vocabulary rather than a secondary action.
+			for _, act := range []keyAction{actCheckDetails, actActions, actHelp, actQuit} {
 				help, _ := actionHelpFor(ctxList, act)
 				kv = append(kv, km.label(ctxList, act), help.bar)
 			}
@@ -239,7 +241,11 @@ func TestChecksFooterIsCompactAndUsesTheActiveKeymap(t *testing.T) {
 						t.Errorf("%d-column footer has a %d-column line: %q", width, got, line)
 					}
 				}
-				if rows := lipgloss.Height(footer); width >= 80 && rows != 1 || width == 30 && rows > 2 {
+				// 30 columns is narrower than any terminal the TUI targets and
+				// is here to prove the bar wraps rather than overflows. It
+				// takes a third row now that the bar names the selected
+				// check's action; 80 and above still fit on one.
+				if rows := lipgloss.Height(footer); width >= 80 && rows != 1 || width == 30 && rows > 3 {
 					t.Errorf("%d-column footer uses %d rows: %q", width, rows, ansi.Strip(footer))
 				}
 			}

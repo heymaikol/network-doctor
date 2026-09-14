@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -255,6 +256,176 @@ func TestMonochromeStillNamesActiveProgress(t *testing.T) {
 	for _, want := range []string{"Checking your connection", fmt.Sprintf("1/%d complete", len(m.probes)), "1 running"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("monochrome active view lost %q:\n%s", want, plain)
+		}
+	}
+}
+
+func contextHierarchyModel(t *testing.T, endpoint string, incidents int, active, running bool) model {
+	t.Helper()
+	m := NewWithSelection(mustTarget(t, endpoint), nil, false, true, "", "test",
+		diagnostic.DefaultPublicDNS, true, diagnostic.ProbeSelection{}).(model)
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return now }
+	m = watchRun(t, m, nil)
+	for i := 0; i < incidents; i++ {
+		now = now.Add(time.Minute)
+		m = watchRun(t, m, dnsOutage)
+		if i+1 < incidents || !active {
+			now = now.Add(time.Minute)
+			m = watchRun(t, m, nil)
+		}
+	}
+	if active {
+		now = now.Add(12*time.Minute + 34*time.Second)
+	}
+	if running {
+		m = asModel(t, must(m.Update(watchMsg{gen: m.generation})))
+		for _, p := range m.probes[:7] {
+			m.started[p.ID] = true
+			m.results[p.ID] = diagnostic.ProbeResult{ID: p.ID, Status: diagnostic.StatusPass}
+		}
+	}
+	m = onWireless(m)
+	ssid := m.results[diagnostic.ProbeSSID]
+	ssid.Network = "manufacturing-floor-west-redundant-uplink"
+	m.results[diagnostic.ProbeSSID] = ssid
+	if running {
+		m.started[diagnostic.ProbeSSID] = true
+		left := 2
+		for _, p := range m.probes {
+			if _, done := m.results[p.ID]; !done && left > 0 {
+				m.started[p.ID] = true
+				left--
+			}
+		}
+	}
+	return m
+}
+
+func TestContextStripGroupsOperationalStateBeforeHistoryAndNetwork(t *testing.T) {
+	const target = "edge-router-observability-control-plane.documentation.example:8443"
+	m := contextHierarchyModel(t, target, 3, true, true)
+	m.width, m.height = 100, 40
+	plain := ansi.Strip(m.headerView())
+	lines := strings.Split(plain, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("context rows = %d, want three deliberate groups:\n%s", len(lines), plain)
+	}
+	if lines[0] != target {
+		t.Errorf("identity row = %q, want the complete target %q", lines[0], target)
+	}
+	for _, want := range []string{"watch", "incident active for 12m34s", "8/13 complete", "2 running", "3 incidents recorded"} {
+		if !strings.Contains(lines[1], want) {
+			t.Errorf("operational row lost %q: %q", want, lines[1])
+		}
+	}
+	if lines[2] != "Wi-Fi: manufacturing-floor-west-redundant-uplink" {
+		t.Errorf("environment row = %q", lines[2])
+	}
+	if got := strings.Count(ansi.Strip(m.View()), "8/13 complete"); got != 1 {
+		t.Errorf("aggregate progress appears %d times, want once", got)
+	}
+	if done, active := m.runProgress(); done != 8 || active != 2 {
+		t.Errorf("fixture progress = %d complete, %d running", done, active)
+	}
+	mono := m
+	mono.setTheme(resolveTheme("monochrome"))
+	if got := ansi.Strip(mono.headerView()); got != plain {
+		t.Errorf("monochrome changed the hierarchy:\n%s\nwant:\n%s", got, plain)
+	}
+}
+
+func TestContextStripWidthDegradesInPriorityOrder(t *testing.T) {
+	const target = "edge-router-observability-control-plane.documentation.example:8443"
+	base := contextHierarchyModel(t, target, 3, true, true)
+	for _, tc := range []struct {
+		width, rows    int
+		count, network bool
+	}{
+		{140, 2, true, true}, {120, 2, true, true}, {100, 3, true, true},
+		{80, 3, true, true}, {70, 3, true, false},
+		{60, 4, false, false}, {50, 4, false, false},
+	} {
+		m := base
+		m.width = tc.width
+		strip := ansi.Strip(m.headerView())
+		if got := lipgloss.Height(strip); got != tc.rows {
+			t.Errorf("width %d: rows = %d, want %d:\n%s", tc.width, got, tc.rows, strip)
+		}
+		joined := strings.ReplaceAll(strip, "\n", "")
+		for _, essential := range []string{target, "watch", "incident active for 12m34s", "8/13 complete", "2 running"} {
+			if !strings.Contains(joined, essential) {
+				t.Errorf("width %d: lost essential %q:\n%s", tc.width, essential, strip)
+			}
+		}
+		if got := strings.Contains(strip, "3 incidents recorded"); got != tc.count {
+			t.Errorf("width %d: recorded count present = %v, want %v", tc.width, got, tc.count)
+		}
+		if got := strings.Contains(strip, "Wi-Fi:"); got != tc.network {
+			t.Errorf("width %d: network present = %v, want %v", tc.width, got, tc.network)
+		}
+		for _, line := range strings.Split(m.headerView(), "\n") {
+			if got := lipgloss.Width(line); got > tc.width {
+				t.Errorf("width %d: line is %d columns: %q", tc.width, got, ansi.Strip(line))
+			}
+		}
+	}
+}
+
+func TestActiveAndRecoveredIncidentContextHaveDifferentPriority(t *testing.T) {
+	const target = "edge-router-observability-control-plane.documentation.example:8443"
+	active := contextHierarchyModel(t, target, 1, true, true)
+	recovered := contextHierarchyModel(t, target, 1, false, true)
+	for _, m := range []*model{&active, &recovered} {
+		m.width = 60
+	}
+	if got := strings.ReplaceAll(ansi.Strip(active.headerView()), "\n", ""); !strings.Contains(got, "incident active") {
+		t.Fatalf("active incident yielded at narrow width: %q", got)
+	}
+	if got := ansi.Strip(recovered.headerView()); strings.Contains(got, "last incident recovered") {
+		t.Fatalf("historical incident displaced current-pass context: %q", got)
+	}
+	recovered.width = 100
+	if got := ansi.Strip(recovered.headerView()); !strings.Contains(got, "last incident recovered") || strings.Contains(got, "incident active") {
+		t.Fatalf("roomy recovered context is not distinct from active: %q", got)
+	}
+	active = contextHierarchyModel(t, "example.com:443", 1, true, false)
+	if got := ansi.Strip(active.headerView()); !strings.Contains(got, "watch") || !strings.Contains(got, "incident active") || strings.Contains(got, "complete") || strings.Contains(got, "running") {
+		t.Fatalf("idle Watch context carries stale pass state: %q", got)
+	}
+}
+
+func TestContextStripKeepsTargetsUnambiguous(t *testing.T) {
+	for _, endpoint := range []string{
+		"edge-router-observability-control-plane.documentation.example:8443",
+		"192.0.2.200:8443",
+		"[2001:db8:1234:5678:90ab:cdef:1020:3040]:8443",
+	} {
+		m := newModel(mustTarget(t, endpoint), false)
+		m.width = 50
+		strip := ansi.Strip(m.headerView())
+		if got := strings.ReplaceAll(strip, "\n", ""); got != endpoint {
+			t.Errorf("target %q rendered ambiguously as %q", endpoint, got)
+		}
+		for _, line := range strings.Split(m.headerView(), "\n") {
+			if got := lipgloss.Width(line); got > m.width {
+				t.Errorf("target %q overflows by %d columns", endpoint, got-m.width)
+			}
+		}
+	}
+}
+
+func TestContextHierarchyRespectsShortTerminalBudgets(t *testing.T) {
+	base := contextHierarchyModel(t, "edge-router-observability-control-plane.documentation.example:8443", 3, true, true)
+	for _, size := range shortSizes {
+		m := base
+		m.width, m.height = size[0], size[1]
+		assertViewFits(t, m)
+		plain := strings.ReplaceAll(ansi.Strip(m.View()), "\n", "")
+		for _, want := range []string{"edge-router-observability-control-plane.documentation.example:8443", "watch", "incident active", "8/13 complete", "2 running"} {
+			if !strings.Contains(plain, want) {
+				t.Errorf("%dx%d lost %q", m.width, m.height, want)
+			}
 		}
 	}
 }

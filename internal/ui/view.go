@@ -149,7 +149,7 @@ func (m model) View() string {
 		gap = "\n"
 	}
 	header := ""
-	if h := m.wrap(m.headerView()); h != "" {
+	if h := m.headerView(); h != "" {
 		header = h + "\n"
 	}
 	// The causal strip sits between the context and the body sections: it is about
@@ -363,30 +363,28 @@ func (m model) targetHP() string {
 	return net.JoinHostPort(m.target.Host, strconv.Itoa(m.target.Port))
 }
 
-// headerView is the one-line context strip under the banner: target, connected
-// network, watch mode, and this pass's progress while one is running. Empty
-// when there is nothing to say, and the caller drops the line rather than
-// rendering a blank one.
+// headerView is the context strip under the banner. The complete target,
+// current session/event and active-pass groups always remain. Recovered state,
+// incident count and network identity follow in that priority order only while
+// the strip stays within three rows. Groups wrap only at their boundaries.
 func (m model) headerView() string {
-	var parts []string
+	var groups, optional []string
 	if m.target != nil {
-		parts = append(parts, m.targetHP())
-	}
-	if n := m.networkLine(); n != "" {
-		parts = append(parts, n)
+		groups = append(groups, m.targetHP())
 	}
 	if m.watch {
-		parts = append(parts, "watch")
+		session := []string{"watch"}
 		if latest, ok := m.incidents.Latest(); ok {
-			state := "last incident recovered after " + durationText(latest.Duration(m.incidentNow()))
 			if latest.Active() {
-				state = "incident active for " + durationText(latest.Duration(m.incidentNow()))
+				session = append(session, "incident active for "+durationText(latest.Duration(m.incidentNow())))
+			} else {
+				optional = append(optional, "last incident recovered after "+durationText(latest.Duration(m.incidentNow())))
 			}
 			if count := len(m.incidents.Incidents()); count > 1 {
-				state += fmt.Sprintf(" (%d recorded)", count)
+				optional = append(optional, fmt.Sprintf("%d incidents recorded", count))
 			}
-			parts = append(parts, state)
 		}
+		groups = append(groups, strings.Join(session, "  ·  "))
 	}
 	// Progress is about the pass in flight, so it goes away with the pass: a
 	// finished run says so with its verdict, and "12/12 complete" under it
@@ -395,15 +393,36 @@ func (m model) headerView() string {
 	// nothing is dispatched rather than rounded up to look busy.
 	if m.chainRan() && !m.allDone() {
 		done, running := m.runProgress()
-		parts = append(parts, fmt.Sprintf("%d/%d complete", done, len(m.probes)))
+		progress := []string{fmt.Sprintf("%d/%d complete", done, len(m.probes))}
 		if running > 0 {
-			parts = append(parts, fmt.Sprintf("%d running", running))
+			progress = append(progress, fmt.Sprintf("%d running", running))
 		}
+		groups = append(groups, strings.Join(progress, "  ·  "))
 	}
-	if len(parts) == 0 {
+	if n := m.networkLine(); n != "" {
+		optional = append(optional, n)
+	}
+	if len(groups) == 0 && len(optional) == 0 {
 		return ""
 	}
-	return m.st.faint.Render(strings.Join(parts, "  ·  "))
+	if m.width <= 0 {
+		return m.st.faint.Render(strings.Join(append(groups, optional...), "  │  "))
+	}
+	render := func(parts []string) string {
+		styled := make([]string, len(parts))
+		for i, part := range parts {
+			styled[i] = m.st.faint.Render(part)
+		}
+		return joinChips(m.width, m.st.faint.Render("  │  "), styled)
+	}
+	for _, part := range optional {
+		candidate := append(groups, part)
+		if lipgloss.Height(render(candidate)) > 3 {
+			break
+		}
+		groups = candidate
+	}
+	return render(groups)
 }
 
 // bodyView renders the Checks section and, beside it, the Details section when

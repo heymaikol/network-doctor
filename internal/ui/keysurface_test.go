@@ -114,7 +114,7 @@ func TestHelpBarCarriesOnlyItsRegionAndTheDiscoveryKeys(t *testing.T) {
 			// The discovery tail is what makes an unadvertised binding
 			// findable, so it is never the part that yields.
 			for _, must := range []string{"actions", "help", "quit"} {
-				if _, ok := got[must]; !ok && !(must == "actions" && got["actions: rescan"] != "") {
+				if _, ok := got[must]; !ok && (must != "actions" || got["actions: rescan"] == "") {
 					t.Errorf("%s/%s help bar dropped the %q chip", preset, screen.name, must)
 				}
 			}

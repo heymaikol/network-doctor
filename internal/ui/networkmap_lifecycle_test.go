@@ -330,7 +330,7 @@ func TestNetworkMapCuesSurviveMonochromeAndConstrainedTerminals(t *testing.T) {
 			if devices && !cue {
 				t.Errorf("devices are on screen with nothing saying they are cached:\n%s", plain)
 			}
-			if size[2] == 1 && !(cue && devices) {
+			if size[2] == 1 && (!cue || !devices) {
 				t.Errorf("cue=%v devices=%v, want both at this size:\n%s", cue, devices, plain)
 			}
 		})

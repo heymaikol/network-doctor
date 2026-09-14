@@ -197,10 +197,7 @@ func TestObservedKeepsChronology(t *testing.T) {
 		t.Errorf("a refusal either side of a success collapsed into %d group(s), want 2:\n%s", got, text)
 	}
 	// And the measurements are still in the order they were taken.
-	var seen []string
-	for _, at := range regexp.MustCompile(`203\.0\.113\.\d+`).FindAllString(text, -1) {
-		seen = append(seen, at)
-	}
+	seen := regexp.MustCompile(`203\.0\.113\.\d+`).FindAllString(text, -1)
 	if strings.Join(seen, ",") != strings.Join(ips, ",") {
 		t.Errorf("the evidence reads %v, want the measured order %v:\n%s", seen, ips, text)
 	}

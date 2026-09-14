@@ -181,6 +181,7 @@ The TUI's default key bindings:
 | `↑`/`↓` (`k`/`j`) | select a probe row, or a device or service in the network map |
 | `a` | expand the checks a finished run collapsed, and collapse them again |
 | `e` | show why the selected diagnosis follows from the observed checks, and return to normal details |
+| `D` | open the selected check's complete evidence; `q` or `esc` returns to the same check |
 | `i` | in Watch Mode, inspect recorded incidents; use left/right to choose one, and `w` to save it as `.ndoc` |
 | `v` | show the cached LAN map, or confirm and run discovery when no LAN scan exists |
 | `enter` | open the selected map device, then diagnose one of the services it answers on, or open the current tool job's output |

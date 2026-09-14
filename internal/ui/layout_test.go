@@ -17,15 +17,15 @@ import (
 )
 
 // persistentLines is the block that must survive every size and every scroll
-// position: the plain-English verdict, its drill-down hint, and the help bar.
-// The diagnosis's own action is checked from the model in checkPersistent,
-// since it is the line whose wording the diagnosis owns. The context strip is
-// checked separately by hasLine, because the target it names also appears
-// inside the verdict sentence.
+// position: the plain-English verdict and its drill-down hint. The diagnosis's
+// own action is checked from the model in checkPersistent, since it is the line
+// whose wording the diagnosis owns. The context strip is checked separately by
+// hasLine, because the target it names also appears inside the verdict sentence.
+// Full help is intentionally absent here: short terminals compact it before
+// discarding selected evidence.
 var persistentLines = []string{
 	"path MTU black hole",
 	"Next: press t for trace the path (traceroute)",
-	"? help",
 }
 
 // hasCursorRow reports whether the Checks panel is showing the selected probe.

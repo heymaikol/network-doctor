@@ -169,6 +169,12 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case actCheckDetails:
+		if !m.actionAvailable(actCheckDetails) {
+			return m, m.setNotice("no check details are available here", false)
+		}
+		m.openDetailsViewer()
+		return m, nil
 	case actIncidents:
 		if !m.watch {
 			return m, m.setNotice("incident history is available in watch mode", false)
@@ -557,6 +563,45 @@ func (m model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleDetailsKey scrolls the selected check's evidence. It uses the output
+// viewer bindings, so both key presets agree with the footer without adding a
+// second navigation vocabulary.
+func (m model) handleDetailsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	act, pending := m.resolveKey(ctxViewer, msg.String())
+	m.pendingKeys = pending
+	if len(pending) > 0 {
+		return m, nil
+	}
+	switch act {
+	case actClearFilter, actBack:
+		m.detailsViewing = false
+	case actUp:
+		m.detailsVP.ScrollUp(1)
+	case actDown:
+		m.detailsVP.ScrollDown(1)
+	case actTop:
+		m.detailsVP.GotoTop()
+	case actBottom:
+		m.detailsVP.GotoBottom()
+	case actPageUp:
+		m.detailsVP.PageUp()
+	case actPageDown:
+		m.detailsVP.PageDown()
+	case actHalfPageUp:
+		m.detailsVP.HalfPageUp()
+	case actHalfPageDown:
+		m.detailsVP.HalfPageDown()
+	}
+	return m, nil
+}
+
+func (m *model) openDetailsViewer() {
+	m.detailsViewing = true
+	m.detailsVP = viewport.New(max(m.width, 1), 1)
+	m.detailsVP.KeyMap = viewport.KeyMap{}
+	m.refreshDetailsViewport(true)
+}
+
 // handlePromptKey handles keys while the restart prompt is open. Enter parses
 // the line and restarts (deferred if a job is still running), esc closes, and
 // everything else edits the input.
@@ -771,6 +816,7 @@ func (m *model) resetPresentation() {
 	m.networkMap, m.mapSelected, m.networkCIDR = false, 0, ""
 	m.svc = serviceChoice{}
 	m.hostNames = nil
+	m.detailsViewing = false
 	m.notice = ""
 }
 

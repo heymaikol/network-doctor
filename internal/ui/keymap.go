@@ -36,6 +36,7 @@ const (
 	actRescanNetwork
 	actExpand
 	actExplain
+	actCheckDetails
 	actIncidents
 	actActions
 	actTheme
@@ -108,6 +109,7 @@ var actionDefs = []actionDef{
 	{actRescanNetwork, "rescan-network", "Rescan network", map[keyContext]actionHelp{ctxList: {"", "run fresh LAN discovery from the Actions menu"}}},
 	{actExpand, "expand", "Expand checks", map[keyContext]actionHelp{ctxList: {"expand", "show the collapsed passing checks"}}},
 	{actExplain, "explain", "Explain why", map[keyContext]actionHelp{ctxList: {"why", "show why the selected diagnosis follows from the observed checks"}}},
+	{actCheckDetails, "check-details", "Check details", map[keyContext]actionHelp{ctxList: {"details", "open the selected check's complete evidence"}}},
 	{actIncidents, "incidents", "Incidents", map[keyContext]actionHelp{ctxList: {"incidents", "inspect failures recorded during this watch session"}}},
 	{actRestart, "restart", "Restart", map[keyContext]actionHelp{ctxList: {"restart", "restart with a new target"}}},
 	{actRetest, "retest", "Retest checks", map[keyContext]actionHelp{ctxList: {"retest", "rerun the same checks on the same target, after acting on the remediation"}}},
@@ -136,24 +138,25 @@ type keyPreset [numContexts]actionBindings
 // defaultPreset preserves the existing TUI key bindings as the default.
 var defaultPreset = keyPreset{
 	ctxList: {
-		actUp:         {"up", "k"},
-		actDown:       {"down", "j"},
-		actOpen:       {"enter"},
-		actCancelJob:  {"esc"},
-		actSwitchJob:  {"tab"},
-		actCopy:       {"y"},
-		actSave:       {"w"},
-		actRestart:    {"r"},
-		actRetest:     {"R"},
-		actSSH:        {"S"},
-		actNetworkMap: {"v"},
-		actExpand:     {"a"},
-		actExplain:    {"e"},
-		actIncidents:  {"i"},
-		actActions:    {" "},
-		actTheme:      {"T"},
-		actHelp:       {"?"},
-		actQuit:       {"q"},
+		actUp:           {"up", "k"},
+		actDown:         {"down", "j"},
+		actOpen:         {"enter"},
+		actCancelJob:    {"esc"},
+		actSwitchJob:    {"tab"},
+		actCopy:         {"y"},
+		actSave:         {"w"},
+		actRestart:      {"r"},
+		actRetest:       {"R"},
+		actSSH:          {"S"},
+		actNetworkMap:   {"v"},
+		actExpand:       {"a"},
+		actExplain:      {"e"},
+		actCheckDetails: {"D"},
+		actIncidents:    {"i"},
+		actActions:      {" "},
+		actTheme:        {"T"},
+		actHelp:         {"?"},
+		actQuit:         {"q"},
 	},
 	ctxViewer: {
 		actUp:          {"up", "k"},

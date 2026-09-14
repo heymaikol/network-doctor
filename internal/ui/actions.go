@@ -128,6 +128,8 @@ func (m model) actionAvailable(act keyAction) bool {
 	case actExplain:
 		d := m.diagnosis()
 		return m.allDone() && len(d.Findings) > 0 && len(d.Findings[0].Evidence) > 0
+	case actCheckDetails:
+		return !m.networkMap && slices.Contains(m.checkRows(), m.selected)
 	case actIncidents:
 		return m.watch && len(m.incidents.Incidents()) > 0
 	case actCopy:
@@ -206,7 +208,7 @@ func (m model) actionGroupFor(act keyAction) actionGroup {
 			return groupNetwork
 		}
 		return groupRun
-	case actSwitchJob, actExpand, actExplain, actIncidents, actRetest:
+	case actSwitchJob, actExpand, actExplain, actCheckDetails, actIncidents, actRetest:
 		return groupRun
 	case actNetworkMap, actRescanNetwork, actSSH:
 		return groupNetwork

@@ -210,6 +210,12 @@ type model struct {
 	filter      string
 	filterInput textinput.Model
 
+	// Selected check details. The main view keeps the
+	// answer pinned while this viewport is the explicit route to evidence that
+	// cannot share a short terminal with it.
+	detailsViewing bool
+	detailsVP      viewport.Model
+
 	// Restart prompt (r): an editable netdoc command line. Enter parses
 	// and restarts; esc closes without touching the current run. Up/down
 	// walk this session's past targets, shell-style; histDraft keeps the
@@ -549,6 +555,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewing {
 			m.refreshViewport()
 		}
+		if m.detailsViewing {
+			m.refreshDetailsViewport(false)
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -595,6 +604,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.incidentViewing {
 			return m.handleIncidentKey(msg)
+		}
+		if m.detailsViewing {
+			return m.handleDetailsKey(msg)
 		}
 		if m.viewing {
 			return m.handleViewKey(msg)
@@ -689,6 +701,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewing {
 			m.refreshViewport()
 		}
+		if m.detailsViewing {
+			m.refreshDetailsViewport(false)
+		}
 		return m, cmd
 
 	case probeDoneMsg:
@@ -711,11 +726,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.recordRun()
 				cmds = append(cmds, m.watchCmd())
 			}
-			if !m.selMoved && !m.viewing {
+			if !m.selMoved && !m.viewing && !m.detailsViewing {
 				if i := m.focusTarget(); i >= 0 {
 					m.selected = i
 				}
 			}
+		}
+		if m.detailsViewing {
+			m.refreshDetailsViewport(false)
 		}
 		return m, tea.Batch(cmds...)
 

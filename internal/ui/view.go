@@ -119,21 +119,22 @@ func (m model) View() string {
 	if m.incidentViewing {
 		return m.incidentView()
 	}
+	if m.detailsViewing {
+		return m.detailsView()
+	}
 	if m.viewing {
 		return m.outputView()
 	}
 	deferred := m.toolbox && !m.chainRan()
 
-	// shrink re-renders the results block inside a row budget. The network map
-	// has no cursor-following list to scroll, so it is clipped instead.
+	// shrink re-renders the selected supporting region inside a row budget.
+	// Both regions follow their existing cursor, so moving through a short
+	// window never leaves the selection outside it.
 	shrink := func(rows int) string { return m.bodyView(deferred, rows) }
+	bodyFloor := bodyMinRows
 	if m.networkMap {
-		shrink = func(rows int) string {
-			if rows <= 0 {
-				return m.networkMapView()
-			}
-			return lipgloss.NewStyle().MaxHeight(rows).Render(m.networkMapView())
-		}
+		shrink = m.networkMapViewRows
+		bodyFloor = mapMinRows
 	}
 	body := shrink(0)
 	answer := m.answerBlock() + "\n"
@@ -185,10 +186,16 @@ func (m model) View() string {
 	budget := func() {
 		fixed = answer + gap + header + path
 		if body != "" {
-			// Blank rows above and below: with no border around the sections,
-			// the space is what holds the block off the context strip over it
-			// and off the job pane under it.
-			fixed += "\n" + body + "\n\n"
+			if m.networkMap {
+				// The panel border already separates the map from its context. It
+				// does not need the two blank rows the unboxed Checks body uses.
+				fixed += body + "\n"
+			} else {
+				// Blank rows above and below: with no border around the sections,
+				// the space is what holds the block off the context strip over it
+				// and off the job pane under it.
+				fixed += "\n" + body + "\n\n"
+			}
 		}
 		avail = m.height - strings.Count(fixed, "\n") - strings.Count(tail, "\n") - 1
 	}
@@ -206,35 +213,49 @@ func (m model) View() string {
 	if m.entering && m.hasJob() {
 		minAvail = 5
 	}
-	// Still overflowing: shed in order of what the reader can do without. The
-	// results block scrolls down toward a single probe row, then the causal strip
-	// goes, then the block goes entirely.
-	// The answer block carries the verdict, its Fix and Next lines and the
-	// diagnosis's next action, the header carries the target that answer is
-	// about, and the help bar is the way to anywhere else, so those three
-	// never yield to the results block.
-	if m.height > 0 && avail < minAvail {
-		body = shrink(max(lipgloss.Height(body)+avail-minAvail, bodyMinRows))
+	// Short-terminal degradation contract: the answer and essential target
+	// context stay pinned; full help chrome compacts first; substantial regions
+	// window around their cursor; the causal strip and visual separator yield
+	// before the selected evidence; and the final height clamp can only cut from
+	// the bottom. The Check details view keeps the complete selected evidence
+	// reachable when even the smallest body cannot share the screen.
+	ordinaryHelp := !m.entering && !m.sshPrompt && m.confirmTool == nil && !m.theming && !m.actionsOpen
+	if m.height > 0 && avail < minAvail && ordinaryHelp {
+		tail = m.compactHelpView(deferred) + "\n"
 		budget()
 	}
-	// The strip goes once the block below it has stopped yielding rows: it is
-	// the whole path in one line, which is worth more to a reader than the
-	// probe row a scrolled list would give back, but the list is still the
-	// thing carrying the evidence.
+	shrinkBody := func() {
+		shrunken := shrink(max(lipgloss.Height(body)+avail-minAvail, bodyFloor))
+		if shrunken != "" {
+			body = shrunken
+			budget()
+		}
+	}
+	if m.height > 0 && avail < minAvail && body != "" {
+		shrinkBody()
+	}
+	// The path summarizes the answer, so it yields before selected evidence.
 	if m.height > 0 && avail < minAvail && path != "" {
 		path = ""
 		budget()
 	}
 	if m.height > 0 && avail < minAvail && body != "" {
-		body = ""
-		budget()
+		shrinkBody()
 	}
-	// The separator is the last thing above the help bar to go: with the path
-	// and the sections already shed there is nothing left under the answer for
-	// it to hold apart, and the row is worth more to the bar that says how to
-	// get anywhere else.
+	// The blank separator carries hierarchy but no information, so it yields
+	// before a selected check or map row does.
 	if m.height > 0 && avail < minAvail && gap != "" {
 		gap = ""
+		budget()
+	}
+	if m.height > 0 && avail < minAvail && body != "" {
+		shrinkBody()
+	}
+	if m.height > 0 && avail < minAvail && body != "" {
+		body = ""
+		if ordinaryHelp {
+			tail = m.hiddenRegionHelp(deferred) + "\n"
+		}
 		budget()
 	}
 	job := m.jobView(avail)
@@ -256,6 +277,11 @@ func (m model) View() string {
 // its rule, and one probe row. Below that the block is dropped rather than
 // rendered as a heading with nothing under it.
 const bodyMinRows = 3
+
+// A constrained map needs its two border rows, title, freshness line and the
+// selected host or service. Below this it yields whole rather than leaving an
+// open border or an invisible cursor.
+const mapMinRows = 5
 
 // consequenceLabel marks a failed row the diagnosis has already explained as
 // downstream of the failure it blames. It is spelled out rather than left to
@@ -296,6 +322,7 @@ const bodyGutter = 2
 const (
 	mapTitle     = "Network map"
 	viewerTitle  = "Full output"
+	detailsTitle = "Check details"
 	jobPaneTitle = "Tool output"
 )
 
@@ -1231,9 +1258,10 @@ func (m model) namePending(address string) bool {
 // serviceChooserView renders what one opened device answered on the common
 // service ports: the endpoints the checks can be pointed at, or, when there
 // are none, exactly what was learned instead of guessing at one.
-func (m model) serviceChooserView() string {
-	var b strings.Builder
-	b.WriteString(m.st.panelTitle.Render(mapTitle+" · Services on "+m.svc.name) + "\n")
+func (m model) serviceChooserView() string { return m.serviceChooserViewRows(0) }
+
+func (m model) serviceChooserViewRows(rows int) string {
+	fixed := []string{m.st.panelTitle.Render(mapTitle + " · Services on " + m.svc.name)}
 	scan := m.svc.scan
 	// Two things a reader cannot see from the list itself: the device is a row
 	// of the snapshot rather than a live connection, and enter here does not
@@ -1245,10 +1273,11 @@ func (m model) serviceChooserView() string {
 	if m.svc.done && len(scan.Open) > 0 {
 		origin += " · " + m.keys.label(ctxList, actOpen) + " restarts the checks against the selected service"
 	}
-	b.WriteString(m.st.faint.Render(origin) + "\n")
+	fixed = append(fixed, m.st.faint.Render(origin))
+	var items []string
 	switch {
 	case !m.svc.done:
-		b.WriteString(m.spinner.View() + m.st.faint.Render(" checking common service ports…") + "\n")
+		fixed = append(fixed, m.spinner.View()+m.st.faint.Render(" checking common service ports…"))
 	case len(scan.Open) > 0:
 		for i, svc := range scan.Open {
 			branch := "├─ "
@@ -1260,18 +1289,20 @@ func (m model) serviceChooserView() string {
 			if i == m.svc.sel {
 				marker, row = m.st.sel.Render("› "), m.st.sel.Render(row)
 			}
-			b.WriteString(marker + m.st.faint.Render(branch) + m.st.pass.Render("●") + " " + row + "\n")
+			items = append(items, marker+m.st.faint.Render(branch)+m.st.pass.Render("●")+" "+row)
 		}
 	case scan.Refused > 0:
 		// A refusal is an answer: the device is there and reachable, and the
 		// only thing missing is something listening.
-		b.WriteString(m.st.faint.Render(fmt.Sprintf("└─ No common service answered, but %d of %d ports refused the connection, so the device is on the network.", scan.Refused, scan.Checked())) + "\n")
-		b.WriteString(m.st.faint.Render("Press "+m.keys.label(ctxList, actRestart)+" to name a port yourself.") + "\n")
+		fixed = append(fixed,
+			m.st.faint.Render(fmt.Sprintf("└─ No common service answered, but %d of %d ports refused the connection, so the device is on the network.", scan.Refused, scan.Checked())),
+			m.st.faint.Render("Press "+m.keys.label(ctxList, actRestart)+" to name a port yourself."))
 	default:
-		b.WriteString(m.st.faint.Render(fmt.Sprintf("└─ Nothing answered on any of the %d ports checked: the device may be powered off, may have left the network, or may be dropping connections.", scan.Checked())) + "\n")
-		b.WriteString(m.st.faint.Render("Press "+m.keys.label(ctxList, actRestart)+" to name a port yourself.") + "\n")
+		fixed = append(fixed,
+			m.st.faint.Render(fmt.Sprintf("└─ Nothing answered on any of the %d ports checked: the device may be powered off, may have left the network, or may be dropping connections.", scan.Checked())),
+			m.st.faint.Render("Press "+m.keys.label(ctxList, actRestart)+" to name a port yourself."))
 	}
-	return m.st.panel.Width(fitPanelWidth(m.st.panel, m.width)).Render(strings.TrimRight(b.String(), "\n"))
+	return m.mapPanel(fixed, fixed, items, m.svc.sel, rows)
 }
 
 // snapshotLine says what the device list under it is: a scan running now, or
@@ -1327,9 +1358,11 @@ func (m *model) lastSuccessfulScan() *jobState {
 
 // networkMapView renders hosts found by the LAN scan, or the services of the
 // device opened from it.
-func (m model) networkMapView() string {
+func (m model) networkMapView() string { return m.networkMapViewRows(0) }
+
+func (m model) networkMapViewRows(rows int) string {
 	if m.svc.host != "" {
-		return m.serviceChooserView()
+		return m.serviceChooserViewRows(rows)
 	}
 	source, _ := m.discoveryNetwork()
 	hosts := m.networkHosts()
@@ -1363,21 +1396,21 @@ func (m model) networkMapView() string {
 			title += "\n" + lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Right).Render(domain)
 		}
 	}
-	var b strings.Builder
-	b.WriteString(title + "\n")
-	b.WriteString(m.st.faint.Render(m.snapshotLine(len(hosts) > 0)) + "\n")
+	fixed := []string{title, m.st.faint.Render(m.snapshotLine(len(hosts) > 0))}
+	full := slices.Clone(fixed)
 	if prev := (&m).lastSuccessfulScan(); prev != nil {
-		b.WriteString(m.st.faint.Render("Earlier successful scan from "+durationText(m.mapAge(prev.start.Add(prev.dur)))+" ago is still in the job list ("+m.keys.label(ctxList, actSwitchJob)+")") + "\n")
+		full = append(full, m.st.faint.Render("Earlier successful scan from "+durationText(m.mapAge(prev.start.Add(prev.dur)))+" ago is still in the job list ("+m.keys.label(ctxList, actSwitchJob)+")"))
 	}
-	b.WriteString(m.st.sel.Render("◆") + " This device")
+	thisDevice := m.st.sel.Render("◆") + " This device"
 	if m.watch {
-		b.WriteString(" now")
+		thisDevice += " now"
 	}
 	if source != nil {
-		b.WriteString(" " + source.String())
+		thisDevice += " " + source.String()
 	}
-	b.WriteString("\n")
+	full = append(full, thisDevice)
 
+	var items []string
 	for i, host := range hosts {
 		address, name, named := strings.Cut(host, " (")
 		if named {
@@ -1399,20 +1432,52 @@ func (m model) networkMapView() string {
 			marker = m.st.sel.Render("› ")
 			host = m.st.sel.Render(host)
 		}
-		b.WriteString(marker + m.st.faint.Render(branch) + m.st.pass.Render("●") + " " + host + "\n")
+		items = append(items, marker+m.st.faint.Render(branch)+m.st.pass.Render("●")+" "+host)
 	}
 	if len(hosts) == 0 {
 		switch {
 		case m.cur.active != nil:
-			b.WriteString(m.spinner.View() + m.st.faint.Render(" discovering devices…") + "\n")
+			full = append(full, m.spinner.View()+m.st.faint.Render(" discovering devices…"))
 		case m.cur.status != JobDone:
-			b.WriteString(m.st.fail.Render("└─ Discovery "+m.cur.status.String()) + "\n")
+			full = append(full, m.st.fail.Render("└─ Discovery "+m.cur.status.String()))
 		default:
-			b.WriteString(m.st.faint.Render("└─ No other devices replied") + "\n")
+			full = append(full, m.st.faint.Render("└─ No other devices replied"))
 		}
 	}
+	return m.mapPanel(full, fixed, items, m.mapSelected, rows)
+}
 
-	return m.st.panel.Width(panelWidth).Render(strings.TrimRight(b.String(), "\n"))
+// mapPanel renders a full device or service panel when it fits. Under a row
+// budget it pins the orientation and freshness/context lines, then windows the
+// selectable rows around the existing cursor. The cursor remains the source of
+// truth; moving the window never changes selection.
+func (m model) mapPanel(full, fixed, items []string, sel, rows int) string {
+	panelWidth := fitPanelWidth(m.st.panel, m.width)
+	contentWidth := max(panelWidth-m.st.panel.GetHorizontalPadding(), 1)
+	render := func(content []string) string {
+		return m.st.panel.Width(panelWidth).Render(strings.Join(content, "\n"))
+	}
+	complete := append(slices.Clone(full), items...)
+	if view := render(complete); rows <= 0 || lipgloss.Height(view) <= rows {
+		return view
+	}
+	budget := rows - m.st.panel.GetVerticalFrameSize()
+	if len(items) == 0 {
+		return fitBlock(render(fitRows(full, budget, contentWidth)), rows)
+	}
+	if displayRows(fixed, contentWidth) >= budget {
+		return ""
+	}
+	items = slices.Clone(items)
+	sel = min(max(sel, 0), len(items)-1)
+	items[sel] = labelRight(items[sel], fmt.Sprintf("%d of %d", sel+1, len(items)), contentWidth)
+	itemBudget := budget - displayRows(fixed, contentWidth)
+	// Reuse the Checks windowing rule with an empty pinned row. Charging and
+	// then removing that row lets the same display-width accounting keep the
+	// selected map item and the textual hidden-count marker inside itemBudget.
+	window := windowRows(m.st, append([]string{""}, items...), sel, itemBudget+1, contentWidth)
+	content := append(slices.Clone(fixed), window[1:]...)
+	return fitBlock(render(content), rows)
 }
 
 func (m model) discoveryNetwork() (net.IP, string) {
@@ -1613,7 +1678,11 @@ func (m model) actionsView(avail int) string {
 		rows = min(rows, budget)
 		// ponytail: a walk down from the whole list, at most one step per row
 		// and a handful of groups, rather than solving for the window.
-		for rows > 1 && rows+menuHeadings(items, windowStart(rows), rows) > budget {
+		for rows > 1 {
+			headings := menuHeadings(items, windowStart(rows), rows)
+			if rows+headings <= budget && rows >= 2*headings {
+				break
+			}
 			rows--
 		}
 		// A heading earns its line by introducing rows. On a terminal short
@@ -1777,6 +1846,138 @@ func (m model) helpView(deferred bool) string {
 	return withNotice(m.chordHint(helpKeys(m.st, m.width, kv...)))
 }
 
+// compactHelpView keeps only the controls needed to navigate the region on
+// screen and reach the Actions menu. It replaces the full help bar only under
+// height pressure, so convenience commands spend no rows that could carry
+// selected evidence.
+func (m model) compactHelpView(deferred bool) string {
+	var kv []string
+	add := func(label, desc string) {
+		if label != "" {
+			kv = append(kv, label, desc)
+		}
+	}
+	switch {
+	case m.networkMap && m.svc.host != "":
+		add(m.keys.pairLabel(ctxList, actUp, actDown), "select service")
+		if len(m.svc.scan.Open) > 0 {
+			add(m.keys.label(ctxList, actOpen), "diagnose it")
+		}
+		add(m.keys.label(ctxList, actCancelJob), "devices")
+		add(m.keys.label(ctxList, actNetworkMap), "checks")
+	case m.networkMap:
+		hosts := m.networkHosts()
+		if len(hosts) > 0 {
+			add(m.keys.pairLabel(ctxList, actUp, actDown), "select device")
+			add(m.keys.label(ctxList, actOpen), "open device")
+		}
+		add(m.keys.label(ctxList, actNetworkMap), "checks")
+	case deferred:
+		add(m.keys.label(ctxList, actRestart), "run the checks")
+		add(m.keys.label(ctxList, actActions), "actions")
+		add(m.keys.label(ctxList, actHelp), "help")
+	default:
+		add(m.keys.pairLabel(ctxList, actUp, actDown), "select")
+		if m.actionAvailable(actCheckDetails) {
+			add(m.keys.label(ctxList, actCheckDetails), "details")
+		}
+		if m.hasJob() {
+			add(m.keys.label(ctxList, actOpen), "full output")
+		} else {
+			add(m.keys.label(ctxList, actActions), "actions")
+		}
+	}
+	help := m.chordHint(helpKeys(m.st, m.width, kv...))
+	if notice := m.noticeView(); notice != "" {
+		return notice + "\n" + help
+	}
+	return help
+}
+
+// hiddenRegionHelp replaces a region that cannot fit with a one-line account
+// of its current cursor and the keys that still operate it. The content stays
+// navigable without asking the reader to move an invisible selection.
+func (m model) hiddenRegionHelp(deferred bool) string {
+	if deferred {
+		return m.compactHelpView(true)
+	}
+	if m.networkMap {
+		state := "Live"
+		if m.cur.active == nil {
+			state = "Cached"
+			if m.cur.status != JobDone {
+				state += " " + m.cur.status.String()
+			}
+		}
+		var prefix, item, back string
+		if m.svc.host != "" {
+			open := m.svc.scan.Open
+			if len(open) > 0 {
+				sel := min(max(m.svc.sel, 0), len(open)-1)
+				prefix = fmt.Sprintf("%s · Service %d/%d: ", mapTitle, sel+1, len(open))
+				item = fmt.Sprintf("%d/%s", open[sel].Port, open[sel].Name)
+			} else {
+				prefix, item = mapTitle+" · Services: ", m.svc.name
+			}
+			back = m.keys.label(ctxList, actCancelJob) + " back"
+		} else {
+			hosts := m.networkHosts()
+			if len(hosts) > 0 {
+				sel := min(max(m.mapSelected, 0), len(hosts)-1)
+				prefix = fmt.Sprintf("%s · Device %d/%d: ", mapTitle, sel+1, len(hosts))
+				item = strings.SplitN(hosts[sel], " (", 2)[0]
+			} else {
+				prefix = mapTitle
+			}
+			back = m.keys.label(ctxList, actNetworkMap) + " back"
+		}
+		sep := " · "
+		suffix := strings.Join([]string{state, m.keys.pairLabel(ctxList, actUp, actDown) + " move", back}, sep)
+		if m.width > 0 {
+			item = ansi.Truncate(item, max(m.width-lipgloss.Width(prefix)-lipgloss.Width(suffix)-2*lipgloss.Width(sep), 1), "…")
+		}
+		help := prefix + item + sep + suffix
+		if notice := m.noticeView(); notice != "" {
+			help = notice + "\n" + help
+		}
+		help = m.chordHint(help)
+		if m.width > 0 {
+			help = ansi.Truncate(help, m.width, "…")
+		}
+		return help
+	}
+
+	var context string
+	var kv []string
+	add := func(label, desc string) {
+		if label != "" {
+			kv = append(kv, label, desc)
+		}
+	}
+	rows := m.checkRows()
+	at := slices.Index(rows, m.selected)
+	if at >= 0 {
+		context = fmt.Sprintf("Check %d/%d: %s", at+1, len(rows), m.probes[m.selected].Name)
+	}
+	add(m.keys.pairLabel(ctxList, actUp, actDown), "move")
+	add(m.keys.label(ctxList, actCheckDetails), "details")
+	if m.hasJob() {
+		add(m.keys.label(ctxList, actOpen), "full output")
+	} else {
+		add(m.keys.label(ctxList, actActions), "actions")
+	}
+	nav := helpKeys(m.st, m.width, kv...)
+	sep := m.st.faint.Render("  ·  ")
+	if m.width > 0 {
+		context = ansi.Truncate(context, max(m.width-lipgloss.Width(nav)-lipgloss.Width(sep), 8), "…")
+	}
+	help := joinChips(m.width, sep, []string{m.st.faint.Render(context), nav})
+	if notice := m.noticeView(); notice != "" {
+		return notice + "\n" + help
+	}
+	return m.chordHint(help)
+}
+
 // chordHint prefixes the help bar with a half-typed chord, as vim's showcmd
 // does, so the first key of one does not look like a dropped keypress.
 func (m model) chordHint(help string) string {
@@ -1887,6 +2088,76 @@ func (m model) helpOverlay() string {
 		context = ansi.Truncate(context, m.width, "")
 	}
 	return m.helpVP.View() + "\n" + m.st.faint.Render(context) + "\n" + m.helpScrollFooter()
+}
+
+func (m model) detailsHeader() string {
+	name, at, total := "selected check", 0, len(m.checkRows())
+	if m.selected >= 0 && m.selected < len(m.probes) {
+		name = m.probes[m.selected].Name
+		at = slices.Index(m.checkRows(), m.selected) + 1
+	}
+	return m.wrap(m.st.panelTitle.Render(fmt.Sprintf("%s: %s · check %d of %d", detailsTitle, name, at, total)))
+}
+
+func (m model) detailsContent() string {
+	rows := m.detailRows(false)
+	if len(rows) > 0 {
+		rows = rows[1:]
+	}
+	// The main answer already quotes its focused row, so Details normally does
+	// not repeat that observation. The main answer is not on this full-screen
+	// viewer, so put the observation back here to keep it self-contained.
+	if m.selected >= 0 && m.selected < len(m.probes) && m.selected == m.answerRow() {
+		if r, ok := m.results[m.probes[m.selected].ID]; ok && r.Detail != "" {
+			rows = append([]string{m.st.status[r.Status].Render(r.Status.String()) + ": " + r.Detail}, rows...)
+		}
+	}
+	if len(rows) == 0 {
+		rows = []string{m.st.faint.Render("Nothing to show yet.")}
+	}
+	return lipgloss.NewStyle().Width(max(m.width, 1)).Render(strings.Join(rows, "\n"))
+}
+
+func (m model) detailsFooter() string {
+	var kv []string
+	addPair := func(a, b keyAction, desc string) {
+		if label := m.keys.pairLabel(ctxViewer, a, b); label != "" {
+			kv = append(kv, label, desc)
+		}
+	}
+	addPair(actUp, actDown, "scroll")
+	addPair(actPageUp, actPageDown, "page")
+	addPair(actTop, actBottom, "top/bottom")
+	addPair(actClearFilter, actBack, "back")
+	return m.chordHint(helpKeys(m.st, m.width, kv...))
+}
+
+func (m *model) refreshDetailsViewport(reset bool) {
+	offset := m.detailsVP.YOffset
+	m.detailsVP.Width = max(m.width, 1)
+	height := 20
+	if m.height > 0 {
+		height = max(m.height-lipgloss.Height(m.detailsHeader())-1-lipgloss.Height(m.detailsFooter()), 1)
+	}
+	m.detailsVP.Height = height
+	m.detailsVP.SetContent(m.detailsContent())
+	if reset {
+		m.detailsVP.GotoTop()
+	} else {
+		m.detailsVP.SetYOffset(offset)
+	}
+}
+
+func (m model) detailsView() string {
+	total := m.detailsVP.TotalLineCount()
+	top := min(m.detailsVP.YOffset+1, total)
+	bottom := min(m.detailsVP.YOffset+m.detailsVP.Height, total)
+	context := fmt.Sprintf("lines %d-%d of %d", min(top, bottom), bottom, total)
+	if m.width > 0 {
+		context = ansi.Truncate(context, m.width, "")
+	}
+	return m.detailsHeader() + "\n" + m.detailsVP.View() + "\n" +
+		m.st.faint.Render(context) + "\n" + m.detailsFooter()
 }
 
 func (m model) noticeView() string {

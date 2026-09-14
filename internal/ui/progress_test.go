@@ -1,5 +1,5 @@
-// The context strip's aggregate progress: what counts as complete, what counts
-// as running, and when the strip stops saying either.
+// The context strip owns aggregate progress and active-work counts: what counts
+// as complete, what counts as running, and when the strip stops saying either.
 
 package ui
 
@@ -26,6 +26,26 @@ func midRun(t *testing.T) model {
 	m.results[diagnostic.ProbeIface] = diagnostic.ProbeResult{ID: diagnostic.ProbeIface, Status: diagnostic.StatusPass}
 	m.started[diagnostic.ProbeDNS] = true
 	return m
+}
+
+// The banner says that work is active, while the context strip owns the one
+// exact aggregate count. Probe rows keep their local activity glyphs.
+func TestAggregateProgressHasOneOwnerDuringActiveRun(t *testing.T) {
+	m := midRun(t)
+	plain := ansi.Strip(m.View())
+	progress := fmt.Sprintf("1/%d complete", len(m.probes))
+	if got := strings.Count(plain, progress); got != 1 {
+		t.Fatalf("active view carries %q %d times, want exactly once:\n%s", progress, got, plain)
+	}
+	if old := fmt.Sprintf("1 of %d done", len(m.probes)); strings.Contains(plain, old) {
+		t.Errorf("active view still carries the banner's duplicate %q:\n%s", old, plain)
+	}
+	if got, want := ansi.Strip(m.banner()), ansi.Strip(m.spinner.View())+" Checking your connection…"; got != want {
+		t.Errorf("running banner = %q, want qualitative active state %q", got, want)
+	}
+	if got := m.glyph(diagnostic.ProbeDNS); got != m.spinner.View() {
+		t.Errorf("running probe glyph = %q, want spinner %q", got, m.spinner.View())
+	}
 }
 
 // One answered probe, one dispatched, and a dozen probes that have not been
@@ -127,17 +147,28 @@ func TestProgressDenominatorIsTheCurrentPlan(t *testing.T) {
 // The verdict already says the run finished, so the strip stops repeating it
 // rather than parking a permanent "13/13 complete  ·  0 running" under it.
 func TestProgressDisappearsWhenTheRunCompletes(t *testing.T) {
-	m := newModel(mustTarget(t, "github.com:443"), false)
-	for _, p := range m.probes {
-		m.started[p.ID] = true
-	}
-	doneResults(&m, "")
-	got := contextStrip(m)
-	if strings.Contains(got, "complete") || strings.Contains(got, "running") {
-		t.Fatalf("context strip = %q, want no progress on a finished run", got)
-	}
-	if !strings.Contains(got, "github.com:443") {
-		t.Errorf("context strip = %q, want it to keep its target", got)
+	for _, failID := range []diagnostic.ProbeID{"", diagnostic.ProbeDNS} {
+		m := newModel(mustTarget(t, "github.com:443"), false)
+		for _, p := range m.probes {
+			m.started[p.ID] = true
+		}
+		doneResults(&m, failID)
+		strip, view := contextStrip(m), ansi.Strip(m.View())
+		if strings.Contains(strip, "complete") || strings.Contains(strip, "running") {
+			t.Fatalf("context strip = %q, want no progress on a finished run", strip)
+		}
+		if !strings.Contains(strip, "github.com:443") {
+			t.Errorf("context strip = %q, want it to keep its target", strip)
+		}
+		summary, _ := m.diagnose(m.probeOrder())
+		if !strings.Contains(view, summary) {
+			t.Errorf("finished view lost diagnosis %q:\n%s", summary, view)
+		}
+		for _, stale := range []string{fmt.Sprintf("%d/%d complete", len(m.probes), len(m.probes)), fmt.Sprintf("%d of %d done", len(m.probes), len(m.probes))} {
+			if strings.Contains(view, stale) {
+				t.Errorf("finished view retained progress %q:\n%s", stale, view)
+			}
+		}
 	}
 }
 
@@ -189,19 +220,62 @@ func TestProgressComposesWithTheRestOfTheStrip(t *testing.T) {
 	}
 }
 
-// The strip is the widest line the header has, so a run in progress is when it
-// is most likely to overrun a narrow terminal and cost the view its top rows.
+// The strip can wrap, but it stays the sole progress owner at every supported
+// short-terminal size and under both key presets.
 func TestProgressStripFitsNarrowTerminals(t *testing.T) {
 	m := onWireless(midRun(t))
 	m.watch = true
-	for _, size := range [][2]int{{30, 8}, {40, 10}, {50, 24}, {80, 24}} {
-		nm := asModel(t, must(m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})))
-		v := nm.View()
-		if lipgloss.Height(v) > nm.height {
-			t.Errorf("%dx%d: view is %d rows tall:\n%s", size[0], size[1], lipgloss.Height(v), v)
+	for _, preset := range []string{"default", "vim"} {
+		m.keys, _ = PresetKeymap(preset)
+		for _, size := range [][2]int{{120, 40}, {100, 30}, {80, 24}, {70, 20}, {80, 16}, {80, 12}, {80, 10}} {
+			nm := asModel(t, must(m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})))
+			v, plain := nm.View(), ansi.Strip(nm.View())
+			if lipgloss.Height(v) > nm.height {
+				t.Errorf("%s %dx%d: view is %d rows tall:\n%s", preset, size[0], size[1], lipgloss.Height(v), v)
+			}
+			for _, line := range strings.Split(v, "\n") {
+				if width := lipgloss.Width(line); width > nm.width {
+					t.Errorf("%s %dx%d: line is %d columns wide: %q", preset, size[0], size[1], width, line)
+				}
+			}
+			if got := strings.Count(plain, fmt.Sprintf("2/%d complete", len(nm.probes))); got != 1 {
+				t.Errorf("%s %dx%d: aggregate progress appears %d times, want once:\n%s", preset, size[0], size[1], got, plain)
+			}
+			if n := unclosedPanels(v); n != 0 {
+				t.Errorf("%s %dx%d: %d panel border(s) left unclosed:\n%s", preset, size[0], size[1], n, v)
+			}
 		}
-		if n := unclosedPanels(v); n != 0 {
-			t.Errorf("%dx%d: %d panel border(s) left unclosed:\n%s", size[0], size[1], n, v)
+	}
+}
+
+func TestMonochromeStillNamesActiveProgress(t *testing.T) {
+	m := midRun(t)
+	m.setTheme(resolveTheme("monochrome"))
+	plain := ansi.Strip(m.View())
+	for _, want := range []string{"Checking your connection", fmt.Sprintf("1/%d complete", len(m.probes)), "1 running"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("monochrome active view lost %q:\n%s", want, plain)
 		}
+	}
+}
+
+// Retest clears the old diagnosis, reports its new pass, then gives ownership
+// straight back to the diagnosis when that pass completes.
+func TestRetestCompletionLeavesNoStaleProgress(t *testing.T) {
+	m := newModel(mustTarget(t, "github.com:443"), false)
+	doneResults(&m, diagnostic.ProbeDNS)
+	next := asModel(t, must(m.retest()))
+	next = asModel(t, must(next.Update(scheduleMsg{gen: next.generation})))
+	if got := contextStrip(next); !strings.Contains(got, fmt.Sprintf("0/%d complete", len(next.probes))) || !strings.Contains(got, "1 running") {
+		t.Fatalf("retest in progress = %q, want current-pass aggregate and active work", got)
+	}
+	doneResults(&next, "")
+	plain := ansi.Strip(next.View())
+	if strings.Contains(plain, fmt.Sprintf("%d/%d complete", len(next.probes), len(next.probes))) || strings.Contains(plain, " running") {
+		t.Errorf("completed retest retained progress:\n%s", plain)
+	}
+	summary, _ := next.diagnose(next.probeOrder())
+	if !strings.Contains(plain, summary) {
+		t.Errorf("completed retest lost diagnosis %q:\n%s", summary, plain)
 	}
 }

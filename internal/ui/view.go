@@ -2412,9 +2412,7 @@ func (m model) banner() string {
 		return "Welcome! Press " + m.st.sel.Render("r") + " to check your connection, or run a tool below."
 	}
 	if !m.allDone() {
-		done, total := len(m.results), len(m.probes)
-		return m.spinner.View() + " Checking your connection… " +
-			progressBar(m.st, done, total, 20) + m.st.faint.Render(fmt.Sprintf(" %d of %d done", done, total))
+		return m.spinner.View() + " Checking your connection…"
 	}
 	summary, verdict := m.diagnose(m.probeOrder())
 	st := verdictStatus(verdict)
@@ -2974,15 +2972,6 @@ func (m model) vpContext() string {
 		}
 	}
 	return s
-}
-
-// progressBar is a w-cell block bar, filled proportionally to done/total.
-func progressBar(st styles, done, total, w int) string {
-	if total <= 0 || w <= 0 {
-		return ""
-	}
-	filled := min(done*w/total, w)
-	return st.sel.Render(strings.Repeat("█", filled)) + st.faint.Render(strings.Repeat("░", w-filled))
 }
 
 // jobView renders the job pane with an adaptive tail: avail is the screen

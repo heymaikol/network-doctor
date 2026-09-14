@@ -638,17 +638,22 @@ func (m model) detailRows(deferred bool) []string {
 	}
 	var body strings.Builder
 	if r, ok := m.results[probe.ID]; ok {
-		// The answer block above is already quoting this row's finding and its
-		// remedy, a few rows higher and ahead of the body, so Details adds
-		// only what that quote left out: it repeats the finding when the quote
-		// had to be clipped to one row, and never repeats the remedy, which is
-		// up there in full either way. A section that says again what the answer
-		// said reads as a second, competing answer. Every other row keeps both
-		// lines, because nothing else on screen is saying them.
-		_, quoted := m.evidenceLine(r.Detail)
-		answered := m.selected == m.answerRow()
-		if !answered || !quoted {
-			body.WriteString(m.st.status[r.Status].Render(r.Status.String()) + ": " + r.Detail + "\n")
+		// Outcome first, always: the status word and the finding it belongs to
+		// are what the reader came for, and everything under them is read in
+		// their light. It is unconditional so that the inline section and the
+		// full-screen viewer open on the same sentence, and so that a warning
+		// with a long elaboration under it cannot be mistaken for a failure.
+		// The answer block above quotes this finding too on the one row the
+		// diagnosis focuses, clipped to a single line; that is a pointer into
+		// this section rather than a second copy of it, and the remedy it
+		// carries is still never repeated here.
+		body.WriteString(m.outcomeLine(r) + "\n")
+		// Then what the row cannot say about itself: a failure the diagnosis
+		// has already accounted for under another row is not a second problem,
+		// and a row that prints only its own error reads like one. The causal
+		// call is Collateral's, the same one the Checks marker is drawn from.
+		if line := m.consequenceLine(probe.ID, r.Status); line != "" {
+			body.WriteString(line + "\n")
 		}
 		// A working http:// proxy row keeps its earned status, so its advice
 		// would otherwise never be shown: the cleartext observation is the one
@@ -656,6 +661,7 @@ func (m model) detailRows(deferred bool) []string {
 		// The answered row keeps its hint here whenever the answer block gave
 		// the diagnosis's action instead of it, which is the one thing the
 		// quote above did leave out.
+		answered := m.selected == m.answerRow()
 		_, advised := m.remediation()
 		if (!answered || advised) && (r.Status == diagnostic.StatusFail || r.Status == diagnostic.StatusWarn || r.ConnectCleartext) && r.Fix != "" {
 			body.WriteString(m.st.skip.Render("Fix: ") + r.Fix + "\n")
@@ -669,26 +675,13 @@ func (m model) detailRows(deferred bool) []string {
 		if answered {
 			body.WriteString(m.remediationBlock())
 		}
-		if r.Portal != nil && r.Portal.RedirectURL != "" {
-			body.WriteString(m.st.faint.Render("portal "+r.Portal.RedirectURL) + "\n")
-		}
-		if r.Source != nil {
-			body.WriteString(m.st.faint.Render("src "+r.Source.String()+" "+r.Iface) + "\n")
-		}
-		// One line per destination the operating system was asked about, and
-		// only where it answered. A platform that cannot answer shows nothing
-		// here rather than a row of empty fields.
-		for _, route := range r.Routes {
-			if summary := route.Summary(); summary != "" {
-				body.WriteString(m.st.faint.Render("  route "+route.Destination.String()+": "+summary) + "\n")
-			}
-		}
-		for _, a := range r.Attempts {
-			st := "ok"
-			if a.Err != nil {
-				st = a.Err.Error()
-			}
-			body.WriteString(m.st.faint.Render(fmt.Sprintf("  %s %dms %s", a.IP, diagnostic.Ms(a.Dur), st)) + "\n")
+		// The mechanics last, under a word that says what they are. Nothing is
+		// dropped and nothing is folded away: they are grouped and labelled so
+		// that the interpretation above them is the part a reader meets first,
+		// and so that a row with sixteen connection attempts still reads as
+		// one block of measurements rather than as the section itself.
+		for _, line := range observedLines(r) {
+			body.WriteString(m.st.faint.Render(line) + "\n")
 		}
 	} else {
 		body.WriteString(m.spinner.View() + m.st.faint.Render(" checking…") + "\n")
@@ -699,6 +692,82 @@ func (m model) detailRows(deferred bool) []string {
 	rows := append([]string{m.st.panelTitle.Render("Details: " + probe.Name)},
 		strings.Split(strings.TrimRight(body.String(), "\n"), "\n")...)
 	return sectionBody(rows)
+}
+
+// observedTitle labels the measurements a check collected, which is the last
+// of the three things a selected row says: what happened, what it means, and
+// then what was measured. It is a word rather than a rule or a colour, because
+// the order has to survive a monochrome terminal and a 36-column section.
+const observedTitle = "Observed"
+
+// outcomeLine is a result's status word and the finding it belongs to. The
+// status word stands alone when a probe recorded no prose, which is what a
+// replayed or synthetic result can look like; "PASS:" with nothing after the
+// colon is a line that promises a sentence it does not have.
+func (m model) outcomeLine(r diagnostic.ProbeResult) string {
+	line := m.st.status[r.Status].Render(r.Status.String())
+	if r.Detail == "" {
+		return line
+	}
+	return line + ": " + r.Detail
+}
+
+// consequenceLine names the failure a downstream row is already explained by,
+// and "" for every other row. It is the same causal call the Checks section's
+// "consequence" marker is drawn from, said in a sentence: the marker is over
+// in the other section and the full-screen viewer has no marker at all, so a
+// selected row that carries only its own error would read as an independent
+// problem in both places.
+//
+// It states the relation and stops. Which check to fix, and how, belong to the
+// answer block, and repeating either here would be a second diagnosis.
+func (m model) consequenceLine(id diagnostic.ProbeID, status diagnostic.Status) string {
+	// Only a failure is ever downstream of another one, and the question costs
+	// a whole interpretation of the run to answer, so it is asked only of the
+	// rows that can be answered yes.
+	if status != diagnostic.StatusFail {
+		return ""
+	}
+	if !diagnostic.Collateral(m.target, m.probeOrder(), m.results)[id] {
+		return ""
+	}
+	blamed := m.diagnosis().Blamed
+	if blamed == "" {
+		return m.st.faint.Render("Consequence of another failing check, not a separate problem.")
+	}
+	return m.st.faint.Render("Consequence of " + m.probeLabel(blamed) + " failing, not a separate problem.")
+}
+
+// observedLines is everything a probe measured, as the Observed block: the
+// label, then one indented line per measurement. Empty when the probe recorded
+// no measurements at all, so no labelled block is drawn over nothing.
+func observedLines(r diagnostic.ProbeResult) []string {
+	var out []string
+	if r.Portal != nil && r.Portal.RedirectURL != "" {
+		out = append(out, "  portal "+r.Portal.RedirectURL)
+	}
+	if r.Source != nil {
+		out = append(out, "  src "+r.Source.String()+" "+r.Iface)
+	}
+	// One line per destination the operating system was asked about, and only
+	// where it answered. A platform that cannot answer shows nothing here
+	// rather than a row of empty fields.
+	for _, route := range r.Routes {
+		if summary := route.Summary(); summary != "" {
+			out = append(out, "  route "+route.Destination.String()+": "+summary)
+		}
+	}
+	for _, a := range r.Attempts {
+		st := "ok"
+		if a.Err != nil {
+			st = a.Err.Error()
+		}
+		out = append(out, fmt.Sprintf("  %s %dms %s", a.IP, diagnostic.Ms(a.Dur), st))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return append([]string{observedTitle}, out...)
 }
 
 func (m model) whyLines() []string {
@@ -2095,14 +2164,10 @@ func (m model) detailsContent() string {
 	if len(rows) > 0 {
 		rows = rows[1:]
 	}
-	// The main answer already quotes its focused row, so Details normally does
-	// not repeat that observation. The main answer is not on this full-screen
-	// viewer, so put the observation back here to keep it self-contained.
-	if m.selected >= 0 && m.selected < len(m.probes) && m.selected == m.answerRow() {
-		if r, ok := m.results[m.probes[m.selected].ID]; ok && r.Detail != "" {
-			rows = append([]string{m.st.status[r.Status].Render(r.Status.String()) + ": " + r.Detail}, rows...)
-		}
-	}
+	// Nothing is assembled here: the viewer is the same rows the inline
+	// section draws, minus the heading the header row already carries. One
+	// renderer, so a reader who opens D cannot be shown a different reading of
+	// the same check from the one they were just looking at.
 	if len(rows) == 0 {
 		rows = []string{m.st.faint.Render("Nothing to show yet.")}
 	}

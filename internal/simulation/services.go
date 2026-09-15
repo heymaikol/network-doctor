@@ -946,39 +946,119 @@ func dnsAnswer(name []byte, qtype uint16, addr netip.Addr) []byte {
 	return append(rr, rdata...)
 }
 
+// holderCommandLimit is the longest command line the holder accepts from the
+// director, in bytes, with the newline excluded. It is part of the internal
+// protocol rather than whatever bufio.Scanner happens to default to: the
+// longest command the director can legitimately send is "lookup " followed by
+// the 1024-byte request holderLookupReply already bounds, so this leaves room
+// to grow while still refusing to buffer without limit for a writer that has
+// lost track of its newlines. A command over the limit is a protocol failure,
+// never a shutdown.
+const holderCommandLimit = 4096
+
+// errHolderCommandTooLong is what a director command over holderCommandLimit
+// produces. It is deliberate, and it is reported to the director as the holder
+// exiting with an error rather than as the pipe ending.
+var errHolderCommandTooLong = fmt.Errorf("holder command exceeded %d bytes", holderCommandLimit)
+
+// errHolderStreamEnded is the terminal record for the director closing the
+// pipe, which is an ordinary shutdown. It is a sentinel of this package's own
+// rather than io.EOF, because a reader is free to return an error that wraps
+// io.EOF, and matching on io.EOF would turn exactly that failure back into a
+// clean exit. Only a scanner that stopped with no error at all produces this.
+var errHolderStreamEnded = errors.New("holder command stream ended")
+
+// holderRead is one result from the command reader: a line, or the terminal
+// error that ended the stream. A terminal err of errHolderStreamEnded is a
+// clean end of input; anything else is a read that failed. Exactly one
+// holderRead carrying an err is ever sent and it is always the last, so the
+// receiver never has to read a closed channel to tell "no more commands" apart
+// from "the read broke".
+type holderRead struct {
+	line string
+	err  error
+}
+
+// readHolderCommands reads director commands until the stream ends, sends one
+// terminal holderRead, and returns. It never closes out: the terminal record is
+// what ends the conversation, so there is no channel close to get wrong and no
+// way for a read failure to arrive looking like clean end of input.
+//
+// Every send is guarded by ctx, so a receiver that has already returned cannot
+// strand this goroutine on a send nobody will take. The one block left is the
+// read inside Scan, which only the owner of r can end: in production that is
+// the director closing the holder's stdin, or the holder process exiting.
+func readHolderCommands(ctx context.Context, r io.Reader, out chan<- holderRead) {
+	scanner := bufio.NewScanner(r)
+	// Scanner sizes this buffer to hold the token and its delimiter together, so
+	// it gets one byte over the limit: a command of exactly holderCommandLimit
+	// bytes is accepted, and one byte more is refused.
+	scanner.Buffer(make([]byte, 0, holderCommandLimit+1), holderCommandLimit+1)
+	for scanner.Scan() {
+		select {
+		case out <- holderRead{line: scanner.Text()}:
+		case <-ctx.Done():
+			return
+		}
+	}
+	err := scanner.Err()
+	switch {
+	case err == nil:
+		err = errHolderStreamEnded
+	case errors.Is(err, bufio.ErrTooLong):
+		err = errHolderCommandTooLong
+	}
+	select {
+	case out <- holderRead{err: err}:
+	case <-ctx.Done():
+	}
+}
+
 // serveHolderCommands answers scheduled-fault requests until the director
 // closes the holder's stdin or the context is cancelled. Either one means the
-// simulation is over.
+// simulation is over. A read that failed, an over-long command, or a reply that
+// could not be written are all reported instead, because a holder that stops
+// talking for one of those reasons has not finished the simulation.
+//
+// Returning does not by itself end the reader goroutine: cancellation cannot
+// interrupt a Read in progress, and this function is given an io.Reader it does
+// not own and must not close. The contract it does keep is that nothing of its
+// own holds the reader, so the reader leaves as soon as whoever owns the stream
+// releases it. That owner is the caller's to supply: the sole production caller
+// is RunNode, which passes the holder process's own stdin and returns straight
+// into process exit, and the director closes that pipe in nodeProc.stop.
+// A caller that reuses this with a long-lived reader has to end the stream
+// itself.
 func serveHolderCommands(ctx context.Context, r io.Reader, w io.Writer, dns map[string]*dnsState, recorder *evidenceRecorder) error {
-	lines := make(chan string, 1)
-	go func() {
-		defer close(lines)
-		scanner := bufio.NewScanner(r)
-		for scanner.Scan() {
-			select {
-			case lines <- scanner.Text():
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+	// Cancelled on every return, not only the cancelled one, so the reader
+	// goroutine is released when a recorder failure or a write error ends the
+	// loop early rather than being left holding a line nobody will read.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	reads := make(chan holderRead, 1)
+	go readHolderCommands(ctx, r, reads)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case err := <-recorder.failed:
 			return err
-		case line, ok := <-lines:
-			if !ok {
-				return nil
+		case got := <-reads:
+			if got.err != nil {
+				if errors.Is(got.err, errHolderStreamEnded) {
+					return nil
+				}
+				return got.err
 			}
-			if line == holderEvidenceCheck {
+			if got.line == holderEvidenceCheck {
 				if err := recorder.Err(); err != nil {
 					return err
 				}
 			}
-			if reply := holderCommandReply(line, dns); reply != "" {
-				fmt.Fprintln(w, reply)
+			if reply := holderCommandReply(got.line, dns); reply != "" {
+				if _, err := fmt.Fprintln(w, reply); err != nil {
+					return err
+				}
 			}
 		}
 	}

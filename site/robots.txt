@@ -1,10 +1,10 @@
 ---
 permalink: /robots.txt
+layout: none
 ---
-# github.io serves the robots.txt that crawlers actually read from the domain
-# root, which this project does not own. This copy exists so the sitemap is
-# still declared next to the site, and becomes the effective policy if the
-# project ever moves to its own domain.
+# Crawlers read robots.txt from the domain root, which is where this site is
+# served from, so this copy is the effective policy and declares the sitemap
+# next to it.
 User-agent: *
 Allow: /
 

@@ -3,7 +3,7 @@
 [![CI](https://github.com/heymaikol/network-doctor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/heymaikol/network-doctor/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/heymaikol/network-doctor)](https://github.com/heymaikol/network-doctor/releases/latest)
 [![License: Apache-2.0](https://img.shields.io/github/license/heymaikol/network-doctor)](LICENSE)
-[![Documentation](https://img.shields.io/badge/docs-heymaikol.github.io-1f6feb)](https://heymaikol.github.io/network-doctor/)
+[![Documentation](https://img.shields.io/badge/docs-networkdoctor.dev-1f6feb)](https://networkdoctor.dev/)
 
 **Find the layer where your connection breaks.** Network Doctor is a
 cross-platform network troubleshooting TUI that turns interface, DNS, TCP,
@@ -225,13 +225,13 @@ The **[wiki](https://github.com/heymaikol/network-doctor/wiki)** is the
 user-facing hub for how to use `netdoc` and what a diagnosis means;
 **[docs/reference.md](docs/reference.md)** is the full technical reference for
 exact CLI semantics, keybindings, exit codes, and schemas. Both are published at
-**[heymaikol.github.io/network-doctor](https://heymaikol.github.io/network-doctor/)**:
+**[networkdoctor.dev](https://networkdoctor.dev/)**:
 
-- [Getting Started](https://heymaikol.github.io/network-doctor/wiki/Getting-Started/): install, first run, and what the screen is showing you.
-- [Understanding Your Diagnosis](https://heymaikol.github.io/network-doctor/wiki/Understanding-Your-Diagnosis/): turning a verdict into a next action, including telling "my network" and "their service" apart.
-- [How Network Doctor Works](https://heymaikol.github.io/network-doctor/wiki/How-Network-Doctor-Works/): why the probe branches are independent, and how path MTU is measured without root.
-- [Troubleshooting and FAQ](https://heymaikol.github.io/network-doctor/wiki/Troubleshooting-and-FAQ/): the rows that behave surprisingly, and the questions that come up most.
-- [Reference](https://heymaikol.github.io/network-doctor/docs/reference/), [installation details](https://heymaikol.github.io/network-doctor/docs/installation/), and the [simulator guide](https://heymaikol.github.io/network-doctor/docs/simulation/): the same `docs/` files that live beside the code.
+- [Getting Started](https://networkdoctor.dev/wiki/Getting-Started/): install, first run, and what the screen is showing you.
+- [Understanding Your Diagnosis](https://networkdoctor.dev/wiki/Understanding-Your-Diagnosis/): turning a verdict into a next action, including telling "my network" and "their service" apart.
+- [How Network Doctor Works](https://networkdoctor.dev/wiki/How-Network-Doctor-Works/): why the probe branches are independent, and how path MTU is measured without root.
+- [Troubleshooting and FAQ](https://networkdoctor.dev/wiki/Troubleshooting-and-FAQ/): the rows that behave surprisingly, and the questions that come up most.
+- [Reference](https://networkdoctor.dev/docs/reference/), [installation details](https://networkdoctor.dev/docs/installation/), and the [simulator guide](https://networkdoctor.dev/docs/simulation/): the same `docs/` files that live beside the code.
 
 The site is built from `docs/` and the wiki, so each page is still edited exactly where it lives; nothing is duplicated to publish it.
 

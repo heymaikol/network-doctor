@@ -13,8 +13,11 @@ import (
 
 // verify reads the site Jekyll actually produced and fails on the breakage that
 // only exists after rendering: a link to a page Jekyll never wrote, a heading
-// anchor that moved, or an href that forgot the project base path and would
-// 404 for every visitor of a github.io project site.
+// anchor that moved, or an href written against the wrong base path, which
+// would 404 for every visitor. This site is served from the root of its own
+// domain, so its base path is empty and every absolute link is already in the
+// site; the base path check still holds a project page under github.io, where
+// an href that forgot /<repo> lands on the account's root site.
 //
 // This is the site's link check. Staging deliberately rewrites only what it
 // must and leaves the rest to the GitHub Pages plugins, so this pass, not the
@@ -27,6 +30,22 @@ func verify(dir, baseurl string) error {
 	for _, required := range []string{"/index.html", "/sitemap.xml", "/robots.txt"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(required))); err != nil {
 			return fmt.Errorf("%s: the build produced no %s", dir, required)
+		}
+	}
+	// robots.txt and the sitemap are read by crawlers, not browsers. Both are
+	// pages in the source tree, so the site's default layout will wrap either
+	// one in the navigation chrome unless it opts out, and a robots.txt that
+	// is a web page is a robots.txt no crawler can read. At the root of its own
+	// domain this is the policy for the whole site, rather than a decorative
+	// copy under a project page that no crawler ever asked for.
+	for _, plain := range []string{"/robots.txt", "/sitemap.xml"} {
+		// #nosec G304 -- plain is from this fixed list, under the built site directory.
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(plain)))
+		if err != nil {
+			return err
+		}
+		if head := strings.TrimSpace(string(data)); strings.HasPrefix(strings.ToLower(head), "<!doctype html") {
+			return fmt.Errorf("%s: %s was rendered as an HTML page; it needs layout: none in its front matter", dir, plain)
 		}
 	}
 	var problems []string
@@ -112,7 +131,9 @@ func (s *builtSite) check(from, ref string) error {
 	target, frag, _ := strings.Cut(ref, "#")
 	if strings.HasPrefix(target, "/") {
 		// A project page is served under its base path. An absolute link
-		// without it resolves to the account's root site, not this one.
+		// without it resolves to the account's root site, not this one. At a
+		// domain root the base path is empty and this check passes everything,
+		// which is correct: there is no prefix to forget.
 		if target != s.baseurl && !strings.HasPrefix(target, s.baseurl+"/") {
 			return fmt.Errorf("link %q is missing the %s base path", ref, s.baseurl)
 		}

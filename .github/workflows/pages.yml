@@ -1,6 +1,6 @@
 name: pages
 
-# Publishes the documentation site at https://heymaikol.github.io/network-doctor/.
+# Publishes the documentation site at https://networkdoctor.dev/.
 #
 # The site has two sources and copies neither into this repository: docs/*.md
 # lives here, and the explanatory pages live in the GitHub wiki, which is its own
@@ -10,9 +10,9 @@ name: pages
 # anyone remembering to.
 #
 # Every step before deployment can fail the deployment. A wiki that will not
-# clone, a link that resolves to nothing, a heading anchor that moved, or a base
-# path that stopped matching the project page all stop the run rather than
-# publishing a site with holes in it.
+# clone, a link that resolves to nothing, a heading anchor that moved, or a link
+# written against a base path the site is not served under all stop the run
+# rather than publishing a site with holes in it.
 
 on:
   push:
@@ -21,8 +21,8 @@ on:
   # refs/heads/main, which a pull request ref never is, so this checks the site
   # without publishing one. Unfiltered by branch or path on purpose: the site is
   # staged from docs/, the wiki, site/, cmd/docsite, and the summaries in
-  # internal/diagnostic, and the base path is derived from the module path, so
-  # there is no subset of this repository that cannot break a link.
+  # internal/diagnostic, so there is no subset of this repository that cannot
+  # break a link.
   pull_request:
   # A wiki page was created or edited.
   gollum:
@@ -80,8 +80,9 @@ jobs:
           source: _docsite
           destination: _site
       # Checks the bytes that would be published: every internal link resolves
-      # to a page the site serves, every anchor exists, nothing dropped the
-      # /network-doctor base path, and the sitemap was written.
+      # to a page the site serves at the domain root, every anchor exists,
+      # nothing still points under the retired /network-doctor base path, and
+      # the sitemap was written.
       - name: Verify the built site
         run: go run ./cmd/docsite -verify _site
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

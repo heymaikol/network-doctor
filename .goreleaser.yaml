@@ -102,7 +102,7 @@ release:
 # the tool, and downloads reach them through the package manager already.
 nfpms:
   - package_name: network-doctor
-    homepage: https://heymaikol.github.io/network-doctor/
+    homepage: https://networkdoctor.dev/
     description: Terminal UI that diagnoses network connectivity and names the layer where the connection breaks
     maintainer: Michael Placzek <heymaikol@proton.me>
     license: Apache-2.0
@@ -143,7 +143,7 @@ homebrew_casks:
       owner: heymaikol
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: https://heymaikol.github.io/network-doctor/
+    homepage: https://networkdoctor.dev/
     description: Terminal UI that diagnoses network connectivity and names the layer where the connection breaks
     # Unsigned binary: strip Gatekeeper quarantine on install (per GoReleaser docs).
     hooks:
@@ -159,7 +159,7 @@ scoops:
       owner: heymaikol
       name: scoop-bucket
       token: "{{ .Env.WINDOWS_PACKAGES_TOKEN }}"
-    homepage: https://heymaikol.github.io/network-doctor/
+    homepage: https://networkdoctor.dev/
     description: Terminal UI that diagnoses network connectivity and names the layer where the connection breaks
     license: Apache-2.0
 

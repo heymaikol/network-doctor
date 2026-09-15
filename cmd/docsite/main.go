@@ -127,6 +127,13 @@ func build(baseurl, shell, docsDir, wikiDir, assetsDir, out string) error {
 // readBaseURL keeps the site's base path in exactly one place: the Jekyll
 // config. Every link this command writes is built from what Jekyll is
 // configured to serve, so the two cannot drift apart.
+//
+// Two shapes are valid. An empty baseurl is a site served from the root of its
+// own domain, which is what this site's custom domain gives it; a nonempty one
+// is a project page under github.io, served from /<repo>. What stays invalid is
+// a config with no baseurl at all, because then nobody decided which of the two
+// this is, and a malformed nonempty path, because it deploys green as a site of
+// 404s.
 func readBaseURL(configPath string) (string, error) {
 	// #nosec G304 -- configPath is the site shell's own config, from a flag this build tool is run with.
 	data, err := os.ReadFile(configPath)
@@ -134,15 +141,21 @@ func readBaseURL(configPath string) (string, error) {
 		return "", err
 	}
 	var cfg struct {
-		Baseurl string `yaml:"baseurl"`
+		// A pointer so a missing key is distinguishable from baseurl: "",
+		// which is now a meaningful value rather than the zero one.
+		Baseurl *string `yaml:"baseurl"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return "", fmt.Errorf("%s: %w", configPath, err)
 	}
-	if cfg.Baseurl == "" || !strings.HasPrefix(cfg.Baseurl, "/") || strings.HasSuffix(cfg.Baseurl, "/") {
-		return "", fmt.Errorf("%s: baseurl %q is not a project-page base path such as /network-doctor", configPath, cfg.Baseurl)
+	if cfg.Baseurl == nil {
+		return "", fmt.Errorf(`%s: no baseurl: set "" for a site at its own domain root, or /<repo> for a project page`, configPath)
 	}
-	return cfg.Baseurl, nil
+	base := *cfg.Baseurl
+	if base != "" && (!strings.HasPrefix(base, "/") || strings.HasSuffix(base, "/")) {
+		return "", fmt.Errorf(`%s: baseurl %q is neither "" for a domain root nor a base path such as /network-doctor`, configPath, base)
+	}
+	return base, nil
 }
 
 // pageNames lists the Markdown pages a source directory publishes, without

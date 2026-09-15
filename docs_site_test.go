@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -9,28 +11,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The documentation site is published by GitHub Pages at an address derived
-// entirely from the repository's owner and name. Nothing in the repository is
-// told that address by GitHub, so several files hard-code it: the Jekyll config
-// serves from it, cmd/docsite writes every internal link against it, and the
-// package managers advertise it as the project's homepage. These tests derive
-// it once from the module path and hold all of them to it, because a base path
-// that is merely plausible produces a site of 404s that still deploys green.
-
-// pagesURL is where a GitHub project page for this module is served.
-func pagesURL(t *testing.T) (site, baseurl string) {
-	t.Helper()
-	data, err := os.ReadFile("go.mod")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := regexp.MustCompile(`(?m)^module\s+github\.com/([^/\s]+)/([^/\s]+)\s*$`).FindStringSubmatch(string(data))
-	if m == nil {
-		t.Fatal("go.mod has no github.com/<owner>/<repo> module path to derive the Pages URL from")
-	}
-	owner, repo := strings.ToLower(m[1]), m[2]
-	return "https://" + owner + ".github.io/" + repo + "/", "/" + repo
-}
+// The documentation site is published by GitHub Pages onto a custom domain.
+// Nothing in the repository is told that address by GitHub, so several files
+// hard-code it: the Jekyll config serves from it, cmd/docsite writes every
+// internal link against it, and the package managers advertise it as the
+// project's homepage. These tests state it once and hold all of them to it,
+// because an address that is merely plausible produces a site of 404s that
+// still deploys green.
+//
+// It used to be derived from the module path, which is what a project page
+// under <owner>.github.io/<repo> is named after. A custom domain has nothing
+// to do with the owner or the repository name, so deriving it is no longer
+// possible and the canonical value lives here.
+const (
+	// docsSite is the documentation site, and the only address that is it.
+	docsSite = "https://networkdoctor.dev/"
+	// docsBaseURL is the path the site is served under. A domain root serves
+	// from /, so there is no base path and every internal link starts there.
+	docsBaseURL = ""
+)
 
 func siteConfig(t *testing.T) map[string]any {
 	t.Helper()
@@ -45,19 +44,24 @@ func siteConfig(t *testing.T) map[string]any {
 	return cfg
 }
 
-// A project page is served under /<repo>/. Getting url or baseurl wrong does not
-// fail any build: it produces canonical tags, a sitemap, and asset paths that
-// all point somewhere that does not exist.
-func TestSiteIsConfiguredForItsGitHubPagesAddress(t *testing.T) {
-	site, baseurl := pagesURL(t)
+// The site is served from the root of its own domain. Getting url or baseurl
+// wrong does not fail any build: it produces canonical tags, a sitemap, and
+// asset paths that all point somewhere that does not exist.
+func TestSiteIsConfiguredForItsCanonicalAddress(t *testing.T) {
 	cfg := siteConfig(t)
 
-	wantURL := strings.TrimSuffix(site, baseurl+"/")
+	wantURL := strings.TrimSuffix(docsSite, "/")
 	if got, _ := cfg["url"].(string); got != wantURL {
 		t.Errorf("site/_config.yml url is %q, want %q", got, wantURL)
 	}
-	if got, _ := cfg["baseurl"].(string); got != baseurl {
-		t.Errorf("site/_config.yml baseurl is %q, want %q: a project page is served under its repository name", got, baseurl)
+	// Present and empty, not absent: cmd/docsite rejects a config that never
+	// says which of the two shapes of site this is.
+	got, ok := cfg["baseurl"]
+	if !ok {
+		t.Error("site/_config.yml has no baseurl; write it as \"\" so the root hosting is stated rather than assumed")
+	}
+	if base, _ := got.(string); base != docsBaseURL {
+		t.Errorf("site/_config.yml baseurl is %q, want %q: the site is served from the root of %s", base, docsBaseURL, docsSite)
 	}
 	for _, plugin := range []string{"jekyll-seo-tag", "jekyll-sitemap"} {
 		plugins, _ := yaml.Marshal(cfg["plugins"])
@@ -73,7 +77,6 @@ func TestSiteIsConfiguredForItsGitHubPagesAddress(t *testing.T) {
 // learn the tool, so all of them point at the documentation site, and none of
 // them may quietly go back to a releases URL.
 func TestPackagedHomepagesPointAtTheDocumentationSite(t *testing.T) {
-	site, _ := pagesURL(t)
 	data, err := os.ReadFile(".goreleaser.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -83,8 +86,8 @@ func TestPackagedHomepagesPointAtTheDocumentationSite(t *testing.T) {
 		t.Fatalf("found %d homepage fields in .goreleaser.yaml; the test is not reaching the publish targets", len(homepages))
 	}
 	for _, m := range homepages {
-		if m[1] != site {
-			t.Errorf("a .goreleaser.yaml homepage is %q, want the documentation site %q", m[1], site)
+		if m[1] != docsSite {
+			t.Errorf("a .goreleaser.yaml homepage is %q, want the documentation site %q", m[1], docsSite)
 		}
 	}
 }
@@ -114,7 +117,6 @@ func TestRPMSpecURLStaysTheRepositoryItsSourcesComeFrom(t *testing.T) {
 // README's download links are supposed to point at the latest release, and a
 // mechanical replacement would send people to documentation instead of files.
 func TestREADMEKeepsDownloadLinksOnTheReleasesPage(t *testing.T) {
-	site, _ := pagesURL(t)
 	data, err := os.ReadFile("README.md")
 	if err != nil {
 		t.Fatal(err)
@@ -124,8 +126,8 @@ func TestREADMEKeepsDownloadLinksOnTheReleasesPage(t *testing.T) {
 	if strings.Count(readme, "/releases/latest") < 3 {
 		t.Error("README no longer sends downloads to /releases/latest; the .deb/.rpm/.apk and prebuilt-binary links need it")
 	}
-	if !strings.Contains(readme, site) {
-		t.Errorf("README never links to the documentation site %s, which is how the site gets found", site)
+	if !strings.Contains(readme, docsSite) {
+		t.Errorf("README never links to the documentation site %s, which is how the site gets found", docsSite)
 	}
 	if !strings.Contains(readme, "## Documentation") {
 		t.Error("README has no Documentation section pointing at the site")
@@ -319,8 +321,8 @@ func TestPagesWorkflowVerifiesPullRequestsWithoutContendingWithDeploys(t *testin
 		t.Error("pages.yml does not trigger on pull_request, so a broken link or moved anchor goes green and only fails after it has merged")
 	}
 	// Unfiltered: the site is staged from docs/, the wiki, site/, cmd/docsite,
-	// and the summaries in internal/diagnostic, and its base path comes from the
-	// module path, so no subset of this repository is safe to skip. A bare
+	// and the summaries in internal/diagnostic, so no subset of this repository
+	// is safe to skip. A bare
 	// `pull_request:` decodes to a null scalar; any branch or path filter makes
 	// it a mapping instead, which is what this rejects.
 	if node, ok := workflow.On["pull_request"]; ok && node.Tag != "!!null" {
@@ -336,4 +338,33 @@ func TestPagesWorkflowVerifiesPullRequestsWithoutContendingWithDeploys(t *testin
 	if workflow.Concurrency.CancelInProgress == nil || *workflow.Concurrency.CancelInProgress {
 		t.Error("concurrency cancel-in-progress is not false; a half-replaced site is worse than a late one")
 	}
+}
+
+// The documentation moved off the GitHub project page onto its own domain. The
+// old address still resolves, which is the problem: a link left behind goes on
+// working, quietly sending readers and crawlers at an address this project has
+// stopped publishing to. The repository URLs keep their github.com host, so
+// this looks only for the old documentation site.
+//
+// The file list comes from git for the reasons the em dash guard gives, and
+// this file is excluded because the address it is looking for is written here.
+func TestNoStaleDocumentationSiteURL(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed, and the tracked-file list comes from it")
+	}
+	if err := exec.Command("git", "rev-parse", "--is-inside-work-tree").Run(); err != nil {
+		t.Skip("not a git checkout, so there are no tracked files to read")
+	}
+	// Exit status 1 is git grep for "no match", which is the passing case.
+	out, err := exec.Command("git", "grep", "-In", "--fixed-strings",
+		"-e", "heymaikol.github.io", "--", ".", ":!docs_site_test.go").Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return
+	}
+	if err != nil {
+		t.Fatalf("git grep: %v", err)
+	}
+	t.Errorf("the retired project-page documentation URL is still on %d tracked line(s); the site is %s:\n%s",
+		len(strings.Split(strings.TrimSpace(string(out)), "\n")), docsSite, out)
 }

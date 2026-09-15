@@ -42,11 +42,11 @@ func fixture(t *testing.T) (docs, wiki, shell string) {
 	return "docs", "wiki", "site"
 }
 
-func stageFixture(t *testing.T) string {
+func stageFixture(t *testing.T, baseurl string) string {
 	t.Helper()
 	docs, wiki, shell := fixture(t)
 	out := filepath.Join(t.TempDir(), "_docsite")
-	if err := build("/network-doctor", shell, docs, wiki, "assets", out); err != nil {
+	if err := build(baseurl, shell, docs, wiki, "assets", out); err != nil {
 		t.Fatal(err)
 	}
 	return out
@@ -65,7 +65,7 @@ func read(t *testing.T, dir, rel string) string {
 // Both halves of the documentation have to reach the site, from where they
 // already live, with a way back to the one copy that is editable.
 func TestStagesBothSourcesWithoutCopyingThemIntoTheRepository(t *testing.T) {
-	out := stageFixture(t)
+	out := stageFixture(t, "")
 
 	for _, want := range []string{"docs/reference.md", "docs/scenarios.md", "wiki/Getting-Started.md", "wiki/Challenge-Mode.md", "assets/hero.gif"} {
 		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(want))); err != nil {
@@ -89,8 +89,31 @@ func TestStagesBothSourcesWithoutCopyingThemIntoTheRepository(t *testing.T) {
 // The links this step touches are the ones that name a file rather than a URL,
 // or that name a file the site does not publish. Everything already usable,
 // whether an absolute URL or a same-page anchor, is left exactly as written.
+// This site is served from the root of its own domain, so every internal link
+// it writes starts at /. The project-page form is covered separately, because
+// the base path is a value read from the config rather than a constant here.
 func TestRewritesOnlyTheLinksJekyllCannotResolve(t *testing.T) {
-	out := stageFixture(t)
+	out := stageFixture(t, "")
+
+	for _, tc := range []struct{ file, want string }{
+		{"wiki/Getting-Started.md", "[Challenge Mode](/wiki/Challenge-Mode/#scoring)"},
+		{"wiki/Getting-Started.md", "[Home](/)"},
+		{"docs/reference.md", "[scenarios](/docs/scenarios/#authoring)"},
+		// Links out of the published pages still name the repository, which
+		// moving the site to its own domain does not change.
+		{"docs/reference.md", "[README](" + repoURL + "/blob/main/README.md)"},
+		{"docs/reference.md", "[receipt](" + repoURL + "/blob/main/docs/receipt.json)"},
+	} {
+		if got := read(t, out, tc.file); !strings.Contains(got, tc.want) {
+			t.Errorf("%s does not contain %q:\n%s", tc.file, tc.want, got)
+		}
+	}
+}
+
+// A nonempty base path still produces a project page's links, so the same
+// generator keeps working for a site served under /<repo>.
+func TestANonemptyBasePathStillWritesProjectPageLinks(t *testing.T) {
+	out := stageFixture(t, "/network-doctor")
 
 	for _, tc := range []struct{ file, want string }{
 		// A bare wiki page name resolves against the current page on a
@@ -163,18 +186,30 @@ func TestAMissingWikiFailsRatherThanPublishingHalfASite(t *testing.T) {
 // written against a different one is a 404 that still deploys green.
 func TestBaseURLComesFromTheJekyllConfig(t *testing.T) {
 	dir := t.TempDir()
-	for _, tc := range []struct{ yaml, want string }{
-		{"baseurl: /network-doctor\n", "/network-doctor"},
-		{"baseurl: network-doctor\n", ""},
-		{"baseurl: /network-doctor/\n", ""},
-		{"title: no baseurl\n", ""},
+	for _, tc := range []struct {
+		yaml, want string
+		wantErr    bool
+	}{
+		// An empty base path is the site this repository publishes: served
+		// from the root of its own domain, where there is no prefix to add.
+		{yaml: `baseurl: ""` + "\n", want: ""},
+		{yaml: "baseurl: /network-doctor\n", want: "/network-doctor"},
+		{yaml: "baseurl: network-doctor\n", wantErr: true},
+		{yaml: "baseurl: /network-doctor/\n", wantErr: true},
+		// A root site is written as the empty string, not as a bare slash,
+		// which Jekyll would turn into doubled slashes in every link.
+		{yaml: "baseurl: /\n", wantErr: true},
+		// No baseurl at all is not a root site: it is a config nobody decided.
+		// A key with no value says as little, so it is rejected the same way.
+		{yaml: "title: no baseurl\n", wantErr: true},
+		{yaml: "baseurl:\n", wantErr: true},
 	} {
 		path := filepath.Join(dir, "_config.yml")
 		if err := os.WriteFile(path, []byte(tc.yaml), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		got, err := readBaseURL(path)
-		if tc.want == "" {
+		if tc.wantErr {
 			if err == nil {
 				t.Errorf("readBaseURL(%q) = %q, want an error", tc.yaml, got)
 			}
@@ -183,6 +218,19 @@ func TestBaseURLComesFromTheJekyllConfig(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Errorf("readBaseURL(%q) = %q, %v, want %q", tc.yaml, got, err, tc.want)
 		}
+	}
+}
+
+// The base path the site actually ships with has to be one readBaseURL accepts,
+// or every documentation build fails at its first step.
+func TestTheRepositoryConfigIsAReadableBasePath(t *testing.T) {
+	t.Chdir("../..")
+	got, err := readBaseURL(filepath.Join("site", "_config.yml"))
+	if err != nil {
+		t.Fatalf("site/_config.yml: %v", err)
+	}
+	if got != "" {
+		t.Errorf("site/_config.yml baseurl is %q, want \"\": the site is served from the root of networkdoctor.dev", got)
 	}
 }
 

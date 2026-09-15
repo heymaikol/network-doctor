@@ -8,10 +8,12 @@
 # and jekyll-titles-from-headings give each page a layout and a title from its
 # own H1, and jekyll-relative-links turns docs/*.md cross-links into site links.
 #
-# url + baseurl are the project-page address. cmd/docsite reads baseurl from
-# this file to build every internal link, and docs_site_test.go checks both
-# against the repository's owner and name, so a wrong base path fails the build
-# rather than shipping a site of broken links and 404 assets.
+# url + baseurl are the site's address. It is a custom domain, so the site is
+# served from the domain root and baseurl is empty: every internal link starts
+# at /. cmd/docsite reads baseurl from this file to build every internal link,
+# and docs_site_test.go checks both against the one canonical address, so a
+# wrong base path fails the build rather than shipping a site of broken links
+# and 404 assets.
 title: Network Doctor
 description: >-
   Find the layer where a connection breaks. Network Doctor is a cross-platform

@@ -362,6 +362,16 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			evidence := addEvidence(supportRows(ProbeDNS, ProbeInternet),
 				rulesOut(DiagnosisOffline, ProbeInternet, observation))
 			return withEvidence(DiagnosisDNSFailure, ProbeDNS, summary, gv, evidence)
+		case directOK() && has(ProbeQUIC) && fail(ProbeQUIC) && quicUsedDisagreeingAnswer(res):
+			// Above the QUIC rung and below the failed ones, for the same
+			// reason the plain disagreement sits where it does: this is a
+			// degradation of a network that carries traffic. What moves it
+			// over QUIC is evidence rather than precedence, since the QUIC
+			// row's failure was measured against an address the run has
+			// already found reason to doubt.
+			evidence := addEvidence(supportRows(ProbeDNSPublic, ProbeDNS, ProbeQUIC, ProbeInternet),
+				contradicts(DiagnosisQUICUnavailable, ProbeDNSPublic, ObservationStatusWarn))
+			return withEvidence(DiagnosisDNSDisagreement, ProbeDNSPublic, quicOnDisagreementSummary, gv, evidence)
 		case directOK() && has(ProbeQUIC) && fail(ProbeQUIC):
 			return blame(DiagnosisQUICUnavailable, ProbeQUIC, "Direct TCP/443 works, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower.", VerdictDegraded, ProbeInternet)
 		case encryptedDNSBlocked(res):
@@ -867,6 +877,57 @@ func encryptedDNSBlocked(res map[ProbeID]ProbeResult) bool {
 	}
 	return false
 }
+
+// quicUsedDisagreeingAnswer reports whether the QUIC check failed against an
+// address that came from the system resolver and that the independent resolver
+// did not return, on a run where the two resolvers were already found to
+// disagree. That is the whole claim, and it is checked rather than assumed: the
+// QUIC row resolves its endpoint through the system resolver like everything
+// else, so a failure there can be the resolver's answer being wrong instead of
+// UDP/443 being unavailable, and the two are not separable from the QUIC row
+// alone.
+//
+// Set membership is the test because it is the one comparison that survives a
+// sanitized artifact: one address keeps one pseudonym across the whole file, so
+// a row that tried an answer still reads as having tried it. The prefix
+// comparison behind the disagreement does not survive that, which is why the
+// outcome of it is recorded on the row and read back here instead of remade.
+//
+// Sound only where the DNS rows and the QUIC row describe one hostname, which
+// is the generic plan: there all three are ConnectivityProbeHost. With a target
+// the DNS rows are about the target while the QUIC row keeps its own fixed
+// endpoint, so a shared address is a coincidence between two names rather than
+// evidence that this check used the disputed answer.
+//
+// Not a QUIC rule. The disagreement is what this is about, and the QUIC row is
+// the downstream consumer that happens to exist today; the linkage is the
+// evidence that the consumer used the disputed answer, which is what a run has
+// to have before it may reorder the two.
+func quicUsedDisagreeingAnswer(res map[ProbeID]ProbeResult) bool {
+	public, ok := res[ProbeDNSPublic]
+	if !ok || public.answerComparison != comparisonDisagree {
+		return false
+	}
+	system, ok := res[ProbeDNS]
+	if !ok || !functional(system.Status) || len(system.Addrs) == 0 {
+		return false
+	}
+	for _, attempt := range res[ProbeQUIC].Attempts {
+		if containsResolvedIP(system.Addrs, attempt.IP) && !containsResolvedIP(public.Addrs, attempt.IP) {
+			return true
+		}
+	}
+	return false
+}
+
+// quicOnDisagreementSummary is what the run may say once the linkage above
+// holds. It names the disagreement first because that is the thing to settle,
+// and it stops at what was observed: the address this check used is not the one
+// the second opinion gave, so this run has not tested UDP/443 against an
+// endpoint both resolvers agree on. Whether UDP/443 also happens to be filtered
+// is not something these observations separate, and the sentence does not
+// pretend otherwise in either direction.
+const quicOnDisagreementSummary = "System DNS and public DNS disagree, and the QUIC check failed against an address only the system resolver returned, so this run cannot call UDP/443 unavailable (see the DNS rows)."
 
 // Collateral names the failed probes a finished diagnosis already explains as
 // downstream evidence of the failure it blames, rather than as something to go

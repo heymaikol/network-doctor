@@ -42,6 +42,42 @@ Use
 [`broken-dns.yaml`](../internal/simulation/scenarios/broken-dns.yaml) as the
 complete, validated single-segment example.
 
+### Resource budget
+
+A scenario is a file the simulator will act on, so the amount of work a valid
+one may ask for is bounded. The ceilings below sit an order of magnitude above
+the largest scenario in this repository, and a scenario that exceeds any of
+them is rejected by `netdoc-sim validate`, `run` and `campaign` alike, before a
+namespace, interface, route, alias, listener or service process is created.
+
+| Resource | Scope | Maximum |
+| --- | --- | --- |
+| scenario input | file | 1 MiB |
+| `topology.nodes` | scenario | 64 |
+| `topology.segments` | scenario | 32 |
+| `topology.routes` | scenario | 256 |
+| `interfaces` | per node | 32 |
+| `aliases` | per node | 32 |
+| `services` | per node | 16 |
+| `tests` | scenario | 32 |
+| `faults` | scenario | 64 |
+
+The input limit is enforced on the file before the YAML parser is given any of
+it, so an oversized scenario costs one bounded read rather than a parse. Every
+other limit is measured against the file as written, before shorthand
+normalization, so the counts an error reports are the ones in the file.
+
+Narrower limits apply within a single object and remain authoritative: 64
+records across a DNS service's `zone` and `records` together, 16 certificate
+`dns_names`, 256 outcomes across a `dns_fault`, 16 events per scheduled fault
+and 64 scheduled events across the scenario, and 1000 campaign `runs`.
+
+Each cardinality ceiling is also published as a `maxItems` in the [JSON
+Schema](../schema/simulation-scenario-v1.schema.json), and a parity test
+compares the two so they cannot drift. The input size limit has no schema
+equivalent, because JSON Schema cannot describe the size of the document it
+validates; there the Go validator is the only contract.
+
 ### Editor and tooling schema
 
 A machine-readable [JSON

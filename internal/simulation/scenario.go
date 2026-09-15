@@ -8,6 +8,7 @@
 package simulation
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -207,6 +208,64 @@ const (
 	dnsMaxRecords                  = 64
 	dnsMaxScheduledOutcomes        = 256
 	maxNetemDuration               = 10 * time.Second
+)
+
+// A custom scenario is an arbitrary file, so the amount of work a valid one may
+// ask for is bounded as deliberately as what its strings may become. Every
+// limit here is measured against the file as written, before normalization and
+// before any namespace, interface, route or listener exists, and each one is
+// mirrored by a maxItems in schema/simulation-scenario-v1.schema.json that
+// TestSchemaMaxItemsMatchRuntimeLimits keeps aligned.
+//
+// The ceilings sit an order of magnitude above the largest scenario in this
+// repository, so no legitimate topology is affected. The largest built-in has 8
+// nodes, 4 segments, 2 interfaces and 4 aliases on one node, 5 services on one
+// node, 5 tests and 4 faults; the largest authored lab network has 19 routes.
+// Existing narrower limits stay authoritative: dnsMaxRecords still bounds a
+// zone, tlsMaxDNSNames a certificate, dnsMaxScheduledOutcomes a DNS fault,
+// maxScheduledEvents one timed fault and maxTimelineEvents the whole timeline.
+const (
+	// maxScenarioBytes bounds the YAML decoder's input. It is enforced against
+	// the reader, so an oversized scenario costs one bounded read rather than a
+	// parse. 1 MiB is two hundred times the largest scenario here. It is set
+	// from the other direction as well: a topology populated to every
+	// cardinality below has to fit, in the verbose spelling as well as the
+	// compact one the built-ins use, or the shape this budget documents would
+	// not be writable. TestFullCardinalityScenarioFitsTheInputLimit holds the
+	// two ceilings together.
+	maxScenarioBytes = 1 << 20
+	// maxTopologyNodes bounds namespace creation: one node is one network
+	// namespace with its own interfaces, routes, resolver and service
+	// processes, which makes it the most expensive thing a scenario can repeat.
+	maxTopologyNodes = 64
+	// maxTopologySegments bounds bridge creation, and with it the pairwise
+	// prefix-overlap comparison each new segment makes against the segments
+	// already accepted.
+	maxTopologySegments = 32
+	// maxNodeInterfaces bounds veth pairs on one node. One interface per
+	// segment is already the rule, so the segment ceiling is the honest value;
+	// stating it separately is what makes the bound checkable before
+	// normalization and expressible in the published schema.
+	maxNodeInterfaces = maxTopologySegments
+	// maxNodeAliases bounds the extra loopback addresses one node claims.
+	maxNodeAliases = 32
+	// maxTopologyRoutes bounds the `ip route add` invocations a scenario asks
+	// for. It is scenario-wide because routes are, and it leaves room for a
+	// dense multi-path topology: the busiest authored network uses 19.
+	maxTopologyRoutes = 256
+	// maxNodeServices bounds the listeners and service goroutines inside one
+	// node. It is per node because that is how the model works: ports are bound
+	// inside the node's namespace, so two nodes may both serve the same port.
+	// The scenario-wide bound is this times maxTopologyNodes.
+	maxNodeServices = 16
+	// maxScenarioTests bounds full netdoc runs, the most expensive unit a
+	// scenario has: each test is a process executed under the probe timeout, so
+	// this ceiling is also what bounds a run's wall clock.
+	maxScenarioTests = 32
+	// maxScenarioFaults bounds the nftables, tc and ip commands that fault
+	// injection issues. maxTimelineEvents remains the separate authoritative
+	// ceiling on how many scheduled events those faults may carry between them.
+	maxScenarioFaults = 64
 )
 
 // Fault types.
@@ -518,7 +577,18 @@ func LoadScenario(path string) (*Scenario, error) {
 // ParseScenario decodes YAML and validates it. Unknown fields are an error, so
 // a typo'd key fails loudly instead of being silently ignored.
 func ParseScenario(r io.Reader) (*Scenario, error) {
-	dec := yaml.NewDecoder(r)
+	// The size limit is applied to the reader, not to a file on disk: the input
+	// is bounded before the YAML decoder is handed any of it, and one byte past
+	// the limit is all it takes to know the scenario is too large to support.
+	// Nothing here reads a whole oversized file to measure it afterwards.
+	blob, err := io.ReadAll(io.LimitReader(r, maxScenarioBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(blob) > maxScenarioBytes {
+		return nil, fmt.Errorf("scenario input exceeds the supported maximum of %d bytes", maxScenarioBytes)
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(blob))
 	dec.KnownFields(true)
 	var s Scenario
 	if err := dec.Decode(&s); err != nil {
@@ -543,9 +613,53 @@ func ParseScenario(r io.Reader) (*Scenario, error) {
 	return &s, nil
 }
 
+// validateLimits rejects a scenario that asks for more resources than the
+// documented budget allows. It runs ahead of every other rule, so a scenario
+// over budget is refused before anything is normalized, resolved or built, and
+// the collections it reports are the ones the author actually wrote.
+//
+// Nodes are named by index rather than by name because this check precedes the
+// one that decides a node name is a name at all.
+func (s *Scenario) validateLimits() error {
+	for _, limit := range []struct {
+		collection string
+		count, max int
+	}{
+		{"topology.nodes", len(s.Topology.Nodes), maxTopologyNodes},
+		{"topology.segments", len(s.Topology.Segments), maxTopologySegments},
+		{"topology.routes", len(s.Topology.Routes), maxTopologyRoutes},
+		{"faults", len(s.Faults), maxScenarioFaults},
+		{"tests", len(s.Tests), maxScenarioTests},
+	} {
+		if limit.count > limit.max {
+			return fmt.Errorf("%s: %d entries, supported maximum is %d", limit.collection, limit.count, limit.max)
+		}
+	}
+	for i := range s.Topology.Nodes {
+		n := &s.Topology.Nodes[i]
+		for _, limit := range []struct {
+			field      string
+			count, max int
+		}{
+			{"interfaces", len(n.Interfaces), maxNodeInterfaces},
+			{"aliases", len(n.Aliases), maxNodeAliases},
+			{"services", len(n.Services), maxNodeServices},
+		} {
+			if limit.count > limit.max {
+				return fmt.Errorf("topology.nodes[%d].%s: %d entries, supported maximum is %d",
+					i, limit.field, limit.count, limit.max)
+			}
+		}
+	}
+	return nil
+}
+
 // Validate reports the first thing wrong with the scenario. It runs before any
 // namespace exists, so a bad scenario costs nothing.
 func (s *Scenario) Validate() error {
+	if err := s.validateLimits(); err != nil {
+		return err
+	}
 	if s.Name == "" {
 		return errors.New("name is required")
 	}

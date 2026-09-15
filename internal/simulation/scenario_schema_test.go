@@ -30,6 +30,7 @@ package simulation
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -990,6 +991,87 @@ func TestSchemaDescribesEveryYAMLField(t *testing.T) {
 		}
 		if def, ok := defs[name].(map[string]any); ok && def["properties"] != nil {
 			t.Errorf("$defs/%s describes an object that no input struct decodes", name)
+		}
+	}
+}
+
+// scenarioMaxItemsLimits maps every maxItems in the published schema to the Go
+// constant it mirrors. The schema has to carry the numbers as literals, since
+// nothing generates it, so this is the mapping that stops the two contracts
+// drifting: the Go constant is authoritative, and changing one without the
+// other fails below. It is spelled as a list rather than derived so a
+// maintainer can see which schema keyword corresponds to which limit.
+var scenarioMaxItemsLimits = []struct {
+	def, property string
+	limit         int
+}{
+	{"Scenario", "faults", maxScenarioFaults},
+	{"Scenario", "tests", maxScenarioTests},
+	{"Topology", "segments", maxTopologySegments},
+	{"Topology", "nodes", maxTopologyNodes},
+	{"Topology", "routes", maxTopologyRoutes},
+	{"Node", "interfaces", maxNodeInterfaces},
+	{"Node", "aliases", maxNodeAliases},
+	{"Node", "services", maxNodeServices},
+	{"Service", "records", dnsMaxRecords},
+	{"TLSCertificate", "dns_names", tlsMaxDNSNames},
+	{"DNSFault", "a", dnsMaxScheduledOutcomes},
+	{"DNSFault", "aaaa", dnsMaxScheduledOutcomes},
+	{"Fault", "events", maxScheduledEvents},
+}
+
+// TestSchemaMaxItemsMatchRuntimeLimits is the parity audit for the cardinality
+// half of the scenario resource budget, and it runs in both directions: every
+// mapped limit must match the published file, and every maxItems in the
+// published file must be mapped, so a ceiling cannot be introduced on one side
+// alone. The scenario input byte limit has no maxItems to compare against
+// because JSON Schema cannot express the size of the document it is
+// validating; there, Validate is the only contract and the schema says so.
+func TestSchemaMaxItemsMatchRuntimeLimits(t *testing.T) {
+	published := map[string]int{}
+	collectSchemaMaxItems(scenarioSchemaDefs(t), "", published)
+	mapped := map[string]bool{}
+	for _, limit := range scenarioMaxItemsLimits {
+		path := limit.def + ".properties." + limit.property
+		mapped[path] = true
+		got, ok := published[path]
+		if !ok {
+			t.Errorf("%s has runtime limit %d but no maxItems in %s",
+				path, limit.limit, scenarioSchemaPath)
+			continue
+		}
+		if got != limit.limit {
+			t.Errorf("%s: schema maxItems is %d but the runtime limit is %d; %s and the Go limit have drifted apart",
+				path, got, limit.limit, scenarioSchemaPath)
+		}
+	}
+	for path, value := range published {
+		if !mapped[path] {
+			t.Errorf("%s constrains %s to %d items but scenarioMaxItemsLimits does not say which runtime limit that mirrors",
+				scenarioSchemaPath, path, value)
+		}
+	}
+}
+
+// collectSchemaMaxItems records every maxItems anywhere under the schema's
+// $defs, by the path it sits at. Walking rather than reading the properties of
+// each definition is what keeps a limit added inside a conditional from
+// reaching the published file unmapped.
+func collectSchemaMaxItems(node any, path string, out map[string]int) {
+	switch n := node.(type) {
+	case map[string]any:
+		if value, ok := n["maxItems"].(float64); ok {
+			out[strings.TrimPrefix(path, ".")] = int(value)
+		}
+		for key, child := range n {
+			if key == "maxItems" {
+				continue
+			}
+			collectSchemaMaxItems(child, path+"."+key, out)
+		}
+	case []any:
+		for i, child := range n {
+			collectSchemaMaxItems(child, fmt.Sprintf("%s[%d]", path, i), out)
 		}
 	}
 }

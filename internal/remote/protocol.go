@@ -183,18 +183,26 @@ var ErrNoResponse = errors.New("no response")
 // second object, or prose after the first one, means the stream was not what
 // this build thinks it was talking to.
 func decodeResponse(r io.Reader) (Response, error) {
-	// One byte of headroom over the cap, so a response of exactly the limit is
-	// accepted and the one past it is detectably truncated rather than
-	// silently short.
-	dec := json.NewDecoder(io.LimitReader(r, MaxResponseBytes+1))
+	// Keep one byte of headroom past the cap. If it is consumed, the EOF seen
+	// by the decoder came from this limit rather than the remote stream.
+	limited := &io.LimitedReader{R: r, N: MaxResponseBytes + 1}
+	dec := json.NewDecoder(limited)
 	var resp Response
-	if err := dec.Decode(&resp); err != nil {
+	err := dec.Decode(&resp)
+	if limited.N == 0 {
+		return Response{}, errors.New("the remote response is too large")
+	}
+	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return Response{}, ErrNoResponse
 		}
 		return Response{}, fmt.Errorf("could not read the remote response: %w", err)
 	}
-	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+	err = dec.Decode(new(json.RawMessage))
+	if limited.N == 0 {
+		return Response{}, errors.New("the remote response is too large")
+	}
+	if !errors.Is(err, io.EOF) {
 		return Response{}, errors.New("the remote sent more than one response")
 	}
 	if resp.Protocol != Protocol {

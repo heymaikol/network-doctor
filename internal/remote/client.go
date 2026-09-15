@@ -102,6 +102,7 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 	// instead of finishing a diagnosis nobody will read.
 	var resp Response
 	var decodeErr error
+	stopSSH := false
 	if _, err := stdin.Write(body); err != nil {
 		// A write that fails means ssh is already gone. Its own stderr and exit
 		// status say why far better than a broken-pipe error would, and this is
@@ -109,13 +110,21 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 		decodeErr = ErrNoResponse
 	} else {
 		resp, decodeErr = decodeResponse(stdout)
+		stopSSH = decodeErr != nil
 	}
 	// Closed before Wait: EOF is what ends the worker, so this is what lets a
 	// finished or cancelled run end without waiting out the remote's timeouts.
 	_ = stdin.Close()
-	// Drain what is left so ssh is never blocked writing into a full pipe while
-	// we wait for it. Bounded, for the same reason the decode was.
-	_, _ = io.Copy(io.Discard, io.LimitReader(stdout, MaxResponseBytes))
+	if stopSSH {
+		// A peer that broke framing may keep writing forever. Stop ssh so the
+		// failed exchange cannot strand its writer or our Wait.
+		_ = cmd.Process.Kill()
+		_ = stdout.Close()
+	} else {
+		// Drain what is left so ssh is never blocked writing into a full pipe
+		// while we wait. Bounded, for the same reason the decode was.
+		_, _ = io.Copy(io.Discard, io.LimitReader(stdout, MaxResponseBytes))
+	}
 	waitErr := cmd.Wait()
 
 	if decodeErr != nil {

@@ -5,6 +5,7 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -90,6 +91,10 @@ func fakeSSH(mode string) int {
 		enc := json.NewEncoder(os.Stdout)
 		_ = enc.Encode(resp)
 		_ = enc.Encode(resp)
+		return 0
+	case "oversize":
+		fmt.Fprint(os.Stdout, `{"protocol":1,"tool":{},"error":"remote failure"}`+"\n")
+		_, _ = io.CopyN(os.Stdout, endless{}, 3*MaxResponseBytes)
 		return 0
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(resp)
@@ -241,6 +246,19 @@ func TestRunEndsWhenTheContextIsCancelled(t *testing.T) {
 	// mean the cancellation never reached the ssh process.
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Errorf("Run took %s to notice the cancellation", elapsed)
+	}
+}
+
+func TestRunStopsAnOversizedProducer(t *testing.T) {
+	useFakeSSH(t, "oversize")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := Run(ctx, "server", "", Request{})
+	if ctx.Err() != nil {
+		t.Fatal("Run waited for context cancellation after the oversized response")
+	}
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("Run error = %v, want oversized response error", err)
 	}
 }
 
@@ -425,6 +443,50 @@ func TestDecodeResponseRefusesAnUnboundedStream(t *testing.T) {
 	if _, err := decodeResponse(endless{}); err == nil {
 		t.Fatal("an unbounded response was accepted")
 	}
+}
+
+func TestDecodeResponseEnforcesFramingBoundary(t *testing.T) {
+	var encoded bytes.Buffer
+	if err := json.NewEncoder(&encoded).Encode(diagnosedResponse(t)); err != nil {
+		t.Fatal(err)
+	}
+	response := encoded.Bytes()
+	for _, tc := range []struct {
+		name string
+		in   io.Reader
+		want string
+	}{
+		{"normal", bytes.NewReader(response), ""},
+		{"exactly at limit", bytes.NewReader(paddedResponse(t, MaxResponseBytes)), ""},
+		{"one byte over limit", bytes.NewReader(paddedResponse(t, MaxResponseBytes+1)), "too large"},
+		{"second JSON value", io.MultiReader(bytes.NewReader(response), strings.NewReader("{}\n")), "more than one response"},
+		{"trailing prose", io.MultiReader(bytes.NewReader(response), strings.NewReader("hello")), "more than one response"},
+		{"trailing data crosses limit", io.MultiReader(bytes.NewReader(paddedResponse(t, MaxResponseBytes)), strings.NewReader("x")), "too large"},
+		{"trailing whitespace", io.MultiReader(bytes.NewReader(response), strings.NewReader(" \r\n\t")), ""},
+		{"continuing past limit", io.MultiReader(bytes.NewReader(response), endless{}), "too large"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := decodeResponse(tc.in)
+			if tc.want == "" && err != nil {
+				t.Fatalf("decodeResponse: %v", err)
+			}
+			if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Fatalf("decodeResponse error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func paddedResponse(t *testing.T, size int) []byte {
+	t.Helper()
+	const prefix = `{"protocol":1,"tool":{},"error":"remote failure","padding":"`
+	// Encoder newline is part of the complete response representation and
+	// therefore counts toward MaxResponseBytes.
+	const suffix = `"}` + "\n"
+	if size < len(prefix)+len(suffix) {
+		t.Fatalf("response size %d is too small", size)
+	}
+	return []byte(prefix + strings.Repeat("x", size-len(prefix)-len(suffix)) + suffix)
 }
 
 func TestDecodeResponseNamesWhatIsMissing(t *testing.T) {

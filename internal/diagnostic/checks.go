@@ -59,6 +59,17 @@ const (
 // and a successful target connection through a lower-preference default path.
 const RouteCausePreferredPathAlternateReachable = "preferred_path_failed_alternate_reachable"
 
+// ConnectivityCauseUnexpectedResponse records the one thing that degraded a
+// direct-egress row whose dials all succeeded: a single fixed connectivity
+// endpoint answered something other than what it documents. It names the
+// observation and no cause for it, because a block aimed at one provider, that
+// provider's own trouble, and a hijacked answer for its name are
+// indistinguishable from here; corroboration by both endpoints is what carries
+// a portal claim, and that path reports interception instead. It is recorded
+// only where that discrepancy is the whole warning, so a row that is also slow
+// or missing a family keeps describing the path.
+const ConnectivityCauseUnexpectedResponse = "connectivity_check_unexpected_response"
+
 const (
 	FamilyReachable   = "reachable"
 	FamilyUnreachable = "unreachable"

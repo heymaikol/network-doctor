@@ -145,7 +145,9 @@ func (s SourceAddresses) forDial(network, addr string) (net.IP, int) {
 // applyDialWarnings downgrades a successful dial result to Warn when it is
 // degraded: high connect latency, observed sibling address failures,
 // or an ambiguous source interface. Notes are appended to Detail.
-func applyDialWarnings(r *ProbeResult, rtt time.Duration, extra ...string) {
+// It returns the warning notes it wrote, so a caller that has to know which
+// of them the row is warning about does not restate the rules here.
+func applyDialWarnings(r *ProbeResult, rtt time.Duration, extra ...string) []string {
 	notes := extra
 	if rtt >= warnRTT {
 		notes = append(notes, fmt.Sprintf("high latency (%dms)", rtt.Milliseconds()))
@@ -172,6 +174,7 @@ func applyDialWarnings(r *ProbeResult, rtt time.Duration, extra ...string) {
 		r.Status = StatusWarn
 		r.Detail += "; warning: " + strings.Join(notes, ", ")
 	}
+	return notes
 }
 
 // compatibleSourceIPs drops destinations whose address family the selected

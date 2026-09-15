@@ -30,6 +30,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
 
 // splitDNSFixture is a two-resolver DNS network for the real Go resolver.
@@ -1172,9 +1174,16 @@ func TestInternetProbePortalCorroboration(t *testing.T) {
 				return
 			}
 			// Nothing but corroboration may name a portal, and a lone
-			// discrepancy must not invent a cause for the row either.
-			if r.Cause != "" {
-				t.Errorf("cause = %q, want none: one endpoint is not a diagnosis", r.Cause)
+			// discrepancy still names no cause for itself: the only cause it
+			// may record is the neutral one that says a connectivity endpoint
+			// answered unexpectedly, which is the observation the row already
+			// reports in prose and nothing more.
+			wantCause := ""
+			if c.want == StatusWarn {
+				wantCause = ConnectivityCauseUnexpectedResponse
+			}
+			if r.Cause != wantCause {
+				t.Errorf("cause = %q, want %q: one endpoint is not a diagnosis", r.Cause, wantCause)
 			}
 			if c.want == StatusWarn && !strings.Contains(r.Detail, "answered unexpectedly") {
 				t.Errorf("detail = %q, want the observation named", r.Detail)
@@ -2934,5 +2943,123 @@ func TestBannerProbeSSHTruncatedIdentificationAtDeadline(t *testing.T) {
 	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, deps)
 	if r.Status != StatusFail || r.Detail != "unexpected service banner: Authorized use only" {
 		t.Errorf("identification cut off by the deadline = %+v, want FAIL", r)
+	}
+}
+
+// Issue #106: a discrepant endpoint is reported as what it answered, and the
+// two ways an answer can differ are different observations. A correct status
+// carrying the wrong payload is the case the documented body exists to catch,
+// and reporting it as a status mismatch produced the nonsense "answered 200,
+// want 200" for exactly the endpoint the check is about.
+//
+// The run underneath every case is a healthy one: both families dial, both
+// reference endpoints answer, and one connectivity endpoint is the only thing
+// that differs. So each case also pins what that row may not turn into, which
+// is a portal claim, a broken path, or a failure.
+func TestInternetProbeSaysWhichPartOfAnEndpointAnswerDiffered(t *testing.T) {
+	dialOK := func(context.Context, string, string) (net.Conn, error) { return fakeConn{}, nil }
+	ifaces := func() ([]net.Interface, error) { return nil, nil }
+	ncsi := portalEndpoints[1]
+
+	for _, c := range []struct {
+		name    string
+		answer  *portalObservation
+		want    string
+		notWant string
+	}{
+		{
+			// The reported case: HTTP 200 is what this endpoint documents, and
+			// the payload under it was not.
+			name:    "documented status with an undocumented body",
+			answer:  &portalObservation{code: ncsi.want},
+			want:    ncsi.url + " answered 200 with an unexpected response body",
+			notWant: "answered 200, want 200",
+		},
+		{
+			name:    "undocumented status",
+			answer:  seenAnswer(http.StatusFound, ""),
+			want:    ncsi.url + " answered 302, want 200",
+			notWant: "unexpected response body",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			o := &netops{dialContext: dialOK, interfaces: ifaces,
+				portalCheck: portalAnswers(t, cleanAnswer(http.StatusNoContent), c.answer)}
+			r := o.internetProbe(context.Background(), nil)
+			if r.Status != StatusWarn {
+				t.Fatalf("status = %v, want WARN (detail %q)", r.Status, r.Detail)
+			}
+			if !strings.Contains(r.Detail, c.want) {
+				t.Errorf("detail = %q, want it to contain %q", r.Detail, c.want)
+			}
+			if strings.Contains(r.Detail, c.notWant) {
+				t.Errorf("detail = %q, want it not to describe the discrepancy as %q", r.Detail, c.notWant)
+			}
+			// The dials are the egress evidence, and they all succeeded: the
+			// row has to keep saying so beside the discrepancy.
+			if r.Portal != nil {
+				t.Errorf("portal evidence = %+v, want none from one endpoint", r.Portal)
+			}
+			if r.Families == nil || r.Families.IPv4 != FamilyReachable || r.Families.IPv6 != FamilyReachable {
+				t.Errorf("families = %+v, want both reachable", r.Families)
+			}
+			if !strings.Contains(r.Detail, "IPv4 egress via") || !directEgressOK(map[ProbeID]ProbeResult{ProbeInternet: r}) {
+				t.Errorf("row stopped representing working direct egress: %+v", r)
+			}
+			// The one piece of structured state the diagnosis reads, so it
+			// never has to parse the sentence above.
+			if r.Cause != ConnectivityCauseUnexpectedResponse {
+				t.Errorf("cause = %q, want %q", r.Cause, ConnectivityCauseUnexpectedResponse)
+			}
+
+			order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS}
+			res := map[ProbeID]ProbeResult{
+				ProbeIface:    {ID: ProbeIface, Status: StatusPass},
+				ProbeInternet: r,
+				ProbeDNS:      {ID: ProbeDNS, Status: StatusPass, Addrs: []net.IP{net.ParseIP("192.0.2.1")}},
+			}
+			d := Interpret(nil, order, res)
+			const want = "Online but degraded: one connectivity check returned an unexpected response (see the ! row for details)."
+			if d.Summary != want {
+				t.Errorf("summary:\n got %q\nwant %q", d.Summary, want)
+			}
+			if d.Verdict != VerdictDegraded {
+				t.Errorf("verdict = %q, want %q", d.Verdict, VerdictDegraded)
+			}
+			for _, f := range d.Findings {
+				if f.ID == DiagnosisCaptivePortal {
+					t.Errorf("one discrepant endpoint produced %q", f.ID)
+				}
+			}
+			// No row failed, which is what ok and the exit code are read from.
+			for id, row := range res {
+				if row.Status == StatusFail {
+					t.Errorf("%s failed, so this run would no longer report ok", id)
+				}
+			}
+
+			// The sentence is recomputed from the artifact, so the evidence
+			// that distinguishes it has to survive the .ndoc boundary. Cause
+			// already crosses it, which is why nothing new was stored.
+			probes := make([]Probe, len(order))
+			for i, id := range order {
+				probes[i] = Probe{ID: id, Name: string(id)}
+			}
+			data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(nil, probes, timedResults(res))))
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact, err := snapshot.Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			replayed, err := ReplaySnapshot(artifact)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if replayed.Summary != want {
+				t.Errorf("replayed summary:\n got %q\nwant %q", replayed.Summary, want)
+			}
+		})
 	}
 }

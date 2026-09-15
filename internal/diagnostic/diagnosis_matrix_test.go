@@ -228,6 +228,33 @@ func diagnosisMatrix() []matrixCase {
 			id: "direct_egress_degraded", evidence: []ProbeID{ProbeInternet, ProbeDNS},
 		},
 		{
+			// The same conclusion with the impairment localized to one family,
+			// which is a fact about the path and keeps the path's sentence.
+			name: "generic direct egress impaired in one family", order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS},
+			res: map[ProbeID]ProbeResult{
+				ProbeIface: ok(StatusPass), ProbeDNS: ok(StatusPass),
+				ProbeInternet: {Status: StatusWarn, Cause: FamilyCauseIPv6Unreachable, causeFamily: counterfactualIPv6,
+					Families: &FamilyConnectivity{IPv4: FamilyReachable, IPv6: FamilyUnreachable}},
+			},
+			summary: "Online but degraded: direct egress is impaired (see the ! row for details).",
+			verdict: VerdictDegraded, focus: ProbeInternet,
+			id: "direct_egress_degraded", evidence: []ProbeID{ProbeInternet, ProbeDNS},
+		},
+		{
+			// Every reference dial worked and one fixed connectivity endpoint
+			// answered something else, so the sentence describes that answer
+			// and not a path this run measured as healthy.
+			name: "generic connectivity endpoint answered unexpectedly", order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS},
+			res: map[ProbeID]ProbeResult{
+				ProbeIface: ok(StatusPass), ProbeDNS: ok(StatusPass),
+				ProbeInternet: {Status: StatusWarn, Cause: ConnectivityCauseUnexpectedResponse,
+					Families: &FamilyConnectivity{IPv4: FamilyReachable, IPv6: FamilyReachable}},
+			},
+			summary: "Online but degraded: one connectivity check returned an unexpected response (see the ! row for details).",
+			verdict: VerdictDegraded, focus: ProbeInternet,
+			id: "direct_egress_degraded", evidence: []ProbeID{ProbeInternet, ProbeDNS},
+		},
+		{
 			name: "generic impaired egress with broken DNS", order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS},
 			res: map[ProbeID]ProbeResult{
 				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusWarn), ProbeDNS: ok(StatusFail),
@@ -696,6 +723,16 @@ func diagnosisMatrix() []matrixCase {
 			name: "target works, direct egress degraded", target: tls, order: webOrder,
 			res:     with(map[ProbeID]ProbeResult{ProbeInternet: ok(StatusWarn)}),
 			summary: "The target works but direct egress to the egress check's reference endpoints is degraded (see the ! row for details).",
+			verdict: VerdictDegraded, focus: ProbeInternet,
+			id: "direct_egress_degraded", evidence: []ProbeID{ProbeInternet, ProbeHTTP, ProbeHTTPS},
+		},
+		{
+			// The targeted half of the same split.
+			name: "target works, connectivity endpoint answered unexpectedly", target: tls, order: webOrder,
+			res: with(map[ProbeID]ProbeResult{ProbeInternet: {Status: StatusWarn,
+				Cause:    ConnectivityCauseUnexpectedResponse,
+				Families: &FamilyConnectivity{IPv4: FamilyReachable, IPv6: FamilyReachable}}}),
+			summary: "The target works but one of the egress check's connectivity endpoints returned an unexpected response (see the ! row for details).",
 			verdict: VerdictDegraded, focus: ProbeInternet,
 			id: "direct_egress_degraded", evidence: []ProbeID{ProbeInternet, ProbeHTTP, ProbeHTTPS},
 		},

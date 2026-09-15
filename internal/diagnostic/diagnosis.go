@@ -404,7 +404,16 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			// sentence there is still something to do about.
 			return blame(DiagnosisDNSFailure, ProbeDNS, "Direct egress is blocked and DNS resolution is failing; only the environment proxy is carrying traffic.", gv, ProbeInternet, ProbeProxy)
 		case directOK() && warn(ProbeInternet) && dn:
-			return blame(DiagnosisDirectEgressDegraded, ProbeInternet, "Online but degraded: direct egress is impaired (see the ! row for details).", gv, ProbeDNS)
+			// One conclusion, two sentences, because the row warns for two
+			// materially different reasons. The cause is recorded only where a
+			// single connectivity endpoint's answer was the whole warning and
+			// every dial succeeded, so the impaired-path sentence would be
+			// describing a path this run measured as healthy.
+			summary := "Online but degraded: direct egress is impaired (see the ! row for details)."
+			if res[ProbeInternet].Cause == ConnectivityCauseUnexpectedResponse {
+				summary = "Online but degraded: one connectivity check returned an unexpected response (see the ! row for details)."
+			}
+			return blame(DiagnosisDirectEgressDegraded, ProbeInternet, summary, gv, ProbeDNS)
 		case hasInternet && !directOK() && dn:
 			return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "DNS resolves but there's no direct TCP egress to the egress check's reference endpoints (proxy-only or filtered network?).", gv, ProbeDNS)
 		case fail(ProbeInternet) && fail(ProbeDNS):
@@ -650,7 +659,14 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	case targetOK && prxDown && directOK():
 		return blame(DiagnosisProxyFailure, ProbeProxy, "The target and direct egress work, but the configured environment proxy check failed, so apps that use the proxy will fail (see the proxy row).", VerdictDegraded, ProbeInternet)
 	case targetOK && warn(ProbeInternet):
-		return blame(DiagnosisDirectEgressDegraded, ProbeInternet, "The target works but direct egress to the egress check's reference endpoints is degraded (see the ! row for details).", VerdictDegraded, endpoint...)
+		// The same split as the generic arm, for the same reason: the recorded
+		// cause is the run saying the reference dials all worked and one
+		// connectivity endpoint's answer did not.
+		summary := "The target works but direct egress to the egress check's reference endpoints is degraded (see the ! row for details)."
+		if res[ProbeInternet].Cause == ConnectivityCauseUnexpectedResponse {
+			summary = "The target works but one of the egress check's connectivity endpoints returned an unexpected response (see the ! row for details)."
+		}
+		return blame(DiagnosisDirectEgressDegraded, ProbeInternet, summary, VerdictDegraded, endpoint...)
 	case targetOK && warn(ProbeDNSPublic) && has(ProbeDNS) && functional(res[ProbeDNS].Status):
 		return blame(DiagnosisDNSDisagreement, ProbeDNSPublic, "The target works, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).", VerdictDegraded, ProbeDNS)
 	case targetOK && !anyFailed && degraded:

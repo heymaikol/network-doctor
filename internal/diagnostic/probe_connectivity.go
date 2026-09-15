@@ -99,10 +99,22 @@ func (ep portalEndpoint) bodyMatches(body io.Reader) bool {
 
 // portalNote states what the discrepant endpoints answered, for a detail
 // string. It reports the observation and never names a cause for it.
+//
+// An endpoint is discrepant for one of two reasons, and the note has to say
+// which: the status was not the documented one, or the status was right and
+// the payload under it was not. The second is what the documented body exists
+// to catch, and reporting it as a status is how a correct 200 came out as
+// "answered 200, want 200". Nothing more is needed to tell them apart, since a
+// non-clean observation whose code is the wanted one failed on its body.
 func portalNote(obs []portalObservation, idx []int) string {
 	parts := make([]string, 0, len(idx))
 	for _, i := range idx {
-		parts = append(parts, fmt.Sprintf("%s answered %d, want %d", portalEndpoints[i].url, obs[i].code, portalEndpoints[i].want))
+		ep := portalEndpoints[i]
+		if obs[i].code == ep.want {
+			parts = append(parts, fmt.Sprintf("%s answered %d with an unexpected response body", ep.url, obs[i].code))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s answered %d, want %d", ep.url, obs[i].code, ep.want))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -309,7 +321,16 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 		r.causeFamily = counterfactualIPv4
 		r.Fix = "check the IPv4 default route, gateway, and forwarding path"
 	}
-	applyDialWarnings(&r, prim.rtt, extra...)
+	notes := applyDialWarnings(&r, prim.rtt, extra...)
+	// A lone discrepancy that is the row's whole warning is recorded as a
+	// cause, so the diagnosis can tell this Warn from an impaired path without
+	// reading the sentence above. It stays an observation about one endpoint:
+	// nothing here names a portal, and a row that is also slow, missing a
+	// family, or losing addresses keeps the warning it earned for the path and
+	// records no cause at all.
+	if len(intercepted) > 0 && len(notes) == 1 && r.Cause == "" {
+		r.Cause = ConnectivityCauseUnexpectedResponse
+	}
 	r.Attempts = append(prim.attempts, sec.attempts...)
 	return r
 }

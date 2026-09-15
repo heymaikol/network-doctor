@@ -76,6 +76,7 @@ const (
 	RemedyRestoreIPv4          RemediationID = "restore_ipv4_egress"
 	RemedyRestoreIPv6          RemediationID = "restore_ipv6_egress"
 	RemedyReadEgressWarning    RemediationID = "read_egress_warning"
+	RemedyRecheckConnectivity  RemediationID = "recheck_connectivity_endpoint"
 	RemedyFixSystemResolver    RemediationID = "fix_system_resolver"
 	RemedyCheckTheName         RemediationID = "check_the_name"
 	RemedyCheckResolution      RemediationID = "check_name_resolution"
@@ -390,6 +391,16 @@ var remedies = map[remedyKey]remedy{
 			"Open the warned row for the measurement behind it, such as latency or one address family failing.",
 		},
 		expect: "Either a measurement that explains the symptom, or one that rules this out.",
+	},
+	{id: DiagnosisDirectEgressDegraded, cause: ConnectivityCauseUnexpectedResponse}: {
+		id:     RemedyRecheckConnectivity,
+		action: "Read what the connectivity endpoint answered",
+		why:    "Every reference dial on this run worked, so the direct path carried traffic. One of the two fixed connectivity endpoints answered something other than what it documents, which is a fact about that endpoint: a block aimed at one provider, that provider's own trouble, and a rewritten answer for its name all look the same from here, and the other endpoint answered normally.",
+		steps: []string{
+			"Open the warned row for the endpoint and the answer it gave.",
+			"Re-run the check, and from another network if you have one, to see whether the same endpoint keeps answering that way.",
+		},
+		expect: "Both endpoints answering what they document, or one endpoint that keeps differing while the rest of the network works.",
 	},
 	{id: DiagnosisDirectEgressDegraded, cause: FamilyCauseIPv4Unreachable}: {
 		id:     RemedyRestoreIPv4,

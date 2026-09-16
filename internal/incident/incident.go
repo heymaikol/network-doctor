@@ -26,6 +26,7 @@
 package incident
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -239,6 +240,17 @@ func plural(n int, word string) string {
 // is what lets an incident say "the route moved when this broke" and "nothing
 // moved when this broke" as two different answers.
 //
+// A reading that is simply gone is not always a move. Some of the fields above
+// are recorded off a connection the probe established, so a probe that stopped
+// establishing one stops recording them, and the comparison reports that as a
+// value becoming absent. That absence is the failure's own shadow rather than
+// a second event beside it, so it is read as an outcome. The rest are read off
+// the machine, survive their probe failing, and stay environmental. See
+// unreadable.
+//
+// changes must be one whole comparison and not a subset of one: which side a
+// check was working on is read from that check's own row in the same list.
+//
 // Order is the comparison's own, so the same two runs always produce the same
 // list. A change this does not recognize counts as an outcome, which is the
 // reading that claims less.
@@ -253,13 +265,257 @@ func Outcome(changes []compare.Change) []compare.Change {
 }
 
 func filter(changes []compare.Change, want bool) []compare.Change {
+	producers := producerOutcomes(changes)
 	var out []compare.Change
 	for _, c := range changes {
-		if environmental(c) == want {
+		if (environmental(c) && !unreadable(c, producers)) == want {
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// producerOutcome is what one check's own row did between the two runs. Both
+// ends of the status are kept rather than the direction, because the question
+// here is not which way the row moved but whether it was in a position to
+// record anything on each side.
+type producerOutcome struct {
+	before, after string
+	// known is false for a check whose status is the same in both runs, which
+	// a comparison does not report at all. Nothing is then suppressed on its
+	// behalf: an observation that went missing while its check kept reporting
+	// the same outcome is a change this package has no reason to explain away.
+	known bool
+	// dark is a row the comparison says did not run on one of the two sides.
+	// It recorded nothing there, so every reading it would have taken is
+	// missing for that reason and for no other, whether the reading was one it
+	// had to connect for or one it would have read off the machine.
+	dark bool
+	// negativeBefore and negativeAfter are the row's own statement, on each
+	// side, that the resolver answered and the answer was no records. A
+	// resolver row spells that out rather than leaving it to be guessed from an
+	// empty address list, and it is the difference between a lookup that
+	// completed with nothing to report and one that never got an answer.
+	negativeBefore, negativeAfter bool
+}
+
+// producerOutcomes reads each check's own status and whether it ran out of the
+// comparison. It is the comparison's own statement about the row and not a
+// second reading of the snapshots, so it cannot describe a run the changes
+// beside it do not.
+func producerOutcomes(changes []compare.Change) map[string]producerOutcome {
+	out := make(map[string]producerOutcome)
+	for _, c := range changes {
+		if c.Section != compare.SectionCheck || c.Check == "" {
+			continue
+		}
+		p := out[c.Check]
+		switch c.Path {
+		case "checks." + c.Check + ".status":
+			p.before, p.after, p.known = c.Before, c.After, true
+		case "checks." + c.Check + ".ran":
+			p.dark = c.Before == "no" || c.After == "no"
+		case "checks." + c.Check + ".observed.dns_not_found":
+			p.negativeBefore, p.negativeAfter = c.Before == "yes", c.After == "yes"
+		default:
+			continue
+		}
+		out[c.Check] = p
+	}
+	return out
+}
+
+// unreadable reports that a change describes evidence going missing with the
+// check that records it, rather than the environment moving.
+//
+// Three kinds of evidence answer that question differently, and the difference
+// is what a probe had to do to obtain the value rather than how its row's
+// status moved:
+//
+// A connection reading exists only because the probe did the work. The address
+// it settled on and the local end of the socket it opened are readings off a
+// connection, so a row that stopped opening one stops reporting them, and the
+// comparison spells that as a value becoming absent. That absence is the
+// failure's own shadow rather than a second event beside it.
+//
+// A system reading is taken off the machine instead: the routing table, the
+// interface list, the configured nameservers, the network the radio is joined
+// to. A failing probe can still read all of those, and does, so if one is gone
+// it is gone because the machine changed. It stays an environment change
+// however badly the row that reported it did.
+//
+// A derived paths reading is neither, being synthesized from the rows named in
+// pathProducers. It is only as good as its inputs, so it is read as evidence
+// only while every row it is read from ran.
+//
+// Which of the three a reading is settles most of this, but not whether the
+// two runs even recorded the same things. A check that publishes a field on
+// some of its branches and not others is not comparable across them at all,
+// whatever kind of reading the field holds: see conditionallyPublished. And a
+// reading the probe reports as absent because it asked and the answer was
+// nothing is not a reading it failed to take: see answeredNothing.
+//
+// A reading that changed from one observed value to another is none of this.
+// An interface, source address or selected address that genuinely moved was
+// recorded on both sides, so it stays an environment change whatever its check
+// reported.
+func unreadable(c compare.Change, producers map[string]producerOutcome) bool {
+	if c.Section == compare.SectionPaths {
+		return slices.ContainsFunc(pathProducers[c.Path], func(id string) bool { return producers[id].dark })
+	}
+	if c.Kind != compare.KindAdded && c.Kind != compare.KindRemoved {
+		return false
+	}
+	producer := producers[c.Check]
+	if producer.dark {
+		return true
+	}
+	if conditionallyPublished(c) {
+		return true
+	}
+	if !producer.known || !connectionReading(c) || answeredNothing(c, producer) {
+		return false
+	}
+	// The two edges a comparison spells for absence are what this turns on, so
+	// it never has to decide what an empty string meant. A removal is a reading
+	// the later run does not have, and it is explained when the later run is
+	// where that check stopped working. An addition is the mirror image, which
+	// is what a recovery comparison is full of: the socket came back and
+	// brought its readings with it, and that is the failure ending rather than
+	// the network moving.
+	if c.Kind == compare.KindRemoved {
+		return working(producer.before) && !working(producer.after)
+	}
+	return working(producer.after) && !working(producer.before)
+}
+
+// working reports whether a check's outcome is one a probe reached by doing its
+// work. PASS and WARN both mean the probe got its answer, a warn being a
+// degraded answer rather than no answer. Every other outcome is a row that
+// failed, was skipped for a prerequisite, did not apply, or never reported.
+//
+// This is deliberately not "the status got worse". SKIP, N/A and INCOMPLETE
+// have no rank to move along. It is also asked only of a connection reading:
+// what a row reads off the machine it reads whatever its status, so the answer
+// here says nothing about those.
+func working(status string) bool {
+	return status == snapshot.StatusPass || status == snapshot.StatusWarn
+}
+
+// connectionReadings are the observed fields a probe fills in from the socket
+// it opened: the address it settled on, the local address the kernel gave that
+// socket, and the interface that address belongs to. Addresses are here for the
+// same reason one step earlier, being the answer a lookup returned rather than
+// a property of the machine.
+//
+// Every other environmental field is read off the machine's own state and
+// survives its probe failing, which is what makes this a list of fields rather
+// than a rule about status.
+var connectionReadings = []string{".observed.selected_ip", ".observed.source_ip", ".observed.interface"}
+
+// systemObservers are the checks that fill the fields above by reading the
+// machine rather than by connecting. The interface row walks the interface
+// list: the interface it names and the source address on it are what the
+// machine has assigned, so losing them is the environment moving and not a
+// socket that failed to open. Its FAIL cases are exactly that event, "no
+// interface up" and "selected source address is no longer assigned".
+var systemObservers = map[string]bool{"iface": true}
+
+func connectionReading(c compare.Change) bool {
+	if systemObservers[c.Check] {
+		return false
+	}
+	if strings.Contains(c.Path, ".observed.addresses.") {
+		return true
+	}
+	return slices.ContainsFunc(connectionReadings, func(f string) bool { return strings.HasSuffix(c.Path, f) })
+}
+
+// conditionalPublications are the observed fields a check attaches on some of
+// its branches and not on others. The reading is the same on both, so the
+// comparison reporting it arriving or leaving is the producer having taken a
+// different branch rather than the machine having changed.
+//
+// Two rows do this, and both of them publish the field off the outcome of the
+// work rather than off the status the row ends on.
+//
+// internet_tcp starts its route lookup on every run, but attaches the answer
+// only where no address in either family completed a handshake, so a pass
+// records no route to the connectivity endpoint and the failure beside it
+// records the unchanged one. Every other row that records routes records them
+// on all of its branches: the interface row takes its reference paths outside
+// the probe entirely, and the DNS and target rows assign theirs on each branch
+// they can return from. Route evidence from those rows stays environmental
+// however their own check fared.
+//
+// dns_public names the second-opinion server on the branches that have an
+// answer to attribute to it, and on two N/A branches it has none: the one where
+// this machine resolves the name without DNS, which leaves the public server's
+// answer unprovable, and the one where no query left the machine at all. The
+// resolver did not move in either case, and the row is still querying whatever
+// --public-dns or the candidate list named. What that run dialed is a separate
+// reading with its own meaning, so resolver_targets is not covered here: a
+// branch that stops dialing anything is the machine declining to ask, and it
+// stays an environment change.
+var conditionalPublications = map[string]string{
+	"internet_tcp": ".observed.routes",
+	"dns_public":   ".observed.resolver",
+}
+
+// conditionallyPublished reports that a reading appearing or disappearing is
+// the branch its check took and not the value moving. Two runs that both
+// recorded the field were both on the branch that publishes it, so a value that
+// differs between them differs for real, and only the added and removed edges
+// reach this at all.
+//
+// The field is matched whole: a scalar ends the path, and a collection is
+// followed by the member it names. Nothing else under the same prefix is
+// covered, which is what keeps observed.resolver_targets out of the resolver
+// entry.
+func conditionallyPublished(c compare.Change) bool {
+	field, ok := conditionalPublications[c.Check]
+	return ok && (strings.HasSuffix(c.Path, field) || strings.Contains(c.Path, field+"."))
+}
+
+// answeredNothing reports that the resolver answered on the side the addresses
+// are missing from, and that the answer was no records.
+//
+// An empty address list means two different things, and the row does not leave
+// which one to be guessed: it records whether the lookup came back with no
+// records at all. A completed negative answer is the answer set moving from
+// some records to none, which is a real change in what this machine resolves,
+// and it stays environmental however the row's own status reads. An address
+// list emptied by a lookup that never came back is the failure's own shadow and
+// is suppressed like any other reading the probe did not get to take.
+func answeredNothing(c compare.Change, p producerOutcome) bool {
+	if !strings.Contains(c.Path, ".observed.addresses.") {
+		return false
+	}
+	if c.Kind == compare.KindRemoved {
+		return p.negativeAfter
+	}
+	return p.negativeBefore
+}
+
+// pathProducers names the check rows each derived paths field is read from.
+// The comparison derives that section on both sides from the routes those rows
+// recorded and attributes it to no check, because it is a reading of the run
+// rather than of any one row. That leaves nothing on the change itself to say
+// whose evidence went quiet, so the ownership is stated here, on the side that
+// needs it, rather than by widening the published comparison.
+//
+// agreement is read from two rows at once: it compares where the resolver
+// traffic went with where the application traffic went, and a row that did not
+// run leaves its half empty, which reads as a disagreement that nothing
+// observed. So it is only as good as the weaker of the two.
+var pathProducers = map[string][]string{
+	"paths.target.interface":    {"target_tcp"},
+	"paths.target.prefix":       {"target_tcp"},
+	"paths.target.reason":       {"target_tcp"},
+	"paths.target.tunnel":       {"target_tcp"},
+	"paths.reference.interface": {"iface"},
+	"paths.resolver.interface":  {"dns"},
+	"paths.resolver.agreement":  {"dns", "target_tcp"},
 }
 
 // environmentalFields are the observed fields on a check row that describe the

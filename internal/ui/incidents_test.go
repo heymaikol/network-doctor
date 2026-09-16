@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"net"
 	"os"
 	"slices"
 	"strings"
@@ -293,5 +294,60 @@ func TestIncidentViewerFollowsTheIncidentPastTheRetentionBound(t *testing.T) {
 			t.Fatalf("cycle %d: the cursor is on the incident at %s, the one being read is retained=%v",
 				n, now.Started, retained)
 		}
+	}
+}
+
+// connectionReadings sets, or clears, the readings the target row can only take
+// off a connection it established. Clearing them is what a probe that stopped
+// connecting produces, and it is the whole of the difference between the two
+// passes below.
+func connectionReadings(selected, source, iface string) func(map[diagnostic.ProbeID]diagnostic.ProbeResult) {
+	return func(results map[diagnostic.ProbeID]diagnostic.ProbeResult) {
+		target := results[diagnostic.ProbeTargetTCP]
+		target.SelectedIP, target.Source, target.Iface = net.ParseIP(selected), net.ParseIP(source), iface
+		results[diagnostic.ProbeTargetTCP] = target
+	}
+}
+
+// The incident report must not answer "what moved when this broke" with the
+// readings the break itself took away. A firewall that silently drops the
+// handshake leaves the interface, the source address and the route exactly
+// where they were; the probe simply has no socket left to read them off.
+//
+// A dial that times out is the shape that loses all three: the target row's
+// fallback path lookup runs on a context the dial already spent, so it names
+// nothing either. A refused dial answers early and keeps two of them.
+func TestIncidentDoesNotReportReadingsLostWithTheSocketAsPathChanges(t *testing.T) {
+	start := time.Date(2026, 9, 15, 6, 49, 21, 0, time.UTC)
+	m := newModel(mustTarget(t, "192.168.1.1:9999"), false)
+	m.watch, m.width, m.height = true, 100, 40
+	recordWatchPass(&m, start, false, "enp1s0", connectionReadings("192.168.1.1", "192.168.1.10", "enp1s0"))
+	recordWatchPass(&m, start.Add(5*time.Second), true, "enp1s0", connectionReadings("", "", ""))
+
+	selected, ok := m.incidents.Latest()
+	if !ok {
+		t.Fatal("no incident was recorded")
+	}
+	report := incidentReport(selected, 1, 1, start.Add(5*time.Second))
+	environment, outcomes, found := strings.Cut(report, "Diagnostic outcome changes")
+	if !found {
+		t.Fatalf("incident report has no outcome section:\n%s", report)
+	}
+	for _, reading := range []string{"selected address", "source address", "interface"} {
+		if strings.Contains(environment, reading) {
+			t.Errorf("a %s lost with the socket is reported as a path change:\n%s", reading, report)
+		}
+		if !strings.Contains(outcomes, reading) {
+			t.Errorf("a %s lost with the socket is missing from the outcome evidence:\n%s", reading, report)
+		}
+	}
+	if !strings.Contains(environment, "none recorded") {
+		t.Errorf("path and configuration changes are not reported as empty:\n%s", report)
+	}
+	if !strings.Contains(report, "No recorded change in how this machine reaches the network") {
+		t.Errorf("incident claims the environment moved when nothing did:\n%s", report)
+	}
+	if !strings.Contains(outcomes, "target_tcp changed from PASS to FAIL") {
+		t.Errorf("the failure itself is missing from the outcome evidence:\n%s", report)
 	}
 }

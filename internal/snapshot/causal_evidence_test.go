@@ -295,7 +295,7 @@ func TestDecodeRefusesAHandEditedEvidenceValue(t *testing.T) {
 	}
 	findings, _ := raw["diagnosis"].(map[string]any)["findings"].([]any)
 	if len(findings) == 0 {
-		t.Skip("golden snapshot carries no findings")
+		t.Fatal("golden snapshot carries no findings")
 	}
 	edited := 0
 	for _, finding := range findings {
@@ -313,7 +313,7 @@ func TestDecodeRefusesAHandEditedEvidenceValue(t *testing.T) {
 		}
 	}
 	if edited == 0 {
-		t.Skip("golden snapshot carries no parameterless causal evidence")
+		t.Fatal("golden snapshot carries no parameterless causal evidence")
 	}
 	mutated, err := json.Marshal(raw)
 	if err != nil {

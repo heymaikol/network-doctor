@@ -26,6 +26,7 @@ const maxDNSSDOutput = 1 << 18
 
 type cappedDNSSDOutput []byte
 
+// Write stores up to maxDNSSDOutput bytes while consuming the full write.
 func (out *cappedDNSSDOutput) Write(p []byte) (int, error) {
 	*out = append(*out, p[:min(len(p), maxDNSSDOutput-len(*out))]...)
 	return len(p), nil
@@ -138,6 +139,7 @@ func resolveTargets(ctx context.Context, entries []zoneEntry) map[string][]strin
 	return addrs
 }
 
+// browseZone returns the bounded DNS-SD zone output for svc.
 func browseZone(ctx context.Context, svc string) []byte {
 	cmd := dnssdCommand(ctx, "-t", "3", "-Z", svc, "local.")
 	cmd.WaitDelay = time.Second // don't hang on Wait if a child holds the pipe

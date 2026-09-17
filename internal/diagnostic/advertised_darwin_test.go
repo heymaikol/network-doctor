@@ -15,6 +15,7 @@ import (
 	"time"
 )
 
+// fakeDNSSD creates an executable DNS-SD fixture for a test.
 func fakeDNSSD(t *testing.T, script string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "dns-sd")
@@ -25,6 +26,7 @@ func fakeDNSSD(t *testing.T, script string) string {
 	return path
 }
 
+// stubDNSSDCommand redirects DNS-SD execution and records its arguments.
 func stubDNSSDCommand(t *testing.T, path string) *[]string {
 	t.Helper()
 	previous := dnssdCommand
@@ -37,6 +39,7 @@ func stubDNSSDCommand(t *testing.T, path string) *[]string {
 	return &calledWith
 }
 
+// TestBrowseZone verifies stdout capture and command arguments.
 func TestBrowseZone(t *testing.T) {
 	path := fakeDNSSD(t, `printf '%s\n' 'fixture zone'
 `)
@@ -51,6 +54,7 @@ func TestBrowseZone(t *testing.T) {
 	}
 }
 
+// TestBrowseZoneRejectsStartupFailure verifies missing commands return no output.
 func TestBrowseZoneRejectsStartupFailure(t *testing.T) {
 	stubDNSSDCommand(t, filepath.Join(t.TempDir(), "missing"))
 	if got := browseZone(context.Background(), "_ssh._tcp"); got != nil {
@@ -58,6 +62,7 @@ func TestBrowseZoneRejectsStartupFailure(t *testing.T) {
 	}
 }
 
+// TestBrowseZoneBoundsOutput verifies captured stdout stays within its limit.
 func TestBrowseZoneBoundsOutput(t *testing.T) {
 	outputFile := filepath.Join(t.TempDir(), "output")
 	want := bytes.Repeat([]byte("x"), maxDNSSDOutput+1)
@@ -74,6 +79,7 @@ func TestBrowseZoneBoundsOutput(t *testing.T) {
 	}
 }
 
+// TestBrowseZoneBoundsInheritedStdout verifies WaitDelay bounds inherited pipes.
 func TestBrowseZoneBoundsInheritedStdout(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	t.Setenv("DNSSD_PID_FILE", pidFile)

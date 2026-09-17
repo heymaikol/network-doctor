@@ -155,6 +155,12 @@ var diagnosisConfidence = map[DiagnosisID]confidenceClass{
 	DiagnosisIPv4TargetUnreachable:  classObserved,
 	DiagnosisIPv6TargetUnreachable:  classObserved,
 	DiagnosisPartialReachability:    classObserved,
+	// The scoped failure is certain about the attempts it names and says in
+	// its own meaning that the cause behind them was not established: a
+	// rewritten record and an endpoint whose node was silent produce the same
+	// evidence, and the addresses that would have told them apart were never
+	// tried. Being sure of that is not an explanation.
+	DiagnosisUncorroboratedEndpointFailure: classUnresolved,
 
 	// TLS. Where the handshake classified the rejection, the classification is
 	// the observation. A timeout, a close, and a dial that could not reach a

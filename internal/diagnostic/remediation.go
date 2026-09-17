@@ -84,6 +84,7 @@ const (
 	RemedyEncryptedDNSChoice   RemediationID = "choose_encrypted_dns"
 	RemedyExpectTCPFallback    RemediationID = "expect_tcp_fallback"
 	RemedyStartTheService      RemediationID = "start_the_service"
+	RemedyTestUntriedAddress   RemediationID = "test_the_untried_address"
 	RemedyTracePath            RemediationID = "trace_the_path"
 	RemedyCheckTheDevice       RemediationID = "check_the_device"
 	RemedyRerunWithEgress      RemediationID = "rerun_with_egress_check"
@@ -543,6 +544,16 @@ var remedies = map[remedyKey]remedy{
 			"Confirm the port number, and whether a firewall is rejecting rather than dropping.",
 		},
 		expect: "The port accepting a connection once the service listens on it.",
+	},
+	{id: DiagnosisUncorroboratedEndpointFailure}: {
+		id:     RemedyTestUntriedAddress,
+		action: "Test one of the addresses this run never tried",
+		why:    "Every address the failed check used came from the system resolver alone, and the independent resolver answered the same name in the same family with addresses this run did not try. A record that was rewritten and a healthy endpoint whose node was not answering look identical from here, so the failure is real and what is behind it is still open.",
+		steps: []string{
+			"Compare the two DNS rows, then retry the same port against an address only the independent resolver returned.",
+			"An address that answers points at the answer that was used; one that does not puts the failure back on the protocol or the endpoint.",
+		},
+		expect: "A result for an address this run did not test, which is the observation that separates the two.",
 	},
 	{id: DiagnosisTargetUnreachable}: {
 		id:     RemedyTracePath,

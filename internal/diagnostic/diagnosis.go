@@ -372,6 +372,17 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			evidence := addEvidence(supportRows(ProbeDNSPublic, ProbeDNS, ProbeQUIC, ProbeInternet),
 				contradicts(DiagnosisQUICUnavailable, ProbeDNSPublic, ObservationStatusWarn))
 			return withEvidence(DiagnosisDNSDisagreement, ProbeDNSPublic, quicOnDisagreementSummary, gv, evidence)
+		case directOK() && has(ProbeQUIC) && fail(ProbeQUIC) && uncorroboratedEndpointFailure(res, ProbeQUIC, resolvedByTheProbe):
+			// Under the established disagreement above and over the plain QUIC
+			// verdict below, which is the order of what the run knows: a
+			// disagreement the resolvers were found to have is a stronger
+			// statement than the scope of one check's attempts, and the scope
+			// of those attempts is stronger than a claim about UDP/443 that
+			// this run did not test. The blamed row stays the row that failed,
+			// because nothing here says the DNS rows are wrong.
+			evidence := addEvidence(supportRows(ProbeQUIC, ProbeDNS, ProbeDNSPublic, ProbeInternet),
+				contradicts(DiagnosisQUICUnavailable, ProbeDNSPublic, ObservationDNSAnswers))
+			return withEvidence(DiagnosisUncorroboratedEndpointFailure, ProbeQUIC, quicOnUncorroboratedAnswerSummary, VerdictDegraded, evidence)
 		case directOK() && has(ProbeQUIC) && fail(ProbeQUIC):
 			return blame(DiagnosisQUICUnavailable, ProbeQUIC, "Direct TCP/443 works, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower.", VerdictDegraded, ProbeInternet)
 		case encryptedDNSBlocked(res):
@@ -550,6 +561,25 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 					rulesOut(DiagnosisTargetUnreachable, ProbeTargetTCP, ObservationCause),
 					rulesOut(DiagnosisLocalEgressFailure, ProbeInternet, ObservationStatusPass))
 				return withEvidence(DiagnosisTCPConnectionRefused, ProbeTargetTCP, "Every TCP connection attempt to "+hp+" was explicitly refused: the service may not be listening, or a firewall may be actively rejecting it.", VerdictService, evidence)
+			}
+			// The same scope question as the generic QUIC arm, on the rung
+			// where the DNS rows are the target's own answers. Below the
+			// refusal above it, because a refusal is a peer answering for the
+			// address that was tried and its sentence already says only that.
+			//
+			// VerdictNetwork rather than the service verdict the rung below
+			// uses. The service verdict means the path works and the far end
+			// does not, and neither half of that was established: nothing
+			// completed a connection, so the service was never asked, which is
+			// what the network verdict says. It is the same rule the
+			// unlocalized and untested reachability sentences already follow,
+			// where a run that cannot tell whose fault it is declines to
+			// accuse a host it never reached.
+			if uncorroboratedEndpointFailure(res, ProbeTargetTCP, resolvedByTheSystemDNSRow) {
+				evidence := addEvidence(supportRows(ProbeTargetTCP, ProbeDNS, ProbeDNSPublic, ProbeInternet),
+					contradicts(DiagnosisTargetUnreachable, ProbeDNSPublic, ObservationDNSAnswers),
+					rulesOut(DiagnosisLocalEgressFailure, ProbeInternet, ObservationStatusPass))
+				return withEvidence(DiagnosisUncorroboratedEndpointFailure, ProbeTargetTCP, targetOnUncorroboratedAnswerSummary(hp), VerdictNetwork, evidence)
 			}
 			evidence := addEvidence(supportRows(ProbeTargetTCP, ProbeInternet, ProbeDNS),
 				rulesOut(DiagnosisLocalEgressFailure, ProbeInternet, ObservationStatusPass),
@@ -903,11 +933,14 @@ func encryptedDNSBlocked(res map[ProbeID]ProbeResult) bool {
 // UDP/443 being unavailable, and the two are not separable from the QUIC row
 // alone.
 //
-// Set membership is the test because it is the one comparison that survives a
-// sanitized artifact: one address keeps one pseudonym across the whole file, so
-// a row that tried an answer still reads as having tried it. The prefix
-// comparison behind the disagreement does not survive that, which is why the
-// outcome of it is recorded on the row and read back here instead of remade.
+// Exact set membership is the test for the independent resolver's answers
+// because it is the one comparison that survives a sanitized artifact: one
+// address keeps one pseudonym across the whole file, so a row that tried an
+// answer still reads as having tried it. The prefix comparison behind the
+// disagreement does not survive that, which is why the outcome of it is
+// recorded on the row and read back here instead of remade. System provenance
+// is not a membership question at all here, because the QUIC probe resolves
+// the name itself; see addressOrigin.
 //
 // Sound only where the DNS rows and the QUIC row describe one hostname, which
 // is the generic plan: there all three are ConnectivityProbeHost. With a target
@@ -929,11 +962,144 @@ func quicUsedDisagreeingAnswer(res map[ProbeID]ProbeResult) bool {
 		return false
 	}
 	for _, attempt := range res[ProbeQUIC].Attempts {
-		if containsResolvedIP(system.Addrs, attempt.IP) && !containsResolvedIP(public.Addrs, attempt.IP) {
+		// The generic QUIC probe resolves ConnectivityProbeHost itself, so
+		// every address it tried is a system answer for the disputed name
+		// whether or not the earlier DNS row recorded that address. Asking for
+		// membership in the row instead made a name that rotated between the
+		// two lookups read as an address of unknown origin, which it is not.
+		if systemDerived(resolvedByTheProbe, system, attempt.IP) && !containsResolvedIP(public.Addrs, attempt.IP) {
 			return true
 		}
 	}
 	return false
+}
+
+// systemDerived reports whether an attempted address may be read as one the
+// system resolver handed out. That is a question about the probe that tried it
+// rather than about the address, which is what origin carries.
+func systemDerived(origin addressOrigin, system ProbeResult, ip net.IP) bool {
+	return origin == resolvedByTheProbe || containsResolvedIP(system.Addrs, ip)
+}
+
+// addressOrigin says how a failed row's attempted addresses are known to have
+// come from the system resolver, which differs by probe and is not something
+// an address carries with it.
+type addressOrigin int
+
+const (
+	// resolvedByTheProbe: the probe looked the hostname up itself and dialed
+	// what it got back, so system provenance is a property of the probe rather
+	// than of any row. The generic QUIC probe is this: it resolves
+	// ConnectivityProbeHost through the system resolver on every run, so an
+	// attempt of its own is system-derived even when the separate DNS row's
+	// lookup of the same name returned different addresses. Names rotate
+	// between two lookups a moment apart, and an answer that rotated is still
+	// the system resolver's answer.
+	resolvedByTheProbe addressOrigin = iota
+	// resolvedByTheSystemDNSRow: the probe dialed the addresses the system DNS
+	// row resolved, which is what ProbeTargetTCP does with deps[ProbeDNS].
+	// Membership in that row is inherent there, so asking for it costs nothing
+	// and keeps an address of unknown origin from being read as an answer the
+	// system resolver gave.
+	resolvedByTheSystemDNSRow
+)
+
+// uncorroboratedEndpointFailure reports whether a failed probe's whole
+// observation is "the addresses the system resolver supplied did not answer",
+// with the independent resolver naming addresses in the same family that this
+// run never tried. That is narrower than the unavailability the truth table
+// would otherwise conclude, and the difference is what issue #109 is about: a
+// check that resolves through the system resolver tests the answers it got,
+// not the protocol or the endpoint in general.
+//
+// The conditions are all of: a second opinion that answered, a system resolver
+// that answered, at least one attempt that was not abandoned, every such
+// attempt against an address the independent resolver did not return, system
+// provenance for every such attempt, and an independent answer in each family
+// those attempts were made in. Any of them missing leaves the ordinary
+// conclusion, because each is an observation the run either made or did not:
+//
+//   - One failed attempt against an address both resolvers returned is
+//     evidence about the thing being reached, and no number of uncorroborated
+//     attempts beside it takes that away.
+//   - Without an independent answer in the family that failed there is no
+//     untried alternative to point at, and a run with nothing to compare must
+//     not manufacture a comparison.
+//
+// How system provenance is established differs by row, which is what origin
+// says. A row that resolved the name itself has it from the probe: every
+// address it tried is what the system resolver handed that probe for that
+// hostname, whatever a separate lookup of the same name returned a moment
+// earlier or later. A row that dialed the addresses another row resolved has
+// it from that row, so membership in the system answers is the test, and an
+// attempted address in neither resolver's answers is of unknown origin and
+// concludes nothing either way.
+//
+// It deliberately never reads answerComparison and never touches the DNS rows.
+// Ordinary CDN, anycast, and geo-DNS divergence is exactly this shape, and
+// #108 established that nothing a run records separates it from a rewritten
+// record; treating either as a resolver fault would report a healthy network
+// as broken. So the only claim made here is about how far the downstream
+// failure may be carried.
+//
+// Set membership is the test for the same reason the #105 linkage uses it: one
+// address keeps one pseudonym across a sanitized artifact, so a row that tried
+// an answer still reads as having tried it, while the prefix comparison behind
+// the resolver verdict does not survive that at all.
+//
+// Sound only where the DNS rows and the failed row are about one hostname. The
+// two callers are the generic QUIC row, where every row resolves
+// ConnectivityProbeHost, and the endpoint row in targeted mode, where the DNS
+// rows are the target's own. The QUIC row in targeted mode keeps its own fixed
+// endpoint and is deliberately not passed here.
+func uncorroboratedEndpointFailure(res map[ProbeID]ProbeResult, id ProbeID, origin addressOrigin) bool {
+	public, ok := res[ProbeDNSPublic]
+	if !ok || !functional(public.Status) || len(public.Addrs) == 0 {
+		return false
+	}
+	system, ok := res[ProbeDNS]
+	if !ok || !functional(system.Status) || len(system.Addrs) == 0 {
+		return false
+	}
+	// Keyed by "this attempt was IPv4", which is the granularity the
+	// independent answer has to match: an alternative in the other family is
+	// not an alternative to the connection that failed.
+	families := map[bool]bool{}
+	for _, attempt := range res[id].Attempts {
+		if isCanceledAttempt(attempt) {
+			continue
+		}
+		if containsResolvedIP(public.Addrs, attempt.IP) {
+			return false
+		}
+		if !systemDerived(origin, system, attempt.IP) {
+			return false
+		}
+		families[attempt.IP.To4() != nil] = true
+	}
+	if len(families) == 0 {
+		return false
+	}
+	for ipv4 := range families {
+		if !slices.ContainsFunc(public.Addrs, func(ip net.IP) bool { return (ip.To4() != nil) == ipv4 }) {
+			return false
+		}
+	}
+	return true
+}
+
+// quicOnUncorroboratedAnswerSummary and targetOnUncorroboratedAnswerSummary are
+// what a run may say once the rule above holds. Each states the failure it
+// measured, names the addresses it used and where they came from, and stops.
+// Neither says that a resolver is wrong, that the second opinion is the right
+// one, that the protocol is filtered, or that the endpoint is down: the run has
+// evidence for none of those, and the sentence must not borrow any of it.
+const quicOnUncorroboratedAnswerSummary = "The QUIC handshake over UDP/443 failed against every address it tried, and those came only from the system resolver while public DNS returned others for the same name that this run never tried, so this run cannot say whether UDP/443 itself is affected (see the DNS rows)."
+
+// targetOnUncorroboratedAnswerSummary is the same sentence for the endpoint
+// under test, where the DNS rows are about the target's own name.
+func targetOnUncorroboratedAnswerSummary(hp string) string {
+	return "Nothing answered at " + hp + ", and every address tried came only from the system resolver while public DNS returned others for the same name that this run never tried, so the endpoint itself has not been shown to be at fault (see the DNS rows)."
 }
 
 // quicOnDisagreementSummary is what the run may say once the linkage above

@@ -58,6 +58,16 @@ const (
 	DiagnosisIPv4TargetUnreachable  DiagnosisID = "ipv4_target_unreachable"
 	DiagnosisIPv6TargetUnreachable  DiagnosisID = "ipv6_target_unreachable"
 	DiagnosisPartialReachability    DiagnosisID = "partial_endpoint_reachability"
+	// DiagnosisUncorroboratedEndpointFailure is the scope of a failed reach
+	// attempt rather than a conclusion about what was being reached. Every
+	// address the check tried came from the system resolver alone, while the
+	// independent resolver answered the same name in the same family with
+	// addresses this run never tried, so the failure is established and the
+	// broader claim above it is not. It is deliberately not a statement about
+	// either resolver: a rewritten record and a healthy anycast node that was
+	// not answering leave the same evidence, and nothing a run records
+	// separates them.
+	DiagnosisUncorroboratedEndpointFailure DiagnosisID = "uncorroborated_endpoint_failure"
 
 	// TLS, which keeps the fine-grained causes the handshake already
 	// classified rather than flattening them into one service failure.

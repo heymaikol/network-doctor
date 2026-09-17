@@ -61,6 +61,14 @@ func disagreed(addrs ...net.IP) ProbeResult {
 	return ProbeResult{Status: StatusWarn, Addrs: addrs, answerComparison: comparisonDisagree}
 }
 
+// agreed is the same row when the comparison found one shared allocation: left
+// passing, and carrying the recorded outcome for the same reason. Agreement
+// over a pool is not agreement on every address in it, which is what the rows
+// using this are about.
+func agreed(addrs ...net.IP) ProbeResult {
+	return ProbeResult{Status: StatusPass, Addrs: addrs, answerComparison: comparisonAgree}
+}
+
 func diagnosisMatrix() []matrixCase {
 	tls := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
 	local := &Target{Raw: "192.168.1.10", Host: "192.168.1.10", IP: net.ParseIP("192.168.1.10"), Port: 9100, Proto: ProtoNone}
@@ -150,6 +158,26 @@ func diagnosisMatrix() []matrixCase {
 			summary: "Direct TCP/443 works, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower.",
 			verdict: VerdictDegraded, focus: ProbeQUIC,
 			id: "quic_unavailable", evidence: []ProbeID{ProbeQUIC, ProbeInternet},
+		},
+		{
+			// The same failure, with the addresses it used on the record. Every
+			// one came from the system resolver alone, and the second opinion
+			// named another in that family that was never tried, so what the
+			// run may say is how far its own attempts reach.
+			name:  "generic QUIC failed only on uncorroborated addresses",
+			order: []ProbeID{ProbeIface, ProbeInternet, ProbeQUIC, ProbeDNS, ProbeDNSPublic},
+			res: map[ProbeID]ProbeResult{
+				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass),
+				ProbeDNS: {Status: StatusPass, Addrs: []net.IP{
+					net.ParseIP("192.0.2.123"), net.ParseIP("2001:db8:1::10")}},
+				ProbeDNSPublic: agreed(net.ParseIP("198.51.100.10"), net.ParseIP("2001:db8:2::20")),
+				ProbeQUIC: {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{
+					{IP: net.ParseIP("192.0.2.123"), Cause: ConnectionCauseTimeout},
+				}},
+			},
+			summary: quicOnUncorroboratedAnswerSummary,
+			verdict: VerdictDegraded, focus: ProbeQUIC,
+			id: "uncorroborated_endpoint_failure", evidence: []ProbeID{ProbeQUIC, ProbeDNS, ProbeDNSPublic, ProbeInternet},
 		},
 		{
 			name: "generic encrypted DNS blocked", order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeDNSEncrypted},
@@ -472,6 +500,27 @@ func diagnosisMatrix() []matrixCase {
 			summary: "example.com:443 is unreachable though DNS and reference egress work: filtering, target-specific routing, a broken return path, or server silence remain possible.",
 			verdict: VerdictService, focus: ProbeTargetTCP,
 			id: "target_unreachable", evidence: []ProbeID{ProbeTargetTCP, ProbeInternet, ProbeDNS},
+		},
+		{
+			// The targeted half of the same scope question, where the DNS rows
+			// are the target's own answers and the endpoint row is what used
+			// them.
+			name: "target silent only at uncorroborated addresses", target: tls,
+			order: append([]ProbeID{ProbeDNSPublic}, webOrder...),
+			res: with(map[ProbeID]ProbeResult{
+				ProbeDNS: {Status: StatusPass, Addrs: []net.IP{
+					net.ParseIP("192.0.2.123"), net.ParseIP("2001:db8:1::10")}},
+				ProbeDNSPublic: agreed(net.ParseIP("198.51.100.10"), net.ParseIP("2001:db8:2::20")),
+				ProbeTargetTCP: {Status: StatusFail, Attempts: []Attempt{
+					{IP: net.ParseIP("192.0.2.123"), Cause: ConnectionCauseTimeout},
+				}},
+			}),
+			summary: targetOnUncorroboratedAnswerSummary("example.com:443"),
+			// Network, not service: no connection completed, so the service on
+			// the far end was never asked, and the run may not answer the
+			// "mine or theirs" question it has no evidence for.
+			verdict: VerdictNetwork, focus: ProbeTargetTCP,
+			id: "uncorroborated_endpoint_failure", evidence: []ProbeID{ProbeTargetTCP, ProbeDNS, ProbeDNSPublic, ProbeInternet},
 		},
 		{
 			name: "target reachable only through the proxy", target: tls,

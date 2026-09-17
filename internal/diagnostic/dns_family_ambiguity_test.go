@@ -23,12 +23,14 @@ import (
 // about a working network. The live control in #108 is one of them, kept with
 // the addresses it was measured with.
 //
-// A known limitation is the false negative #108 is about. Those cases assert
-// the resolver evidence and the absence of a disagreement finding, and nothing
-// more. What the run concludes instead is an overclaim about a downstream
-// protocol rather than a contract, so it is described in the note and left
-// unasserted on purpose. Freezing it here would make a sentence we already
-// know to be wrong expensive to correct.
+// A known limitation is the false negative #108 is about: the comparison still
+// records agreement, and every case here still asserts that. What the run
+// concluded from it used to be left unasserted, because it was an overclaim
+// about a downstream protocol rather than a contract. Issue #109 replaced that
+// overclaim with a statement scoped to the addresses the failed check actually
+// tried, so those cases now assert their whole conclusion like any other. The
+// comparison itself is unchanged, which is why the role still says what it
+// says: #108 is not what was fixed.
 //
 // Everything runs through Interpret over the production probe plan, because
 // what is under test is what a run concludes, not what a helper returns.
@@ -40,8 +42,10 @@ const (
 	// roleInvariant marks behavior a fix may not change. Asserts the verdict
 	// and the findings in full.
 	roleInvariant ambiguityRole = iota
-	// roleKnownLimitation marks a state #108 is about. Asserts only the
-	// resolver evidence and that the run does not report the difference.
+	// roleKnownLimitation marks a state #108 is about: the comparison records
+	// agreement where a second opinion materially differs. Asserts the whole
+	// conclusion as well, since #109 scoped what the run says about it, plus
+	// the absence of a disagreement finding the comparison did not reach.
 	roleKnownLimitation
 )
 
@@ -109,7 +113,8 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 		given      map[ProbeID]ProbeResult
 		comparison answerComparison
 		public     Status
-		// verdict and findings are read only for roleInvariant.
+		// verdict and findings are the whole conclusion, asserted for both
+		// roles now that #109 gave the second one a conclusion worth pinning.
 		verdict  string
 		findings []DiagnosisID
 	}{
@@ -118,12 +123,12 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			// traffic and its answers are disjoint, but the IPv6 answers the
 			// host cannot use share an allocation, and one shared prefix
 			// anywhere in the pool is what the comparison asks for. The run
-			// records agreement, and then explains the failed handshake with a
-			// statement about UDP/443 that it has no evidence for.
+			// records agreement, and used to explain the failed handshake with
+			// a statement about UDP/443 it had no evidence for.
 			name: "poisoned IPv4 with usable IPv4 and unusable IPv6",
 			role: roleKnownLimitation,
-			note: "a fix records something other than plain agreement here; what the run currently says " +
-				"about UDP/443 instead is an overclaim and is not asserted",
+			note: "a fix records something other than plain agreement here; what the run says about the " +
+				"handshake reaches only the address it tried",
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
@@ -132,6 +137,8 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
+			verdict:    VerdictDegraded,
+			findings:   []DiagnosisID{DiagnosisUncorroboratedEndpointFailure},
 		},
 		{
 			// The mirror, which has to be stated separately: nothing in the
@@ -148,6 +155,8 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
+			verdict:    VerdictDegraded,
+			findings:   []DiagnosisID{DiagnosisUncorroboratedEndpointFailure},
 		},
 		{
 			// The masking is not a property of family usability at all. Both
@@ -164,6 +173,8 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
+			verdict:    VerdictDegraded,
+			findings:   []DiagnosisID{DiagnosisUncorroboratedEndpointFailure},
 		},
 		{
 			// An egress row that tested neither family leaves usability
@@ -180,6 +191,8 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
+			verdict:    VerdictDegraded,
+			findings:   []DiagnosisID{DiagnosisUncorroboratedEndpointFailure},
 		},
 		{
 			// A poisoned usable family that nothing downstream tried. There is
@@ -196,6 +209,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
+			verdict:    VerdictOK,
 		},
 		{
 			// The same state with QUIC not applicable, which is what a host
@@ -212,6 +226,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
+			verdict:    VerdictOK,
 		},
 		{
 			// The live control from #108, and the reason the family-restricted
@@ -356,12 +371,17 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 					t.Errorf("findings = %v, want %v (%s) (summary: %s)", got, tc.findings, tc.note, d.Summary)
 				}
 			case roleKnownLimitation:
-				// Only the absent disagreement is asserted. The rest of the
-				// conclusion is what #108 leaves wrong, and pinning it would
-				// make correcting it a test change first.
+				// The comparison is still what #108 is about, so a run that
+				// starts reporting the difference is no longer this case.
 				if got := findingIDs(d); slices.Contains(got, DiagnosisDNSDisagreement) {
 					t.Errorf("findings = %v: the run now reports the resolver difference, so this is no longer "+
 						"a known limitation (%s) (summary: %s)", got, tc.note, d.Summary)
+				}
+				if d.Verdict != tc.verdict {
+					t.Errorf("verdict = %q, want %q (%s) (summary: %s)", d.Verdict, tc.verdict, tc.note, d.Summary)
+				}
+				if got := findingIDs(d); !slices.Equal(got, tc.findings) {
+					t.Errorf("findings = %v, want %v (%s) (summary: %s)", got, tc.findings, tc.note, d.Summary)
 				}
 			}
 		})
@@ -395,7 +415,8 @@ func TestQUICAbsentFromThePlanLeavesTheComparisonAlone(t *testing.T) {
 // The assertions stay on the resolver comparison and on the observation the
 // run actually holds, which is a failed attempt against an address the second
 // opinion never returned. What targeted mode concludes from that failure is
-// the same overclaim in a different sentence, so it is not pinned here.
+// the scoped statement #109 introduced, in the sentence about the target
+// rather than about UDP/443.
 func TestTargetedModeCarriesTheSameUsableFamilyAmbiguity(t *testing.T) {
 	tg := mustTarget(t, "example.com")
 	order := planOrder(t, tg)
@@ -416,8 +437,12 @@ func TestTargetedModeCarriesTheSameUsableFamilyAmbiguity(t *testing.T) {
 		t.Fatal("the target connection did not try an address only the system resolver returned, " +
 			"so this fixture no longer states the case")
 	}
-	if got := findingIDs(Interpret(tg, order, res)); slices.Contains(got, DiagnosisDNSDisagreement) {
+	d := Interpret(tg, order, res)
+	if got := findingIDs(d); slices.Contains(got, DiagnosisDNSDisagreement) {
 		t.Fatalf("findings = %v: targeted mode now reports the resolver difference, so #108 may be addressed", got)
+	}
+	if got := findingIDs(d); len(got) == 0 || got[0] != DiagnosisUncorroboratedEndpointFailure {
+		t.Fatalf("findings = %v, want %q first (summary: %s)", got, DiagnosisUncorroboratedEndpointFailure, d.Summary)
 	}
 }
 
@@ -442,8 +467,9 @@ func TestTargetedModeCarriesTheSameUsableFamilyAmbiguity(t *testing.T) {
 // second the same way, and the second is a healthy network.
 //
 // What is asserted is that the two conclusions match, never that either one is
-// right. The conclusion they share is an overclaim about UDP/443, and it stays
-// free to change as long as it changes for both.
+// right. The conclusion they share used to be an overclaim about UDP/443 and
+// is now the statement #109 scoped to the addresses the check tried; it stays
+// free to change again as long as it changes for both.
 //
 // This test fails if the two states ever stop matching, which is the signal
 // that a discriminator has become available and #108 can be reconsidered.

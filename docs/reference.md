@@ -992,6 +992,7 @@ The array is omitted when the run reached no specific conclusion: everything pas
 | `ipv4_target_unreachable` | The target works over IPv6 while its IPv4 alternatives fail despite an independently proved IPv4 path |
 | `ipv6_target_unreachable` | The target works over IPv4 while its IPv6 alternatives fail despite an independently proved IPv6 path |
 | `partial_endpoint_reachability` | An attempted resolved address fails while another address for the same target and port succeeds |
+| `uncorroborated_endpoint_failure` | Every address a failed check tried came from the system resolver alone, while independent DNS answered the same name in the same family with addresses this run never tried |
 | `tls_certificate_expired` | The certificate is outside its validity window |
 | `tls_certificate_not_yet_valid` | The certificate's start date has not arrived |
 | `tls_hostname_mismatch` | The certificate is for a different name |
@@ -1140,6 +1141,7 @@ In the TUI the same advice appears in the Details panel of the row the diagnosis
 | `choose_encrypted_dns` | Decide whether encrypted DNS has to work here |
 | `expect_tcp_fallback` | Expect the TCP fallback, and open UDP/443 if speed matters |
 | `start_the_service` | Start the service, or check the port |
+| `test_the_untried_address` | Test one of the addresses this run never tried |
 | `trace_the_path` | Work out where the packets stop |
 | `check_the_device` | Check the local device itself |
 | `rerun_with_egress_check` | Rerun with the general connectivity check included |

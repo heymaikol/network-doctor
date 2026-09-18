@@ -16,6 +16,7 @@ import (
 	"io"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -57,15 +58,53 @@ func (r *scriptedReader) Read(p []byte) (int, error) {
 // blockingReader blocks until it is released, then reports the end of the
 // stream. It stands in for the holder's stdin, which is idle between director
 // commands and is ended by whoever owns it, never by the reader itself.
-type blockingReader struct{ release chan struct{} }
+//
+// entered is closed once a Read has actually begun blocking. That is the only
+// way a test can tell "the protocol reader is parked inside Read" apart from
+// "the protocol reader goroutine exists but has not been scheduled yet", and
+// the two are not distinguishable from the goroutine dump: an unstarted
+// goroutine is reported under the compiler's own wrapper for the go statement,
+// not under the function it will run.
+type blockingReader struct {
+	release     chan struct{}
+	entered     chan struct{}
+	enteredOnce sync.Once
+	releaseOnce sync.Once
+}
 
-func newBlockingReader() *blockingReader {
-	return &blockingReader{release: make(chan struct{})}
+// newBlockingReader registers the release as test cleanup, so a test that fails
+// before it reaches its own release still ends the stream. Without that, the
+// protocol reader stays parked in Read for the rest of the binary and every
+// later test waits out its full timeout on the baseline reader count.
+func newBlockingReader(t *testing.T) *blockingReader {
+	t.Helper()
+	r := &blockingReader{release: make(chan struct{}), entered: make(chan struct{})}
+	t.Cleanup(r.releaseReader)
+	return r
 }
 
 func (r *blockingReader) Read([]byte) (int, error) {
+	r.enteredOnce.Do(func() { close(r.entered) })
 	<-r.release
 	return 0, io.EOF
+}
+
+// releaseReader ends the stream, standing in for its owner closing it. A test
+// that wants to observe the release calls it directly; cleanup then calls it
+// again and the sync.Once makes the second call a no-op.
+func (r *blockingReader) releaseReader() {
+	r.releaseOnce.Do(func() { close(r.release) })
+}
+
+// awaitEntered blocks until the protocol reader has reached the blocking Read.
+// Only a test that is already failing reaches the timeout.
+func (r *blockingReader) awaitEntered(t *testing.T) {
+	t.Helper()
+	select {
+	case <-r.entered:
+	case <-time.After(holderTestTimeout):
+		t.Fatal("the protocol reader never reached its blocking Read")
+	}
 }
 
 // countingWriter fails on the nth write and records how many it saw, so a test
@@ -135,8 +174,7 @@ func TestServeHolderCommandsCleanEOFIsShutdown(t *testing.T) {
 }
 
 func TestServeHolderCommandsCancellationIsShutdown(t *testing.T) {
-	reader := newBlockingReader()
-	defer close(reader.release)
+	reader := newBlockingReader(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	out := serveResult(ctx, reader, io.Discard)
 	cancel()
@@ -372,21 +410,29 @@ func TestServeHolderCommandsReleasesReaderOnEarlyReturn(t *testing.T) {
 // outlives the process either way.
 func TestServeHolderCommandsReleasesReaderOnCancellation(t *testing.T) {
 	awaitHolderReaderCount(t, 0)
-	reader := newBlockingReader()
+	reader := newBlockingReader(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	out := serveResult(ctx, reader, io.Discard)
+	// Cancel only once the reader is provably inside Read. Cancelling before
+	// that races the scheduler rather than the code under test:
+	// serveHolderCommands can observe the cancellation and return while its
+	// reader goroutine is still runnable and unstarted, and an unstarted
+	// goroutine does not carry readHolderCommands on its stack, so the count
+	// below would read 0 with the ownership contract entirely intact.
+	reader.awaitEntered(t)
 	cancel()
 	if err := awaitServe(t, out); err != nil {
 		t.Fatalf("cancellation returned %v, want nil", err)
 	}
-	// Deliberately not released yet. The reader is inside a Read that has not
-	// returned, so this is a fact about the goroutine, not a race: if it ever
-	// reads 0 here, someone has taught serveHolderCommands to close a stream it
-	// does not own, and this test should be rewritten rather than deleted.
+	// Deliberately not released yet. Read has begun and cannot return until
+	// release is closed, so the reader goroutine is still in readHolderCommands
+	// by construction: if this ever reads 0, someone has taught
+	// serveHolderCommands to close a stream it does not own, and this test
+	// should be rewritten rather than deleted.
 	if got := holderReaderCount(); got != 1 {
 		t.Fatalf("live protocol readers after cancellation = %d, want 1: the reader is blocked in Read until the stream owner releases it", got)
 	}
 	// The holder's stdin is owned by the director, which closes it on teardown.
-	close(reader.release)
+	reader.releaseReader()
 	awaitHolderReaderCount(t, 0)
 }

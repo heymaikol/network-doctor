@@ -167,63 +167,76 @@ func TestHuntResultByteBoundaryIsExact(t *testing.T) {
 	}
 }
 
-// TestHuntResultReadStopsAllocationShapedInput proves the byte boundary is what
-// refuses a hostile shape, and that it is the size and nothing else that
-// decides. Each shape appears twice: at the ceiling, where it is read whole and
-// answered on its merits, and one byte over, where the size complaint is the
-// answer. Both inputs are valid JSON documents that differ by one byte, so the
-// size is the only thing left that can account for the difference, and a size
-// check placed after the decoder could not tell them apart.
+// summaryOverflowMessage is the complaint a member outside the three streamed
+// lists draws when it is larger than the whole run summary is allowed to be.
+// The ceiling belongs to the library, so it is matched by its opening words
+// rather than restated here.
+func summaryOverflowMessage(field string) string {
+	return "hunt " + field + " exceeds the supported encoded maximum of"
+}
+
+// readCounter reports how much of an input a reader was actually given.
+type readCounter struct {
+	r io.Reader
+	n int64
+}
+
+func (c *readCounter) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// TestHuntResultReadStopsAllocationShapedInput proves that an input shaped to
+// cost memory is refused on the ceiling of the section it is spent in, long
+// before the document's own ceiling is in play. Both shapes put the whole
+// input into one member of the run summary, which the writer bounds to a
+// fraction of the document, so the reader bounds it to the same fraction on the
+// way in: what each one proves is that the refusal arrives after tens of
+// kilobytes have been read rather than after hundreds of megabytes.
 //
-// Validity is what each shape is asserted on. A *json.SyntaxError would mean
-// the input was malformed somewhere and the decoder stopped there rather than
-// walking the whole document, so its absence is the proof that the shape is a
-// real multi-megabyte string or array to its last byte. The array is pointed at
-// a string-typed field on purpose: encoding/json scans a value it cannot store
-// in full and reports the mismatch, which walks the entire array for a fixed
-// amount of memory. Pointing it at case_results instead would make the decoder
-// grow one 432 byte struct per element, tens of gigabytes at this ceiling, so
-// the shape would prove the boundary by exhausting the machine behind it.
+// This is the one answer streaming the document changed. Reading it as a single
+// value meant an enormous scalar was decoded in full and answered on its
+// merits, which is how a member of the run summary came to be able to carry the
+// entire document into one Go string. It is now answered on its size, and the
+// document's own boundary is pinned by TestHuntResultByteBoundaryIsExact, where
+// the size of the document is the only thing that differs between the two
+// inputs.
 func TestHuntResultReadStopsAllocationShapedInput(t *testing.T) {
 	for _, shape := range []struct {
 		name string
 		// prefix, fill and suffix spell a valid JSON document at any total
 		// sizedInput is asked for, so the shape stays valid on both sides of
 		// the boundary.
-		prefix        string
-		suffix        string
-		fill          string
-		wantTypeError bool
+		prefix string
+		suffix string
+		fill   string
 	}{
 		// One string field holding the whole input.
-		{"one enormous string", `{"base_scenario":"`, `"}`, "a", false},
+		{"one enormous string", `{"base_scenario":"`, `"}`, "a"},
 		// One array holding millions of elements.
-		{"one enormous array", `{"base_scenario":[`, `0]}`, "0,", true},
+		{"one enormous array", `{"base_scenario":[`, `0]}`, "0,"},
 	} {
 		t.Run(shape.name, func(t *testing.T) {
-			// At the ceiling the shape is decoded, so whatever comes back is
-			// about its content. Only the size complaint is wrong here.
-			_, err := simulation.DecodeHuntResult(sizedInput(t, shape.prefix, shape.suffix, shape.fill,
-				simulation.HuntMaxResultBytes))
-			var syntaxErr *json.SyntaxError
-			if errors.As(err, &syntaxErr) {
-				t.Fatalf("the shape at the ceiling is not valid JSON: %v", err)
-			}
-			if err != nil && err.Error() == oversizeMessage() {
-				t.Fatalf("a result at the ceiling was refused for its size: %v", err)
-			}
-			var typeErr *json.UnmarshalTypeError
-			if got := errors.As(err, &typeErr); got != shape.wantTypeError {
-				t.Fatalf("the decoder answered %v, want a type mismatch = %v", err, shape.wantTypeError)
-			}
-
-			_, err = simulation.DecodeHuntResult(sizedInput(t, shape.prefix, shape.suffix, shape.fill,
-				simulation.HuntMaxResultBytes+1))
-			if err == nil {
-				t.Fatal("an allocation-shaped result over the ceiling was accepted")
-			}
-			if err.Error() != oversizeMessage() {
-				t.Fatalf("error = %q, want %q", err, oversizeMessage())
+			for _, total := range []int{simulation.HuntMaxResultBytes, simulation.HuntMaxResultBytes + 1} {
+				counted := &readCounter{r: sizedInput(t, shape.prefix, shape.suffix, shape.fill, total)}
+				_, err := simulation.DecodeHuntResult(counted)
+				if err == nil {
+					t.Fatalf("a %d byte run summary member was accepted", total)
+				}
+				var syntaxErr *json.SyntaxError
+				if errors.As(err, &syntaxErr) {
+					t.Fatalf("the shape is not valid JSON, so it proves nothing: %v", err)
+				}
+				if !strings.Contains(err.Error(), summaryOverflowMessage("base_scenario")) {
+					t.Fatalf("error = %q, want one containing %q", err,
+						summaryOverflowMessage("base_scenario"))
+				}
+				if counted.n > int64(total)/1000 {
+					t.Fatalf("the reader was given %d of %d bytes before the refusal: the whole "+
+						"document was read to refuse one member of it", counted.n, total)
+				}
+				t.Logf("%d bytes of %d read before the refusal", counted.n, total)
 			}
 		})
 	}
@@ -241,7 +254,7 @@ func TestHuntMergeRefusesAnOversizeShardFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	total := simulation.HuntMaxResultBytes + 1
-	written, err := io.Copy(file, sizedInput(t, `{"base_scenario":"`, `"}`, "a", total))
+	written, err := io.Copy(file, sizedInput(t, string(completeShardJSON(t)), "", " ", total))
 	if closeErr := file.Close(); err == nil {
 		err = closeErr
 	}

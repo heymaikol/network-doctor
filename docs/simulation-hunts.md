@@ -116,6 +116,46 @@ semantic diagnosis fingerprints, excluding prose and incidental timing, paths,
 process ids, and kernel names. Keep the lane, seed, case, fault ceiling,
 generator version, and reproduction command with any failure report.
 
+### What a stored case report keeps
+
+A hunt case stores a simulation report because a merge recomputes that case's
+truth, fingerprints, findings and status from it and checks the answer against
+what the shard claimed. The stored report is therefore part of the artifact
+rather than a copy of what the run printed, and every case goes through the same
+canonicalization on its way in.
+
+What survives is what the derivation reads: the topology, the fault list, the
+fault timeline, the simulator's own evidence, one entry per netdoc run with the
+identity of what that run concluded, and the suggestions whose codes a hunt
+turns into findings. What does not survive is the run's comparison against the
+scenario's expectations, each process's captured stderr, the prose a diagnosis
+explains itself with, and advice aimed at the reader of a single simulation
+rather than at the hunt, none of which any hunt derivation consults.
+
+A stored list is never cut short. Every list a hunt reads is kept whole under a
+maximum the model itself supplies: the topology of the eight hunt base
+scenarios, the mutation ceiling, the scheduled-event ceiling, or netdoc's own
+probe registry. The one list no model bounds is the resolver query log, whose
+length is decided by how long a run lasted; it is reduced to the queries its
+two readers can tell apart, which is one row per distinct observation and the
+last query each resolver answered inside each netdoc run. Free text is clipped
+to a fixed number of bytes measured as JSON encodes it, and no finding
+fingerprint, condition or verdict is computed from clipped prose.
+
+A case that somehow carries more rows than its model allows is refused with an
+error naming the list, on the way out and on the way in. It is not quietly
+trimmed, because a trimmed case is a case whose meaning changed.
+
+Those maxima are what a case may weigh, so `netdoc-sim hunt --json` cannot
+produce a case a `netdoc-sim hunt merge` would refuse on size. The per-case
+ceiling is measured, not chosen: it is the exact encoded size of a case with
+every list at its maximum and every string at its clip length, which a test
+pins by equality. That is a different thing from what a per-case size ceiling
+used to do: before this, a case whose report was too large stored a stand-in
+that said so, and lost every finding derived from the report it replaced. Use
+`netdoc-sim run --json` when the full simulation report is what you want; a
+hunt artifact carries the part of it a hunt reasons about.
+
 Artifacts from generators v3 through v5 predate lane metadata. A missing lane
 on those artifacts is deliberately interpreted as their original `all`
 operator universe, and reproduction commands print `--lane all`. Generator v6 and v7

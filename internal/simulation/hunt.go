@@ -195,19 +195,14 @@ func (s *huntCaseStream) next() (*GeneratedCase, error) {
 
 // canonicalHuntCaseResult is the one place a simulation report becomes part of
 // a hunt case result, on the generating side and in the merge validation that
-// recomputes a stored case from its manifest and report. It is therefore also
-// the one place the stored size has to be settled: a report that does not fit
-// HuntMaxCaseResultBytes is replaced by a bounded stand-in, and the case's
-// truth, fingerprints, findings and status are derived from the stand-in, so
-// what a hunt writes and what a merge recomputes are the same object. The
-// substitution is deterministic and cannot cascade, because the stand-in is
-// under a kilobyte.
+// recomputes a stored case from its manifest and report. Every case goes
+// through the same canonicalization, whatever the run produced, so the stored
+// report has one meaning rather than two with a byte count deciding between
+// them, and the derived fields are computed from what was stored rather than
+// from what the run held. canonicalHuntReport is idempotent, which is what lets
+// a merge run this over a case that has already been through it.
 func canonicalHuntCaseResult(manifest GeneratedCaseManifest, report *Report) HuntCaseResult {
-	item := huntCaseResultFrom(manifest, report)
-	if report == nil || huntEncodedElementSize(item) <= HuntMaxCaseResultBytes {
-		return item
-	}
-	return huntCaseResultFrom(manifest, oversizedHuntReport(report))
+	return huntCaseResultFrom(manifest, canonicalHuntReport(report))
 }
 
 func huntCaseResultFrom(manifest GeneratedCaseManifest, report *Report) HuntCaseResult {

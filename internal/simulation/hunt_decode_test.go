@@ -1,8 +1,10 @@
 package simulation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -21,6 +23,20 @@ import (
 // nothing: each shape below is checked against what it allocated as well as
 // against what it answered, because a refusal that arrives after the allocation
 // is the bug rather than the fix.
+
+// huntReadCounter reports how much of an input the decoder was actually given,
+// which is the measurement that separates a boundary enforced while the
+// document streams from one enforced after the document has been held whole.
+type huntReadCounter struct {
+	r io.Reader
+	n int64
+}
+
+func (c *huntReadCounter) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
 
 // huntFillReader repeats one pattern, endlessly, so an input larger than any
 // test wants to hold costs nothing to produce. The offset carries across reads,
@@ -166,7 +182,8 @@ func TestHuntCaseCountStopsAStreamedArrayAtTheCeiling(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	_, err := DecodeHuntResult(huntSizedInput(t, `{"case_results":[`, `{}]}`, "{},", HuntMaxResultBytes))
+	counted := &huntReadCounter{r: huntSizedInput(t, `{"case_results":[`, `{}]}`, "{},", HuntMaxResultBytes)}
+	_, err := DecodeHuntResult(counted)
 	runtime.ReadMemStats(&after)
 	if err == nil {
 		t.Fatal("a case_results array filled to the byte ceiling was accepted")
@@ -184,6 +201,14 @@ func TestHuntCaseCountStopsAStreamedArrayAtTheCeiling(t *testing.T) {
 	}
 	t.Logf("%d bytes allocated for an array of about %d elements, against %d for the typed slice alone",
 		allocated, elements, typed)
+	// The count is checked while the array streams, so the rest of the document
+	// is never read at all. A kilobyte of elements is already twenty times the
+	// ceiling, so the margin here is not a tuned one.
+	if counted.n > int64(HuntMaxCases)*int64(len("{},"))*4 {
+		t.Fatalf("the reader was given %d of %d bytes before the count refused the array: the "+
+			"document was read before it was refused", counted.n, HuntMaxResultBytes)
+	}
+	t.Logf("%d bytes of %d read before the refusal", counted.n, HuntMaxResultBytes)
 }
 
 // TestHuntCaseEncodedSizeIsCheckedBeforeTypedDecode covers the per-case ceiling
@@ -195,7 +220,7 @@ func TestHuntCaseCountStopsAStreamedArrayAtTheCeiling(t *testing.T) {
 // below would otherwise buy thirty-six megabytes of typed structs with three
 // hundred kilobytes of empty objects.
 func TestHuntCaseEncodedSizeIsCheckedBeforeTypedDecode(t *testing.T) {
-	saturated := huntCaseWithStderr(t, strings.Repeat("x", huntCaseFillToCeiling(t)))
+	saturated := huntCaseWithPadding(t, strings.Repeat("x", huntCaseFillToCeiling(t)))
 	if size := huntEncodedElementSize(saturated); size != HuntMaxCaseResultBytes {
 		t.Fatalf("the saturated case measures %d bytes, want exactly %d", size, HuntMaxCaseResultBytes)
 	}
@@ -233,7 +258,10 @@ func TestHuntCaseEncodedSizeIsCheckedBeforeTypedDecode(t *testing.T) {
 
 	// A case whose encoded bytes are over the ceiling, spent on the cheapest
 	// elements that still cost a struct each.
-	const checks = 100000
+	// One element of this list is the three bytes of `{}` and a separator, so
+	// asking for HuntMaxCaseResultBytes of them puts the element's own bytes
+	// comfortably over the ceiling however the ceiling moves.
+	const checks = HuntMaxCaseResultBytes
 	amplifying := `{"case_results":[{"report":{"tests":[{"checks":` +
 		repeatedElements(checks, "{}") + `}]}}]}`
 	_, allocated, err := allocatedDecoding(t, amplifying)
@@ -271,7 +299,7 @@ func TestHuntCaseMutationCountIsRefusedStructurally(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a case carrying %d mutations was accepted", HuntMaxFaults+1)
 	}
-	want := fmt.Sprintf("hunt case result carries %d mutations, over the maximum of %d",
+	want := fmt.Sprintf("hunt case 0 carries %d mutations, over the model maximum of %d",
 		HuntMaxFaults+1, HuntMaxFaults)
 	if err.Error() != want {
 		t.Fatalf("error = %q, want %q", err, want)
@@ -363,4 +391,286 @@ func TestHuntResultDecodeReadsTheLargestGeneratedShard(t *testing.T) {
 		t.Fatalf("validating the largest generated shard: %v", err)
 	}
 	t.Logf("largest generated shard: %d of %d budgeted bytes", encoded.Len(), HuntMaxResultBytes)
+}
+
+// TestHuntBoundedReaderIsExactAtItsLimit pins the one piece of arithmetic the
+// document ceiling rests on, at a size a test can hold.
+//
+// The production ceiling is four hundred and twenty megabytes, which is not a
+// document worth materializing to prove an off-by-one. The reader is the same
+// reader whatever its limit is, so the limit is injected here and the
+// production constant is pinned separately, by the boundary tests in
+// cmd/netdoc-sim that hand DecodeHuntResult exactly HuntMaxResultBytes and one
+// byte more.
+//
+// What has to hold is that a document of exactly the limit is delivered whole
+// and ends in the input's own EOF, and that one byte more is delivered and
+// counted so the caller can tell the two apart. A reader that stopped at the
+// limit could not: both would end in an EOF the decoder cannot distinguish from
+// a real one.
+func TestHuntBoundedReaderIsExactAtItsLimit(t *testing.T) {
+	const limit = 32
+	for _, shape := range []struct {
+		name    string
+		size    int
+		want    int64
+		wantErr error
+	}{
+		{"under the limit", limit - 1, limit - 1, io.EOF},
+		{"exactly the limit", limit, limit, io.EOF},
+		{"one byte over", limit + 1, limit + 1, errHuntOverLimit},
+		{"far over", limit * 100, limit + 1, errHuntOverLimit},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			bounded := &huntBoundedReader{r: strings.NewReader(strings.Repeat("x", shape.size)), limit: limit}
+			read, err := io.Copy(io.Discard, bounded)
+			if read != shape.want {
+				t.Fatalf("read %d bytes, want %d", read, shape.want)
+			}
+			if bounded.n != shape.want {
+				t.Fatalf("counted %d bytes, want %d", bounded.n, shape.want)
+			}
+			if errors.Is(shape.wantErr, io.EOF) {
+				if err != nil {
+					t.Fatalf("a document of %d bytes under a limit of %d was refused: %v",
+						shape.size, limit, err)
+				}
+			} else if !errors.Is(err, shape.wantErr) {
+				t.Fatalf("error = %v, want %v", err, shape.wantErr)
+			}
+			if over := bounded.n > limit; over != (shape.size > limit) {
+				t.Fatalf("the count says over = %v for a %d byte document under a limit of %d",
+					over, shape.size, limit)
+			}
+		})
+	}
+}
+
+// TestHuntResultDecodeHoldsNoWholeDocumentCopy is the memory property this
+// boundary exists for, proved on a document small enough to measure.
+//
+// The document is four megabytes of legal JSON whose typed form is two case
+// results and nothing else: the bulk of it is an array the model does not
+// declare, which the reader walks a token at a time and keeps nothing of. So
+// every byte allocated is a byte the decoder held, and holding the document
+// would show up immediately. The previous design read the document into one
+// buffer and let json.Decoder buffer it a second time, which is twice what is
+// asserted against here before the case section was copied out of it a third
+// time.
+func TestHuntResultDecodeHoldsNoWholeDocumentCopy(t *testing.T) {
+	const elements = 1 << 21
+	document := `{"not_a_field":` + repeatedElements(elements, "0") +
+		`,"case_results":[{},{}],"base_scenario":"healthy"}`
+	if !json.Valid([]byte(document)) {
+		t.Fatal("the shape is not valid JSON, so it proves nothing about decoding one")
+	}
+	counted := &huntReadCounter{r: strings.NewReader(document)}
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	result, err := DecodeHuntResult(counted)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("a %d byte document of skippable input was refused: %v", len(document), err)
+	}
+	if len(result.Cases) != 2 || result.BaseScenario != "healthy" {
+		t.Fatalf("the members around the unknown array did not survive it: %+v", result)
+	}
+	if counted.n != int64(len(document)) {
+		t.Fatalf("read %d of %d bytes, so the document was not walked to its end", counted.n, len(document))
+	}
+	allocated := after.TotalAlloc - before.TotalAlloc
+	if allocated >= uint64(len(document)) {
+		t.Fatalf("reading a %d byte document allocated %d bytes: it was held rather than streamed",
+			len(document), allocated)
+	}
+	t.Logf("%d bytes allocated reading a %d byte document of %d unknown elements",
+		allocated, len(document), elements)
+}
+
+// TestHuntResultDecodeKeepsLastDuplicateMember pins the one JSON answer a
+// hand-written object walker is most likely to change without meaning to. A
+// stock struct decode takes the last of two members that name the same field,
+// and every kind of member here has to keep doing that: a scalar, the streamed
+// case list, and a member of the run summary that is not a scalar at all.
+func TestHuntResultDecodeKeepsLastDuplicateMember(t *testing.T) {
+	document := `{"base_scenario":"first","base_scenario":"second",` +
+		`"case_results":[{},{},{}],"case_results":[{}],` +
+		`"coverage":{"mutation_sets":7},"coverage":{"mutation_sets":9},` +
+		`"findings":[{"code":"a"},{"code":"b"}],"findings":[{"code":"c"}]}`
+	if !json.Valid([]byte(document)) {
+		t.Fatal("the shape is not valid JSON, so it proves nothing about decoding one")
+	}
+	var stock HuntResult
+	if err := json.Unmarshal([]byte(document), &stock); err != nil {
+		t.Fatal(err)
+	}
+	result, err := DecodeHuntResult(strings.NewReader(document))
+	if err != nil {
+		t.Fatalf("a document with duplicate members was refused: %v", err)
+	}
+	if result.BaseScenario != stock.BaseScenario {
+		t.Fatalf("scalar member = %q, want the stock decoder's %q", result.BaseScenario, stock.BaseScenario)
+	}
+	if len(result.Cases) != len(stock.Cases) {
+		t.Fatalf("read %d case results, want the stock decoder's %d", len(result.Cases), len(stock.Cases))
+	}
+	if !reflect.DeepEqual(result.Coverage, stock.Coverage) {
+		t.Fatalf("coverage = %+v, want the stock decoder's %+v", result.Coverage, stock.Coverage)
+	}
+	if !reflect.DeepEqual(result.Findings, stock.Findings) {
+		t.Fatalf("findings = %+v, want the stock decoder's %+v", result.Findings, stock.Findings)
+	}
+}
+
+// TestHuntResultDecodeReadsTheLargestLegalCaseList is the upper shape of the
+// model, read through the boundary: HuntMaxCases cases, each one the saturated
+// canonical case HuntMaxCaseResultBytes is measured from, which is the largest
+// case list this package's own budget covers.
+//
+// The document is three hundred megabytes and is never materialized. One
+// encoded case is built and handed to the reader five hundred times, so what
+// the test holds is one encoded case and the typed result, which is the memory
+// property being proved rather than only the acceptance.
+func TestHuntResultDecodeReadsTheLargestLegalCaseList(t *testing.T) {
+	if testing.Short() {
+		t.Skip("the largest legal case list is three hundred megabytes of input")
+	}
+	encoded, err := json.Marshal(saturatedCanonicalHuntCase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := []io.Reader{strings.NewReader(`{"case_results":[`)}
+	for i := range HuntMaxCases {
+		if i > 0 {
+			parts = append(parts, strings.NewReader(","))
+		}
+		parts = append(parts, bytes.NewReader(encoded))
+	}
+	parts = append(parts, strings.NewReader("]}"))
+	counted := &huntReadCounter{r: io.MultiReader(parts...)}
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	result, err := DecodeHuntResult(counted)
+	if err != nil {
+		t.Fatalf("the largest legal case list was refused: %v", err)
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	if len(result.Cases) != HuntMaxCases {
+		t.Fatalf("read %d case results, want %d", len(result.Cases), HuntMaxCases)
+	}
+	// The live heap once the read is over is the typed result plus the one
+	// encoded case this test holds. The typed result is genuinely large, around
+	// a fifth of the document, so what this asserts is only that no copy of the
+	// document survives the read: the old path held two of them and a third of
+	// the case section, which put the live heap above what was read rather than
+	// below it.
+	live := after.HeapAlloc - before.HeapAlloc
+	// #nosec G115 -- a count of bytes read is never negative.
+	if read := uint64(counted.n); live > read/2 {
+		t.Fatalf("reading %d bytes left %d bytes of live heap, which is a copy of the document "+
+			"rather than the typed result it decodes to", read, live)
+	}
+	t.Logf("%d bytes read, %d saturated cases, %d bytes of encoded case list budget, "+
+		"%d bytes of live heap after the read",
+		counted.n, len(result.Cases), huntMaxCasesBytes, live)
+	runtime.KeepAlive(result)
+}
+
+// TestHuntResultDecodeRefusesEnormousValuesCheaply covers the two places a
+// single value can be as large as the whole document without belonging to any
+// section that has a ceiling of its own: a member the model does not declare,
+// and whatever follows the document.
+//
+// Both are refused after a few kilobytes. The unknown member is refused on the
+// run summary's ceiling, because a member this version does not know is still
+// ignored but a single unknown value larger than an entire hunt's run summary
+// is not compatibility. The second document is refused on the first byte after
+// the first one that is not whitespace, without being parsed at all, because
+// parsing it would mean buffering it.
+func TestHuntResultDecodeRefusesEnormousValuesCheaply(t *testing.T) {
+	const enormous = 1 << 22
+	valid := `{"base_scenario":"healthy","case_results":[{}]}`
+	for _, shape := range []struct {
+		name     string
+		document string
+		want     string
+	}{
+		{"unknown member", `{"not_a_field":"` + strings.Repeat("a", enormous) + `","case_results":[{}]}`,
+			fmt.Sprintf("hunt not_a_field exceeds the supported encoded maximum of %d bytes",
+				huntMaxRunSummaryBytes)},
+		{"second document", valid + " \n " + `{"base_scenario":"` + strings.Repeat("a", enormous) + `"}`,
+			"multiple JSON values"},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			counted := &huntReadCounter{r: strings.NewReader(shape.document)}
+			result, err := DecodeHuntResult(counted)
+			if err == nil {
+				t.Fatalf("the document was accepted: %+v", result)
+			}
+			if err.Error() != shape.want {
+				t.Fatalf("error = %q, want %q", err, shape.want)
+			}
+			if counted.n > enormous/16 {
+				t.Fatalf("the reader was given %d of %d bytes before the refusal: the value was "+
+					"held before it was refused", counted.n, len(shape.document))
+			}
+			t.Logf("%d bytes of %d read before the refusal", counted.n, len(shape.document))
+		})
+	}
+}
+
+// TestHuntResultDecodeAnswersLikeAStockDecode walks the document shapes that
+// have nothing to do with size and holds the streaming reader to what
+// encoding/json answers for each one.
+//
+// Walking the top-level object member by member is the part of this boundary
+// most able to change an answer nobody meant to change, so the comparison is
+// against the stock decoder itself rather than against expectations written
+// down here: a null document, an absent section, a null section, a section of
+// the wrong type, a scalar of the wrong type, and the same member twice all
+// have to come back the way they always have.
+func TestHuntResultDecodeAnswersLikeAStockDecode(t *testing.T) {
+	for _, document := range []string{
+		`null`,
+		`{}`,
+		`[]`,
+		`5`,
+		`"healthy"`,
+		`{"base_scenario":"healthy"}`,
+		`{"coverage":null}`,
+		`{"case_results":null}`,
+		`{"case_results":[]}`,
+		`{"findings":null,"suggestions":null}`,
+		`{"findings":5}`,
+		`{"case_results":{}}`,
+		`{"generated_cases":"seven"}`,
+		`{"shard":{"index":1,"count":2}}`,
+		`{"shard":null}`,
+		`{"lane":"bug_oracle","lane":"stress"}`,
+		`{"case_results":[{}],"case_results":null}`,
+		`{"not_a_field":{"deep":[1,2,3]},"base_scenario":"healthy"}`,
+		`{"coverage":{"mutation_sets":3},"coverage":{"oracle_comparable_cases":4}}`,
+	} {
+		t.Run(document, func(t *testing.T) {
+			var stock HuntResult
+			stockErr := json.Unmarshal([]byte(document), &stock)
+			result, err := DecodeHuntResult(strings.NewReader(document))
+			if (stockErr == nil) != (err == nil) {
+				t.Fatalf("the reader answered %v where a stock decode answered %v", err, stockErr)
+			}
+			if stockErr != nil {
+				if err.Error() != stockErr.Error() {
+					t.Fatalf("error = %q, want the stock decoder's %q", err, stockErr)
+				}
+				return
+			}
+			if !reflect.DeepEqual(*result, stock) {
+				t.Fatalf("read %+v, want the stock decoder's %+v", *result, stock)
+			}
+		})
+	}
 }

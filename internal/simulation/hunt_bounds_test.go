@@ -5,10 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
 // netdocReportWithSummary is netdoc's own report JSON with a summary of the
@@ -21,10 +27,13 @@ func netdocReportWithSummary(n int) string {
 		`"verdict":"network","summary":"` + strings.Repeat("x", n) + `"}`
 }
 
-// huntCaseWithStderr is one stored case whose report carries the given captured
-// stderr, which is the field with the clearest claim to being unbounded: the
-// runner cleans a subprocess's stderr and never truncates it.
-func huntCaseWithStderr(t *testing.T, stderr string) HuntCaseResult {
+// huntCaseWithPadding is one stored case carrying the given captured stderr,
+// put there after the case was canonicalized. Stderr is one of the fields the
+// canonical report drops, so what this builds is a case as a hand-written
+// document may carry one rather than as a hunt produces one: derived fields
+// that recompute exactly, and stored bytes the padding decides. That is the
+// shape the ingestion ceilings exist to weigh.
+func huntCaseWithPadding(t *testing.T, stderr string) HuntCaseResult {
 	t.Helper()
 	base := loadHuntBase(t, "healthy")
 	generated, err := generateHuntCase(HuntGeneratorVersion, "healthy", base, 20260917, 3, 2)
@@ -33,9 +42,11 @@ func huntCaseWithStderr(t *testing.T, stderr string) HuntCaseResult {
 	}
 	report := &Report{Scenario: "healthy", ID: "case-3", Backend: "fake", Result: ResultPass,
 		Cleanup: CleanupInfo{Done: true},
-		Tests:   []TestOutcome{{Name: "client", Node: "client", ProcessOutcome: ProcessExited, Stderr: stderr}}}
+		Tests:   []TestOutcome{{Name: "client", Node: "client", ProcessOutcome: ProcessExited}}}
 	report.finish()
-	return canonicalHuntCaseResult(generated.Manifest, report)
+	item := canonicalHuntCaseResult(generated.Manifest, report)
+	item.Report.Tests[0].Stderr = stderr
+	return item
 }
 
 // huntCaseFillToCeiling is the stderr length that lands a stored case exactly
@@ -45,7 +56,7 @@ func huntCaseWithStderr(t *testing.T, stderr string) HuntCaseResult {
 // fill encodes one byte per byte, so the remaining distance is the answer.
 func huntCaseFillToCeiling(t *testing.T) int {
 	t.Helper()
-	one := huntEncodedElementSize(huntCaseWithStderr(t, "x"))
+	one := huntEncodedElementSize(huntCaseWithPadding(t, "x"))
 	if one > HuntMaxCaseResultBytes {
 		t.Fatalf("a case with one byte of fill already measures %d bytes, over the %d byte ceiling",
 			one, HuntMaxCaseResultBytes)
@@ -53,80 +64,473 @@ func huntCaseFillToCeiling(t *testing.T) int {
 	return HuntMaxCaseResultBytes - one + 1
 }
 
-// TestHuntCaseBudgetIsEnforcedAtItsExactBoundary pins the per-case ceiling from
-// both sides. A case sitting exactly on HuntMaxCaseResultBytes keeps the report
-// it was given; one byte more and the stored report is the bounded stand-in,
-// which is what makes HuntMaxCaseResultBytes a property of the model rather
-// than an estimate of what hunts usually produce.
-func TestHuntCaseBudgetIsEnforcedAtItsExactBoundary(t *testing.T) {
-	fill := huntCaseFillToCeiling(t)
-	at := huntCaseWithStderr(t, strings.Repeat("x", fill))
-	if size := huntEncodedElementSize(at); size != HuntMaxCaseResultBytes {
-		t.Fatalf("the boundary case measures %d bytes, want exactly %d", size, HuntMaxCaseResultBytes)
+// The three fills are text the corresponding clip has to cut, made of the character that costs six encoded bytes each, so what
+// comes back sits on its ceiling exactly. A case built out of them is the
+// largest one the ceilings allow rather than merely a large one.
+func huntCanonicalFill() string {
+	return huntCanonicalText(strings.Repeat("<", huntCanonicalTextBytes))
+}
+
+func huntCanonicalNameFill() string {
+	return huntCanonicalName(strings.Repeat("<", huntCanonicalNameBytes))
+}
+
+func huntCanonicalHostFill() string {
+	return huntCanonicalHost(strings.Repeat("<", huntCanonicalHostBytes))
+}
+
+// huntDistinctHostFill is the host fill with an index in its tail, at the same
+// encoded ceiling. It exists for the one list canonicalization reduces: two DNS
+// queries that agree on node, service, name, query type and outcome are one
+// fact, so a saturated list of them has to differ somewhere, and the queried
+// name is where.
+func huntDistinctHostFill(i int) string {
+	tail := fmt.Sprintf("%06d", i)
+	return huntCanonicalHost(strings.Repeat("<", (huntCanonicalHostBytes-len(tail))/6)) + tail
+}
+
+// saturatedCanonicalHuntCase is the largest case result the hunt model allows:
+// every list at the cardinality hunt_bounds.go declares for it, and every
+// string at the ceiling its clip enforces. It is built rather than measured,
+// which is the whole point. HuntMaxCaseResultBytes is what this weighs, so the
+// ceiling follows from the model instead of from what runs have been seen to
+// produce.
+//
+// Two assertions make it a maximum rather than a guess. Canonicalizing it
+// returns it unchanged, so it is a case the projection could have produced;
+// and checkHuntCaseCardinality accepts it while every list in it is exactly at
+// its declared maximum, so no legal case can hold more rows of anything.
+func saturatedCanonicalHuntCase(t *testing.T) HuntCaseResult {
+	t.Helper()
+	text, name, host := huntCanonicalFill(), huntCanonicalNameFill(), huntCanonicalHostFill()
+	checks := make([]DiagnosisCheck, huntMaxDiagnosisChecks)
+	for i := range checks {
+		checks[i] = DiagnosisCheck{ID: name, Status: name, Cause: name, Detail: text,
+			Families: &DiagnosisFamilies{IPv4: name, IPv6: name}}
 	}
-	if at.Report == nil || len(at.Report.Tests) != 1 || len(at.Report.Tests[0].Stderr) != fill {
-		t.Fatalf("a case exactly on the ceiling did not keep its report: %+v", at.Report)
+	diagnosisFindings := make([]DiagnosisFinding, huntMaxDiagnosisFindings)
+	for i := range diagnosisFindings {
+		diagnosisFindings[i] = DiagnosisFinding{ID: name}
 	}
-	if at.Status == "runtime_error" {
-		t.Fatalf("a case exactly on the ceiling was treated as oversized")
+	report := &Report{Scenario: name, ID: name, Backend: name, Result: name, TimelineID: name,
+		Error: text, Cleanup: CleanupInfo{Done: true}}
+	report.Cleanup.Errors = saturateEncodedList(t, huntReportCleanupBytes, func(int) string { return text })
+	for i := 0; i < huntMaxTopologyNodes; i++ {
+		node := NodeInfo{Name: name, Role: name}
+		for j := 0; j < huntMaxNodeInterfaces; j++ {
+			node.Interfaces = append(node.Interfaces, InterfaceInfo{Segment: name, Address: name, IPv4: name, IPv6: name})
+		}
+		for j := 0; j < huntMaxNodeRoutes; j++ {
+			node.Routes = append(node.Routes, RouteInfo{Destination: name, Via: name, Segment: name,
+				Metric: math.MaxInt32, Family: name})
+		}
+		report.Topology = append(report.Topology, node)
+	}
+	for i := 0; i < huntMaxReportFaults; i++ {
+		report.Faults = append(report.Faults, FaultInfo{Type: name})
+	}
+	for i := 0; i < huntMaxTimelineEvents; i++ {
+		report.Timeline = append(report.Timeline, FaultEventEvidence{
+			Event: TimedEvent{Offset: math.MaxInt64, Type: name, Node: name, Segment: name, Service: name,
+				Latency: math.MaxInt64, Jitter: math.MaxInt64, LossPercent: 99.999, NetemSeed: math.MaxUint32,
+				Outcome: name, Delay: math.MaxInt64, State: name},
+			ScheduledOffset: math.MaxInt64, AppliedOffset: math.MaxInt64,
+			Result: name, State: text, Error: text})
+	}
+	for i := 0; i < huntMaxCanonicalTests; i++ {
+		report.Tests = append(report.Tests, TestOutcome{Name: text, Node: name, Target: host, SourceSegment: name,
+			StartOffset: math.MaxInt64, EndOffset: math.MaxInt64, ProcessOutcome: name, Signal: name, Error: text,
+			Diagnosis: &Diagnosis{Verdict: name, Checks: checks, Findings: diagnosisFindings}})
+	}
+	for i := 0; i < huntMaxReportSuggestions; i++ {
+		report.Suggestions = append(report.Suggestions, Suggestion{Code: widestHuntSuggestionCode(t),
+			Test: text, Probe: name, Cause: name, Message: text, Evidence: text})
+	}
+	report.Evidence = saturatedCanonicalHuntEvidence(text, name, host)
+
+	item := HuntCaseResult{Manifest: saturatedHuntManifest(text, name), Status: "findings", Report: report,
+		Truth: ObservedTruth{DNS: name, IPv4: name, IPv6: name, Gateway: name, Proxy: name, TLS: name,
+			TCP: name, Link: name, Packet: name, Route: name},
+		TruthFingerprint: strings.Repeat("f", 16)}
+	for i := 0; i < huntMaxObservedFaults; i++ {
+		item.Truth.ObservedFaults = append(item.Truth.ObservedFaults, name)
+	}
+	item.DiagnosisFingerprint = DiagnosisFingerprint{ID: strings.Repeat("f", 16)}
+	for i := 0; i < huntMaxCanonicalTests; i++ {
+		item.DiagnosisFingerprint.Verdicts = append(item.DiagnosisFingerprint.Verdicts, text)
+	}
+	for i := 0; i < huntMaxCanonicalTests*huntMaxDiagnosisChecks; i++ {
+		item.DiagnosisFingerprint.Probes = append(item.DiagnosisFingerprint.Probes,
+			ProbeFingerprint{Test: text, ID: name, Status: name, Cause: name, IPv4: name, IPv6: name})
+	}
+	for i := 0; i < huntMaxCaseFindings; i++ {
+		item.Findings = append(item.Findings, HuntCaseFinding{Fingerprint: strings.Repeat("f", 16),
+			Category: name, Severity: SeverityCritical, Code: name, SuggestionCode: name, Probe: name,
+			Expected: name, Actual: name, Cause: name, Family: name, Summary: text, Evidence: text,
+			Reproduce: reproductionFor(item.Manifest)})
 	}
 
-	over := huntCaseWithStderr(t, strings.Repeat("x", fill+1))
-	if over.Report == nil || len(over.Report.Tests) > 0 {
-		t.Fatalf("a case one byte over the ceiling kept its report: %+v", over.Report)
+	if canonical := canonicalHuntReport(report); !reflect.DeepEqual(canonical, report) {
+		t.Fatal("the saturated report is not one canonicalization could have produced")
 	}
-	want := "simulation report exceeds the " + strconv.Itoa(HuntMaxCaseResultBytes) + " byte hunt case budget"
-	if over.Report.Error != want {
-		t.Errorf("stand-in error is %q, want %q", over.Report.Error, want)
+	if err := checkHuntCaseCardinality(&item); err != nil {
+		t.Fatalf("the saturated case is over a model cardinality: %v", err)
 	}
-	if over.Status != "runtime_error" {
-		t.Errorf("oversized case status is %q, want runtime_error", over.Status)
+	return item
+}
+
+// widestHuntSuggestionCode is the longest code canonicalization keeps, so the
+// saturated case pays the most a stored suggestion can cost.
+func widestHuntSuggestionCode(t *testing.T) string {
+	t.Helper()
+	widest := ""
+	for _, code := range []string{SuggestTransientNotResampled, SuggestTransientReportedPermanent,
+		SuggestTransientMissed, SuggestTimelineInconsistent, SuggestNondeterministic,
+		"jitter_sampling_gap", "alternate_route_available", "wrong_default_route_evidence",
+		"gateway_unreachable"} {
+		if _, _, ok := huntSuggestionClass(code); !ok {
+			t.Fatalf("%q is no longer a code hunt analysis reads", code)
+		}
+		if len(code) > len(widest) {
+			widest = code
+		}
 	}
-	if size := huntEncodedElementSize(over); size > HuntMaxCaseResultBytes {
-		t.Errorf("the stand-in case still measures %d bytes, over the %d byte ceiling", size, HuntMaxCaseResultBytes)
+	return widest
+}
+
+func saturatedCanonicalHuntEvidence(text, name, host string) Evidence {
+	addresses := make([]string, huntMaxLookupAddresses)
+	for i := range addresses {
+		addresses[i] = name
+	}
+	certificateNames := make([]string, huntMaxCertificateNames)
+	for i := range certificateNames {
+		certificateNames[i] = host
+	}
+	via := make([]string, huntMaxViaHops)
+	for i := range via {
+		via[i] = name
+	}
+	reachable := true
+	e := Evidence{}
+	for i := 0; i < huntMaxResolverLookups; i++ {
+		e.ResolverLookups = append(e.ResolverLookups, ResolverLookupEvidence{Node: name, Name: host,
+			Resolver: name, State: name, Addresses: addresses, Stable: true})
+	}
+	for i := 0; i < huntMaxCanonicalDNSQueries; i++ {
+		e.DNSQueries = append(e.DNSQueries, DNSQueryEvidence{Node: name, Service: name, Name: huntDistinctHostFill(i),
+			QueryType: name, ActualOutcome: name, Offset: math.MaxInt64, OffsetKnown: true})
+	}
+	for i := 0; i < huntMaxSOCKSRequests; i++ {
+		e.SOCKSRequests = append(e.SOCKSRequests, SOCKSEvidence{Node: name, Service: name, Event: name,
+			Destination: host, Port: math.MaxInt32, Result: name, Count: math.MaxInt32})
+	}
+	for i := 0; i < huntMaxTLSHandshakes; i++ {
+		e.TLS = append(e.TLS, TLSEvidence{Node: name, Service: name, CertificateMode: name,
+			RequestedServer: host, CertificateDNS: certificateNames, CertificatePresented: true,
+			Result: name, Count: math.MaxInt32})
+	}
+	for i := 0; i < huntMaxServiceReplies; i++ {
+		e.ServiceReplies = append(e.ServiceReplies, ServiceReplyEvidence{Node: name, Service: name, Type: name,
+			Port: math.MaxInt32, Status: math.MaxInt32, Result: name, Count: math.MaxInt32})
+	}
+	for i := 0; i < huntMaxTCPResets; i++ {
+		e.TCPResets = append(e.TCPResets, TCPResetEvidence{Node: name, Service: name, Event: name,
+			Result: name, Count: math.MaxInt32})
+	}
+	for i := 0; i < huntMaxPacketConditions; i++ {
+		e.PacketConditions = append(e.PacketConditions, PacketConditionEvidence{Node: name, Segment: name,
+			Latency: math.MaxInt64, Jitter: math.MaxInt64, LossPercent: 99.999, Seed: math.MaxUint32,
+			Active: true, DroppedPackets: math.MaxUint32})
+	}
+	for i := 0; i < huntMaxPacketDrops; i++ {
+		e.PacketDrops = append(e.PacketDrops, PacketDropEvidence{Node: name, Protocol: name,
+			Port: math.MaxInt32, Direction: name, Packets: math.MaxUint32})
+	}
+	for i := 0; i < huntMaxLinks; i++ {
+		e.Links = append(e.Links, LinkEvidence{Node: name, Segment: name, IPv4: name, IPv6: name,
+			Up: true, MTU: math.MaxInt32})
+	}
+	for i := 0; i < huntMaxRouteEvidence; i++ {
+		e.Routes = append(e.Routes, RouteEvidence{Node: name, Destination: name, Via: name, Segment: name,
+			Metric: math.MaxInt32, Family: name, Selected: true, GatewayReachable: &reachable})
+	}
+	for i := 0; i < huntMaxRouteTables; i++ {
+		table := RouteTableEvidence{Node: name, Family: name}
+		for j := 0; j < huntMaxKernelRoutes; j++ {
+			table.Routes = append(table.Routes, KernelRoute{Destination: name, Via: name, Segment: name,
+				Metric: math.MaxInt32})
+		}
+		e.RouteTables = append(e.RouteTables, table)
+	}
+	for i := 0; i < huntMaxRouters; i++ {
+		e.Routers = append(e.Routers, RouterEvidence{Node: name, IPv4Forwarding: true, IPv6Forwarding: true})
+	}
+	for i := 0; i < huntMaxControlledTargets; i++ {
+		e.ControlledTargets = append(e.ControlledTargets, ControlledTargetEvidence{From: name, To: name,
+			Family: name, Via: via, Reachable: true, Outcome: name})
+	}
+	for i := 0; i < huntMaxFamilyReachability; i++ {
+		e.FamilyReachability = append(e.FamilyReachability, FamilyReachabilityEvidence{Node: name,
+			Family: name, Via: via, State: name})
+	}
+	return e
+}
+
+// saturatedHuntManifest is the largest manifest the generator's own vocabulary
+// allows: HuntMaxFaults mutations whose every string is a scenario name or an
+// operator description. It is not clipped by canonicalization, because it is
+// this package's own artifact rather than a subprocess's output, so
+// TestTheGeneratorCannotOutgrowTheSaturatedManifest holds it against every
+// manifest every base and lane actually produces.
+func saturatedHuntManifest(text, name string) GeneratedCaseManifest {
+	manifest := GeneratedCaseManifest{GeneratorVersion: name, Lane: HuntLane(name), BaseScenario: name,
+		HuntSeed: math.MaxInt64, Case: HuntMaxCaseNumber, CaseSeed: math.MaxInt64, MaxFaults: HuntMaxFaults,
+		CaseFingerprint: strings.Repeat("f", 16)}
+	for i := 0; i < huntMaxCaseMutations; i++ {
+		manifest.Mutations = append(manifest.Mutations, GeneratedMutation{ID: name, Description: text,
+			Node: name, TargetNode: name, Segment: name, Service: name, Family: name,
+			PreferredVia: name, PreferredSegment: name, PreferredMetric: math.MaxInt32,
+			AlternateVia: name, AlternateSegment: name, AlternateMetric: math.MaxInt32,
+			ControlTarget: name, TargetEndpoint: name, RouteDestination: name, RouteVia: name,
+			LossPercent: 99.999, LatencyMS: math.MaxInt32, JitterMS: math.MaxInt32, StartMS: math.MaxInt32,
+			DurationMS: math.MaxInt32, NetemSeed: math.MaxUint32, TargetPort: math.MaxInt32,
+			Status: math.MaxInt32, MTU: math.MaxInt32})
+	}
+	return manifest
+}
+
+// TestHuntCaseCeilingIsTheSaturatedCanonicalCase is what HuntMaxCaseResultBytes
+// means. It is not a round number with headroom and it is not a measurement of
+// real cases: it is the encoded size of the case the model's own cardinality
+// and text ceilings describe, so equality is the assertion. A change to any
+// ceiling, any projected field or any row type moves this number, and the test
+// says what to move it to.
+func TestHuntCaseCeilingIsTheSaturatedCanonicalCase(t *testing.T) {
+	size := huntEncodedElementSize(saturatedCanonicalHuntCase(t))
+	if size != HuntMaxCaseResultBytes {
+		t.Fatalf("the saturated canonical case measures %d bytes; set HuntMaxCaseResultBytes to that, not %d",
+			size, HuntMaxCaseResultBytes)
+	}
+	t.Logf("HuntMaxCaseResultBytes = %d, campaign %d, result %d",
+		HuntMaxCaseResultBytes, huntMaxCasesBytes, HuntMaxResultBytes)
+}
+
+// TestHuntModelCardinalityCoversTheHuntBases is the derivation behind the
+// topology cardinalities. A hunt scenario is a library base with mutations
+// applied, and no operator adds a node, an interface or a route, so the largest
+// base is the largest hunt topology. This recomputes that from the library
+// rather than trusting the numbers in the comment beside the constants.
+func TestHuntModelCardinalityCoversTheHuntBases(t *testing.T) {
+	nodes, interfaces, routes, tests, faults := 0, 0, 0, 0, 0
+	for _, base := range HuntBaseNames() {
+		scenario := loadHuntBase(t, base)
+		validated := cloneScenario(scenario)
+		canonicalScenarioInput(validated)
+		if err := validated.Validate(); err != nil {
+			t.Fatalf("%s: %v", base, err)
+		}
+		nodes = max(nodes, len(validated.Topology.Nodes))
+		tests = max(tests, len(validated.Tests))
+		faults = max(faults, len(validated.Faults))
+		perNode := map[string]int{}
+		for _, route := range validated.Topology.Routes {
+			perNode[route.Node]++
+		}
+		for _, count := range perNode {
+			routes = max(routes, count)
+		}
+		for _, node := range validated.Topology.Nodes {
+			interfaces = max(interfaces, len(node.Interfaces))
+		}
+	}
+	// timeline.dns_outage is the one operator that rewrites the test list, and
+	// it replaces it with exactly three entries.
+	tests = max(tests, 3)
+	// Each of at most HuntMaxFaults mutations appends at most two faults.
+	faults += 2 * HuntMaxFaults
+	for _, c := range []struct {
+		what     string
+		model    int
+		declared int
+	}{
+		{"topology nodes", nodes, huntMaxTopologyNodes},
+		{"interfaces on one node", interfaces, huntMaxNodeInterfaces},
+		{"routes on one node", routes, huntMaxNodeRoutes},
+		{"tests", tests, huntMaxCanonicalTests},
+		{"faults", faults, huntMaxReportFaults},
+	} {
+		if c.model > c.declared {
+			t.Errorf("the hunt bases reach %d %s, over the declared maximum of %d", c.model, c.what, c.declared)
+		}
+	}
+	t.Logf("hunt model: nodes=%d/%d interfaces=%d/%d routes=%d/%d tests=%d/%d faults=%d/%d",
+		nodes, huntMaxTopologyNodes, interfaces, huntMaxNodeInterfaces, routes, huntMaxNodeRoutes,
+		tests, huntMaxCanonicalTests, faults, huntMaxReportFaults)
+}
+
+// TestHuntDiagnosisCardinalityCoversTheProbeRegistry is the derivation behind
+// the two diagnosis ceilings. netdoc emits one check row per probe it ran, so
+// its stable probe graph is what bounds them; a finding is raised over those
+// same rows. Growing the probe registry past these is a real event, and this is
+// where it surfaces.
+func TestHuntDiagnosisCardinalityCoversTheProbeRegistry(t *testing.T) {
+	probes := len(diagnostic.StableProbes())
+	if probes == 0 {
+		t.Fatal("the probe registry is empty")
+	}
+	if probes > huntMaxDiagnosisChecks {
+		t.Errorf("netdoc has %d stable probes, over huntMaxDiagnosisChecks %d", probes, huntMaxDiagnosisChecks)
+	}
+	if probes > huntMaxDiagnosisFindings {
+		t.Errorf("netdoc has %d stable probes, over huntMaxDiagnosisFindings %d", probes, huntMaxDiagnosisFindings)
+	}
+	// Every producer analyzeHuntCase has, summed. A case that could carry more
+	// findings than huntMaxCaseFindings would be one this program can write and
+	// its own reader refuses.
+	oracle := 2*len(conditionOracle) + 2
+	if oracle > huntMaxOracleFindings {
+		t.Errorf("the oracle can raise %d findings, over huntMaxOracleFindings %d", oracle, huntMaxOracleFindings)
+	}
+	producible := huntMaxTimelineEvents + 4*huntMaxCanonicalTests + huntMaxOracleFindings + 1 + huntMaxReportSuggestions
+	if producible > huntMaxCaseFindings {
+		t.Errorf("analyzeHuntCase can produce %d findings, over huntMaxCaseFindings %d",
+			producible, huntMaxCaseFindings)
+	}
+	t.Logf("probes=%d/%d oracle findings=%d/%d case findings=%d/%d",
+		probes, huntMaxDiagnosisChecks, oracle, huntMaxOracleFindings, producible, huntMaxCaseFindings)
+}
+
+// TestTheGeneratorCannotOutgrowTheSaturatedManifest holds the manifest half of
+// the ceiling. A manifest is stored verbatim, so the saturated case has to
+// cover the largest one the generator produces over every base and lane at the
+// fault ceiling, and the observed truth derived alongside it.
+func TestTheGeneratorCannotOutgrowTheSaturatedManifest(t *testing.T) {
+	text, name := huntCanonicalFill(), huntCanonicalNameFill()
+	saturated := len(mustMarshalIndent(t, saturatedHuntManifest(text, name)))
+	worstManifest, worstTruth := 0, 0
+	for _, base := range HuntBaseNames() {
+		scenario := loadHuntBase(t, base)
+		for _, lane := range []HuntLane{HuntLaneBugOracle, HuntLaneStress} {
+			result := RunHunt(context.Background(), base, scenario, nil, HuntOptions{Cases: HuntMaxCases,
+				Seed: 4242, MaxFaults: HuntMaxFaults, Lane: lane, DryRun: true})
+			if result.Result == HuntResultError {
+				t.Fatalf("generating %s on lane %s: %s", base, lane, result.Error)
+			}
+			for _, item := range result.Cases {
+				worstManifest = max(worstManifest, len(mustMarshalIndent(t, item.Manifest)))
+				truth := item.Truth
+				// A dry run observes nothing, so fill the one list that grows.
+				for _, mutation := range item.Manifest.Mutations {
+					truth.ObservedFaults = append(truth.ObservedFaults, mutation.ID)
+				}
+				worstTruth = max(worstTruth, len(mustMarshalIndent(t, truth)))
+			}
+		}
+	}
+	if worstManifest > saturated {
+		t.Errorf("the largest generated manifest is %d bytes, over the saturated %d", worstManifest, saturated)
+	}
+	saturatedTruth := ObservedTruth{DNS: name, IPv4: name, IPv6: name, Gateway: name, Proxy: name,
+		TLS: name, TCP: name, Link: name, Packet: name, Route: name}
+	for i := 0; i < huntMaxObservedFaults; i++ {
+		saturatedTruth.ObservedFaults = append(saturatedTruth.ObservedFaults, name)
+	}
+	if size := len(mustMarshalIndent(t, saturatedTruth)); worstTruth > size {
+		t.Errorf("the largest observed truth is %d bytes, over the saturated %d", worstTruth, size)
+	}
+	t.Logf("largest generated manifest %d/%d bytes, largest truth %d bytes", worstManifest, saturated, worstTruth)
+}
+
+// TestHuntCanonicalTextCountsJSONEscaping is why free text is bounded by what
+// it costs encoded rather than by how many bytes it holds. Text made of
+// characters the encoder expands sixfold is well inside any ceiling as a Go
+// string and well outside it as JSON, and it is the JSON a merge has to
+// allocate. Cutting on a rune boundary and cutting to a fixed point are both
+// required: a merge canonicalizes text that is already canonical.
+func TestHuntCanonicalTextCountsJSONEscaping(t *testing.T) {
+	for _, text := range []string{
+		strings.Repeat("<", 1<<10),
+		strings.Repeat("é", 1<<10),
+		strings.Repeat("\u0000", 1<<10),
+		strings.Repeat("plain ", 1<<10),
+	} {
+		bounded := huntCanonicalText(text)
+		blob, err := json.Marshal(bounded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(blob) > huntCanonicalTextBytes {
+			t.Errorf("text encodes to %d bytes, over the %d byte ceiling", len(blob), huntCanonicalTextBytes)
+		}
+		if !utf8.ValidString(bounded) {
+			t.Errorf("bounding cut a rune in half")
+		}
+		if again := huntCanonicalText(bounded); again != bounded {
+			t.Errorf("bounding canonical text changed it again")
+		}
 	}
 }
 
-// TestHuntCaseBudgetCountsJSONEscaping is why the ceiling is applied to encoded
-// bytes and not to Go string lengths. Text made of characters the encoder
-// expands sixfold is well inside the ceiling as a string and well outside it as
-// JSON, and it is the JSON that a merge has to allocate.
-func TestHuntCaseBudgetCountsJSONEscaping(t *testing.T) {
-	// Each of these encodes as <, so the stored case is about six times
-	// the size of the text it holds.
-	stderr := strings.Repeat("<", HuntMaxCaseResultBytes/2)
-	if len(stderr) >= HuntMaxCaseResultBytes {
-		t.Fatalf("the fill is %d bytes, which a length check would already refuse", len(stderr))
+// TestReportSizeCannotChangeACaseSemantically is the property the old per-case
+// ceiling did not have, and the regression it caused. Two runs differing only
+// in material no hunt derivation reads, one of them past every size the old
+// ceiling allowed, have to store the same semantics: the same status, the same
+// truth and fingerprints, the same findings. Under the old design the larger
+// one became a runtime_error whose only finding was simulation_run_failed, and
+// the gap the case had rediscovered disappeared with it.
+func TestReportSizeCannotChangeACaseSemantically(t *testing.T) {
+	recorded := recordedHuntCase(t)
+	small := canonicalHuntCaseResult(recorded.Manifest, recorded.Report)
+
+	bloated := *recorded.Report
+	bloated.Description = strings.Repeat("d", 1<<20)
+	bloated.Tests = append([]TestOutcome(nil), recorded.Report.Tests...)
+	bloated.Tests[0].Stderr = strings.Repeat("x", 4*HuntMaxCaseResultBytes)
+	if size := huntEncodedElementSize(huntCaseResultFrom(recorded.Manifest, &bloated)); size <= HuntMaxCaseResultBytes {
+		t.Fatalf("the bloated case measures %d bytes, which is not over the %d byte ceiling it has to cross",
+			size, HuntMaxCaseResultBytes)
 	}
-	item := huntCaseWithStderr(t, stderr)
-	if item.Status != "runtime_error" {
-		t.Fatalf("a case whose text escapes past the ceiling was stored verbatim, status %q", item.Status)
+	large := canonicalHuntCaseResult(recorded.Manifest, &bloated)
+
+	if large.Status != small.Status {
+		t.Fatalf("the bloated case stored status %q against %q", large.Status, small.Status)
 	}
-	if size := huntEncodedElementSize(item); size > HuntMaxCaseResultBytes {
-		t.Errorf("the stand-in measures %d bytes, over the %d byte ceiling", size, HuntMaxCaseResultBytes)
+	if !hasFindingCode(large.Findings, SuggestTransientNotResampled) {
+		t.Fatalf("the bloated case lost %s: %+v", SuggestTransientNotResampled, large.Findings)
+	}
+	if !reflect.DeepEqual(large.Findings, small.Findings) {
+		t.Errorf("irrelevant report material changed the case findings")
+	}
+	if !reflect.DeepEqual(large.Truth, small.Truth) || large.TruthFingerprint != small.TruthFingerprint ||
+		!reflect.DeepEqual(large.DiagnosisFingerprint, small.DiagnosisFingerprint) {
+		t.Errorf("irrelevant report material changed the derived truth or fingerprints")
+	}
+	if size := huntEncodedElementSize(large); size > HuntMaxCaseResultBytes {
+		t.Errorf("the bloated case stores %d bytes, over the %d byte ceiling", size, HuntMaxCaseResultBytes)
 	}
 }
 
-// TestOversizedHuntReportsMergeAsTheSameCanonicalCase is the symmetry the
-// bound stands on. A hunt whose every case produced an oversized report writes
-// a shard, and merging that shard back recomputes truth, fingerprints,
-// findings and status from the stored stand-in and agrees with what generation
-// stored. If the two sides canonicalized differently this fails, whatever the
-// sizes are.
-func TestOversizedHuntReportsMergeAsTheSameCanonicalCase(t *testing.T) {
+// TestRunHuntCannotProduceAResultItCannotWrite is the write-side invariant. A
+// hunt whose every case came back with a report far past every ceiling still
+// writes, still keeps each case's findings, and still merges back to the same
+// canonical cases. A budget failure here would be an internal contradiction
+// rather than an outcome a legitimate hunt can reach, which is what
+// canonicalization on every case buys.
+func TestRunHuntCannotProduceAResultItCannotWrite(t *testing.T) {
 	base := loadHuntBase(t, "healthy")
 	shard := HuntShard{Index: 0, Count: 1}
 	result := RunHunt(context.Background(), "healthy", base, func() Backend {
 		return &clientRoleBackend{env: &fakeEnv{
-			stdout:   netdocReportWithSummary(HuntMaxCaseResultBytes),
+			stdout:   netdocReportWithSummary(4 * HuntMaxCaseResultBytes),
 			evidence: deadRouteEvidence()}}
 	}, HuntOptions{Cases: 3, Seed: 20260917, MaxFaults: 2, Shard: &shard})
 	if len(result.Cases) != 3 {
 		t.Fatalf("generated %d cases, want 3", len(result.Cases))
 	}
 	for _, item := range result.Cases {
-		if item.Status != "runtime_error" {
-			t.Fatalf("case %d status is %q, want runtime_error from the oversized report", item.Manifest.Case, item.Status)
+		if item.Status == "runtime_error" {
+			t.Fatalf("case %d became a runtime error because its report was large", item.Manifest.Case)
 		}
 		if size := huntEncodedElementSize(item); size > HuntMaxCaseResultBytes {
 			t.Fatalf("case %d stores %d bytes, over the %d byte ceiling", item.Manifest.Case, size, HuntMaxCaseResultBytes)
@@ -135,16 +539,16 @@ func TestOversizedHuntReportsMergeAsTheSameCanonicalCase(t *testing.T) {
 
 	var buf bytes.Buffer
 	if err := result.WriteJSON(&buf); err != nil {
-		t.Fatal(err)
+		t.Fatalf("a hunt of oversized reports could not be written: %v", err)
 	}
 	if buf.Len() > HuntMaxResultBytes {
 		t.Fatalf("the shard writes %d bytes, over HuntMaxResultBytes %d", buf.Len(), HuntMaxResultBytes)
 	}
-	var decoded HuntResult
-	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
-		t.Fatal(err)
+	decoded, err := DecodeHuntResult(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("decoding the shard it wrote: %v", err)
 	}
-	merged, err := MergeHuntResults(&decoded)
+	merged, err := MergeHuntResults(decoded)
 	if err != nil {
 		t.Fatalf("merging a shard of oversized reports: %v", err)
 	}
@@ -164,17 +568,17 @@ func TestMergeRefusesACaseResultOverTheCeiling(t *testing.T) {
 	shard := HuntShard{Index: 0, Count: 1}
 	result := RunHunt(context.Background(), "healthy", base, func() Backend {
 		return &clientRoleBackend{env: &fakeEnv{
-			stdout:   netdocReportWithSummary(HuntMaxCaseResultBytes),
+			stdout:   netdocReportWithSummary(1 << 10),
 			evidence: deadRouteEvidence()}}
 	}, HuntOptions{Cases: 2, Seed: 20260917, MaxFaults: 2, Shard: &shard})
 	if _, err := MergeHuntResults(result); err != nil {
 		t.Fatalf("the unmodified shard does not merge: %v", err)
 	}
 
-	// The stand-in keeps only fields oversizedHuntReport copies, so growing it
-	// leaves every derived field, and every recomputation of them, unchanged.
-	result.Cases[0].Report.Tests = []TestOutcome{{Name: "client", Node: "client",
-		ProcessOutcome: ProcessExited, Stderr: strings.Repeat("x", HuntMaxCaseResultBytes)}}
+	// Captured stderr is a field the canonical report drops, so growing it
+	// leaves every derived field, and every recomputation of them, unchanged
+	// while the stored case grows without limit.
+	result.Cases[0].Report.Tests[0].Stderr = strings.Repeat("x", 2*HuntMaxCaseResultBytes)
 	if size := huntEncodedElementSize(result.Cases[0]); size <= HuntMaxCaseResultBytes {
 		t.Fatalf("the tampered case measures %d bytes, which is not over the %d byte ceiling",
 			size, HuntMaxCaseResultBytes)
@@ -275,14 +679,17 @@ func TestHuntRunSummaryFitsItsBudget(t *testing.T) {
 //
 // What it builds is a budget object, not a hunt. Every section is filled to the
 // limit its own producer enforces: HuntMaxCases copies of one synthetic case
-// that measures exactly HuntMaxCaseResultBytes, and aggregate sections
-// saturated on their own rather than derived from those cases. Duplicate case
-// manifests alone make it something no hunt produces and no merge would accept.
+// measuring exactly HuntMaxCaseResultBytes, and aggregate sections saturated on
+// their own rather than derived from those cases. The whole legal count of
+// maximum cases is what it builds because huntMaxCasesBytes is priced at that
+// product, so the combination the writer has to accept is the one nothing else
+// bounds. Duplicate case manifests alone make it something no hunt produces and
+// no merge would accept.
 // Semantic validity is proved elsewhere, by
 // TestHuntMergeAcceptsTheLargestGeneratedShard on a real generated shard. What
 // this proves is the arithmetic.
 func TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum(t *testing.T) {
-	saturated := huntCaseWithStderr(t, strings.Repeat("x", huntCaseFillToCeiling(t)))
+	saturated := huntCaseWithPadding(t, strings.Repeat("x", huntCaseFillToCeiling(t)))
 	if size := huntEncodedElementSize(saturated); size != HuntMaxCaseResultBytes {
 		t.Fatalf("the saturated case measures %d bytes, want exactly %d", size, HuntMaxCaseResultBytes)
 	}
@@ -326,6 +733,12 @@ func TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum(t *testing.T) {
 		huntEncodedListSize(result.Suggestions) + huntEncodedListSize(result.Cases)
 	if accounted != buf.Len() {
 		t.Errorf("the budget accounts for %d bytes and writeJSON wrote %d", accounted, buf.Len())
+	}
+	// And the reader takes the largest document the writer can produce, which
+	// is the other half of the same claim: the two ends of the budget agree on
+	// what a legal maximum is.
+	if _, err := DecodeHuntResult(bytes.NewReader(buf.Bytes())); err != nil {
+		t.Fatalf("the maximum budgeted hunt result was refused by its own reader: %v", err)
 	}
 	t.Logf("maximum budgeted hunt result: %d/%d bytes", buf.Len(), HuntMaxResultBytes)
 }
@@ -438,4 +851,97 @@ func TestAnOutgrownCoverageModelCannotBeWritten(t *testing.T) {
 		t.Errorf("refusal says %q, want the run summary budget", err.Error())
 	}
 	t.Logf("refused at %d coverage operators", len(result.Coverage.Operators))
+}
+
+// ceilingThatDiscardedARealCase is the per-case ceiling under which a real
+// namespace-backed hunt case stopped fitting, so its report was replaced by the
+// stand-in and every finding derived from it was lost. The recorded case below
+// is only evidence while it is still larger than this.
+const ceilingThatDiscardedARealCase = 64 << 10
+
+// recordedHuntCase loads a hunt case result captured from a namespace-backed
+// run. A recording rather than a constructed report because the size that
+// matters here is the size real evidence reaches: the case that exposed this
+// crossed the ceiling on its DNS query evidence and its three per-test
+// diagnoses together, not on any one field a test could pad, and a synthetic
+// case padded through one string proves nothing about either.
+func recordedHuntCase(t *testing.T) HuntCaseResult {
+	t.Helper()
+	// recordedHuntCasePath is a constant so reading it needs no gosec
+	// exemption.
+	const recordedHuntCasePath = "testdata/hunt/case-116-transient-dns-outage.json"
+	blob, err := os.ReadFile(recordedHuntCasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var item HuntCaseResult
+	if err := json.Unmarshal(blob, &item); err != nil {
+		t.Fatalf("decoding %s: %v", recordedHuntCasePath, err)
+	}
+	return item
+}
+
+// TestALargeRealHuntCaseKeepsTheFindingItRediscovered is the property the
+// per-case ceiling exists alongside rather than above. Bounding what a hunt
+// stores is worth doing, and it is not worth a finding: a legitimate case big
+// enough to reach the size boundary has to arrive at the same findings and the
+// same aggregate suggestion it would have reached unbounded, has to agree with
+// what a merge recomputes from what was stored, and has to stay inside the
+// budget the reader enforces.
+//
+// The recorded case is generated case 116 of the healthy-routed-network
+// bug-oracle hunt, whose resolver recovers mid-run. Rediscovering
+// SuggestTransientNotResampled there is what
+// TestGeneratedHuntCasesAreReproducible asks a real namespace backend for, and
+// this asks the same question of the stored form alone, with no backend.
+func TestALargeRealHuntCaseKeepsTheFindingItRediscovered(t *testing.T) {
+	recorded := recordedHuntCase(t)
+	if recorded.Report == nil {
+		t.Fatal("the recorded case carries no simulation report")
+	}
+	if size := huntEncodedElementSize(recorded); size <= ceilingThatDiscardedARealCase {
+		t.Fatalf("the recorded case measures %d bytes and no longer reaches the %d byte ceiling that discarded it",
+			size, ceilingThatDiscardedARealCase)
+	}
+
+	// What the case is worth before anything bounds it.
+	unbounded := huntCaseResultFrom(recorded.Manifest, recorded.Report)
+	if !hasFindingCode(unbounded.Findings, SuggestTransientNotResampled) {
+		t.Fatalf("the recorded case does not carry %s unbounded: %+v",
+			SuggestTransientNotResampled, unbounded.Findings)
+	}
+
+	// What canonical storage keeps of it.
+	stored := canonicalHuntCaseResult(recorded.Manifest, recorded.Report)
+	if size := huntEncodedElementSize(stored); size > HuntMaxCaseResultBytes {
+		t.Fatalf("the stored case measures %d bytes, over the %d byte ceiling", size, HuntMaxCaseResultBytes)
+	}
+	if stored.Status != unbounded.Status {
+		t.Errorf("the stored case status is %q, want %q", stored.Status, unbounded.Status)
+	}
+	if !reflect.DeepEqual(stored.Findings, unbounded.Findings) {
+		t.Fatalf("bounded storage changed the case findings:\nstored:   %+v\nunbounded: %+v",
+			stored.Findings, unbounded.Findings)
+	}
+	if !reflect.DeepEqual(stored.Truth, unbounded.Truth) || stored.TruthFingerprint != unbounded.TruthFingerprint ||
+		!reflect.DeepEqual(stored.DiagnosisFingerprint, unbounded.DiagnosisFingerprint) {
+		t.Errorf("bounded storage changed the derived truth or fingerprints")
+	}
+
+	// What the run summary says about it, which is what the namespace test
+	// reads and what this regression took away.
+	suggestions := aggregateHuntSuggestions(aggregateHuntFindings([]HuntCaseResult{stored}))
+	if !slices.ContainsFunc(suggestions, func(s HuntSuggestion) bool { return s.Code == SuggestTransientNotResampled }) {
+		t.Fatalf("aggregate suggestions lost %s: %+v", SuggestTransientNotResampled, suggestions)
+	}
+
+	// What a merge recomputes from what was stored, which is the equality
+	// MergeHuntResults validates every case against.
+	if recomputed := canonicalHuntCaseResult(stored.Manifest, stored.Report); !reflect.DeepEqual(recomputed, stored) {
+		t.Errorf("a merge recomputes a different case from the stored manifest and report")
+	}
+}
+
+func hasFindingCode(findings []HuntCaseFinding, code string) bool {
+	return slices.ContainsFunc(findings, func(f HuntCaseFinding) bool { return f.Code == code })
 }

@@ -1,0 +1,2072 @@
+{
+  "manifest": {
+    "generator_version": "v7",
+    "lane": "bug-oracle",
+    "base_scenario": "healthy-routed-network",
+    "hunt_seed": 12345,
+    "case": 116,
+    "case_seed": -5938050854346760925,
+    "max_faults": 2,
+    "mutations": [
+      {
+        "id": "timeline.dns_outage",
+        "description": "delay, then silence resolver routed-resolver for 654 ms before recovery",
+        "service": "routed-resolver",
+        "start_ms": 150,
+        "duration_ms": 654
+      }
+    ],
+    "case_fingerprint": "d2ea7a9d005673b2"
+  },
+  "truth": {
+    "dns": "mixed",
+    "ipv4": "reachable",
+    "ipv6": "unavailable",
+    "gateway": "reachable",
+    "proxy": "unknown",
+    "tls": "unknown",
+    "tcp": "unknown",
+    "link": "up",
+    "packet": "unknown",
+    "route": "selected",
+    "observed_faults": [
+      "timeline.dns_outage"
+    ]
+  },
+  "truth_fingerprint": "4081d94c10f33123",
+  "diagnosis_fingerprint": {
+    "id": "8ab6f156c5d456d7",
+    "verdicts": [
+      "hunt resolver after recovery=ok",
+      "hunt resolver before outage=ok",
+      "hunt resolver during outage=dns"
+    ],
+    "probes": [
+      {
+        "test": "hunt resolver after recovery",
+        "id": "dns",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "dns_encrypted",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "dns_public",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "http",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "iface",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "internet_tcp",
+        "status": "PASS",
+        "ipv4": "reachable",
+        "ipv6": "unreachable"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "path_mtu",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "proxy_connect",
+        "status": "N/A"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "quic_udp_443",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "ssid",
+        "status": "N/A"
+      },
+      {
+        "test": "hunt resolver after recovery",
+        "id": "target_tcp",
+        "status": "PASS",
+        "ipv4": "reachable"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "dns",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "dns_encrypted",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "dns_public",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "http",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "iface",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "internet_tcp",
+        "status": "PASS",
+        "ipv4": "reachable",
+        "ipv6": "unreachable"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "path_mtu",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "proxy_connect",
+        "status": "N/A"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "quic_udp_443",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "ssid",
+        "status": "N/A"
+      },
+      {
+        "test": "hunt resolver before outage",
+        "id": "target_tcp",
+        "status": "PASS",
+        "ipv4": "reachable"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "dns",
+        "status": "FAIL",
+        "cause": "dns_timeout"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "dns_encrypted",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "dns_public",
+        "status": "N/A"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "http",
+        "status": "SKIP"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "iface",
+        "status": "PASS"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "internet_tcp",
+        "status": "PASS",
+        "ipv4": "reachable",
+        "ipv6": "unreachable"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "path_mtu",
+        "status": "SKIP"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "proxy_connect",
+        "status": "N/A"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "quic_udp_443",
+        "status": "N/A"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "ssid",
+        "status": "N/A"
+      },
+      {
+        "test": "hunt resolver during outage",
+        "id": "target_tcp",
+        "status": "SKIP"
+      }
+    ]
+  },
+  "findings": [
+    {
+      "fingerprint": "1f9531045099f4ad",
+      "category": "coverage_gap",
+      "severity": "medium",
+      "code": "transient_fault_not_resampled",
+      "suggestion_code": "transient_fault_not_resampled",
+      "probe": "dns",
+      "cause": "dns_timeout",
+      "summary": "DNS failed during the run and recovered before it ended, but netdoc did not resample the resolver. Consider a bounded retry before concluding that DNS is persistently unavailable.",
+      "evidence": "hunt resolver during outage ran +218ms..+1240ms; routed-resolver recovered at +805ms; no further query reached it",
+      "reproduce": {
+        "base_scenario": "healthy-routed-network",
+        "lane": "bug-oracle",
+        "seed": 12345,
+        "case": 116,
+        "case_seed": -5938050854346760925,
+        "max_faults": 2,
+        "generator_version": "v7",
+        "case_fingerprint": "d2ea7a9d005673b2"
+      }
+    }
+  ],
+  "report": {
+    "scenario": "hunt-healthy-routed-network-116",
+    "description": "Generated by netdoc-sim hunt v7 from healthy-routed-network case 116.",
+    "id": "b7b4a35bf3f5cb1931c1be50",
+    "backend": "linux-netns",
+    "started_at": "2026-09-18T03:20:31.56580666-05:00",
+    "duration_ms": 1747544127,
+    "result": "PARTIAL",
+    "topology": [
+      {
+        "name": "client",
+        "role": "client",
+        "address": "10.77.1.10",
+        "interface": "neb7b4a30",
+        "gateway": "10.77.1.1",
+        "resolver": "10.77.2.20",
+        "pid": 112976,
+        "interfaces": [
+          {
+            "segment": "client-lan",
+            "address": "10.77.1.10/24",
+            "ipv4": "10.77.1.10/24"
+          }
+        ],
+        "routes": [
+          {
+            "destination": "default",
+            "via": "10.77.1.1",
+            "segment": "client-lan",
+            "metric": 0,
+            "family": "ipv4"
+          }
+        ]
+      },
+      {
+        "name": "gateway",
+        "role": "router",
+        "address": "10.77.1.1",
+        "interface": "neb7b4a31",
+        "pid": 112991,
+        "interfaces": [
+          {
+            "segment": "client-lan",
+            "address": "10.77.1.1/24",
+            "ipv4": "10.77.1.1/24"
+          },
+          {
+            "segment": "upstream",
+            "address": "10.77.2.1/24",
+            "ipv4": "10.77.2.1/24"
+          }
+        ],
+        "routes": [
+          {
+            "destination": "1.1.1.1/32",
+            "via": "10.77.2.20",
+            "segment": "upstream",
+            "metric": 0,
+            "family": "ipv4"
+          },
+          {
+            "destination": "8.8.8.8/32",
+            "via": "10.77.2.20",
+            "segment": "upstream",
+            "metric": 0,
+            "family": "ipv4"
+          }
+        ]
+      },
+      {
+        "name": "target",
+        "role": "server",
+        "address": "10.77.2.20",
+        "aliases": [
+          "1.1.1.1",
+          "8.8.8.8"
+        ],
+        "interface": "neb7b4a33",
+        "services": [
+          "dns/53",
+          "http/80",
+          "encrypted_dns/443",
+          "quic/443"
+        ],
+        "pid": 113012,
+        "interfaces": [
+          {
+            "segment": "upstream",
+            "address": "10.77.2.20/24",
+            "ipv4": "10.77.2.20/24"
+          }
+        ],
+        "routes": [
+          {
+            "destination": "10.77.1.0/24",
+            "via": "10.77.2.1",
+            "segment": "upstream",
+            "metric": 0,
+            "family": "ipv4"
+          }
+        ]
+      }
+    ],
+    "faults": [],
+    "fault_timeline": [
+      {
+        "event": {
+          "offset_ms": 0,
+          "type": "scheduled_dns",
+          "node": "target",
+          "service": "routed-resolver",
+          "outcome": "delay",
+          "delay_ms": 200000000
+        },
+        "scheduled_offset_ms": 0,
+        "applied_offset_ms": 41239,
+        "state": "routed-resolver answers after 200ms",
+        "observed": "dns-applied",
+        "result": "applied"
+      },
+      {
+        "event": {
+          "offset_ms": 150000000,
+          "type": "scheduled_dns",
+          "node": "target",
+          "service": "routed-resolver",
+          "outcome": "drop"
+        },
+        "scheduled_offset_ms": 150000000,
+        "applied_offset_ms": 150967769,
+        "state": "routed-resolver responses dropped",
+        "observed": "dns-applied",
+        "result": "applied"
+      },
+      {
+        "event": {
+          "offset_ms": 804000000,
+          "type": "scheduled_dns",
+          "node": "target",
+          "service": "routed-resolver",
+          "outcome": "answer"
+        },
+        "scheduled_offset_ms": 804000000,
+        "applied_offset_ms": 805324679,
+        "state": "routed-resolver answers normally",
+        "observed": "dns-applied",
+        "result": "applied"
+      }
+    ],
+    "fault_timeline_id": "d59081655a732450",
+    "tests": [
+      {
+        "name": "hunt resolver before outage",
+        "node": "client",
+        "target": "routed-target.test:80",
+        "command": [
+          "/tmp/TestZZRepro1163568978769/001/netdoc",
+          "-json",
+          "-timeout",
+          "1s",
+          "routed-target.test:80"
+        ],
+        "duration_ms": 217643502,
+        "start_offset_ms": 51589,
+        "end_offset_ms": 218831752,
+        "exit_code": 0,
+        "process_outcome": "exited",
+        "stderr": "2026/09/18 03:20:32 connection doesn't allow setting of receive buffer size. Not a *net.UDPConn?. See https://github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes for details.",
+        "diagnosis": {
+          "checks": [
+            {
+              "id": "iface",
+              "name": "Interface",
+              "status": "PASS",
+              "ms": 1,
+              "detail": "interface neb7b4a30 is up",
+              "fix": "",
+              "routes": [
+                {
+                  "destination": "1.1.1.1",
+                  "family": "ipv4",
+                  "interface": "neb7b4a30",
+                  "gateway": "10.77.1.1",
+                  "source": "10.77.1.10",
+                  "tunnel": "direct"
+                },
+                {
+                  "destination": "2606:4700:4700::1111",
+                  "family": "ipv6",
+                  "unreachable": true,
+                  "reason": "no_route"
+                }
+              ]
+            },
+            {
+              "id": "internet_tcp",
+              "name": "Internet (TCP egress)",
+              "status": "PASS",
+              "ms": 203,
+              "detail": "IPv4 egress via 1.1.1.1 in 1ms (src 10.77.1.10 neb7b4a30); no IPv6 egress",
+              "fix": "",
+              "address_families": {
+                "ipv4": "reachable",
+                "ipv6": "unreachable"
+              },
+              "attempts": [
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                },
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "2001:4860:4860::8888",
+                  "ms": 1,
+                  "error": "dial tcp6 [2001:4860:4860::8888]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                }
+              ]
+            },
+            {
+              "id": "quic_udp_443",
+              "name": "QUIC / UDP 443",
+              "status": "PASS",
+              "ms": 210,
+              "detail": "QUIC v1 handshake with connectivitycheck.gstatic.com over UDP/443 in 9ms (h3)",
+              "fix": "",
+              "attempts": [
+                {
+                  "ip": "10.77.2.20",
+                  "ms": 9
+                }
+              ]
+            },
+            {
+              "id": "proxy_connect",
+              "name": "Internet (env proxy)",
+              "status": "N/A",
+              "ms": 1,
+              "detail": "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)",
+              "fix": ""
+            },
+            {
+              "id": "dns",
+              "name": "DNS routed-target.test",
+              "status": "PASS",
+              "ms": 202,
+              "detail": "routed-target.test \u2192 10.77.2.20 (resolver tried: 10.77.2.20)",
+              "fix": "",
+              "routes": [
+                {
+                  "destination": "10.77.2.20",
+                  "family": "ipv4",
+                  "interface": "neb7b4a30",
+                  "gateway": "10.77.1.1",
+                  "source": "10.77.1.10",
+                  "tunnel": "direct",
+                  "reason": "same_path_as_default"
+                }
+              ]
+            },
+            {
+              "id": "dns_public",
+              "name": "DNS (public)",
+              "status": "PASS",
+              "ms": 201,
+              "detail": "routed-target.test \u2192 10.77.2.20 (via 8.8.8.8)",
+              "fix": ""
+            },
+            {
+              "id": "dns_encrypted",
+              "name": "DNS (encrypted DoH/DoT)",
+              "status": "PASS",
+              "ms": 3,
+              "detail": "DoH and DoT both completed a DNS query for connectivitycheck.gstatic.com via cloudflare-dns.com (DoH 3ms, DoT 3ms)",
+              "fix": "",
+              "attempts": [
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                },
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:853: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                }
+              ]
+            },
+            {
+              "id": "target_tcp",
+              "name": "TCP routed-target.test:80",
+              "status": "PASS",
+              "ms": 1,
+              "detail": "connected to 10.77.2.20:80 in 1ms (src 10.77.1.10 neb7b4a30)",
+              "fix": "",
+              "address_families": {
+                "ipv4": "reachable"
+              },
+              "attempts": [
+                {
+                  "ip": "10.77.2.20",
+                  "ms": 1
+                }
+              ],
+              "routes": [
+                {
+                  "destination": "10.77.2.20",
+                  "family": "ipv4",
+                  "interface": "neb7b4a30",
+                  "gateway": "10.77.1.1",
+                  "source": "10.77.1.10",
+                  "tunnel": "direct",
+                  "reason": "same_path_as_default"
+                }
+              ]
+            },
+            {
+              "id": "path_mtu",
+              "name": "Path MTU routed-target.test:80",
+              "status": "PASS",
+              "ms": 2,
+              "detail": "24 KiB of the 24 KiB payload acknowledged by the peer at a 1448-byte TCP MSS",
+              "fix": ""
+            },
+            {
+              "id": "ssid",
+              "name": "Wi-Fi network",
+              "status": "N/A",
+              "ms": 1,
+              "detail": "Wi-Fi network unavailable",
+              "fix": ""
+            },
+            {
+              "id": "http",
+              "name": "HTTP routed-target.test",
+              "status": "PASS",
+              "ms": 2,
+              "detail": "HTTP 200 (responded)",
+              "fix": "",
+              "attempts": [
+                {
+                  "ip": "10.77.2.20",
+                  "ms": 1
+                }
+              ]
+            }
+          ],
+          "summary": "All checks passed. routed-target.test:80 looks healthy.",
+          "verdict": "ok",
+          "failed_stage": "",
+          "ok": true
+        },
+        "expected_verdict": "ok",
+        "actual_verdict": "ok",
+        "checks": [
+          {
+            "id": "iface",
+            "name": "Interface",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "interface neb7b4a30 is up",
+            "ms": 1
+          },
+          {
+            "id": "internet_tcp",
+            "name": "Internet (TCP egress)",
+            "expected": "PASS",
+            "actual": "PASS",
+            "actual_ipv4": "reachable",
+            "actual_ipv6": "unreachable",
+            "outcome": "matched",
+            "detail": "IPv4 egress via 1.1.1.1 in 1ms (src 10.77.1.10 neb7b4a30); no IPv6 egress",
+            "ms": 203
+          },
+          {
+            "id": "dns",
+            "name": "DNS routed-target.test",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "routed-target.test \u2192 10.77.2.20 (resolver tried: 10.77.2.20)",
+            "ms": 202
+          },
+          {
+            "id": "dns_public",
+            "name": "DNS (public)",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "routed-target.test \u2192 10.77.2.20 (via 8.8.8.8)",
+            "ms": 201
+          },
+          {
+            "id": "target_tcp",
+            "name": "TCP routed-target.test:80",
+            "expected": "PASS",
+            "actual": "PASS",
+            "actual_ipv4": "reachable",
+            "outcome": "matched",
+            "detail": "connected to 10.77.2.20:80 in 1ms (src 10.77.1.10 neb7b4a30)",
+            "ms": 1
+          },
+          {
+            "id": "http",
+            "name": "HTTP routed-target.test",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "HTTP 200 (responded)",
+            "ms": 2
+          }
+        ],
+        "false_negatives": 0,
+        "false_positives": 0,
+        "matched": 6
+      },
+      {
+        "name": "hunt resolver during outage",
+        "node": "client",
+        "target": "routed-target.test:80",
+        "command": [
+          "/tmp/TestZZRepro1163568978769/001/netdoc",
+          "-json",
+          "-timeout",
+          "1s",
+          "routed-target.test:80"
+        ],
+        "duration_ms": 1020101157,
+        "start_offset_ms": 218834068,
+        "end_offset_ms": 1240013337,
+        "exit_code": 1,
+        "process_outcome": "exited",
+        "diagnosis": {
+          "checks": [
+            {
+              "id": "iface",
+              "name": "Interface",
+              "status": "PASS",
+              "ms": 1,
+              "detail": "interface neb7b4a30 is up",
+              "fix": "",
+              "routes": [
+                {
+                  "destination": "1.1.1.1",
+                  "family": "ipv4",
+                  "interface": "neb7b4a30",
+                  "gateway": "10.77.1.1",
+                  "source": "10.77.1.10",
+                  "tunnel": "direct"
+                },
+                {
+                  "destination": "2606:4700:4700::1111",
+                  "family": "ipv6",
+                  "unreachable": true,
+                  "reason": "no_route"
+                }
+              ]
+            },
+            {
+              "id": "internet_tcp",
+              "name": "Internet (TCP egress)",
+              "status": "PASS",
+              "ms": 1001,
+              "detail": "IPv4 egress via 1.1.1.1 in 1ms (src 10.77.1.10 neb7b4a30); no IPv6 egress",
+              "fix": "",
+              "address_families": {
+                "ipv4": "reachable",
+                "ipv6": "unreachable"
+              },
+              "attempts": [
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                },
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "2001:4860:4860::8888",
+                  "ms": 1,
+                  "error": "dial tcp6 [2001:4860:4860::8888]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                }
+              ]
+            },
+            {
+              "id": "quic_udp_443",
+              "name": "QUIC / UDP 443",
+              "status": "N/A",
+              "ms": 1000,
+              "detail": "cannot resolve QUIC endpoint connectivitycheck.gstatic.com: unable to determine UDP/443 reachability",
+              "fix": ""
+            },
+            {
+              "id": "proxy_connect",
+              "name": "Internet (env proxy)",
+              "status": "N/A",
+              "ms": 1,
+              "detail": "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)",
+              "fix": ""
+            },
+            {
+              "id": "dns",
+              "name": "DNS routed-target.test",
+              "status": "FAIL",
+              "cause": "dns_timeout",
+              "ms": 1001,
+              "detail": "cannot resolve routed-target.test (resolver tried: 10.77.2.20): lookup routed-target.test: i/o timeout",
+              "fix": "name resolution failing: check /etc/resolv.conf / DNS",
+              "routes": [
+                {
+                  "destination": "10.77.2.20",
+                  "family": "ipv4",
+                  "interface": "neb7b4a30",
+                  "gateway": "10.77.1.1",
+                  "source": "10.77.1.10",
+                  "tunnel": "direct",
+                  "reason": "same_path_as_default"
+                }
+              ]
+            },
+            {
+              "id": "dns_public",
+              "name": "DNS (public)",
+              "status": "N/A",
+              "ms": 501,
+              "detail": "public DNS unavailable via 8.8.8.8: lookup routed-target.test: i/o timeout; via 2001:4860:4860::8888: lookup routed-target.test on 10.77.2.20:53: dial udp [2001:4860:4860::8888]:53: connect: network is unreachable",
+              "fix": ""
+            },
+            {
+              "id": "dns_encrypted",
+              "name": "DNS (encrypted DoH/DoT)",
+              "status": "PASS",
+              "ms": 16,
+              "detail": "DoH and DoT both completed a DNS query for connectivitycheck.gstatic.com via cloudflare-dns.com (DoH 15ms, DoT 15ms)",
+              "fix": "",
+              "attempts": [
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                },
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:853: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                }
+              ]
+            },
+            {
+              "id": "target_tcp",
+              "name": "TCP routed-target.test:80",
+              "status": "SKIP",
+              "ms": 0,
+              "detail": "skipped: a prerequisite failed",
+              "fix": ""
+            },
+            {
+              "id": "path_mtu",
+              "name": "Path MTU routed-target.test:80",
+              "status": "SKIP",
+              "ms": 0,
+              "detail": "skipped: a prerequisite failed",
+              "fix": ""
+            },
+            {
+              "id": "ssid",
+              "name": "Wi-Fi network",
+              "status": "N/A",
+              "ms": 1,
+              "detail": "Wi-Fi network unavailable",
+              "fix": ""
+            },
+            {
+              "id": "http",
+              "name": "HTTP routed-target.test",
+              "status": "SKIP",
+              "ms": 0,
+              "detail": "skipped: a prerequisite failed",
+              "fix": ""
+            }
+          ],
+          "findings": [
+            {
+              "id": "dns_failure",
+              "focus": "dns",
+              "evidence": [
+                "dns",
+                "internet_tcp"
+              ],
+              "causal_evidence": [
+                {
+                  "kind": "support",
+                  "check": "dns",
+                  "observation": "cause"
+                },
+                {
+                  "kind": "not_evaluated",
+                  "check": "dns_public",
+                  "observation": "status_not_applicable",
+                  "reason": "not_applicable"
+                },
+                {
+                  "kind": "support",
+                  "check": "internet_tcp",
+                  "observation": "status_pass"
+                },
+                {
+                  "kind": "ruled_out",
+                  "check": "internet_tcp",
+                  "observation": "status_pass",
+                  "candidate": "offline"
+                },
+                {
+                  "kind": "not_evaluated",
+                  "check": "target_tcp",
+                  "observation": "status_skip",
+                  "reason": "prerequisite_failed"
+                }
+              ]
+            }
+          ],
+          "summary": "Cannot resolve routed-target.test: DNS failure. (The general internet is reachable.)",
+          "verdict": "dns",
+          "failed_stage": "dns",
+          "ok": false
+        },
+        "expected_verdict": "ok",
+        "actual_verdict": "dns",
+        "checks": [
+          {
+            "id": "iface",
+            "name": "Interface",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "interface neb7b4a30 is up",
+            "ms": 1
+          },
+          {
+            "id": "internet_tcp",
+            "name": "Internet (TCP egress)",
+            "expected": "PASS",
+            "actual": "PASS",
+            "actual_ipv4": "reachable",
+            "actual_ipv6": "unreachable",
+            "outcome": "matched",
+            "detail": "IPv4 egress via 1.1.1.1 in 1ms (src 10.77.1.10 neb7b4a30); no IPv6 egress",
+            "ms": 1001
+          },
+          {
+            "id": "dns",
+            "name": "DNS routed-target.test",
+            "expected": "PASS",
+            "actual": "FAIL",
+            "cause": "dns_timeout",
+            "outcome": "wrong_status",
+            "detail": "cannot resolve routed-target.test (resolver tried: 10.77.2.20): lookup routed-target.test: i/o timeout",
+            "fix": "name resolution failing: check /etc/resolv.conf / DNS",
+            "ms": 1001
+          },
+          {
+            "id": "dns_public",
+            "name": "DNS (public)",
+            "expected": "PASS",
+            "actual": "N/A",
+            "outcome": "wrong_status",
+            "detail": "public DNS unavailable via 8.8.8.8: lookup routed-target.test: i/o timeout; via 2001:4860:4860::8888: lookup routed-target.test on 10.77.2.20:53: dial udp [2001:4860:4860::8888]:53: connect: network is unreachable",
+            "ms": 501
+          },
+          {
+            "id": "target_tcp",
+            "name": "TCP routed-target.test:80",
+            "expected": "PASS",
+            "actual": "SKIP",
+            "outcome": "wrong_status",
+            "detail": "skipped: a prerequisite failed"
+          },
+          {
+            "id": "http",
+            "name": "HTTP routed-target.test",
+            "expected": "PASS",
+            "actual": "SKIP",
+            "outcome": "wrong_status",
+            "detail": "skipped: a prerequisite failed"
+          }
+        ],
+        "timed_out": [
+          "dns"
+        ],
+        "false_negatives": 0,
+        "false_positives": 1,
+        "matched": 2
+      },
+      {
+        "name": "hunt resolver after recovery",
+        "node": "client",
+        "target": "routed-target.test:80",
+        "command": [
+          "/tmp/TestZZRepro1163568978769/001/netdoc",
+          "-json",
+          "-timeout",
+          "1s",
+          "routed-target.test:80"
+        ],
+        "duration_ms": 33548019,
+        "start_offset_ms": 1240021877,
+        "end_offset_ms": 1276404096,
+        "exit_code": 0,
+        "process_outcome": "exited",
+        "stderr": "2026/09/18 03:20:33 connection doesn't allow setting of receive buffer size. Not a *net.UDPConn?. See https://github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes for details.",
+        "diagnosis": {
+          "checks": [
+            {
+              "id": "iface",
+              "name": "Interface",
+              "status": "PASS",
+              "ms": 1,
+              "detail": "interface neb7b4a30 is up",
+              "fix": "",
+              "routes": [
+                {
+                  "destination": "1.1.1.1",
+                  "family": "ipv4",
+                  "interface": "neb7b4a30",
+                  "gateway": "10.77.1.1",
+                  "source": "10.77.1.10",
+                  "tunnel": "direct"
+                },
+                {
+                  "destination": "2606:4700:4700::1111",
+                  "family": "ipv6",
+                  "unreachable": true,
+                  "reason": "no_route"
+                }
+              ]
+            },
+            {
+              "id": "internet_tcp",
+              "name": "Internet (TCP egress)",
+              "status": "PASS",
+              "ms": 5,
+              "detail": "IPv4 egress via 1.1.1.1 in 1ms (src 10.77.1.10 neb7b4a30); no IPv6 egress",
+              "fix": "",
+              "address_families": {
+                "ipv4": "reachable",
+                "ipv6": "unreachable"
+              },
+              "attempts": [
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                },
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "2001:4860:4860::8888",
+                  "ms": 1,
+                  "error": "dial tcp6 [2001:4860:4860::8888]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                }
+              ]
+            },
+            {
+              "id": "quic_udp_443",
+              "name": "QUIC / UDP 443",
+              "status": "PASS",
+              "ms": 18,
+              "detail": "QUIC v1 handshake with connectivitycheck.gstatic.com over UDP/443 in 15ms (h3)",
+              "fix": "",
+              "attempts": [
+                {
+                  "ip": "10.77.2.20",
+                  "ms": 15
+                }
+              ]
+            },
+            {
+              "id": "proxy_connect",
+              "name": "Internet (env proxy)",
+              "status": "N/A",
+              "ms": 1,
+              "detail": "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)",
+              "fix": ""
+            },
+            {
+              "id": "dns",
+              "name": "DNS routed-target.test",
+              "status": "PASS",
+              "ms": 3,
+              "detail": "routed-target.test \u2192 10.77.2.20 (resolver tried: 10.77.2.20)",
+              "fix": "",
+              "routes": [
+                {
+                  "destination": "10.77.2.20",
+                  "family": "ipv4",
+                  "interface": "neb7b4a30",
+                  "gateway": "10.77.1.1",
+                  "source": "10.77.1.10",
+                  "tunnel": "direct",
+                  "reason": "same_path_as_default"
+                }
+              ]
+            },
+            {
+              "id": "dns_public",
+              "name": "DNS (public)",
+              "status": "PASS",
+              "ms": 4,
+              "detail": "routed-target.test \u2192 10.77.2.20 (via 8.8.8.8)",
+              "fix": ""
+            },
+            {
+              "id": "dns_encrypted",
+              "name": "DNS (encrypted DoH/DoT)",
+              "status": "PASS",
+              "ms": 19,
+              "detail": "DoH and DoT both completed a DNS query for connectivitycheck.gstatic.com via cloudflare-dns.com (DoH 17ms, DoT 17ms)",
+              "fix": "",
+              "attempts": [
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:443: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                },
+                {
+                  "ip": "2606:4700:4700::1111",
+                  "ms": 1,
+                  "error": "dial tcp6 [2606:4700:4700::1111]:853: connect: network is unreachable",
+                  "cause": "unreachable"
+                },
+                {
+                  "ip": "1.1.1.1",
+                  "ms": 1
+                }
+              ]
+            },
+            {
+              "id": "target_tcp",
+              "name": "TCP routed-target.test:80",
+              "status": "PASS",
+              "ms": 1,
+              "detail": "connected to 10.77.2.20:80 in 1ms (src 10.77.1.10 neb7b4a30)",
+              "fix": "",
+              "address_families": {
+                "ipv4": "reachable"
+              },
+              "attempts": [
+                {
+                  "ip": "10.77.2.20",
+                  "ms": 1
+                }
+              ],
+              "routes": [
+                {
+                  "destination": "10.77.2.20",
+                  "family": "ipv4",
+                  "interface": "neb7b4a30",
+                  "gateway": "10.77.1.1",
+                  "source": "10.77.1.10",
+                  "tunnel": "direct",
+                  "reason": "same_path_as_default"
+                }
+              ]
+            },
+            {
+              "id": "path_mtu",
+              "name": "Path MTU routed-target.test:80",
+              "status": "PASS",
+              "ms": 1,
+              "detail": "24 KiB of the 24 KiB payload acknowledged by the peer at a 1448-byte TCP MSS",
+              "fix": ""
+            },
+            {
+              "id": "ssid",
+              "name": "Wi-Fi network",
+              "status": "N/A",
+              "ms": 1,
+              "detail": "Wi-Fi network unavailable",
+              "fix": ""
+            },
+            {
+              "id": "http",
+              "name": "HTTP routed-target.test",
+              "status": "PASS",
+              "ms": 1,
+              "detail": "HTTP 200 (responded)",
+              "fix": "",
+              "attempts": [
+                {
+                  "ip": "10.77.2.20",
+                  "ms": 1
+                }
+              ]
+            }
+          ],
+          "summary": "All checks passed. routed-target.test:80 looks healthy.",
+          "verdict": "ok",
+          "failed_stage": "",
+          "ok": true
+        },
+        "expected_verdict": "ok",
+        "actual_verdict": "ok",
+        "checks": [
+          {
+            "id": "iface",
+            "name": "Interface",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "interface neb7b4a30 is up",
+            "ms": 1
+          },
+          {
+            "id": "internet_tcp",
+            "name": "Internet (TCP egress)",
+            "expected": "PASS",
+            "actual": "PASS",
+            "actual_ipv4": "reachable",
+            "actual_ipv6": "unreachable",
+            "outcome": "matched",
+            "detail": "IPv4 egress via 1.1.1.1 in 1ms (src 10.77.1.10 neb7b4a30); no IPv6 egress",
+            "ms": 5
+          },
+          {
+            "id": "dns",
+            "name": "DNS routed-target.test",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "routed-target.test \u2192 10.77.2.20 (resolver tried: 10.77.2.20)",
+            "ms": 3
+          },
+          {
+            "id": "dns_public",
+            "name": "DNS (public)",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "routed-target.test \u2192 10.77.2.20 (via 8.8.8.8)",
+            "ms": 4
+          },
+          {
+            "id": "target_tcp",
+            "name": "TCP routed-target.test:80",
+            "expected": "PASS",
+            "actual": "PASS",
+            "actual_ipv4": "reachable",
+            "outcome": "matched",
+            "detail": "connected to 10.77.2.20:80 in 1ms (src 10.77.1.10 neb7b4a30)",
+            "ms": 1
+          },
+          {
+            "id": "http",
+            "name": "HTTP routed-target.test",
+            "expected": "PASS",
+            "actual": "PASS",
+            "outcome": "matched",
+            "detail": "HTTP 200 (responded)",
+            "ms": 1
+          }
+        ],
+        "false_negatives": 0,
+        "false_positives": 0,
+        "matched": 6
+      }
+    ],
+    "evidence": {
+      "resolver_lookups": [
+        {
+          "node": "client",
+          "name": "routed-target.test",
+          "resolver": "system",
+          "state": "answered",
+          "addresses": [
+            "10.77.2.20"
+          ],
+          "stable": false
+        },
+        {
+          "node": "client",
+          "name": "routed-target.test",
+          "resolver": "1.1.1.1",
+          "state": "answered",
+          "addresses": [
+            "10.77.2.20"
+          ],
+          "stable": false
+        }
+      ],
+      "dns": [
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "result": "DROPPED",
+          "count": 3
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "result": "NODATA",
+          "count": 4
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "result": "ANSWER",
+          "count": 4
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "result": "DROPPED",
+          "count": 3
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "result": "DROPPED",
+          "count": 3
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "result": "NODATA",
+          "count": 4
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "result": "ANSWER",
+          "count": 4
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "result": "DROPPED",
+          "count": 3
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "AAAA",
+          "result": "DROPPED",
+          "count": 1
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "AAAA",
+          "result": "NXDOMAIN",
+          "count": 2
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "A",
+          "result": "DROPPED",
+          "count": 1
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "A",
+          "result": "NXDOMAIN",
+          "count": 2
+        }
+      ],
+      "dns_queries": [
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "sequence": 1,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "ANSWER",
+          "offset_ms": 3500827,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "sequence": 2,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "ANSWER",
+          "offset_ms": 3859907,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "sequence": 3,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 233153845,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "sequence": 4,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 233314144,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "sequence": 5,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 732729700,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "sequence": 6,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "ANSWER",
+          "offset_ms": 1252839935,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "A",
+          "sequence": 7,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "ANSWER",
+          "offset_ms": 1253032662,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "sequence": 1,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "NODATA",
+          "offset_ms": 3474905,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "sequence": 2,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "NODATA",
+          "offset_ms": 3733183,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "sequence": 3,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 232309911,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "sequence": 4,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 233234054,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "sequence": 5,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 732699182,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "sequence": 6,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "NODATA",
+          "offset_ms": 1252773979,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "connectivitycheck.gstatic.com",
+          "query_type": "AAAA",
+          "sequence": 7,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "NODATA",
+          "offset_ms": 1252900736,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "sequence": 1,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "ANSWER",
+          "offset_ms": 3600402,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "sequence": 2,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "ANSWER",
+          "offset_ms": 3709691,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "sequence": 3,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 231846503,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "sequence": 4,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 232125588,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "sequence": 5,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 732715230,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "sequence": 6,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "ANSWER",
+          "offset_ms": 1252615893,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "A",
+          "sequence": 7,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "ANSWER",
+          "offset_ms": 1253173082,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "sequence": 1,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "NODATA",
+          "offset_ms": 3514585,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "sequence": 2,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "NODATA",
+          "offset_ms": 3518304,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "sequence": 3,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 231625122,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "sequence": 4,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 231752705,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "sequence": 5,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 732631910,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "sequence": 6,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "NODATA",
+          "offset_ms": 1252450999,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "routed-target.test",
+          "query_type": "AAAA",
+          "sequence": 7,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "NODATA",
+          "offset_ms": 1252958488,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "A",
+          "sequence": 1,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "NXDOMAIN",
+          "offset_ms": 3603661,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "A",
+          "sequence": 2,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 233294217,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "A",
+          "sequence": 3,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "NXDOMAIN",
+          "offset_ms": 1252872706,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "AAAA",
+          "sequence": 1,
+          "scheduled_outcome": "delay",
+          "actual_outcome": "NXDOMAIN",
+          "offset_ms": 3381834,
+          "offset_known": true,
+          "delay_ms": 200
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "AAAA",
+          "sequence": 2,
+          "scheduled_outcome": "drop",
+          "actual_outcome": "DROPPED",
+          "offset_ms": 231723845,
+          "offset_known": true
+        },
+        {
+          "node": "target",
+          "service": "routed-resolver",
+          "source": "10.77.1.10",
+          "name": "www.msftconnecttest.com",
+          "query_type": "AAAA",
+          "sequence": 3,
+          "scheduled_outcome": "answer",
+          "actual_outcome": "NXDOMAIN",
+          "offset_ms": 1252809366,
+          "offset_known": true
+        }
+      ],
+      "socks_requests": [],
+      "tls": [],
+      "service_states": [
+        {
+          "node": "target",
+          "service": "internet-encrypted-dns",
+          "type": "encrypted_dns",
+          "port": 443
+        },
+        {
+          "node": "target",
+          "service": "routed-http",
+          "type": "http",
+          "port": 80,
+          "status": 200
+        }
+      ],
+      "service_replies": [
+        {
+          "node": "target",
+          "service": "internet-encrypted-dns",
+          "type": "encrypted_dns",
+          "port": 443,
+          "status": 200,
+          "result": "responded",
+          "count": 3
+        },
+        {
+          "node": "target",
+          "service": "routed-http",
+          "type": "http",
+          "port": 80,
+          "status": 200,
+          "result": "responded",
+          "count": 2
+        },
+        {
+          "node": "target",
+          "service": "routed-http",
+          "type": "http",
+          "port": 80,
+          "status": 204,
+          "result": "responded",
+          "count": 2
+        }
+      ],
+      "tcp_resets": [],
+      "packet_conditions": [],
+      "packet_drops": [],
+      "links": [
+        {
+          "node": "client",
+          "segment": "client-lan",
+          "address": "10.77.1.10/24",
+          "ipv4": "10.77.1.10/24",
+          "up": true,
+          "mtu": 1500
+        },
+        {
+          "node": "gateway",
+          "segment": "client-lan",
+          "address": "10.77.1.1/24",
+          "ipv4": "10.77.1.1/24",
+          "up": true,
+          "mtu": 1500
+        },
+        {
+          "node": "gateway",
+          "segment": "upstream",
+          "address": "10.77.2.1/24",
+          "ipv4": "10.77.2.1/24",
+          "up": true,
+          "mtu": 1500
+        },
+        {
+          "node": "target",
+          "segment": "upstream",
+          "address": "10.77.2.20/24",
+          "ipv4": "10.77.2.20/24",
+          "up": true,
+          "mtu": 1500
+        }
+      ],
+      "routes": [
+        {
+          "node": "client",
+          "destination": "1.1.1.1",
+          "via": "10.77.1.1",
+          "segment": "client-lan",
+          "metric": 0,
+          "family": "ipv4",
+          "selected": true,
+          "source": "10.77.1.10",
+          "gateway_reachable": true
+        },
+        {
+          "node": "client",
+          "destination": "10.77.2.20",
+          "via": "10.77.1.1",
+          "segment": "client-lan",
+          "metric": 0,
+          "family": "ipv4",
+          "selected": true,
+          "source": "10.77.1.10",
+          "gateway_reachable": true
+        },
+        {
+          "node": "client",
+          "destination": "8.8.8.8",
+          "via": "10.77.1.1",
+          "segment": "client-lan",
+          "metric": 0,
+          "family": "ipv4",
+          "selected": true,
+          "source": "10.77.1.10",
+          "gateway_reachable": true
+        },
+        {
+          "node": "client",
+          "destination": "default",
+          "via": "10.77.1.1",
+          "segment": "client-lan",
+          "metric": 0,
+          "family": "ipv4",
+          "selected": false,
+          "gateway_reachable": true
+        },
+        {
+          "node": "gateway",
+          "destination": "1.1.1.1/32",
+          "via": "10.77.2.20",
+          "segment": "upstream",
+          "metric": 0,
+          "family": "ipv4",
+          "selected": false,
+          "gateway_reachable": true
+        },
+        {
+          "node": "gateway",
+          "destination": "8.8.8.8/32",
+          "via": "10.77.2.20",
+          "segment": "upstream",
+          "metric": 0,
+          "family": "ipv4",
+          "selected": false,
+          "gateway_reachable": true
+        },
+        {
+          "node": "target",
+          "destination": "10.77.1.0/24",
+          "via": "10.77.2.1",
+          "segment": "upstream",
+          "metric": 0,
+          "family": "ipv4",
+          "selected": false,
+          "gateway_reachable": true
+        }
+      ],
+      "route_tables": [
+        {
+          "node": "client",
+          "family": "ipv4",
+          "routes": [
+            {
+              "destination": "default",
+              "via": "10.77.1.1",
+              "segment": "client-lan"
+            },
+            {
+              "destination": "10.77.1.0/24",
+              "segment": "client-lan"
+            }
+          ]
+        }
+      ],
+      "routers": [
+        {
+          "node": "gateway",
+          "ipv4_forwarding": true,
+          "ipv6_forwarding": false
+        }
+      ],
+      "controlled_targets": [
+        {
+          "from": "client",
+          "to": "10.77.2.20:80",
+          "family": "ipv4",
+          "via": [
+            "client-lan",
+            "10.77.1.1"
+          ],
+          "reachable": true,
+          "outcome": "reachable"
+        }
+      ],
+      "family_reachability": [
+        {
+          "node": "client",
+          "family": "ipv4",
+          "target": "IPv4 internet endpoints",
+          "via": [
+            "client-lan",
+            "10.77.1.1"
+          ],
+          "state": "reachable"
+        },
+        {
+          "node": "client",
+          "family": "ipv6",
+          "state": "unavailable"
+        }
+      ]
+    },
+    "cleanup": {
+      "done": true,
+      "kept": false
+    },
+    "suggestions": [
+      {
+        "code": "false_positive",
+        "test": "hunt resolver during outage",
+        "probe": "dns",
+        "cause": "dns_timeout",
+        "message": "dns reported FAIL where the scenario expected PASS: netdoc flagged a part of the network the scenario left working.",
+        "evidence": "cannot resolve routed-target.test (resolver tried: 10.77.2.20): lookup routed-target.test: i/o timeout"
+      },
+      {
+        "code": "wrong_severity",
+        "test": "hunt resolver during outage",
+        "probe": "dns_public",
+        "message": "dns_public reported N/A, expected PASS: same finding, wrong severity.",
+        "evidence": "public DNS unavailable via 8.8.8.8: lookup routed-target.test: i/o timeout; via 2001:4860:4860::8888: lookup routed-target.test on 10.77.2.20:53: dial udp [2001:4860:4860::8888]:53: connect: network is unreachable"
+      },
+      {
+        "code": "wrong_severity",
+        "test": "hunt resolver during outage",
+        "probe": "target_tcp",
+        "message": "target_tcp reported SKIP, expected PASS: same finding, wrong severity.",
+        "evidence": "skipped: a prerequisite failed"
+      },
+      {
+        "code": "wrong_severity",
+        "test": "hunt resolver during outage",
+        "probe": "http",
+        "message": "http reported SKIP, expected PASS: same finding, wrong severity.",
+        "evidence": "skipped: a prerequisite failed"
+      },
+      {
+        "code": "wrong_verdict",
+        "test": "hunt resolver during outage",
+        "message": "Verdict was \"dns\", expected \"ok\": the headline classification does not match the injected root cause.",
+        "evidence": "Cannot resolve routed-target.test: DNS failure. (The general internet is reachable.)"
+      },
+      {
+        "code": "probe_timed_out",
+        "test": "hunt resolver during outage",
+        "probe": "dns",
+        "message": "dns failed by exhausting the probe timeout rather than returning an answer; consider a cheaper negative signal so the diagnosis is not paced by the deadline."
+      },
+      {
+        "code": "transient_fault_not_resampled",
+        "test": "hunt resolver during outage",
+        "probe": "dns",
+        "cause": "dns_timeout",
+        "message": "DNS failed during the run and recovered before it ended, but netdoc did not resample the resolver. Consider a bounded retry before concluding that DNS is persistently unavailable.",
+        "evidence": "hunt resolver during outage ran +218ms..+1240ms; routed-resolver recovered at +805ms; no further query reached it"
+      }
+    ]
+  },
+  "status": "findings"
+}

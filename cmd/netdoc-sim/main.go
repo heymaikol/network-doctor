@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -793,6 +792,15 @@ func mergeHunts(paths []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "netdoc-sim: hunt merge needs at least one shard JSON file")
 		return exitUsage
 	}
+	// Counted before the first os.Open, because a hunt cannot have been split
+	// into more shards than the model supports and the count is knowable from
+	// argv alone. A merge that opened the files first would pay for reading
+	// input it was always going to refuse.
+	if len(paths) > simulation.HuntMaxShards {
+		fmt.Fprintf(stderr, "netdoc-sim: hunt merge accepts at most %d shard JSON files, got %d\n",
+			simulation.HuntMaxShards, len(paths))
+		return exitUsage
+	}
 	results := make([]*simulation.HuntResult, 0, len(paths))
 	for _, path := range paths {
 		result, err := readHuntResult(path)
@@ -818,19 +826,10 @@ func readHuntResult(path string) (*simulation.HuntResult, error) {
 		return nil, err
 	}
 	defer file.Close()
-	var result simulation.HuntResult
-	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(&result); err != nil {
-		return nil, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple JSON values")
-		}
-		return nil, err
-	}
-	return &result, nil
+	// The library owns the ingestion boundary, because every ceiling a hostile
+	// shard result has to be held to is a hunt limit rather than a property of
+	// this command.
+	return simulation.DecodeHuntResult(file)
 }
 
 func writeHuntResult(result *simulation.HuntResult, jsonOutput bool, stdout, stderr io.Writer) int {

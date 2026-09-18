@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
@@ -352,3 +353,48 @@ func huntSemanticResult(result *HuntResult) HuntResult {
 }
 
 func intPointer(value int) *int { return &value }
+
+// TestLargestGeneratedHuntShardFitsTheIngestionBudget is a regression check on
+// headroom, not the reason the budget is safe: the ceilings are enforced where
+// each section is built, and this measures how much of them a real hunt spends.
+// Every base and both released lanes run at HuntMaxCases and HuntMaxFaults with
+// a shard count of one, which is the widest legal shard, one shard owning every
+// requested case. A generator change that starts crowding a ceiling shows up
+// here as a number rather than as a truncated report in production.
+func TestLargestGeneratedHuntShardFitsTheIngestionBudget(t *testing.T) {
+	shard := HuntShard{Index: 0, Count: 1}
+	worstResult, worstCase := 0, 0
+	for _, name := range HuntBaseNames() {
+		base := loadHuntBase(t, name)
+		for _, lane := range []HuntLane{HuntLaneBugOracle, HuntLaneStress} {
+			result := RunHunt(context.Background(), name, base, func() Backend {
+				return &clientRoleBackend{env: &fakeEnv{stdout: blamesTheGatewayReport, evidence: deadRouteEvidence()}}
+			}, HuntOptions{Cases: HuntMaxCases, Seed: 12345, MaxFaults: HuntMaxFaults, Lane: lane, Shard: &shard})
+			if len(result.Cases) == 0 {
+				t.Fatalf("%s %s generated no cases", name, lane)
+			}
+			var buf bytes.Buffer
+			if err := result.WriteJSON(&buf); err != nil {
+				t.Fatal(err)
+			}
+			for i := range result.Cases {
+				size := huntEncodedElementSize(result.Cases[i])
+				if size > worstCase {
+					worstCase = size
+				}
+				if size > HuntMaxCaseResultBytes {
+					t.Errorf("%s %s global case %d writes %d bytes, over HuntMaxCaseResultBytes %d",
+						name, lane, result.Cases[i].Manifest.Case, size, HuntMaxCaseResultBytes)
+				}
+			}
+			if buf.Len() > worstResult {
+				worstResult = buf.Len()
+			}
+			if buf.Len() > HuntMaxResultBytes {
+				t.Errorf("%s %s writes %d bytes, over HuntMaxResultBytes %d", name, lane, buf.Len(), HuntMaxResultBytes)
+			}
+		}
+	}
+	t.Logf("largest generated shard: result %d/%d bytes, case %d/%d bytes",
+		worstResult, HuntMaxResultBytes, worstCase, HuntMaxCaseResultBytes)
+}

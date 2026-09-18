@@ -8,7 +8,18 @@ import (
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
-func (r *HuntResult) WriteJSON(w io.Writer) error { return writeJSON(w, r) }
+// WriteJSON prints the machine-readable result, unless the byte budget this
+// package's own merge command enforces does not cover it. Refusing before
+// anything is written is the point of checking here: a hunt result over
+// HuntMaxResultBytes is an artifact netdoc-sim cannot read back, so it is a
+// defect in this program rather than an output, and the write side of the
+// budget is enforced where every hunt result is serialized.
+func (r *HuntResult) WriteJSON(w io.Writer) error {
+	if err := checkHuntResultBudget(r); err != nil {
+		return err
+	}
+	return writeJSON(w, r)
+}
 
 func (r *HuntResult) WriteText(w io.Writer) {
 	fmt.Fprintln(w, "Network Doctor Hunt")

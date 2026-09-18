@@ -193,7 +193,24 @@ func (s *huntCaseStream) next() (*GeneratedCase, error) {
 	return nil, nil
 }
 
+// canonicalHuntCaseResult is the one place a simulation report becomes part of
+// a hunt case result, on the generating side and in the merge validation that
+// recomputes a stored case from its manifest and report. It is therefore also
+// the one place the stored size has to be settled: a report that does not fit
+// HuntMaxCaseResultBytes is replaced by a bounded stand-in, and the case's
+// truth, fingerprints, findings and status are derived from the stand-in, so
+// what a hunt writes and what a merge recomputes are the same object. The
+// substitution is deterministic and cannot cascade, because the stand-in is
+// under a kilobyte.
 func canonicalHuntCaseResult(manifest GeneratedCaseManifest, report *Report) HuntCaseResult {
+	item := huntCaseResultFrom(manifest, report)
+	if report == nil || huntEncodedElementSize(item) <= HuntMaxCaseResultBytes {
+		return item
+	}
+	return huntCaseResultFrom(manifest, oversizedHuntReport(report))
+}
+
+func huntCaseResultFrom(manifest GeneratedCaseManifest, report *Report) HuntCaseResult {
 	item := HuntCaseResult{Manifest: manifest, Status: "generated",
 		Truth: collectObservedTruth(manifest, nil), Findings: []HuntCaseFinding{},
 		DiagnosisFingerprint: DiagnosisFingerprint{Verdicts: []string{}, Probes: []ProbeFingerprint{}}, Report: report}
@@ -234,7 +251,7 @@ func RunHunt(ctx context.Context, baseID string, base *Scenario, backend func() 
 	err := opts.withDefaults()
 	result.GeneratorVersion, result.Lane = opts.GeneratorVersion, opts.Lane
 	if err != nil {
-		result.Result, result.ErrorKind, result.Error = HuntResultError, "configuration", err.Error()
+		result.Result, result.ErrorKind, result.Error = HuntResultError, "configuration", clip(err.Error())
 		result.finish()
 		return result
 	}
@@ -256,13 +273,13 @@ func RunHunt(ctx context.Context, baseID string, base *Scenario, backend func() 
 	for stream.accepted < stream.target {
 		if err := ctx.Err(); err != nil {
 			result.Cancelled, result.RuntimeFailure = true, true
-			result.Result, result.ErrorKind, result.Error = HuntResultCancelled, "cancellation", err.Error()
+			result.Result, result.ErrorKind, result.Error = HuntResultCancelled, "cancellation", clip(err.Error())
 			break
 		}
 		generated, err := stream.next()
 		if err != nil {
 			result.Result, result.ErrorKind = HuntResultError, FindingGeneratorDefect
-			result.Error = err.Error()
+			result.Error = clip(err.Error())
 			break
 		}
 		if generated == nil {
@@ -401,5 +418,5 @@ func aggregateHuntSuggestions(findings []HuntFinding) []HuntSuggestion {
 		}
 		return strings.Compare(out[i].Code, out[j].Code) < 0
 	})
-	return out
+	return boundEncodedList(out, huntMaxAggregateSuggestionsBytes)
 }

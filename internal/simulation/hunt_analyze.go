@@ -979,5 +979,5 @@ func aggregateHuntFindings(cases []HuntCaseResult) []HuntFinding {
 		}
 		return out[i].Fingerprint < out[j].Fingerprint
 	})
-	return out
+	return boundEncodedList(out, huntMaxAggregateFindingsBytes)
 }

@@ -94,7 +94,7 @@ func MergeHuntResults(inputs ...*HuntResult) (*HuntResult, error) {
 		}
 	}
 	if len(failures) > 0 {
-		merged.Result, merged.ErrorKind, merged.Error = HuntResultError, "shard", strings.Join(failures, "; ")
+		merged.Result, merged.ErrorKind, merged.Error = HuntResultError, "shard", clip(strings.Join(failures, "; "))
 		if merged.Cancelled && !slicesContainResult(ordered, HuntResultError) {
 			merged.Result, merged.ErrorKind = HuntResultCancelled, "cancellation"
 		}
@@ -246,6 +246,15 @@ func validateHuntCases(result *HuntResult, expected []GeneratedCaseManifest, dup
 		want, ok := expectedByCase[item.Manifest.Case]
 		if !ok {
 			return fmt.Errorf("unexpected global case %d", item.Manifest.Case)
+		}
+		// The stored case, weighed as written. canonicalHuntCaseResult below
+		// bounds what it derives, so without this a shard whose derived fields
+		// were computed from an oversized report it also carries would pass
+		// into a merged result that no longer fits the budget its own reader
+		// enforces.
+		if size := huntEncodedElementSize(item); size > HuntMaxCaseResultBytes {
+			return fmt.Errorf("global case %d result is %d bytes, over the maximum of %d",
+				item.Manifest.Case, size, HuntMaxCaseResultBytes)
 		}
 		if result.Shard != nil && i < len(expected) && !partial {
 			want = expected[i]

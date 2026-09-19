@@ -4,7 +4,6 @@ package diagnostic
 
 import (
 	"context"
-	"os/exec"
 	"time"
 
 	"github.com/heymaikol/network-doctor/internal/textsafe"
@@ -16,7 +15,7 @@ import (
 func ssid(ctx context.Context, iface string) string {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "networksetup", "-getairportnetwork", iface).Output()
+	out, err := ssidCommand(ctx, "networksetup", "-getairportnetwork", iface).Output()
 	if err != nil {
 		return ""
 	}

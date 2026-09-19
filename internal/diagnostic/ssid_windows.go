@@ -4,7 +4,6 @@ package diagnostic
 
 import (
 	"context"
-	"os/exec"
 	"time"
 
 	"github.com/heymaikol/network-doctor/internal/textsafe"
@@ -15,11 +14,15 @@ import (
 func ssid(ctx context.Context, iface string) string {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "netsh", "wlan", "show", "interfaces").Output()
+	out, err := ssidCommand(ctx, "netsh", "wlan", "show", "interfaces").Output()
 	if err != nil {
 		return ""
 	}
 	// netsh writes OEM code page bytes; decode before parsing so non-ASCII
 	// interface names still match their block.
-	return textsafe.Clean(parseNetshSSID(textsafe.DecodeOEM(string(out)), iface))
+	return textsafe.Clean(parseNetshSSID(decodeSSIDOutput(string(out)), iface))
 }
+
+// decodeSSIDOutput converts netsh's OEM console bytes to UTF-8. Tests replace
+// it to prove the decode happens before parseNetshSSID.
+var decodeSSIDOutput = textsafe.DecodeOEM

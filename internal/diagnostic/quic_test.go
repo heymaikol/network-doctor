@@ -246,3 +246,139 @@ func TestDiagnoseTCPHealthyQUICFailed(t *testing.T) {
 		t.Fatalf("diagnosis = %q, %q", d.Summary, d.Verdict)
 	}
 }
+
+// recordingConn is the connected socket the QUIC adapter wraps, reduced to
+// what these tests observe: the fixed peer, and what was written to it. It
+// deliberately has no socket-buffer controls, so it stands for a connection
+// that cannot size its socket.
+type recordingConn struct {
+	net.Conn
+	remote  net.Addr
+	written [][]byte
+}
+
+func (c *recordingConn) Write(p []byte) (int, error) {
+	c.written = append(c.written, append([]byte(nil), p...))
+	return len(p), nil
+}
+
+func (c *recordingConn) RemoteAddr() net.Addr { return c.remote }
+
+// bufferRecordingConn adds the socket-buffer surface a real *net.UDPConn has,
+// and records what reached it.
+type bufferRecordingConn struct {
+	*recordingConn
+	readBufferBytes  []int
+	writeBufferBytes []int
+	readErr          error
+	writeErr         error
+}
+
+func (c *bufferRecordingConn) SetReadBuffer(bytes int) error {
+	c.readBufferBytes = append(c.readBufferBytes, bytes)
+	return c.readErr
+}
+
+func (c *bufferRecordingConn) SetWriteBuffer(bytes int) error {
+	c.writeBufferBytes = append(c.writeBufferBytes, bytes)
+	return c.writeErr
+}
+
+// A real connected UDP socket, which is what the dialer hands the adapter, has
+// the surface the adapter selects on. No socket is opened to prove it.
+var _ socketBufferConn = (*net.UDPConn)(nil)
+
+// quicBufferSizer is the capability quic-go tests the PacketConn for before it
+// sizes the socket. Losing it is what made a healthy run print "connection
+// doesn't allow setting of receive buffer size" on stderr.
+type quicBufferSizer interface {
+	SetReadBuffer(int) error
+	SetWriteBuffer(int) error
+}
+
+func TestPacketConnCarriesSocketBufferControlsToTheUnderlyingSocket(t *testing.T) {
+	underlying := &bufferRecordingConn{recordingConn: &recordingConn{remote: &net.UDPAddr{IP: net.ParseIP("192.0.2.44"), Port: 443}}}
+
+	sizer, ok := newPacketConn(underlying).(quicBufferSizer)
+	if !ok {
+		t.Fatal("the adapter hides the socket-buffer controls quic-go looks for")
+	}
+	if err := sizer.SetReadBuffer(7 << 20); err != nil {
+		t.Fatalf("SetReadBuffer: %v", err)
+	}
+	if err := sizer.SetWriteBuffer(2 << 20); err != nil {
+		t.Fatalf("SetWriteBuffer: %v", err)
+	}
+
+	if len(underlying.readBufferBytes) != 1 || underlying.readBufferBytes[0] != 7<<20 {
+		t.Errorf("receive buffer sizes reaching the socket = %v, want [%d]", underlying.readBufferBytes, 7<<20)
+	}
+	if len(underlying.writeBufferBytes) != 1 || underlying.writeBufferBytes[0] != 2<<20 {
+		t.Errorf("send buffer sizes reaching the socket = %v, want [%d]", underlying.writeBufferBytes, 2<<20)
+	}
+}
+
+func TestPacketConnReportsSocketBufferFailuresRatherThanSwallowingThem(t *testing.T) {
+	readErr := errors.New("receive buffer refused")
+	writeErr := errors.New("send buffer refused")
+	underlying := &bufferRecordingConn{recordingConn: &recordingConn{}, readErr: readErr, writeErr: writeErr}
+
+	sizer, ok := newPacketConn(underlying).(quicBufferSizer)
+	if !ok {
+		t.Fatal("the adapter hides the socket-buffer controls quic-go looks for")
+	}
+	if err := sizer.SetReadBuffer(1); !errors.Is(err, readErr) {
+		t.Errorf("SetReadBuffer error = %v, want %v", err, readErr)
+	}
+	if err := sizer.SetWriteBuffer(1); !errors.Is(err, writeErr) {
+		t.Errorf("SetWriteBuffer error = %v, want %v", err, writeErr)
+	}
+}
+
+// TestPacketConnWithoutBufferControlsAdvertisesNone keeps the adapter honest.
+// A connection that cannot size its socket must say so, because a no-op that
+// reported success would tell quic-go it got a 7 MiB buffer it never got.
+func TestPacketConnWithoutBufferControlsAdvertisesNone(t *testing.T) {
+	plain := newPacketConn(&recordingConn{})
+	if _, ok := plain.(quicBufferSizer); ok {
+		t.Fatal("the adapter claims socket-buffer controls the connection underneath does not have")
+	}
+	if _, ok := plain.(interface{ SetReadBuffer(int) error }); ok {
+		t.Error("the adapter claims a receive-buffer control the connection underneath does not have")
+	}
+	if _, ok := plain.(interface{ SetWriteBuffer(int) error }); ok {
+		t.Error("the adapter claims a send-buffer control the connection underneath does not have")
+	}
+}
+
+// TestPacketConnWriteToIgnoresTheCallerAddress is the invariant the buffer
+// forwarding must not cost: the dialer fixes the peer, and quic-go's choice of
+// destination does not move it. Both adapters are checked, because which one
+// is built depends on the connection underneath.
+func TestPacketConnWriteToIgnoresTheCallerAddress(t *testing.T) {
+	peer := &net.UDPAddr{IP: net.ParseIP("192.0.2.44"), Port: 443}
+	elsewhere := &net.UDPAddr{IP: net.ParseIP("198.51.100.9"), Port: 443}
+
+	for _, tc := range []struct {
+		name string
+		wrap func(*recordingConn) net.Conn
+	}{
+		{name: "with buffer controls", wrap: func(c *recordingConn) net.Conn {
+			return &bufferRecordingConn{recordingConn: c}
+		}},
+		{name: "without buffer controls", wrap: func(c *recordingConn) net.Conn { return c }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			socket := &recordingConn{remote: peer}
+
+			adapter := newPacketConn(tc.wrap(socket))
+			n, err := adapter.WriteTo([]byte("quic"), elsewhere)
+			if err != nil || n != 4 {
+				t.Fatalf("WriteTo = (%d, %v)", n, err)
+			}
+			if len(socket.written) != 1 || string(socket.written[0]) != "quic" {
+				t.Fatalf("the connected socket saw %q, want one write of %q", socket.written, "quic")
+			}
+		})
+	}
+}

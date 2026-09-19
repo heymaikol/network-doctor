@@ -31,6 +31,40 @@ func (c connectedPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 
 func (c connectedPacketConn) WriteTo(p []byte, _ net.Addr) (int, error) { return c.Write(p) }
 
+// socketBufferConn is the optional socket-buffer surface quic-go looks for on
+// the PacketConn it is given. *net.UDPConn has it; the plain net.Conn
+// interface does not, so wrapping one hides it and quic-go logs that it cannot
+// size its buffers.
+type socketBufferConn interface {
+	SetReadBuffer(int) error
+	SetWriteBuffer(int) error
+}
+
+// bufferedPacketConn carries those buffer controls through to the underlying
+// socket. It stops there on purpose: adding SyscallConn, ReadMsgUDP, and
+// WriteMsgUDP would satisfy quic.OOBCapablePacketConn, and quic-go would then
+// send with WriteMsgUDP to the address it picks instead of through WriteTo,
+// which is the one thing that keeps this adapter pinned to its connected peer.
+type bufferedPacketConn struct {
+	connectedPacketConn
+	buffers socketBufferConn
+}
+
+func (c bufferedPacketConn) SetReadBuffer(bytes int) error  { return c.buffers.SetReadBuffer(bytes) }
+func (c bufferedPacketConn) SetWriteBuffer(bytes int) error { return c.buffers.SetWriteBuffer(bytes) }
+
+// newPacketConn keeps the adapter truthful about what it can do: buffer
+// controls are advertised only when the connection underneath really has them,
+// so a connection without them reports that instead of accepting the call and
+// doing nothing.
+func newPacketConn(conn net.Conn) net.PacketConn {
+	adapter := connectedPacketConn{conn}
+	if buffers, ok := conn.(socketBufferConn); ok {
+		return bufferedPacketConn{adapter, buffers}
+	}
+	return adapter
+}
+
 // handshakeQUIC returns only after QUIC transport parameters, TLS certificate
 // validation, and h3 ALPN negotiation have completed. That authenticated
 // response is the positive remote evidence a bare UDP Write cannot provide.
@@ -38,7 +72,7 @@ func handshakeQUIC(ctx context.Context, conn net.Conn, tlsConfig *tls.Config) (q
 	if conn.RemoteAddr() == nil {
 		return quicState{}, errors.New("UDP connection has no remote address")
 	}
-	transport := &quic.Transport{Conn: connectedPacketConn{conn}}
+	transport := &quic.Transport{Conn: newPacketConn(conn)}
 	defer func() { _ = transport.Close() }()
 	qconn, err := transport.Dial(ctx, conn.RemoteAddr(), tlsConfig, nil)
 	if err != nil {

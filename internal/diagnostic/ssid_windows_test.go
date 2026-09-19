@@ -10,8 +10,6 @@ import (
 	"slices"
 	"testing"
 	"time"
-
-	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
 func TestSSIDHelperProcess(t *testing.T) {
@@ -92,21 +90,19 @@ func TestSSIDTimeoutStaysBounded(t *testing.T) {
 }
 
 func TestSSIDDecodesOEMBeforeParse(t *testing.T) {
-	decoded := false
 	previous := decodeSSIDOutput
 	decodeSSIDOutput = func(s string) string {
-		decoded = true
-		return textsafe.DecodeOEM(s)
+		if s != "encoded-netsh-output" {
+			return ""
+		}
+		return netshTwoAdapters
 	}
 	t.Cleanup(func() { decodeSSIDOutput = previous })
 
-	path := writeHelperStdout(t, []byte(netshTwoAdapters))
+	path := writeHelperStdout(t, []byte("encoded-netsh-output"))
 	stubSSIDHelper(t, "netsh", "GO_HELPER_STDOUT_FILE="+path)
 
 	if got := ssid(context.Background(), "Wi-Fi"); got != "HomeNet" {
 		t.Fatalf("ssid = %q, want HomeNet", got)
-	}
-	if !decoded {
-		t.Fatal("ssid parsed netsh output without OEM decoding")
 	}
 }

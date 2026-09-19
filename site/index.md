@@ -1,17 +1,16 @@
 ---
 layout: default
-title: Network Doctor documentation
+title: Network Doctor
 description: >-
-  Documentation for Network Doctor, the cross-platform TUI that shows whether
-  a broken connection is your network, the path, or the service.
-  Install it, read a diagnosis, and troubleshoot DNS, TCP, TLS, HTTP, proxy, and
-  path-MTU failures.
+  Network Doctor is a cross-platform TUI that shows whether a broken connection
+  is your network, the path, or the service. Install it, run a diagnosis, or
+  try Challenge Mode.
 permalink: /
 ---
 
 <div class="hero" markdown="1">
 
-# Network Doctor documentation
+# Network Doctor
 
 **Find the layer where your connection breaks.** Network Doctor is a
 cross-platform network troubleshooting TUI that turns interface, DNS, TCP, TLS,
@@ -20,6 +19,10 @@ HTTP, proxy, and path-MTU checks into one plain-English diagnosis.
 Instead of handing you a wall of `ping`, `dig`, and `curl` output, it answers
 the useful question: **is the problem on my network, along the path, or at the
 service?**
+
+> **Get started:** [Install Network Doctor]({{ '/docs/installation/' | relative_url }})
+> · [Run your first diagnosis]({{ '/wiki/Getting-Started/' | relative_url }})
+> · [Play Challenge Mode]({{ '/wiki/Challenge-Mode/' | relative_url }})
 
 </div>
 

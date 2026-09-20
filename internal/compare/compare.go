@@ -333,6 +333,39 @@ func sameEndpointName(a, b string) bool {
 // not a respelling.
 func trimRootDot(host string) string { return strings.TrimSuffix(host, ".") }
 
+// sameResolverAddress answers whether two recorded spellings name one
+// second-opinion resolver. It is the one resolver-identity rule, shared by the
+// comparison and the two-sided reading so the two readers cannot drift apart
+// again.
+//
+// Deliberately not sameEndpointName. The two fields are validated differently
+// and produced differently. PublicDNS is an IP address or empty, never a name,
+// so the hostname half of target identity has no business here: a value that
+// will not parse as an address is compared as text, and two unparseable
+// spellings are equal only when they are the same bytes. Empty is a value in
+// that sense too, which keeps the second opinion switched off distinct from
+// any resolver.
+//
+// The address half also unmaps, where target identity does not. Target
+// identity keeps an IPv4 address apart from its IPv4-mapped IPv6 form because
+// netdoc diagnoses address-family behavior at the target. This field has the
+// opposite producer: both paths that accept -public-dns canonicalize it
+// through net.ParseIP(...).String(), which already writes ::ffff:8.8.8.8 as
+// 8.8.8.8, and the resolver and address evidence in twosided_evidence.go
+// normalizes with Unmap for the same reason. Unmapping here agrees with what
+// netdoc itself wrote rather than inventing a distinction no producer records.
+//
+// Equality only. A resolver difference that survives this is still reported
+// with the spellings the two files carry.
+func sameResolverAddress(a, b string) bool {
+	addrA, errA := netip.ParseAddr(a)
+	addrB, errB := netip.ParseAddr(b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	return addrA.Unmap() == addrB.Unmap()
+}
+
 // targetsNotComparable is the third state, kept for the report. It is not a
 // JSON key: same_target stays the one published boolean, and a machine reader
 // that needs the difference has the caveats and the two sanitized flags, which
@@ -480,7 +513,12 @@ func diffTool(d *diff, before, after snapshot.Tool) {
 func diffOptions(d *diff, before, after snapshot.Options) {
 	d.field(SectionOptions, "", "options.probe_timeout_ms", "probe timeout",
 		strconv.FormatInt(before.ProbeTimeoutMs, 10)+"ms", strconv.FormatInt(after.ProbeTimeoutMs, 10)+"ms")
-	d.field(SectionOptions, "", "options.public_dns", "second-opinion resolver", before.PublicDNS, after.PublicDNS)
+	// Read as an address, not as text: one resolver spelled two ways is one
+	// resolver. The recorded spellings still go into the change when the
+	// resolvers really do differ.
+	if !sameResolverAddress(before.PublicDNS, after.PublicDNS) {
+		d.field(SectionOptions, "", "options.public_dns", "second-opinion resolver", before.PublicDNS, after.PublicDNS)
+	}
 	// Beside the address rather than folded into it: the same resolver reached
 	// two different ways is a real difference, because only the run that did
 	// not name it could cross to the other address family.

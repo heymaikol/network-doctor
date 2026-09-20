@@ -43,11 +43,11 @@ go test -tags acceptance -count=1 -run '^TestNative' . ./internal/ui
 go test -tags netns_integration -count=1 -v ./internal/simulation
 go test -race ./...
 go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
-go test -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
-go test -fuzz=FuzzEncryptedDNSResponseVerifier -fuzztime=10s ./internal/diagnostic
-go test -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic
-go test -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
-go test -fuzz=FuzzGenerateHuntCase -fuzztime=10s ./internal/simulation
+go test -run='^$' -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
+go test -run='^$' -fuzz=FuzzEncryptedDNSResponseVerifier -fuzztime=10s ./internal/diagnostic
+go test -run='^$' -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic
+go test -run='^$' -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
+go test -run='^$' -fuzz=FuzzGenerateHuntCase -fuzztime=10s ./internal/simulation
 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 go run github.com/goreleaser/goreleaser/v2@v2.17.1 check
@@ -61,6 +61,19 @@ Race, fuzz, and network-namespace checks run only on Linux in CI. The
 namespaces; they never need root. That gate keeps `-v` because a skipped run and
 a real one both print just `ok` otherwise, and `-count=1` because a cached
 result would not have exercised any namespace at all.
+
+`-run='^$'` on the fuzz commands matches no ordinary test, so each one builds
+the package and starts fuzzing rather than replaying that package's whole unit
+suite first, which `go test ./...` above already ran. It does not skip the seed
+corpus: `go test -fuzz` runs every seed and cached corpus entry to gather the
+coverage baseline before it generates input, and a failing seed still fails the
+command.
+
+CI splits this Linux work across parallel shards, so its ordinary race lane
+leaves out the integration-tagged packages that its race-integration lane
+already builds and races in full. Run serially the way it is written above,
+those two commands race the ordinary tests in those four packages twice, which
+is harmless locally and only costs time.
 
 ## Additional checks, by what you touched
 

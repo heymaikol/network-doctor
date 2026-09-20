@@ -75,11 +75,25 @@ type Comparison struct {
 	Schema string `json:"schema"`
 	Before Side   `json:"before"`
 	After  Side   `json:"after"`
-	// SameTarget is false when the two runs did not observe the same endpoint.
-	// Comparing them is still allowed, because "the same host, entered
-	// differently" and "a different host" are questions the snapshot's own
-	// target fields exist to answer, but every row below then describes two
-	// different endpoints and the report says so first.
+	// SameTarget is true only when the two artifacts establish that they
+	// observed one endpoint. Comparing two that did not is still allowed,
+	// because "the same host, entered differently" and "a different host" are
+	// questions the snapshot's own target fields exist to answer, but every row
+	// below then describes two different endpoints and the report says so
+	// first.
+	//
+	// False therefore covers two readings, and the line between them is which
+	// dimensions survive sanitization. Whether a run had a target at all, the
+	// port, the protocol, and whether the target was an IP literal rather than
+	// a name are recorded verbatim in a support artifact, so a difference in
+	// any of them is a difference at any fidelity and false means the two runs
+	// named different endpoints, sanitized or not. Only once all of those agree
+	// does identity come down to a host or an address, and only then does
+	// fidelity matter: full fidelity on both sides settles it, while a support
+	// pseudonym on either side leaves it unestablished, because an alias is a
+	// name inside one artifact and a match across two establishes neither one
+	// endpoint nor two. The caveats below are what say that second reading
+	// applies.
 	SameTarget bool `json:"same_target"`
 	// Checks is every check ID in either snapshot, in the order the later run
 	// executed them, then the ones only the earlier run had, in its order.
@@ -90,6 +104,16 @@ type Comparison struct {
 	// order the snapshot itself lists the state. Empty means the two runs
 	// describe the same network state.
 	Changes []Change `json:"changes"`
+	// Caveats are the conditions that weaken every row above. Today there is
+	// one family of them: a side written by --support carries pseudonyms that
+	// belong to that one file, so a value read across the pair establishes
+	// neither one original nor two. They are prose for a person and are not
+	// parsed back, the same rule the two-sided reading's caveats follow.
+	Caveats []string `json:"caveats"`
+	// relation is the three-state reading same_target had to flatten. It is
+	// unexported because it is not part of the published document, and Text
+	// is only ever called on a comparison this package built.
+	relation targetRelation
 }
 
 // Same reports whether the two snapshots hold the same diagnostic state.
@@ -154,13 +178,15 @@ type Change struct {
 // nothing here reads the timestamps to decide which is which.
 func Snapshots(before, after snapshot.Snapshot) Comparison {
 	c := Comparison{
-		Schema:     Schema,
-		Before:     sideOf(before),
-		After:      sideOf(after),
-		SameTarget: sameTarget(before.Target, after.Target),
-		Checks:     []CheckRow{},
-		Changes:    []Change{},
+		Schema:   Schema,
+		Before:   sideOf(before),
+		After:    sideOf(after),
+		relation: targetRelationOf(before, after),
+		Checks:   []CheckRow{},
+		Changes:  []Change{},
+		Caveats:  redactionCaveats(before, after),
 	}
+	c.SameTarget = c.relation == targetsSame
 	d := &diff{changes: []Change{}}
 	diffTarget(d, before.Target, after.Target)
 	diffTool(d, before.Tool, after.Tool)
@@ -203,15 +229,95 @@ func targetDisplay(t *snapshot.Target) string {
 	return host + ":" + strconv.Itoa(t.Port) + " " + t.Protocol
 }
 
-// sameTarget compares logical targets, not resolved or contacted addresses. Raw is
-// deliberately not part of it: the same host typed two ways is the same
-// target, and the difference in spelling is reported as its own change.
-func sameTarget(before, after *snapshot.Target) bool {
+// A support artifact's names are pseudonyms, and a pseudonym is a name inside
+// one artifact and nowhere else. SanitizeForSupport builds a fresh mapping per
+// call, so two files sanitized separately are two vocabularies that happen to
+// spell their aliases the same way: one endpoint can be host-1.invalid in one
+// file and host-3.invalid in the other, and two unrelated endpoints can both
+// be host-2.invalid. Across that boundary a match establishes nothing and a
+// mismatch establishes nothing either, and there is deliberately no stable
+// identifier that would let it, because that is the property --support sells.
+//
+// So every reading that treats one of those values as an identity has to ask
+// first whether the two artifacts share the vocabulary it is written in.
+// Everything redaction leaves alone (statuses, causes, ports, protocols,
+// booleans, derived conclusions) keeps its full meaning across two support
+// artifacts, which is what makes comparing them worth doing at all.
+func sharedRedactionVocabulary(a, b snapshot.Snapshot) bool {
+	return !isSanitized(a) && !isSanitized(b)
+}
+
+// targetRelation is what the two artifacts establish about their endpoints.
+// Three states, because a pair that cannot answer the question is not the same
+// thing as a pair that answered "different", and collapsing them loses the
+// distinction the report and the two-sided refusal both need.
+//
+// targetsDifferent is the zero value so that a Comparison nobody filled in
+// reads the way it always did.
+type targetRelation int
+
+const (
+	targetsDifferent targetRelation = iota
+	targetsSame
+	targetsUnknown
+)
+
+// targetRelationOf answers it for one pair, asking the dimensions redaction
+// leaves alone before the ones it rewrites.
+//
+// Whether a run had a target at all, the port, the protocol, and whether the
+// target was an IP literal rather than a name are all recorded verbatim by
+// SanitizeForSupport. A difference in any of them is therefore a difference in
+// the endpoint at any fidelity, and saying "unknown" there would throw away an
+// answer the two files do carry. Only once those agree does the question come
+// down to a host or an address, and only then does the vocabulary matter.
+func targetRelationOf(a, b snapshot.Snapshot) targetRelation {
+	before, after := a.Target, b.Target
 	if before == nil || after == nil {
-		return before == nil && after == nil
+		if before == nil && after == nil {
+			return targetsSame
+		}
+		return targetsDifferent
 	}
-	return before.Host == after.Host && before.IP == after.IP &&
-		before.Port == after.Port && before.Protocol == after.Protocol
+	if before.Port != after.Port || before.Protocol != after.Protocol ||
+		(before.IP == "") != (after.IP == "") {
+		return targetsDifferent
+	}
+	if !sharedRedactionVocabulary(a, b) {
+		return targetsUnknown
+	}
+	if before.Host == after.Host && before.IP == after.IP {
+		return targetsSame
+	}
+	return targetsDifferent
+}
+
+// targetsNotComparable is the third state, kept for the report. It is not a
+// JSON key: same_target stays the one published boolean, and a machine reader
+// that needs the difference has the caveats and the two sanitized flags, which
+// is the same material the sentence is written from.
+func (c Comparison) targetsNotComparable() bool { return c.relation == targetsUnknown }
+
+// redactionCaveats states what the values below are worth when a support
+// artifact is on either side. It is the comparison's counterpart to the
+// sentence the two-sided reading already carries, and it covers every
+// pseudonymized field at once rather than annotating them one by one: target,
+// addresses, resolvers, interfaces, SSIDs, routes, prefixes, route tables and
+// the derived paths read off them are all the same kind of name.
+func redactionCaveats(before, after snapshot.Snapshot) []string {
+	out := []string{}
+	if sharedRedactionVocabulary(before, after) {
+		return out
+	}
+	out = append(out, "Support pseudonyms are assigned inside one artifact. A host, address, interface, SSID, "+
+		"route, prefix or table name that matches across these two files does not establish one original value, "+
+		"and one that differs does not establish two.")
+	if isSanitized(before) != isSanitized(after) {
+		out = append(out, "One side is a sanitized support artifact and the other is full fidelity, so a name or "+
+			"address that redaction replaces may differ for that reason alone. No difference among those values "+
+			"establishes that an identity changed.")
+	}
+	return out
 }
 
 // diff accumulates changes in the order they are recorded, which is the order

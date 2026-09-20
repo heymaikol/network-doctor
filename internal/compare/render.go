@@ -16,7 +16,17 @@ import (
 func (c Comparison) Text() string {
 	var b strings.Builder
 	b.WriteString("Network Doctor snapshot comparison\n\n")
-	if !c.SameTarget {
+	switch {
+	case c.SameTarget:
+	case c.targetsNotComparable():
+		// The pair that cannot answer the question says so in those words. It
+		// is not the sentence below: claiming two different endpoints here
+		// would be exactly the kind of unearned identity claim that reading
+		// pseudonyms across two artifacts already is.
+		b.WriteString("These snapshots do not establish whether they observed one target: " +
+			clean(display(c.Before.Target)) + " before, " + clean(display(c.After.Target)) + " after, " +
+			"and at least one of those names is a support pseudonym belonging to its own file.\n\n")
+	default:
 		// First, and before the columns: every row below then describes two
 		// different endpoints, and that has to be read before the rows are.
 		b.WriteString("These snapshots observed different targets: " +
@@ -52,6 +62,7 @@ func (c Comparison) Text() string {
 	b.WriteString("\n")
 	if len(c.Changes) == 0 {
 		b.WriteString("No meaningful differences.\n")
+		writeCaveats(&b, c.Caveats)
 		return b.String()
 	}
 	b.WriteString("Changes:\n")
@@ -63,7 +74,20 @@ func (c Comparison) Text() string {
 		b.WriteString(line + "\n")
 	}
 	b.WriteString("\n" + strconv.Itoa(len(c.Changes)) + " " + plural(len(c.Changes), "change") + ".\n")
+	writeCaveats(&b, c.Caveats)
 	return b.String()
+}
+
+// writeCaveats prints what the rows above are worth, last, where the two-sided
+// reading prints its own: a caveat qualifies the report and is read after it.
+func writeCaveats(b *strings.Builder, caveats []string) {
+	if len(caveats) == 0 {
+		return
+	}
+	b.WriteString("\nCaveats:\n")
+	for _, caveat := range caveats {
+		b.WriteString("  " + clean(caveat) + "\n")
+	}
 }
 
 // note is the trailing word on a check row: what kind of difference it holds,

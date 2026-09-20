@@ -261,22 +261,33 @@ func TestCaptureGapIsACaveat(t *testing.T) {
 	}
 }
 
-// Preserve the existing target-spelling gate for support artifacts. Independent
-// redaction mappings do not prove original identity; the reading says so in a
-// caveat and never compares pseudonyms as address evidence.
-func TestSanitizedArtifactsFollowTheSameTargetRule(t *testing.T) {
+// A support artifact's target name belongs to the one file that assigned it,
+// so a pair holding one on either side cannot establish the endpoint the
+// reading is premised on, and is refused instead of read.
+func TestSanitizedTargetsCannotEstablishOneEndpoint(t *testing.T) {
 	a := snapshot.SanitizeForSupport(fixture(t))
 	b := snapshot.SanitizeForSupport(fixture(t))
-	if _, err := TwoSidedSnapshots(a, b); err != nil {
-		t.Fatalf("two support artifacts of one target were refused: %v", err)
+	// Two artifacts of one real target: still refused. The originals matching
+	// is not something these two files show, and reading them as one endpoint
+	// would be believing an alias that the next artifact would spell
+	// differently.
+	var unknown UnknownTargetIdentityError
+	if _, err := TwoSidedSnapshots(a, b); !errors.As(err, &unknown) {
+		t.Fatalf("err = %v, want UnknownTargetIdentityError", err)
 	}
-	// Paired with a full-fidelity run, the pseudonym is a different endpoint,
-	// and refusing is the right answer: every name on one side is a stand-in.
-	if _, err := TwoSidedSnapshots(fixture(t), b); err == nil {
-		t.Error("a sanitized artifact read against a full-fidelity one produced a placement")
+	// Refused, and refused for the right reason: this pair is not known to be
+	// two endpoints either, so the refusal must not say they are.
+	if strings.Contains(unknown.Error(), "different targets") {
+		t.Errorf("the refusal claims two endpoints it cannot know: %q", unknown.Error())
+	}
+	// Paired with a full-fidelity run, the same rule and the same refusal: one
+	// side's every name is a stand-in, so nothing lines the two up.
+	if _, err := TwoSidedSnapshots(fixture(t), b); !errors.As(err, &unknown) {
+		t.Errorf("err = %v, want UnknownTargetIdentityError", err)
 	}
 	// A generic run has no target to rename, which is the one shape where a
-	// mixed-fidelity pair is read at all, and it is read with a caveat.
+	// pair involving a support artifact is read at all, and it is read with a
+	// caveat.
 	generic, sanitizedGeneric := fixture(t), snapshot.SanitizeForSupport(fixture(t))
 	generic.Target, sanitizedGeneric.Target = nil, nil
 	got := twoSided(t, generic, sanitizedGeneric)
@@ -286,13 +297,17 @@ func TestSanitizedArtifactsFollowTheSameTargetRule(t *testing.T) {
 }
 
 func TestMixedFidelityIsACaveat(t *testing.T) {
+	// Generic runs throughout: a targeted pair with a support artifact on
+	// either side is refused before a caveat is reached.
 	a, b := fixture(t), fixture(t)
+	a.Target, b.Target = nil, nil
 	b.Redaction = &snapshot.Redaction{Sanitized: true, Policy: snapshot.SupportRedactionPolicy}
 	if got := twoSided(t, a, b); !hasCaveat(got, "sanitized support artifact") {
 		t.Errorf("caveats = %v, want one naming the mixed fidelity", got.Caveats)
 	}
 	// Two sanitized artifacts are comparable with each other.
 	a2, b2 := fixture(t), fixture(t)
+	a2.Target, b2.Target = nil, nil
 	policy := &snapshot.Redaction{Sanitized: true, Policy: snapshot.SupportRedactionPolicy}
 	a2.Redaction, b2.Redaction = policy, policy
 	if got := twoSided(t, a2, b2); hasCaveat(got, "sanitized support artifact") {

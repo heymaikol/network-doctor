@@ -29,7 +29,25 @@ path, or at the service?**
 - **Runs everywhere.** The same diagnosis engine supports Linux, macOS, and
   Windows, with native packages and prebuilt binaries.
 
-If Network Doctor saves you time, you can [support its development on GitHub Sponsors](https://github.com/sponsors/heymaikol).
+## Quick start
+
+```sh
+netdoc                  # local interface, egress, proxy, public DNS, Wi-Fi
+netdoc github.com       # DNS, TCP, TLS, HTTP diagnosis of one target
+netdoc github.com:22    # the port selects the protocol rows (SSH banner)
+netdoc --watch host     # catch intermittent failures
+netdoc --json host      # structured report for scripts or bug reports
+```
+
+A finished run leads with the answer: the verdict, the fix, the tool worth
+reaching for next, and the one line of evidence the verdict rests on, above the
+checks that produced them. Select any other row for its own evidence and fix,
+press `e` for the causal explanation, and `?` for every shortcut.
+
+The recording above is one worked example: an office printer hostname that no
+longer resolves. The DNS row fails, every check that depended on it is skipped
+rather than guessed at, and the verdict names the missing DNS record instead of
+blaming the printer.
 
 ## Install
 
@@ -108,26 +126,6 @@ attestation binding each artifact to the workflow run that built it; verifying
 one is in
 **[docs/installation.md](docs/installation.md#verify-your-download)**, along with
 building from a clone.
-
-## Quick start
-
-```sh
-netdoc                  # local interface, egress, proxy, public DNS, Wi-Fi
-netdoc github.com       # DNS, TCP, TLS, HTTP diagnosis of one target
-netdoc github.com:22    # the port selects the protocol rows (SSH banner)
-netdoc --watch host     # catch intermittent failures
-netdoc --json host      # structured report for scripts or bug reports
-```
-
-A finished run leads with the answer: the verdict, the fix, the tool worth
-reaching for next, and the one line of evidence the verdict rests on, above the
-checks that produced them. Select any other row for its own evidence and fix,
-press `e` for the causal explanation, and `?` for every shortcut.
-
-The recording above is one worked example: an office printer hostname that no
-longer resolves. The DNS row fails, every check that depended on it is skipped
-rather than guessed at, and the verdict names the missing DNS record instead of
-blaming the printer.
 
 ## What it checks
 

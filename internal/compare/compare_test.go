@@ -2,6 +2,7 @@ package compare
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -734,6 +735,103 @@ func TestSameHostTypedDifferentlyIsStillTheSameTarget(t *testing.T) {
 	}
 	if got := paths(c); !slices.Equal(got, []string{"target.raw"}) {
 		t.Errorf("changes = %v, want only the typed spelling", got)
+	}
+}
+
+// Identity is semantic, and the spellings below are the ones DNS and IP
+// addressing already read as one endpoint. Each case is asserted twice,
+// because same_target and the two-sided refusal are the same question asked by
+// two commands and must never answer it differently.
+func TestEquivalentTargetSpellingsAreOneEndpoint(t *testing.T) {
+	// host and ip are what the pair's second side records; the first side is
+	// always the fixture's example.com.
+	for _, tc := range []struct {
+		name string
+		edit func(*snapshot.Target)
+		same bool
+	}{
+		{"hostname case", func(t *snapshot.Target) { t.Host = "EXAMPLE.COM" }, true},
+		{"DNS root dot", func(t *snapshot.Target) { t.Host = "example.com." }, true},
+		{"case and root dot together", func(t *snapshot.Target) { t.Host = "Example.Com." }, true},
+		{"a different name", func(t *snapshot.Target) { t.Host = "github.com" }, false},
+		{"a longer name that shares a suffix", func(t *snapshot.Target) { t.Host = "www.example.com" }, false},
+		{"an empty label is not a respelling", func(t *snapshot.Target) { t.Host = "example.com.." }, false},
+		{"a different port", func(t *snapshot.Target) { t.Port = 8443 }, false},
+		{"a different protocol", func(t *snapshot.Target) { t.Protocol = "ssh" }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, after := fixture(t), fixture(t)
+			tc.edit(after.Target)
+			assertTargetIdentity(t, before, after, tc.same)
+		})
+	}
+}
+
+// An IP literal is compared as an address, so one address spelled two ways is
+// one endpoint and two addresses are two, whatever the spelling makes of them.
+func TestEquivalentIPLiteralSpellingsAreOneEndpoint(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		same bool
+	}{
+		{"2001:db8::1", "2001:0db8:0000:0000:0000:0000:0000:0001", true},
+		{"2001:db8::1", "2001:DB8::1", true},
+		{"2001:db8::1", "2001:db8:0:0:0:0:0:1", true},
+		{"192.0.2.1", "192.0.2.1", true},
+		{"2001:db8::1", "2001:db8::2", false},
+		{"192.0.2.1", "192.0.2.2", false},
+		// Not a respelling. netdoc diagnoses address-family behavior, and an
+		// IPv4 address and its IPv4-mapped IPv6 form are two families, so
+		// identity keeps them apart rather than deciding they are one endpoint.
+		{"192.0.2.1", "::ffff:192.0.2.1", false},
+	} {
+		t.Run(tc.a+" vs "+tc.b, func(t *testing.T) {
+			before, after := fixture(t), fixture(t)
+			before.Target.Raw, before.Target.Host, before.Target.IP = tc.a, tc.a, tc.a
+			after.Target.Raw, after.Target.Host, after.Target.IP = tc.b, tc.b, tc.b
+			assertTargetIdentity(t, before, after, tc.same)
+		})
+	}
+}
+
+// assertTargetIdentity pins both readings of one pair: the comparison's
+// same_target and whether the two-sided reading accepts the pair at all.
+func assertTargetIdentity(t *testing.T, before, after snapshot.Snapshot, same bool) {
+	t.Helper()
+	if got := Snapshots(before, after).SameTarget; got != same {
+		t.Errorf("same_target = %t, want %t", got, same)
+	}
+	reading, err := TwoSidedSnapshots(before, after)
+	switch {
+	case same && err != nil:
+		t.Errorf("two-sided refused a pair that names one endpoint: %v", err)
+	case same && !reading.SameTarget:
+		t.Error("two-sided read the pair but did not call it one target")
+	case !same && err == nil:
+		t.Error("two-sided read two different endpoints as one")
+	case !same && err != nil:
+		var wanted DifferentTargetsError
+		if !errors.As(err, &wanted) {
+			t.Errorf("error = %v, want a DifferentTargetsError", err)
+		}
+	}
+}
+
+// Identity is semantic, but the diff still reports what each run recorded: a
+// respelling is a real difference between the two files, and the snapshot
+// keeps Raw beside Host so a reader can see which kind of difference it is.
+// Saying "same target" and listing the spellings that differ is the whole
+// answer, and hiding either half of it would be a smaller one.
+func TestARespellingIsStillReportedAsAChange(t *testing.T) {
+	before, after := fixture(t), fixture(t)
+	after.Target.Raw, after.Target.Host = "EXAMPLE.COM", "EXAMPLE.COM"
+
+	c := Snapshots(before, after)
+	if !c.SameTarget {
+		t.Fatal("SameTarget = false for one endpoint spelled two ways")
+	}
+	if got := paths(c); !slices.Equal(got, []string{"target.host", "target.raw"}) {
+		t.Errorf("changes = %v, want the host and the typed spelling", got)
 	}
 }
 

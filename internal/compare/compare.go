@@ -17,6 +17,7 @@ package compare
 
 import (
 	"encoding/json"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -286,11 +287,51 @@ func targetRelationOf(a, b snapshot.Snapshot) targetRelation {
 	if !sharedRedactionVocabulary(a, b) {
 		return targetsUnknown
 	}
-	if before.Host == after.Host && before.IP == after.IP {
+	if sameEndpointName(before.Host, after.Host) && sameEndpointName(before.IP, after.IP) {
 		return targetsSame
 	}
 	return targetsDifferent
 }
+
+// sameEndpointName answers whether two recorded spellings name one endpoint.
+// It is the semantic half of target identity, kept apart from the presentation
+// half: Raw is the spelling a person typed and stays free to differ, while
+// these two fields are what the run actually addressed.
+//
+// Two rules, one per kind of name. An address is compared as a parsed address,
+// so the compressed and expanded spellings of one IPv6 address are one
+// endpoint, which a string comparison of a field the snapshot canonicalized
+// only happens to get right. netip.Addr rather than net.IP.Equal, because it
+// keeps the distinction net.IP drops: an IPv4 address and its IPv4-mapped IPv6
+// form stay two endpoints here, since netdoc diagnoses address-family
+// behavior and calling those two spellings one target would decide a question
+// this comparison has no business deciding. A DNS name is compared the way DNS
+// reads it: case-insensitively, and ignoring the terminal root dot, since
+// example.com, EXAMPLE.COM and example.com. are one name in the protocol.
+// Everything else still has to match byte for byte, so two different hosts and
+// two different addresses stay two endpoints.
+//
+// Both fields go through it, including the pair of empty strings a hostname
+// target leaves in IP, which no rule here treats specially: empty equals
+// empty. A file netdoc did not write can carry a spelling ParseTarget would
+// have rejected, and one that will not parse as an address falls through to
+// the name rule rather than being called equal to anything.
+func sameEndpointName(a, b string) bool {
+	addrA, errA := netip.ParseAddr(a)
+	addrB, errB := netip.ParseAddr(b)
+	if errA == nil && errB == nil {
+		return addrA == addrB
+	}
+	// EqualFold is ASCII case folding on the only names that can reach here
+	// from ParseTarget: an internationalized name is converted to its A-label
+	// before it is ever recorded, so a hostname in a snapshot is ASCII.
+	return strings.EqualFold(trimRootDot(a), trimRootDot(b))
+}
+
+// trimRootDot drops the one trailing dot that spells the DNS root, and only
+// one: a name ending in two dots has an empty label and is a different name,
+// not a respelling.
+func trimRootDot(host string) string { return strings.TrimSuffix(host, ".") }
 
 // targetsNotComparable is the third state, kept for the report. It is not a
 // JSON key: same_target stays the one published boolean, and a machine reader

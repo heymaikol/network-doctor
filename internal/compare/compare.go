@@ -503,13 +503,24 @@ func diffOptions(d *diff, before, after snapshot.Options) {
 	d.field(SectionOptions, "", "options.source.ipv6", "bound IPv6 source", b.IPv6, a.IPv6)
 }
 
-// sortedList renders an unordered selection as one comparable value. Sorting a
-// copy, never the caller's slice: the snapshot is the caller's and comparing it
-// must not rewrite it.
-func sortedList(values []string) string {
+// sortedSet normalizes an unordered selection to what the run actually applied:
+// its distinct members, in one stable order. The runtime selection is a set, so
+// a probe named twice on the command line selected the same probe once, and two
+// spellings of one selection have to normalize to one value. Working on a copy,
+// never the caller's slice: the snapshot is the caller's, it keeps the spelling
+// the user typed, and comparing it must not rewrite it.
+//
+// This is the one place the set rule lives. Both readings normalize through it
+// so neither can drift into comparing order or repetition again.
+func sortedSet(values []string) []string {
 	sorted := slices.Clone(values)
 	slices.Sort(sorted)
-	return strings.Join(sorted, ",")
+	return slices.Compact(sorted)
+}
+
+// sortedList renders an unordered selection as one comparable value.
+func sortedList(values []string) string {
+	return strings.Join(sortedSet(values), ",")
 }
 
 func diffDiagnosis(d *diff, before, after snapshot.Snapshot) {

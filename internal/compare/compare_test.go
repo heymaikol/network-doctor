@@ -479,12 +479,42 @@ func TestProbeSelectionOrderIsNotADifference(t *testing.T) {
 	mustNotChange(t, Snapshots(before, after), "reordering the probe selection")
 }
 
+// The selection is applied as a set, so naming the same probe twice selects it
+// once and is the same run. The snapshot keeps the repetition because that is
+// what the user typed, and the comparison reads through it.
+func TestRepeatedProbeSelectionIsNotADifference(t *testing.T) {
+	before, after := fixture(t), fixture(t)
+	before.Options.Check = []string{"dns", "iface"}
+	after.Options.Check = []string{"iface", "dns", "dns"}
+	before.Options.Skip = []string{"ssid"}
+	after.Options.Skip = []string{"ssid", "ssid"}
+	mustNotChange(t, Snapshots(before, after), "repeating a probe in the selection")
+}
+
 func TestProbeSelectionMembershipChange(t *testing.T) {
 	before, after := fixture(t), fixture(t)
 	before.Options.Check = []string{"dns", "tls"}
 	after.Options.Check = []string{"dns"}
+	before.Options.Skip = []string{"ssid"}
+	after.Options.Skip = []string{"ssid", "quic_udp_443"}
 	c := Snapshots(before, after)
 	if got := changeAt(t, c, "options.check"); got.Before != "dns,tls" || got.After != "dns" {
+		t.Errorf("check selection change = %+v", got)
+	}
+	if got := changeAt(t, c, "options.skip"); got.Before != "ssid" || got.After != "quic_udp_443,ssid" {
+		t.Errorf("skip selection change = %+v", got)
+	}
+}
+
+// Membership still decides it when the repetition is the only thing hiding the
+// difference: one run naming a probe twice is not the other run naming it once
+// alongside a second probe.
+func TestRepeatedProbeDoesNotMaskMembershipChange(t *testing.T) {
+	before, after := fixture(t), fixture(t)
+	before.Options.Check = []string{"dns", "dns"}
+	after.Options.Check = []string{"dns", "iface"}
+	c := Snapshots(before, after)
+	if got := changeAt(t, c, "options.check"); got.Before != "dns" || got.After != "dns,iface" {
 		t.Errorf("check selection change = %+v", got)
 	}
 }

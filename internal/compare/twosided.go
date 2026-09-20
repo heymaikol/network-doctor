@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -445,22 +446,10 @@ func plural2(n int, one, many string) string {
 }
 
 // sameSet compares two selections as sets, the same rule Snapshots applies to
-// them: the order a person typed probe IDs in is not the shape of anything.
+// them through the same helper: neither the order a person typed probe IDs in
+// nor how many times they typed one is the shape of anything.
 func sameSet(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	seen := make(map[string]int, len(a))
-	for _, v := range a {
-		seen[v]++
-	}
-	for _, v := range b {
-		seen[v]--
-		if seen[v] < 0 {
-			return false
-		}
-	}
-	return true
+	return slices.Equal(sortedSet(a), sortedSet(b))
 }
 
 // Text renders the human reading: what the two runs were, one row per check

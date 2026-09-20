@@ -284,6 +284,11 @@ func TestSourceBindingCaveatSurvivesSanitizationWithoutLeaking(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, b := fixture(t), fixture(t)
+			// Generic runs, because a pair of separately sanitized artifacts
+			// that both named a target is refused before any caveat is
+			// reached: their target names are pseudonyms from two files. The
+			// binding rule under test reads neither target nor value.
+			a.Target, b.Target = nil, nil
 			tc.mutate(&a, &b)
 			full := twoSided(t, a, b)
 			got := twoSided(t, snapshot.SanitizeForSupport(a), snapshot.SanitizeForSupport(b))

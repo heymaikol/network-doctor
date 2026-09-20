@@ -2143,6 +2143,62 @@ func TestRunTwoSidedRefusesDifferentTargets(t *testing.T) {
 	}
 }
 
+// The same guard, reached through the CLI by the route the issue reported:
+// two support artifacts sanitized on their own machines, whose unrelated
+// targets were handed the same pseudonym. Exit 2, no reading, and a refusal
+// that claims neither one endpoint nor two.
+func TestRunTwoSidedRefusesIndependentlySanitizedTargets(t *testing.T) {
+	dir := t.TempDir()
+	other := comparableSnapshot()
+	other.Target.Raw, other.Target.Host = "github.com", "github.com"
+	a := snapshot.SanitizeForSupport(comparableSnapshot())
+	b := snapshot.SanitizeForSupport(other)
+	if a.Target.Host != b.Target.Host {
+		t.Fatalf("aliases %q and %q did not collide; this test needs the collision", a.Target.Host, b.Target.Host)
+	}
+	herePath := writeSnapshotFile(t, dir, "here", a)
+	therePath := writeSnapshotFile(t, dir, "there", b)
+
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"--two-sided", herePath, therePath}, &stdout, &stderr); got != 2 {
+		t.Fatalf("exit = %d, want 2; stderr: %s", got, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "do not establish that they observed one target") {
+		t.Errorf("stderr does not say the identity is unestablished: %q", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("a refusal wrote to stdout: %q", stdout.String())
+	}
+}
+
+// --compare reads the same pair rather than refusing it, and answers without
+// claiming the endpoints match.
+func TestRunCompareDoesNotMatchIndependentPseudonyms(t *testing.T) {
+	dir := t.TempDir()
+	other := comparableSnapshot()
+	other.Target.Raw, other.Target.Host = "github.com", "github.com"
+	herePath := writeSnapshotFile(t, dir, "here", snapshot.SanitizeForSupport(comparableSnapshot()))
+	therePath := writeSnapshotFile(t, dir, "there", snapshot.SanitizeForSupport(other))
+
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"--compare", "--json", herePath, therePath}, &stdout, &stderr); got > 1 {
+		t.Fatalf("exit = %d, want 0 or 1; stderr: %s", got, stderr.String())
+	}
+	var doc struct {
+		SameTarget bool     `json:"same_target"`
+		Caveats    []string `json:"caveats"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("decode comparison: %v", err)
+	}
+	if doc.SameTarget {
+		t.Error("same_target = true for two independently sanitized endpoints")
+	}
+	if len(doc.Caveats) == 0 {
+		t.Error("the comparison carries no caveat about the per-artifact pseudonyms")
+	}
+}
+
 func TestRunTwoSidedArgumentErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := writeSnapshotFile(t, dir, "run", comparableSnapshot())

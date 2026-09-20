@@ -225,6 +225,7 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--two-sided`, saved or live: no comparable check failed on either machine | `0` |
 | `--two-sided`, saved or live: a failure was placed, or the evidence could not place one | `1` |
 | `--two-sided`, saved or live: the two snapshots observed different targets | `2` |
+| `--two-sided`: the two snapshots do not establish one target, because a support pseudonym is on either side and the rest of the target agrees | `2` |
 | Live `--two-sided --via`: SSH or remote protocol acquisition failed | `2` |
 | Quit before the chain finished | `1` |
 | Bad arguments, pairing-input reject, validation reject, or no terminal for the TUI | `2` |
@@ -1318,7 +1319,11 @@ hostname, SSID, interface, route table, path, address, or prefix therefore gets
 the same alias everywhere in that file, including incident before, during, and
 recovered states. Different originals get different aliases. No original-to-
 alias map, salt, key, or reversible secret is stored, and aliases are not meant
-to be stable across separately created support files.
+to be stable across separately created support files. That last point is a
+property readers have to honor rather than a caveat they may weigh: `--compare`
+and `--two-sided` treat a pseudonym as a name owned by its own artifact, and
+neither claims an identity from one. See [pseudonyms are per
+artifact](#pseudonyms-are-per-artifact).
 
 IP addresses follow an explicit policy:
 
@@ -1444,6 +1449,10 @@ Both files go through the same decoder every other reader uses, so the schema ru
 
 Comparing snapshots of two different endpoints is allowed. A snapshot keeps the typed spelling next to the parsed host precisely so a comparison can tell "the same host, entered differently" from "a different host", and refusing the second case would throw away an answer it is equipped to give. It is not allowed to be quiet about it: when the two runs did not observe the same endpoint, the report says so above the table, because every row underneath then describes two different things. The machine-readable form carries the same fact as `same_target`. A generic run against a targeted one is reported as one change rather than as a field-by-field list of a target only one side ever had.
 
+There is a third answer, and it belongs to [support artifacts](#support-snapshots): a pair where both runs named a target and at least one of the two names is a pseudonym establishes neither. `same_target` is `false`, and the report says the identity is unestablished rather than claiming two endpoints. See [pseudonyms are per artifact](#pseudonyms-are-per-artifact).
+
+That third answer is reached only when the rest of the target agrees. Sanitization records the port, the protocol, whether the run had a target at all, and whether that target was an IP literal rather than a name, all verbatim. If any of those differ the two endpoints differ, and the pair is reported and refused as different targets even though both files are sanitized.
+
 ### Interpretation
 
 The report states direct facts about the two readings and stops there. "The DNS resolver changed from X to Y", "the DNS check changed from PASS to FAIL", "traffic used wg0 instead of wlan0" are all statements about what the files say. `--compare` does not claim that one of them caused another. A status move between `PASS`, `WARN`, and `FAIL` is marked `better` or `worse`, which is a comparison of two outcomes and not a cause; `SKIP`, `N/A`, and `INCOMPLETE` have no rank, so a move to or from one of them carries no direction rather than a guessed one.
@@ -1470,7 +1479,8 @@ The report states direct facts about the two readings and stops there. "The DNS 
     {"section": "check", "check": "iface", "path": "checks.iface.observed.interface",
      "label": "iface interface", "kind": "changed", "before": "wlan0", "after": "wg0",
      "summary": "iface interface changed from wlan0 to wg0"}
-  ]
+  ],
+  "caveats": []
 }
 ```
 
@@ -1478,7 +1488,21 @@ The report states direct facts about the two readings and stops there. "The DNS 
 
 `checks` is every check in either snapshot, unchanged rows included, so the same document answers "what stayed the same". Its `kind` is about the status alone, while `differs` is true whenever anything about that check moved, including evidence underneath a status that held. `direction` is `better` or `worse` where the outcomes have an ordering, and absent otherwise.
 
-A side carries `"sanitized": true` when that artifact was written by `--support`, read from the file's own [redaction metadata](#support-snapshots) rather than guessed from values that look like placeholders. The key is absent on a full-fidelity snapshot. The text report grows a `Fidelity` row saying `full` or `sanitized` for each side, but only when one of them is: on two ordinary snapshots it would say the same word twice on every comparison anybody ever runs. Comparing two support artifacts is meaningful, and comparing a support artifact against a full-fidelity one is not: the same host is a hostname on one side and a pseudonym on the other, so every value differs.
+A side carries `"sanitized": true` when that artifact was written by `--support`, read from the file's own [redaction metadata](#support-snapshots) rather than guessed from values that look like placeholders. The key is absent on a full-fidelity snapshot. The text report grows a `Fidelity` row saying `full` or `sanitized` for each side, but only when one of them is: on two ordinary snapshots it would say the same word twice on every comparison anybody ever runs. Comparing two support artifacts is meaningful for everything redaction leaves alone, and comparing a support artifact against a full-fidelity one is not, for the names and addresses redaction replaces: the same host is a hostname on one side and a pseudonym on the other, so those values may differ for that reason alone and a difference among them is not an identity change. Values redaction leaves alone, including an address it retains, still compare as themselves.
+
+`caveats` states what the rows are worth, and is prose for a person that is never parsed back, the same rule the two-sided reading's caveats follow. It is empty on a full-fidelity pair. When either side is sanitized it names the one limit that applies to every value below at once: [pseudonyms are per artifact](#pseudonyms-are-per-artifact). The text report prints the same sentences last, under `Caveats:`.
+
+### Pseudonyms are per artifact
+
+`--support` builds a fresh pseudonym mapping for each artifact it writes, which is the property that makes a support snapshot safe to hand over: nothing in the file is a stable identifier, and two files cannot be joined on one. The cost is that an alias is a name inside its own artifact and nowhere else. Two files sanitized separately can give one endpoint two aliases, and can give two unrelated endpoints the same alias, because the counters restart per file.
+
+So across two separately sanitized artifacts, for every value redaction replaces (target host and IP literal, resolved and selected addresses, resolvers and resolver targets, connection-attempt addresses, route destinations, gateways, sources, prefixes and table names, interface names, SSIDs, portal URLs, and the derived paths read off those routes), **a match establishes nothing and a mismatch establishes nothing.** netdoc will not claim otherwise, and there is deliberately no way to make it: a stable hash or a shared secret-free identifier would be the joinable identity `--support` exists not to write.
+
+What survives sanitization as itself keeps its full meaning across two artifacts, including as evidence that two endpoints are different: two sanitized artifacts whose targets differ in port, in protocol, in presence, or in name-versus-IP-literal shape are reported as different targets, not as unestablished. It is most of what a reading rests on: statuses, causes and cause families, the target's port and protocol, whether a run had a target or a source binding at all, address families, timeouts, clock offsets, route metrics and link MTUs, tunnel states, portal presence, verdicts and finding IDs, and the `derived` conclusions the run recorded because they could not be recomputed from pseudonyms. That is why comparing two support artifacts is still worth doing.
+
+One artifact is one redaction pass, so values inside it keep their full meaning against each other: a profile's components and an incident's before, during and recovered phases are one vocabulary and are read as one.
+
+`--compare` and `--two-sided` take two files and cannot tell one file read twice from two files whose aliases agree, because a support artifact deliberately carries no identifier that would say. So `netdoc --compare run.ndoc run.ndoc` on a support artifact reports every row and every check as usual, finds no differences, and exits `0`, and it still withholds `same_target`. That is the conservative end of the same rule: the alternative is a claim the files do not carry, and giving them one would give every other pair one too.
 
 An empty `changes` array is the machine-readable form of "no meaningful differences", and it is what exit `0` means.
 
@@ -1487,10 +1511,10 @@ An empty `changes` array is the machine-readable form of "no meaningful differen
 A snapshot holds only what the run gathered, so a comparison can only report what is in there. Today that leaves some questions unanswerable from two `.ndoc` files:
 
 - **Answer provenance.** The snapshot records each resolver target Go tried (`observed.resolver_targets`), but the resolver API does not reveal which target returned a response or supplied a particular A or AAAA address, nor whether any of them did: where the host resolves `hosts: dns files`, an answer that no server supplied can still follow a query. A single recorded target is therefore an attempt like any other. The second-opinion row is the one place this had to be settled rather than recorded, because a `dns_public` answer is spent as proof that an independent resolver resolved the name: that row resolves the name a second time with every DNS dial refused, and reports N/A instead of an answer whenever the machine can answer without DNS. So `dns_public` addresses are the public resolver's, while `dns` addresses are whatever this machine resolves the name to, from whichever source.
-- **Routes.** No route or default-route state is captured, so a route change is visible only through its effects: the source address, the selected interface, and the reachability rows.
+- **Routes.** Route decisions are captured and compared field by field: `observed.routes` holds what the operating system answered for each destination a check looked up, and the comparison reads the interface, next hop, source address, matched prefix, metric, routing table and whether one was named, tunnel state and kind, selection reason, interface MTU, competing defaults, and whether the kernel had no route at all. What is not captured is the routing table. Only the destinations the run already had to look up are in there, so a route change that leaves every one of those decisions unchanged is invisible, and a new or withdrawn route elsewhere in the table is never seen as such. Entries are matched by destination address, so two runs that resolved a name to different addresses report an added route and a removed one rather than a single route that moved. A field the platform never supplies is absent on both sides and compares as nothing: Linux names no matched prefix, and competing default routes come from Windows alone, so the same change carries less detail on some machines than on others.
 - **The proxy.** The proxy host and port appear in the proxy row's `detail`, which is derived text and not compared. A proxy change registers as that row's status or `cause` moving, not as the proxy itself.
 - **Path MTU.** The path-MTU row records its outcome, not a measured MTU number, so there is no MTU value to compare.
-- **VPN and tunnel state as such.** There is no tunnel field; a VPN shows up as the interface name and source address on the rows that observed them, which is usually enough to see it, and never enough to name it.
+- **VPN and tunnel state as such.** There is a tunnel field. Each route entry carries `tunnel` and `tunnel_kind`, both are compared, and the paths section compares the target's tunnel state on its own, so traffic moving onto or off an encapsulating interface does register. What is missing is the VPN itself: `tunnel_kind` is the operating system's name for the device kind, such as `wireguard`, `tun`, or `gre`, and never a product, a profile, a server, or a tunnel's far end. netdoc keeps no list of VPN product names, so one that installs an ordinary Ethernet device is not classified at all. Absent means nothing classified the interface rather than `direct`, so a run on a platform that classified nothing and a run that did differ in that field, which is a difference in what was observed and not in the path.
 
 Adding fields to the snapshot for the sake of a fuller comparison is deliberately not done here. Each one is a change to a published format, and a comparison is worth more trustworthy than complete.
 
@@ -1557,7 +1581,9 @@ neither agreement nor disagreement. Even an IP literal or a common contacted
 address leaves endpoint policy, backend selection and capture-time changes
 possible. `side` locates the observation, never excludes an endpoint cause.
 
-[Support artifacts](#support-snapshots) follow from that rule rather than needing one of their own. Sanitization renames the target, and it assigns the same pseudonym to the same endpoint on both machines, so two `--support` artifacts of one target read normally and a sanitized file paired with a full-fidelity one is refused as two different targets. That is the right outcome either way: the pair whose names line up is the pair whose rows can be set against each other.
+[Support artifacts](#support-snapshots) have a rule beside it. Sanitization renames the target, and the new name belongs to the one file that assigned it, so a pair where both runs named a target and either side is sanitized cannot show the one endpoint this reading is premised on. That pair is refused with exit `2` as well, and the refusal says the identity is unestablished rather than claiming two endpoints, because [pseudonyms are per artifact](#pseudonyms-are-per-artifact) in both directions: two files agreeing on a name is not evidence that the endpoints agree, and two files disagreeing is not evidence that they differ.
+
+Two generic runs have no target to rename, so a support artifact reaches the localization there and is read with a caveat. Everywhere else, a two-sided reading needs two full-fidelity snapshots, and `--compare` is what reads a sanitized pair.
 
 ### What it reads, and what it refuses to read
 

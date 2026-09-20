@@ -67,8 +67,11 @@ type TwoSided struct {
 	Schema string `json:"schema"`
 	A      Side   `json:"a"`
 	B      Side   `json:"b"`
-	// SameTarget means the same logical host, port and protocol. A hostname
-	// can resolve to different endpoints on the two machines.
+	// SameTarget means the same logical host, port and protocol, established
+	// from values both artifacts state in the same vocabulary. A hostname can
+	// resolve to different endpoints on the two machines. A pair that could not
+	// establish it is refused rather than reported, so this is always true in a
+	// document that exists.
 	SameTarget bool `json:"same_target"`
 	// Checks is every check ID in either snapshot, in the order the first run
 	// executed them, then the ones only the second run had. Comparable says
@@ -126,12 +129,39 @@ func (e DifferentTargetsError) Error() string {
 		"); a two-sided reading needs one endpoint seen from two machines"
 }
 
+// UnknownTargetIdentityError is what TwoSidedSnapshots returns when both runs
+// named an endpoint, the dimensions redaction leaves alone agree, and at least
+// one of the two names is a support pseudonym.
+// The reading needs one endpoint seen twice, and separately sanitized
+// artifacts cannot show that: their aliases are assigned inside one file each,
+// so two files agreeing on a name is not evidence that the endpoints agree.
+//
+// It is a separate error from DifferentTargetsError because it is a separate
+// fact. Saying "different targets" here would be a claim of its own, and one
+// the artifacts do not support any more than the claim this refusal exists to
+// stop. Both exit 2 through the same caller: the reading is refused either way.
+type UnknownTargetIdentityError struct{ A, B string }
+
+func (e UnknownTargetIdentityError) Error() string {
+	return "the two snapshots do not establish that they observed one target (" + display(e.A) + " and " + display(e.B) +
+		"); a support artifact's names are pseudonyms belonging to that one file, so names that match across two of " +
+		"them prove nothing and names that differ disprove nothing. Read two full-fidelity snapshots for a two-sided " +
+		"reading, or read these two with --compare"
+}
+
 // TwoSidedSnapshots reads two snapshots of one target as two vantage points on
 // it. a is this machine's run and b the other machine's; the words are the
 // caller's, and nothing here reads the timestamps to decide which is which.
 func TwoSidedSnapshots(a, b snapshot.Snapshot) (TwoSided, error) {
-	if !sameTarget(a.Target, b.Target) {
+	// Both of the other two readings are refused, and each says which one it
+	// is. A pair whose ports or protocols differ is two endpoints whatever the
+	// fidelity, and a pair that agrees on those but names its hosts in two
+	// separate redaction vocabularies has not shown one endpoint or two.
+	switch targetRelationOf(a, b) {
+	case targetsDifferent:
 		return TwoSided{}, DifferentTargetsError{A: targetDisplay(a.Target), B: targetDisplay(b.Target)}
+	case targetsUnknown:
+		return TwoSided{}, UnknownTargetIdentityError{A: targetDisplay(a.Target), B: targetDisplay(b.Target)}
 	}
 	t := TwoSided{
 		Schema: TwoSidedSchema, A: sideOf(a), B: sideOf(b), SameTarget: true,

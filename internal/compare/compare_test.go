@@ -391,6 +391,56 @@ func TestSecondOpinionTurnedOffIsARemoval(t *testing.T) {
 	}
 }
 
+// The second-opinion resolver is an IP address, and one address has more than
+// one spelling. Two files that recorded the same resolver differently recorded
+// the same run setting, so the comparison reads the value as an address. A
+// resolver that really did change is still reported, with the spellings the two
+// files carry rather than a normalized pair.
+func TestEquivalentResolverSpellingsAreOneResolver(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		same bool
+	}{
+		{"2001:4860:4860::8888", "2001:4860:4860:0:0:0:0:8888", true},
+		{"2001:4860:4860::8888", "2001:4860:4860::8844", false},
+		{"8.8.8.8", "9.9.9.9", false},
+		// Unlike target identity, which keeps the two families apart. Both
+		// paths that accept -public-dns already write this address as 8.8.8.8,
+		// so calling the two spellings one resolver agrees with the producer.
+		{"8.8.8.8", "::ffff:8.8.8.8", true},
+		// Switching the second opinion off is not a respelling of a resolver.
+		{"8.8.8.8", "", false},
+		{"", "8.8.8.8", false},
+		{"", "", true},
+		// A file netdoc did not write can carry a value the flag would have
+		// rejected. Nothing parses it into equality with anything else, and no
+		// hostname rule reaches this field.
+		{"dns.example.com", "dns.example.com", true},
+		{"dns.example.com", "DNS.EXAMPLE.COM", false},
+		{"dns.example.com", "8.8.8.8", false},
+	} {
+		t.Run(tc.a+" vs "+tc.b, func(t *testing.T) {
+			before, after := fixture(t), fixture(t)
+			before.Options.PublicDNS, after.Options.PublicDNS = tc.a, tc.b
+
+			c := Snapshots(before, after)
+			if tc.same {
+				if slices.Contains(paths(c), "options.public_dns") {
+					t.Errorf("changes = %v, want no resolver change for one resolver spelled two ways", paths(c))
+				}
+			} else if got := changeAt(t, c, "options.public_dns"); got.Before != tc.a || got.After != tc.b {
+				t.Errorf("change = %+v, want the two recorded spellings verbatim", got)
+			}
+			// Normalization is for equality. Neither file is rewritten by
+			// being read, because the snapshot is the caller's.
+			if before.Options.PublicDNS != tc.a || after.Options.PublicDNS != tc.b {
+				t.Errorf("comparison rewrote the snapshots: %q and %q, want %q and %q",
+					before.Options.PublicDNS, after.Options.PublicDNS, tc.a, tc.b)
+			}
+		})
+	}
+}
+
 // A resolver hands back its records in whatever order it likes, and two
 // identical lookups routinely disagree about it. Order alone is not a change.
 func TestResolvedAddressOrderIsNotADifference(t *testing.T) {

@@ -325,7 +325,7 @@ func caveats(a, b snapshot.Snapshot, rows []SideRow) []string {
 		out = append(out, "The probe timeouts differ ("+msWord(a.Options.ProbeTimeoutMs)+" and "+msWord(b.Options.ProbeTimeoutMs)+
 			"), so a timed-out row may be a shorter budget rather than a slower path.")
 	}
-	if a.Options.PublicDNS != b.Options.PublicDNS {
+	if !sameResolverAddress(a.Options.PublicDNS, b.Options.PublicDNS) {
 		out = append(out, "The second-opinion resolvers differ ("+display(a.Options.PublicDNS)+" and "+display(b.Options.PublicDNS)+
 			"), so the public DNS row asked two different questions.")
 	} else if a.Options.PublicDNSAuto != b.Options.PublicDNSAuto {

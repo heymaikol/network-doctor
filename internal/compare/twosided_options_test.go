@@ -68,21 +68,51 @@ var twoSidedOptions = map[string]optionDecision{
 	},
 	"PublicDNS": {
 		why: "the resolver the second-opinion row asked. Two addresses are two questions, and the row's " +
-			"outcome describes whichever server it reached.",
-		cases: []optionCase{{
-			name:   "differing resolvers",
-			mutate: func(a, b *snapshot.Snapshot) { b.Options.PublicDNS = "9.9.9.9" },
-			want:   "second-opinion resolvers differ",
-		}},
+			"outcome describes whichever server it reached. It is an IP address, so it is read as one: two " +
+			"spellings of one address are one question, and the reading says so rather than reporting the " +
+			"serialization the two files happen to carry.",
+		cases: []optionCase{
+			{
+				name:   "differing resolvers",
+				mutate: func(a, b *snapshot.Snapshot) { b.Options.PublicDNS = "9.9.9.9" },
+				want:   "second-opinion resolvers differ",
+			},
+			{
+				name:   "one resolver switched off",
+				mutate: func(a, b *snapshot.Snapshot) { b.Options.PublicDNS = "" },
+				want:   "second-opinion resolvers differ",
+			},
+			{
+				name: "one address spelled two ways",
+				mutate: func(a, b *snapshot.Snapshot) {
+					a.Options.PublicDNS = "2001:4860:4860::8888"
+					b.Options.PublicDNS = "2001:4860:4860:0:0:0:0:8888"
+				},
+			},
+		},
 	},
 	"PublicDNSAuto": {
 		why: "whether that resolver was named or defaulted. Only the run that did not name one could cross " +
 			"to the other address family, so the same address reached two ways is still not the same question.",
-		cases: []optionCase{{
-			name:   "same address, named against defaulted",
-			mutate: func(a, b *snapshot.Snapshot) { b.Options.PublicDNSAuto = true },
-			want:   "took the default",
-		}},
+		cases: []optionCase{
+			{
+				name:   "same address, named against defaulted",
+				mutate: func(a, b *snapshot.Snapshot) { b.Options.PublicDNSAuto = true },
+				want:   "took the default",
+			},
+			{
+				// The address rule must not swallow this one: equivalent
+				// spellings are one address, and one address chosen two ways
+				// is still two questions.
+				name: "one address spelled two ways, named against defaulted",
+				mutate: func(a, b *snapshot.Snapshot) {
+					a.Options.PublicDNS = "2001:4860:4860::8888"
+					b.Options.PublicDNS = "2001:4860:4860:0:0:0:0:8888"
+					b.Options.PublicDNSAuto = true
+				},
+				want: "took the default",
+			},
+		},
 	},
 	"Check": {
 		why: "the probe selection as given. A different selection is a different set of rows, and the order " +

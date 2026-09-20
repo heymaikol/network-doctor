@@ -52,8 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Seeded netem scenarios require iproute2 6.6 or newer.
-        os: [ubuntu-26.04, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -62,15 +61,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      # The contributor-facing fast gate, run on Linux so it cannot rot
-      # unnoticed. Most of its work is repeated by the steps below, so this
-      # roughly doubles the unit suite on this leg rather than costing a few
-      # seconds. That is the price of the guarantee: contributors are told to
-      # run `scripts/check`, and running the real script is the only thing that
-      # proves it still works. Asserting on its text cannot.
-      - if: runner.os == 'Linux'
-        name: Run the fast local check contributors are asked to run
-        run: ./scripts/check
       - run: go vet ./...
       - run: go build ./...
         env:
@@ -115,13 +105,7 @@ jobs:
             Pop-Location
           }
           if ($uiExit -ne 0) { exit $uiExit }
-      - if: runner.os == 'Linux'
-        name: Run tests with coverage
-        run: |
-          mkdir -p coverage
-          go test -covermode=set -coverprofile=coverage/unit.out ./...
-      - if: runner.os != 'Linux'
-        run: go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
+      - run: go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
       # Required gate on both native hosts: it holds the built binary's route,
       # interface, and source-address evidence to what Windows and macOS
       # themselves report, which is the one thing the Linux simulator cannot
@@ -154,33 +138,79 @@ jobs:
             Pop-Location
           }
           if ($uiAcceptanceExit -ne 0) { exit $uiAcceptanceExit }
-      - if: runner.os == 'Linux'
+
+  # Every suite the other two hosts cannot run lives here: the contributor
+  # gate, coverage, race, fuzz, and real network namespaces. They are
+  # independent of each other, so they run as parallel shards and the required
+  # gate below costs the longest shard rather than their sum. Nothing is split
+  # across a shard boundary and merged back, with one exception: all four
+  # coverage-producing suites stay in the `coverage` shard so `coverage.out`
+  # is still merged from complete profiles in one place.
+  #
+  # Seeded netem scenarios require iproute2 6.6 or newer, hence ubuntu-26.04.
+  linux:
+    name: linux (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [check, coverage, race, race-integration, fuzz]
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Which packages carry integration-tagged tests is discovered rather than
+      # listed, because two shards have to agree on it: the race shard leaves
+      # these packages out and the race-integration shard picks them up. A list
+      # written twice can be updated once. Adding the tag to a new package puts
+      # it in both lanes here with no edit, and dropping the tag takes it out of
+      # both, so neither lane can silently stop racing a package.
+      #
+      # A package's test file count changes when the tag is on, and go list
+      # prints packages sorted by import path, so comm reports exactly the
+      # packages the tag adds files to.
+      - name: Resolve the integration-tagged packages
+        run: |
+          set -euo pipefail
+          fmt='{{.ImportPath}} {{len .TestGoFiles}} {{len .XTestGoFiles}}'
+          integration=$(comm -13 <(go list -f "$fmt" ./...) <(go list -tags integration -f "$fmt" ./...) | cut -d' ' -f1)
+          # An empty result would race every package in the ordinary lane and
+          # run no integration-tagged test at all, both of which look green.
+          test -n "$integration"
+          # grep exits non-zero when nothing is left, which is the same kind of
+          # silent emptiness, so the pipeline failing here is the point.
+          ordinary=$(go list ./... | grep -vxF "$integration")
+          printf 'integration-tagged:\n%s\n\nordinary race lane:\n%s\n' "$integration" "$ordinary"
+          {
+            printf 'INTEGRATION_PACKAGES<<EOF\n%s\nEOF\n' "$integration"
+            printf 'ORDINARY_RACE_PACKAGES<<EOF\n%s\nEOF\n' "$ordinary"
+          } >> "$GITHUB_ENV"
+
+      # The contributor-facing fast gate, run as the real command so the script
+      # cannot rot unnoticed. Contributors are told to run `scripts/check`, and
+      # running the real script is the only thing that proves it still works.
+      # Asserting on its text cannot. It is its own shard because most of its
+      # work is repeated by the shards below, so paying for it no longer delays
+      # any of them. It also covers this platform's `go vet` and
+      # `CGO_ENABLED=0 go build`, which is why the matrix above runs those only
+      # on the hosts that have no shard here.
+      - if: matrix.shard == 'check'
+        name: Run the fast local check contributors are asked to run
+        run: ./scripts/check
+
+      # Every coverage-producing suite runs in this one shard, so the merge
+      # below still sees all four profiles without moving them between jobs.
+      - if: matrix.shard == 'coverage'
+        name: Run tests with coverage
+        run: |
+          mkdir -p coverage
+          go test -covermode=set -coverprofile=coverage/unit.out ./...
+      - if: matrix.shard == 'coverage'
         name: Run loopback integration tests with coverage
-        run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
-      # The job runner does concurrent subprocess cancellation; gate it.
-      - if: runner.os == 'Linux'
-        run: go test -race ./...
-      # The loopback socket tests run servers and probes in parallel goroutines,
-      # so they are worth racing too. Separate invocation: the tag changes the
-      # build, and applying it to ./... would compile integration files into
-      # every other package's test binary.
-      - if: runner.os == 'Linux'
-        run: go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
-      # Smoke-fuzz the parsers fed by input we do not control (terminal output,
-      # target arguments, encrypted-DNS responses, and peer frames) so regressions don't
-      # rely on contributors remembering to fuzz locally.
-      - if: runner.os == 'Linux'
-        run: go test -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
-      - if: runner.os == 'Linux'
-        run: go test -fuzz=FuzzEncryptedDNSResponseVerifier -fuzztime=10s ./internal/diagnostic
-      - if: runner.os == 'Linux'
-        run: go test -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic
-      - if: runner.os == 'Linux'
-        run: go test -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
-      # The Challenge Mode generator builds every hunt case from a seed, so
-      # smoke-fuzz it too: a bad seed there produces an invalid scenario.
-      - if: runner.os == 'Linux'
-        run: go test -fuzz=FuzzGenerateHuntCase -fuzztime=10s ./internal/simulation
+        run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration $INTEGRATION_PACKAGES
       # Builds real network namespaces to run netdoc inside deliberately broken
       # networks. Rootless: it uses an unprivileged user namespace.
       #
@@ -193,14 +223,14 @@ jobs:
       # on, which denies the backend the namespace it needs. Clearing it on the
       # throwaway runner keeps the tests rootless; netdoc-sim itself still
       # refuses to escalate.
-      - if: runner.os == 'Linux'
+      - if: matrix.shard == 'coverage'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       #
       # Each scenario builds its own namespaces under a random run id, so the
       # runs are independent and -parallel decides how many stand at once. Most
       # of a run is spent waiting on probe deadlines rather than on CPU, so four
       # at a time cuts the step to about a third of its serial wall time.
-      - if: runner.os == 'Linux'
+      - if: matrix.shard == 'coverage'
         name: Run namespace integration tests
         run: go test -covermode=set -coverprofile=coverage/netns.out -tags netns_integration -count=1 -parallel 4 -skip '^TestGeneratedStressHuntPMTUBlackholeCaseReachesThePathMTUProbe$' ./internal/simulation
         env:
@@ -208,23 +238,91 @@ jobs:
       # Keep one small fixed-seed stress Hunt regression separate from the
       # rotating nightly lanes. This test runs seed 20260102 case 20 and checks
       # that its known generated path-MTU fault still reaches the intended probe.
-      - if: runner.os == 'Linux'
+      - if: matrix.shard == 'coverage'
         name: Run fixed-seed stress Hunt regression
         run: go test -covermode=set -coverprofile=coverage/netns-stress.out -tags netns_integration -count=1 -run '^TestGeneratedStressHuntPMTUBlackholeCaseReachesThePathMTUProbe$' ./internal/simulation
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
-      - if: runner.os == 'Linux'
+      - if: matrix.shard == 'coverage'
         name: Merge coverage
         run: |
           go run ./cmd/covermerge -o coverage.out coverage/unit.out coverage/integration.out coverage/netns.out coverage/netns-stress.out
           go tool cover -func=coverage.out
-      - if: runner.os == 'Linux'
+      - if: matrix.shard == 'coverage'
         name: Upload merged coverage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: go-coverage
           path: coverage.out
           if-no-files-found: error
+
+      # The job runner does concurrent subprocess cancellation; gate it.
+      #
+      # The integration-tagged packages are left out because the shard below
+      # races them: an integration-tagged build compiles the package's ordinary
+      # test files too, so those tests were being raced once here and again
+      # there. Excluding them drops the second run, not the coverage.
+      - if: matrix.shard == 'race'
+        run: go test -race $ORDINARY_RACE_PACKAGES
+      # The loopback socket tests run servers and probes in parallel goroutines,
+      # so they are worth racing too. Separate invocation: the tag changes the
+      # build, and applying it to ./... would compile integration files into
+      # every other package's test binary.
+      - if: matrix.shard == 'race-integration'
+        run: go test -race -tags integration $INTEGRATION_PACKAGES
+
+      # Smoke-fuzz the parsers fed by input we do not control (terminal output,
+      # target arguments, encrypted-DNS responses, and peer frames) so regressions don't
+      # rely on contributors remembering to fuzz locally.
+      #
+      # -run='^$' matches no ordinary test, so each command builds the package
+      # and starts fuzzing instead of first replaying that package's whole unit
+      # suite, which the shards above already ran. It does not skip the seed
+      # corpus: go test runs every seed and cached corpus entry to gather the
+      # coverage baseline before it generates anything, and a seed that fails
+      # there still fails the command.
+      - if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
+      - if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzEncryptedDNSResponseVerifier -fuzztime=10s ./internal/diagnostic
+      - if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic
+      - if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
+      # The Challenge Mode generator builds every hunt case from a seed, so
+      # smoke-fuzz it too: a bad seed there produces an invalid scenario.
+      - if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzGenerateHuntCase -fuzztime=10s ./internal/simulation
+
+  # The required Linux check. It carries the name branch protection asks for,
+  # and it is the only job that can report Linux green, so no shard can be
+  # mistaken for the whole gate.
+  #
+  # always() rather than success(), because the job has to run in order to
+  # report a failed dependency at all, and rather than !cancelled(), which
+  # would leave this check skipped rather than failed when a shard is
+  # cancelled. The result of every entry in needs is checked, not just the
+  # failure of one, so a shard that is cancelled or unexpectedly skipped fails
+  # this check the same way a failing one does. Reading it from toJSON(needs)
+  # rather than naming shards means a shard added later is covered by default.
+  linux-gate:
+    name: test (ubuntu-26.04)
+    needs: [linux]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Linux shard to have succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$NEEDS"
+          unmet=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<<"$NEEDS")
+          if [ -n "$unmet" ]; then
+            printf 'Linux shards that did not succeed:\n%s\n' "$unmet" >&2
+            exit 1
+          fi
+
   # The container is how macOS and Windows reach Challenge Mode, so the artifact
   # is tested rather than assumed: this job builds the image and runs a real
   # namespace-backed simulation and a real challenge inside it. The runner's

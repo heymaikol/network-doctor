@@ -141,7 +141,7 @@ func TestPublicSupportUsesCanonicalURLs(t *testing.T) {
 	}{
 		{"README.md", "https://tally.so/r/KYK7Y7", 1},
 		{"site/index.md", "https://tally.so/r/KYK7Y7", 1},
-		{"README.md", "https://github.com/sponsors/heymaikol", 2},
+		{"README.md", "https://github.com/sponsors/heymaikol", 1},
 		{"site/index.md", "https://github.com/sponsors/heymaikol", 1},
 		{".goreleaser.yaml", "https://github.com/sponsors/heymaikol", 1},
 	} {

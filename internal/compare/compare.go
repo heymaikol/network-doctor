@@ -333,38 +333,81 @@ func sameEndpointName(a, b string) bool {
 // not a respelling.
 func trimRootDot(host string) string { return strings.TrimSuffix(host, ".") }
 
-// sameResolverAddress answers whether two recorded spellings name one
-// second-opinion resolver. It is the one resolver-identity rule, shared by the
-// comparison and the two-sided reading so the two readers cannot drift apart
-// again.
+// The identity of an address-valued recording, in one place. Every reading in
+// this package that has to decide whether two recorded spellings name one
+// address goes through these three, so the comparison and the two-sided
+// reading cannot grow two answers to that question again.
 //
-// Deliberately not sameEndpointName. The two fields are validated differently
-// and produced differently. PublicDNS is an IP address or empty, never a name,
-// so the hostname half of target identity has no business here: a value that
-// will not parse as an address is compared as text, and two unparseable
-// spellings are equal only when they are the same bytes. Empty is a value in
-// that sense too, which keeps the second opinion switched off distinct from
-// any resolver.
+// Deliberately not sameEndpointName. Target identity is a different rule for a
+// different field: it also has to read hostnames, and it keeps an IPv4 address
+// apart from its IPv4-mapped IPv6 form because netdoc diagnoses address-family
+// behavior at the target, where a run that reached ::ffff:203.0.113.9 and a run
+// that reached 203.0.113.9 are two facts worth keeping apart.
 //
-// The address half also unmaps, where target identity does not. Target
-// identity keeps an IPv4 address apart from its IPv4-mapped IPv6 form because
-// netdoc diagnoses address-family behavior at the target. This field has the
-// opposite producer: both paths that accept -public-dns canonicalize it
-// through net.ParseIP(...).String(), which already writes ::ffff:8.8.8.8 as
-// 8.8.8.8, and the resolver and address evidence in twosided_evidence.go
-// normalizes with Unmap for the same reason. Unmapping here agrees with what
-// netdoc itself wrote rather than inventing a distinction no producer records.
+// An observation is the opposite case, and unmaps. Every producer of these
+// fields already writes a mapped IPv4 address as IPv4: the snapshot builder
+// spells addresses, attempts and sources through net.IP.String, the per-OS
+// route readers call Unmap before recording a destination, both paths that
+// accept -public-dns canonicalize through net.ParseIP(...).String(), and the
+// support redactor unmaps before it assigns a pseudonym. Unmapping here agrees
+// with what netdoc itself wrote rather than inventing a distinction no producer
+// of an observation records, and it is what the two-sided evidence already did.
 //
-// Equality only. A resolver difference that survives this is still reported
-// with the spellings the two files carry.
-func sameResolverAddress(a, b string) bool {
-	addrA, errA := netip.ParseAddr(a)
-	addrB, errB := netip.ParseAddr(b)
-	if errA != nil || errB != nil {
-		return a == b
+// A value that will not parse is its own identity, spelled exactly as recorded.
+// That is what keeps the empty string apart from any address, keeps the
+// support artifact's <address-redacted> marker from being read as one, and
+// leaves a file netdoc did not write comparing byte for byte rather than being
+// called equal to something it does not name. A canonical form always parses,
+// so an unparseable recording can never collide with one.
+//
+// Identity only, and internal. These keys decide what corresponds to what and
+// go no further: a difference that survives one of them is reported with the
+// spellings the two files carry, in Change.Path as much as in Before and
+// After. So netdoc.comparison.v1 paths stay what they were, and a file netdoc
+// did not write is never quoted back in a spelling it does not use.
+
+// addressKey is the identity of a bare IP observation.
+func addressKey(value string) string {
+	address, err := netip.ParseAddr(value)
+	if err != nil {
+		return value
 	}
-	return addrA.Unmap() == addrB.Unmap()
+	return address.Unmap().String()
 }
+
+// endpointKey is the identity of an address-and-port observation. It is a
+// separate rule because it is a separate value type: the port is part of the
+// identity, so one resolver reached on two ports stays two recordings.
+func endpointKey(value string) string {
+	endpoint, err := netip.ParseAddrPort(value)
+	if err != nil {
+		return value
+	}
+	return netip.AddrPortFrom(endpoint.Addr().Unmap(), endpoint.Port()).String()
+}
+
+// prefixKey is the identity of a CIDR observation, and it normalizes the
+// spelling of the address inside it and nothing else.
+//
+// Masked deliberately not applied. A route prefix is the entry the kernel said
+// it matched, and every producer that fills one derives it with Prefix on an
+// already-unmapped destination, so a recorded entry is masked before it is
+// written. Masking here would therefore change no artifact netdoc wrote, and
+// would silently equate two structurally different entries in one it did not.
+// Unmap is left out for the same reason: it would have to move the prefix
+// length by 96 as well, which is a claim about a different entry rather than a
+// respelling of this one.
+func prefixKey(value string) string {
+	prefix, err := netip.ParsePrefix(value)
+	if err != nil {
+		return value
+	}
+	return prefix.String()
+}
+
+// sameResolverAddress answers whether two recorded spellings name one
+// second-opinion resolver, through the shared bare-address rule above.
+func sameResolverAddress(a, b string) bool { return addressKey(a) == addressKey(b) }
 
 // targetsNotComparable is the third state, kept for the report. It is not a
 // JSON key: same_target stays the one published boolean, and a machine reader
@@ -424,6 +467,17 @@ func (d *diff) field(section, check, path, label, before, after string) {
 	}
 	c.Summary = label + " changed from " + display(before) + " to " + display(after)
 	d.changes = append(d.changes, c)
+}
+
+// identityField records one scalar difference between two recordings of the
+// same address-valued field, read through key. Two spellings of one address
+// are not a difference; anything key separates is reported by field above,
+// with the spellings the two artifacts carry rather than the normalized pair.
+func (d *diff) identityField(key func(string) string, section, check, path, label, before, after string) {
+	if key(before) == key(after) {
+		return
+	}
+	d.field(section, check, path, label, before, after)
 }
 
 // member records one item of an unordered collection that is on one side only.
@@ -537,8 +591,10 @@ func diffOptions(d *diff, before, after snapshot.Options) {
 		a = &snapshot.Source{}
 	}
 	d.field(SectionOptions, "", "options.source.interface", "bound interface", b.Interface, a.Interface)
-	d.field(SectionOptions, "", "options.source.ipv4", "bound IPv4 source", b.IPv4, a.IPv4)
-	d.field(SectionOptions, "", "options.source.ipv6", "bound IPv6 source", b.IPv6, a.IPv6)
+	// Both bound sources are addresses, recorded through net.IP.String by the
+	// same producer as every observed address, so they read by the same rule.
+	d.identityField(addressKey, SectionOptions, "", "options.source.ipv4", "bound IPv4 source", b.IPv4, a.IPv4)
+	d.identityField(addressKey, SectionOptions, "", "options.source.ipv6", "bound IPv6 source", b.IPv6, a.IPv6)
 }
 
 // sortedSet normalizes an unordered selection to what the run actually applied:
@@ -818,13 +874,15 @@ func diffObserved(d *diff, id string, before, after snapshot.Observed) {
 	// Resolver answers are a set. Which record came back first is the
 	// resolver's business and changes between two identical lookups, so an
 	// order-only difference is not a difference.
-	diffSet(d, id, path+"addresses", id+" resolved address", before.Addresses, after.Addresses)
-	d.field(SectionCheck, id, path+"selected_ip", id+" selected address", before.SelectedIP, after.SelectedIP)
+	diffSet(d, id, path+"addresses", id+" resolved address", addressKey, before.Addresses, after.Addresses)
+	d.identityField(addressKey, SectionCheck, id, path+"selected_ip", id+" selected address", before.SelectedIP, after.SelectedIP)
 	d.field(SectionCheck, id, path+"dns_not_found", id+" resolver answered with no records",
 		yesNo(before.DNSNotFound), yesNo(after.DNSNotFound))
-	d.field(SectionCheck, id, path+"resolver", id+" resolver", before.Resolver, after.Resolver)
-	diffSet(d, id, path+"resolver_targets", id+" resolver target tried", before.ResolverTargets, after.ResolverTargets)
-	d.field(SectionCheck, id, path+"source_ip", id+" source address", before.SourceIP, after.SourceIP)
+	d.identityField(addressKey, SectionCheck, id, path+"resolver", id+" resolver", before.Resolver, after.Resolver)
+	// A resolver target carries its port, so it reads by the endpoint rule
+	// rather than the bare-address one: one resolver on two ports is two.
+	diffSet(d, id, path+"resolver_targets", id+" resolver target tried", endpointKey, before.ResolverTargets, after.ResolverTargets)
+	d.identityField(addressKey, SectionCheck, id, path+"source_ip", id+" source address", before.SourceIP, after.SourceIP)
 	d.field(SectionCheck, id, path+"interface", id+" interface", before.Interface, after.Interface)
 	d.field(SectionCheck, id, path+"interface_ambiguous", id+" interface is ambiguous",
 		yesNo(before.InterfaceAmbiguous), yesNo(after.InterfaceAmbiguous))
@@ -890,32 +948,51 @@ func clockOffset(ms *int64) string {
 }
 
 // diffSet compares two unordered collections of values and reports what joined
-// and what left, one change per value. Sorted so the report is the same
-// whichever order the artifacts happened to list them in.
-func diffSet(d *diff, id, path, label string, before, after []string) {
-	inBefore := make(map[string]bool, len(before))
-	for _, v := range before {
-		inBefore[v] = true
-	}
-	inAfter := make(map[string]bool, len(after))
-	for _, v := range after {
-		inAfter[v] = true
-	}
+// and what left, one change per value. Membership is decided by key, so a
+// value spelled two ways is one member. What the change then carries is the
+// spelling the artifact recorded, in the path as well as in the value, so the
+// report names what is in the file rather than a normalized form of it.
+// Sorted so the report is the same whichever order the artifacts happened to
+// list them in.
+func diffSet(d *diff, id, path, label string, key func(string) string, before, after []string) {
+	inBefore, inAfter := recordedByIdentity(before, key), recordedByIdentity(after, key)
 	union := make([]string, 0, len(inBefore)+len(inAfter))
 	for v := range inBefore {
 		union = append(union, v)
 	}
 	for v := range inAfter {
-		if !inBefore[v] {
+		if _, seen := inBefore[v]; !seen {
 			union = append(union, v)
 		}
 	}
 	slices.Sort(union)
 	for _, v := range union {
-		if inBefore[v] != inAfter[v] {
-			d.member(SectionCheck, id, path+"."+v, label, v, inAfter[v])
+		recorded, inB := inBefore[v]
+		afterSpelling, inA := inAfter[v]
+		if inB == inA {
+			continue
+		}
+		if inA {
+			recorded = afterSpelling
+		}
+		// The member is on one side only, so there is one recorded spelling
+		// of it, and that is what the change carries.
+		d.member(SectionCheck, id, path+"."+recorded, label, recorded, inA)
+	}
+}
+
+// recordedByIdentity indexes a collection by what each value names, keeping
+// the spelling the artifact used. The first spelling wins where one member was
+// listed twice, which is the same rule every other identity map here follows.
+func recordedByIdentity(values []string, key func(string) string) map[string]string {
+	out := make(map[string]string, len(values))
+	for _, v := range values {
+		k := key(v)
+		if _, seen := out[k]; !seen {
+			out[k] = v
 		}
 	}
+	return out
 }
 
 // diffAttempts compares connection attempts by the address they were made to.
@@ -923,6 +1000,11 @@ func diffSet(d *diff, id, path, label string, before, after []string) {
 // resolver's answer order, which is already treated as unordered, and the time
 // each one took is a measurement. What is left, and what matters, is which
 // addresses were tried and what each one said.
+//
+// The address is read as an address, so two spellings of one of them are one
+// attempt identity. How many attempts went to that identity is untouched by
+// that: they are grouped, not merged, so a canceled attempt and the retry that
+// verified it stay two recorded outcomes under one address.
 func diffAttempts(d *diff, id, path string, before, after []snapshot.Attempt) {
 	beforeByIP := attemptsByIP(before)
 	afterByIP := attemptsByIP(after)
@@ -930,15 +1012,24 @@ func diffAttempts(d *diff, id, path string, before, after []snapshot.Attempt) {
 		b, inBefore := beforeByIP[ip]
 		a, inAfter := afterByIP[ip]
 		if inBefore != inAfter {
-			d.member(SectionCheck, id, path+"attempts."+ip, id+" connection attempt to", ip, inAfter)
+			recorded := b
+			if inAfter {
+				recorded = a
+			}
+			d.member(SectionCheck, id, path+"attempts."+recorded[0].IP, id+" connection attempt to", recorded[0].IP, inAfter)
 			continue
 		}
+		// Both sides recorded this address, possibly spelled two ways. The
+		// before artifact's spelling names it, which is the spelling the
+		// comparison has always reported for a value present on both sides.
+		spelling := b[0].IP
+		attemptPath := path + "attempts." + spelling
 		if len(b) == 1 && len(a) == 1 {
-			d.field(SectionCheck, id, path+"attempts."+ip+".error", id+" connection attempt to "+ip, b[0].Error, a[0].Error)
-			d.field(SectionCheck, id, path+"attempts."+ip+".cause", id+" connection cause for "+ip, b[0].Cause, a[0].Cause)
-			d.field(SectionCheck, id, path+"attempts."+ip+".aborted", id+" connection aborted for "+ip, strconv.FormatBool(b[0].Aborted), strconv.FormatBool(a[0].Aborted))
+			d.field(SectionCheck, id, attemptPath+".error", id+" connection attempt to "+spelling, b[0].Error, a[0].Error)
+			d.field(SectionCheck, id, attemptPath+".cause", id+" connection cause for "+spelling, b[0].Cause, a[0].Cause)
+			d.field(SectionCheck, id, attemptPath+".aborted", id+" connection aborted for "+spelling, strconv.FormatBool(b[0].Aborted), strconv.FormatBool(a[0].Aborted))
 		} else {
-			d.field(SectionCheck, id, path+"attempts."+ip+".outcomes", id+" connection outcomes for "+ip, attemptOutcomes(b), attemptOutcomes(a))
+			d.field(SectionCheck, id, attemptPath+".outcomes", id+" connection outcomes for "+spelling, attemptOutcomes(b), attemptOutcomes(a))
 		}
 	}
 }
@@ -946,7 +1037,7 @@ func diffAttempts(d *diff, id, path string, before, after []snapshot.Attempt) {
 func attemptIPs(attempts []snapshot.Attempt) []string {
 	ips := make([]string, len(attempts))
 	for i, a := range attempts {
-		ips[i] = a.IP
+		ips[i] = addressKey(a.IP)
 	}
 	return ips
 }
@@ -954,7 +1045,8 @@ func attemptIPs(attempts []snapshot.Attempt) []string {
 func attemptsByIP(attempts []snapshot.Attempt) map[string][]snapshot.Attempt {
 	byIP := make(map[string][]snapshot.Attempt, len(attempts))
 	for _, a := range attempts {
-		byIP[a.IP] = append(byIP[a.IP], a)
+		key := addressKey(a.IP)
+		byIP[key] = append(byIP[key], a)
 	}
 	return byIP
 }
@@ -985,7 +1077,10 @@ func attemptOutcomes(attempts []snapshot.Attempt) string {
 
 // diffRoutes compares the route decisions on one check row, keyed by the
 // destination they were made for. The destination is the identity, because a
-// route decision is per address by construction.
+// route decision is per address by construction, and it is read as an address
+// so that one destination spelled two ways is one decision. The next hop and
+// the local source are addresses too and read the same way; the matched prefix
+// is a CIDR entry and reads by its own rule.
 func diffRoutes(d *diff, id, path string, before, after []snapshot.Route) {
 	beforeByDst := routesByDestination(before)
 	afterByDst := routesByDestination(after)
@@ -993,16 +1088,24 @@ func diffRoutes(d *diff, id, path string, before, after []snapshot.Route) {
 		b, inBefore := beforeByDst[dst]
 		a, inAfter := afterByDst[dst]
 		if inBefore != inAfter {
-			d.member(SectionCheck, id, path+"routes."+dst, id+" route to", dst, inAfter)
+			recorded := b.Destination
+			if inAfter {
+				recorded = a.Destination
+			}
+			d.member(SectionCheck, id, path+"routes."+recorded, id+" route to", recorded, inAfter)
 			continue
 		}
-		routePath := path + "routes." + dst + "."
-		label := id + " route to " + dst + " "
+		// Both sides recorded a decision for this destination. The before
+		// artifact's spelling names it, as it did before identity became
+		// semantic, so an artifact netdoc already accepted keeps its paths.
+		dstSpelling := b.Destination
+		routePath := path + "routes." + dstSpelling + "."
+		label := id + " route to " + dstSpelling + " "
 		d.field(SectionCheck, id, routePath+"unreachable", label+"has no route", yesNo(b.Unreachable), yesNo(a.Unreachable))
-		d.field(SectionCheck, id, routePath+"prefix", label+"matched prefix", b.Prefix, a.Prefix)
+		d.identityField(prefixKey, SectionCheck, id, routePath+"prefix", label+"matched prefix", b.Prefix, a.Prefix)
 		d.field(SectionCheck, id, routePath+"interface", label+"interface", b.Interface, a.Interface)
-		d.field(SectionCheck, id, routePath+"gateway", label+"next hop", b.Gateway, a.Gateway)
-		d.field(SectionCheck, id, routePath+"source", label+"source address", b.Source, a.Source)
+		d.identityField(addressKey, SectionCheck, id, routePath+"gateway", label+"next hop", b.Gateway, a.Gateway)
+		d.identityField(addressKey, SectionCheck, id, routePath+"source", label+"source address", b.Source, a.Source)
 		// Metric is absent on a platform that reports none, and 0 is a real
 		// metric, so the two are spelled differently rather than both as "0".
 		d.field(SectionCheck, id, routePath+"metric", label+"metric", metricWord(b.Metric), metricWord(a.Metric))
@@ -1024,7 +1127,7 @@ func diffRoutes(d *diff, id, path string, before, after []snapshot.Route) {
 func routeDestinations(routes []snapshot.Route) []string {
 	out := make([]string, len(routes))
 	for i, r := range routes {
-		out[i] = r.Destination
+		out[i] = addressKey(r.Destination)
 	}
 	return out
 }
@@ -1032,8 +1135,9 @@ func routeDestinations(routes []snapshot.Route) []string {
 func routesByDestination(routes []snapshot.Route) map[string]snapshot.Route {
 	byDst := make(map[string]snapshot.Route, len(routes))
 	for _, r := range routes {
-		if _, seen := byDst[r.Destination]; !seen {
-			byDst[r.Destination] = r
+		key := addressKey(r.Destination)
+		if _, seen := byDst[key]; !seen {
+			byDst[key] = r
 		}
 	}
 	return byDst
@@ -1073,7 +1177,10 @@ func competingWord(routes []snapshot.CompetingRoute) string {
 func diffPaths(d *diff, before, after snapshot.Snapshot) {
 	b, a := pathsOf(before), pathsOf(after)
 	d.field(SectionPaths, "", "paths.target.interface", "target interface", b.targetIface, a.targetIface)
-	d.field(SectionPaths, "", "paths.target.prefix", "target matched route", b.targetPrefix, a.targetPrefix)
+	// The prefix a route decision recorded, or the words that stand in for one
+	// where there is no route. Read by the CIDR rule, which leaves those words
+	// comparing as themselves because they are not CIDR.
+	d.identityField(prefixKey, SectionPaths, "", "paths.target.prefix", "target matched route", b.targetPrefix, a.targetPrefix)
 	// How that route was selected, which is the field that still answers on a
 	// platform naming no matched entry. There it is a comparison with the
 	// general path rather than a statement about prefixes, and the vocabulary
@@ -1170,7 +1277,7 @@ func resolverInterfaces(routes []snapshot.Route) string {
 func routesDiffer(a, b snapshot.Route) bool {
 	domainA, knownA := a.RoutingDomain()
 	domainB, knownB := b.RoutingDomain()
-	return a.Interface != b.Interface || a.Gateway != b.Gateway ||
+	return a.Interface != b.Interface || addressKey(a.Gateway) != addressKey(b.Gateway) ||
 		knownA && knownB && domainA != domainB
 }
 
@@ -1181,8 +1288,12 @@ func selectedRoute(check snapshot.Check) snapshot.Route {
 	if check.Observed == nil {
 		return snapshot.Route{}
 	}
+	// Matched as an address rather than as text, for the same reason the route
+	// decisions themselves are keyed that way: the destination and the
+	// selected address are two recordings that have to agree about one address
+	// whatever spelling each of them carries.
 	for _, r := range check.Observed.Routes {
-		if r.Destination != "" && r.Destination == check.Observed.SelectedIP {
+		if r.Destination != "" && addressKey(r.Destination) == addressKey(check.Observed.SelectedIP) {
 			return r
 		}
 	}

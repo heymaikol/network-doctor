@@ -196,14 +196,18 @@ func evidenceStrings(values []string) evidenceValues {
 	return evidenceValues{out, len(out) > 0}
 }
 
+// Address identity is the comparison's rule, applied here through the same
+// helpers, so the two readings cannot answer differently about one address.
+// A value that is not an address at all makes the dimension unknown rather
+// than comparing as text: this reading is only allowed to call two recordings
+// equivalent when it understood both of them.
 func evidenceAddresses(values []string) evidenceValues {
 	var addresses []string
 	for _, value := range values {
-		ip, err := netip.ParseAddr(value)
-		if err != nil {
+		if _, err := netip.ParseAddr(value); err != nil {
 			return evidenceValues{}
 		}
-		addresses = append(addresses, ip.Unmap().String())
+		addresses = append(addresses, addressKey(value))
 	}
 	return evidenceStrings(addresses)
 }
@@ -211,11 +215,10 @@ func evidenceAddresses(values []string) evidenceValues {
 func evidenceResolverTargets(values []string) evidenceValues {
 	var targets []string
 	for _, value := range values {
-		endpoint, err := netip.ParseAddrPort(value)
-		if err != nil {
+		if _, err := netip.ParseAddrPort(value); err != nil {
 			return evidenceValues{}
 		}
-		targets = append(targets, netip.AddrPortFrom(endpoint.Addr().Unmap(), endpoint.Port()).String())
+		targets = append(targets, endpointKey(value))
 	}
 	return evidenceStrings(targets)
 }
@@ -228,13 +231,12 @@ func evidenceAttempts(attempts []snapshot.Attempt, identities bool) evidenceValu
 			out.known = false
 			continue
 		}
-		ip = ip.Unmap()
 		f := EvidenceFact{Family: "ipv6", Value: a.Cause, Aborted: a.Aborted}
-		if ip.Is4() {
+		if ip.Unmap().Is4() {
 			f.Family = "ipv4"
 		}
 		if identities {
-			f.Address = ip.String()
+			f.Address = addressKey(a.IP)
 		}
 		if a.Cause == "" {
 			if a.Error != "" || a.Aborted {
@@ -258,13 +260,12 @@ func evidenceRoutes(routes []snapshot.Route, identities bool, value func(snapsho
 			out.known = false
 			continue
 		}
-		ip = ip.Unmap()
 		f := EvidenceFact{Family: "ipv6", Value: value(r)}
-		if ip.Is4() {
+		if ip.Unmap().Is4() {
 			f.Family = "ipv4"
 		}
 		if identities {
-			f.Address = ip.String()
+			f.Address = addressKey(r.Destination)
 		}
 		if f.Value == "" {
 			f.Value, out.known = "unknown", false

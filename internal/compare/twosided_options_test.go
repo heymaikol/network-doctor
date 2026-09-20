@@ -100,6 +100,28 @@ var twoSidedOptions = map[string]optionDecision{
 					b.Options.Check = []string{"iface", "dns"}
 				},
 			},
+			{
+				name: "one selection with a probe named twice",
+				mutate: func(a, b *snapshot.Snapshot) {
+					a.Options.Check = []string{"iface"}
+					b.Options.Check = []string{"iface", "iface"}
+				},
+			},
+			{
+				name: "one selection reordered and repeated",
+				mutate: func(a, b *snapshot.Snapshot) {
+					a.Options.Check = []string{"dns", "iface"}
+					b.Options.Check = []string{"iface", "dns", "dns"}
+				},
+			},
+			{
+				name: "a repeated probe beside a different member",
+				mutate: func(a, b *snapshot.Snapshot) {
+					a.Options.Check = []string{"dns", "dns"}
+					b.Options.Check = []string{"dns", "iface"}
+				},
+				want: "selected different probes",
+			},
 		},
 	},
 	"Skip": {
@@ -116,6 +138,28 @@ var twoSidedOptions = map[string]optionDecision{
 					a.Options.Skip = []string{"dns", "iface"}
 					b.Options.Skip = []string{"iface", "dns"}
 				},
+			},
+			{
+				name: "one exclusion with a probe named twice",
+				mutate: func(a, b *snapshot.Snapshot) {
+					a.Options.Skip = []string{"iface"}
+					b.Options.Skip = []string{"iface", "iface"}
+				},
+			},
+			{
+				name: "one exclusion reordered and repeated",
+				mutate: func(a, b *snapshot.Snapshot) {
+					a.Options.Skip = []string{"dns", "iface"}
+					b.Options.Skip = []string{"iface", "dns", "dns"}
+				},
+			},
+			{
+				name: "a repeated exclusion beside a different member",
+				mutate: func(a, b *snapshot.Snapshot) {
+					a.Options.Skip = []string{"dns", "dns"}
+					b.Options.Skip = []string{"dns", "iface"}
+				},
+				want: "selected different probes",
 			},
 		},
 	},

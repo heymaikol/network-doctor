@@ -153,16 +153,16 @@ func TestIncidentExportNamesRepeatedSavesUniquely(t *testing.T) {
 	seen := make(map[string]bool)
 	var paths []string
 	incidentWriteFile = func(path string, _ []byte, _ os.FileMode) error {
-		paths = append(paths, path)
 		if seen[path] {
 			return os.ErrExist
 		}
 		seen[path] = true
+		paths = append(paths, path)
 		return nil
 	}
 
-	for n := range 2 {
-		if notice, ok := exportIncident(selected, start.Add(time.Duration(n)*time.Millisecond)); !ok {
+	for range 2 {
+		if notice, ok := exportIncident(selected, start); !ok {
 			t.Fatalf("exportIncident() = %q, false", notice)
 		}
 	}

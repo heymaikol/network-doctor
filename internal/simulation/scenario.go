@@ -1060,6 +1060,9 @@ func (f *Fault) validate(topology *Topology, nodes map[string]bool) error {
 		if f.Family == "" {
 			f.Family = "ipv4"
 		}
+		if !topology.hasDefaultRoute(f.Node, f.Family) {
+			return fmt.Errorf("no_default_route: node %q has no initial %s default route to remove", f.Node, f.Family)
+		}
 	case FaultReplaceDefaultRoute:
 		if f.Segment != "" {
 			return errors.New("replace_default_route does not accept segment; it is derived from via")

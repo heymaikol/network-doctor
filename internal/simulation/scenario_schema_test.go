@@ -288,7 +288,7 @@ expect:
 name: empty-events
 topology:
   nodes:
-    - {name: client, role: client, address: 10.77.0.10}
+    - {name: client, role: client, address: 10.77.0.10, gateway: 10.77.0.1}
 faults:
   - {type: no_default_route, node: client, events: []}
 tests:

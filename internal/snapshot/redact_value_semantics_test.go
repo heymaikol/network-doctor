@@ -402,12 +402,12 @@ func TestWordValuedCounterfactualDoesNotBecomeAnAddressByItsShape(t *testing.T) 
 // meaning nothing declared.
 func TestUnknownObservationValueIsNotPublished(t *testing.T) {
 	pinLocalIdentity(t)
-	const secret = "vpn-gateway.corp.example"
+	const unknownValue = "vpn-gateway.corp.example"
 	s := routeEvidenceSnapshot(ObservationRouteTunneled, "wg0", "wg0")
 	evidence := &s.Diagnosis.Findings[0].CausalEvidence[0]
-	evidence.Observation, evidence.Value = "route_moon_phase", secret
+	evidence.Observation, evidence.Value = "route_moon_phase", unknownValue
 	named := SanitizeForSupport(s).Diagnosis.Findings[0].CausalEvidence[0]
-	if named.Value == secret {
+	if named.Value == unknownValue {
 		t.Errorf("an unknown observation published its value verbatim as %q", named.Value)
 	}
 	if isAddress(named.Value) {

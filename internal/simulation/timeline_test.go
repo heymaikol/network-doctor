@@ -350,3 +350,65 @@ func TestTransitionsDuringAWindow(t *testing.T) {
 		t.Errorf("transitions after the last applied event = %+v", got)
 	}
 }
+
+// TestDNSResponseDelayMinimum pins the lower bound a scheduled DNS delay has to
+// clear. The holder is told the delay in whole milliseconds, so anything under
+// one would reach it as 0 and be refused there, long after the file validated.
+func TestDNSResponseDelayMinimum(t *testing.T) {
+	base := `name: t
+topology:
+  subnet: 10.77.0.0/24
+  nodes:
+    - {name: client, role: client, address: 10.77.0.10, gateway: 10.77.0.1}
+    - name: server
+      address: 10.77.0.1
+      services:
+        - {name: resolver-service, type: dns, zone: {example.test: 10.77.0.1}}
+%s
+tests:
+  - {node: client, target: example.test:80}
+expect: {verdict: ok}
+`
+	dnsFault := func(delay string) string {
+		return "faults:\n  - {type: scheduled_dns, service: resolver-service, events: [{at: 0s, outcome: delay, delay: " + delay + "}]}"
+	}
+	dnsDelayCampaign := func(min string) string {
+		return "campaign:\n  runs: 2\n  dns_delay: {service: resolver-service, delay: {min: " + min + ", max: 2s}}"
+	}
+	resolverHoldCampaign := func(hold string) string {
+		return "campaign:\n  runs: 2\n  timeline:\n" +
+			"    node: client\n    segment: lan\n    service: resolver-service\n" +
+			"    resolver_hold: " + hold + "\n    latency: 10ms\n" +
+			"    degrade_at: {min: 150ms, max: 350ms}\n" +
+			"    degrade_loss_percent: {min: 10, max: 60}\n" +
+			"    outage_for: {min: 300ms, max: 700ms}"
+	}
+	for name, tc := range map[string]struct {
+		spec string
+		ok   bool
+	}{
+		"scheduled_dns 500us":  {dnsFault("500us"), false},
+		"scheduled_dns 999us":  {dnsFault("999us"), false},
+		"scheduled_dns 1ms":    {dnsFault("1ms"), true},
+		"scheduled_dns 5s":     {dnsFault("5s"), true},
+		"scheduled_dns 5001ms": {dnsFault("5001ms"), false},
+		"dns_delay min 500us":  {dnsDelayCampaign("500us"), false},
+		"dns_delay min 999us":  {dnsDelayCampaign("999us"), false},
+		"dns_delay min 1ms":    {dnsDelayCampaign("1ms"), true},
+		"resolver_hold 500us":  {resolverHoldCampaign("500us"), false},
+		"resolver_hold 999us":  {resolverHoldCampaign("999us"), false},
+		"resolver_hold 1ms":    {resolverHoldCampaign("1ms"), true},
+		"resolver_hold 5s":     {resolverHoldCampaign("5s"), true},
+		"resolver_hold 5001ms": {resolverHoldCampaign("5001ms"), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseScenario(strings.NewReader(strings.Replace(base, "%s", tc.spec, 1)))
+			if tc.ok && err != nil {
+				t.Fatalf("rejected: %v", err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatal("accepted a delay the holder cannot be told")
+			}
+		})
+	}
+}

@@ -1338,16 +1338,20 @@ as text. Each one is whatever the observation or counterfactual variable beside
 it declares it to be, and that declaration decides the namespace it is replaced
 in, never the value's own spelling. An address-valued observation
 (`dns_answers`, `address_succeeded`, `address_failed`, `route_unreachable`,
-`route_next_hop_differs`) and a `resolved_address` alternative take the address
-pseudonym of the recording they cite. An interface-valued observation
-(`route_tunneled`, `route_direct`, `route_path_differs`,
-`route_interface_mtu`) takes the interface alias of the route it cites, and
-keeps it even when the operating system named that device something that reads
-as an IP address. An address family, and a `dns_resolver` or `address_family`
-alternative, stays the word it was, because each is a closed vocabulary the
-format defines rather than anything the local network chose. An observation or
-variable this build does not know, and a value outside a vocabulary that build
-does define, is aliased: nothing here can prove such a string carries no
+`route_next_hop_differs`) and a `resolved_address` alternative are replaced in
+the address namespace. An interface-valued observation (`route_tunneled`,
+`route_direct`, `route_path_differs`, `route_interface_mtu`) is replaced in the
+interface namespace, and stays there even when the operating system named that
+device something that reads as an IP address. One value is one pseudonym
+throughout the artifact, so an evidence value that also appears in a recorded
+row reads the same on both. A value need not appear on the row the evidence
+cites: `route_next_hop_differs` and `route_path_differs` name the other next
+hop or the other path, and each of those is aliased in its own namespace
+whether or not the artifact records it anywhere else. An address family, and a
+`dns_resolver` or `address_family` alternative, stays the word it was, because
+each is a closed vocabulary the format defines rather than anything the local
+network chose. An observation or variable this build does not know, and a value
+outside a vocabulary that build does define, is aliased: nothing here can prove such a string carries no
 identity, so it is not published. This is what keeps a sanitized artifact
 checkable, since evidence whose value no longer matches the row it names is
 refused by the encoder.

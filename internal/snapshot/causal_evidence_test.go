@@ -397,9 +397,9 @@ func TestEveryObservationValueHasTheKindItsRuleReads(t *testing.T) {
 // and what redaction writes, without failing anything.
 func TestEveryCounterfactualVariableHasTheKindItsAlternativesName(t *testing.T) {
 	want := map[string]valueSemantics{
-		CounterfactualResolvedAddress: {kind: valueKindAddress},
-		CounterfactualDNSResolver:     {kind: valueKindVocabulary, words: []string{"system", "independent"}},
-		CounterfactualAddressFamily:   {kind: valueKindVocabulary, words: []string{"ipv4", "ipv6"}},
+		counterfactualResolvedAddress: {kind: valueKindAddress},
+		counterfactualDNSResolver:     {kind: valueKindVocabulary, words: []string{"system", "independent"}},
+		counterfactualAddressFamily:   {kind: valueKindVocabulary, words: []string{"ipv4", "ipv6"}},
 	}
 	if len(counterfactualValueKinds) != len(want) {
 		t.Errorf("counterfactualValueKinds has %d variables, want %d", len(counterfactualValueKinds), len(want))
@@ -713,7 +713,7 @@ func TestCounterfactualAlternativesAreOrderedRecordsNotIdentities(t *testing.T) 
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := dnsEvidenceSnapshot([]CausalEvidence{dnsAnswerEvidence(compressedV6)},
-				&Counterfactual{Variable: CounterfactualResolvedAddress, Alternatives: []CounterfactualAlternative{
+				&Counterfactual{Variable: counterfactualResolvedAddress, Alternatives: []CounterfactualAlternative{
 					{Value: tc.first, Outcome: "succeeded", Evidence: []CausalEvidence{dnsAnswerEvidence(compressedV6)}},
 					{Value: tc.second, Outcome: "failed", Evidence: []CausalEvidence{dnsAnswerEvidence(expandedV6)}},
 				}})

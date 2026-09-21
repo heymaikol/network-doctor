@@ -1626,18 +1626,18 @@ func CausalEvidenceIdentity(e CausalEvidence) CausalEvidence {
 // causal-evidence table makes and for the same reason: resolved_address names
 // an address, and the other two name a word out of a closed set.
 const (
-	CounterfactualResolvedAddress = "resolved_address"
-	CounterfactualDNSResolver     = "dns_resolver"
-	CounterfactualAddressFamily   = "address_family"
+	counterfactualResolvedAddress = "resolved_address"
+	counterfactualDNSResolver     = "dns_resolver"
+	counterfactualAddressFamily   = "address_family"
 )
 
 // counterfactualValueKinds gives every variable this build knows the kind of
 // value its alternatives name. A variable with no entry is one this build
 // cannot interpret, and its alternatives name nothing a reader may act on.
 var counterfactualValueKinds = map[string]valueSemantics{
-	CounterfactualResolvedAddress: {kind: valueKindAddress},
-	CounterfactualDNSResolver:     {kind: valueKindVocabulary, words: []string{"system", "independent"}},
-	CounterfactualAddressFamily:   {kind: valueKindVocabulary, words: familyWords},
+	counterfactualResolvedAddress: {kind: valueKindAddress},
+	counterfactualDNSResolver:     {kind: valueKindVocabulary, words: []string{"system", "independent"}},
+	counterfactualAddressFamily:   {kind: valueKindVocabulary, words: familyWords},
 }
 
 // CounterfactualValueIsAddress reports whether a counterfactual's alternatives

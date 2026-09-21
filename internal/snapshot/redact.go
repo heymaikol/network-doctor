@@ -42,15 +42,16 @@ func SanitizeForSupport(s Snapshot) Snapshot {
 
 func newRedactor() *redactor {
 	r := &redactor{
-		aliases:        map[string]map[string]string{},
-		ips:            map[string]string{},
-		prefixes:       map[string]string{},
-		retainIP:       map[string]bool{},
-		originalIPs:    map[string]bool{},
-		originalPrefix: map[string]bool{},
-		prefixIPCounts: map[string]uint32{},
-		aliasCounters:  map[string]int{},
-		ipCounters:     map[string]uint32{},
+		aliases:         map[string]map[string]string{},
+		originalAliases: map[string]map[string]bool{},
+		ips:             map[string]string{},
+		prefixes:        map[string]string{},
+		retainIP:        map[string]bool{},
+		originalIPs:     map[string]bool{},
+		originalPrefix:  map[string]bool{},
+		prefixIPCounts:  map[string]uint32{},
+		aliasCounters:   map[string]int{},
+		ipCounters:      map[string]uint32{},
 	}
 	r.seedLocalIdentity()
 	return r
@@ -58,6 +59,11 @@ func newRedactor() *redactor {
 
 func (r *redactor) finishCollection() {
 	sort.SliceStable(r.prefixOrder, func(i, j int) bool { return r.prefixOrder[i].Bits() > r.prefixOrder[j].Bits() })
+	// Allocation waits until here, in the order the values were collected, so
+	// every alias is chosen knowing every original in its namespace.
+	for _, collected := range r.aliasOrder {
+		r.alias(collected.kind, collected.value)
+	}
 }
 
 // SanitizeProfileForSupport applies one redaction mapping across every
@@ -147,16 +153,18 @@ func seedable(value string) bool {
 }
 
 type redactor struct {
-	aliases        map[string]map[string]string
-	aliasCounters  map[string]int
-	ips            map[string]string
-	ipCounters     map[string]uint32
-	prefixes       map[string]string
-	retainIP       map[string]bool
-	originalIPs    map[string]bool
-	originalPrefix map[string]bool
-	prefixOrder    []netip.Prefix
-	prefixIPCounts map[string]uint32
+	aliases         map[string]map[string]string
+	originalAliases map[string]map[string]bool
+	aliasOrder      []aliasedValue
+	aliasCounters   map[string]int
+	ips             map[string]string
+	ipCounters      map[string]uint32
+	prefixes        map[string]string
+	retainIP        map[string]bool
+	originalIPs     map[string]bool
+	originalPrefix  map[string]bool
+	prefixOrder     []netip.Prefix
+	prefixIPCounts  map[string]uint32
 }
 
 func (r *redactor) collectSnapshot(s Snapshot) {
@@ -166,7 +174,7 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 	}
 	r.collectIP(s.Options.PublicDNS, true)
 	if s.Options.Source != nil {
-		r.alias("interface", s.Options.Source.Interface)
+		r.collectAlias("interface", s.Options.Source.Interface)
 		r.collectIP(s.Options.Source.IPv4, false)
 		r.collectIP(s.Options.Source.IPv6, false)
 	}
@@ -184,8 +192,8 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 			r.collectResolverTarget(target, check.ID == "dns_public")
 		}
 		r.collectIP(o.SourceIP, false)
-		r.alias("interface", o.Interface)
-		r.alias("ssid", o.SSID)
+		r.collectAlias("interface", o.Interface)
+		r.collectAlias("ssid", o.SSID)
 		if o.Portal != nil {
 			r.collectURL(o.Portal.RedirectURL)
 		}
@@ -202,9 +210,9 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 					r.prefixOrder = append(r.prefixOrder, prefix)
 				}
 			}
-			r.alias("interface", route.Interface)
+			r.collectAlias("interface", route.Interface)
 			for _, competing := range route.Competing {
-				r.alias("interface", competing.Interface)
+				r.collectAlias("interface", competing.Interface)
 			}
 		}
 	}
@@ -254,9 +262,42 @@ func (r *redactor) collectFinding(f Finding) {
 // diagnosis naming a public resolver is an interpretation, not the recording
 // that decides whether that address stays readable.
 func (r *redactor) collectTypedValue(semantics valueSemantics, value string) {
-	if semantics.kind == valueKindAddress {
+	// The cases are typedValue's own, because a value has to be collected into
+	// the namespace it will later be rewritten out of: an interface name that
+	// only the diagnosis carries is still an original of the interface aliases,
+	// and so is a value whose kind this build cannot name.
+	switch {
+	case value == "":
+	case semantics.kind == valueKindAddress:
 		r.collectIP(value, false)
+	case semantics.kind == valueKindInterface:
+		r.collectAlias("interface", value)
+	case semantics.retains(value):
+	default:
+		r.collectAlias("value", value)
 	}
+}
+
+// aliasedValue is one original waiting for a pseudonym out of kind's namespace.
+type aliasedValue struct{ kind, value string }
+
+// collectAlias records an original that the output side will send through
+// alias(), and defers the allocation itself to finishCollection. The counter
+// alone cannot choose a safe name: "interface-1" and "value-1" are strings a
+// real device and a real field can hold, and an alias equal to one of them
+// either hands that original back verbatim or collapses it with whichever
+// original received the alias.
+func (r *redactor) collectAlias(kind, value string) {
+	if value == "" {
+		return
+	}
+	originals := r.originalAliases[kind]
+	if originals == nil {
+		originals = map[string]bool{}
+		r.originalAliases[kind] = originals
+	}
+	originals[value] = true
+	r.aliasOrder = append(r.aliasOrder, aliasedValue{kind: kind, value: value})
 }
 
 func (r *redactor) hasPrefix(prefix netip.Prefix) bool {
@@ -521,12 +562,22 @@ func (r *redactor) alias(kind, value string) string {
 			return value
 		}
 	}
-	r.aliasCounters[kind]++
-	suffix := strconv.Itoa(r.aliasCounters[kind])
-	if kind == "host" {
-		suffix += ".invalid"
+	// Skipping the names originals hold is what keeps aliases disjoint from
+	// them, and that disjointness is what makes the already-an-alias check
+	// above safe. The search is bounded: each skip consumes one of the
+	// finitely many originals collected in this namespace.
+	alias := ""
+	for {
+		r.aliasCounters[kind]++
+		suffix := strconv.Itoa(r.aliasCounters[kind])
+		if kind == "host" {
+			suffix += ".invalid"
+		}
+		alias = kind + "-" + suffix
+		if !r.originalAliases[kind][alias] {
+			break
+		}
 	}
-	alias := kind + "-" + suffix
 	values[value] = alias
 	return alias
 }

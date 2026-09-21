@@ -291,7 +291,7 @@ func resolvedAddressCounterfactualSnapshot(failed, succeeded string) Snapshot {
 				ID: "partial_reachability", Verdict: "degraded", Summary: "one address fails", Focus: "target_tcp",
 				Evidence:       []string{"target_tcp", "dns"},
 				CausalEvidence: append(append([]CausalEvidence{}, failure...), success...),
-				Counterfactual: &Counterfactual{Variable: CounterfactualResolvedAddress, Alternatives: []CounterfactualAlternative{
+				Counterfactual: &Counterfactual{Variable: counterfactualResolvedAddress, Alternatives: []CounterfactualAlternative{
 					{Value: failed, Outcome: "failed", Evidence: failure},
 					{Value: succeeded, Outcome: "succeeded", Evidence: success},
 				}},
@@ -363,8 +363,8 @@ func wordCounterfactualSnapshot(variable, first, second string) Snapshot {
 // or its network, and an alias would say nothing about what was compared.
 func TestWordValuedCounterfactualAlternativesKeepTheirVocabulary(t *testing.T) {
 	for _, tc := range []struct{ variable, first, second string }{
-		{CounterfactualDNSResolver, "system", "independent"},
-		{CounterfactualAddressFamily, "ipv4", "ipv6"},
+		{counterfactualDNSResolver, "system", "independent"},
+		{counterfactualAddressFamily, "ipv4", "ipv6"},
 	} {
 		t.Run(tc.variable, func(t *testing.T) {
 			sanitized := sanitizeValid(t, wordCounterfactualSnapshot(tc.variable, tc.first, tc.second))
@@ -385,7 +385,7 @@ func TestWordValuedCounterfactualAlternativesKeepTheirVocabulary(t *testing.T) {
 // aliased rather than published.
 func TestWordValuedCounterfactualDoesNotBecomeAnAddressByItsShape(t *testing.T) {
 	const shaped = "192.0.2.1"
-	sanitized := sanitizeValid(t, wordCounterfactualSnapshot(CounterfactualDNSResolver, shaped, "independent"))
+	sanitized := sanitizeValid(t, wordCounterfactualSnapshot(counterfactualDNSResolver, shaped, "independent"))
 	named := sanitized.Diagnosis.Findings[0].Counterfactual.Alternatives[0].Value
 	if isAddress(named) {
 		t.Errorf("an address-shaped resolver name sanitized into the address namespace as %q", named)
@@ -488,5 +488,55 @@ func TestCounterfactualOnlyAddressIsNotHandedBackAsAnotherAddressPseudonym(t *te
 	}
 	if !isAddress(named) {
 		t.Errorf("resolved_address named %q, which is not an address", named)
+	}
+}
+
+// An alias is a pseudonym only when no original wears it. "interface-1" is a
+// legal device name, so an artifact can hold a device named that beside a
+// device the counter handed that very alias. Allocating against the counter
+// alone leaves two devices and one name for them, and reading the original as
+// an alias of this pass's own making publishes it verbatim.
+func TestInterfaceNamedLikeAnAliasKeepsItsOwnPseudonym(t *testing.T) {
+	for _, tc := range []struct{ name, iface, cited string }{
+		{"the alias is issued first", "wg0", "interface-1"},
+		{"the original is seen first", "interface-1", "eth1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sanitized := sanitizeValid(t, routeEvidenceSnapshot(ObservationRoutePathDiffers, tc.iface, tc.cited))
+			recorded := sanitized.Checks[0].Observed.Routes[0].Interface
+			named := sanitized.Diagnosis.Findings[0].CausalEvidence[0].Value
+			if recorded == tc.iface {
+				t.Errorf("the route's interface %q survived sanitization", tc.iface)
+			}
+			if named == tc.cited {
+				t.Errorf("the named interface %q survived sanitization", tc.cited)
+			}
+			if named == recorded {
+				t.Errorf("two interfaces collapsed onto one alias %q", named)
+			}
+		})
+	}
+}
+
+// The same hole in the fallback namespace, which is the one a value this build
+// cannot classify lands in. "value-1" is an ordinary string for a field whose
+// meaning is not declared here, and it has to be mapped like any other.
+func TestValueNamedLikeAnAliasKeepsItsOwnPseudonym(t *testing.T) {
+	for _, tc := range []struct{ name, first, second string }{
+		{"the alias is issued first", "resolver.corp.example", "value-1"},
+		{"the original is seen first", "value-1", "resolver.corp.example"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sanitized := sanitizeValid(t, wordCounterfactualSnapshot(counterfactualDNSResolver, tc.first, tc.second))
+			alternatives := sanitized.Diagnosis.Findings[0].Counterfactual.Alternatives
+			for i, original := range []string{tc.first, tc.second} {
+				if alternatives[i].Value == original {
+					t.Errorf("the alternative %q survived sanitization", original)
+				}
+			}
+			if alternatives[0].Value == alternatives[1].Value {
+				t.Errorf("two alternatives collapsed onto one alias %q", alternatives[0].Value)
+			}
+		})
 	}
 }

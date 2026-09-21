@@ -371,7 +371,7 @@
         },
         "delay": {
           "type": "string",
-          "description": "How late the delay outcome answers, in Go duration syntax, greater than 0 and at most 5s. Required by, and only by, that outcome."
+          "description": "How late the delay outcome answers, in Go duration syntax, at least 1ms and at most 5s. The node holder is told whole milliseconds, so anything shorter is unrepresentable. Required by, and only by, that outcome."
         },
         "state": { "$ref": "#/$defs/linkState", "description": "The scheduled_link transition." }
       }
@@ -508,7 +508,7 @@
         "service": { "type": "string", "description": "A named dns service that also loses its responses for the outage window." },
         "resolver_hold": {
           "type": "string",
-          "description": "The delay that service opens with, in Go duration syntax, greater than 0 and at most 5s. Required when service is named: it paces the run so the generated phases actually overlap a probe."
+          "description": "The delay that service opens with, in Go duration syntax, at least 1ms and at most 5s. Required when service is named: it paces the run so the generated phases actually overlap a probe."
         },
         "latency": { "type": "string", "description": "The fixed healthy latency every phase carries, in Go duration syntax." },
         "degrade_at": { "$ref": "#/$defs/DurationRange", "description": "When degradation starts. The minimum must be positive." },
@@ -525,7 +525,7 @@
       "additionalProperties": false,
       "properties": {
         "service": { "type": "string", "description": "The named dns service to delay." },
-        "delay": { "$ref": "#/$defs/DurationRange", "description": "The swept delay. Positive minimum, at most 5s." }
+        "delay": { "$ref": "#/$defs/DurationRange", "description": "The swept delay. Minimum at least 1ms, maximum at most 5s." }
       }
     },
 

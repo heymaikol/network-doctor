@@ -47,6 +47,10 @@ const (
 	maxTimelineEvents   = 64
 	maxScheduledOffset  = 30 * time.Second
 	maxDNSResponseDelay = 5 * time.Second
+	// minDNSResponseDelay is the smallest delay the node holder can be told
+	// to hold an answer for: the wire format carries whole milliseconds, so
+	// anything shorter would serialize to 0 and be rejected there.
+	minDNSResponseDelay = time.Millisecond
 )
 
 // ScheduledEvent is one timed change written in a scenario file. Every field is
@@ -184,8 +188,8 @@ func validateDNSEvent(i int, e *ScheduledEvent) error {
 		if err != nil {
 			return fmt.Errorf("events[%d].delay: %w", i, err)
 		}
-		if d <= 0 || d > maxDNSResponseDelay {
-			return fmt.Errorf("events[%d].delay must satisfy 0 < delay <= %s", i, maxDNSResponseDelay)
+		if d < minDNSResponseDelay || d > maxDNSResponseDelay {
+			return fmt.Errorf("events[%d].delay must satisfy %s <= delay <= %s", i, minDNSResponseDelay, maxDNSResponseDelay)
 		}
 	default:
 		return fmt.Errorf("events[%d]: unknown outcome %q (%s, %s, %s or %s)", i, e.Outcome,

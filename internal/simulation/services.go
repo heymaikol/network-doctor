@@ -756,7 +756,7 @@ func (s *dnsState) set(outcome string, delay time.Duration) error {
 	case DNSOutcomeAnswer, DNSOutcomeSERVFAIL, DNSOutcomeDrop:
 		delay = 0
 	case DNSOutcomeDelay:
-		if delay <= 0 || delay > maxDNSResponseDelay {
+		if delay < minDNSResponseDelay || delay > maxDNSResponseDelay {
 			return fmt.Errorf("delay %s is out of range", delay)
 		}
 	default:

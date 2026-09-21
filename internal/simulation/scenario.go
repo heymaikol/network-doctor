@@ -1317,8 +1317,8 @@ func (c *CampaignSpec) validate(s *Scenario) error {
 			if err != nil {
 				return fmt.Errorf("timeline.resolver_hold: %w", err)
 			}
-			if hold <= 0 || hold > maxDNSResponseDelay {
-				return fmt.Errorf("timeline.resolver_hold must satisfy 0 < hold <= %s", maxDNSResponseDelay)
+			if hold < minDNSResponseDelay || hold > maxDNSResponseDelay {
+				return fmt.Errorf("timeline.resolver_hold must satisfy %s <= hold <= %s", minDNSResponseDelay, maxDNSResponseDelay)
 			}
 		}
 		if _, err := time.ParseDuration(t.Latency); err != nil {
@@ -1352,8 +1352,8 @@ func (c *CampaignSpec) validate(s *Scenario) error {
 		if err := d.Delay.validate("dns_delay.delay", maxDNSResponseDelay); err != nil {
 			return err
 		}
-		if min, _ := time.ParseDuration(d.Delay.Min); min <= 0 {
-			return errors.New("dns_delay.delay.min must be positive")
+		if min, _ := time.ParseDuration(d.Delay.Min); min < minDNSResponseDelay {
+			return fmt.Errorf("dns_delay.delay must satisfy %s <= min <= max <= %s", minDNSResponseDelay, maxDNSResponseDelay)
 		}
 	}
 	if c.Netem != nil {

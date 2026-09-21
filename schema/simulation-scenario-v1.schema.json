@@ -510,7 +510,7 @@
           "type": "string",
           "description": "The delay that service opens with, in Go duration syntax, at least 1ms and at most 5s. Required when service is named: it paces the run so the generated phases actually overlap a probe."
         },
-        "latency": { "type": "string", "description": "The fixed healthy latency every phase carries, in Go duration syntax." },
+        "latency": { "type": "string", "description": "The fixed healthy latency every phase carries, in Go duration syntax, at least 0s and at most 10s. It is the latency of every generated scheduled_netem event, so it carries that fault's range." },
         "degrade_at": { "$ref": "#/$defs/DurationRange", "description": "When degradation starts. The minimum must be positive." },
         "degrade_loss_percent": { "$ref": "#/$defs/NumberRange", "description": "How much loss the degraded phase carries." },
         "outage_for": { "$ref": "#/$defs/DurationRange", "description": "How long the total outage lasts. The longest generated timeline must still fit inside 30s." }

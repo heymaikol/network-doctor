@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -338,5 +339,48 @@ func TestDiagnosisFingerprintIgnoresRuntimeOnlyValues(t *testing.T) {
 	worse := &Report{Tests: []TestOutcome{{Name: "one", Diagnosis: &changed}}}
 	if diagnosisFingerprint(steady).ID == diagnosisFingerprint(worse).ID {
 		t.Fatal("a changed probe status left the fingerprint alone")
+	}
+}
+
+// TestTimelineLatencyRangeMatchesScheduledNetem pins #162: Scenario.Validate
+// accepts exactly the timeline latencies campaign compilation can turn into a
+// legal scheduled_netem event, so validate can no longer pass a scenario the
+// compiler rejects.
+func TestTimelineLatencyRangeMatchesScheduledNetem(t *testing.T) {
+	blob, err := library.ReadFile("scenarios/flapping-connectivity.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		latency string
+		valid   bool
+	}{
+		{"-1ms", false},
+		{(maxNetemDuration + time.Millisecond).String(), false},
+		{"0s", true},
+		{"1ms", true},
+		{maxNetemDuration.String(), true},
+	} {
+		text := strings.Replace(string(blob), "latency: 10ms", "latency: "+tc.latency, 1)
+		if text == string(blob) {
+			t.Fatal("the bundled flapping timeline no longer declares latency: 10ms")
+		}
+		s, err := ParseScenario(bytes.NewReader([]byte(text)))
+		if !tc.valid {
+			if err == nil {
+				t.Errorf("latency %s validated", tc.latency)
+			} else if !strings.Contains(err.Error(), "timeline.latency must satisfy 0 <= latency <= 10s") {
+				t.Errorf("latency %s: %v", tc.latency, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("latency %s: %v", tc.latency, err)
+		}
+		// The other half of the disagreement: a latency validation accepts
+		// must still survive the scheduled_netem revalidation compilation runs.
+		if _, _, err := compileCampaignIteration(s, DeriveIterationSeed(1, s.Name, 0)); err != nil {
+			t.Errorf("latency %s compiled: %v", tc.latency, err)
+		}
 	}
 }

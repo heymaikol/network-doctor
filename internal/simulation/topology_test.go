@@ -232,3 +232,96 @@ func TestFamilySpecificFaultValidation(t *testing.T) {
 		t.Fatalf("bad family error = %v", err)
 	}
 }
+
+// TestNoDefaultRouteRequiresAMatchingDefault covers issue #164: the fault
+// deletes a default route, so a scenario that never installs one for the
+// selected family has to fail validation rather than the kernel.
+func TestNoDefaultRouteRequiresAMatchingDefault(t *testing.T) {
+	// The routers and targets in dualStackScenario carry no routes at all, so
+	// they are the mismatch cases; client has one default per family.
+	cases := []struct{ name, fault, want string }{
+		{"IPv4 without an IPv4 default", "{type: no_default_route, node: router}", `node "router" has no initial ipv4 default route`},
+		{"IPv6 without an IPv6 default", "{type: no_default_route, node: target, family: ipv6}", `node "target" has no initial ipv6 default route`},
+		{"IPv4 default accepted", "{type: no_default_route, node: client}", ""},
+		{"IPv6 default accepted", "{type: no_default_route, node: client, family: ipv6}", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseScenario(strings.NewReader(dualStackScenario + "faults: [" + tc.fault + "]\n"))
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatalf("error = %v, want accepted", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestNoDefaultRouteFamilyMismatch keeps the single-family cases apart from the
+// missing-node-routes ones: here the node does have a default route, just not
+// for the family the fault names.
+func TestNoDefaultRouteFamilyMismatch(t *testing.T) {
+	const ipv4Only = `
+name: v4-only
+topology:
+  segments:
+    - {name: lan, ipv4: 10.88.1.0/24, ipv6: fd88:1::/64}
+  nodes:
+    - name: client
+      role: client
+      interfaces:
+        - {segment: lan, ipv4: 10.88.1.10/24, ipv6: fd88:1::10/64}
+    - name: gateway
+      interfaces:
+        - {segment: lan, ipv4: 10.88.1.1/24, ipv6: fd88:1::1/64}
+  routes:
+    - {node: client, destination: DEST, via: VIA}
+tests: [{node: client}]
+expect: {verdict: ok}
+faults: [{type: no_default_route, node: client, family: FAMILY}]
+`
+	cases := []struct{ name, dest, via, family, want string }{
+		{"IPv6 default asked for IPv4", `"::/0"`, `"fd88:1::1"`, "ipv4", `has no initial ipv4 default route`},
+		{"IPv4 default asked for IPv6", "0.0.0.0/0", "10.88.1.1", "ipv6", `has no initial ipv6 default route`},
+		{"explicit IPv4 zero prefix", "0.0.0.0/0", "10.88.1.1", "ipv4", ""},
+		{"explicit IPv6 zero prefix", `"::/0"`, `"fd88:1::1"`, "ipv6", ""},
+		{"default keyword", "default", "10.88.1.1", "ipv4", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := strings.NewReplacer("DEST", tc.dest, "VIA", tc.via, "FAMILY", tc.family).Replace(ipv4Only)
+			_, err := ParseScenario(strings.NewReader(raw))
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatalf("error = %v, want accepted", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestNoDefaultRouteAcceptsLegacyGateway pins the implicit-IPv4 path: the
+// legacy gateway shorthand normalizes into a default route, so the fault has
+// something to delete even though the scenario declares no routes.
+func TestNoDefaultRouteAcceptsLegacyGateway(t *testing.T) {
+	const legacy = `
+name: legacy
+topology:
+  nodes:
+    - {name: client, role: client, address: 10.77.0.10, gateway: 10.77.0.1}
+    - {name: gateway, address: 10.77.0.1}
+tests: [{node: client}]
+expect: {verdict: ok}
+faults: [{type: no_default_route, node: client}]
+`
+	if _, err := ParseScenario(strings.NewReader(legacy)); err != nil {
+		t.Fatalf("legacy gateway shorthand: %v", err)
+	}
+	withoutGateway := strings.Replace(legacy, ", gateway: 10.77.0.1", "", 1)
+	if _, err := ParseScenario(strings.NewReader(withoutGateway)); err == nil ||
+		!strings.Contains(err.Error(), `node "client" has no initial ipv4 default route`) {
+		t.Fatalf("error = %v, want the missing default route", err)
+	}
+}

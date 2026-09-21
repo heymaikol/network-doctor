@@ -320,6 +320,21 @@ func (t *Topology) validateRoutes(nodes map[string]*Node) error {
 	return nil
 }
 
+// hasDefaultRoute reports whether the node's normalized initial route table
+// carries a default route for the family. validateRoutes has already resolved
+// every spelling a scenario may use ("default", a /0 prefix, or the legacy
+// gateway shorthand) into a Route with Default and Family set, so this is the
+// single source of truth for what a fault would find installed.
+func (t *Topology) hasDefaultRoute(node, family string) bool {
+	for i := range t.Routes {
+		route := &t.Routes[i]
+		if route.Default && route.Node == node && route.Family == family {
+			return true
+		}
+	}
+	return false
+}
+
 func nodeSegmentForAddress(node *Node, addr netip.Addr) (string, bool) {
 	for _, iface := range node.Interfaces {
 		for _, raw := range []string{iface.IPv4, iface.IPv6} {

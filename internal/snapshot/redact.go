@@ -42,15 +42,16 @@ func SanitizeForSupport(s Snapshot) Snapshot {
 
 func newRedactor() *redactor {
 	r := &redactor{
-		aliases:        map[string]map[string]string{},
-		ips:            map[string]string{},
-		prefixes:       map[string]string{},
-		retainIP:       map[string]bool{},
-		originalIPs:    map[string]bool{},
-		originalPrefix: map[string]bool{},
-		prefixIPCounts: map[string]uint32{},
-		aliasCounters:  map[string]int{},
-		ipCounters:     map[string]uint32{},
+		aliases:         map[string]map[string]string{},
+		originalAliases: map[string]map[string]bool{},
+		ips:             map[string]string{},
+		prefixes:        map[string]string{},
+		retainIP:        map[string]bool{},
+		originalIPs:     map[string]bool{},
+		originalPrefix:  map[string]bool{},
+		prefixIPCounts:  map[string]uint32{},
+		aliasCounters:   map[string]int{},
+		ipCounters:      map[string]uint32{},
 	}
 	r.seedLocalIdentity()
 	return r
@@ -58,6 +59,11 @@ func newRedactor() *redactor {
 
 func (r *redactor) finishCollection() {
 	sort.SliceStable(r.prefixOrder, func(i, j int) bool { return r.prefixOrder[i].Bits() > r.prefixOrder[j].Bits() })
+	// Allocation waits until here, in the order the values were collected, so
+	// every alias is chosen knowing every original in its namespace.
+	for _, collected := range r.aliasOrder {
+		r.alias(collected.kind, collected.value)
+	}
 }
 
 // SanitizeProfileForSupport applies one redaction mapping across every
@@ -147,16 +153,18 @@ func seedable(value string) bool {
 }
 
 type redactor struct {
-	aliases        map[string]map[string]string
-	aliasCounters  map[string]int
-	ips            map[string]string
-	ipCounters     map[string]uint32
-	prefixes       map[string]string
-	retainIP       map[string]bool
-	originalIPs    map[string]bool
-	originalPrefix map[string]bool
-	prefixOrder    []netip.Prefix
-	prefixIPCounts map[string]uint32
+	aliases         map[string]map[string]string
+	originalAliases map[string]map[string]bool
+	aliasOrder      []aliasedValue
+	aliasCounters   map[string]int
+	ips             map[string]string
+	ipCounters      map[string]uint32
+	prefixes        map[string]string
+	retainIP        map[string]bool
+	originalIPs     map[string]bool
+	originalPrefix  map[string]bool
+	prefixOrder     []netip.Prefix
+	prefixIPCounts  map[string]uint32
 }
 
 func (r *redactor) collectSnapshot(s Snapshot) {
@@ -166,7 +174,7 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 	}
 	r.collectIP(s.Options.PublicDNS, true)
 	if s.Options.Source != nil {
-		r.alias("interface", s.Options.Source.Interface)
+		r.collectAlias("interface", s.Options.Source.Interface)
 		r.collectIP(s.Options.Source.IPv4, false)
 		r.collectIP(s.Options.Source.IPv6, false)
 	}
@@ -184,8 +192,8 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 			r.collectResolverTarget(target, check.ID == "dns_public")
 		}
 		r.collectIP(o.SourceIP, false)
-		r.alias("interface", o.Interface)
-		r.alias("ssid", o.SSID)
+		r.collectAlias("interface", o.Interface)
+		r.collectAlias("ssid", o.SSID)
 		if o.Portal != nil {
 			r.collectURL(o.Portal.RedirectURL)
 		}
@@ -202,11 +210,14 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 					r.prefixOrder = append(r.prefixOrder, prefix)
 				}
 			}
-			r.alias("interface", route.Interface)
+			r.collectAlias("interface", route.Interface)
 			for _, competing := range route.Competing {
-				r.alias("interface", competing.Interface)
+				r.collectAlias("interface", competing.Interface)
 			}
 		}
+	}
+	for _, finding := range s.Diagnosis.Findings {
+		r.collectFinding(finding)
 	}
 	if s.Incident != nil {
 		for _, nested := range []*Snapshot{s.Incident.Before, s.Incident.During, s.Incident.Recovered} {
@@ -215,6 +226,78 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 			}
 		}
 	}
+}
+
+// collectFinding registers the addresses a diagnosis names. A finding can cite
+// an address that no observed row recorded, and an original that never reaches
+// originalIPs is an original the pseudonym search will happily hand to another
+// address: address() then reads the citation as a value it sanitized itself
+// and returns it exactly as written. That leaks the original and collapses the
+// two addresses the finding was distinguishing.
+//
+// Which field holds an address is read from the declared kind, the same table
+// the output side reads, so a value shaped like an address under a field that
+// means something else is not collected as one.
+func (r *redactor) collectFinding(f Finding) {
+	for _, evidence := range f.CausalEvidence {
+		r.collectTypedValue(causalValueKinds[evidence.Observation], evidence.Value)
+	}
+	if f.Counterfactual == nil {
+		return
+	}
+	for _, alternative := range f.Counterfactual.Alternatives {
+		r.collectTypedValue(counterfactualValueKinds[f.Counterfactual.Variable], alternative.Value)
+		// Validation already requires every nested item to appear in the
+		// finding's own evidence, but the collection of a field belongs with
+		// the field: the pass that sanitizes this one has to be the pass that
+		// collected it, not a rule somewhere else that happens to cover it.
+		for _, evidence := range alternative.Evidence {
+			r.collectTypedValue(causalValueKinds[evidence.Observation], evidence.Value)
+		}
+	}
+}
+
+// collectTypedValue registers one declared-kind value that the output side
+// will send through address(). Retention is deliberately not offered: a
+// diagnosis naming a public resolver is an interpretation, not the recording
+// that decides whether that address stays readable.
+func (r *redactor) collectTypedValue(semantics valueSemantics, value string) {
+	// The cases are typedValue's own, because a value has to be collected into
+	// the namespace it will later be rewritten out of: an interface name that
+	// only the diagnosis carries is still an original of the interface aliases,
+	// and so is a value whose kind this build cannot name.
+	switch {
+	case value == "":
+	case semantics.kind == valueKindAddress:
+		r.collectIP(value, false)
+	case semantics.kind == valueKindInterface:
+		r.collectAlias("interface", value)
+	case semantics.retains(value):
+	default:
+		r.collectAlias("value", value)
+	}
+}
+
+// aliasedValue is one original waiting for a pseudonym out of kind's namespace.
+type aliasedValue struct{ kind, value string }
+
+// collectAlias records an original that the output side will send through
+// alias(), and defers the allocation itself to finishCollection. The counter
+// alone cannot choose a safe name: "interface-1" and "value-1" are strings a
+// real device and a real field can hold, and an alias equal to one of them
+// either hands that original back verbatim or collapses it with whichever
+// original received the alias.
+func (r *redactor) collectAlias(kind, value string) {
+	if value == "" {
+		return
+	}
+	originals := r.originalAliases[kind]
+	if originals == nil {
+		originals = map[string]bool{}
+		r.originalAliases[kind] = originals
+	}
+	originals[value] = true
+	r.aliasOrder = append(r.aliasOrder, aliasedValue{kind: kind, value: value})
 }
 
 func (r *redactor) hasPrefix(prefix netip.Prefix) bool {
@@ -399,7 +482,10 @@ func (r *redactor) finding(f Finding) Finding {
 	if f.Counterfactual != nil {
 		out.Counterfactual = &Counterfactual{Variable: f.Counterfactual.Variable}
 		for _, alternative := range f.Counterfactual.Alternatives {
-			item := CounterfactualAlternative{Value: r.value(alternative.Value), Outcome: alternative.Outcome}
+			item := CounterfactualAlternative{
+				Value:   r.typedValue(counterfactualValueKinds[f.Counterfactual.Variable], alternative.Value),
+				Outcome: alternative.Outcome,
+			}
 			for _, evidence := range alternative.Evidence {
 				item.Evidence = append(item.Evidence, r.causalEvidence(evidence))
 			}
@@ -412,15 +498,38 @@ func (r *redactor) finding(f Finding) Finding {
 func (r *redactor) causalEvidence(e CausalEvidence) CausalEvidence {
 	return CausalEvidence{
 		Kind: e.Kind, Check: e.Check, Observation: e.Observation,
-		Value: r.value(e.Value), Candidate: e.Candidate, Reason: e.Reason,
+		Value: r.typedValue(causalValueKinds[e.Observation], e.Value), Candidate: e.Candidate, Reason: e.Reason,
 	}
 }
 
-func (r *redactor) value(value string) string {
-	if _, err := netip.ParseAddr(value); err == nil {
+// typedValue rewrites one value whose meaning the artifact declares beside it,
+// and never reads that meaning off the value's own spelling. An interface can
+// be named "192.0.2.1", and sending that name through the address namespace
+// hands the evidence a value the route it cites no longer carries, which is an
+// artifact netdoc then refuses to encode.
+//
+// The pseudonym has to come out of the same namespace as the field the value
+// references, because the whole worth of an evidence item is that a reader can
+// check it against the row beside it. An address therefore goes through the
+// address pseudonyms, an interface through the interface aliases, and both
+// land on whatever the recorded field landed on.
+//
+// A value whose kind this build cannot name is aliased rather than kept. That
+// is the fail-safe direction: a later netdoc may name a value this one has
+// never heard of, and the one thing known about such a string is that nothing
+// here can prove it carries no identity.
+func (r *redactor) typedValue(semantics valueSemantics, value string) string {
+	switch {
+	case value == "":
+		return ""
+	case semantics.kind == valueKindAddress:
 		return r.address(value)
+	case semantics.kind == valueKindInterface:
+		return r.alias("interface", value)
+	case semantics.retains(value):
+		return value
 	}
-	return r.text(value)
+	return r.alias("value", value)
 }
 
 func (r *redactor) host(value string) string {
@@ -453,12 +562,22 @@ func (r *redactor) alias(kind, value string) string {
 			return value
 		}
 	}
-	r.aliasCounters[kind]++
-	suffix := strconv.Itoa(r.aliasCounters[kind])
-	if kind == "host" {
-		suffix += ".invalid"
+	// Skipping the names originals hold is what keeps aliases disjoint from
+	// them, and that disjointness is what makes the already-an-alias check
+	// above safe. The search is bounded: each skip consumes one of the
+	// finitely many originals collected in this namespace.
+	alias := ""
+	for {
+		r.aliasCounters[kind]++
+		suffix := strconv.Itoa(r.aliasCounters[kind])
+		if kind == "host" {
+			suffix += ".invalid"
+		}
+		alias = kind + "-" + suffix
+		if !r.originalAliases[kind][alias] {
+			break
+		}
 	}
-	alias := kind + "-" + suffix
 	values[value] = alias
 	return alias
 }

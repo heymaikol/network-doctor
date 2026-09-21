@@ -140,3 +140,37 @@ func routeAddressFamilyIsIPv4(r Route) (bool, bool) {
 	}
 	return false, false
 }
+
+// RecordedAddressIdentity is the identity of one address-valued recording: the
+// rule that decides whether two spellings name one address. It lives here,
+// beside the validation that decides what a recorded address is, because both
+// readers of an artifact need the same answer. Snapshot validation matches
+// address-valued causal evidence to the row it cites with it, and comparison
+// decides through it whether two files recorded one address; a second copy of
+// the rule somewhere else is how the two would drift apart again.
+//
+// netip.ParseAddr, then Unmap. Every producer of a recorded address already
+// writes a mapped IPv4 address as IPv4, so unmapping here agrees with what
+// netdoc itself wrote rather than inventing a distinction no producer records.
+//
+// A value that will not parse is its own identity, spelled exactly as
+// recorded. That is what keeps the empty string apart from every address,
+// keeps the support artifact's <address-redacted> marker from being read as
+// one, and leaves a value netdoc did not write comparing byte for byte. A
+// canonical form always parses, so an unparseable recording can never collide
+// with one.
+//
+// Identity only. Nothing here rewrites an artifact: a caller reads two
+// spellings through this and reports whichever ones its files carry.
+func RecordedAddressIdentity(value string) string {
+	address, err := netip.ParseAddr(value)
+	if err != nil {
+		return value
+	}
+	return address.Unmap().String()
+}
+
+// sameRecordedAddress answers whether two recordings name one address.
+func sameRecordedAddress(a, b string) bool {
+	return RecordedAddressIdentity(a) == RecordedAddressIdentity(b)
+}

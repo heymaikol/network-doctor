@@ -366,14 +366,12 @@ func trimRootDot(host string) string { return strings.TrimSuffix(host, ".") }
 // After. So netdoc.comparison.v1 paths stay what they were, and a file netdoc
 // did not write is never quoted back in a spelling it does not use.
 
-// addressKey is the identity of a bare IP observation.
-func addressKey(value string) string {
-	address, err := netip.ParseAddr(value)
-	if err != nil {
-		return value
-	}
-	return address.Unmap().String()
-}
+// addressKey is the identity of a bare IP observation, which is the artifact
+// format's own rule rather than one this package decides. Snapshot validation
+// matches address-valued causal evidence to the row it cites with the same
+// rule, and it cannot import this package, so the rule lives beside the
+// definition of a recorded address and both readers call it.
+func addressKey(value string) string { return snapshot.RecordedAddressIdentity(value) }
 
 // endpointKey is the identity of an address-and-port observation. It is a
 // separate rule because it is a separate value type: the port is part of the
@@ -659,8 +657,10 @@ func diffDiagnosis(d *diff, before, after snapshot.Snapshot) {
 		// from in the order it reasoned over them.
 		d.field(SectionDiagnosis, "", "diagnosis.findings."+id+".evidence", "finding "+id+" evidence",
 			strings.Join(b.Evidence, ","), strings.Join(a.Evidence, ","))
-		d.field(SectionDiagnosis, "", "diagnosis.findings."+id+".causal_evidence", "finding "+id+" causal evidence",
-			canonicalList(b.CausalEvidence), canonicalList(a.CausalEvidence))
+		if causalEvidenceKey(b.CausalEvidence) != causalEvidenceKey(a.CausalEvidence) {
+			d.field(SectionDiagnosis, "", "diagnosis.findings."+id+".causal_evidence", "finding "+id+" causal evidence",
+				canonicalList(b.CausalEvidence), canonicalList(a.CausalEvidence))
+		}
 		diffCounterfactual(d, id, b.Counterfactual, a.Counterfactual)
 	}
 }
@@ -678,8 +678,49 @@ func diffCounterfactual(d *diff, id string, before, after *snapshot.Counterfactu
 		return
 	}
 	d.field(SectionDiagnosis, "", path+".variable", label+" variable", before.Variable, after.Variable)
-	d.field(SectionDiagnosis, "", path+".alternatives", label+" alternatives",
-		canonicalList(before.Alternatives), canonicalList(after.Alternatives))
+	if alternativesKey(*before) != alternativesKey(*after) {
+		d.field(SectionDiagnosis, "", path+".alternatives", label+" alternatives",
+			canonicalList(before.Alternatives), canonicalList(after.Alternatives))
+	}
+}
+
+// causalEvidenceKey and alternativesKey are the identity of a finding's
+// reasoning, which is the same list with every address-valued member read as
+// an address. An evidence item's identity is all of its meaningful fields, so
+// everything else in it still compares as the text it is, and the order stays
+// the order the diagnosis reasoned in: this normalizes members, never the
+// list.
+//
+// Which members those are is the artifact format's own classification, asked
+// of the snapshot package rather than restated here. A value the format does
+// not call an address is never parsed as one, however much it looks like one.
+//
+// Working on copies throughout. The snapshots belong to the caller, they keep
+// the spellings their producers wrote, and a difference that survives these
+// keys is reported from the recorded lists rather than from the normalized
+// ones.
+func causalEvidenceKey(items []snapshot.CausalEvidence) string {
+	return canonicalList(identityEvidence(items))
+}
+
+func alternativesKey(c snapshot.Counterfactual) string {
+	out := make([]snapshot.CounterfactualAlternative, len(c.Alternatives))
+	for i, alternative := range c.Alternatives {
+		if snapshot.CounterfactualValueIsAddress(c.Variable) {
+			alternative.Value = addressKey(alternative.Value)
+		}
+		alternative.Evidence = identityEvidence(alternative.Evidence)
+		out[i] = alternative
+	}
+	return canonicalList(out)
+}
+
+func identityEvidence(items []snapshot.CausalEvidence) []snapshot.CausalEvidence {
+	out := make([]snapshot.CausalEvidence, len(items))
+	for i, e := range items {
+		out[i] = snapshot.CausalEvidenceIdentity(e)
+	}
+	return out
 }
 
 // canonicalList and canonicalValue spell a structured value as one comparable

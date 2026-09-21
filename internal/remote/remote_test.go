@@ -81,6 +81,14 @@ func fakeSSH(mode string) int {
 	case "ok", "unhealthy":
 		rep, snap := diagnosedPair(resp.Tool, mode == "ok")
 		resp.Report, resp.Snapshot = &rep, &snap
+	case "openstdout":
+		// The worker has completed and written a valid response, but the SSH
+		// stdout channel remains open independently of stdin.
+		rep, snap := diagnosedPair(resp.Tool, true)
+		resp.Report, resp.Snapshot = &rep, &snap
+		_ = json.NewEncoder(os.Stdout).Encode(resp)
+		time.Sleep(30 * time.Second)
+		return 0
 	case "refuse":
 		resp.Error = "-public-dns: \"nope\" is not an IP address"
 	case "protocol2":
@@ -202,6 +210,24 @@ func TestRunReportsAFailedDiagnosisAsASuccessfulExchange(t *testing.T) {
 	}
 }
 
+func TestRunHandlesARequestWriteFailureWithoutPanicking(t *testing.T) {
+	useFakeSSH(t, "hang")
+
+	previous := writeRequest
+	writeRequest = func(io.Writer, []byte) (int, error) {
+		return 0, io.ErrClosedPipe
+	}
+	t.Cleanup(func() { writeRequest = previous })
+
+	_, err := Run(context.Background(), "server", "", Request{})
+	if err == nil {
+		t.Fatal("want a transport error, got none")
+	}
+	if !strings.Contains(err.Error(), "netdoc did not run on the SSH host") {
+		t.Fatalf("Run error = %q, want the no-response transport error", err)
+	}
+}
+
 func TestRunDistinguishesTheTransportFailures(t *testing.T) {
 	for _, tc := range []struct {
 		mode string
@@ -246,6 +272,26 @@ func TestRunEndsWhenTheContextIsCancelled(t *testing.T) {
 	// mean the cancellation never reached the ssh process.
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Errorf("Run took %s to notice the cancellation", elapsed)
+	}
+}
+
+func TestRunReturnsACompleteResponseWhenStdoutStaysOpen(t *testing.T) {
+	useFakeSSH(t, "openstdout")
+
+	// This deadline bounds the regression and cleans up the fake SSH process.
+	// It is not the behavior under test: Run must return before it expires.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	resp, err := Run(ctx, "server", "", Request{})
+	if ctx.Err() != nil {
+		t.Fatalf("Run withheld a complete response until cancellation: %v", ctx.Err())
+	}
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if resp.Report == nil || !resp.Report.OK {
+		t.Fatalf("response did not carry the completed diagnosis: %+v", resp)
 	}
 }
 

@@ -186,8 +186,10 @@ var ErrNoResponse = errors.New("no response")
 // Decode waits for an EOF the live SSH stdout may not send while the local
 // stdin stays open, which deadlocked Run. This build instead hands back the
 // decoder and its LimitedReader for a separate check that Run performs after it
-// has closed stdin, reusing the exact state -- including any bytes the decoder
-// has already buffered past the first value, so the cap is still counted correctly.
+// has closed stdin. Run gives that check a bounded window to observe natural
+// EOF or trailing data, then ends SSH if stdout still remains open. The exact
+// decoder state is reused, including bytes buffered past the first value, so
+// the cap is still counted correctly.
 func decodeResponse(r io.Reader) (Response, *json.Decoder, *io.LimitedReader, error) {
 	// Keep one byte of headroom past the cap. If it is consumed, the EOF seen
 	// by the decoder came from this limit rather than the remote stream.
@@ -224,10 +226,9 @@ func decodeResponse(r io.Reader) (Response, *json.Decoder, *io.LimitedReader, er
 
 // confirmNoTrailingData finishes what decodeResponse deliberately stopped
 // before: it decodes once more on the same decoder and LimitedReader to prove
-// the worker wrote exactly one response. It runs after stdin is closed, so the
-// exchange can finish and stdout can reach EOF instead of a decode blocking on
-// a stream that stays open while the liveness stdin is still open, and it
-// reuses decodeResponse's decoder and LimitedReader so the bytes the decoder
+// the worker wrote exactly one response. Run lets this check observe natural
+// EOF and trailing data for a bounded teardown window, then ends SSH if stdout
+// remains open. It reuses decodeResponse's decoder and LimitedReader so bytes
 // already buffered past the first value are still counted against the cap. A
 // second object, or any prose after the first, is a protocol violation.
 func confirmNoTrailingData(dec *json.Decoder, limited *io.LimitedReader) error {

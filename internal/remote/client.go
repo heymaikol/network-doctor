@@ -22,6 +22,12 @@ import (
 // finishing.
 const cancelGrace = 2 * time.Second
 
+// responseEOFGrace bounds how long a completed response waits for SSH stdout
+// to finish naturally. During this window the existing framing check can still
+// observe trailing protocol data. Afterward Run ends SSH so an inherited remote
+// stdout cannot withhold an already-complete diagnosis indefinitely.
+const responseEOFGrace = 2 * time.Second
+
 // maxStderrBytes keeps the first of ssh's stderr. The first bytes are the
 // useful ones: ssh says why a login failed up front, and a remote shell says
 // why a command did not start in its first line.
@@ -35,6 +41,12 @@ const sshFailedStatus = 255
 // would be. Tests point it at a stand-in so the transport can be exercised
 // without an SSH server; nothing else ever changes it.
 var sshProgram = "ssh"
+
+// writeRequest is the one request write. Tests replace it to exercise a write
+// failure deterministically without depending on process scheduling.
+var writeRequest = func(w io.Writer, p []byte) (int, error) {
+	return w.Write(p)
+}
 
 // Run performs one diagnosis on dest by starting a netdoc worker there through
 // the system SSH client, and returns what that worker answered.
@@ -105,37 +117,58 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 	var limited *io.LimitedReader
 	var decodeErr error
 	stopSSH := false
-	if _, err := stdin.Write(body); err != nil {
+	if _, err := writeRequest(stdin, body); err != nil {
 		// A write that fails means ssh is already gone. Its own stderr and exit
 		// status say why far better than a broken-pipe error would, and this is
 		// the same "nothing came back" outcome from the caller's side.
 		decodeErr = ErrNoResponse
+		stopSSH = true
 	} else {
 		resp, dec, limited, decodeErr = decodeResponse(stdout)
 		stopSSH = decodeErr != nil
 	}
-	// Closed before Wait: EOF is what ends the worker, so this is what lets a
-	// finished or cancelled run end without waiting out the remote's timeouts.
+	// Close the worker's liveness input once its response is decoded. This lets
+	// a normal worker and SSH session finish naturally before the bounded stdout
+	// teardown below has to intervene.
 	_ = stdin.Close()
+
 	if stopSSH {
-		// A peer that broke framing may keep writing forever. Stop ssh so the
-		// failed exchange cannot strand its writer or our Wait.
+		// A peer that already failed decoding or framing gets no teardown
+		// grace. Stop ssh so the failed exchange cannot strand its writer.
 		_ = cmd.Process.Kill()
 		_ = stdout.Close()
-	} else if err := confirmNoTrailingData(dec, limited); err != nil {
-		// stdin is closed, which lets the worker/SSH exchange finish so stdout
-		// can reach EOF instead of a decode blocking on a stream that stays
-		// open while the liveness stdin is still open. The same decoder and
-		// LimitedReader decodeResponse handed back now check what remains: a
-		// clean EOF, nothing past the cap. Anything else is a broken exchange,
-		// so stop ssh the same way a framing error does.
-		_ = cmd.Process.Kill()
-		_ = stdout.Close()
-		decodeErr = err
 	} else {
-		// Drain what is left so ssh is never blocked writing into a full pipe
-		// while we wait. Bounded, for the same reason the decode was.
-		_, _ = io.Copy(io.Discard, io.LimitReader(stdout, MaxResponseBytes))
+		// Check the remainder on the exact decoder and LimitedReader that read
+		// the first response. This is the only reader of stdout.
+		trailing := make(chan error, 1)
+		go func() {
+			trailing <- confirmNoTrailingData(dec, limited)
+		}()
+
+		timer := time.NewTimer(responseEOFGrace)
+		var framingErr error
+		select {
+		case framingErr = <-trailing:
+			_ = timer.Stop()
+		case <-timer.C:
+			// A complete valid response is already in hand. If stdout still
+			// has no end after the bounded teardown window, stop the local SSH
+			// transport. Killing ssh closes its stdout writer after bytes
+			// already delivered through the pipe, letting the framing check
+			// finish without treating remote EOF as an unbounded requirement.
+			_ = cmd.Process.Kill()
+			framingErr = <-trailing
+		}
+
+		if framingErr != nil {
+			_ = cmd.Process.Kill()
+			_ = stdout.Close()
+			decodeErr = framingErr
+		} else {
+			// Drain what is left so ssh is never blocked writing into a full
+			// pipe while we wait. Bounded, for the same reason the decode was.
+			_, _ = io.Copy(io.Discard, io.LimitReader(stdout, MaxResponseBytes))
+		}
 	}
 	waitErr := cmd.Wait()
 

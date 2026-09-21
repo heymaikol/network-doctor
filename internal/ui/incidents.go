@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -169,7 +171,7 @@ func (m model) handleIncidentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.setNotice("incident sent to clipboard (OSC 52); w saves an .ndoc", true)
 	case "w":
 		selected, _ := m.selectedIncident()
-		notice, ok := exportIncident(selected)
+		notice, ok := exportIncident(selected, m.incidentNow())
 		return m, m.setNotice(notice, ok)
 	}
 	return m, nil
@@ -297,25 +299,36 @@ func durationText(d time.Duration) string {
 
 var incidentWriteFile = writeFileExcl
 
-func exportIncident(i incident.Incident) (string, bool) {
+func writeIncidentInDir(dir string, savedAt time.Time, data []byte) (string, error) {
+	stem := "network-doctor-incident-" + savedAt.UTC().Format("20060102-150405.000")
+	for n := 1; ; n++ {
+		suffix := ""
+		if n > 1 {
+			suffix = fmt.Sprintf("-%d", n)
+		}
+		path, err := filepath.Abs(filepath.Join(dir, stem+suffix+ndoc.Extension))
+		if err != nil {
+			return "", err
+		}
+		err = incidentWriteFile(path, data, 0o600)
+		if !errors.Is(err, fs.ErrExist) {
+			return path, err
+		}
+	}
+}
+
+func exportIncident(i incident.Incident, savedAt time.Time) (string, bool) {
 	data, err := ndoc.Encode(i.Artifact())
 	if err != nil {
 		return "save failed: " + err.Error(), false
 	}
-	name := "network-doctor-incident-" + i.Started.UTC().Format("20060102-150405") + ndoc.Extension
-	path, err := filepath.Abs(name)
-	if err == nil {
-		err = incidentWriteFile(path, data, 0o600)
-	}
+	path, err := writeIncidentInDir("", savedAt, data)
 	if err != nil {
 		home, homeErr := reportUserHomeDir()
 		if homeErr != nil {
 			return "save failed: " + homeErr.Error(), false
 		}
-		path, err = filepath.Abs(filepath.Join(home, name))
-		if err == nil {
-			err = incidentWriteFile(path, data, 0o600)
-		}
+		path, err = writeIncidentInDir(home, savedAt, data)
 	}
 	if err != nil {
 		return "save failed: " + err.Error(), false

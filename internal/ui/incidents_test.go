@@ -3,6 +3,7 @@ package ui
 import (
 	"net"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -128,6 +129,45 @@ func TestIncidentExportIsCompatibleNdoc(t *testing.T) {
 	}
 	if got.Incident == nil || got.Incident.Passes != 1 || got.Incident.Before == nil || got.Incident.Recovered == nil {
 		t.Fatalf("exported incident = %+v", got.Incident)
+	}
+}
+
+func TestIncidentExportNamesRepeatedSavesUniquely(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	m.watch = true
+	recordWatchPass(&m, start, false, "wlan0")
+	recordWatchPass(&m, start.Add(5*time.Second), true, "wg0")
+	recordWatchPass(&m, start.Add(10*time.Second), false, "wlan0")
+	selected, ok := m.incidents.Latest()
+	if !ok {
+		t.Fatal("no incident was recorded")
+	}
+
+	oldWriteFile, oldUserHomeDir := incidentWriteFile, reportUserHomeDir
+	t.Cleanup(func() {
+		incidentWriteFile, reportUserHomeDir = oldWriteFile, oldUserHomeDir
+	})
+	reportUserHomeDir = func() (string, error) { return t.TempDir(), nil }
+
+	seen := make(map[string]bool)
+	var paths []string
+	incidentWriteFile = func(path string, _ []byte, _ os.FileMode) error {
+		if seen[path] {
+			return os.ErrExist
+		}
+		seen[path] = true
+		paths = append(paths, path)
+		return nil
+	}
+
+	for range 2 {
+		if notice, ok := exportIncident(selected, start); !ok {
+			t.Fatalf("exportIncident() = %q, false", notice)
+		}
+	}
+	if len(paths) != 2 || paths[0] == paths[1] || filepath.Dir(paths[0]) != filepath.Dir(paths[1]) {
+		t.Fatalf("repeated save paths = %v, want two distinct names in one directory", paths)
 	}
 }
 

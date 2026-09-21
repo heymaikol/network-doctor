@@ -325,3 +325,351 @@ func TestDecodeRefusesAHandEditedEvidenceValue(t *testing.T) {
 		t.Errorf("Decode error = %q, want it to say the observation is absent", err)
 	}
 }
+
+// One address has more than one spelling, and an artifact records whichever
+// one its producer wrote. Where an observation says the evidence value names
+// an address, matching that value to the row it cites is a question about
+// addresses and not about text: the same rule the rest of the format reads a
+// recorded address by.
+const (
+	compressedV6 = "2606:2800:220:1:248:1893:25c8:1946"
+	expandedV6   = "2606:2800:0220:0001:0248:1893:25c8:1946"
+	otherV6      = "2606:2800:220:1:248:1893:25c8:1947"
+)
+
+// The classification is the whole of what changes, so it is pinned here
+// rather than left to the rules that read it. An observation added to the
+// address-valued set is a claim that its value is an IP, and one taken out of
+// it silently would put a textual equality back without failing anything.
+func TestAddressValuedObservationsAreTheOnesWhoseValueIsAnAddress(t *testing.T) {
+	want := map[string]bool{
+		ObservationDNSAnswers:          true,
+		ObservationAddressSucceeded:    true,
+		ObservationAddressFailed:       true,
+		ObservationRouteUnreachable:    true,
+		ObservationRouteNextHopDiffers: true,
+	}
+	for id := range want {
+		if _, known := causalObservations[id]; !known {
+			t.Errorf("%q is classified as address-valued but is not in the vocabulary", id)
+		}
+	}
+	for id := range causalObservations {
+		if addressValuedObservations[id] != want[id] {
+			t.Errorf("%q is address-valued = %v, want %v", id, addressValuedObservations[id], want[id])
+		}
+		if CausalEvidenceValueIsAddress(id) != want[id] {
+			t.Errorf("CausalEvidenceValueIsAddress(%q) = %v, want %v", id, CausalEvidenceValueIsAddress(id), want[id])
+		}
+	}
+	// An observation this build does not know names nothing, least of all an
+	// address.
+	if CausalEvidenceValueIsAddress("route_moon_phase") {
+		t.Error("an unknown observation was classified as address-valued")
+	}
+}
+
+// evidenceRow is one row carrying every address-valued reading, spelled the
+// way the fixture's producer happened to write it.
+func evidenceRow(address, gateway string) Check {
+	return Check{
+		ID: "target_tcp", Status: StatusFail, Ran: true, DurationMs: 1,
+		Cause: "timeout", CauseFamily: "ipv6",
+		Observed: &Observed{
+			Addresses: []string{address},
+			Attempts: []Attempt{
+				{IP: address, Error: "deadline exceeded", Cause: "timeout"},
+				{IP: "2001:db8::9"},
+			},
+			Routes: []Route{
+				{Destination: address, Family: "ipv6", Interface: "eth0", Gateway: gateway, Tunnel: TunnelStateDirect},
+				{Destination: "2001:db8::5", Family: "ipv6", Unreachable: true},
+			},
+		},
+	}
+}
+
+// Every observation whose value names an address matches the row it cites
+// through address identity, so the spelling the evidence carries and the
+// spelling the row carries do not have to agree letter for letter. An address
+// that really is another one still matches nothing.
+func TestAddressValuedEvidenceMatchesItsRowByAddressIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		observation string
+		value       string
+		want        bool
+	}{
+		{"an answer spelled the way the row spells it", ObservationDNSAnswers, compressedV6, true},
+		{"the same answer expanded", ObservationDNSAnswers, expandedV6, true},
+		{"an answer the row never recorded", ObservationDNSAnswers, otherV6, false},
+		{"an answer named by no value at all", ObservationDNSAnswers, "", true},
+
+		{"a failed attempt expanded", ObservationAddressFailed, expandedV6, true},
+		{"a failed attempt that is another address", ObservationAddressFailed, otherV6, false},
+		{"a succeeded attempt expanded", ObservationAddressSucceeded, "2001:0db8:0000:0000:0000:0000:0000:0009", true},
+		{"a succeeded attempt that is another address", ObservationAddressSucceeded, "2001:db8::8", false},
+
+		{"an unreachable destination expanded", ObservationRouteUnreachable, "2001:0db8:0000:0000:0000:0000:0000:0005", true},
+		{"an unreachable destination that is another address", ObservationRouteUnreachable, "2001:db8::6", false},
+
+		// The row's own next hop, spelled differently, is still the row's own
+		// next hop. A respelling cannot prove that two flows went to two
+		// routers; a genuinely different router can.
+		{"this row's own next hop", ObservationRouteNextHopDiffers, "2001:db8::1", false},
+		{"this row's own next hop expanded", ObservationRouteNextHopDiffers, "2001:0db8:0000:0000:0000:0000:0000:0001", false},
+		{"this row's own next hop in another case", ObservationRouteNextHopDiffers, "2001:DB8::1", false},
+		{"a genuinely different next hop", ObservationRouteNextHopDiffers, "2001:db8::2", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := CausalEvidence{Kind: EvidenceSupport, Check: "target_tcp", Observation: tc.observation, Value: tc.value}
+			if got := observationMatches(e, evidenceRow(compressedV6, "2001:db8::1")); got != tc.want {
+				t.Errorf("%s value %q accepted = %v, want %v", tc.observation, tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// A mapped IPv4 address is IPv4 here, the way every producer of a recorded
+// address already writes one.
+func TestAddressValuedEvidenceReadsAMappedIPv4AddressAsIPv4(t *testing.T) {
+	row := Check{ID: "dns", Status: StatusPass, Ran: true, DurationMs: 1,
+		Observed: &Observed{Addresses: []string{"192.0.2.10"}}}
+	e := CausalEvidence{Kind: EvidenceSupport, Check: "dns", Observation: ObservationDNSAnswers, Value: "::ffff:192.0.2.10"}
+	if !observationMatches(e, row) {
+		t.Error("an answer recorded in its IPv4-mapped form was read as another address")
+	}
+}
+
+// The other half of the classification. An observation whose value names an
+// interface or an address family keeps textual equality, and nothing starts
+// parsing one of those values as an address because it could be read as one.
+func TestTextualEvidenceValuesKeepTextualEquality(t *testing.T) {
+	// An interface named like an address is still an interface name, and the
+	// only thing that matches it is that name.
+	row := Check{ID: "target_tcp", Status: StatusFail, Ran: true, DurationMs: 1,
+		Observed: &Observed{Routes: []Route{{
+			Destination: "2001:db8::7", Family: "ipv6", Interface: "2001:db8::1",
+			Tunnel: TunnelStateTunnel, TunnelKind: "wireguard", InterfaceMTU: 1420,
+		}}}}
+	for _, observation := range []string{ObservationRouteTunneled, ObservationRouteInterfaceMTU} {
+		e := CausalEvidence{Kind: EvidenceSupport, Check: "target_tcp", Observation: observation, Value: "2001:db8::1"}
+		if !observationMatches(e, row) {
+			t.Errorf("%s did not match the interface name the row recorded", observation)
+		}
+		e.Value = "2001:0db8:0000:0000:0000:0000:0000:0001"
+		if observationMatches(e, row) {
+			t.Errorf("%s read an interface name as an address", observation)
+		}
+	}
+	// route_path_differs names the other row's interface, and difference there
+	// is textual for the same reason.
+	e := CausalEvidence{Kind: EvidenceSupport, Check: "target_tcp", Observation: ObservationRoutePathDiffers, Value: "2001:0db8::1"}
+	if !observationMatches(e, row) {
+		t.Error("route_path_differs stopped comparing interface names as names")
+	}
+	// A family stays a word from a two-word vocabulary.
+	families := Check{ID: "target_tcp", Status: StatusFail, Ran: true, DurationMs: 1, Cause: "timeout", CauseFamily: "ipv6",
+		Observed: &Observed{Families: &Families{IPv4: "reachable", IPv6: "unreachable"}}}
+	for _, tc := range []struct {
+		observation, value string
+		want               bool
+	}{
+		{ObservationFamilyReachable, "ipv4", true},
+		{ObservationFamilyReachable, "192.0.2.1", false},
+		{ObservationFamilyFailed, "ipv6", true},
+		{ObservationCause, "ipv6", true},
+		{ObservationCause, "2001:db8::1", false},
+	} {
+		e := CausalEvidence{Kind: EvidenceSupport, Check: "target_tcp", Observation: tc.observation, Value: tc.value}
+		if got := observationMatches(e, families); got != tc.want {
+			t.Errorf("%s value %q accepted = %v, want %v", tc.observation, tc.value, got, tc.want)
+		}
+	}
+}
+
+// The support artifact's erasure marker is not an address, and no address rule
+// may start reading it as one. Two erased readings are the same erasure and
+// nothing more; an erasure beside a recorded address names neither.
+func TestRedactionMarkerIsNeverReadAsAnAddressByEvidence(t *testing.T) {
+	row := Check{ID: "target_tcp", Status: StatusFail, Ran: true, DurationMs: 1,
+		Observed: &Observed{
+			Addresses: []string{redactedAddress},
+			Routes:    []Route{{Destination: redactedAddress, Family: "ipv6", Interface: "eth0", Gateway: redactedAddress, Tunnel: TunnelStateDirect}},
+		}}
+	answer := func(value string) CausalEvidence {
+		return CausalEvidence{Kind: EvidenceSupport, Check: "target_tcp", Observation: ObservationDNSAnswers, Value: value}
+	}
+	if !observationMatches(answer(redactedAddress), row) {
+		t.Error("an erased answer stopped matching the erased reading beside it")
+	}
+	if observationMatches(answer("2001:db8::1"), row) {
+		t.Error("an erased reading was read as some particular address")
+	}
+	// An erased next hop is not evidence that this row went somewhere else.
+	nextHop := CausalEvidence{Kind: EvidenceSupport, Check: "target_tcp", Observation: ObservationRouteNextHopDiffers, Value: redactedAddress}
+	if observationMatches(nextHop, row) {
+		t.Error("two erased next hops were read as two different routers")
+	}
+	// A sanitized artifact still validates: the redactor assigns one pseudonym
+	// per address, so evidence and the row it cites stay one address.
+	s := SanitizeForSupport(addressEvidenceSnapshot(compressedV6, expandedV6))
+	if _, err := Encode(s); err != nil {
+		t.Errorf("a sanitized artifact carrying address-valued evidence was refused: %v", err)
+	}
+}
+
+// addressEvidenceSnapshot is a whole artifact whose dns row recorded one
+// answer and whose finding cites that answer, with the two spellings the
+// caller chooses.
+func addressEvidenceSnapshot(recorded, cited string) Snapshot {
+	return Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Checks: []Check{{ID: "dns", Name: "dns", Status: StatusPass, Ran: true, DurationMs: 1,
+			Observed: &Observed{Addresses: []string{recorded}}}},
+		OK: true,
+		Diagnosis: Diagnosis{Verdict: "degraded", Summary: "one answer", Findings: []Finding{{
+			ID: "dns_disagreement", Verdict: "degraded", Summary: "one answer", Focus: "dns",
+			Evidence: []string{"dns"},
+			CausalEvidence: []CausalEvidence{{
+				Kind: EvidenceSupport, Check: "dns", Observation: ObservationDNSAnswers, Value: cited,
+			}},
+		}}},
+	}
+}
+
+// The reported false rejection, at the artifact boundary this time: a file
+// whose evidence spells the answer it cites differently from the row is one
+// netdoc could have written, and it has to load.
+func TestArtifactWithRespelledDNSEvidenceIsAccepted(t *testing.T) {
+	data, err := Encode(addressEvidenceSnapshot(compressedV6, expandedV6))
+	if err != nil {
+		t.Fatalf("an artifact citing one answer in two spellings was refused: %v", err)
+	}
+	if _, err := Decode(data); err != nil {
+		t.Fatalf("Decode refused what Encode published: %v", err)
+	}
+	// An answer the row never recorded is still absent.
+	rejectsBothWays(t, addressEvidenceSnapshot(compressedV6, otherV6), "observation is absent")
+}
+
+// nextHopSnapshot is a whole artifact claiming this row's traffic went to a
+// router other than the one its evidence names.
+func nextHopSnapshot(gateway, cited string) Snapshot {
+	return Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Checks: []Check{{ID: "target_tcp", Name: "target_tcp", Status: StatusFail, Ran: true, DurationMs: 1,
+			Cause: "timeout", CauseFamily: "ipv6",
+			Observed: &Observed{Routes: []Route{{
+				Destination: "2001:db8::7", Family: "ipv6", Interface: "eth0", Gateway: gateway, Tunnel: TunnelStateDirect,
+			}}}}},
+		Diagnosis: Diagnosis{Verdict: "network", Summary: "unreachable", Blamed: "target_tcp", FailedStage: "target_tcp",
+			Findings: []Finding{{
+				ID: "target_unreachable", Verdict: "network", Summary: "unreachable", Focus: "target_tcp",
+				Evidence: []string{"target_tcp"},
+				CausalEvidence: []CausalEvidence{{
+					Kind: EvidenceSupport, Check: "target_tcp", Observation: ObservationRouteNextHopDiffers, Value: cited,
+				}},
+			}}},
+	}
+}
+
+// The reported false acceptance. "This row went to a different router" is a
+// claim about two addresses, so two spellings of one router cannot establish
+// it, and a router that really is another one still can.
+func TestArtifactCannotProveADifferentNextHopByRespellingOne(t *testing.T) {
+	rejectsBothWays(t, nextHopSnapshot("2001:db8::1", "2001:0db8:0000:0000:0000:0000:0000:0001"), "observation is absent")
+	rejectsBothWays(t, nextHopSnapshot("2001:db8::1", "2001:db8::1"), "observation is absent")
+	if _, err := Encode(nextHopSnapshot("2001:db8::1", "2001:db8::2")); err != nil {
+		t.Errorf("an artifact naming a genuinely different next hop was refused: %v", err)
+	}
+}
+
+// dnsEvidenceSnapshot is a finding resting on the dns row's answers, with the
+// causal evidence and optional counterfactual the caller supplies.
+func dnsEvidenceSnapshot(evidence []CausalEvidence, counterfactual *Counterfactual) Snapshot {
+	return Snapshot{CreatedAt: "2026-01-02T03:04:05Z", Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Checks: []Check{{ID: "dns", Name: "dns", Status: StatusPass, Ran: true, DurationMs: 1,
+			Observed: &Observed{Addresses: []string{compressedV6, otherV6}}}},
+		OK: true,
+		Diagnosis: Diagnosis{Verdict: "degraded", Summary: "answers", Findings: []Finding{{
+			ID: "dns_disagreement", Verdict: "degraded", Summary: "answers", Focus: "dns",
+			Evidence: []string{"dns"}, CausalEvidence: evidence, Counterfactual: counterfactual,
+		}}},
+	}
+}
+
+func dnsAnswerEvidence(value string) CausalEvidence {
+	return CausalEvidence{Kind: EvidenceSupport, Check: "dns", Observation: ObservationDNSAnswers, Value: value}
+}
+
+// An address-valued item is the claim it makes, not the spelling it was
+// written in, so one answer cited twice is one claim repeated however it is
+// spelled. This is the strict direction of the same identity: a finding must
+// not be able to look better supported by respelling what it already carries.
+func TestOneAddressSpelledTwiceIsOneCausalEvidenceClaim(t *testing.T) {
+	rejectsBothWays(t, dnsEvidenceSnapshot([]CausalEvidence{
+		dnsAnswerEvidence(compressedV6), dnsAnswerEvidence(expandedV6),
+	}, nil), "repeats causal evidence")
+	// Two answers that really are two are still two claims, and so are two
+	// items that differ anywhere else in their identity.
+	for _, tc := range []struct {
+		name     string
+		evidence []CausalEvidence
+	}{
+		{"different addresses", []CausalEvidence{dnsAnswerEvidence(compressedV6), dnsAnswerEvidence(otherV6)}},
+		{"different kind and candidate", []CausalEvidence{
+			dnsAnswerEvidence(compressedV6),
+			{Kind: EvidenceContradiction, Check: "dns", Observation: ObservationDNSAnswers, Value: expandedV6, Candidate: "dns_name_not_found"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Encode(dnsEvidenceSnapshot(tc.evidence, nil)); err != nil {
+				t.Errorf("two distinct claims were read as one: %v", err)
+			}
+		})
+	}
+}
+
+// A counterfactual alternative references a fact the finding already carries.
+// Reference, not transcription: the finding's evidence is now held by
+// identity, so an alternative naming one of those facts in another spelling
+// names a fact the finding carries, and refusing it would be the same false
+// rejection in a second place.
+func TestCounterfactualAlternativeReferencesEvidenceByIdentity(t *testing.T) {
+	counterfactual := func(cited string) *Counterfactual {
+		return &Counterfactual{Variable: "dns_resolver", Alternatives: []CounterfactualAlternative{
+			{Value: "system", Outcome: "succeeded", Evidence: []CausalEvidence{dnsAnswerEvidence(cited)}},
+			{Value: "independent", Outcome: "succeeded", Evidence: []CausalEvidence{dnsAnswerEvidence(otherV6)}},
+		}}
+	}
+	carried := []CausalEvidence{dnsAnswerEvidence(compressedV6), dnsAnswerEvidence(otherV6)}
+	for _, cited := range []string{compressedV6, expandedV6} {
+		if _, err := Encode(dnsEvidenceSnapshot(carried, counterfactual(cited))); err != nil {
+			t.Errorf("an alternative citing a carried answer as %q was refused: %v", cited, err)
+		}
+	}
+	// A fact the finding does not carry is still not carried.
+	rejectsBothWays(t, dnsEvidenceSnapshot(carried, counterfactual("2001:db8::1")),
+		"counterfactual references evidence not carried by the finding")
+}
+
+// Alternatives are the ordered records the run observed, not a keyed set: v1
+// states no identity for them and has never refused two that name the same
+// value, so nothing here reads two of them as one. The evidence inside each
+// one is still held to the identity above.
+func TestCounterfactualAlternativesAreOrderedRecordsNotIdentities(t *testing.T) {
+	for _, tc := range []struct{ name, first, second string }{
+		{"identical values", compressedV6, compressedV6},
+		{"equivalent spellings", compressedV6, expandedV6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := dnsEvidenceSnapshot([]CausalEvidence{dnsAnswerEvidence(compressedV6)},
+				&Counterfactual{Variable: CounterfactualResolvedAddress, Alternatives: []CounterfactualAlternative{
+					{Value: tc.first, Outcome: "succeeded", Evidence: []CausalEvidence{dnsAnswerEvidence(compressedV6)}},
+					{Value: tc.second, Outcome: "failed", Evidence: []CausalEvidence{dnsAnswerEvidence(expandedV6)}},
+				}})
+			if _, err := Encode(s); err != nil {
+				t.Errorf("alternatives were read as identities: %v", err)
+			}
+		})
+	}
+}

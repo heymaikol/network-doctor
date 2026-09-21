@@ -464,3 +464,217 @@ func TestCompareAndTwoSidedAgreeOnAddressIdentity(t *testing.T) {
 		})
 	}
 }
+
+// evidence returns a pointer to the named finding's causal-evidence list so a
+// test can respell one value and leave the rest of a real diagnosis alone.
+func finding(t *testing.T, s *snapshot.Snapshot, id string) *snapshot.Finding {
+	t.Helper()
+	for i := range s.Diagnosis.Findings {
+		if s.Diagnosis.Findings[i].ID == id {
+			return &s.Diagnosis.Findings[i]
+		}
+	}
+	t.Fatalf("fixture has no finding %q", id)
+	return nil
+}
+
+// citeAnswer makes the fixture's dns_answers evidence name one address, which
+// is the shape the reported comparison difference was found in.
+func citeAnswer(t *testing.T, s *snapshot.Snapshot, value string) {
+	t.Helper()
+	f := finding(t, s, "reachability_unlocalized")
+	for i, e := range f.CausalEvidence {
+		if e.Observation == snapshot.ObservationDNSAnswers {
+			f.CausalEvidence[i].Value = value
+			return
+		}
+	}
+	t.Fatal("fixture finding cites no dns answer")
+}
+
+// The reported comparison difference. Two artifacts record one answer and one
+// conclusion drawn from it, and spell that address differently. That is one
+// diagnosis, and the evidence under it is not a change in anything.
+func TestEquivalentEvidenceAddressSpellingIsNotADiagnosisChange(t *testing.T) {
+	const path = "diagnosis.findings.reachability_unlocalized.causal_evidence"
+
+	before, after := fixture(t), fixture(t)
+	respellIPv6(t, &after, "dns", compressedV6, expandedV6)
+	citeAnswer(t, &before, compressedV6)
+	citeAnswer(t, &after, expandedV6)
+	mustNotChange(t, Snapshots(before, after), "respelling one cited answer")
+
+	// An answer that really is another one is still a different conclusion,
+	// and it is reported with the lists the two files carry rather than with
+	// the normalized pair.
+	other := fixture(t)
+	respellIPv6(t, &other, "dns", compressedV6, otherV6)
+	citeAnswer(t, &other, otherV6)
+	got := changeAt(t, Snapshots(before, other), path)
+	if got.Kind != KindChanged {
+		t.Errorf("causal evidence = %+v, want the cited answer reported as changed", got)
+	}
+	if !strings.Contains(got.Before, compressedV6) || !strings.Contains(got.After, otherV6) {
+		t.Errorf("causal evidence = %+v, want each side quoted in the spelling its artifact recorded", got)
+	}
+}
+
+// Only the value changes its equality rule, and only where the observation
+// says the value is an address. Every other field of an evidence item is still
+// its own identity, so a conclusion that moved is still a conclusion that
+// moved.
+func TestCausalEvidenceIdentityKeepsEveryOtherField(t *testing.T) {
+	const path = "diagnosis.findings.reachability_unlocalized.causal_evidence"
+	for _, tc := range []struct {
+		name string
+		move func(*snapshot.CausalEvidence)
+	}{
+		{"the kind", func(e *snapshot.CausalEvidence) {
+			e.Kind, e.Candidate = snapshot.EvidenceContradiction, "offline"
+		}},
+		{"the check", func(e *snapshot.CausalEvidence) { e.Check = "dns_public" }},
+		{"the observation", func(e *snapshot.CausalEvidence) { e.Observation = snapshot.ObservationDNSNotFound }},
+		{"the candidate", func(e *snapshot.CausalEvidence) { e.Candidate = "offline" }},
+		{"the reason", func(e *snapshot.CausalEvidence) { e.Reason = snapshot.NotEvaluatedNotSelected }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, after := fixture(t), fixture(t)
+			citeAnswer(t, &before, compressedV6)
+			citeAnswer(t, &after, expandedV6)
+			items := finding(t, &after, "reachability_unlocalized").CausalEvidence
+			tc.move(&items[len(items)-1])
+			if got := changeAt(t, Snapshots(before, after), path); got.Kind != KindChanged {
+				t.Errorf("causal evidence = %+v, want a moved %s reported", got, tc.name)
+			}
+		})
+	}
+
+	// Order is the order the diagnosis reasoned in, and normalizing a member
+	// must not turn the list into a set.
+	before, after := fixture(t), fixture(t)
+	citeAnswer(t, &before, compressedV6)
+	citeAnswer(t, &after, expandedV6)
+	items := finding(t, &after, "reachability_unlocalized").CausalEvidence
+	slices.Reverse(items)
+	if got := changeAt(t, Snapshots(before, after), path); got.Kind != KindChanged {
+		t.Errorf("causal evidence = %+v, want reordered reasoning reported as a change", got)
+	}
+}
+
+// A value the format does not call an address compares as the text it is, even
+// where it could be read as one. The classification is the artifact format's,
+// asked of the snapshot package rather than guessed at from the value.
+func TestTextualEvidenceValuesAreNotComparedAsAddresses(t *testing.T) {
+	const path = "diagnosis.findings.reachability_unlocalized.causal_evidence"
+	for _, tc := range []struct {
+		name               string
+		observation, value string
+	}{
+		{"an interface named like an address", snapshot.ObservationRouteTunneled, "2001:0db8:0000:0000:0000:0000:0000:0001"},
+		{"another path's interface", snapshot.ObservationRoutePathDiffers, "2001:0db8::1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, after := fixture(t), fixture(t)
+			for _, side := range []struct {
+				s     *snapshot.Snapshot
+				value string
+			}{{&before, "2001:db8::1"}, {&after, tc.value}} {
+				f := finding(t, side.s, "reachability_unlocalized")
+				f.CausalEvidence = append(f.CausalEvidence, snapshot.CausalEvidence{
+					Kind: snapshot.EvidenceSupport, Check: "iface", Observation: tc.observation, Value: side.value,
+				})
+			}
+			got := changeAt(t, Snapshots(before, after), path)
+			if got.Kind != KindChanged {
+				t.Errorf("causal evidence = %+v, want two interface names read as two names", got)
+			}
+		})
+	}
+}
+
+// withCounterfactual gives the fixture's finding a resolved-address
+// counterfactual whose alternatives and evidence name the addresses given.
+func withCounterfactual(t *testing.T, s *snapshot.Snapshot, variable, failed, succeeded string) {
+	t.Helper()
+	f := finding(t, s, "reachability_unlocalized")
+	alternative := func(value, outcome string) snapshot.CounterfactualAlternative {
+		e := snapshot.CausalEvidence{Kind: snapshot.EvidenceSupport, Check: "target_tcp",
+			Observation: snapshot.ObservationAddressFailed, Value: value}
+		if outcome == "succeeded" {
+			e.Observation = snapshot.ObservationAddressSucceeded
+		}
+		return snapshot.CounterfactualAlternative{Value: value, Outcome: outcome, Evidence: []snapshot.CausalEvidence{e}}
+	}
+	alternatives := []snapshot.CounterfactualAlternative{alternative(failed, "failed"), alternative(succeeded, "succeeded")}
+	f.Counterfactual = &snapshot.Counterfactual{Variable: variable, Alternatives: alternatives}
+	// A counterfactual references evidence the finding itself carries, which
+	// is what makes the pair a valid artifact rather than a struct only this
+	// test could build.
+	for _, item := range alternatives {
+		f.CausalEvidence = append(f.CausalEvidence, item.Evidence...)
+	}
+}
+
+// A resolved-address counterfactual names its alternatives by address, and the
+// evidence under each alternative is the same address-valued evidence as
+// anywhere else. Respelling either is not a different controlled comparison;
+// running the comparison against another address is.
+func TestResolvedAddressCounterfactualComparesAlternativesAsAddresses(t *testing.T) {
+	const path = "diagnosis.findings.reachability_unlocalized.counterfactual.alternatives"
+
+	before, after := fixture(t), fixture(t)
+	withCounterfactual(t, &before, "resolved_address", compressedV6, "93.184.216.34")
+	withCounterfactual(t, &after, "resolved_address", expandedV6, "::ffff:93.184.216.34")
+	mustNotChange(t, Snapshots(before, after), "respelling both addresses of one counterfactual")
+
+	other := fixture(t)
+	withCounterfactual(t, &other, "resolved_address", otherV6, "93.184.216.34")
+	got := changeAt(t, Snapshots(before, other), path)
+	if got.Kind != KindChanged {
+		t.Errorf("alternatives = %+v, want a genuinely different alternative reported", got)
+	}
+	if !strings.Contains(got.Before, compressedV6) || !strings.Contains(got.After, otherV6) {
+		t.Errorf("alternatives = %+v, want each side quoted in the spelling its artifact recorded", got)
+	}
+
+	// A counterfactual over a variable whose alternatives are words compares
+	// them as words. Nothing here parses "ipv4" or "system" as an address, and
+	// a value that could be read as one is still not read as one.
+	words, respelled := fixture(t), fixture(t)
+	withCounterfactual(t, &words, "dns_resolver", "2001:db8::1", "independent")
+	withCounterfactual(t, &respelled, "dns_resolver", "2001:0db8:0000:0000:0000:0000:0000:0001", "independent")
+	if got := changeAt(t, Snapshots(words, respelled), path); got.Kind != KindChanged {
+		t.Errorf("alternatives = %+v, want a textual variable's alternatives compared as text", got)
+	}
+}
+
+// Identity is internal here too. Reading evidence as addresses must not
+// normalize either artifact, and the published comparison quotes the lists the
+// two files carry.
+func TestEvidenceAddressIdentityDoesNotRewriteEitherSnapshot(t *testing.T) {
+	before, after := fixture(t), fixture(t)
+	respellIPv6(t, &after, "dns", compressedV6, expandedV6)
+	citeAnswer(t, &before, compressedV6)
+	citeAnswer(t, &after, expandedV6)
+	for _, s := range []*snapshot.Snapshot{&before, &after} {
+		// The row has to have recorded the success the counterfactual cites,
+		// so both artifacts stay files netdoc could have written.
+		attempts := check(t, s, "target_tcp").Observed.Attempts
+		for i := range attempts {
+			if attempts[i].IP == "93.184.216.34" {
+				attempts[i].Error, attempts[i].Cause = "", ""
+			}
+		}
+	}
+	withCounterfactual(t, &before, "resolved_address", compressedV6, "93.184.216.34")
+	withCounterfactual(t, &after, "resolved_address", expandedV6, "::ffff:93.184.216.34")
+
+	beforeJSON, afterJSON := encoded(t, before), encoded(t, after)
+	Snapshots(before, after)
+	if !bytes.Equal(beforeJSON, encoded(t, before)) {
+		t.Error("comparing causal evidence rewrote the before snapshot")
+	}
+	if !bytes.Equal(afterJSON, encoded(t, after)) {
+		t.Error("comparing causal evidence rewrote the after snapshot")
+	}
+}

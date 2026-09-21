@@ -983,15 +983,18 @@ func validate(s Snapshot) error {
 			}
 			cited[id] = true
 		}
+		// Keyed by identity, not by spelling. Two items that name one address
+		// in two spellings are one claim said twice, and a finding that
+		// carried both would be read as resting on more than it does.
 		seen := make(map[CausalEvidence]bool, len(finding.CausalEvidence))
 		for _, evidence := range finding.CausalEvidence {
 			if evidence.Check == "" {
 				return fmt.Errorf("snapshot finding %q has causal evidence with no check", finding.ID)
 			}
-			if seen[evidence] {
+			if seen[CausalEvidenceIdentity(evidence)] {
 				return fmt.Errorf("snapshot finding %q repeats causal evidence for check %q", finding.ID, evidence.Check)
 			}
-			seen[evidence] = true
+			seen[CausalEvidenceIdentity(evidence)] = true
 			if err := validateCausalEvidence(evidence, checks); err != nil {
 				return fmt.Errorf("snapshot finding %q: %w", finding.ID, err)
 			}
@@ -1014,8 +1017,12 @@ func validate(s Snapshot) error {
 				if alternative.Value == "" || alternative.Outcome == "" || len(alternative.Evidence) == 0 {
 					return fmt.Errorf("snapshot finding %q has an incomplete counterfactual alternative", finding.ID)
 				}
+				// An alternative references a fact the finding carries, so
+				// the reference resolves through the same identity that
+				// decided which facts those are. The set it resolves into
+				// holds one item per identity, so a reference names one.
 				for _, evidence := range alternative.Evidence {
-					if !seen[evidence] {
+					if !seen[CausalEvidenceIdentity(evidence)] {
 						return fmt.Errorf("snapshot finding %q counterfactual references evidence not carried by the finding", finding.ID)
 					}
 				}
@@ -1423,7 +1430,9 @@ var causalObservations = map[string]causalObservation{
 	// address rather than about there having been answers at all.
 	ObservationDNSAnswers: {EvidenceValueOptional, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && len(check.Observed.Addresses) > 0 &&
-			(e.Value == "" || slices.Contains(check.Observed.Addresses, e.Value))
+			(e.Value == "" || slices.ContainsFunc(check.Observed.Addresses, func(answer string) bool {
+				return sameRecordedAddress(answer, e.Value)
+			}))
 	}},
 	ObservationDNSNotFound: {EvidenceValueAbsent, func(_ CausalEvidence, check Check) bool {
 		return check.Observed != nil && check.Observed.DNSNotFound
@@ -1456,12 +1465,12 @@ var causalObservations = map[string]causalObservation{
 	// The address that was tried.
 	ObservationAddressSucceeded: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && slices.ContainsFunc(check.Observed.Attempts, func(a Attempt) bool {
-			return a.IP == e.Value && a.Error == ""
+			return sameRecordedAddress(a.IP, e.Value) && a.Error == ""
 		})
 	}},
 	ObservationAddressFailed: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return check.Observed != nil && slices.ContainsFunc(check.Observed.Attempts, func(a Attempt) bool {
-			return a.IP == e.Value && a.Error != "" && !a.Aborted && a.Cause != "" && a.Cause != "canceled"
+			return sameRecordedAddress(a.IP, e.Value) && a.Error != "" && !a.Aborted && a.Cause != "" && a.Cause != "canceled"
 		})
 	}},
 	// The interface this row's traffic left by. A path with no interface was
@@ -1478,7 +1487,9 @@ var causalObservations = map[string]causalObservation{
 	}},
 	// The destination the kernel refused to route.
 	ObservationRouteUnreachable: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
-		return routeMatches(check, func(r Route) bool { return r.Destination == e.Value && r.Unreachable })
+		return routeMatches(check, func(r Route) bool {
+			return sameRecordedAddress(r.Destination, e.Value) && r.Unreachable
+		})
 	}},
 	// The value names the other path. The claim is checkable from this row
 	// alone: its own selected interface is not that one.
@@ -1489,9 +1500,11 @@ var causalObservations = map[string]causalObservation{
 	}},
 	// The value names the other path's next hop. The claim is checkable from
 	// this row alone: it has a next hop of its own and it is not that one.
+	// Difference is decided by address identity, so two spellings of one
+	// router cannot prove that traffic went to two.
 	ObservationRouteNextHopDiffers: {EvidenceValueRequired, func(e CausalEvidence, check Check) bool {
 		return routeMatches(check, func(r Route) bool {
-			return r.Gateway != "" && r.Gateway != e.Value
+			return r.Gateway != "" && !sameRecordedAddress(r.Gateway, e.Value)
 		})
 	}},
 	// This row's own routing domain, named by the platform and not the main
@@ -1515,6 +1528,70 @@ var causalObservations = map[string]causalObservation{
 			return r.Interface == e.Value && r.InterfaceMTU > 0
 		})
 	}},
+}
+
+// addressValuedObservations is the other half of what Value means: which
+// observations read it as a recorded IP address rather than as text. The
+// arity table above says whether an item names a value; this says what the
+// named value is, and only these five name an address.
+//
+// The rest of the vocabulary names something else and keeps its own equality.
+// family_reachable, family_failed and cause name an address family, whose
+// whole vocabulary is two words. route_tunneled, route_direct,
+// route_path_differs and route_interface_mtu name an interface, which is an
+// operating system name and not an address. A candidate, a reason, a check id
+// and an observation id are identifiers. None of those has a respelling, and
+// reading one as an address would be inventing equivalences the format does
+// not have.
+var addressValuedObservations = map[string]bool{
+	ObservationDNSAnswers:          true,
+	ObservationAddressSucceeded:    true,
+	ObservationAddressFailed:       true,
+	ObservationRouteUnreachable:    true,
+	ObservationRouteNextHopDiffers: true,
+}
+
+// CausalEvidenceValueIsAddress reports whether an observation reads Value as a
+// recorded IP address. It is exported for the same reason the arity table is:
+// a reader outside this package that compares two artifacts has to read an
+// evidence value the way the validator reads it, and the alternative is a
+// second, subtly different answer to the same question.
+func CausalEvidenceValueIsAddress(observation string) bool {
+	return addressValuedObservations[observation]
+}
+
+// CausalEvidenceIdentity is one evidence item reduced to what makes it that
+// item rather than another. Every field is part of it, because a claim about
+// another kind, check, observation, candidate or reason is another claim; the
+// only field whose equality is not its spelling is the value, and only when
+// the observation beside it names an address.
+//
+// This is the whole of what "the same causal evidence" means in v1, so both
+// readings of a finding ask it. Validation asks it to see whether a finding
+// repeats a claim and whether a counterfactual's alternative names one the
+// finding carries, and comparison asks it to see whether two artifacts
+// reasoned from the same facts. An item's identity that differed between
+// those two is a file one of them would read as saying something the other
+// does not.
+//
+// A copy, so the artifact keeps the spellings its producer wrote.
+func CausalEvidenceIdentity(e CausalEvidence) CausalEvidence {
+	if CausalEvidenceValueIsAddress(e.Observation) {
+		e.Value = RecordedAddressIdentity(e.Value)
+	}
+	return e
+}
+
+// CounterfactualResolvedAddress is the one counterfactual variable whose
+// alternatives are named by an IP address, which makes CounterfactualValueIsAddress
+// below the same classification for the alternative's own value. The other
+// variables name a resolver or an address family, which are words.
+const CounterfactualResolvedAddress = "resolved_address"
+
+// CounterfactualValueIsAddress reports whether a counterfactual's alternatives
+// are named by a recorded IP address.
+func CounterfactualValueIsAddress(variable string) bool {
+	return variable == CounterfactualResolvedAddress
 }
 
 // CausalEvidenceValueSemantics reports how each observation in the v1

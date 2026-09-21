@@ -921,6 +921,25 @@ missing, or incomplete check is never enough to rule out a cause. An absent
 `causal_evidence` field means this producer did not record an explanation; it
 does not mean the listed alternatives were tested.
 
+What a `value` means comes from the observation beside it. Five of them name a
+recorded IP address: `dns_answers`, `address_succeeded`, `address_failed`,
+`route_unreachable`, and `route_next_hop_differs`. Those are read as addresses,
+so one address spelled two ways is one address, both when an item is matched to
+the check it cites and when two artifacts are compared. The rest name something
+else and are read as the text they are: a family for `cause`,
+`family_reachable` and `family_failed`, and an interface for `route_tunneled`,
+`route_direct`, `route_path_differs` and `route_interface_mtu`. Because
+`route_next_hop_differs` is a claim about two addresses, two spellings of one
+router do not establish it.
+
+That reading is also what makes one causal-evidence item the same item as
+another. An item's identity is all of its fields, with the value read the way
+its observation says, so a finding carries each claim once however it spells
+it, and a counterfactual alternative naming a fact the finding already carries
+names it whatever spelling either side used. Alternatives themselves stay the
+ordered records the run observed: two of them may name one value, and nothing
+reads two of them as one.
+
 The eight `route_*` observations describe the path a row's own traffic took, and
 each is a fact about that one row: which interface it left by, whether that
 interface encapsulates, and whether the operating system had a route at all.

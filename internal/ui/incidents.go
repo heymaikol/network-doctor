@@ -169,7 +169,7 @@ func (m model) handleIncidentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.setNotice("incident sent to clipboard (OSC 52); w saves an .ndoc", true)
 	case "w":
 		selected, _ := m.selectedIncident()
-		notice, ok := exportIncident(selected)
+		notice, ok := exportIncident(selected, m.incidentNow())
 		return m, m.setNotice(notice, ok)
 	}
 	return m, nil
@@ -297,12 +297,12 @@ func durationText(d time.Duration) string {
 
 var incidentWriteFile = writeFileExcl
 
-func exportIncident(i incident.Incident) (string, bool) {
+func exportIncident(i incident.Incident, savedAt time.Time) (string, bool) {
 	data, err := ndoc.Encode(i.Artifact())
 	if err != nil {
 		return "save failed: " + err.Error(), false
 	}
-	name := "network-doctor-incident-" + i.Started.UTC().Format("20060102-150405") + ndoc.Extension
+	name := "network-doctor-incident-" + savedAt.UTC().Format("20060102-150405.000") + ndoc.Extension
 	path, err := filepath.Abs(name)
 	if err == nil {
 		err = incidentWriteFile(path, data, 0o600)

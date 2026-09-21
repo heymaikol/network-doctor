@@ -1324,8 +1324,8 @@ func (c *CampaignSpec) validate(s *Scenario) error {
 				return fmt.Errorf("timeline.resolver_hold must satisfy %s <= hold <= %s", minDNSResponseDelay, maxDNSResponseDelay)
 			}
 		}
-		if _, err := time.ParseDuration(t.Latency); err != nil {
-			return fmt.Errorf("timeline.latency: %w", err)
+		if err := validateNetemDuration("timeline.latency", "latency", t.Latency); err != nil {
+			return err
 		}
 		if err := t.DegradeAt.validate("timeline.degrade_at", maxScheduledOffset); err != nil {
 			return err

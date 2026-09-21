@@ -156,12 +156,8 @@ func validateNetemEvent(i int, e *ScheduledEvent) error {
 		if raw == "" {
 			continue
 		}
-		d, err := time.ParseDuration(raw)
-		if err != nil {
-			return fmt.Errorf("events[%d].%s: %w", i, label, err)
-		}
-		if d < 0 || d > maxNetemDuration {
-			return fmt.Errorf("events[%d].%s must satisfy 0 <= %s <= %s", i, label, label, maxNetemDuration)
+		if err := validateNetemDuration(fmt.Sprintf("events[%d].%s", i, label), label, raw); err != nil {
+			return err
 		}
 	}
 	if e.Jitter != "" && e.Latency == "" {
@@ -169,6 +165,21 @@ func validateNetemEvent(i int, e *ScheduledEvent) error {
 	}
 	if math.IsNaN(e.LossPercent) || math.IsInf(e.LossPercent, 0) || e.LossPercent < 0 || e.LossPercent > 100 {
 		return fmt.Errorf("events[%d].loss_percent must satisfy 0 <= loss_percent <= 100", i)
+	}
+	return nil
+}
+
+// validateNetemDuration bounds one netem latency or jitter value. label is the
+// field path the error names, field the bare name the relation reads with. It
+// is the single source of the accepted range, so a campaign variable and the
+// scheduled event it compiles into cannot drift apart.
+func validateNetemDuration(label, field, raw string) error {
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	if d < 0 || d > maxNetemDuration {
+		return fmt.Errorf("%s must satisfy 0 <= %s <= %s", label, field, maxNetemDuration)
 	}
 	return nil
 }

@@ -178,11 +178,19 @@ func Serve(ctx context.Context, in io.Reader, out io.Writer, tool snapshot.Tool,
 // and of one too old to know the worker flag.
 var ErrNoResponse = errors.New("no response")
 
-// decodeResponse reads the one JSON object the worker writes, and refuses
-// anything else. Trailing bytes are a protocol violation and not ignored: a
-// second object, or prose after the first one, means the stream was not what
-// this build thinks it was talking to.
-func decodeResponse(r io.Reader) (Response, error) {
+// decodeResponse reads the one JSON object the worker writes, validates its
+// size, its protocol, and its report-and-snapshot agreement, and returns.
+//
+// It stops before the trailing-data check on purpose. The original code decoded
+// a second time here to reject anything past the first response, but that second
+// Decode waits for an EOF the live SSH stdout may not send while the local
+// stdin stays open, which deadlocked Run. This build instead hands back the
+// decoder and its LimitedReader for a separate check that Run performs after it
+// has closed stdin. Run gives that check a bounded window to observe natural
+// EOF or trailing data, then ends SSH if stdout still remains open. The exact
+// decoder state is reused, including bytes buffered past the first value, so
+// the cap is still counted correctly.
+func decodeResponse(r io.Reader) (Response, *json.Decoder, *io.LimitedReader, error) {
 	// Keep one byte of headroom past the cap. If it is consumed, the EOF seen
 	// by the decoder came from this limit rather than the remote stream.
 	limited := &io.LimitedReader{R: r, N: MaxResponseBytes + 1}
@@ -190,37 +198,48 @@ func decodeResponse(r io.Reader) (Response, error) {
 	var resp Response
 	err := dec.Decode(&resp)
 	if limited.N == 0 {
-		return Response{}, errors.New("the remote response is too large")
+		return Response{}, nil, nil, errors.New("the remote response is too large")
 	}
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			return Response{}, ErrNoResponse
+			return Response{}, nil, nil, ErrNoResponse
 		}
-		return Response{}, fmt.Errorf("could not read the remote response: %w", err)
-	}
-	err = dec.Decode(new(json.RawMessage))
-	if limited.N == 0 {
-		return Response{}, errors.New("the remote response is too large")
-	}
-	if !errors.Is(err, io.EOF) {
-		return Response{}, errors.New("the remote sent more than one response")
+		return Response{}, nil, nil, fmt.Errorf("could not read the remote response: %w", err)
 	}
 	if resp.Protocol != Protocol {
-		return Response{}, unsupportedProtocol(resp)
+		return Response{}, nil, nil, unsupportedProtocol(resp)
 	}
 	if resp.Error == "" {
 		if resp.Report == nil || resp.Snapshot == nil {
-			return Response{}, errors.New("the remote response carried no diagnosis and no error")
+			return Response{}, nil, nil, errors.New("the remote response carried no diagnosis and no error")
 		}
 		// Both artifacts are about to be spent separately by the caller, one
 		// for what it prints and exits with and one for what it stores, so
 		// this is the last point at which anything can still ask whether they
 		// are two readings of one run.
 		if err := agree(resp.Tool, *resp.Report, *resp.Snapshot); err != nil {
-			return Response{}, err
+			return Response{}, nil, nil, err
 		}
 	}
-	return resp, nil
+	return resp, dec, limited, nil
+}
+
+// confirmNoTrailingData finishes what decodeResponse deliberately stopped
+// before: it decodes once more on the same decoder and LimitedReader to prove
+// the worker wrote exactly one response. Run lets this check observe natural
+// EOF and trailing data for a bounded teardown window, then ends SSH if stdout
+// remains open. It reuses decodeResponse's decoder and LimitedReader so bytes
+// already buffered past the first value are still counted against the cap. A
+// second object, or any prose after the first, is a protocol violation.
+func confirmNoTrailingData(dec *json.Decoder, limited *io.LimitedReader) error {
+	err := dec.Decode(new(json.RawMessage))
+	if limited.N == 0 {
+		return errors.New("the remote response is too large")
+	}
+	if !errors.Is(err, io.EOF) {
+		return errors.New("the remote sent more than one response")
+	}
+	return nil
 }
 
 // unsupportedProtocol words the version mismatch with both builds named, since

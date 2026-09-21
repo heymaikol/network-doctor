@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 )
 
 // validateObservation checks the portable meanings of measurements, not which
@@ -73,7 +74,7 @@ func observationIP(field, value string, optional, sanitized bool) error {
 }
 
 func validObservationFamily(value string) bool {
-	return value == "" || value == "ipv4" || value == "ipv6"
+	return value == "" || slices.Contains(familyWords, value)
 }
 
 func validateObservedRoute(r Route, sanitized bool) error {

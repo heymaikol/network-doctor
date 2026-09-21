@@ -1328,10 +1328,29 @@ they are read from the system and registered before the snapshot is walked;
 a machine answering to both `buildbox.corp` and `buildbox` gets one alias for
 the two, and a name that identifies a role rather than a person or a machine
 (`root`, `localhost`, `admin`) is left alone. It applies to check names, details, fixes, attempt errors, diagnosis and
-finding summaries, counterfactual values, captive-portal URLs, and every
+finding summaries, captive-portal URLs, and every
 snapshot nested in an incident. Passwords, bearer or basic credentials,
 cookies, proxy credentials, tokens, and private keys are replaced rather than
 copied.
+
+Causal-evidence values and counterfactual alternative values are not rewritten
+as text. Each one is whatever the observation or counterfactual variable beside
+it declares it to be, and that declaration decides the namespace it is replaced
+in, never the value's own spelling. An address-valued observation
+(`dns_answers`, `address_succeeded`, `address_failed`, `route_unreachable`,
+`route_next_hop_differs`) and a `resolved_address` alternative take the address
+pseudonym of the recording they cite. An interface-valued observation
+(`route_tunneled`, `route_direct`, `route_path_differs`,
+`route_interface_mtu`) takes the interface alias of the route it cites, and
+keeps it even when the operating system named that device something that reads
+as an IP address. An address family, and a `dns_resolver` or `address_family`
+alternative, stays the word it was, because each is a closed vocabulary the
+format defines rather than anything the local network chose. An observation or
+variable this build does not know, and a value outside a vocabulary that build
+does define, is aliased: nothing here can prove such a string carries no
+identity, so it is not published. This is what keeps a sanitized artifact
+checkable, since evidence whose value no longer matches the row it names is
+refused by the encoder.
 
 Pseudonyms are assigned in stable traversal order within one artifact. The same
 hostname, SSID, interface, route table, path, address, or prefix therefore gets

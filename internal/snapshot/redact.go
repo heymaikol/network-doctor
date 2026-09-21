@@ -208,12 +208,54 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 			}
 		}
 	}
+	for _, finding := range s.Diagnosis.Findings {
+		r.collectFinding(finding)
+	}
 	if s.Incident != nil {
 		for _, nested := range []*Snapshot{s.Incident.Before, s.Incident.During, s.Incident.Recovered} {
 			if nested != nil {
 				r.collectSnapshot(*nested)
 			}
 		}
+	}
+}
+
+// collectFinding registers the addresses a diagnosis names. A finding can cite
+// an address that no observed row recorded, and an original that never reaches
+// originalIPs is an original the pseudonym search will happily hand to another
+// address: address() then reads the citation as a value it sanitized itself
+// and returns it exactly as written. That leaks the original and collapses the
+// two addresses the finding was distinguishing.
+//
+// Which field holds an address is read from the declared kind, the same table
+// the output side reads, so a value shaped like an address under a field that
+// means something else is not collected as one.
+func (r *redactor) collectFinding(f Finding) {
+	for _, evidence := range f.CausalEvidence {
+		r.collectTypedValue(causalValueKinds[evidence.Observation], evidence.Value)
+	}
+	if f.Counterfactual == nil {
+		return
+	}
+	for _, alternative := range f.Counterfactual.Alternatives {
+		r.collectTypedValue(counterfactualValueKinds[f.Counterfactual.Variable], alternative.Value)
+		// Validation already requires every nested item to appear in the
+		// finding's own evidence, but the collection of a field belongs with
+		// the field: the pass that sanitizes this one has to be the pass that
+		// collected it, not a rule somewhere else that happens to cover it.
+		for _, evidence := range alternative.Evidence {
+			r.collectTypedValue(causalValueKinds[evidence.Observation], evidence.Value)
+		}
+	}
+}
+
+// collectTypedValue registers one declared-kind value that the output side
+// will send through address(). Retention is deliberately not offered: a
+// diagnosis naming a public resolver is an interpretation, not the recording
+// that decides whether that address stays readable.
+func (r *redactor) collectTypedValue(semantics valueSemantics, value string) {
+	if semantics.kind == valueKindAddress {
+		r.collectIP(value, false)
 	}
 }
 
@@ -399,7 +441,10 @@ func (r *redactor) finding(f Finding) Finding {
 	if f.Counterfactual != nil {
 		out.Counterfactual = &Counterfactual{Variable: f.Counterfactual.Variable}
 		for _, alternative := range f.Counterfactual.Alternatives {
-			item := CounterfactualAlternative{Value: r.value(alternative.Value), Outcome: alternative.Outcome}
+			item := CounterfactualAlternative{
+				Value:   r.typedValue(counterfactualValueKinds[f.Counterfactual.Variable], alternative.Value),
+				Outcome: alternative.Outcome,
+			}
 			for _, evidence := range alternative.Evidence {
 				item.Evidence = append(item.Evidence, r.causalEvidence(evidence))
 			}
@@ -412,15 +457,38 @@ func (r *redactor) finding(f Finding) Finding {
 func (r *redactor) causalEvidence(e CausalEvidence) CausalEvidence {
 	return CausalEvidence{
 		Kind: e.Kind, Check: e.Check, Observation: e.Observation,
-		Value: r.value(e.Value), Candidate: e.Candidate, Reason: e.Reason,
+		Value: r.typedValue(causalValueKinds[e.Observation], e.Value), Candidate: e.Candidate, Reason: e.Reason,
 	}
 }
 
-func (r *redactor) value(value string) string {
-	if _, err := netip.ParseAddr(value); err == nil {
+// typedValue rewrites one value whose meaning the artifact declares beside it,
+// and never reads that meaning off the value's own spelling. An interface can
+// be named "192.0.2.1", and sending that name through the address namespace
+// hands the evidence a value the route it cites no longer carries, which is an
+// artifact netdoc then refuses to encode.
+//
+// The pseudonym has to come out of the same namespace as the field the value
+// references, because the whole worth of an evidence item is that a reader can
+// check it against the row beside it. An address therefore goes through the
+// address pseudonyms, an interface through the interface aliases, and both
+// land on whatever the recorded field landed on.
+//
+// A value whose kind this build cannot name is aliased rather than kept. That
+// is the fail-safe direction: a later netdoc may name a value this one has
+// never heard of, and the one thing known about such a string is that nothing
+// here can prove it carries no identity.
+func (r *redactor) typedValue(semantics valueSemantics, value string) string {
+	switch {
+	case value == "":
+		return ""
+	case semantics.kind == valueKindAddress:
 		return r.address(value)
+	case semantics.kind == valueKindInterface:
+		return r.alias("interface", value)
+	case semantics.retains(value):
+		return value
 	}
-	return r.text(value)
+	return r.alias("value", value)
 }
 
 func (r *redactor) host(value string) string {

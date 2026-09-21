@@ -1530,25 +1530,64 @@ var causalObservations = map[string]causalObservation{
 	}},
 }
 
-// addressValuedObservations is the other half of what Value means: which
-// observations read it as a recorded IP address rather than as text. The
-// arity table above says whether an item names a value; this says what the
-// named value is, and only these five name an address.
+// The value kinds, part of the v1 file contract. The arity table above says
+// whether an item names a value; a kind says what the named value is. They are
+// separate questions and every reader needs both: arity decides whether a
+// field may be filled, and the kind decides what equality it has and what a
+// rewrite of it may put there.
 //
-// The rest of the vocabulary names something else and keeps its own equality.
-// family_reachable, family_failed and cause name an address family, whose
-// whole vocabulary is two words. route_tunneled, route_direct,
-// route_path_differs and route_interface_mtu name an interface, which is an
-// operating system name and not an address. A candidate, a reason, a check id
-// and an observation id are identifiers. None of those has a respelling, and
-// reading one as an address would be inventing equivalences the format does
-// not have.
-var addressValuedObservations = map[string]bool{
-	ObservationDNSAnswers:          true,
-	ObservationAddressSucceeded:    true,
-	ObservationAddressFailed:       true,
-	ObservationRouteUnreachable:    true,
-	ObservationRouteNextHopDiffers: true,
+// A kind is never inferred from the spelling of a value. An interface is
+// whatever name the operating system gave a device, and an operating system
+// will accept "192.0.2.1" as one; a reader that guessed from syntax would read
+// that name as an address and hand the evidence a value its own row no longer
+// carries.
+const (
+	valueKindAddress    = "address"
+	valueKindInterface  = "interface"
+	valueKindVocabulary = "vocabulary"
+)
+
+// valueSemantics is what one typed value in the artifact names: its kind, and
+// for a vocabulary kind the whole closed set of words it can be.
+type valueSemantics struct {
+	kind  string
+	words []string
+}
+
+// retains reports whether value is one of this kind's own words, which is the
+// only case where a reader may keep a typed value exactly as written.
+func (s valueSemantics) retains(value string) bool {
+	return s.kind == valueKindVocabulary && slices.Contains(s.words, value)
+}
+
+// familyWords is the whole address-family vocabulary, named once so the
+// validator and every reader of a family-valued field use one list.
+var familyWords = []string{"ipv4", "ipv6"}
+
+// causalValueKinds is the other half of what Value means: what the value an
+// item names actually is. Only these five name an address. route_tunneled,
+// route_direct, route_path_differs and route_interface_mtu name an interface,
+// which is an operating system name. family_reachable, family_failed and
+// cause name an address family, whose whole vocabulary is two words.
+//
+// An observation with no entry names no value: either the arity table says it
+// carries none, or this build has never heard of it. A candidate, a reason, a
+// check id and an observation id are identifiers and are not values at all.
+// None of those has a respelling, and reading one as an address would be
+// inventing equivalences the format does not have.
+var causalValueKinds = map[string]valueSemantics{
+	ObservationDNSAnswers:          {kind: valueKindAddress},
+	ObservationAddressSucceeded:    {kind: valueKindAddress},
+	ObservationAddressFailed:       {kind: valueKindAddress},
+	ObservationRouteUnreachable:    {kind: valueKindAddress},
+	ObservationRouteNextHopDiffers: {kind: valueKindAddress},
+	ObservationRouteTunneled:       {kind: valueKindInterface},
+	ObservationRouteDirect:         {kind: valueKindInterface},
+	ObservationRoutePathDiffers:    {kind: valueKindInterface},
+	ObservationRouteInterfaceMTU:   {kind: valueKindInterface},
+	ObservationCause:               {kind: valueKindVocabulary, words: familyWords},
+	ObservationFamilyReachable:     {kind: valueKindVocabulary, words: familyWords},
+	ObservationFamilyFailed:        {kind: valueKindVocabulary, words: familyWords},
 }
 
 // CausalEvidenceValueIsAddress reports whether an observation reads Value as a
@@ -1557,7 +1596,7 @@ var addressValuedObservations = map[string]bool{
 // evidence value the way the validator reads it, and the alternative is a
 // second, subtly different answer to the same question.
 func CausalEvidenceValueIsAddress(observation string) bool {
-	return addressValuedObservations[observation]
+	return causalValueKinds[observation].kind == valueKindAddress
 }
 
 // CausalEvidenceIdentity is one evidence item reduced to what makes it that
@@ -1582,16 +1621,29 @@ func CausalEvidenceIdentity(e CausalEvidence) CausalEvidence {
 	return e
 }
 
-// CounterfactualResolvedAddress is the one counterfactual variable whose
-// alternatives are named by an IP address, which makes CounterfactualValueIsAddress
-// below the same classification for the alternative's own value. The other
-// variables name a resolver or an address family, which are words.
-const CounterfactualResolvedAddress = "resolved_address"
+// The counterfactual variables, part of the v1 file contract. Each one says
+// what its alternatives' Value names, which is the same classification the
+// causal-evidence table makes and for the same reason: resolved_address names
+// an address, and the other two name a word out of a closed set.
+const (
+	CounterfactualResolvedAddress = "resolved_address"
+	CounterfactualDNSResolver     = "dns_resolver"
+	CounterfactualAddressFamily   = "address_family"
+)
+
+// counterfactualValueKinds gives every variable this build knows the kind of
+// value its alternatives name. A variable with no entry is one this build
+// cannot interpret, and its alternatives name nothing a reader may act on.
+var counterfactualValueKinds = map[string]valueSemantics{
+	CounterfactualResolvedAddress: {kind: valueKindAddress},
+	CounterfactualDNSResolver:     {kind: valueKindVocabulary, words: []string{"system", "independent"}},
+	CounterfactualAddressFamily:   {kind: valueKindVocabulary, words: familyWords},
+}
 
 // CounterfactualValueIsAddress reports whether a counterfactual's alternatives
 // are named by a recorded IP address.
 func CounterfactualValueIsAddress(variable string) bool {
-	return variable == CounterfactualResolvedAddress
+	return counterfactualValueKinds[variable].kind == valueKindAddress
 }
 
 // CausalEvidenceValueSemantics reports how each observation in the v1

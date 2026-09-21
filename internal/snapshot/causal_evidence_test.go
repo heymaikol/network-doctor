@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -338,34 +339,83 @@ const (
 )
 
 // The classification is the whole of what changes, so it is pinned here
-// rather than left to the rules that read it. An observation added to the
-// address-valued set is a claim that its value is an IP, and one taken out of
-// it silently would put a textual equality back without failing anything.
-func TestAddressValuedObservationsAreTheOnesWhoseValueIsAnAddress(t *testing.T) {
-	want := map[string]bool{
-		ObservationDNSAnswers:          true,
-		ObservationAddressSucceeded:    true,
-		ObservationAddressFailed:       true,
-		ObservationRouteUnreachable:    true,
-		ObservationRouteNextHopDiffers: true,
+// rather than left to the rules that read it. An observation moved into the
+// address-valued kind is a claim that its value is an IP, and one taken out of
+// it silently would put a textual equality back without failing anything. The
+// same table decides what support redaction may write into each value, so a
+// wrong kind here is also an artifact that no longer checks against its rows.
+func TestEveryObservationValueHasTheKindItsRuleReads(t *testing.T) {
+	want := map[string]string{
+		ObservationDNSAnswers:          valueKindAddress,
+		ObservationAddressSucceeded:    valueKindAddress,
+		ObservationAddressFailed:       valueKindAddress,
+		ObservationRouteUnreachable:    valueKindAddress,
+		ObservationRouteNextHopDiffers: valueKindAddress,
+		ObservationRouteTunneled:       valueKindInterface,
+		ObservationRouteDirect:         valueKindInterface,
+		ObservationRoutePathDiffers:    valueKindInterface,
+		ObservationRouteInterfaceMTU:   valueKindInterface,
+		ObservationCause:               valueKindVocabulary,
+		ObservationFamilyReachable:     valueKindVocabulary,
+		ObservationFamilyFailed:        valueKindVocabulary,
 	}
 	for id := range want {
 		if _, known := causalObservations[id]; !known {
-			t.Errorf("%q is classified as address-valued but is not in the vocabulary", id)
+			t.Errorf("%q is given a value kind but is not in the vocabulary", id)
 		}
 	}
-	for id := range causalObservations {
-		if addressValuedObservations[id] != want[id] {
-			t.Errorf("%q is address-valued = %v, want %v", id, addressValuedObservations[id], want[id])
+	for id, rule := range causalObservations {
+		kind := causalValueKinds[id].kind
+		if kind != want[id] {
+			t.Errorf("%q has value kind %q, want %q", id, kind, want[id])
 		}
-		if CausalEvidenceValueIsAddress(id) != want[id] {
-			t.Errorf("CausalEvidenceValueIsAddress(%q) = %v, want %v", id, CausalEvidenceValueIsAddress(id), want[id])
+		// Arity and kind are two answers about one field and have to agree:
+		// an observation that names no value has nothing to give a kind to,
+		// and one that may name a value is unreadable without one.
+		if (rule.value == EvidenceValueAbsent) != (kind == "") {
+			t.Errorf("%q has arity %q and value kind %q, which cannot both be true", id, rule.value, kind)
+		}
+		if CausalEvidenceValueIsAddress(id) != (want[id] == valueKindAddress) {
+			t.Errorf("CausalEvidenceValueIsAddress(%q) = %v, want %v", id, CausalEvidenceValueIsAddress(id), want[id] == valueKindAddress)
+		}
+	}
+	for id := range causalValueKinds {
+		if _, known := causalObservations[id]; !known {
+			t.Errorf("causalValueKinds names %q, which no observation rule names", id)
 		}
 	}
 	// An observation this build does not know names nothing, least of all an
 	// address.
 	if CausalEvidenceValueIsAddress("route_moon_phase") {
 		t.Error("an unknown observation was classified as address-valued")
+	}
+}
+
+// The counterfactual variables answer the same question about the same kind
+// of field, so they are pinned the same way. A variable whose alternatives
+// stopped being addresses would otherwise change both what comparison reads
+// and what redaction writes, without failing anything.
+func TestEveryCounterfactualVariableHasTheKindItsAlternativesName(t *testing.T) {
+	want := map[string]valueSemantics{
+		CounterfactualResolvedAddress: {kind: valueKindAddress},
+		CounterfactualDNSResolver:     {kind: valueKindVocabulary, words: []string{"system", "independent"}},
+		CounterfactualAddressFamily:   {kind: valueKindVocabulary, words: []string{"ipv4", "ipv6"}},
+	}
+	if len(counterfactualValueKinds) != len(want) {
+		t.Errorf("counterfactualValueKinds has %d variables, want %d", len(counterfactualValueKinds), len(want))
+	}
+	for variable, semantics := range want {
+		got := counterfactualValueKinds[variable]
+		if got.kind != semantics.kind || !slices.Equal(got.words, semantics.words) {
+			t.Errorf("%q has value semantics %+v, want %+v", variable, got, semantics)
+		}
+		if CounterfactualValueIsAddress(variable) != (semantics.kind == valueKindAddress) {
+			t.Errorf("CounterfactualValueIsAddress(%q) = %v, want %v",
+				variable, CounterfactualValueIsAddress(variable), semantics.kind == valueKindAddress)
+		}
+	}
+	if CounterfactualValueIsAddress("moon_phase") {
+		t.Error("an unknown counterfactual variable was classified as address-valued")
 	}
 }
 

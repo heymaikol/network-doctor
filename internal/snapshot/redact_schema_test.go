@@ -83,17 +83,22 @@ var retainedBySupportPolicy = map[string]bool{
 // purpose: it is a bare word with no identifying syntax, and nothing can tell
 // one of those from an ordinary English word. The fixture tests beside this one
 // cover what the patterns do catch.
+//
+// The three typed value fields are deliberately absent from both sets. A
+// causal-evidence value and a counterfactual alternative's value are whatever
+// the observation or variable beside them declares, so they are rewritten by
+// that declared kind: an address pseudonym, an interface alias, one of a
+// closed set of words kept as written, or an alias when this build cannot say
+// what the value is. The sentinels this walk writes name no kind this build
+// knows, so they take the last of those and never survive.
 var proseBySupportPolicy = map[string]bool{
-	".Target.Raw":                                    true,
-	".Checks[0].Name":                                true,
-	".Checks[0].Detail":                              true,
-	".Checks[0].Fix":                                 true,
-	".Checks[0].Observed.Attempts[0].Error":          true,
-	".Diagnosis.Summary":                             true,
-	".Diagnosis.Findings[0].Summary":                 true,
-	".Diagnosis.Findings[0].CausalEvidence[0].Value": true,
-	".Diagnosis.Findings[0].Counterfactual.Alternatives[0].Value":             true,
-	".Diagnosis.Findings[0].Counterfactual.Alternatives[0].Evidence[0].Value": true,
+	".Target.Raw":                           true,
+	".Checks[0].Name":                       true,
+	".Checks[0].Detail":                     true,
+	".Checks[0].Fix":                        true,
+	".Checks[0].Observed.Attempts[0].Error": true,
+	".Diagnosis.Summary":                    true,
+	".Diagnosis.Findings[0].Summary":        true,
 }
 
 // TestSupportSanitizesEveryUnclassifiedSchemaString walks the schema itself

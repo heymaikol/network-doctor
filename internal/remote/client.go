@@ -101,6 +101,8 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 	// wanted, and when ssh goes away the remote sees EOF and stops probing
 	// instead of finishing a diagnosis nobody will read.
 	var resp Response
+	var dec *json.Decoder
+	var limited *io.LimitedReader
 	var decodeErr error
 	stopSSH := false
 	if _, err := stdin.Write(body); err != nil {
@@ -109,7 +111,7 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 		// the same "nothing came back" outcome from the caller's side.
 		decodeErr = ErrNoResponse
 	} else {
-		resp, decodeErr = decodeResponse(stdout)
+		resp, dec, limited, decodeErr = decodeResponse(stdout)
 		stopSSH = decodeErr != nil
 	}
 	// Closed before Wait: EOF is what ends the worker, so this is what lets a
@@ -120,6 +122,16 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 		// failed exchange cannot strand its writer or our Wait.
 		_ = cmd.Process.Kill()
 		_ = stdout.Close()
+	} else if err := confirmNoTrailingData(dec, limited); err != nil {
+		// stdin is closed, which lets the worker/SSH exchange finish so stdout
+		// can reach EOF instead of a decode blocking on a stream that stays
+		// open while the liveness stdin is still open. The same decoder and
+		// LimitedReader decodeResponse handed back now check what remains: a
+		// clean EOF, nothing past the cap. Anything else is a broken exchange,
+		// so stop ssh the same way a framing error does.
+		_ = cmd.Process.Kill()
+		_ = stdout.Close()
+		decodeErr = err
 	} else {
 		// Drain what is left so ssh is never blocked writing into a full pipe
 		// while we wait. Bounded, for the same reason the decode was.

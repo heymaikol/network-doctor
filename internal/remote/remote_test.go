@@ -440,7 +440,7 @@ func TestServeRefusesARequestThatNeverEnds(t *testing.T) {
 }
 
 func TestDecodeResponseRefusesAnUnboundedStream(t *testing.T) {
-	if _, err := decodeResponse(endless{}); err == nil {
+	if _, _, _, err := decodeResponse(endless{}); err == nil {
 		t.Fatal("an unbounded response was accepted")
 	}
 }
@@ -466,14 +466,87 @@ func TestDecodeResponseEnforcesFramingBoundary(t *testing.T) {
 		{"continuing past limit", io.MultiReader(bytes.NewReader(response), endless{}), "too large"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := decodeResponse(tc.in)
+			// decodeResponse reports the first response's own problems; this
+			// second phase, on the same decoder and LimitedReader, reports
+			// anything past it. The two are never checked apart.
+			_, dec, limited, err := decodeResponse(tc.in)
+			if err == nil {
+				err = confirmNoTrailingData(dec, limited)
+			}
 			if tc.want == "" && err != nil {
-				t.Fatalf("decodeResponse: %v", err)
+				t.Fatalf("framing: %v", err)
 			}
 			if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
-				t.Fatalf("decodeResponse error = %v, want %q", err, tc.want)
+				t.Fatalf("framing error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// openAfterReader stands in for a live SSH stdout that stays open after the
+// response: its first Read hands back one complete response, and the next Read
+// proves decodeResponse kept reading past it instead of returning. It never
+// yields EOF on its own, so a decodeResponse that waits for EOF blocks here.
+type openAfterReader struct {
+	first     []byte
+	attempted chan struct{}
+	release   chan struct{}
+}
+
+func (r *openAfterReader) Read(p []byte) (int, error) {
+	if len(r.first) > 0 {
+		n := copy(p, r.first)
+		r.first = r.first[n:]
+		return n, nil
+	}
+	// A read past the complete response is the bug: signal it, then block on
+	// release so the decode goroutine cannot leak.
+	select {
+	case r.attempted <- struct{}{}:
+	default:
+	}
+	<-r.release
+	return 0, io.EOF
+}
+
+// TestDecodeResponseReturnsAfterCompleteResponseWithoutWaitingForEOF pins #157:
+// once decodeResponse has one complete valid Response it must return, not read
+// past it for an EOF that a live SSH stdout will not send while the local stdin
+// stays open. A deterministic signal fires when decodeResponse attempts that
+// unwanted post-response read, so the test never relies on timing.
+func TestDecodeResponseReturnsAfterCompleteResponseWithoutWaitingForEOF(t *testing.T) {
+	data, err := json.Marshal(diagnosedResponse(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempted := make(chan struct{}, 1)
+	release := make(chan struct{})
+	r := &openAfterReader{first: data, attempted: attempted, release: release}
+
+	type decoded struct {
+		resp Response
+		err  error
+	}
+	result := make(chan decoded, 1)
+	go func() {
+		resp, _, _, err := decodeResponse(r)
+		result <- decoded{resp, err}
+	}()
+
+	select {
+	case <-attempted:
+		// decodeResponse read past the already-complete response. Let the
+		// goroutine finish, then fail for it.
+		close(release)
+		got := <-result
+		t.Fatalf("decodeResponse read past the complete response (resp=%+v, err=%v); it must return once the response is complete", got.resp, got.err)
+	case got := <-result:
+		if got.err != nil {
+			t.Fatalf("decodeResponse returned an error on a complete response: %v", got.err)
+		}
+		if got.resp.Protocol != Protocol || got.resp.Report == nil || got.resp.Snapshot == nil {
+			t.Fatalf("decodeResponse did not return the complete valid response: %+v", got.resp)
+		}
 	}
 }
 
@@ -496,7 +569,7 @@ func TestDecodeResponseNamesWhatIsMissing(t *testing.T) {
 		{"neither answer nor error", `{"protocol":1}`, "carried no diagnosis and no error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := decodeResponse(strings.NewReader(tc.in))
+			_, _, _, err := decodeResponse(strings.NewReader(tc.in))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("decodeResponse = %v, want it to mention %q", err, tc.want)
 			}

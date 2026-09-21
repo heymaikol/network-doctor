@@ -95,7 +95,13 @@ func decoded(t *testing.T, resp Response) (Response, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return decodeResponse(bytes.NewReader(data))
+	got, dec, limited, err := decodeResponse(bytes.NewReader(data))
+	// decodeResponse validates the first response; this second phase, on the
+	// same decoder and LimitedReader, validates that nothing came after it.
+	if err == nil {
+		err = confirmNoTrailingData(dec, limited)
+	}
+	return got, err
 }
 
 func TestAMatchingReportAndSnapshotAreAccepted(t *testing.T) {
@@ -125,7 +131,11 @@ func TestUnknownAdditiveFieldsStayTolerated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := decodeResponse(bytes.NewReader(data)); err != nil {
+	_, dec, limited, err := decodeResponse(bytes.NewReader(data))
+	if err == nil {
+		err = confirmNoTrailingData(dec, limited)
+	}
+	if err != nil {
 		t.Fatalf("an additive field made a coherent response unreadable: %v", err)
 	}
 }

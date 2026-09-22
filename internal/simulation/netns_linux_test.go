@@ -104,6 +104,83 @@ func TestNodeStopReturnsHolderFailure(t *testing.T) {
 	}
 }
 
+// startFailedHolder starts a child that explains itself on stderr and exits
+// nonzero without ever answering, the shape of a holder whose services could
+// not come up.
+func startFailedHolder(t *testing.T) *nodeProc {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", `echo 'bind 127.0.0.1:53: address already in use' >&2; exit 9`)
+	np := &nodeProc{node: &Node{Name: "client"}, logs: new(safeLog)}
+	cmd.Stderr = np.logs
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	np.cmd, np.stdout, np.pid = cmd, bufio.NewReader(stdout), cmd.Process.Pid
+	return np
+}
+
+// A holder that dies during setup fails setup, and await says so. Cleanup then
+// reaps it, which is not a second failure: the exit it finds is the one the
+// caller already has. Reporting it again claimed teardown had failed on an
+// environment whose resources were all released.
+func TestNodeStopIgnoresAlreadyReportedHolderExit(t *testing.T) {
+	np := startFailedHolder(t)
+
+	err := np.await(context.Background(), holderServicesReady)
+	if err == nil {
+		t.Fatal("await must report a holder that died instead of answering")
+	}
+	// The primary error is the one that has to carry the diagnosis.
+	if !strings.Contains(err.Error(), holderServicesReady) || !strings.Contains(err.Error(), "address already in use") {
+		t.Errorf("await error = %v, want the expected reply and the holder's stderr", err)
+	}
+
+	if err := np.stop(context.Background()); err != nil {
+		t.Errorf("stop reported an exit await had already reported: %v", err)
+	}
+	if np.cmd.ProcessState == nil {
+		t.Error("stop returned without reaping the holder")
+	}
+	if err := np.stop(context.Background()); err != nil {
+		t.Errorf("stop is called from every exit path, so it has to be idempotent: %v", err)
+	}
+}
+
+// The same holder death, with nothing having read its stdout, is cleanup's own
+// discovery and stays cleanup's error.
+func TestNodeStopReportsUnobservedHolderExit(t *testing.T) {
+	np := startFailedHolder(t)
+
+	err := np.stop(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "exit status 9") || !strings.Contains(err.Error(), "address already in use") {
+		t.Fatalf("stop error = %v, want the unobserved holder exit", err)
+	}
+}
+
+// Cleanup releases what the simulator owns. A setup failure the caller already
+// holds must not come back as a teardown failure, or a run that cleaned up
+// perfectly reports that it did not.
+func TestCleanupSucceedsAfterReportedHolderFailure(t *testing.T) {
+	np := startFailedHolder(t)
+	if err := np.await(context.Background(), holderServicesReady); err == nil {
+		t.Fatal("await must report a holder that died instead of answering")
+	}
+	work := t.TempDir()
+	env := &netnsEnv{backend: &netnsBackend{}, id: "sim", work: work, nodes: []*nodeProc{np}}
+
+	info := env.Cleanup(context.Background(), false)
+	if !info.Done || len(info.Errors) != 0 {
+		t.Fatalf("cleanup = %+v, want a clean release", info)
+	}
+	if _, err := os.Stat(work); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("workspace %s survived cleanup: %v", work, err)
+	}
+}
+
 func TestNodeStopReturnsForcedKillFailure(t *testing.T) {
 	cmd := exec.Command("sleep", "10")
 	np := &nodeProc{node: &Node{Name: "client"}, logs: new(safeLog)}

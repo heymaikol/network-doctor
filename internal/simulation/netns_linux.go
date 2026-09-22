@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -278,6 +279,11 @@ type nodeProc struct {
 	// director's goroutine, the fault scheduler from its own, and stop closes it.
 	mu      sync.Mutex
 	stopped bool
+	// exitReported records that a reply already read the end of the holder's
+	// stdout and returned that death to its caller. It is atomic rather than
+	// guarded by mu because reply runs with mu already held by the runtime
+	// commands, while stop reads it after releasing mu.
+	exitReported atomic.Bool
 }
 
 type segmentProc struct {
@@ -563,6 +569,11 @@ func (np *nodeProc) reply(ctx context.Context, want string) (string, error) {
 		return "", ctx.Err()
 	case got := <-ch:
 		if got.err != nil {
+			// The holder's stdout ended, so the holder is gone and this error
+			// is the report of it. Remember that, or stop would reap the same
+			// corpse later and file its exit status a second time, as a failure
+			// to release resources that were in fact released.
+			np.exitReported.Store(true)
 			return "", fmt.Errorf("holder exited before %q: %s", want, strings.TrimSpace(np.logs.String()))
 		}
 		return got.s, nil
@@ -1141,20 +1152,30 @@ func (np *nodeProc) stop(ctx context.Context) error {
 	go func() { done <- np.cmd.Wait() }()
 	select {
 	case err := <-done:
-		if err != nil {
-			return fmt.Errorf("holder exited: %w: %s", err, strings.TrimSpace(np.logs.String()))
-		}
-		return nil
+		return np.exitFailure(err)
 	case <-time.After(2 * time.Second):
 	case <-ctx.Done():
 	}
 	if err := np.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
-	if err := <-done; err != nil {
-		return fmt.Errorf("holder exited: %w: %s", err, strings.TrimSpace(np.logs.String()))
+	return np.exitFailure(<-done)
+}
+
+// exitFailure turns what cmd.Wait said into a teardown failure, except for an
+// exit status a reply already handed the caller: a holder that died during
+// setup or during a runtime command is that operation's failure, and counting
+// it again here would report an environment as unreleased when every resource
+// it owned did go away. Anything else Wait reports is new, and cleanup owns it.
+func (np *nodeProc) exitFailure(err error) error {
+	if err == nil {
+		return nil
 	}
-	return nil
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && np.exitReported.Load() {
+		return nil
+	}
+	return fmt.Errorf("holder exited: %w: %s", err, strings.TrimSpace(np.logs.String()))
 }
 
 // netem learned the seed keyword in iproute2 6.6. Older tc reads it as a stray

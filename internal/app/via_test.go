@@ -100,6 +100,23 @@ func TestRunViaKeepsATransportFailureOutOfTheDiagnosisCodes(t *testing.T) {
 	}
 }
 
+// A transport that ran out of time is the environment being wrong, not the
+// user quitting: the run reached its own ceiling with nobody cancelling it, so
+// it spends 2 like every other acquisition failure and not the 1 beside it.
+func TestRunViaSpendsTheEnvironmentCodeForARemoteTimeout(t *testing.T) {
+	stubRemote(t, remote.Response{}, errors.New("server: the remote run timed out after 1m20s"))
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"--via", "server", "example.com"}, &stdout, &stderr); got != 2 {
+		t.Fatalf("exit = %d, want 2; stderr: %s", got, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want nothing said about a diagnosis that never happened", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "timed out") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
 func TestRunViaSpendsTheInterruptedCodeWhenItIsTheOneThatStopped(t *testing.T) {
 	// Quitting before the chain finished is exit 1 everywhere else in netdoc,
 	// and a --via run that the user cancelled is that, not a broken connection.

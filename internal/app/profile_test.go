@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -188,6 +189,38 @@ func TestRunProfileViaUsesOrdinaryRemoteRequests(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Diagnosed 4 profile components on ideapad") {
 		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+// A profile component whose remote acquisition ran out of time stops the pass
+// and names the component, rather than leaving the run waiting on a transport
+// that is never going to answer. Components are sequential under --via, so the
+// ones after it are never asked for.
+func TestRunProfileViaReportsARemoteTimeoutAsAComponentFailure(t *testing.T) {
+	original := remoteRun
+	t.Cleanup(func() { remoteRun = original })
+	var mu sync.Mutex
+	attempts := 0
+	remoteRun = func(_ context.Context, _, _ string, _ remote.Request) (remote.Response, error) {
+		mu.Lock()
+		attempts++
+		mu.Unlock()
+		return remote.Response{}, errors.New("ideapad: the remote run timed out after 1m20s")
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--via", "ideapad", "--profile", "github", "--json"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit = %d, want 2; stderr: %s", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want no aggregate for a pass that never completed", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "timed out") {
+		t.Errorf("stderr = %q, want the transport failure", stderr.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != 1 {
+		t.Errorf("%d remote attempts, want the pass to stop at the first failed component", attempts)
 	}
 }
 

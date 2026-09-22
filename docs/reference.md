@@ -126,7 +126,7 @@ netdoc --peer-listen 192.168.1.20:4242  # wait for one directly reachable peer
 netdoc --peer-connect             # paste its temporary pairing string when prompted
 ```
 
-`--timeout` overrides the per-check probe timeout; see `netdoc --help` for the default. It takes a positive Go duration that is a whole number of milliseconds, because milliseconds are the precision the snapshot option and the remote request can carry, and a setting accepted here has to mean the same thing on the machine that probes and in the artifact that records it. A finer value such as `500us` or `1.9ms` is a usage error (exit `2`) reported before any probe or SSH connection starts, rather than a budget quietly rounded to something else. `--watch` starts another pass five seconds after each run; in the TUI it shows the last 20 states plus a failure count for every check, and with `--json` it streams the same report on stdout, one compact JSON object per line, until the process is interrupted. Those lines carry an extra `ts` field (RFC 3339, UTC) and are otherwise the one-shot report unchanged; one-shot output stays pretty-printed, with no `ts`.
+`--timeout` overrides the per-check probe timeout; see `netdoc --help` for the default. It takes a positive Go duration that is a whole number of milliseconds, because milliseconds are the precision the snapshot option and the remote request can carry, and a setting accepted here has to mean the same thing on the machine that probes and in the artifact that records it. A finer value such as `500us` or `1.9ms` is a usage error (exit `2`) reported before any probe or SSH connection starts, rather than a budget quietly rounded to something else. It stays a per-check budget under `--via`, where the acquisition additionally carries an overall bound derived from it; see [Time limits](#time-limits). `--watch` starts another pass five seconds after each run; in the TUI it shows the last 20 states plus a failure count for every check, and with `--json` it streams the same report on stdout, one compact JSON object per line, until the process is interrupted. Those lines carry an extra `ts` field (RFC 3339, UTC) and are otherwise the one-shot report unchanged; one-shot output stays pretty-printed, with no `ts`.
 
 The TUI also reconstructs bounded incidents. A transition from a working pass
 to a failing pass opens one incident. Further failing passes increase its pass
@@ -229,7 +229,7 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | Live `--two-sided --via`: SSH or remote protocol acquisition failed | `2` |
 | Quit before the chain finished | `1` |
 | Bad arguments, pairing-input reject, validation reject, or no terminal for the TUI | `2` |
-| `--via`: SSH failed, no usable `netdoc` on the SSH host, or a remote protocol mismatch | `2` |
+| `--via`: SSH failed, no usable `netdoc` on the SSH host, a remote protocol mismatch, or an acquisition that outlasted its overall bound | `2` |
 
 The per-situation table for `--via` is [below, in the remote section](#exit-codes-1).
 
@@ -1792,6 +1792,7 @@ The exit code is netdoc's, not `ssh`'s. A completed protocol exchange is a trans
 | `ssh` could not open the connection | `2` |
 | No usable `netdoc` ran on the SSH host | `2` |
 | The two ends do not speak the same remote protocol | `2` |
+| The acquisition outlasted the overall bound below | `2` |
 | The remote refused the request (a rejected target, an unknown probe ID) | `2` |
 
 The separation is the point. "The network you asked about is broken" and "I could not reach the machine to ask" are opposite conclusions, and a script must never confuse them. Each `2` says which one it was and quotes what the remote itself said.
@@ -1812,6 +1813,37 @@ Install netdoc on the SSH host and make sure it is on the PATH of a
 non-interactive SSH session, or set NETDOC_VIA_COMMAND to its full path.
 The netdoc there also has to be new enough to know --remote-worker.
 ```
+
+### Time limits
+
+`--timeout` is the per-check probe budget and nothing else. It means on the SSH
+host exactly what it means locally: how long one check may spend before it gives
+up. It is not the time the whole remote run is allowed, because one diagnosis
+runs several checks one after another.
+
+The acquisition has its own overall bound on top of that, because every part of
+it can stop making progress without anything failing: the SSH connection, the
+remote worker's startup, the request on the wire, and the wait for the first
+response. A stalled transport that only a Ctrl-C could end is not an acceptable
+outcome for a script, so netdoc ends it itself.
+
+That bound is derived from `--timeout` rather than fixed, so a deliberately
+larger probe budget always buys a proportionally larger remote run and can never
+be cut short by it. It is **five probe budgets, plus one minute**: five because
+that is the deepest chain of checks one pass can run one after another (the
+probe graph runs everything else concurrently), and the minute covers everything
+that is not probing, which is opening the connection, authenticating, starting
+the remote `netdoc`, the exchange itself, and teardown. With the default `4s`
+timeout the ceiling is `1m20s`; with `--timeout 30s` it is `3m30s`.
+
+Reaching it ends the local `ssh` process and reports an acquisition failure that
+names the destination, and it exits `2`. It is **not a diagnosis of the remote
+network**: nothing was measured, and a run that had already produced a complete
+response is still returned even if the SSH session is slow to close afterwards.
+It is also not an interruption, which is the user's own Ctrl-C and still exits
+`1`. A profile stops at the component that timed out and reports that component;
+live `--two-sided` treats it as the remote acquisition failure it already knows,
+cancels the local side, and exits `2`.
 
 ### Cancellation
 

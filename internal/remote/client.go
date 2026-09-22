@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -27,6 +28,48 @@ const cancelGrace = 2 * time.Second
 // observe trailing protocol data. Afterward Run ends SSH so an inherited remote
 // stdout cannot withhold an already-complete diagnosis indefinitely.
 const responseEOFGrace = 2 * time.Second
+
+// maxDiagnosisStages is how many probe budgets one remote diagnosis can spend
+// one after another. Both executors start every ready probe at once, so a pass
+// costs the probe graph's deepest dependency chain rather than the sum over
+// every probe, and that chain is five rungs deep for the richest target shape
+// netdoc builds. internal/diagnostic's TestProbeGraphStagesAndWorstCaseBudget
+// pins that number, so a sixth rung fails there before it can silently make a
+// legitimate remote run outlast this bound.
+const maxDiagnosisStages = 5
+
+// transportAllowance is what one exchange may spend on everything that is not
+// probing: opening the SSH connection, authenticating (a passphrase, a hardware
+// key, an MFA approval), starting the remote worker, the request and response
+// on the wire, and teardown. It is a var only so tests can shrink it; nothing
+// at runtime changes it.
+var transportAllowance = time.Minute
+
+// operationTimeout is the whole acquisition's ceiling, derived from the probe
+// budget the request carries rather than fixed, so a deliberately long
+// --timeout still gets a proportionally long remote run.
+//
+// It is not Request.TimeoutMs itself: that is one probe's budget, and a
+// diagnosis legitimately spends several of them in sequence. It is the deepest
+// chain of probe budgets a remote pass can spend, plus the transport allowance,
+// which is by construction longer than any run the far end can honestly still
+// be working on and finite for one that is not.
+//
+// The arithmetic stays in milliseconds so a probe budget near the top of the
+// range cannot wrap; a request that large saturates instead.
+func operationTimeout(probeTimeoutMs int64) time.Duration {
+	if probeTimeoutMs <= 0 {
+		// No usable budget in the request. The far end refuses such a request
+		// outright, so only the transport still has to be bounded here.
+		return transportAllowance
+	}
+	allowanceMs := int64(transportAllowance / time.Millisecond)
+	const maxMs = int64(math.MaxInt64) / int64(time.Millisecond)
+	if probeTimeoutMs > (maxMs-allowanceMs)/maxDiagnosisStages {
+		return time.Duration(math.MaxInt64)
+	}
+	return time.Duration(probeTimeoutMs*maxDiagnosisStages)*time.Millisecond + transportAllowance
+}
 
 // maxStderrBytes keeps the first of ssh's stderr. The first bytes are the
 // useful ones: ssh says why a login failed up front, and a remote shell says
@@ -79,6 +122,19 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 		return Response{}, err
 	}
 
+	// The whole acquisition is bounded here, before ssh is started, because
+	// every part of it can stall: the connection, the worker's startup, the
+	// request write, and the wait for a first response. The caller's context is
+	// an interruption channel with no deadline of its own, so without this a
+	// peer that simply never answers strands the run for as long as it likes.
+	//
+	// It is a separate context from the caller's rather than a deadline placed
+	// on it, so the two remain distinguishable afterwards: one is the user
+	// stopping the run, the other is netdoc giving up on the transport.
+	limit := operationTimeout(req.TimeoutMs)
+	opCtx, endOperation := context.WithTimeout(ctx, limit)
+	defer endOperation()
+
 	// No shell, anywhere. exec starts the ssh binary with these as separate
 	// argv elements, and the remote command is two fixed ASCII words, so the
 	// remote shell (POSIX sh, cmd.exe, or PowerShell alike) has nothing to
@@ -90,7 +146,7 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 	// those from the terminal directly, not from the stdin used here.
 	// #nosec G204 -- sshProgram is fixed, dest is validated against argv option
 	// injection, and every element stays a separate argument, never shell text.
-	cmd := exec.CommandContext(ctx, sshProgram, "-T", dest, command, WorkerFlag)
+	cmd := exec.CommandContext(opCtx, sshProgram, "-T", dest, command, WorkerFlag)
 	cmd.WaitDelay = cancelGrace
 	errBuf := &capped{limit: maxStderrBytes}
 	cmd.Stderr = errBuf
@@ -173,7 +229,7 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 	waitErr := cmd.Wait()
 
 	if decodeErr != nil {
-		return Response{}, transportError(ctx, dest, exitStatus(cmd, waitErr), errBuf.String(), decodeErr)
+		return Response{}, transportError(ctx, opCtx, limit, dest, exitStatus(cmd, waitErr), errBuf.String(), decodeErr)
 	}
 	// A response decoded, so the exchange succeeded and ssh's exit status is
 	// not consulted for the verdict. The worker exits 0 for a failed diagnosis
@@ -188,11 +244,24 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 
 // transportError words the failures where no diagnosis came back at all, which
 // are the ones a user has to be able to act on without reading this file.
-func transportError(ctx context.Context, dest string, status int, stderrText string, cause error) error {
+//
+// It is handed both contexts on purpose. opCtx is derived from ctx, so a
+// deadline netdoc set for itself and a cancellation the user asked for both
+// leave opCtx.Err() non-nil, and only the caller's own context can say which
+// happened. Reading the derived one first would report every remote timeout as
+// an interruption nobody performed.
+func transportError(ctx, opCtx context.Context, limit time.Duration, dest string, status int, stderrText string, cause error) error {
 	detail := indentLines(clean(stderrText))
 	switch {
 	case ctx.Err() != nil:
 		return fmt.Errorf("%s: the run was interrupted", cleanDest(dest))
+	case errors.Is(opCtx.Err(), context.DeadlineExceeded):
+		return withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
+			join(detail,
+				"That is the time one diagnosis over SSH is allowed end to end, not a",
+				"verdict about the remote network: the connection, the remote netdoc, or",
+				"the path between them stopped making progress. Retry, or raise -timeout",
+				"if the remote run legitimately needs longer."))
 	case status == sshFailedStatus:
 		return withDetail(fmt.Sprintf("%s: ssh could not open the connection", cleanDest(dest)), detail)
 	case errors.Is(cause, ErrNoResponse):

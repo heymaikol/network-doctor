@@ -282,6 +282,11 @@ func TestRunLiveTwoSidedStartsBothVantagesTogether(t *testing.T) {
 }
 
 func TestRunLiveTwoSidedRemoteErrorCancelsLocalDiagnosis(t *testing.T) {
+	t.Run("connection failure", func(t *testing.T) { twoSidedRemoteFailureCancelsLocal(t, false) })
+	t.Run("operation timeout", func(t *testing.T) { twoSidedRemoteFailureCancelsLocal(t, true) })
+}
+
+func twoSidedRemoteFailureCancelsLocal(t *testing.T, timeout bool) {
 	originalRunAll, originalRemoteRun := runAll, remoteRun
 	t.Cleanup(func() { runAll, remoteRun = originalRunAll, originalRemoteRun })
 	localStarted, localCancelled := make(chan struct{}), make(chan struct{})
@@ -291,9 +296,15 @@ func TestRunLiveTwoSidedRemoteErrorCancelsLocalDiagnosis(t *testing.T) {
 		close(localCancelled)
 		return nil
 	}
+	// Both shapes of acquisition failure take the same path: a connection that
+	// never opened, and one that opened and then ran out of its allowed time.
+	remoteErr := errors.New("ideapad: ssh could not open the connection")
+	if timeout {
+		remoteErr = errors.New("ideapad: the remote run timed out after 1m20s")
+	}
 	remoteRun = func(_ context.Context, _, _ string, _ remote.Request) (remote.Response, error) {
 		<-localStarted
-		return remote.Response{}, errors.New("ideapad: ssh could not open the connection")
+		return remote.Response{}, remoteErr
 	}
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--two-sided", "--via", "ideapad", "--json", "example.com"}, &stdout, &stderr); code != 2 {
@@ -304,7 +315,7 @@ func TestRunLiveTwoSidedRemoteErrorCancelsLocalDiagnosis(t *testing.T) {
 	default:
 		t.Error("remote failure did not cancel the local diagnosis")
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "ssh could not open the connection") {
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), remoteErr.Error()) {
 		t.Errorf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
 }

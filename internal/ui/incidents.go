@@ -20,8 +20,10 @@ import (
 )
 
 // recordIncident converts a completed Watch pass through the canonical
-// snapshot builder, then hands it to the bounded incident state machine.
-func (m *model) recordIncident(at time.Time) {
+// snapshot builder, then hands it to the bounded incident state machine. The
+// command it returns expires the notice it sets when the viewer's incident is
+// discarded, and is nil otherwise.
+func (m *model) recordIncident(at time.Time) tea.Cmd {
 	s := diagnostic.BuildSnapshot(m.target, m.probes, m.results)
 	s.CreatedAt = at.UTC().Format(time.RFC3339)
 	s.Tool = ndoc.Tool{Version: m.version, OS: runtime.GOOS, Arch: runtime.GOARCH}
@@ -50,17 +52,27 @@ func (m *model) recordIncident(at time.Time) {
 	if selected, ok := m.selectedIncident(); ok && m.incidentViewing {
 		reading = selected.Started
 	}
+	dropped := m.incidents.Dropped()
 	m.incidents.Observe(at, s)
 	items := m.incidents.Incidents()
 	if !m.incidentViewing {
 		m.incidentSelected = max(len(items)-1, 0)
-		return
+		return nil
 	}
 	m.incidentSelected = min(m.incidentSelected, max(len(items)-1, 0))
 	if row := slices.IndexFunc(items, func(i incident.Incident) bool { return i.Started.Equal(reading) }); row >= 0 {
 		m.incidentSelected = row
+	} else if m.incidents.Dropped() > dropped {
+		// The bound discarded the one being read. Its neighbour in time is
+		// the oldest kept, since the bound only ever drops from that end, and
+		// the reader is told rather than left on whatever took its row. It is
+		// a different incident, so it opens at the top like one chosen by key.
+		m.incidentSelected = 0
+		m.refreshIncidentViewport(true)
+		return m.setNotice("incident discarded by the retention bound; showing the oldest one kept", false)
 	}
 	m.refreshIncidentViewport(false)
+	return nil
 }
 
 func (m model) incidentNow() time.Time {

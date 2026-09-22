@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/heymaikol/network-doctor/internal/incident"
 
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
@@ -18,7 +19,7 @@ import (
 // recordWatchPass records one finished watch pass. Each also takes the run's
 // evidence before it is finalized, which is how a test varies a reading other
 // than the interface without a second pass being recorded for it.
-func recordWatchPass(m *model, at time.Time, failing bool, iface string, also ...func(map[diagnostic.ProbeID]diagnostic.ProbeResult)) {
+func recordWatchPass(m *model, at time.Time, failing bool, iface string, also ...func(map[diagnostic.ProbeID]diagnostic.ProbeResult)) tea.Cmd {
 	m.results = make(map[diagnostic.ProbeID]diagnostic.ProbeResult, len(m.probes))
 	for _, probe := range m.probes {
 		status := diagnostic.StatusPass
@@ -35,8 +36,20 @@ func recordWatchPass(m *model, at time.Time, failing bool, iface string, also ..
 	}
 	diagnostic.Finalize(m.results)
 	m.now = func() time.Time { return at }
-	m.recordRun()
+	return m.recordRun()
 }
+
+// recordIncidentCycle records the nth of a run of complete incidents, twenty
+// seconds apart, and returns what the failing pass that opens it returned.
+func recordIncidentCycle(m *model, start time.Time, n int) tea.Cmd {
+	base := start.Add(time.Duration(n*20) * time.Second)
+	recordWatchPass(m, base, false, "wlan0")
+	cmd := recordWatchPass(m, base.Add(5*time.Second), true, "wg0")
+	recordWatchPass(m, base.Add(10*time.Second), false, "wlan0")
+	return cmd
+}
+
+const incidentDiscardedNotice = "incident discarded by the retention bound"
 
 func TestWatchCapturesAndDisplaysOneContinuingIncident(t *testing.T) {
 	start := time.Date(2026, 8, 25, 12, 3, 41, 0, time.UTC)
@@ -286,16 +299,10 @@ func TestIncidentReportsAResolverTargetChangeAsEnvironmental(t *testing.T) {
 func TestIncidentViewerFollowsTheIncidentPastTheRetentionBound(t *testing.T) {
 	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
 	m := newModel(mustTarget(t, "example.com:443"), false)
-	m.watch, m.width, m.height = true, 100, 30
-	cycle := func(n int) {
-		base := start.Add(time.Duration(n*20) * time.Second)
-		recordWatchPass(&m, base, false, "wlan0")
-		recordWatchPass(&m, base.Add(5*time.Second), true, "wg0")
-		recordWatchPass(&m, base.Add(10*time.Second), false, "wlan0")
-	}
+	m.watch, m.width, m.height = true, 100, 12
 	// Ten fills the list exactly, so the next one has to discard the oldest.
 	for n := range 10 {
-		cycle(n)
+		recordIncidentCycle(&m, start, n)
 	}
 	m.openIncidentViewer()
 	u, _ := m.handleIncidentKey(keyPress("left"))
@@ -304,8 +311,16 @@ func TestIncidentViewerFollowsTheIncidentPastTheRetentionBound(t *testing.T) {
 	if !ok || m.incidentSelected != 8 {
 		t.Fatalf("the viewer opened on incident %d of %d", m.incidentSelected, len(m.incidents.Incidents()))
 	}
+	u, _ = m.handleIncidentKey(keyPress("down"))
+	m = asModel(t, u)
+	offset := m.incidentVP.YOffset
+	if offset == 0 {
+		t.Fatal("the report fits the viewport, so scrolling cannot be observed")
+	}
 
-	cycle(10)
+	if cmd := recordIncidentCycle(&m, start, 10); cmd != nil {
+		t.Error("following a retained incident armed a notice")
+	}
 	if dropped := m.incidents.Dropped(); dropped != 1 {
 		t.Fatalf("the retention bound discarded %d incidents, want 1", dropped)
 	}
@@ -317,14 +332,21 @@ func TestIncidentViewerFollowsTheIncidentPastTheRetentionBound(t *testing.T) {
 		t.Errorf("the incident is on row %d after the list slid down one", m.incidentSelected)
 	}
 	// The header counts rows, so it has to agree with where the cursor is.
-	if view := m.incidentView(); !strings.Contains(view, "8 of 10") {
+	view := m.incidentView()
+	if !strings.Contains(view, "8 of 10") {
 		t.Errorf("the header does not read 8 of 10:\n%s", view)
+	}
+	if m.notice != "" || strings.Contains(view, incidentDiscardedNotice) {
+		t.Errorf("a retained incident moving rows reported a discard: %q", m.notice)
+	}
+	if m.incidentVP.YOffset != offset {
+		t.Errorf("the same incident moved from line %d to line %d", offset, m.incidentVP.YOffset)
 	}
 
 	// It holds for as long as that incident is retained, and when the bound
 	// finally discards the one being read the cursor stays in range.
 	for n := 11; n < 20; n++ {
-		cycle(n)
+		recordIncidentCycle(&m, start, n)
 		items := m.incidents.Incidents()
 		if m.incidentSelected < 0 || m.incidentSelected >= len(items) {
 			t.Fatalf("cycle %d: row %d of %d incidents", n, m.incidentSelected, len(items))
@@ -334,6 +356,69 @@ func TestIncidentViewerFollowsTheIncidentPastTheRetentionBound(t *testing.T) {
 			t.Fatalf("cycle %d: the cursor is on the incident at %s, the one being read is retained=%v",
 				n, now.Started, retained)
 		}
+	}
+}
+
+// When the bound discards the incident being read, nothing the reader pressed
+// changed the selection, so the viewer has to say so and land somewhere it can
+// name rather than on whichever incident slid into the old row.
+func TestIncidentViewerReportsTheIncidentBeingReadWasDiscarded(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	m.watch, m.width, m.height = true, 100, 12
+	for n := range 10 {
+		recordIncidentCycle(&m, start, n)
+	}
+	m.openIncidentViewer()
+	for range 9 {
+		u, _ := m.handleIncidentKey(keyPress("left"))
+		m = asModel(t, u)
+	}
+	u, _ := m.handleIncidentKey(keyPress("down"))
+	m = asModel(t, u)
+	was, _ := m.selectedIncident()
+	if m.incidentSelected != 0 || m.incidentVP.YOffset == 0 || m.notice != "" {
+		t.Fatalf("setup: row %d, line %d, notice %q", m.incidentSelected, m.incidentVP.YOffset, m.notice)
+	}
+
+	cmd := recordIncidentCycle(&m, start, 10)
+	items := m.incidents.Incidents()
+	if dropped := m.incidents.Dropped(); dropped != 1 {
+		t.Fatalf("the retention bound discarded %d incidents, want 1", dropped)
+	}
+	if slices.ContainsFunc(items, func(i incident.Incident) bool { return i.Started.Equal(was.Started) }) {
+		t.Fatalf("the incident at %s was not discarded", was.Started)
+	}
+	if !m.incidentViewing {
+		t.Fatal("the viewer closed")
+	}
+	now, ok := m.selectedIncident()
+	if !ok || m.incidentSelected != 0 || !now.Started.Equal(items[0].Started) {
+		t.Fatalf("the viewer landed on row %d (%s), want the oldest kept at %s", m.incidentSelected, now.Started, items[0].Started)
+	}
+	view := m.incidentView()
+	for _, want := range []string{"1 of 10", incidentDiscardedNotice, now.Started.UTC().Format(time.RFC3339)} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the view is missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, was.Started.UTC().Format(time.RFC3339)) {
+		t.Errorf("the view still shows the discarded incident:\n%s", view)
+	}
+	// A different incident opens at its top, as one chosen by key would.
+	if m.incidentVP.YOffset != 0 {
+		t.Errorf("the replacement incident opened at line %d", m.incidentVP.YOffset)
+	}
+	if cmd == nil {
+		t.Fatal("the notice has no expiry")
+	}
+	u, _ = m.Update(noticeDoneMsg{deadline: m.noticeDeadline})
+	if m = asModel(t, u); m.notice != "" || strings.Contains(m.incidentView(), incidentDiscardedNotice) {
+		t.Errorf("the notice outlived its expiry: %q", m.notice)
+	}
+	u, _ = m.handleIncidentKey(keyPress("right"))
+	if m = asModel(t, u); m.incidentSelected != 1 || !strings.Contains(m.incidentView(), "2 of 10") {
+		t.Errorf("right after the discard selected row %d", m.incidentSelected)
 	}
 }
 

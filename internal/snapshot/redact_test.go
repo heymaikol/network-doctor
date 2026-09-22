@@ -366,6 +366,57 @@ func TestSupportRedactsLocalMachineIdentity(t *testing.T) {
 	}
 }
 
+// A target the user typed as "host-<anything>.invalid" is still their
+// hostname. It has to take the alias collection gave it, in both target
+// fields, including when it is spelled exactly like the next alias to be
+// handed out.
+func TestSupportSanitizesAliasShapedTargetHost(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, original := range []string{"host-atlas-prod.invalid", "host-2.invalid"} {
+		t.Run(original, func(t *testing.T) {
+			s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+				Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+				Target:    &Target{Raw: original + ":443", Host: original, Port: 443, Protocol: "tcp", PortExplicit: true},
+				Diagnosis: Diagnosis{Verdict: "ok", Summary: "healthy"}, OK: true,
+			}
+			got := SanitizeForSupport(s)
+			if got.Target.Host == original {
+				t.Errorf("Target.Host kept the original %q", original)
+			}
+			if host, _, err := net.SplitHostPort(got.Target.Raw); err != nil || host != got.Target.Host {
+				t.Errorf("Target.Raw = %q, want the same host as Target.Host %q", got.Target.Raw, got.Target.Host)
+			}
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), original) {
+				t.Errorf("support snapshot leaked %q:\n%s", original, data)
+			}
+		})
+	}
+}
+
+// An alias the redactor generated is not an original, so meeting it again,
+// as text rewriting does once a URL's host has been replaced, keeps it.
+func TestSupportKeepsGeneratedHostAlias(t *testing.T) {
+	pinLocalIdentity(t)
+	r := newRedactor()
+	r.collectSnapshot(Snapshot{Target: &Target{Raw: "corp.example:443", Host: "corp.example"}})
+	r.finishCollection()
+	generated := r.aliases["host"]["corp.example"]
+	if generated == "" {
+		t.Fatal("collection did not map the target host")
+	}
+	mapped := len(r.aliases["host"])
+	if got := r.host(generated); got != generated {
+		t.Errorf("host(%q) = %q, want the generated alias unchanged", generated, got)
+	}
+	if len(r.aliases["host"]) != mapped {
+		t.Errorf("host(%q) allocated a new alias for a generated one", generated)
+	}
+}
+
 // A generic account name identifies nobody and appears inside ordinary words,
 // so seeding one would rewrite diagnostic text for no privacy gain.
 func TestSupportLeavesGenericLocalIdentityAlone(t *testing.T) {

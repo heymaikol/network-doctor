@@ -128,8 +128,12 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 //     means such a key is skipped before it is ever offered, so the signing
 //     path is not reached. Both families have to be named: OpenSSH's
 //     webauthn-sk-ecdsa-sha2-nistp256@openssh.com and its certificate form are
-//     security-key algorithms that do not begin with "sk-", so "-sk-*" by
-//     itself does not remove them.
+//     security-key algorithms that do not begin with "sk-", so "sk-*" by
+//     itself does not remove them. They are one list and it carries one
+//     operator: the leading "-" of "-sk-*,webauthn-sk-*" applies to every
+//     pattern after it. Spelling the second one "-webauthn-sk-*" would not be
+//     a second removal, it would be a pattern beginning with a hyphen that
+//     matches no algorithm, and that family would stay offered.
 //   - An agent decides for itself what to ask. A key added with `ssh-add -c`
 //     confirms through the agent's own askpass, an agent can hold FIDO keys,
 //     and a third-party agent can show whatever interface it likes. None of
@@ -174,7 +178,7 @@ var batchOptions = []string{
 	"PreferredAuthentications=publickey",
 	"ProxyJump=none",
 	"ProxyCommand=none",
-	"PubkeyAcceptedAlgorithms=-sk-*,-webauthn-sk-*",
+	"PubkeyAcceptedAlgorithms=-sk-*,webauthn-sk-*",
 	"IdentityAgent=none",
 	"AddKeysToAgent=no",
 	"PKCS11Provider=none",

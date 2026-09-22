@@ -260,7 +260,7 @@ func TestRunBatchTellsSSHToRefuseEveryInteractiveAuthentication(t *testing.T) {
 		"-o", "PreferredAuthentications=publickey",
 		"-o", "ProxyJump=none",
 		"-o", "ProxyCommand=none",
-		"-o", "PubkeyAcceptedAlgorithms=-sk-*,-webauthn-sk-*",
+		"-o", "PubkeyAcceptedAlgorithms=-sk-*,webauthn-sk-*",
 		"-o", "IdentityAgent=none",
 		"-o", "AddKeysToAgent=no",
 		"-o", "PKCS11Provider=none",
@@ -357,6 +357,11 @@ func TestDirectRefusesADestinationSSHWouldReadAsAnOption(t *testing.T) {
 // other would leave the signing path that asks for a PIN reachable, so both
 // patterns are pinned here rather than left to whichever names one installed
 // OpenSSH happens to list.
+//
+// The two are one list with one operator. Written out rather than derived from
+// batchOptions, because this is the value ssh has to receive: the leading "-"
+// makes the whole list a removal, and a second "-" would be read as part of the
+// pattern instead of as a second removal.
 func TestRunBatchRemovesBothSecurityKeyAlgorithmFamilies(t *testing.T) {
 	var filter string
 	for _, option := range batchOptions {
@@ -364,9 +369,37 @@ func TestRunBatchRemovesBothSecurityKeyAlgorithmFamilies(t *testing.T) {
 			filter = value
 		}
 	}
-	for _, pattern := range []string{"-sk-*", "-webauthn-sk-*"} {
-		if !strings.Contains(filter, pattern) {
-			t.Errorf("PubkeyAcceptedAlgorithms = %q, want it to remove %q", filter, pattern)
+	patterns := strings.Split(filter, ",")
+	want := []string{"-sk-*", "webauthn-sk-*"}
+	if len(patterns) != len(want) {
+		t.Fatalf("PubkeyAcceptedAlgorithms = %q, want the two patterns %q", filter, strings.Join(want, ","))
+	}
+	for i, pattern := range patterns {
+		if pattern != want[i] {
+			t.Errorf("PubkeyAcceptedAlgorithms pattern %d = %q, want %q", i, pattern, want[i])
+		}
+	}
+}
+
+// The mistake the value above is one character away from: "-sk-*,-webauthn-sk-*"
+// looks like two removals and is one removal plus a pattern beginning with a
+// hyphen, which matches nothing and leaves the webauthn family offered. Only the
+// first pattern may carry a list operator.
+func TestRunBatchGivesTheAlgorithmListExactlyOneRemovalOperator(t *testing.T) {
+	var filter string
+	for _, option := range batchOptions {
+		if name, value, _ := strings.Cut(option, "="); name == "PubkeyAcceptedAlgorithms" {
+			filter = value
+		}
+	}
+	patterns := strings.Split(filter, ",")
+	if len(patterns) == 0 || !strings.HasPrefix(patterns[0], "-") {
+		t.Fatalf("PubkeyAcceptedAlgorithms = %q, want the list to begin with the removal operator", filter)
+	}
+	for i, pattern := range patterns[1:] {
+		if strings.HasPrefix(pattern, "-") || strings.HasPrefix(pattern, "+") || strings.HasPrefix(pattern, "^") {
+			t.Errorf("PubkeyAcceptedAlgorithms pattern %d = %q in %q, want a bare pattern: only the first one carries the operator",
+				i+1, pattern, filter)
 		}
 	}
 }

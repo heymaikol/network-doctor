@@ -2,6 +2,7 @@ package incident
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -142,6 +143,92 @@ func TestTimelineIsBounded(t *testing.T) {
 	active, ok := timeline.Active()
 	if !ok || len(active.Steps) != maxSteps || active.StepsDropped != 3 {
 		t.Errorf("active steps/dropped = %d/%d, want %d/3", len(active.Steps), active.StepsDropped, maxSteps)
+	}
+}
+
+// The bounds above are on what the lists show. This pins what they hold: an
+// entry the bound discards must not stay reachable through a slot of the
+// backing array the timeline keeps, or every run it points to stays live for
+// the rest of the session. The array is captured before each eviction, from
+// the list's first slot to its capacity, so a head left behind by reslicing is
+// inside what is inspected.
+func TestTimelineReleasesWhatItsBoundsDiscard(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	var timeline Timeline
+	var targets []*snapshot.Target
+	evictions := 0
+	for n := 0; n < 4*maxIncidents; n++ {
+		failedAt := start.Add(time.Duration(n*2) * time.Second)
+		failing := observed(failedAt, Failing, "wg0")
+		targets = append(targets, failing.Target)
+		// A full list with spare capacity evicts without reallocating, so
+		// the array captured here is the one the timeline goes on holding.
+		inPlace := len(timeline.incidents) == maxIncidents && cap(timeline.incidents) > maxIncidents
+		array := timeline.incidents[:cap(timeline.incidents)]
+		timeline.Observe(failedAt, failing)
+		if inPlace {
+			evictions++
+			for slot := range array {
+				if slot >= maxIncidents {
+					if !reflect.ValueOf(array[slot]).IsZero() {
+						t.Fatalf("pass %d: slot %d past the bound still holds the incident started %s", n, slot, array[slot].Started)
+					}
+					continue
+				}
+				if want := n - maxIncidents + 1 + slot; array[slot].Onset.Snap.Target != targets[want] {
+					t.Fatalf("pass %d: slot %d holds the incident started %s, want incident %d", n, slot, array[slot].Started, want)
+				}
+			}
+		}
+		recoveredAt := failedAt.Add(time.Second)
+		timeline.Observe(recoveredAt, observed(recoveredAt, Healthy, "wlan0"))
+	}
+	if evictions < 2*maxIncidents {
+		t.Fatalf("only %d evictions were checked in place", evictions)
+	}
+	if len(timeline.Incidents()) != maxIncidents || timeline.Dropped() != 3*maxIncidents {
+		t.Errorf("incidents/dropped = %d/%d, want %d/%d", len(timeline.Incidents()), timeline.Dropped(), maxIncidents, 3*maxIncidents)
+	}
+
+	failedAt := start.Add(time.Hour)
+	timeline.Observe(failedAt, observed(failedAt, Failing, "wg0"))
+	var changes [][]compare.Change
+	evictions = 0
+	for n := 0; n < 4*maxSteps; n++ {
+		at := failedAt.Add(time.Duration(n+1) * time.Second)
+		active := &timeline.incidents[len(timeline.incidents)-1]
+		inPlace := len(active.Steps) == maxSteps && cap(active.Steps) > maxSteps
+		array := active.Steps[:cap(active.Steps)]
+		if got := timeline.Observe(at, observed(at, Failing, fmt.Sprintf("wg%d", n+1))); got != TransitionChanged {
+			t.Fatalf("pass %d: transition = %s, want %s", n, got, TransitionChanged)
+		}
+		changes = append(changes, active.Steps[len(active.Steps)-1].Changes)
+		if inPlace {
+			evictions++
+			for slot := range array {
+				if slot >= maxSteps {
+					if array[slot].Changes != nil || !array[slot].At.IsZero() {
+						t.Fatalf("step %d: slot %d past the bound still holds the step at %s", n, slot, array[slot].At)
+					}
+					continue
+				}
+				if want := n - maxSteps + 1 + slot; &array[slot].Changes[0] != &changes[want][0] {
+					t.Fatalf("step %d: slot %d holds the step at %s, want step %d", n, slot, array[slot].At, want)
+				}
+			}
+		}
+	}
+	if evictions < 2*maxSteps {
+		t.Fatalf("only %d step evictions were checked in place", evictions)
+	}
+	active, ok := timeline.Active()
+	if !ok || len(active.Steps) != maxSteps || active.StepsDropped != 3*maxSteps {
+		t.Fatalf("active steps/dropped = %d/%d, want %d/%d", len(active.Steps), active.StepsDropped, maxSteps, 3*maxSteps)
+	}
+	for slot, step := range active.Steps {
+		if want := failedAt.Add(time.Duration(3*maxSteps+slot+1) * time.Second); !step.At.Equal(want) {
+			t.Errorf("step %d at %s, want %s", slot, step.At, want)
+		}
 	}
 }
 

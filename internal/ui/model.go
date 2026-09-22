@@ -723,8 +723,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and appending this pass's statuses is what makes the two
 			// comparable.
 			if m.watch {
-				m.recordRun()
-				cmds = append(cmds, m.watchCmd())
+				cmds = append(cmds, m.recordRun(), m.watchCmd())
 			}
 			if !m.selMoved && !m.viewing && !m.detailsViewing {
 				if i := m.focusTarget(); i >= 0 {
@@ -857,7 +856,7 @@ func (m *model) clearCancel() {
 	}
 }
 
-func (m *model) recordRun() {
+func (m *model) recordRun() tea.Cmd {
 	for _, p := range m.probes {
 		history := append(m.runHistory[p.ID], m.results[p.ID].Status)
 		if len(history) > watchRuns {
@@ -865,7 +864,7 @@ func (m *model) recordRun() {
 		}
 		m.runHistory[p.ID] = history
 	}
-	m.recordIncident(m.incidentNow())
+	return m.recordIncident(m.incidentNow())
 }
 
 func (m model) watchCmd() tea.Cmd {

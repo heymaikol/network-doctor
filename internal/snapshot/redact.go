@@ -536,12 +536,11 @@ func (r *redactor) host(value string) string {
 	if value == "" {
 		return ""
 	}
-	if strings.HasPrefix(value, "host-") && strings.HasSuffix(value, ".invalid") {
-		return value
-	}
 	if _, err := netip.ParseAddr(strings.Trim(value, "[]")); err == nil {
 		return r.address(strings.Trim(value, "[]"))
 	}
+	// alias() already tells a collected original from an alias it generated,
+	// and a spelling like "host-2.invalid" cannot: users type those too.
 	return r.alias("host", value)
 }
 
@@ -564,8 +563,10 @@ func (r *redactor) alias(kind, value string) string {
 	}
 	// Skipping the names originals hold is what keeps aliases disjoint from
 	// them, and that disjointness is what makes the already-an-alias check
-	// above safe. The search is bounded: each skip consumes one of the
-	// finitely many originals collected in this namespace.
+	// above safe. Skipping value itself covers an original shaped like the
+	// next alias in a namespace that does not reserve its originals. The
+	// search is bounded: each skip consumes one of the finitely many originals
+	// collected in this namespace, or value.
 	alias := ""
 	for {
 		r.aliasCounters[kind]++
@@ -574,7 +575,7 @@ func (r *redactor) alias(kind, value string) string {
 			suffix += ".invalid"
 		}
 		alias = kind + "-" + suffix
-		if !r.originalAliases[kind][alias] {
+		if alias != value && !r.originalAliases[kind][alias] {
 			break
 		}
 	}

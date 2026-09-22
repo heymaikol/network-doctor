@@ -138,7 +138,7 @@ func stall() {
 	path := os.Getenv(fakeSSHAlive)
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
 		if path != "" {
-			// #nosec G703 -- the path is this test harness's own temporary file.
+			// #nosec G304 G703 -- the path is this test harness's own temporary file.
 			if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 				_, _ = f.Write([]byte("."))
 				_ = f.Close()

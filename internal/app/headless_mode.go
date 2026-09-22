@@ -55,6 +55,11 @@ type headless struct {
 	// viaCommand overrides the netdoc to start there.
 	via        string
 	viaCommand string
+	// viaBatch asks for the remote transport that cannot prompt. It is set
+	// only where more than one acquisition may be in flight at once, which
+	// today is a profile whose components overlap; an ordinary --via run has a
+	// user in front of it and leaves it false.
+	viaBatch bool
 }
 
 // runLiveTwoSided acquires the two ordinary runs together, then hands their
@@ -195,7 +200,7 @@ type diagnosisOutput struct {
 // from the same probe results.
 func diagnoseHeadless(ctx context.Context, h headless) diagnosisOutput {
 	if h.via != "" {
-		resp, err := remoteRun(ctx, h.via, h.viaCommand, requestForRemote(h))
+		resp, err := remoteRun(ctx, h.via, h.viaCommand, requestForRemote(h), h.viaBatch)
 		if err != nil {
 			return diagnosisOutput{err: err}
 		}

@@ -143,7 +143,8 @@ func TestRunProfileViaUsesOrdinaryRemoteRequests(t *testing.T) {
 	t.Cleanup(func() { remoteRun = original })
 	var mu sync.Mutex
 	var requests []remote.Request
-	remoteRun = func(_ context.Context, dest, command string, req remote.Request) (remote.Response, error) {
+	stubRemoteDirect(t, true)
+	remoteRun = func(_ context.Context, dest, command string, req remote.Request, _ bool) (remote.Response, error) {
 		if dest != "ideapad" || command != "" {
 			t.Errorf("remote destination = %q, command = %q", dest, command)
 		}
@@ -194,14 +195,15 @@ func TestRunProfileViaUsesOrdinaryRemoteRequests(t *testing.T) {
 
 // A profile component whose remote acquisition ran out of time stops the pass
 // and names the component, rather than leaving the run waiting on a transport
-// that is never going to answer. Components are sequential under --via, so the
-// ones after it are never asked for.
+// that is never going to answer. Nothing overlaps behind it, so the components
+// after it are never asked for.
 func TestRunProfileViaReportsARemoteTimeoutAsAComponentFailure(t *testing.T) {
 	original := remoteRun
 	t.Cleanup(func() { remoteRun = original })
 	var mu sync.Mutex
 	attempts := 0
-	remoteRun = func(_ context.Context, _, _ string, _ remote.Request) (remote.Response, error) {
+	stubRemoteDirect(t, true)
+	remoteRun = func(_ context.Context, _, _ string, _ remote.Request, _ bool) (remote.Response, error) {
 		mu.Lock()
 		attempts++
 		mu.Unlock()
@@ -219,7 +221,9 @@ func TestRunProfileViaReportsARemoteTimeoutAsAComponentFailure(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if attempts != 1 {
+	// Two: the refused attempt that would have opened the concurrent path, and
+	// the ordinary one that replaces it and reports the failure.
+	if attempts != 2 {
 		t.Errorf("%d remote attempts, want the pass to stop at the first failed component", attempts)
 	}
 }

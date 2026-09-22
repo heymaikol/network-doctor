@@ -378,6 +378,39 @@ derived sentences remain display text.
   binary does not need to know the profile name, so a version-1 remote worker
   that predates profiles can still run the component plans. Reports and
   snapshots are interpreted on the remote OS and aggregated locally.
+- Remote components may overlap, but only over a transport that cannot ask a
+  question. A profile with a `--via` destination first reads that destination's
+  effective SSH configuration with `ssh -G`. A destination configured with a
+  `ProxyJump` or a `ProxyCommand` keeps that path and is acquired one component
+  at a time: netdoc never connects around a configured proxy, because that path
+  may be the required route or the audited one, and a jump host is a second SSH
+  connection with questions of its own. This costs one extra evaluation of your
+  SSH configuration per pass, which matters if it contains a `Match exec` or a
+  `KnownHostsCommand`.
+- A destination that read as direct is then acquired with `ProxyJump` and
+  `ProxyCommand` pinned to `none` for that pass. `ssh` evaluates your
+  configuration once per invocation, so without that pin a `Match exec` that
+  decided differently on a later component could start a jump child or a proxy
+  program, and neither of those inherits the options below. The pin only ever
+  applies to a destination your own configuration already reached directly; a
+  configured proxy is never pinned away, and an accelerated acquisition that
+  fails hands the work back to the ordinary transport, which reads and honors
+  your configuration as it stands at that moment, proxy included. A
+  nondeterministic `Match exec` can therefore still make one pass's accelerated
+  attempt use the route the preflight read rather than a later one.
+- For a destination reached without a proxy, the first component is acquired
+  alone with OpenSSH options that refuse every interactive authentication
+  instead of prompting for it: a password, a keyboard-interactive or MFA
+  challenge, a key passphrase, and an unknown host-key confirmation are refused,
+  only public-key authentication is offered at all, and an authentication agent, a
+  FIDO security key, a PKCS#11 smart card, GSSAPI, and adding a used key to an
+  agent are not used at all. What is left is an unencrypted private key on
+  disk. When that first component lands, the rest run concurrently over the same
+  refusing transport, so the pass costs one connection setup plus the slowest of
+  the others rather than the sum of all of them. Every other setup falls back to
+  acquiring one component at a time exactly as before, at the cost of one
+  refused attempt on the first component, so a prompt is never competing with
+  another for the terminal. Results stay in registry order either way.
 - `--iface`, `--public-dns`, and `--timeout` apply independently to every
   component. Interface names are resolved on the machine that probes, as in
   every ordinary local or remote run.

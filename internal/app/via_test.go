@@ -28,13 +28,24 @@ import (
 // Everything asserted about provenance reads one of these three fields.
 var remoteTool = snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}
 
+// stubRemoteDirect fixes the proxy gate's answer. Tests have no ssh_config,
+// and the real gate would run the developer's own ssh against it.
+func stubRemoteDirect(t *testing.T, direct bool) {
+	t.Helper()
+	orig := remoteDirect
+	t.Cleanup(func() { remoteDirect = orig })
+	remoteDirect = func(context.Context, string) bool { return direct }
+}
+
 // stubRemote replaces the SSH transport and records what it was asked to do.
+// The destination is unproxied unless a test says otherwise afterwards.
 func stubRemote(t *testing.T, resp remote.Response, err error) *remote.Request {
 	t.Helper()
+	stubRemoteDirect(t, true)
 	orig := remoteRun
 	t.Cleanup(func() { remoteRun = orig })
 	var seen remote.Request
-	remoteRun = func(_ context.Context, _, _ string, req remote.Request) (remote.Response, error) {
+	remoteRun = func(_ context.Context, _, _ string, req remote.Request, _ bool) (remote.Response, error) {
 		seen = req
 		return resp, err
 	}
@@ -122,7 +133,7 @@ func TestRunViaSpendsTheInterruptedCodeWhenItIsTheOneThatStopped(t *testing.T) {
 	// and a --via run that the user cancelled is that, not a broken connection.
 	orig := remoteRun
 	t.Cleanup(func() { remoteRun = orig })
-	remoteRun = func(ctx context.Context, _, _ string, _ remote.Request) (remote.Response, error) {
+	remoteRun = func(ctx context.Context, _, _ string, _ remote.Request, _ bool) (remote.Response, error) {
 		cancelSelf(t)
 		<-ctx.Done()
 		return remote.Response{}, errors.New("server: the run was interrupted")

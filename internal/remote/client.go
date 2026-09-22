@@ -108,6 +108,170 @@ var writeRequest = func(w io.Writer, p []byte) (int, error) {
 // inside the Response, because "the remote network is broken" and "the SSH
 // connection is broken" are different answers and must not share a code path.
 func Run(ctx context.Context, dest, command string, req Request) (Response, error) {
+	return run(ctx, dest, command, req, false)
+}
+
+// batchOptions is the fixed set of ssh options that makes one acquisition
+// incapable of asking the user anything. Every value is a literal, and a
+// command-line -o is the first value ssh obtains for a keyword, so an
+// ssh_config saying otherwise cannot put any of them back.
+//
+// BatchMode alone is not enough, which is the whole reason this is a list. It
+// turns the questions ssh asks itself into refusals: a password, a
+// keyboard-interactive or MFA challenge, an encrypted key's passphrase, and the
+// unknown-host-key confirmation. It does not cover the questions something else
+// asks on ssh's behalf, and there are three of those here:
+//
+//   - A FIDO authenticator's PIN is read by the security-key signing path,
+//     which retries a refused signature by asking for a PIN, and that retry is
+//     not under BatchMode. Removing every security-key signature algorithm
+//     means such a key is skipped before it is ever offered, so the signing
+//     path is not reached. Both families have to be named: OpenSSH's
+//     webauthn-sk-ecdsa-sha2-nistp256@openssh.com and its certificate form are
+//     security-key algorithms that do not begin with "sk-", so "-sk-*" by
+//     itself does not remove them.
+//   - An agent decides for itself what to ask. A key added with `ssh-add -c`
+//     confirms through the agent's own askpass, an agent can hold FIDO keys,
+//     and a third-party agent can show whatever interface it likes. None of
+//     that is ours to bound, so the concurrent path uses no agent at all.
+//   - A PKCS#11 provider is a library loaded into ssh that may ask for a smart
+//     card's PIN.
+//
+// GSSAPI is off for the same reason, one step further out: the exchange itself
+// does not prompt, but which mechanism library answers it is not ours to say.
+// Hostbased authentication is left alone: ssh-keysign signs with an unencrypted
+// host key and has nothing to ask.
+//
+// A ProxyJump child and a ProxyCommand are the remaining prompting programs.
+// Neither inherits a word of the above: each is a separate program, a jump
+// child is an ordinary interactive ssh that can ask for the bastion's own
+// password or host-key confirmation, and a ProxyCommand is whatever the user
+// named. Both are pinned off here, and that pin is only sound because of the
+// order it happens in.
+//
+// Direct reads the user's ordinary configuration first. A destination it
+// reports as proxied never reaches this transport at all: the profile stays
+// sequential over Run, with the configured proxy used exactly as written. Only
+// a destination that configuration already said to reach directly is acquired
+// here, and the pin then holds that answer for the whole pass. It is not a way
+// to reach a proxied host without its proxy; it is what stops a second
+// evaluation of the same config, through a Match exec whose result moved, from
+// producing a prompting child this list cannot bound. A batch acquisition that
+// fails for any reason falls back to Run, which evaluates and honors the
+// configuration as it stands at that moment, proxy included.
+//
+// AddKeysToAgent is off because an ssh_config asking for "ask" turns a used
+// software key into an askpass prompt. PreferredAuthentications names the one
+// method this transport can complete, so an acquisition is public-key or
+// nothing, rather than a password method selected and then refused.
+//
+// What remains eligible is a plain software key on disk, and nothing else. An
+// unencrypted one connects; an encrypted one is refused rather than asked
+// about. Everything refused here falls back to the ordinary transport, one
+// acquisition at a time.
+var batchOptions = []string{
+	"BatchMode=yes",
+	"PreferredAuthentications=publickey",
+	"ProxyJump=none",
+	"ProxyCommand=none",
+	"PubkeyAcceptedAlgorithms=-sk-*,-webauthn-sk-*",
+	"IdentityAgent=none",
+	"AddKeysToAgent=no",
+	"PKCS11Provider=none",
+	"GSSAPIAuthentication=no",
+}
+
+// RunBatch is Run over a transport that cannot ask the user anything itself;
+// see batchOptions for what that costs and why each part of it is there.
+//
+// It exists so that several acquisitions can be in flight at once without their
+// prompts landing on one terminal together. It is not a faster Run and not a
+// default: a caller that has a user to ask wants Run, and one that cannot
+// afford a question wants this and has to be ready for the refusal.
+//
+// It bounds this ssh process and every program it would start, but it does so
+// by pinning ProxyJump and ProxyCommand off, so a caller must first establish
+// with Direct that the user's configuration reaches this destination directly
+// anyway. Calling it on a destination Direct has not cleared would connect
+// around a configured proxy, which is not netdoc's decision to make.
+//
+// It fails closed. An ssh too old to know one of these options rejects the
+// whole invocation, which is a refusal like any other and sends the caller back
+// to Run.
+func RunBatch(ctx context.Context, dest, command string, req Request) (Response, error) {
+	return run(ctx, dest, command, req, true)
+}
+
+// sshConfigTimeout bounds reading the effective configuration. That read is
+// local and normally instant, but ssh_config can contain a Match exec whose
+// command is an arbitrary local program, so it still needs an end.
+const sshConfigTimeout = 10 * time.Second
+
+// Direct reports whether dest reaches its host without a ProxyJump or a
+// ProxyCommand, by asking ssh for the destination's effective configuration.
+//
+// It is the precondition for running several RunBatch acquisitions at once. A
+// proxied destination is excluded rather than un-proxied: the configured path
+// may be the only route, or the audited one, and netdoc connecting around it
+// would be both a different connection and a policy decision it has no standing
+// to make. A jump child is also an ordinary interactive ssh that would ask for
+// the bastion's own password or host-key confirmation, which is the prompt
+// collision this whole path exists to prevent.
+//
+// It answers false for anything it could not establish: an ssh that failed, one
+// that is not there, output it did not understand, or a read that outlasted its
+// bound. Every one of those means the caller acquires one component at a time,
+// which is what netdoc has always done.
+//
+// It costs one extra evaluation of the user's ssh_config per profile pass, on
+// top of the one each acquisition performs. A Match exec or a KnownHostsCommand
+// therefore runs once more than it otherwise would. That is the deliberate
+// price of not silently bypassing a configured proxy.
+//
+// Its answer is what RunBatch then freezes. A Match exec is an arbitrary local
+// program and may decide differently on the next evaluation, so a later
+// acquisition could otherwise start a proxy child that no batch option reaches.
+// Pinning the proxy off for accelerated acquisitions holds this reading for the
+// pass; a destination read as proxied here is never acquired that way, and a
+// batch acquisition that fails hands the work back to Run and its unpinned
+// configuration.
+func Direct(ctx context.Context, dest string) bool {
+	if err := validateDestination(dest); err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, sshConfigTimeout)
+	defer cancel()
+	// -G prints the configuration ssh would use for this destination without
+	// connecting to anything.
+	// #nosec G204 -- sshProgram is fixed and dest is validated against argv
+	// option injection, and both stay separate arguments, never shell text.
+	cmd := exec.CommandContext(ctx, sshProgram, "-G", dest)
+	cmd.WaitDelay = cancelGrace
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	understood := false
+	for _, line := range strings.Split(string(out), "\n") {
+		keyword, value, _ := strings.Cut(strings.TrimSpace(line), " ")
+		switch strings.ToLower(keyword) {
+		case "hostname":
+			// Every ssh that knows -G prints this one. Requiring it is what
+			// makes silence an unanswered question rather than a yes.
+			understood = true
+		case "proxyjump", "proxycommand":
+			// ssh omits either keyword when it is unset or set to none, so
+			// reaching here is a configured proxy. The value is checked anyway
+			// rather than trusting that omission to stay true.
+			if !strings.EqualFold(strings.TrimSpace(value), "none") {
+				return false
+			}
+		}
+	}
+	return understood
+}
+
+func run(ctx context.Context, dest, command string, req Request, batch bool) (Response, error) {
 	if err := validateDestination(dest); err != nil {
 		return Response{}, err
 	}
@@ -144,9 +308,17 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 	// free to translate line endings and echo what is written through it.
 	// Password, passphrase, and host-key prompts are unaffected; ssh reads
 	// those from the terminal directly, not from the stdin used here.
+	args := []string{"-T"}
+	if batch {
+		// Ahead of the destination, because ssh reads options before it.
+		for _, option := range batchOptions {
+			args = append(args, "-o", option)
+		}
+	}
+	args = append(args, dest, command, WorkerFlag)
 	// #nosec G204 -- sshProgram is fixed, dest is validated against argv option
 	// injection, and every element stays a separate argument, never shell text.
-	cmd := exec.CommandContext(opCtx, sshProgram, "-T", dest, command, WorkerFlag)
+	cmd := exec.CommandContext(opCtx, sshProgram, args...)
 	cmd.WaitDelay = cancelGrace
 	errBuf := &capped{limit: maxStderrBytes}
 	cmd.Stderr = errBuf

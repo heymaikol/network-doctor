@@ -66,6 +66,23 @@ func fakeSSH(mode string) int {
 	case "garbage":
 		fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		return 0
+	case "config", "configproxy", "configproxycommand", "confignoneproxy":
+		// `ssh -G`: the effective configuration, one lowercased keyword per
+		// line, printed without connecting to anything. ssh leaves a proxy
+		// keyword out entirely when it is unset or set to none, and
+		// confignoneproxy prints it anyway to pin that the value is read too.
+		fmt.Fprintln(os.Stdout, "user maikol")
+		fmt.Fprintln(os.Stdout, "hostname 10.0.0.5")
+		switch mode {
+		case "configproxy":
+			fmt.Fprintln(os.Stdout, "proxyjump bastion.example.com")
+		case "configproxycommand":
+			fmt.Fprintln(os.Stdout, "proxycommand /usr/bin/corp-connect --host --port")
+		case "confignoneproxy":
+			fmt.Fprintln(os.Stdout, "proxycommand none")
+		}
+		fmt.Fprintln(os.Stdout, "port 22")
+		return 0
 	case "hang":
 		// An ssh that never gets as far as reading the request: a connection
 		// that is opening, authenticating, or waiting on a prompt forever.
@@ -225,6 +242,141 @@ func TestRunKeepsAHostileTargetOutOfTheRemoteCommandLine(t *testing.T) {
 	}
 	if req.Target != hostile {
 		t.Errorf("target = %q, want it delivered verbatim as data", req.Target)
+	}
+}
+
+func TestRunBatchTellsSSHToRefuseEveryInteractiveAuthentication(t *testing.T) {
+	argvPath, _ := useFakeSSH(t, "ok")
+	if _, err := RunBatch(context.Background(), "ideapad", "", Request{TimeoutMs: 3000}); err != nil {
+		t.Fatalf("RunBatch: %v", err)
+	}
+	// Ahead of the destination, because ssh reads its options before it, and
+	// otherwise exactly the invocation Run makes. Spelled out rather than built
+	// from batchOptions: this list is the safety property, and a test that
+	// derived it from the code under test would agree with any change to it.
+	want := []string{
+		"-T",
+		"-o", "BatchMode=yes",
+		"-o", "PreferredAuthentications=publickey",
+		"-o", "ProxyJump=none",
+		"-o", "ProxyCommand=none",
+		"-o", "PubkeyAcceptedAlgorithms=-sk-*,-webauthn-sk-*",
+		"-o", "IdentityAgent=none",
+		"-o", "AddKeysToAgent=no",
+		"-o", "PKCS11Provider=none",
+		"-o", "GSSAPIAuthentication=no",
+		"ideapad", DefaultCommand, WorkerFlag,
+	}
+	if got := readLines(t, argvPath); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("ssh argv = %q, want %q", got, want)
+	}
+	// Ordinary Run is untouched: it has a user in front of it and may ask.
+	if _, err := Run(context.Background(), "ideapad", "", Request{TimeoutMs: 3000}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want = []string{"-T", "ideapad", DefaultCommand, WorkerFlag}
+	got := readLines(t, argvPath)
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("ordinary ssh argv = %q, want %q", got, want)
+	}
+	// Said again on its own, because this is the half of the proxy rule that a
+	// changed option list could break quietly: the ordinary transport carries a
+	// user's ProxyJump and ProxyCommand exactly as configured, and pins
+	// neither.
+	for _, arg := range got {
+		if strings.HasPrefix(arg, "Proxy") {
+			t.Errorf("ordinary ssh argv overrides the configured proxy with %q", arg)
+		}
+	}
+}
+
+// The concurrent path may only be taken for a destination Direct has already
+// read as unproxied, and it then holds that reading for the whole pass. ssh
+// evaluates ssh_config once per invocation, so without this pin a Match exec
+// that decided differently on a later acquisition could start a jump child or a
+// ProxyCommand, and neither inherits anything from the options above.
+func TestRunBatchPinsTheProxyOffForThePassItWasClearedFor(t *testing.T) {
+	pinned := map[string]bool{"ProxyJump": false, "ProxyCommand": false}
+	for _, option := range batchOptions {
+		name, value, _ := strings.Cut(option, "=")
+		if _, ok := pinned[name]; !ok {
+			continue
+		}
+		if !strings.EqualFold(value, "none") {
+			t.Errorf("%s = %q, want none", name, value)
+		}
+		pinned[name] = true
+	}
+	for name, found := range pinned {
+		if !found {
+			t.Errorf("the batch options do not pin %s", name)
+		}
+	}
+}
+
+// Direct is the gate that keeps a proxied destination off the concurrent path.
+// A ProxyJump child and a ProxyCommand are separate programs that the batch
+// options do not reach, and netdoc must not connect around either one.
+func TestDirectReadsTheEffectiveConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want bool
+	}{
+		{"config", true},
+		{"confignoneproxy", true},
+		{"configproxy", false},
+		{"configproxycommand", false},
+		// ssh itself failed, so nothing was established. Anything unestablished
+		// is treated as proxied, which costs an overlap and never a prompt.
+		{"sshfail", false},
+		{"silent", false},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			argvPath, _ := useFakeSSH(t, tc.mode)
+			if got := Direct(context.Background(), "ideapad"); got != tc.want {
+				t.Errorf("Direct = %t, want %t", got, tc.want)
+			}
+			if got := readLines(t, argvPath); strings.Join(got, " ") != "-G ideapad" {
+				t.Errorf("ssh argv = %q, want the configuration of ideapad and no connection", got)
+			}
+		})
+	}
+}
+
+// The destination reaches argv here too, so the same refusal has to apply.
+func TestDirectRefusesADestinationSSHWouldReadAsAnOption(t *testing.T) {
+	useFakeSSH(t, "config")
+	if Direct(context.Background(), "-oProxyCommand=calc.exe") {
+		t.Error("Direct accepted a destination that would become an ssh option")
+	}
+}
+
+// OpenSSH's security-key algorithms are two families, and only one of them is
+// spelled with an "sk-" prefix: webauthn-sk-ecdsa-sha2-nistp256@openssh.com and
+// its certificate form are security keys too. Removing one family and not the
+// other would leave the signing path that asks for a PIN reachable, so both
+// patterns are pinned here rather than left to whichever names one installed
+// OpenSSH happens to list.
+func TestRunBatchRemovesBothSecurityKeyAlgorithmFamilies(t *testing.T) {
+	var filter string
+	for _, option := range batchOptions {
+		if name, value, _ := strings.Cut(option, "="); name == "PubkeyAcceptedAlgorithms" {
+			filter = value
+		}
+	}
+	for _, pattern := range []string{"-sk-*", "-webauthn-sk-*"} {
+		if !strings.Contains(filter, pattern) {
+			t.Errorf("PubkeyAcceptedAlgorithms = %q, want it to remove %q", filter, pattern)
+		}
+	}
+}
+
+// A destination is user input that reaches argv, and RunBatch puts options
+// there too. The refusal has to come before either is spent.
+func TestRunBatchRefusesADestinationSSHWouldReadAsAnOption(t *testing.T) {
+	useFakeSSH(t, "ok")
+	if _, err := RunBatch(context.Background(), "-oProxyCommand=calc.exe", "", Request{}); err == nil {
+		t.Error("RunBatch accepted a destination that would become an ssh option")
 	}
 }
 

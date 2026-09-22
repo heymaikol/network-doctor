@@ -675,11 +675,9 @@ func (t *Timeline) begin(state State) {
 	if t.baseline != nil {
 		incident.OnsetChanges = compare.Snapshots(t.baseline.Snap, state.Snap).Changes
 	}
-	t.incidents = append(t.incidents, incident)
-	if len(t.incidents) > maxIncidents {
-		t.dropped += len(t.incidents) - maxIncidents
-		t.incidents = t.incidents[len(t.incidents)-maxIncidents:]
-	}
+	var dropped int
+	t.incidents, dropped = keepNewest(append(t.incidents, incident), maxIncidents)
+	t.dropped += dropped
 	t.open = true
 }
 
@@ -696,12 +694,28 @@ func (t *Timeline) continued(state State) Transition {
 	}
 	during := state
 	active.During = &during
-	active.Steps = append(active.Steps, Step{At: state.At, Changes: changes})
-	if len(active.Steps) > maxSteps {
-		active.StepsDropped += len(active.Steps) - maxSteps
-		active.Steps = active.Steps[len(active.Steps)-maxSteps:]
-	}
+	var dropped int
+	active.Steps, dropped = keepNewest(append(active.Steps, Step{At: state.At, Changes: changes}), maxSteps)
+	active.StepsDropped += dropped
 	return TransitionChanged
+}
+
+// keepNewest bounds items to its newest limit entries, oldest first, and
+// reports how many older ones it dropped. The survivors move to the front of
+// the backing array and the slots they vacate are zeroed, so the array holds
+// nothing the bound discarded. Reslicing the tail instead would leave dropped
+// entries, and every run they point to, reachable through the array's head.
+//
+// Every slot past len is therefore zero: append only writes at len, and this
+// is the only place a retained list shrinks.
+func keepNewest[T any](items []T, limit int) ([]T, int) {
+	dropped := len(items) - limit
+	if dropped <= 0 {
+		return items, 0
+	}
+	copy(items, items[dropped:])
+	clear(items[limit:])
+	return items[:limit], dropped
 }
 
 func (t *Timeline) recover(state State) {

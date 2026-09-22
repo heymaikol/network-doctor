@@ -40,7 +40,10 @@ const (
 	// times DefaultProbeTimeout, and it is what a user waits through on a
 	// network that answers nothing at all. Five rungs at four seconds is where
 	// the graph stands today; the gate exists so a sixth rung, or a longer
-	// default timeout, is a decision somebody makes on purpose.
+	// default timeout, is a decision somebody makes on purpose. internal/remote
+	// spends the same five rungs to bound one whole SSH acquisition, so a rung
+	// added without revisiting maxDiagnosisStages there would let a legitimate
+	// remote run outlast its transport deadline.
 	worstCaseRunBudget = 20 * time.Second
 
 	// healthyRunBudget bounds a whole diagnosis whose every endpoint answers:

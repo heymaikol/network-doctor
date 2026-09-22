@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -27,6 +28,10 @@ const (
 	fakeSSHEnv     = "NETDOC_TEST_FAKE_SSH"
 	fakeSSHArgv    = "NETDOC_TEST_FAKE_SSH_ARGV"
 	fakeSSHRequest = "NETDOC_TEST_FAKE_SSH_REQUEST"
+	// fakeSSHAlive names a file a stalling stand-in appends to while it is
+	// still running, which is how a test proves the process was really stopped
+	// rather than left behind writing into a pipe nobody reads.
+	fakeSSHAlive = "NETDOC_TEST_FAKE_SSH_ALIVE"
 )
 
 func TestMain(m *testing.M) {
@@ -62,7 +67,9 @@ func fakeSSH(mode string) int {
 		fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		return 0
 	case "hang":
-		time.Sleep(30 * time.Second)
+		// An ssh that never gets as far as reading the request: a connection
+		// that is opening, authenticating, or waiting on a prompt forever.
+		stall()
 		return 0
 	}
 
@@ -100,6 +107,21 @@ func fakeSSH(mode string) int {
 		_ = enc.Encode(resp)
 		_ = enc.Encode(resp)
 		return 0
+	case "noresponse":
+		// The request was read and the peer then says nothing at all, which is
+		// a worker that started and never answered.
+		stall()
+		return 0
+	case "stdineof":
+		// A peer that waits for its stdin to end before answering. The local
+		// side deliberately holds that pipe open as the worker's liveness
+		// channel, so this is a protocol deadlock rather than a slow run.
+		_, _ = io.Copy(io.Discard, os.Stdin)
+	case "slow":
+		// A legitimately slow exchange that still finishes inside the bound.
+		time.Sleep(300 * time.Millisecond)
+		rep, snap := diagnosedPair(resp.Tool, true)
+		resp.Report, resp.Snapshot = &rep, &snap
 	case "oversize":
 		fmt.Fprint(os.Stdout, `{"protocol":1,"tool":{},"error":"remote failure"}`+"\n")
 		_, _ = io.CopyN(os.Stdout, endless{}, 3*MaxResponseBytes)
@@ -107,6 +129,23 @@ func fakeSSH(mode string) int {
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(resp)
 	return 0
+}
+
+// stall keeps the stand-in running without answering, appending to the liveness
+// file so a test can tell a killed process from one still going. The ceiling is
+// only a backstop: the transport is what has to end this.
+func stall() {
+	path := os.Getenv(fakeSSHAlive)
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+		if path != "" {
+			// #nosec G304 G703 -- the path is this test harness's own temporary file.
+			if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+				_, _ = f.Write([]byte("."))
+				_ = f.Close()
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // useFakeSSH points the transport at the stand-in and returns the files it
@@ -121,6 +160,7 @@ func useFakeSSH(t *testing.T, mode string) (argvPath, requestPath string) {
 	t.Setenv(fakeSSHEnv, mode)
 	t.Setenv(fakeSSHArgv, argvPath)
 	t.Setenv(fakeSSHRequest, requestPath)
+	t.Setenv(fakeSSHAlive, "")
 	return argvPath, requestPath
 }
 
@@ -272,6 +312,142 @@ func TestRunEndsWhenTheContextIsCancelled(t *testing.T) {
 	// mean the cancellation never reached the ssh process.
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Errorf("Run took %s to notice the cancellation", elapsed)
+	}
+}
+
+// useShortOperationBound shrinks the transport half of the operation ceiling so
+// a stalled stand-in is bounded in test time. What is under test is that the
+// ceiling exists and is enforced, not the size of the shipped allowance, which
+// TestOperationTimeoutDerivesTheCeilingFromTheProbeBudget covers on its own.
+func useShortOperationBound(t *testing.T, d time.Duration) {
+	t.Helper()
+	previous := transportAllowance
+	transportAllowance = d
+	t.Cleanup(func() { transportAllowance = previous })
+}
+
+// Every way an SSH exchange can stop making progress without anybody
+// cancelling it. The caller's context here has no deadline, which is what an
+// ordinary --via run passes: an interruption channel and nothing more.
+func TestRunBoundsAStalledRemoteOperation(t *testing.T) {
+	for _, tc := range []struct{ name, mode string }{
+		// ssh starts and the peer never writes a response.
+		{"no response", "noresponse"},
+		// The peer waits for its stdin to end first. The local side holds that
+		// pipe open on purpose as the worker's liveness channel, so waiting for
+		// EOF before answering deadlocks the protocol rather than delaying it.
+		{"waits for stdin EOF", "stdineof"},
+		// A connection or worker startup that hangs before the request is read.
+		{"stalls before reading the request", "hang"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			useFakeSSH(t, tc.mode)
+			useShortOperationBound(t, 300*time.Millisecond)
+			start := time.Now()
+			_, err := Run(context.Background(), "server", "", Request{TimeoutMs: 20})
+			if err == nil {
+				t.Fatal("want an error, got none")
+			}
+			if !strings.Contains(err.Error(), "timed out") {
+				t.Errorf("error = %q, want it to say the remote run timed out", err)
+			}
+			// The same failure must not read as the user having stopped the
+			// run: nobody interrupted anything here, and --via spends a
+			// different exit code for each.
+			if strings.Contains(err.Error(), "interrupted") {
+				t.Errorf("error = %q, want the operation deadline, not an interruption", err)
+			}
+			if !strings.Contains(err.Error(), "server") {
+				t.Errorf("error = %q, want it to name the SSH destination", err)
+			}
+			// The stand-in stalls for 30 seconds. Anywhere near that means the
+			// deadline never reached it.
+			if elapsed := time.Since(start); elapsed > 10*time.Second {
+				t.Errorf("Run took %s to give up on a stalled exchange", elapsed)
+			}
+		})
+	}
+}
+
+// A remote run that takes its time is not a stalled one, and the ceiling must
+// be well clear of an exchange that is still making progress.
+func TestRunCompletesASlowExchangeInsideTheOperationBound(t *testing.T) {
+	useFakeSSH(t, "slow")
+	useShortOperationBound(t, 2*time.Second)
+	resp, err := Run(context.Background(), "server", "", Request{TimeoutMs: 20})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if resp.Report == nil || !resp.Report.OK {
+		t.Fatalf("response did not carry the completed diagnosis: %+v", resp)
+	}
+}
+
+// The deadline has to end the local ssh process, not merely stop waiting for
+// it. The stand-in appends to a file while it is alive, so a process left
+// behind keeps writing after Run has returned.
+func TestRunStopsTheSSHProcessItGaveUpOn(t *testing.T) {
+	useFakeSSH(t, "noresponse")
+	useShortOperationBound(t, 300*time.Millisecond)
+	alive := t.TempDir() + string(os.PathSeparator) + "alive"
+	t.Setenv(fakeSSHAlive, alive)
+
+	if _, err := Run(context.Background(), "server", "", Request{TimeoutMs: 20}); err == nil {
+		t.Fatal("want the operation deadline error, got none")
+	}
+	if aliveFor(t, alive) == 0 {
+		t.Fatal("the stand-in ssh never recorded that it ran")
+	}
+	settled := aliveFor(t, alive)
+	time.Sleep(200 * time.Millisecond)
+	if grew := aliveFor(t, alive); grew != settled {
+		t.Errorf("the stand-in ssh kept running after Run returned: %d bytes, was %d", grew, settled)
+	}
+}
+
+func aliveFor(t *testing.T, path string) int {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return int(info.Size())
+}
+
+// The ceiling is derived, not picked: the probe budget the request carries,
+// times the deepest chain of probes one pass can spend, plus the transport
+// allowance. A larger --timeout therefore always buys a larger remote bound,
+// and no user-selected probe budget can be cut short by it.
+func TestOperationTimeoutDerivesTheCeilingFromTheProbeBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ms   int64
+		want time.Duration
+	}{
+		{"default probe budget", 4000, 5*4*time.Second + time.Minute},
+		{"a deliberately long probe budget", 30000, 5*30*time.Second + time.Minute},
+		{"a short probe budget", 250, 5*250*time.Millisecond + time.Minute},
+		// The far end refuses a request with no budget, so only the transport
+		// is left to bound.
+		{"no budget in the request", 0, time.Minute},
+		{"a negative budget", -1, time.Minute},
+		// A value this large is refused before it is ever run, but the
+		// arithmetic here must saturate rather than wrap into a short deadline.
+		{"a budget that would overflow", math.MaxInt64 / int64(time.Millisecond), time.Duration(math.MaxInt64)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := operationTimeout(tc.ms); got != tc.want {
+				t.Errorf("operationTimeout(%d) = %v, want %v", tc.ms, got, tc.want)
+			}
+		})
+	}
+	// Whatever the request asks for, the bound never falls below the probe
+	// budget a user chose, which is the one way it could turn a legitimate run
+	// into a failure.
+	for _, ms := range []int64{1, 250, 4000, 30000, 600000} {
+		if got := operationTimeout(ms); got <= time.Duration(ms)*time.Millisecond {
+			t.Errorf("operationTimeout(%d) = %v, which is inside one probe budget", ms, got)
+		}
 	}
 }
 

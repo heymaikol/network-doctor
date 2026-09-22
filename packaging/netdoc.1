@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-09-02" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-09-21" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the
  connection breaks
@@ -399,6 +399,21 @@ Nothing is copied to the SSH host and no shell command is assembled from user
 input: the remote command line is a fixed string, and the run settings travel
 as structured data on standard input.
 .IP
+One acquisition over SSH is bounded end to end: five probe budgets, which is
+the deepest chain of checks one pass can run one after another, plus one minute
+for the connection, authentication, the remote worker's startup, the exchange,
+and teardown. With the default
+.B \-timeout
+that ceiling is
+.BR 1m20s .
+Reaching it stops the local
+.B ssh
+process and reports an acquisition failure naming the destination, which exits
+.BR 2 .
+It is not a diagnosis of the remote network, and not the interruption a Ctrl-C
+performs, which still exits
+.BR 1 .
+.IP
 The far end runs the same probes, reaches the same diagnosis, and returns the
 same report and snapshot a local run produces, so
 .BR \-json ,
@@ -575,6 +590,13 @@ or
 .BR 1500ms .
 Must be positive. The default is
 .BR 4s .
+It is the budget for one check, not for a whole run, and it means the same
+thing on an SSH host under
+.B \-via
+as it does locally. A
+.B \-via
+acquisition carries an overall bound derived from it as well; see
+.BR \-via .
 .TP
 .B \-version
 Print the version and exit.
@@ -612,7 +634,10 @@ Under
 it also means the diagnosis never happened: the SSH connection failed, no
 usable
 .B netdoc
-ran on the SSH host, or the two ends could not agree on the remote protocol. A
+ran on the SSH host, the two ends could not agree on the remote protocol, or
+the acquisition outlasted the overall bound described under
+.BR \-via .
+A
 remote run that did happen and found a broken network exits
 .BR 1 .
 Under live

@@ -569,31 +569,85 @@ func environmental(c compare.Change) bool {
 // The comparisons are not written into the file. A reader derives them from
 // the records the same way this package did, so the artifact cannot hold an
 // answer that disagrees with the states it also holds.
+//
+// Every time the file states about the incident is a run's own CreatedAt: the
+// start is the onset run's and the end is the recovered run's, so the file
+// cannot disagree with itself about when a pass happened. Those are wall clock
+// readings, and a wall clock can be stepped backwards while a session runs.
+// The timeline's observation times still order and space the passes correctly
+// then, since a live time.Time measures elapsed time on the monotonic clock,
+// but formatting drops that reading and the published runs can come out in an
+// order no incident has. See reproject.
 func (i Incident) Artifact() snapshot.Snapshot {
 	s := i.Onset.Snap
-	record := &snapshot.Incident{
-		StartedAt: stamp(i.Started),
-		Passes:    i.Passes,
-	}
-	if !i.Ended.IsZero() {
-		record.EndedAt = stamp(i.Ended)
-	}
+	record := &snapshot.Incident{Passes: i.Passes}
+	var runs []run // in the order they were observed
 	for _, state := range []struct {
 		from *State
 		into **snapshot.Snapshot
 	}{
 		{i.Before, &record.Before},
+		{&i.Onset, nil},
 		{i.During, &record.During},
 		{i.Recovered, &record.Recovered},
 	} {
-		if state.from != nil {
+		switch {
+		case state.from == nil:
+		case state.into == nil:
+			runs = append(runs, run{state.from.At, &s})
+		default:
 			nested := state.from.Snap
 			nested.Incident = nil // a run record is one run
 			*state.into = &nested
+			runs = append(runs, run{state.from.At, &nested})
 		}
+	}
+	reproject(runs, i.Onset.At, s.CreatedAt)
+	record.StartedAt = s.CreatedAt
+	if record.Recovered != nil {
+		record.EndedAt = record.Recovered.CreatedAt
 	}
 	s.Incident = record
 	return s
+}
+
+// run is one copy Artifact publishes and when the timeline observed it.
+type run struct {
+	at   time.Time
+	snap *snapshot.Snapshot
+}
+
+// reproject rewrites the copies' CreatedAt when their own wall clock stamps
+// are out of observation order, which is what a backwards clock step leaves
+// behind. Stamps already in order are published exactly as the passes were
+// stamped, so an ordinary session is untouched.
+//
+// Otherwise every copy is restamped from one clock: the onset's own stamp
+// plus the observation time elapsed since the onset, negative for Before. The
+// onset is the anchor because it is the incident's identity, the start a
+// viewer shows and the file's own CreatedAt, and it exists whether or not a
+// Before does. Adding the same anchor to ordered offsets keeps them ordered
+// after the file's second precision truncates them, so two passes in one
+// second can publish the same stamp, which the validator permits.
+//
+// The copies are rewritten and never the timeline's runs, so the live
+// session keeps what each pass actually recorded.
+func reproject(runs []run, anchorAt time.Time, anchorStamp string) {
+	ordered := true
+	for n := 1; n < len(runs); n++ {
+		earlier, errEarlier := time.Parse(time.RFC3339, runs[n-1].snap.CreatedAt)
+		later, errLater := time.Parse(time.RFC3339, runs[n].snap.CreatedAt)
+		if errEarlier == nil && errLater == nil && later.Before(earlier) {
+			ordered = false
+		}
+	}
+	anchor, err := time.Parse(time.RFC3339, anchorStamp)
+	if ordered || err != nil {
+		return
+	}
+	for _, r := range runs {
+		r.snap.CreatedAt = stamp(anchor.Add(r.at.Sub(anchorAt)))
+	}
 }
 
 func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }

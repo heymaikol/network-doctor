@@ -378,3 +378,274 @@ func TestSteadyResolverTargetsLeaveTheEnvironmentSteady(t *testing.T) {
 		t.Errorf("note = %q, want the steady-environment sentence", note)
 	}
 }
+
+// pass is one watch pass as the two clocks saw it. at is the observation time
+// the timeline is given, which in a real session carries the monotonic reading
+// that keeps its order and spacing right. wall is what the machine's clock
+// said, which is all the pass's own CreatedAt can publish. A test cannot build
+// a time.Time whose wall half steps backwards while its monotonic half moves
+// on, so the two are supplied separately: at only ever moves forward, and wall
+// moves however the clock was set.
+type pass struct {
+	at, wall time.Duration
+	health   Health
+	iface    string
+}
+
+func observeClocks(start time.Time, passes []pass) Incident {
+	var timeline Timeline
+	for _, p := range passes {
+		timeline.Observe(start.Add(p.at), observed(start.Add(p.wall), p.health, p.iface))
+	}
+	i, _ := timeline.Latest()
+	return i
+}
+
+// artifactTimes is every timestamp an incident artifact publishes about its
+// own chronology, in observation order.
+type artifactTimes struct {
+	created, started, ended, before, during, recovered string
+}
+
+func timesOf(s snapshot.Snapshot) artifactTimes {
+	got := artifactTimes{created: s.CreatedAt, started: s.Incident.StartedAt, ended: s.Incident.EndedAt}
+	for _, nested := range []struct {
+		from *snapshot.Snapshot
+		into *string
+	}{{s.Incident.Before, &got.before}, {s.Incident.During, &got.during}, {s.Incident.Recovered, &got.recovered}} {
+		if nested.from != nil {
+			*nested.into = nested.from.CreatedAt
+		}
+	}
+	return got
+}
+
+// Ordinary clocks must publish exactly the timestamps each pass was stamped
+// with. Nothing is reprojected when the chronology already holds, including
+// the sub-second spacing a projection would otherwise round differently.
+func TestArtifactKeepsForwardClockTimestamps(t *testing.T) {
+	start := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
+	passes := []pass{
+		{0, 0, Healthy, "wlan0"},
+		{5300 * time.Millisecond, 5300 * time.Millisecond, Failing, "wg0"},
+		{10900 * time.Millisecond, 10900 * time.Millisecond, Failing, "wg1"},
+		{15100 * time.Millisecond, 15100 * time.Millisecond, Healthy, "wlan0"},
+	}
+	i := observeClocks(start, passes)
+	artifact := i.Artifact()
+	want := artifactTimes{
+		created: "2026-09-22T12:00:05Z", started: "2026-09-22T12:00:05Z", ended: "2026-09-22T12:00:15Z",
+		before: "2026-09-22T12:00:00Z", during: "2026-09-22T12:00:10Z", recovered: "2026-09-22T12:00:15Z",
+	}
+	if got := timesOf(artifact); got != want {
+		t.Fatalf("forward clock artifact times = %+v, want %+v", got, want)
+	}
+	if _, err := snapshot.Encode(artifact); err != nil {
+		t.Fatalf("forward clock artifact does not encode: %v", err)
+	}
+}
+
+// A backwards wall clock step leaves the passes' own timestamps out of order,
+// while the observation times the timeline holds are still right. The artifact
+// has to carry a chronology the file validator accepts, derived from the
+// order and spacing the session actually observed, without the validator
+// relaxing anything and without touching the runs the timeline retains.
+func TestArtifactSurvivesBackwardsClock(t *testing.T) {
+	start := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
+	s := time.Second
+	tests := []struct {
+		name string
+		// naive is the rule the passes' own timestamps break.
+		naive    string
+		passes   []pass
+		want     artifactTimes
+		duration time.Duration
+	}{
+		{
+			name:  "at onset",
+			naive: "before state was observed after the incident started",
+			passes: []pass{
+				{0, time.Hour, Healthy, "wlan0"},
+				{5 * s, 5 * s, Failing, "wg0"},
+				{10 * s, 10 * s, Failing, "wg1"},
+				{15 * s, 15 * s, Healthy, "wlan0"},
+			},
+			want: artifactTimes{
+				created: "2026-09-22T12:00:05Z", started: "2026-09-22T12:00:05Z", ended: "2026-09-22T12:00:15Z",
+				before: "2026-09-22T12:00:00Z", during: "2026-09-22T12:00:10Z", recovered: "2026-09-22T12:00:15Z",
+			},
+			duration: 10 * s,
+		},
+		{
+			name:  "at onset while active",
+			naive: "before state was observed after the incident started",
+			passes: []pass{
+				{0, time.Hour, Healthy, "wlan0"},
+				{5 * s, 5 * s, Failing, "wg0"},
+			},
+			want: artifactTimes{
+				created: "2026-09-22T12:00:05Z", started: "2026-09-22T12:00:05Z",
+				before: "2026-09-22T12:00:00Z",
+			},
+		},
+		{
+			name:  "during failure",
+			naive: "during state falls outside the incident",
+			passes: []pass{
+				{0, 0, Healthy, "wlan0"},
+				{5 * s, 5 * s, Failing, "wg0"},
+				{10 * s, 10*s - time.Hour, Failing, "wg1"},
+				{15 * s, 15 * s, Healthy, "wlan0"},
+			},
+			want: artifactTimes{
+				created: "2026-09-22T12:00:05Z", started: "2026-09-22T12:00:05Z", ended: "2026-09-22T12:00:15Z",
+				before: "2026-09-22T12:00:00Z", during: "2026-09-22T12:00:10Z", recovered: "2026-09-22T12:00:15Z",
+			},
+			duration: 10 * s,
+		},
+		{
+			name:  "during failure while active",
+			naive: "during state falls outside the incident",
+			passes: []pass{
+				{5 * s, 5 * s, Failing, "wg0"},
+				{10 * s, 10*s - time.Hour, Failing, "wg1"},
+			},
+			want: artifactTimes{
+				created: "2026-09-22T12:00:05Z", started: "2026-09-22T12:00:05Z",
+				during: "2026-09-22T12:00:10Z",
+			},
+		},
+		{
+			name:  "at recovery",
+			naive: "ended before it started",
+			passes: []pass{
+				{0, 0, Healthy, "wlan0"},
+				{5 * s, 5 * s, Failing, "wg0"},
+				{10 * s, 10 * s, Failing, "wg1"},
+				{15 * s, 15*s - time.Hour, Healthy, "wlan0"},
+			},
+			want: artifactTimes{
+				created: "2026-09-22T12:00:05Z", started: "2026-09-22T12:00:05Z", ended: "2026-09-22T12:00:15Z",
+				before: "2026-09-22T12:00:00Z", during: "2026-09-22T12:00:10Z", recovered: "2026-09-22T12:00:15Z",
+			},
+			duration: 10 * s,
+		},
+		{
+			// A step before every pass, with sub-second spacing, so the
+			// projection is exercised across more than one jump and has to
+			// survive the second precision the file publishes. The onset
+			// keeps its own stamp, and the rest follow from it.
+			name:  "repeatedly",
+			naive: "ended before it started",
+			passes: []pass{
+				{200 * time.Millisecond, 2 * time.Hour, Healthy, "wlan0"},
+				{5700 * time.Millisecond, time.Hour + 5700*time.Millisecond, Failing, "wg0"},
+				{5900 * time.Millisecond, 5900 * time.Millisecond, Failing, "wg1"},
+				{16200 * time.Millisecond, 16200*time.Millisecond - time.Hour, Healthy, "wlan0"},
+			},
+			want: artifactTimes{
+				created: "2026-09-22T13:00:05Z", started: "2026-09-22T13:00:05Z", ended: "2026-09-22T13:00:15Z",
+				before: "2026-09-22T12:59:59Z", during: "2026-09-22T13:00:05Z", recovered: "2026-09-22T13:00:15Z",
+			},
+			duration: 10500 * time.Millisecond,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			i := observeClocks(start, tt.passes)
+			recovered := tt.want.ended != ""
+			if i.Active() == recovered {
+				t.Fatalf("incident active = %v, want %v", i.Active(), !recovered)
+			}
+			published := map[*State]string{&i.Onset: i.Onset.Snap.CreatedAt}
+			for _, state := range []*State{i.Before, i.During, i.Recovered} {
+				if state != nil {
+					published[state] = state.Snap.CreatedAt
+				}
+			}
+
+			// The runs as retained are what the old artifact published, and
+			// the file validator rejects them. That rule stays as it is.
+			naive := i.Onset.Snap
+			naive.Incident = &snapshot.Incident{StartedAt: naive.CreatedAt, Passes: i.Passes}
+			if i.Before != nil {
+				naive.Incident.Before = &i.Before.Snap
+			}
+			if i.During != nil {
+				naive.Incident.During = &i.During.Snap
+			}
+			if i.Recovered != nil {
+				naive.Incident.Recovered, naive.Incident.EndedAt = &i.Recovered.Snap, i.Recovered.Snap.CreatedAt
+			}
+			if _, err := snapshot.Encode(naive); err == nil || !strings.Contains(err.Error(), tt.naive) {
+				t.Fatalf("retained runs encode with error %v, want %q", err, tt.naive)
+			}
+
+			artifact := i.Artifact()
+			data, err := snapshot.Encode(artifact)
+			if err != nil {
+				t.Fatalf("artifact does not encode: %v", err)
+			}
+			decoded, err := snapshot.Decode(data)
+			if err != nil {
+				t.Fatalf("artifact does not decode: %v", err)
+			}
+			got := timesOf(decoded)
+			if got != tt.want {
+				t.Fatalf("artifact times = %+v, want %+v", got, tt.want)
+			}
+			if got.created != got.started {
+				t.Errorf("onset run %s does not match start %s", got.created, got.started)
+			}
+			if got.recovered != got.ended {
+				t.Errorf("recovered run %s does not match end %s", got.recovered, got.ended)
+			}
+			var order []string
+			for _, at := range []string{got.before, got.started, got.during, got.ended} {
+				if at != "" {
+					order = append(order, at)
+				}
+			}
+			if !slices.IsSorted(order) {
+				t.Errorf("artifact chronology is out of order: %v", order)
+			}
+			if recovered {
+				if d := i.Duration(time.Time{}); d != tt.duration {
+					t.Errorf("duration = %s, want %s from the observation clock", d, tt.duration)
+				}
+			}
+
+			// Only the published times moved: every run is the one retained,
+			// and nothing the timeline holds was rewritten to get there.
+			for state, stamp := range published {
+				if state.Snap.CreatedAt != stamp {
+					t.Errorf("Artifact rewrote a retained run's CreatedAt from %s to %s", stamp, state.Snap.CreatedAt)
+				}
+			}
+			root := artifact
+			root.Incident = nil
+			if !reflect.DeepEqual(root, i.Onset.Snap) {
+				t.Error("onset run differs from the retained one")
+			}
+			for _, nested := range []struct {
+				from *State
+				into *snapshot.Snapshot
+			}{{i.Before, artifact.Incident.Before}, {i.During, artifact.Incident.During}, {i.Recovered, artifact.Incident.Recovered}} {
+				if (nested.from == nil) != (nested.into == nil) {
+					t.Fatalf("artifact state present = %v, retained = %v", nested.into != nil, nested.from != nil)
+				}
+				if nested.from == nil {
+					continue
+				}
+				run := *nested.into
+				run.CreatedAt = nested.from.Snap.CreatedAt
+				if !reflect.DeepEqual(run, nested.from.Snap) {
+					t.Errorf("artifact run differs from the retained one beyond its timestamp")
+				}
+			}
+			if again := i.Artifact(); !reflect.DeepEqual(again, artifact) {
+				t.Error("a second Artifact call differs from the first")
+			}
+		})
+	}
+}

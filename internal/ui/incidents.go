@@ -122,6 +122,14 @@ func (m *model) refreshIncidentViewport(reset bool) {
 }
 
 func (m model) incidentView() string {
+	// An active incident's duration runs on the clock, so its cached report
+	// goes stale between Watch passes while the context strip, which reads
+	// the clock each frame, does not. Rebuilding it here keeps the two in
+	// step. m is View's copy, so the stored scroll offset and selection are
+	// untouched; a recovered incident's report is fixed and stays cached.
+	if selected, ok := m.selectedIncident(); ok && selected.Active() {
+		m.refreshIncidentViewport(false)
+	}
 	total := len(m.incidents.Incidents())
 	header := m.st.title.Render(fmt.Sprintf("Watch incidents  %d of %d", m.incidentSelected+1, total))
 	if dropped := m.incidents.Dropped(); dropped > 0 {

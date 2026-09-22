@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -474,5 +475,67 @@ func TestIncidentDoesNotReportReadingsLostWithTheSocketAsPathChanges(t *testing.
 	}
 	if !strings.Contains(outcomes, "target_tcp changed from PASS to FAIL") {
 		t.Errorf("the failure itself is missing from the outcome evidence:\n%s", report)
+	}
+}
+
+// An open viewer is redrawn on every message Bubble Tea delivers, not only
+// after a Watch pass, so an active incident's duration has to follow the
+// clock there the same way the context strip does. Only m.now moves here; no
+// pass is recorded between the two readings.
+func TestIncidentViewerActiveDurationFollowsTheClock(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	onset := start.Add(5 * time.Second)
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	m.watch, m.width, m.height = true, 100, 12
+	recordWatchPass(&m, start, false, "wlan0")
+	recordWatchPass(&m, onset, true, "wg0")
+	m.openIncidentViewer()
+	if view := m.View(); !strings.Contains(view, "duration: 0s") {
+		t.Fatalf("the viewer did not open at the onset duration:\n%s", view)
+	}
+	u, _ := m.handleIncidentKey(keyPress("down"))
+	m = asModel(t, u)
+	offset, selected := m.incidentVP.YOffset, m.incidentSelected
+	if offset == 0 {
+		t.Fatal("the report fits the viewport, so scrolling cannot be observed")
+	}
+	passes := m.incidents.Incidents()[0].Passes
+
+	m.now = func() time.Time { return onset.Add(4 * time.Second) }
+	view := m.View()
+	if !strings.Contains(view, "duration: 4s") || strings.Contains(view, "duration: 0s") {
+		t.Errorf("the viewer shows a stale duration four seconds after onset:\n%s", view)
+	}
+	if header := m.headerView(); !strings.Contains(header, "incident active for 4s") {
+		t.Errorf("the context strip disagrees with the viewer: %s", header)
+	}
+	if got := m.incidents.Incidents()[0].Passes; got != passes {
+		t.Fatalf("a Watch pass was recorded between readings: passes %d, want %d", got, passes)
+	}
+	// The rebuilt report keeps the reader's line, both on screen and in the
+	// model the next keypress scrolls from.
+	if want := fmt.Sprintf("lines %d-", offset+1); !strings.Contains(view, want) {
+		t.Errorf("the redraw moved the reader off line %d:\n%s", offset+1, view)
+	}
+	if m.incidentVP.YOffset != offset || m.incidentSelected != selected {
+		t.Errorf("the redraw moved the viewer: offset %d, row %d; want %d, %d",
+			m.incidentVP.YOffset, m.incidentSelected, offset, selected)
+	}
+}
+
+func TestIncidentViewerRecoveredDurationStaysFixed(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	m.watch, m.width, m.height = true, 100, 40
+	recordWatchPass(&m, start, false, "wlan0")
+	recordWatchPass(&m, start.Add(5*time.Second), true, "wg0")
+	recordWatchPass(&m, start.Add(15*time.Second), false, "wlan0")
+	m.openIncidentViewer()
+	if view := m.View(); !strings.Contains(view, "duration: 10s") {
+		t.Fatalf("the recovered incident does not read 10s:\n%s", view)
+	}
+	m.now = func() time.Time { return start.Add(time.Minute) }
+	if view := m.View(); !strings.Contains(view, "duration: 10s") || strings.Contains(view, "duration: 55s") {
+		t.Errorf("a recovered incident's duration followed the clock:\n%s", view)
 	}
 }

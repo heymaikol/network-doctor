@@ -318,7 +318,8 @@ func TestNoReferenceEgressKeepsProfileEndpointsAndDropsTheGenericRows(t *testing
 	t.Cleanup(func() { remoteRun = original })
 	var mu sync.Mutex
 	var requests []remote.Request
-	remoteRun = func(_ context.Context, _, _ string, req remote.Request) (remote.Response, error) {
+	stubRemoteDirect(t, true)
+	remoteRun = func(_ context.Context, _, _ string, req remote.Request, _ bool) (remote.Response, error) {
 		target, err := diagnostic.ParseTarget(req.Target)
 		if err != nil {
 			t.Error(err)

@@ -24,9 +24,10 @@ import (
 )
 
 // runProfile executes each finite component plan through the ordinary
-// headless machinery. Local components run concurrently, but remote components
-// stay sequential so SSH prompts cannot collide. Output remains in registry
-// order either way.
+// headless machinery. Local components run concurrently. Remote ones overlap
+// only over a transport that cannot ask the user anything, to a destination
+// reached without a proxy, and fall back to one at a time otherwise, so SSH
+// prompts cannot collide. Output remains in registry order either way.
 func runProfile(parent context.Context, base headless, plan profile.Plan, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -94,28 +95,76 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 
 func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (profile.Result, []snapshot.Snapshot, []snapshot.Tool, error) {
 	outputs := make([]diagnosisOutput, len(plan.Runs))
-	run := func(i int, spec profile.Run) {
+	run := func(i int, batch bool) {
 		h := base
-		h.target = spec.Target
-		h.selection, h.check = profileSelection(spec, base.check, base.skip)
+		h.target = plan.Runs[i].Target
+		h.selection, h.check = profileSelection(plan.Runs[i], base.check, base.skip)
 		// A profile composes its own selection per component. The run-wide
 		// reference-egress decision is not a component's to drop.
 		h.selection.NoReferenceEgress = base.selection.NoReferenceEgress
+		h.viaBatch = batch
 		outputs[i] = diagnoseHeadless(ctx, h)
 	}
-	if base.via != "" {
-		for i, spec := range plan.Runs {
-			run(i, spec)
-			if outputs[i].err != nil {
-				break
-			}
-		}
-	} else {
+	// together runs every component from first onwards at once. A component
+	// that fails does not cancel its siblings: each one is an independent
+	// diagnosis the aggregate still wants, attribution is by index rather than
+	// by who finished first, and a pass that abandoned the others would be
+	// less useful without being any more deterministic.
+	together := func(first int, batch bool) {
 		var wg sync.WaitGroup
-		for i, spec := range plan.Runs {
-			wg.Go(func() { run(i, spec) })
+		for i := first; i < len(plan.Runs); i++ {
+			wg.Go(func() { run(i, batch) })
 		}
 		wg.Wait()
+	}
+	// sequential is the one-at-a-time acquisition, which is what a transport
+	// still able to ask the user something has to have: at most one ssh that
+	// can prompt is ever running, so two questions cannot arrive on one
+	// terminal at once.
+	sequential := func() {
+		for i := range plan.Runs {
+			run(i, false)
+			if outputs[i].err != nil {
+				return
+			}
+		}
+	}
+	switch {
+	case base.via == "":
+		together(0, false)
+	case len(plan.Runs) < 2:
+		// Nothing to overlap, so nothing to gain by asking the destination
+		// whether it would let us.
+		sequential()
+	case !remoteDirect(ctx, base.via):
+		// The destination is reached through a ProxyJump or a ProxyCommand, or
+		// ssh would not say. That proxy is the user's configured path to the
+		// host, so netdoc keeps it and gives up the overlap instead: a jump
+		// child is a separate ssh that can ask the bastion's own questions, and
+		// connecting around it would be a different connection than the one the
+		// configuration asks for.
+		sequential()
+	default:
+		// The first component is alone, and it is acquired over the transport
+		// that cannot ask anything. It is a real component rather than a
+		// preflight: either this destination authenticates without a question,
+		// in which case the same transport carries the rest safely, or it does
+		// not. The later components are not overlapped because this one
+		// succeeded; they are safe because each one refuses interaction itself
+		// and holds the direct route the gate just read, so no proxy child can
+		// appear part-way through the pass to ask on its behalf.
+		run(0, true)
+		if outputs[0].err != nil {
+			// Not established. That is a host wanting a password, a hardware
+			// key, an agent, or a host that is simply unreachable, and none of
+			// those is worth telling apart here: all of them get the
+			// acquisition netdoc has always performed, starting again at the
+			// first component, which overwrites this refusal with its own
+			// error to report.
+			sequential()
+			break
+		}
+		together(1, true)
 	}
 	if ctx.Err() != nil {
 		return profile.Result{}, nil, nil, ctx.Err()

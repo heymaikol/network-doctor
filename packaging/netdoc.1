@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-09-21" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-09-22" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the
  connection breaks
@@ -440,6 +440,36 @@ component. The profile name is never added to the protocol or a remote shell
 command, so a remote netdoc that already speaks protocol version 1 can run the
 components even if it predates profiles. The returned ordinary reports and
 snapshots are aggregated locally without reinterpreting their findings.
+.IP
+Profile components may be acquired concurrently, but only over a transport that
+cannot ask for anything. The destination's effective SSH configuration is read
+once per pass with
+.BR "ssh \-G" .
+A destination configured with a
+.B ProxyJump
+or a
+.B ProxyCommand
+keeps that configured path and is acquired one component at a time; netdoc never
+connects around it. A destination that read as direct is acquired with
+.B ProxyJump
+and
+.B ProxyCommand
+pinned to
+.B none
+for that pass, so a
+.B Match exec
+that decides differently on a later component cannot start a proxy child that
+the options below do not reach. Those options are fixed: they refuse a password,
+a keyboard\-interactive or MFA challenge, a key passphrase, and an unknown
+host\-key confirmation, they offer public\-key authentication only, and they use
+no authentication agent, no FIDO security key, no PKCS#11 provider, and no
+GSSAPI, and add no key to an agent. An unencrypted private key on disk is what
+remains. If that component is
+acquired, the rest overlap over the same refusing transport. If it is refused,
+the pass falls back to acquiring one component at a time as before, at the cost
+of that one refused attempt, which reads and honors your configuration as it
+stands, proxy included. Either way at most one connection that can prompt is
+ever open, and results stay in registry order.
 .IP
 Implies headless operation, so it needs no terminal. Cannot be combined with
 .BR \-toolbox ,

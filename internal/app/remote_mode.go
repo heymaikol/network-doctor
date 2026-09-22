@@ -20,8 +20,19 @@ import (
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
-// remoteRun is stubbed in tests, which have no SSH server to talk to.
-var remoteRun = remote.Run
+// remoteRun is stubbed in tests, which have no SSH server to talk to. batch
+// picks the transport that refuses interactive authentication instead of
+// asking for it; see remote.RunBatch.
+var remoteRun = func(ctx context.Context, dest, command string, req remote.Request, batch bool) (remote.Response, error) {
+	if batch {
+		return remote.RunBatch(ctx, dest, command, req)
+	}
+	return remote.Run(ctx, dest, command, req)
+}
+
+// remoteDirect is stubbed in tests, which have no ssh_config to read. It
+// gates the concurrent path; see remote.Direct.
+var remoteDirect = remote.Direct
 
 // workerStdin is the protocol's inbound channel, stubbed in tests.
 var workerStdin io.Reader = os.Stdin
@@ -72,7 +83,7 @@ func runVia(parent context.Context, h headless, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	resp, err := remoteRun(ctx, h.via, h.viaCommand, requestForRemote(h))
+	resp, err := remoteRun(ctx, h.via, h.viaCommand, requestForRemote(h), h.viaBatch)
 	if err != nil {
 		fmt.Fprintln(stderr, "netdoc: -via:", err)
 		// An interrupted run is exit 1, the code quitting before the chain

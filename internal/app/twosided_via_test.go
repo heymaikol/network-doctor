@@ -78,7 +78,7 @@ func stubLiveTwoSided(t *testing.T, localStatus, remoteStatus string) (*int, *re
 		localCalls++
 		return resultsWithTargetStatus(probes, localStatus)
 	}
-	remoteRun = func(_ context.Context, _, _ string, req remote.Request) (remote.Response, error) {
+	remoteRun = func(_ context.Context, _, _ string, req remote.Request, _ bool) (remote.Response, error) {
 		request = req
 		return responseForLiveRequest(req, remoteStatus)
 	}
@@ -171,7 +171,7 @@ func TestRunLiveTwoSidedRefusesDifferentEffectiveTargets(t *testing.T) {
 	runAll = func(_ context.Context, probes []diagnostic.Probe, _ time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {
 		return resultsWithTargetStatus(probes, snapshot.StatusPass)
 	}
-	remoteRun = func(_ context.Context, _, _ string, req remote.Request) (remote.Response, error) {
+	remoteRun = func(_ context.Context, _, _ string, req remote.Request, _ bool) (remote.Response, error) {
 		resp, err := responseForLiveRequest(req, snapshot.StatusPass)
 		if err == nil {
 			resp.Snapshot.Target.Host = "other.example"
@@ -214,7 +214,7 @@ func TestRunLiveTwoSidedAppliesSymmetricProbeOptions(t *testing.T) {
 		}
 		return resultsWithTargetStatus(probes, snapshot.StatusPass)
 	}
-	remoteRun = func(_ context.Context, dest, cmd string, req remote.Request) (remote.Response, error) {
+	remoteRun = func(_ context.Context, dest, cmd string, req remote.Request, _ bool) (remote.Response, error) {
 		destination, command, request = dest, cmd, req
 		return responseForLiveRequest(req, snapshot.StatusPass)
 	}
@@ -256,7 +256,7 @@ func TestRunLiveTwoSidedStartsBothVantagesTogether(t *testing.T) {
 		<-release
 		return resultsWithTargetStatus(probes, snapshot.StatusPass)
 	}
-	remoteRun = func(_ context.Context, _, _ string, req remote.Request) (remote.Response, error) {
+	remoteRun = func(_ context.Context, _, _ string, req remote.Request, _ bool) (remote.Response, error) {
 		close(remoteStarted)
 		<-release
 		return responseForLiveRequest(req, snapshot.StatusPass)
@@ -302,7 +302,7 @@ func twoSidedRemoteFailureCancelsLocal(t *testing.T, timeout bool) {
 	if timeout {
 		remoteErr = errors.New("ideapad: the remote run timed out after 1m20s")
 	}
-	remoteRun = func(_ context.Context, _, _ string, _ remote.Request) (remote.Response, error) {
+	remoteRun = func(_ context.Context, _, _ string, _ remote.Request, _ bool) (remote.Response, error) {
 		<-localStarted
 		return remote.Response{}, remoteErr
 	}
@@ -331,7 +331,7 @@ func TestRunLiveTwoSidedParentCancellationStopsBothDiagnoses(t *testing.T) {
 		close(localCancelled)
 		return nil
 	}
-	remoteRun = func(ctx context.Context, _, _ string, _ remote.Request) (remote.Response, error) {
+	remoteRun = func(ctx context.Context, _, _ string, _ remote.Request, _ bool) (remote.Response, error) {
 		close(remoteStarted)
 		<-ctx.Done()
 		close(remoteCancelled)
@@ -398,7 +398,7 @@ func TestRunLiveTwoSidedRejectsAsymmetricAndUnrelatedFlagsBeforeStarting(t *test
 				t.Error("local diagnosis started for invalid arguments")
 				return nil
 			}
-			remoteRun = func(context.Context, string, string, remote.Request) (remote.Response, error) {
+			remoteRun = func(context.Context, string, string, remote.Request, bool) (remote.Response, error) {
 				t.Error("remote diagnosis started for invalid arguments")
 				return remote.Response{}, nil
 			}
@@ -465,7 +465,7 @@ func TestLiveTwoSidedPMTUSelectionDoesNotInventMismatch(t *testing.T) {
 				}
 				return resultsWithTargetStatus(probes, snapshot.StatusPass)
 			}
-			remoteRun = func(_ context.Context, _, _ string, req remote.Request) (remote.Response, error) {
+			remoteRun = func(_ context.Context, _, _ string, req remote.Request, _ bool) (remote.Response, error) {
 				resp, err := responseForLiveRequest(req, snapshot.StatusPass)
 				if err == nil {
 					for _, check := range resp.Report.Checks {

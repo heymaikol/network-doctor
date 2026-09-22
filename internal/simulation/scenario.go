@@ -758,7 +758,46 @@ func parseAddr(raw string) (netip.Addr, string, error) {
 	return addr, addr.String(), nil
 }
 
+// serviceListener is one socket a node's services will bind once the scenario
+// runs: the transport, the port, and the label that names the claim in a
+// conflict message.
+type serviceListener struct {
+	network string
+	port    int
+	owner   string
+}
+
+// serviceListeners reports the sockets svc binds. It reads the normalized
+// Service.Port, so it must be called after the per-service validation that
+// fills in a default port. Every supported type is named here: a new service
+// type must say which transport it listens on rather than inherit TCP.
+func serviceListeners(svc *Service) ([]serviceListener, error) {
+	owner := fmt.Sprintf("%s service", svc.Type)
+	if svc.Name != "" {
+		owner = fmt.Sprintf("%s service %q", svc.Type, svc.Name)
+	}
+	switch svc.Type {
+	case ServiceDNS, ServiceQUIC:
+		return []serviceListener{{network: "udp", port: svc.Port, owner: owner}}, nil
+	case ServiceHTTP, ServiceTCP, ServiceTCPReset, ServiceSOCKS5, ServiceHTTPConnect, ServiceTLS:
+		return []serviceListener{{network: "tcp", port: svc.Port, owner: owner}}, nil
+	case ServiceEncryptedDNS:
+		// DoH is configurable; DoT is fixed by RFC 7858, so one encrypted_dns
+		// service claims two TCP ports and collides with itself on 853.
+		return []serviceListener{
+			{network: "tcp", port: svc.Port, owner: owner + " DoH"},
+			{network: "tcp", port: encryptedDNSDoTPort, owner: owner + " DoT"},
+		}, nil
+	default:
+		return nil, fmt.Errorf("service type %q has no listener mapping", svc.Type)
+	}
+}
+
 func (n *Node) validateServices(names map[string]bool) error {
+	// Two services on one node share a namespace and neither picks a bind
+	// address, so a repeated transport/port pair is a bind failure waiting for
+	// service startup. Reject it here instead.
+	claimed := make(map[string]string, len(n.Services))
 	for i := range n.Services {
 		svc := &n.Services[i]
 		if svc.Banner != "" && svc.Type != ServiceTCP {
@@ -943,6 +982,18 @@ func (n *Node) validateServices(names map[string]bool) error {
 		}
 		if svc.Port < 1 || svc.Port > 65535 {
 			return fmt.Errorf("node %q: port %d is out of range", n.Name, svc.Port)
+		}
+		listeners, err := serviceListeners(svc)
+		if err != nil {
+			return fmt.Errorf("node %q: %w", n.Name, err)
+		}
+		for _, listener := range listeners {
+			key := listener.network + "/" + strconv.Itoa(listener.port)
+			if previous, taken := claimed[key]; taken {
+				return fmt.Errorf("node %q: %s port %d is claimed by both %s and %s",
+					n.Name, listener.network, listener.port, previous, listener.owner)
+			}
+			claimed[key] = listener.owner
 		}
 	}
 	return nil

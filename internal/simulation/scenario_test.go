@@ -1025,3 +1025,146 @@ func TestScenarioPMTUExpectationsMatchTargetPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateRejectsListenerConflicts(t *testing.T) {
+	tests := []struct {
+		name     string
+		services string
+		wantErr  string
+	}{
+		{
+			name:     "two explicit tcp services on one port",
+			services: "- {type: tcp, port: 8080}\n        - {type: tcp_reset, port: 8080}",
+			wantErr:  `node "server": tcp port 8080 is claimed by both tcp service and tcp_reset service`,
+		},
+		{
+			name:     "defaulted http port meets an explicit tcp service",
+			services: "- {type: http}\n        - {type: tcp, port: 80}",
+			wantErr:  `node "server": tcp port 80 is claimed by both http service and tcp service`,
+		},
+		{
+			name:     "dns and quic on one udp port",
+			services: "- {type: dns, port: 5353}\n        - {name: q, type: quic, port: 5353, certificate: {mode: valid, dns_names: [a.test]}}",
+			wantErr:  `node "server": udp port 5353 is claimed by both dns service and quic service "q"`,
+		},
+		{
+			name:     "encrypted_dns on the DoT port collides with itself",
+			services: `- {name: e, type: encrypted_dns, port: 853, certificate: {mode: valid, dns_names: [a.test]}}`,
+			wantErr:  `node "server": tcp port 853 is claimed by both encrypted_dns service "e" DoH and encrypted_dns service "e" DoT`,
+		},
+		{
+			name:     "two encrypted_dns services share the implicit DoT port",
+			services: "- {name: e1, type: encrypted_dns, port: 443, certificate: {mode: valid, dns_names: [a.test]}}\n        - {name: e2, type: encrypted_dns, port: 444, certificate: {mode: valid, dns_names: [b.test]}}",
+			wantErr:  `node "server": tcp port 853 is claimed by both encrypted_dns service "e1" DoT and encrypted_dns service "e2" DoT`,
+		},
+		{
+			name:     "a tls service takes the implicit DoT port",
+			services: "- {name: t, type: tls, port: 853, certificate: {mode: valid, dns_names: [a.test]}}\n        - {name: e, type: encrypted_dns, port: 443, certificate: {mode: valid, dns_names: [b.test]}}",
+			wantErr:  `node "server": tcp port 853 is claimed by both tls service "t" and encrypted_dns service "e" DoT`,
+		},
+		{
+			name:     "a tcp service takes the DoH port",
+			services: "- {name: e, type: encrypted_dns, port: 443, certificate: {mode: valid, dns_names: [a.test]}}\n        - {type: tcp, port: 443}",
+			wantErr:  `node "server": tcp port 443 is claimed by both encrypted_dns service "e" DoH and tcp service`,
+		},
+		{
+			name:     "same numeric port on tcp and udp",
+			services: "- {type: dns, port: 443}\n        - {name: t, type: tls, port: 443, certificate: {mode: valid, dns_names: [a.test]}}",
+		},
+		{
+			name:     "distinct tcp ports",
+			services: "- {type: http, port: 80}\n        - {type: tcp, port: 81}",
+		},
+		{
+			name:     "distinct udp ports",
+			services: "- {type: dns, port: 53}\n        - {name: q, type: quic, port: 443, certificate: {mode: valid, dns_names: [a.test]}}",
+		},
+		{
+			name:     "a single encrypted_dns service on its default port",
+			services: `- {name: e, type: encrypted_dns, certificate: {mode: valid, dns_names: [a.test]}}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := fmt.Sprintf(`
+name: t
+topology:
+  nodes:
+    - {name: client, role: client, address: 10.77.0.10, gateway: 10.77.0.1}
+    - name: server
+      address: 10.77.0.1
+      services:
+        %s
+tests:
+  - {node: client, target: example.test:80}
+expect:
+  verdict: ok
+`, tc.services)
+			_, err := ParseScenario(strings.NewReader(raw))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateAllowsOnePortPerNode(t *testing.T) {
+	raw := `
+name: t
+topology:
+  nodes:
+    - {name: client, role: client, address: 10.77.0.10, gateway: 10.77.0.1}
+    - {name: a, address: 10.77.0.1, services: [{type: http, port: 80}]}
+    - {name: b, address: 10.77.0.2, services: [{type: http, port: 80}]}
+tests:
+  - {node: client, target: example.test:80}
+expect:
+  verdict: ok
+`
+	if _, err := ParseScenario(strings.NewReader(raw)); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+}
+
+// TestServiceListenersCoverEveryServiceType keeps the listener map honest: a new
+// service type must name its transport instead of inheriting TCP by default.
+func TestServiceListenersCoverEveryServiceType(t *testing.T) {
+	cases := []struct {
+		serviceType string
+		want        []serviceListener
+	}{
+		{ServiceDNS, []serviceListener{{network: "udp", port: 5300, owner: `dns service "s"`}}},
+		{ServiceQUIC, []serviceListener{{network: "udp", port: 5300, owner: `quic service "s"`}}},
+		{ServiceHTTP, []serviceListener{{network: "tcp", port: 5300, owner: `http service "s"`}}},
+		{ServiceTCP, []serviceListener{{network: "tcp", port: 5300, owner: `tcp service "s"`}}},
+		{ServiceTCPReset, []serviceListener{{network: "tcp", port: 5300, owner: `tcp_reset service "s"`}}},
+		{ServiceSOCKS5, []serviceListener{{network: "tcp", port: 5300, owner: `socks5 service "s"`}}},
+		{ServiceHTTPConnect, []serviceListener{{network: "tcp", port: 5300, owner: `http_connect service "s"`}}},
+		{ServiceTLS, []serviceListener{{network: "tcp", port: 5300, owner: `tls service "s"`}}},
+		{ServiceEncryptedDNS, []serviceListener{
+			{network: "tcp", port: 5300, owner: `encrypted_dns service "s" DoH`},
+			{network: "tcp", port: encryptedDNSDoTPort, owner: `encrypted_dns service "s" DoT`},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.serviceType, func(t *testing.T) {
+			got, err := serviceListeners(&Service{Name: "s", Type: tc.serviceType, Port: 5300})
+			if err != nil {
+				t.Fatalf("serviceListeners: %v", err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("listeners = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+	if _, err := serviceListeners(&Service{Name: "s", Type: "future", Port: 5300}); err == nil {
+		t.Fatal("an unmapped service type must not be assigned a transport")
+	}
+}

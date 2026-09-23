@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 )
 
@@ -536,6 +537,81 @@ func TestValueNamedLikeAnAliasKeepsItsOwnPseudonym(t *testing.T) {
 			}
 			if alternatives[0].Value == alternatives[1].Value {
 				t.Errorf("two alternatives collapsed onto one alias %q", alternatives[0].Value)
+			}
+		})
+	}
+}
+
+// An interface named "192.0.2.1" beside the recorded address 192.0.2.1 leaves
+// free text one spelling for two identities. Text is written in the address
+// namespace, the one the text patterns read that spelling as, and it has to
+// be the same pseudonym in every field: the alias was allocated before any
+// field was sanitized and the address only when first met, so text sanitized
+// earlier used to take the interface alias and text sanitized later the
+// address. The typed fields keep their own namespaces either way.
+func TestAddressShapedInterfaceThatIsARecordedAddressIsWrittenAsTheAddress(t *testing.T) {
+	for _, iface := range []string{"192.0.2.1", "2001:db8::1", "2001:DB8::1", "::ffff:192.0.2.1"} {
+		t.Run(iface, func(t *testing.T) {
+			s := routeEvidenceSnapshot(ObservationRouteTunneled, iface, iface)
+			s.Checks[0].Observed.Addresses = []string{iface}
+			s.Diagnosis.Summary = "no route to " + iface + ", retrying"
+			s.Checks[0].Detail = "no route to " + iface + ", retrying"
+			s.Checks = append(s.Checks, Check{
+				ID: "later", Name: "later", Status: StatusFail, Ran: true, DurationMs: 1,
+				Detail: "no route to " + iface + ", retrying",
+			})
+			sanitized := sanitizeValid(t, s)
+
+			address := sanitized.Checks[0].Observed.Addresses[0]
+			alias := sanitized.Checks[0].Observed.Routes[0].Interface
+			if !isAddress(address) || address == iface || isAddress(alias) {
+				t.Fatalf("typed fields changed namespace: address %q, interface %q", address, alias)
+			}
+			if named := sanitized.Diagnosis.Findings[0].CausalEvidence[0].Value; named != alias {
+				t.Errorf("evidence named interface %q, want the route's %q", named, alias)
+			}
+			want := "no route to " + address + ", retrying"
+			for field, got := range map[string]string{
+				"diagnosis summary": sanitized.Diagnosis.Summary,
+				"first detail":      sanitized.Checks[0].Detail,
+				"later detail":      sanitized.Checks[1].Detail,
+			} {
+				if got != want {
+					t.Errorf("%s = %q, want %q", field, got, want)
+				}
+			}
+			encoded, err := Encode(sanitized)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), iface) {
+				t.Errorf("the original %q survived sanitization", iface)
+			}
+		})
+	}
+}
+
+// The address precedence above is for a spelling some field declared as an
+// address. An interface name that text merely spells like one, and a public
+// resolver address that is published as recorded, both leave the interface
+// alias as the only pseudonym the spelling has.
+func TestAddressShapedInterfaceWithNoAddressPseudonymKeepsItsAlias(t *testing.T) {
+	for name, publicDNS := range map[string]string{"named only in text": "", "retained resolver": "9.9.9.9"} {
+		t.Run(name, func(t *testing.T) {
+			iface := "192.0.2.1"
+			if publicDNS != "" {
+				iface = publicDNS
+			}
+			s := routeEvidenceSnapshot(ObservationRouteTunneled, iface, iface)
+			s.Options.PublicDNS = publicDNS
+			s.Checks[0].Detail = "via dev " + iface
+			sanitized := sanitizeValid(t, s)
+			alias := sanitized.Checks[0].Observed.Routes[0].Interface
+			if got, want := sanitized.Checks[0].Detail, "via dev "+alias; got != want {
+				t.Errorf("detail = %q, want %q", got, want)
+			}
+			if got := sanitized.Options.PublicDNS; got != publicDNS {
+				t.Errorf("public resolver = %q, want %q kept", got, publicDNS)
 			}
 		})
 	}

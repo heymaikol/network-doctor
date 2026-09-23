@@ -99,7 +99,9 @@ func TestReplacementTableIsReusedUntilAMappingChanges(t *testing.T) {
 }
 
 // Longest key first, then byte order, then the target, which only matters
-// when one spelling is a key in two mappings.
+// when one spelling is a key in two mappings. This pins determinism only:
+// which pseudonym free text gets for a spelling that is also a recorded
+// address is replaceKnown's rule, tested with the value semantics.
 func TestReplacementTableOrder(t *testing.T) {
 	want := []replacement{
 		{"192.0.2.1", "10.0.0.1"}, {"192.0.2.1", "interface-1"}, {"abc", "x"},

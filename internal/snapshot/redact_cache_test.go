@@ -19,6 +19,24 @@ func allocatingRedactor(t *testing.T) *redactor {
 	return r
 }
 
+func TestReplacementTableCachesEmptyResult(t *testing.T) {
+	r := &redactor{
+		aliases: map[string]map[string]string{},
+		ips:     map[string]string{},
+	}
+
+	if got := r.replacementTable(); got == nil {
+		t.Fatal("empty replacement table was not cached")
+	}
+	if r.replacements == nil {
+		t.Fatal("empty replacement table left cache invalid")
+	}
+
+	if got := r.replacementTable(); got == nil {
+		t.Fatal("cached empty replacement table was lost")
+	}
+}
+
 func TestReplacementTableSeesAliasAddedAfterItWasBuilt(t *testing.T) {
 	r := allocatingRedactor(t)
 	alias := r.alias("interface", "bench-wg0")

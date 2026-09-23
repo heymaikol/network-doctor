@@ -1046,7 +1046,7 @@ func (r *redactor) replacementTable() []replacement {
 	if r.replacements != nil {
 		return r.replacements
 	}
-	var pairs []replacement
+	pairs := make([]replacement, 0)
 	for _, values := range r.aliases {
 		for from, to := range values {
 			pairs = append(pairs, replacement{from, to})

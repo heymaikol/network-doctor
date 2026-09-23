@@ -36,12 +36,16 @@ var (
 func SanitizeForSupport(s Snapshot) Snapshot {
 	r := newRedactor()
 	r.collectSnapshot(s)
+	// The output walk, run while collecting, reserves the identities only
+	// the text patterns find. See redactor.collecting.
+	r.snapshot(s)
 	r.finishCollection()
 	return r.snapshot(s)
 }
 
 func newRedactor() *redactor {
 	r := &redactor{
+		collecting:      true,
 		aliases:         map[string]map[string]string{},
 		originalAliases: map[string]map[string]bool{},
 		ips:             map[string]string{},
@@ -59,10 +63,14 @@ func newRedactor() *redactor {
 
 func (r *redactor) finishCollection() {
 	sort.SliceStable(r.prefixOrder, func(i, j int) bool { return r.prefixOrder[i].Bits() > r.prefixOrder[j].Bits() })
+	r.collecting = false
 	// Allocation waits until here, in the order the values were collected, so
 	// every alias is chosen knowing every original in its namespace.
 	for _, collected := range r.aliasOrder {
-		r.alias(collected.kind, collected.value)
+		alias := r.alias(collected.kind, collected.value)
+		if collected.shortName != "" {
+			r.aliases[collected.kind][collected.shortName] = alias
+		}
 	}
 }
 
@@ -74,7 +82,12 @@ func SanitizeProfileForSupport(profile ProfileSnapshot) ProfileSnapshot {
 	for _, component := range profile.Components {
 		r.collectSnapshot(component.Snapshot)
 	}
+	r.profile(profile) // reserves text identities, as in SanitizeForSupport
 	r.finishCollection()
+	return r.profile(profile)
+}
+
+func (r *redactor) profile(profile ProfileSnapshot) ProfileSnapshot {
 	out := ProfileSnapshot{
 		Schema: profile.Schema, CreatedAt: profile.CreatedAt,
 		Tool:       Tool{Version: r.text(profile.Tool.Version), OS: profile.Tool.OS, Arch: profile.Tool.Arch},
@@ -121,7 +134,7 @@ var genericIdentity = map[string]bool{
 	"localhost": true, "home": true, "users": true, "guest": true,
 }
 
-// seedLocalIdentity registers this machine's hostname and account name before
+// seedLocalIdentity collects this machine's hostname and account name before
 // the snapshot is walked, so every later text pass replaces them the way it
 // replaces any other known value.
 //
@@ -133,15 +146,16 @@ var genericIdentity = map[string]bool{
 func (r *redactor) seedLocalIdentity() {
 	hostname, username := localIdentity()
 	if seedable(hostname) {
-		alias := r.alias("host", hostname)
+		r.collectAlias("host", hostname)
 		// A machine answers to both "buildbox.corp" and "buildbox". They are
 		// one host, so they share one alias rather than looking like two.
 		if base, _, ok := strings.Cut(hostname, "."); ok && seedable(base) {
-			r.aliases["host"][base] = alias
+			r.reserve("host", base)
+			r.aliasOrder[len(r.aliasOrder)-1].shortName = base
 		}
 	}
 	if seedable(username) {
-		r.alias("user", username)
+		r.collectAlias("user", username)
 	}
 }
 
@@ -153,6 +167,11 @@ func seedable(value string) bool {
 }
 
 type redactor struct {
+	// collecting is true until finishCollection. While it is, the output walk
+	// can run as a collection pass: alias() only reserves what it is handed and
+	// address() and prefix() allocate nothing, so every original the text
+	// patterns will find is reserved by the same code that later rewrites it.
+	collecting      bool
 	aliases         map[string]map[string]string
 	originalAliases map[string]map[string]bool
 	aliasOrder      []aliasedValue
@@ -279,7 +298,9 @@ func (r *redactor) collectTypedValue(semantics valueSemantics, value string) {
 }
 
 // aliasedValue is one original waiting for a pseudonym out of kind's namespace.
-type aliasedValue struct{ kind, value string }
+// shortName, when set, is another spelling of the same identity that takes the
+// same pseudonym.
+type aliasedValue struct{ kind, value, shortName string }
 
 // collectAlias records an original that the output side will send through
 // alias(), and defers the allocation itself to finishCollection. The counter
@@ -291,13 +312,30 @@ func (r *redactor) collectAlias(kind, value string) {
 	if value == "" {
 		return
 	}
+	r.reserve(kind, value)
+	r.aliasOrder = append(r.aliasOrder, aliasedValue{kind: kind, value: value})
+}
+
+// reserve records value as an original of kind's namespace without giving it
+// a place in the allocation order. It is allocated when output first meets it.
+func (r *redactor) reserve(kind, value string) {
 	originals := r.originalAliases[kind]
 	if originals == nil {
 		originals = map[string]bool{}
 		r.originalAliases[kind] = originals
 	}
-	originals[value] = true
-	r.aliasOrder = append(r.aliasOrder, aliasedValue{kind: kind, value: value})
+	originals[aliasKey(kind, value)] = true
+}
+
+// aliasKey is the identity an original holds in kind's namespace. A hostname
+// is read the way DNS reads it and compare.sameEndpointName compares recorded
+// targets: without regard to ASCII case or the one trailing dot that spells
+// the root. Every other namespace is compared exactly.
+func aliasKey(kind, value string) string {
+	if kind != "host" {
+		return value
+	}
+	return strings.ToLower(strings.TrimSuffix(value, "."))
 }
 
 func (r *redactor) hasPrefix(prefix netip.Prefix) bool {
@@ -317,7 +355,7 @@ func (r *redactor) collectHost(value string) {
 		r.collectIP(strings.Trim(value, "[]"), false)
 		return
 	}
-	r.alias("host", value)
+	r.collectAlias("host", value)
 }
 
 func (r *redactor) collectURL(value string) {
@@ -548,6 +586,10 @@ func (r *redactor) alias(kind, value string) string {
 	if value == "" {
 		return ""
 	}
+	if r.collecting {
+		r.reserve(kind, value)
+		return value
+	}
 	values := r.aliases[kind]
 	if values == nil {
 		values = map[string]string{}
@@ -556,17 +598,24 @@ func (r *redactor) alias(kind, value string) string {
 	if alias := values[value]; alias != "" {
 		return alias
 	}
-	for _, alias := range values {
-		if value == alias {
+	// Another spelling of a mapped identity takes its alias, and is kept under
+	// its own spelling too so replaceKnown finds it in text.
+	key := aliasKey(kind, value)
+	for original, alias := range values {
+		if aliasKey(kind, alias) == key {
 			return value
+		}
+		if aliasKey(kind, original) == key {
+			values[value] = alias
+			return alias
 		}
 	}
 	// Skipping the names originals hold is what keeps aliases disjoint from
 	// them, and that disjointness is what makes the already-an-alias check
-	// above safe. Skipping value itself covers an original shaped like the
-	// next alias in a namespace that does not reserve its originals. The
-	// search is bounded: each skip consumes one of the finitely many originals
-	// collected in this namespace, or value.
+	// above safe. Every original is reserved before the first allocation, so
+	// skipping value itself only guards a value the collection pass missed.
+	// The search is bounded: each skip consumes one of the finitely many
+	// originals collected in this namespace, or value.
 	alias := ""
 	for {
 		r.aliasCounters[kind]++
@@ -575,7 +624,7 @@ func (r *redactor) alias(kind, value string) string {
 			suffix += ".invalid"
 		}
 		alias = kind + "-" + suffix
-		if alias != value && !r.originalAliases[kind][alias] {
+		if candidate := aliasKey(kind, alias); candidate != key && !r.originalAliases[kind][candidate] {
 			break
 		}
 	}
@@ -596,6 +645,9 @@ func (r *redactor) routeTable(value string) string {
 func (r *redactor) address(value string) string {
 	if value == "" {
 		return ""
+	}
+	if r.collecting {
+		return value
 	}
 	address, err := netip.ParseAddr(value)
 	if err != nil {
@@ -798,6 +850,9 @@ func (r *redactor) prefix(value string) string {
 	if err != nil {
 		return r.alias("prefix", value)
 	}
+	if r.collecting {
+		return value
+	}
 	var alias string
 	for n := uint32(1); n <= maxAliasAttempts; n++ {
 		alias = pseudonymPrefix(prefix, n).String()
@@ -900,7 +955,10 @@ func (r *redactor) text(value string) string {
 	value = urlTextRE.ReplaceAllStringFunc(value, r.sanitizeURL)
 	value = ipTextRE.ReplaceAllStringFunc(value, r.textAddress)
 	value = hostTextRE.ReplaceAllStringFunc(value, func(host string) string {
-		if strings.HasSuffix(strings.ToLower(host), ".invalid") {
+		// A name under .invalid is normally an alias, or a longer name that
+		// replaceKnown built around one, and is kept. One the collection pass
+		// found in the original text is someone's hostname all the same.
+		if strings.HasSuffix(strings.ToLower(host), ".invalid") && !r.collecting && !r.originalAliases["host"][aliasKey("host", host)] {
 			return host
 		}
 		return r.alias("host", host)

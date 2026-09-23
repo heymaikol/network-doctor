@@ -550,7 +550,7 @@ func TestValueNamedLikeAnAliasKeepsItsOwnPseudonym(t *testing.T) {
 // earlier used to take the interface alias and text sanitized later the
 // address. The typed fields keep their own namespaces either way.
 func TestAddressShapedInterfaceThatIsARecordedAddressIsWrittenAsTheAddress(t *testing.T) {
-	for _, iface := range []string{"192.0.2.1", "2001:db8::1"} {
+	for _, iface := range []string{"192.0.2.1", "2001:db8::1", "2001:DB8::1", "::ffff:192.0.2.1"} {
 		t.Run(iface, func(t *testing.T) {
 			s := routeEvidenceSnapshot(ObservationRouteTunneled, iface, iface)
 			s.Checks[0].Observed.Addresses = []string{iface}

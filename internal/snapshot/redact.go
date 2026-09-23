@@ -1106,9 +1106,13 @@ func (r *redactor) replaceKnown(value string) string {
 			// and addresses during it, so the table alone would choose the
 			// alias in fields sanitized before the address was first met.
 			// A retained address would publish the alias original, so it keeps
-			// its alias.
-			to := pair.to
-			if r.recordedIPs[pair.from] && !r.retainIP[pair.from] {
+			// its alias. Both maps are keyed by canonical address, so an alias
+			// spelled "2001:DB8::1" or "::ffff:192.0.2.1" is looked up the same way.
+			to, key := pair.to, pair.from
+			if address, err := netip.ParseAddr(key); err == nil {
+				key = address.Unmap().WithZone("").String()
+			}
+			if r.recordedIPs[key] && !r.retainIP[key] {
 				to = r.address(pair.from)
 			}
 			b.WriteString(to)

@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"fmt"
 	"net"
 	"net/url"
 	"reflect"
@@ -50,23 +51,42 @@ func inspectSupport(t *testing.T, s Snapshot) (Snapshot, *redactor) {
 }
 
 // assertAliasInvariants holds every alias namespace to the property the
-// reservation exists for: no pseudonym equals an original of its namespace,
+// reservation exists for: no pseudonym names an original of its namespace,
 // and no two originals share one, except the pinned local machine's long and
-// short names, which are one host by design.
+// short names, which are one host by design. Host names are compared as DNS
+// names, so spellings of one hostname are one original.
 func assertAliasInvariants(t *testing.T, r *redactor) {
 	t.Helper()
 	for kind, values := range r.aliases {
-		owners := map[string][]string{}
+		identity := func(name string) string { return name }
+		if kind == "host" {
+			identity = dnsName
+		}
+		originals := map[string]bool{}
+		for original := range values {
+			originals[identity(original)] = true
+		}
+		for reserved := range r.originalAliases[kind] {
+			originals[identity(reserved)] = true
+		}
+		owners := map[string]map[string]bool{}
 		for original, alias := range values {
-			if _, isOriginal := values[alias]; isOriginal || r.originalAliases[kind][alias] {
+			if originals[identity(alias)] {
 				t.Errorf("%s alias %q for %q is also an original", kind, alias, original)
 			}
-			owners[alias] = append(owners[alias], original)
+			if owners[identity(alias)] == nil {
+				owners[identity(alias)] = map[string]bool{}
+			}
+			owners[identity(alias)][identity(original)] = true
 		}
-		for alias, originals := range owners {
-			sort.Strings(originals)
-			if len(originals) > 1 && !reflect.DeepEqual(originals, []string{"sanitizer-test-box", "sanitizer-test-box.example"}) {
-				t.Errorf("%s originals %q collapsed onto %q", kind, originals, alias)
+		for alias, owned := range owners {
+			var names []string
+			for name := range owned {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			if len(names) > 1 && !reflect.DeepEqual(names, []string{"sanitizer-test-box", "sanitizer-test-box.example"}) {
+				t.Errorf("%s originals %q collapsed onto %q", kind, names, alias)
 			}
 		}
 	}
@@ -256,5 +276,71 @@ func TestSupportTextIdentitiesAreReservedBeforeAllocation(t *testing.T) {
 	if cert == nil || cert[2] == corp || cert[2] == literal1 || cert[2] == literal2 || cert[2] == local ||
 		!strings.HasSuffix(got.Checks[0].Fix, "retry "+cert[2]) {
 		t.Errorf("fix = %q, want the certificate host as its own repeated identity", got.Checks[0].Fix)
+	}
+}
+
+// dnsName is how DNS, and compare.sameEndpointName, reads a hostname: without
+// regard to ASCII case or the one terminal dot that spells the root.
+func dnsName(host string) string { return strings.ToLower(strings.TrimSuffix(host, ".")) }
+
+// An original that differs from the next host alias only in case or a root
+// dot is still that DNS name, and has to keep it from every other host. The
+// text copy is dropped once, because the text pattern stops short of a root
+// dot and would otherwise reserve the bare spelling by itself.
+func TestSupportHostAliasesAvoidDNSEquivalentOriginals(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, literal := range []string{"HOST-2.INVALID", "host-2.invalid."} {
+		for _, order := range [][2]string{{"corp.example", literal}, {literal, "corp.example"}} {
+			for _, withText := range []bool{true, false} {
+				t.Run(fmt.Sprintf("%s first, text %t", order[0], withText), func(t *testing.T) {
+					s := hostPairSnapshot(order[0], order[1])
+					if !withText {
+						s.Checks[0].Detail = ""
+					}
+					got, r := inspectSupport(t, s)
+					assertAliasInvariants(t, r)
+					data, err := Encode(got)
+					if err != nil {
+						t.Fatal(err)
+					}
+					assertNotLeaked(t, data, order[0], order[1])
+					assertNotLeaked(t, []byte(strings.ToLower(string(data))), dnsName(literal))
+					portal, err := url.Parse(got.Checks[0].Observed.Portal.RedirectURL)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if dnsName(got.Target.Host) == dnsName(portal.Hostname()) {
+						t.Errorf("distinct hosts %q and %q collapsed onto %q", order[0], order[1], got.Target.Host)
+					}
+					again, err := Encode(SanitizeForSupport(s))
+					if err != nil || string(again) != string(data) {
+						t.Errorf("the same snapshot did not sanitize deterministically")
+					}
+				})
+			}
+		}
+	}
+}
+
+// Spellings of one hostname that differ only in case or a root dot are one
+// host, so they share one alias, and each spelling is still replaced in text.
+func TestSupportDNSEquivalentHostSpellingsShareAnAlias(t *testing.T) {
+	pinLocalIdentity(t)
+	s := hostPairSnapshot("Corp.Example.", "corp.example")
+	s.Checks[0].Fix = "retry CORP.EXAMPLE"
+	got, r := inspectSupport(t, s)
+	assertAliasInvariants(t, r)
+	data, err := Encode(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNotLeaked(t, []byte(strings.ToLower(string(data))), "corp.example")
+	portal, err := url.Parse(got.Checks[0].Observed.Portal.RedirectURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := got.Target.Host
+	if portal.Hostname() != alias || got.Checks[0].Fix != "retry "+alias {
+		t.Errorf("target %q, portal %q, fix %q: want one alias", alias, portal.Hostname(), got.Checks[0].Fix)
 	}
 }

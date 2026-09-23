@@ -324,7 +324,18 @@ func (r *redactor) reserve(kind, value string) {
 		originals = map[string]bool{}
 		r.originalAliases[kind] = originals
 	}
-	originals[value] = true
+	originals[aliasKey(kind, value)] = true
+}
+
+// aliasKey is the identity an original holds in kind's namespace. A hostname
+// is read the way DNS reads it and compare.sameEndpointName compares recorded
+// targets: without regard to ASCII case or the one trailing dot that spells
+// the root. Every other namespace is compared exactly.
+func aliasKey(kind, value string) string {
+	if kind != "host" {
+		return value
+	}
+	return strings.ToLower(strings.TrimSuffix(value, "."))
 }
 
 func (r *redactor) hasPrefix(prefix netip.Prefix) bool {
@@ -587,9 +598,16 @@ func (r *redactor) alias(kind, value string) string {
 	if alias := values[value]; alias != "" {
 		return alias
 	}
-	for _, alias := range values {
-		if value == alias {
+	// Another spelling of a mapped identity takes its alias, and is kept under
+	// its own spelling too so replaceKnown finds it in text.
+	key := aliasKey(kind, value)
+	for original, alias := range values {
+		if aliasKey(kind, alias) == key {
 			return value
+		}
+		if aliasKey(kind, original) == key {
+			values[value] = alias
+			return alias
 		}
 	}
 	// Skipping the names originals hold is what keeps aliases disjoint from
@@ -606,7 +624,7 @@ func (r *redactor) alias(kind, value string) string {
 			suffix += ".invalid"
 		}
 		alias = kind + "-" + suffix
-		if alias != value && !r.originalAliases[kind][alias] {
+		if candidate := aliasKey(kind, alias); candidate != key && !r.originalAliases[kind][candidate] {
 			break
 		}
 	}
@@ -940,7 +958,7 @@ func (r *redactor) text(value string) string {
 		// A name under .invalid is normally an alias, or a longer name that
 		// replaceKnown built around one, and is kept. One the collection pass
 		// found in the original text is someone's hostname all the same.
-		if strings.HasSuffix(strings.ToLower(host), ".invalid") && !r.collecting && !r.originalAliases["host"][host] {
+		if strings.HasSuffix(strings.ToLower(host), ".invalid") && !r.collecting && !r.originalAliases["host"][aliasKey("host", host)] {
 			return host
 		}
 		return r.alias("host", host)

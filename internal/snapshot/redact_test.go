@@ -679,3 +679,171 @@ func TestSupportMappedRoutePrefixKeepsRouteFamily(t *testing.T) {
 		})
 	}
 }
+
+func routePrefixSnapshot(routes ...Route) Snapshot {
+	return Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+		Checks:    []Check{{ID: "route", Name: "route", Status: StatusPass, Ran: true, Observed: &Observed{Routes: routes}}},
+		Diagnosis: Diagnosis{Verdict: "ok", Summary: "healthy"},
+		OK:        true,
+	}
+}
+
+// A route prefix is pseudonymized as the network it names, not as the string
+// it was recorded in: host bits and the IPv4-mapped spelling of an IPv4
+// network at /96 or narrower do not make a second network. A mapped prefix
+// broader than /96 has no IPv4 width, so each spelling stays its own identity.
+func TestSupportEquivalentRoutePrefixesShareAPseudonym(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, tc := range []struct {
+		destination, family, first, second string
+		same                               bool
+	}{
+		{"10.1.9.9", "ipv4", "10.1.0.0/16", "10.1.2.3/16", true},
+		{"10.2.9.9", "ipv4", "10.2.0.0/16", "::ffff:10.2.0.0/112", true},
+		{"10.2.9.9", "ipv4", "10.2.0.0/16", "::ffff:10.2.3.4/112", true},
+		{"fd00:1::9", "ipv6", "fd00:1::/64", "fd00:1::1234/64", true},
+		{"10.1.9.9", "ipv4", "10.1.0.0/16", "10.2.0.0/16", false},
+		{"10.1.0.9", "ipv4", "10.1.0.0/16", "10.1.0.0/24", false},
+		{"10.1.9.9", "ipv4", "::ffff:10.1.2.3/80", "::ffff:10.9.9.9/80", false},
+	} {
+		for _, order := range [][2]string{{tc.first, tc.second}, {tc.second, tc.first}} {
+			t.Run(order[0]+"_"+order[1], func(t *testing.T) {
+				s := routePrefixSnapshot(
+					Route{Destination: tc.destination, Family: tc.family, Prefix: order[0]},
+					Route{Destination: tc.destination, Family: tc.family, Prefix: order[1]},
+				)
+				if err := Validate(s); err != nil {
+					t.Fatalf("original artifact is invalid: %v", err)
+				}
+				got, r := inspectSupport(t, s)
+				data, err := Encode(got)
+				if err != nil {
+					t.Fatalf("sanitized artifact does not encode: %v", err)
+				}
+				routes := got.Checks[0].Observed.Routes
+				if same := routes[0].Prefix == routes[1].Prefix; same != tc.same {
+					t.Errorf("%q and %q sanitized to %q and %q, want same = %v",
+						order[0], order[1], routes[0].Prefix, routes[1].Prefix, tc.same)
+				}
+				for _, route := range routes {
+					if tc.same && !netip.MustParsePrefix(route.Prefix).Contains(netip.MustParseAddr(route.Destination)) {
+						t.Errorf("destination %q left its prefix %q", route.Destination, route.Prefix)
+					}
+				}
+				for i, a := range r.prefixOrder {
+					for _, b := range r.prefixOrder[i+1:] {
+						if a.Masked() == b.Masked() {
+							t.Errorf("network %s is in prefixOrder twice: %v", a, r.prefixOrder)
+						}
+					}
+				}
+				again, err := Encode(SanitizeForSupport(s))
+				if err != nil || string(again) != string(data) {
+					t.Errorf("sanitization is not deterministic:\n%s\n%s", data, again)
+				}
+			})
+		}
+	}
+}
+
+// Every spelling of a default route names the default route, so each one is
+// written as the default route the support format keeps. A mapped prefix
+// broader than /96 names no IPv4 width, so it stays pseudonymized.
+func TestSupportDefaultRouteSpellingsStayDefaultRoutes(t *testing.T) {
+	pinLocalIdentity(t)
+	s := routePrefixSnapshot(
+		Route{Destination: "10.1.9.9", Family: "ipv4", Prefix: "0.0.0.0/0"},
+		Route{Destination: "10.1.9.9", Family: "ipv4", Prefix: "1.2.3.4/0"},
+		Route{Destination: "10.1.9.9", Family: "ipv4", Prefix: "::ffff:1.2.3.4/96"},
+		Route{Destination: "2001:db8::9", Family: "ipv6", Prefix: "::/0"},
+		Route{Destination: "2001:db8::9", Family: "ipv6", Prefix: "2001:db8::1/0"},
+		Route{Destination: "10.1.9.9", Family: "ipv4", Prefix: "::ffff:1.2.3.4/0"},
+	)
+	if err := Validate(s); err != nil {
+		t.Fatalf("original artifact is invalid: %v", err)
+	}
+	got := SanitizeForSupport(s)
+	data, err := Encode(got)
+	if err != nil {
+		t.Fatalf("sanitized artifact does not encode: %v", err)
+	}
+	routes := got.Checks[0].Observed.Routes
+	for i, want := range []string{"0.0.0.0/0", "0.0.0.0/0", "0.0.0.0/0", "::/0", "::/0"} {
+		if routes[i].Prefix != want {
+			t.Errorf("%q sanitized to %q, want %q", s.Checks[0].Observed.Routes[i].Prefix, routes[i].Prefix, want)
+		}
+	}
+	if mapped := netip.MustParsePrefix(routes[5].Prefix); !mapped.Addr().Is4() || mapped.Bits() == 0 {
+		t.Errorf("%q sanitized to %q, want an IPv4 pseudonym", s.Checks[0].Observed.Routes[5].Prefix, routes[5].Prefix)
+	}
+	if strings.Contains(string(data), "1.2.3.4") {
+		t.Errorf("sanitized artifact contains an original address:\n%s", data)
+	}
+	again, err := Encode(SanitizeForSupport(s))
+	if err != nil || string(again) != string(data) {
+		t.Errorf("sanitization is not deterministic:\n%s\n%s", data, again)
+	}
+}
+
+// Reserving original prefixes has to reserve the networks they name. Each
+// original below is a non-canonical spelling of exactly the network the first
+// prefix pseudonym would be, so a reservation keyed by spelling misses it.
+func TestSupportPrefixPseudonymsAvoidEquivalentOriginalNetworks(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, prefix := range []string{"10.1.2.3/16", "::ffff:10.1.0.0/112", "::ffff:10.1.2.3/112"} {
+		t.Run(prefix, func(t *testing.T) {
+			s := routePrefixSnapshot(Route{Destination: "10.1.9.9", Family: "ipv4", Prefix: prefix})
+			if err := Validate(s); err != nil {
+				t.Fatalf("original artifact is invalid: %v", err)
+			}
+			got := SanitizeForSupport(s)
+			if sanitized := got.Checks[0].Observed.Routes[0].Prefix; netip.MustParsePrefix(sanitized) == netip.MustParsePrefix("10.1.0.0/16") {
+				t.Errorf("%q sanitized to its own network %q", prefix, sanitized)
+			}
+		})
+	}
+}
+
+// Every nested snapshot of a profile or an incident shares one mapping, so one
+// network recorded in two spellings in two places is still one pseudonym.
+func TestSupportEquivalentRoutePrefixesShareAPseudonymAcrossNestedSnapshots(t *testing.T) {
+	pinLocalIdentity(t)
+	withPrefix := func(s Snapshot, prefix string) Snapshot {
+		s.Checks = append([]Check(nil), s.Checks...)
+		observed := *s.Checks[0].Observed
+		observed.Routes = []Route{{Destination: "10.23.9.9", Family: "ipv4", Prefix: prefix}}
+		s.Checks[0].Observed = &observed
+		return s
+	}
+	profile := profileFixture()
+	for i, prefix := range []string{"10.23.0.0/16", "::ffff:10.23.4.5/112"} {
+		c := &profile.Components[i]
+		if c.Snapshot.Checks[0].Observed == nil {
+			c.Snapshot.Checks[0].Observed = &Observed{}
+		}
+		c.Snapshot = withPrefix(c.Snapshot, prefix)
+	}
+	sanitized := SanitizeProfileForSupport(profile)
+	if _, err := EncodeProfile(sanitized); err != nil {
+		t.Fatal(err)
+	}
+	first := sanitized.Components[0].Snapshot.Checks[0].Observed.Routes[0].Prefix
+	if second := sanitized.Components[1].Snapshot.Checks[0].Observed.Routes[0].Prefix; first != second {
+		t.Errorf("profile components sanitized one network to %q and %q", first, second)
+	}
+
+	onset := withPrefix(supportFixture(), "10.23.0.0/16")
+	before := withPrefix(supportFixture(), "10.23.4.5/16")
+	before.CreatedAt, before.OK = "2026-08-25T16:59:55Z", true
+	before.Checks[0].Status, before.Diagnosis.FailedStage = StatusPass, ""
+	onset.Incident = &Incident{StartedAt: onset.CreatedAt, Passes: 1, Before: &before}
+	got := SanitizeForSupport(onset)
+	if _, err := Encode(got); err != nil {
+		t.Fatal(err)
+	}
+	onsetPrefix := got.Checks[0].Observed.Routes[0].Prefix
+	if beforePrefix := got.Incident.Before.Checks[0].Observed.Routes[0].Prefix; onsetPrefix != beforePrefix {
+		t.Errorf("incident states sanitized one network to %q and %q", onsetPrefix, beforePrefix)
+	}
+}

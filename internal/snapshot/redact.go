@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -224,9 +225,15 @@ func (r *redactor) collectSnapshot(s Snapshot) {
 			r.collectIP(route.Gateway, false)
 			r.collectIP(route.Source, false)
 			if route.Prefix != "" {
-				r.originalPrefix[route.Prefix] = true
-				if prefix, err := netip.ParsePrefix(route.Prefix); err == nil && prefix.Bits() != 0 && !r.hasPrefix(prefix) {
-					r.prefixOrder = append(r.prefixOrder, prefix)
+				r.originalPrefix[supportPrefixKey(route.Prefix)] = true
+				// A mapped prefix never contains the unmapped addresses
+				// address() looks up, so it is left out rather than turned
+				// into the IPv4 network it names, which would widen what
+				// prefix-aware address pseudonyms follow.
+				if parsed, err := netip.ParsePrefix(route.Prefix); err == nil && !parsed.Addr().Is4In6() {
+					if prefix := supportPrefix(parsed); prefix.Bits() != 0 && !slices.Contains(r.prefixOrder, prefix) {
+						r.prefixOrder = append(r.prefixOrder, prefix)
+					}
 				}
 			}
 			r.collectAlias("interface", route.Interface)
@@ -336,15 +343,6 @@ func aliasKey(kind, value string) string {
 		return value
 	}
 	return strings.ToLower(strings.TrimSuffix(value, "."))
-}
-
-func (r *redactor) hasPrefix(prefix netip.Prefix) bool {
-	for _, existing := range r.prefixOrder {
-		if existing == prefix {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *redactor) collectHost(value string) {
@@ -844,15 +842,22 @@ func pseudonymAddress(address netip.Addr, n uint32) netip.Addr {
 }
 
 func (r *redactor) prefix(value string) string {
-	if value == "" || value == "0.0.0.0/0" || value == "::/0" {
+	if value == "" {
 		return value
 	}
-	if alias := r.prefixes[value]; alias != "" {
-		return alias
-	}
-	prefix, err := netip.ParsePrefix(value)
+	parsed, err := netip.ParsePrefix(value)
 	if err != nil {
 		return r.alias("prefix", value)
+	}
+	prefix := supportPrefix(parsed)
+	// Every spelling of a default route is written as the default route.
+	// A mapped prefix broader than /96 is not one: it names no IPv4 width.
+	if prefix.Bits() == 0 && !prefix.Addr().Is4In6() {
+		return prefix.String()
+	}
+	key := prefix.String()
+	if alias := r.prefixes[key]; alias != "" {
+		return alias
 	}
 	if r.collecting {
 		return value
@@ -874,8 +879,36 @@ func (r *redactor) prefix(value string) string {
 			break
 		}
 	}
-	r.prefixes[value] = alias
+	r.prefixes[key] = alias
 	return alias
+}
+
+// supportPrefix is the network a recorded route prefix names, which is the
+// identity its support pseudonym is kept under. Host bits name no second
+// network, and a mapped prefix at /96 or narrower is the IPv4 network inside
+// the wrapper, as validation and pseudonymPrefix both read it. A mapped prefix
+// broader than /96 has no IPv4 width to name, so it is kept as recorded.
+//
+// This is not compare.prefixKey: a comparison reports what two artifacts
+// recorded, so it keeps the distinctions this identity erases.
+func supportPrefix(prefix netip.Prefix) netip.Prefix {
+	if !prefix.Addr().Is4In6() {
+		return prefix.Masked()
+	}
+	if prefix.Bits() < 96 {
+		return prefix
+	}
+	return netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96).Masked()
+}
+
+// supportPrefixKey is supportPrefix for a recorded value, which is kept as it
+// is when it is not a prefix at all.
+func supportPrefixKey(value string) string {
+	prefix, err := netip.ParsePrefix(value)
+	if err != nil {
+		return value
+	}
+	return supportPrefix(prefix).String()
 }
 
 func pseudonymPrefix(prefix netip.Prefix, n uint32) netip.Prefix {

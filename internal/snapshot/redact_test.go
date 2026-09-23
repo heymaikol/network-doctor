@@ -613,7 +613,8 @@ func TestSupportMappedPrefixesRemainCIDR(t *testing.T) {
 		{"::ffff:192.0.2.1/128", 32, true},
 		{"::ffff:192.0.2.0/120", 24, true},
 		{"::ffff:0.0.0.0/96", 24, true},
-		{"::ffff:192.0.2.1/95", 95, false},
+		{"::ffff:192.0.2.1/95", 24, true},
+		{"2001:db8::1/64", 64, false},
 	} {
 		t.Run(tc.input, func(t *testing.T) {
 			got := pseudonymPrefix(netip.MustParsePrefix(tc.input), 1)
@@ -622,6 +623,58 @@ func TestSupportMappedPrefixesRemainCIDR(t *testing.T) {
 			}
 			if got.String() == tc.input {
 				t.Fatal("prefix was not pseudonymized")
+			}
+		})
+	}
+}
+
+// Validation reads a mapped prefix as IPv4 at any width, so a mapped prefix
+// broader than /96 has to sanitize to IPv4 too. Before, /80 stayed IPv6 beside
+// an IPv4 destination and the sanitized artifact would not encode.
+func TestSupportMappedRoutePrefixKeepsRouteFamily(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, tc := range []struct{ destination, family, prefix string }{
+		{"10.9.9.9", "ipv4", "::ffff:10.9.9.9/80"},
+		{"10.9.9.9", "ipv4", "::ffff:10.9.9.9/95"},
+		{"10.9.9.9", "ipv4", "::ffff:10.9.9.0/96"},
+		{"10.9.9.9", "ipv4", "::ffff:10.9.9.9/97"},
+		{"10.9.9.9", "ipv4", "::ffff:10.9.9.0/120"},
+		{"10.9.9.9", "ipv4", "10.9.9.0/24"},
+		{"fd00:9::9", "ipv6", "fd00:9::/64"},
+	} {
+		t.Run(tc.prefix, func(t *testing.T) {
+			s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+				Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+				Checks: []Check{{ID: "route", Name: "route", Status: StatusPass, Ran: true, Observed: &Observed{
+					Routes: []Route{{Destination: tc.destination, Family: tc.family, Prefix: tc.prefix}},
+				}}},
+				Diagnosis: Diagnosis{Verdict: "ok", Summary: "healthy"},
+				OK:        true,
+			}
+			if err := Validate(s); err != nil {
+				t.Fatalf("original artifact is invalid: %v", err)
+			}
+			safe := SanitizeForSupport(s)
+			data, err := Encode(safe)
+			if err != nil {
+				t.Fatalf("sanitized artifact does not encode: %v", err)
+			}
+			route := safe.Checks[0].Observed.Routes[0]
+			prefix, err := netip.ParsePrefix(route.Prefix)
+			if err != nil {
+				t.Fatalf("sanitized prefix %q: %v", route.Prefix, err)
+			}
+			v4 := tc.family == "ipv4"
+			if destination := netip.MustParseAddr(route.Destination); destination.Is4() != v4 || prefix.Addr().Is4() != v4 {
+				t.Errorf("sanitized route %q via %q is not in family %s", route.Destination, route.Prefix, tc.family)
+			}
+			original := netip.MustParsePrefix(tc.prefix)
+			if route.Destination == tc.destination || prefix.Addr().Unmap() == original.Addr().Unmap() {
+				t.Errorf("sanitized route kept an original address: %+v", route)
+			}
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil || string(again) != string(data) {
+				t.Errorf("sanitization is not deterministic:\n%s\n%s", data, again)
 			}
 		})
 	}

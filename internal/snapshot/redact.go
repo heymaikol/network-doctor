@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"cmp"
 	"encoding/binary"
 	"net"
 	"net/netip"
@@ -70,7 +71,7 @@ func (r *redactor) finishCollection() {
 	for _, collected := range r.aliasOrder {
 		alias := r.alias(collected.kind, collected.value)
 		if collected.shortName != "" {
-			r.aliases[collected.kind][collected.shortName] = alias
+			r.mapAlias(r.aliases[collected.kind], collected.shortName, alias)
 		}
 	}
 }
@@ -185,6 +186,22 @@ type redactor struct {
 	originalPrefix  map[string]bool
 	prefixOrder     []netip.Prefix
 	prefixIPCounts  map[string]uint32
+	// replacements is aliases and ips as the sorted table replaceKnown scans.
+	// It is nil until built and again after any write to either mapping, which
+	// is why every such write goes through mapAlias or mapIP.
+	replacements []replacement
+}
+
+type replacement struct{ from, to string }
+
+func (r *redactor) mapAlias(values map[string]string, value, alias string) {
+	values[value] = alias
+	r.replacements = nil
+}
+
+func (r *redactor) mapIP(key, alias string) {
+	r.ips[key] = alias
+	r.replacements = nil
 }
 
 func (r *redactor) collectSnapshot(s Snapshot) {
@@ -604,7 +621,7 @@ func (r *redactor) alias(kind, value string) string {
 			return value
 		}
 		if aliasKey(kind, original) == key {
-			values[value] = alias
+			r.mapAlias(values, value, alias)
 			return alias
 		}
 	}
@@ -626,7 +643,7 @@ func (r *redactor) alias(kind, value string) string {
 			break
 		}
 	}
-	values[value] = alias
+	r.mapAlias(values, value, alias)
 	return alias
 }
 
@@ -691,7 +708,7 @@ func (r *redactor) address(value string) string {
 			r.prefixIPCounts[originalPrefix.String()]++
 			alias := pseudonymWithin(mappedPrefix, r.prefixIPCounts[originalPrefix.String()]).String()
 			if !r.originalIPs[alias] && !r.usedIPAlias(alias) {
-				r.ips[key] = alias
+				r.mapIP(key, alias)
 				return alias
 			}
 		}
@@ -705,7 +722,7 @@ func (r *redactor) address(value string) string {
 			break
 		}
 	}
-	r.ips[key] = alias
+	r.mapIP(key, alias)
 	return alias
 }
 
@@ -1021,23 +1038,32 @@ func (r *redactor) redactCertificateHost(match string) string {
 	return parts[1] + " " + r.alias("host", parts[2])
 }
 
-func (r *redactor) replaceKnown(value string) string {
-	type pair struct{ from, to string }
-	var pairs []pair
+// replacementTable returns the known values longest first, equal lengths in
+// byte order. One spelling can be a key in two mappings, an interface named
+// like an address the snapshot also holds, so the target breaks the last tie
+// and the order never depends on map iteration.
+func (r *redactor) replacementTable() []replacement {
+	if r.replacements != nil {
+		return r.replacements
+	}
+	pairs := make([]replacement, 0)
 	for _, values := range r.aliases {
 		for from, to := range values {
-			pairs = append(pairs, pair{from, to})
+			pairs = append(pairs, replacement{from, to})
 		}
 	}
 	for from, to := range r.ips {
-		pairs = append(pairs, pair{from, to})
+		pairs = append(pairs, replacement{from, to})
 	}
-	sort.Slice(pairs, func(i, j int) bool {
-		if len(pairs[i].from) == len(pairs[j].from) {
-			return pairs[i].from < pairs[j].from
-		}
-		return len(pairs[i].from) > len(pairs[j].from)
+	slices.SortFunc(pairs, func(a, b replacement) int {
+		return cmp.Or(cmp.Compare(len(b.from), len(a.from)), cmp.Compare(a.from, b.from), cmp.Compare(a.to, b.to))
 	})
+	r.replacements = pairs
+	return pairs
+}
+
+func (r *redactor) replaceKnown(value string) string {
+	pairs := r.replacementTable()
 	if len(pairs) == 0 {
 		return value
 	}

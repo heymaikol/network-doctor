@@ -275,7 +275,7 @@ func fillSchema(t *testing.T, v reflect.Value, path string, sentinels map[string
 
 // pinLocalIdentity replaces the machine's real name and account with fixed
 // ones, so a test asserts against the same values everywhere it runs.
-func pinLocalIdentity(t *testing.T) {
+func pinLocalIdentity(t testing.TB) {
 	t.Helper()
 	original := localIdentity
 	localIdentity = func() (string, string) { return "sanitizer-test-box.example", "sanitizer-test-account" }

@@ -3,11 +3,13 @@ package snapshot
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // hostPairSnapshot names first as the target and second as the captive portal
@@ -342,5 +344,146 @@ func TestSupportDNSEquivalentHostSpellingsShareAnAlias(t *testing.T) {
 	alias := got.Target.Host
 	if portal.Hostname() != alias || got.Checks[0].Fix != "retry "+alias {
 		t.Errorf("target %q, portal %q, fix %q: want one alias", alias, portal.Hostname(), got.Checks[0].Fix)
+	}
+}
+
+// textAddressSnapshot names one address twice, in text only, so the returned
+// sanitized Detail and Fix each carry the pseudonym after a fixed prefix.
+func textAddressSnapshot(spelling string, observed *Observed) Snapshot {
+	return Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+		Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail, Ran: true, DurationMs: 1,
+			Detail: "gateway " + spelling, Fix: "check " + spelling, Observed: observed}},
+		Diagnosis: Diagnosis{Verdict: "route", Summary: "failed", FailedStage: "route"},
+	}
+}
+
+func textAddressPseudonyms(t *testing.T, got Snapshot) (detail, fix string) {
+	t.Helper()
+	detail, okDetail := strings.CutPrefix(got.Checks[0].Detail, "gateway ")
+	fix, okFix := strings.CutPrefix(got.Checks[0].Fix, "check ")
+	if !okDetail || !okFix {
+		t.Fatalf("text lost its shape: detail=%q fix=%q", got.Checks[0].Detail, got.Checks[0].Fix)
+	}
+	return detail, fix
+}
+
+// An address found only in text is an original like any other. Each original
+// below is exactly the first pseudonym its family hands out, so unless the
+// collection pass reserves it, the address is mapped onto itself and survives.
+// Every spelling the text pattern reads has to reach the same identity the
+// output side computes, or the reservation misses it.
+func TestSupportTextOnlyAddressesAreReservedBeforeAllocation(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, test := range []struct{ spelling, original string }{
+		{"10.0.0.1", "10.0.0.1"},
+		{"10.0.0.1:443", "10.0.0.1"},
+		{"::ffff:10.0.0.1", "10.0.0.1"},
+		{"fe80::1%2", "fe80::1"},
+	} {
+		t.Run(test.spelling, func(t *testing.T) {
+			s := textAddressSnapshot(test.spelling, nil)
+			got := SanitizeForSupport(s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertNotLeaked(t, data, test.original)
+			detail, fix := textAddressPseudonyms(t, got)
+			if detail != fix {
+				t.Errorf("one address got two pseudonyms: detail=%q fix=%q", detail, fix)
+			}
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(again) != string(data) {
+				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
+	}
+}
+
+// A structured field and a sentence naming the same address describe one host,
+// whichever spelling the sentence uses.
+func TestSupportStructuredAndTextAddressShareAPseudonym(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, spelling := range []string{"10.0.0.1", "::ffff:10.0.0.1"} {
+		got := SanitizeForSupport(textAddressSnapshot(spelling, &Observed{SelectedIP: "10.0.0.1"}))
+		detail, fix := textAddressPseudonyms(t, got)
+		if selected := got.Checks[0].Observed.SelectedIP; detail != selected || fix != selected || selected == "10.0.0.1" {
+			t.Errorf("%s: selected=%q detail=%q fix=%q, want one pseudonym", spelling, selected, detail, fix)
+		}
+	}
+}
+
+// Only the configured public resolver stays readable. The same well-known
+// address in a sentence is still that resolver, but one found in text alone
+// proves nothing about the run and is pseudonymized like any other address.
+func TestSupportTextAddressRetentionFollowsStructuredResolver(t *testing.T) {
+	pinLocalIdentity(t)
+	s := textAddressSnapshot("8.8.8.8", nil)
+	s.Options.PublicDNS = "9.9.9.9"
+	s.Checks[0].Fix = "check 8.8.8.8 and 9.9.9.9"
+	got := SanitizeForSupport(s)
+	if got.Options.PublicDNS != "9.9.9.9" || !strings.HasSuffix(got.Checks[0].Fix, " and 9.9.9.9") {
+		t.Errorf("configured resolver lost: public_dns=%q fix=%q", got.Options.PublicDNS, got.Checks[0].Fix)
+	}
+	detail, _ := textAddressPseudonyms(t, got)
+	if detail == "8.8.8.8" || !strings.HasPrefix(got.Checks[0].Fix, "check "+detail+" and") {
+		t.Errorf("text-only public address: detail=%q fix=%q, want one pseudonym", detail, got.Checks[0].Fix)
+	}
+}
+
+// A route prefix is written with its network address, so a prefix pseudonym
+// can publish an original IP as its spelled address even when every address
+// pseudonym avoids it. Each original below is exactly the address the mapped
+// host prefix would otherwise spell, so the whole artifact is what is checked.
+func TestSupportPrefixPseudonymsAvoidOriginalAddresses(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, test := range []struct{ spelling, original, destination, prefix string }{
+		{"10.0.1.0", "10.0.1.0", "10.9.9.9", "10.9.9.9/32"},
+		{"::ffff:10.0.1.0", "10.0.1.0", "10.9.9.9", "10.9.9.9/32"},
+		{"fd00:0:0:1::1", "fd00:0:0:1::1", "fd00::9", "fd00::9/128"},
+	} {
+		t.Run(test.spelling, func(t *testing.T) {
+			s := textAddressSnapshot(test.spelling, &Observed{
+				Routes: []Route{{Destination: test.destination, Prefix: test.prefix}},
+			})
+			done := make(chan []byte, 1)
+			go func() {
+				data, err := Encode(SanitizeForSupport(s))
+				if err != nil {
+					t.Error(err)
+				}
+				done <- data
+			}()
+			var data []byte
+			select {
+			case data = <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("SanitizeForSupport did not terminate on a host route prefix")
+			}
+			assertNotLeaked(t, data, test.original)
+			got, err := Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			route := got.Checks[0].Observed.Routes[0]
+			if route.Destination == test.destination {
+				t.Errorf("route destination kept its original %q", route.Destination)
+			}
+			if prefix, err := netip.ParsePrefix(route.Prefix); err != nil ||
+				prefix.Bits() != netip.MustParsePrefix(test.prefix).Bits() {
+				t.Errorf("route prefix %q is not a valid host prefix: %v", route.Prefix, err)
+			}
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(again) != string(data) {
+				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
 	}
 }

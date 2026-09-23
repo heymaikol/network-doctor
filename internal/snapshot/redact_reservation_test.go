@@ -443,6 +443,7 @@ func TestSupportPrefixPseudonymsAvoidOriginalAddresses(t *testing.T) {
 	pinLocalIdentity(t)
 	for _, test := range []struct{ spelling, original, destination, prefix string }{
 		{"10.0.1.0", "10.0.1.0", "10.9.9.9", "10.9.9.9/32"},
+		{"10.0.1.0", "10.0.1.0", "10.9.9.9", "10.9.9.9/24"},
 		{"::ffff:10.0.1.0", "10.0.1.0", "10.9.9.9", "10.9.9.9/32"},
 		{"fd00:0:0:1::1", "fd00:0:0:1::1", "fd00::9", "fd00::9/128"},
 	} {

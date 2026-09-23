@@ -168,8 +168,8 @@ func seedable(value string) bool {
 
 type redactor struct {
 	// collecting is true until finishCollection. While it is, the output walk
-	// can run as a collection pass: alias() only reserves what it is handed and
-	// address() and prefix() allocate nothing, so every original the text
+	// can run as a collection pass: alias() and address() only reserve what
+	// they are handed and prefix() allocates nothing, so every original the text
 	// patterns will find is reserved by the same code that later rewrites it.
 	collecting      bool
 	aliases         map[string]map[string]string
@@ -647,6 +647,10 @@ func (r *redactor) address(value string) string {
 		return ""
 	}
 	if r.collecting {
+		// Structured fields were collected with their retain flag already;
+		// this reaches the addresses only the text patterns find, and one
+		// found in a sentence is no configured resolver, so it is not retained.
+		r.collectIP(value, false)
 		return value
 	}
 	address, err := netip.ParseAddr(value)
@@ -855,8 +859,12 @@ func (r *redactor) prefix(value string) string {
 	}
 	var alias string
 	for n := uint32(1); n <= maxAliasAttempts; n++ {
-		alias = pseudonymPrefix(prefix, n).String()
-		used := r.originalPrefix[alias]
+		candidate := pseudonymPrefix(prefix, n)
+		alias = candidate.String()
+		// A prefix is written with its address, so a candidate whose address
+		// is an original IP would publish that IP verbatim. Containment is
+		// fine; only the spelled address has to differ.
+		used := r.originalPrefix[alias] || r.originalIPs[candidate.Addr().Unmap().String()]
 		if !used {
 			for _, existing := range r.prefixes {
 				used = used || existing == alias

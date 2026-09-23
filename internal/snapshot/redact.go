@@ -54,6 +54,7 @@ func newRedactor() *redactor {
 		prefixes:        map[string]string{},
 		retainIP:        map[string]bool{},
 		originalIPs:     map[string]bool{},
+		recordedIPs:     map[string]bool{},
 		originalPrefix:  map[string]bool{},
 		prefixIPCounts:  map[string]uint32{},
 		aliasCounters:   map[string]int{},
@@ -183,6 +184,7 @@ type redactor struct {
 	prefixes        map[string]string
 	retainIP        map[string]bool
 	originalIPs     map[string]bool
+	recordedIPs     map[string]bool
 	originalPrefix  map[string]bool
 	prefixOrder     []netip.Prefix
 	prefixIPCounts  map[string]uint32
@@ -380,17 +382,30 @@ func (r *redactor) collectURL(value string) {
 	}
 }
 
+// collectIP records an address a field declares as one. recordedIPs holds
+// only these, while originalIPs also holds what text patterns find by
+// spelling alone.
 func (r *redactor) collectIP(value string, retain bool) {
-	address, err := netip.ParseAddr(value)
-	if err != nil {
+	address, ok := r.reserveIP(value)
+	if !ok {
 		return
 	}
-	address = address.Unmap().WithZone("")
 	key := address.String()
-	r.originalIPs[key] = true
+	r.recordedIPs[key] = true
 	if retain && publicResolverAddress(address) {
 		r.retainIP[key] = true
 	}
+}
+
+// reserveIP records value as an original address without declaring it one.
+func (r *redactor) reserveIP(value string) (netip.Addr, bool) {
+	address, err := netip.ParseAddr(value)
+	if err != nil {
+		return address, false
+	}
+	address = address.Unmap().WithZone("")
+	r.originalIPs[address.String()] = true
+	return address, true
 }
 
 func (r *redactor) snapshot(s Snapshot) Snapshot {
@@ -665,7 +680,9 @@ func (r *redactor) address(value string) string {
 		// Structured fields were collected with their retain flag already;
 		// this reaches the addresses only the text patterns find, and one
 		// found in a sentence is no configured resolver, so it is not retained.
-		r.collectIP(value, false)
+		// Nor is it recorded: an interface named "192.0.2.1" is found here by
+		// its spelling, and that makes it no address. See replaceKnown.
+		r.reserveIP(value)
 		return value
 	}
 	address, err := netip.ParseAddr(value)
@@ -1039,9 +1056,11 @@ func (r *redactor) redactCertificateHost(match string) string {
 }
 
 // replacementTable returns the known values longest first, equal lengths in
-// byte order. One spelling can be a key in two mappings, an interface named
-// like an address the snapshot also holds, so the target breaks the last tie
-// and the order never depends on map iteration.
+// byte order. One spelling can be a key in two mappings, so the target breaks
+// the last tie and the order never depends on map iteration. Every alias
+// begins with its namespace, so between two alias namespaces that tie is the
+// namespace name: free text gives no context to choose one. A spelling that is
+// also a recorded address does not reach this tie at all; see replaceKnown.
 func (r *redactor) replacementTable() []replacement {
 	if r.replacements != nil {
 		return r.replacements
@@ -1079,7 +1098,20 @@ func (r *redactor) replaceKnown(value string) string {
 				!standsAlone(value, i, len(pair.from)) {
 				continue
 			}
-			b.WriteString(pair.to)
+			// A spelling recorded both as an address and in an alias namespace,
+			// an interface named "192.0.2.1" beside the address 192.0.2.1, is
+			// written as the address. That is what the text patterns read the
+			// spelling as, and it keeps one pseudonym for the token however the
+			// fields are ordered: aliases are allocated before the output walk
+			// and addresses during it, so the table alone would choose the
+			// alias in fields sanitized before the address was first met.
+			// A retained address would publish the alias original, so it keeps
+			// its alias.
+			to := pair.to
+			if r.recordedIPs[pair.from] && !r.retainIP[pair.from] {
+				to = r.address(pair.from)
+			}
+			b.WriteString(to)
 			i += len(pair.from)
 			replaced = true
 			break

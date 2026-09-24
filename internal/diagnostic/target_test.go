@@ -164,6 +164,42 @@ func TestParseTargetCanonicalRaw(t *testing.T) {
 	}
 }
 
+// A bare IPv6 literal has no brackets to set a port apart, so nothing after
+// its last colon is a port, whatever that group looks like. "2001:db8::1"
+// and "2001:db8::beef" are the same form, which the reference documents as
+// accepted bare; a final group that happens to be decimal must not be what
+// decides it, and neither may the RFC 4291 dotted-quad tail of a NAT64 or
+// IPv4-mapped address. Each one is the target its bracketed spelling is, and
+// Raw keeps the bare spelling that was typed, exactly as it does for "::1".
+func TestParseTargetBareIPv6Literal(t *testing.T) {
+	for _, bare := range []string{
+		"2001:db8::1",    // decimal final group: always parsed
+		"2620:fe::fe",    // hex final group
+		"2001:db8::beef", // hex final group
+		"fe80::a",        // one hex digit
+		"2001:db8::",     // no final group at all
+		"64:ff9b::192.0.2.1",
+		"::ffff:192.0.2.1",
+	} {
+		got, err := ParseTarget(bare)
+		if err != nil {
+			t.Errorf("ParseTarget(%q): %v, want the bare IPv6 literal accepted", bare, err)
+			continue
+		}
+		want, err := ParseTarget("[" + bare + "]")
+		if err != nil {
+			t.Fatalf("ParseTarget(%q): %v", "["+bare+"]", err)
+		}
+		if got.Raw != bare {
+			t.Errorf("ParseTarget(%q).Raw = %q, want the spelling typed", bare, got.Raw)
+		}
+		if got.IP == nil || !got.IP.Equal(want.IP) || got.Host != want.Host || got.Port != want.Port ||
+			got.Proto != want.Proto || got.PortExplicit != want.PortExplicit {
+			t.Errorf("ParseTarget(%q) = %+v, want the target %q is: %+v", bare, *got, "["+bare+"]", *want)
+		}
+	}
+}
+
 // The Unicode spelling and the A-label are one target, not two that happen to
 // resolve alike. Every field has to agree, Raw included, because Raw is the
 // endpoint identity that reaches a .ndoc, a comparison's "target as typed",
@@ -250,6 +286,7 @@ func FuzzParseTarget(f *testing.F) {
 
 		// IPv6 and colon ambiguity, including malformed bracket structures.
 		"2001:db8::1", "::1", "::", "::::", "2001:db8::1:80", "example.com:80:90",
+		"2620:fe::fe", "fe80::a", "64:ff9b::192.0.2.1", "::ffff:192.0.2.1",
 		"2001:db8::1]:80", "[2001:db8::1:80", "[[2001:db8::1]]", "[example.com]:80",
 		":80", "host:", ":", "[", "]", "[]", "[::1]]:80",
 
@@ -277,6 +314,13 @@ func FuzzParseTarget(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, input string) {
 		target, err := ParseTarget(input)
+		// A bare address is an IP literal and nothing else: its final group is
+		// never read as a port, and Raw is the spelling typed.
+		if bare := strings.TrimSpace(input); !strings.Contains(bare, "://") {
+			if ip := net.ParseIP(bare); ip != nil && (err != nil || !ip.Equal(target.IP) || target.PortExplicit || target.Raw != bare) {
+				t.Fatalf("ParseTarget(%q) = %+v, %v; want the IP literal %v", input, target, err, ip)
+			}
+		}
 		if err != nil {
 			if target != nil {
 				t.Fatalf("ParseTarget(%q) returned target %+v with error %v", input, target, err)

@@ -75,6 +75,44 @@ func (r *redactor) finishCollection() {
 			r.mapAlias(r.aliases[collected.kind], collected.shortName, alias)
 		}
 	}
+	// A spelling reserved in multiple alias namespaces needs every candidate
+	// before free text can choose one. Allocate each affected namespace only
+	// through its last ambiguous original, preserving earlier alias numbers.
+	var ambiguous []aliasedValue
+	kinds := make([]string, 0, len(r.originalAliases))
+	for kind := range r.originalAliases {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	reservedIndex := make(map[aliasedValue]int, len(r.reservedOrder))
+	for i, reserved := range r.reservedOrder {
+		reservedIndex[aliasedValue{kind: reserved.kind, value: aliasKey(reserved.kind, reserved.value)}] = i + 1
+	}
+	eagerThrough := map[string]int{}
+	for _, reserved := range r.reservedOrder {
+		var matching []string
+		for _, kind := range kinds {
+			if r.originalAliases[kind][aliasKey(kind, reserved.value)] {
+				matching = append(matching, kind)
+			}
+		}
+		if len(matching) > 1 {
+			for _, kind := range matching {
+				eagerThrough[kind] = max(eagerThrough[kind], reservedIndex[aliasedValue{kind: kind, value: aliasKey(kind, reserved.value)}])
+				ambiguous = append(ambiguous, aliasedValue{kind: kind, value: reserved.value})
+			}
+		}
+	}
+	for i, reserved := range r.reservedOrder {
+		if i < eagerThrough[reserved.kind] {
+			r.alias(reserved.kind, reserved.value)
+		}
+	}
+	// A host's case-folded identity can match another namespace's spelling,
+	// even when that exact host spelling was never reserved as a host.
+	for _, candidate := range ambiguous {
+		r.alias(candidate.kind, candidate.value)
+	}
 }
 
 // SanitizeProfileForSupport applies one redaction mapping across every
@@ -178,6 +216,7 @@ type redactor struct {
 	aliases         map[string]map[string]string
 	originalAliases map[string]map[string]bool
 	aliasOrder      []aliasedValue
+	reservedOrder   []aliasedValue
 	aliasCounters   map[string]int
 	ips             map[string]string
 	ipCounters      map[string]uint32
@@ -342,8 +381,8 @@ func (r *redactor) collectAlias(kind, value string) {
 	r.aliasOrder = append(r.aliasOrder, aliasedValue{kind: kind, value: value})
 }
 
-// reserve records value as an original of kind's namespace without giving it
-// a place in the allocation order. It is allocated when output first meets it.
+// reserve records value as an original of kind's namespace. An unambiguous
+// value outside an affected namespace is allocated when output first meets it.
 //
 // An original spelled like an address is also kept out of the address
 // pseudonyms, the only generated values that can spell one. An interface
@@ -357,7 +396,10 @@ func (r *redactor) reserve(kind, value string) {
 		r.originalAliases[kind] = originals
 	}
 	key := aliasKey(kind, value)
-	originals[key] = true
+	if !originals[key] {
+		originals[key] = true
+		r.reservedOrder = append(r.reservedOrder, aliasedValue{kind: kind, value: value})
+	}
 	r.reserveIP(key)
 }
 

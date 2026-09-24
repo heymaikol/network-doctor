@@ -118,6 +118,115 @@ func TestSupportInterfaceAliasAvoidsSSIDOriginal(t *testing.T) {
 	}
 }
 
+func TestSupportFreeTextAliasPrecedenceIsIndependentOfOutputOrder(t *testing.T) {
+	pinLocalIdentity(t)
+	const original = "corp-wifi"
+	first := Check{ID: "wifi", Name: "Wi-Fi", Status: StatusPass, Ran: true, DurationMs: 1,
+		Detail:   "before " + original,
+		Observed: &Observed{SSID: original, Routes: []Route{{Destination: "192.0.2.1", Family: "ipv4", Table: original, TableKnown: true}}}}
+	second := Check{ID: "route", Name: "Route", Status: StatusPass, Ran: true, DurationMs: 1,
+		Detail: "after " + original}
+	for _, checks := range [][]Check{{first, second}, {second, first}} {
+		s := Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+			Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"}, Checks: checks,
+			Diagnosis: Diagnosis{Verdict: "ok", Summary: "healthy"}, OK: true}
+		got := SanitizeForSupport(s)
+		for i, check := range got.Checks {
+			want := strings.ReplaceAll(checks[i].Detail, original, "route-table-1")
+			if check.Detail != want {
+				t.Errorf("check %d detail = %q, want %q", i, check.Detail, want)
+			}
+		}
+		observed := got.Checks[0].Observed
+		if observed == nil {
+			observed = got.Checks[1].Observed
+		}
+		if observed.SSID != "ssid-1" || observed.Routes[0].Table != "route-table-1" {
+			t.Errorf("typed aliases = SSID %q, table %q", observed.SSID, observed.Routes[0].Table)
+		}
+		data, err := Encode(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNotLeaked(t, data, original)
+		for range 3 {
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil || string(again) != string(data) {
+				t.Fatal("support artifact changed across repeated sanitization")
+			}
+		}
+	}
+}
+
+func TestSupportFreeTextAliasPrecedenceUsesHostIdentity(t *testing.T) {
+	pinLocalIdentity(t)
+	s := Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+		Tool:   Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Target: &Target{Raw: "Corp.Example:443", Host: "Corp.Example", Port: 443, Protocol: "tcp", PortExplicit: true},
+		Checks: []Check{{ID: "route", Name: "Route", Status: StatusPass, Ran: true, DurationMs: 1,
+			Detail: "via corp.example", Observed: &Observed{Interface: "corp.example"}}},
+		Diagnosis: Diagnosis{Verdict: "ok", Summary: "again corp.example"}, OK: true}
+	got := SanitizeForSupport(s)
+	alias := got.Target.Host
+	if got.Checks[0].Detail != "via "+alias || got.Diagnosis.Summary != "again "+alias {
+		t.Errorf("free text = %q, %q, want host %q", got.Checks[0].Detail, got.Diagnosis.Summary, alias)
+	}
+	if got.Checks[0].Observed.Interface != "interface-1" || alias == got.Checks[0].Observed.Interface {
+		t.Errorf("typed aliases = host %q, interface %q", alias, got.Checks[0].Observed.Interface)
+	}
+	data, err := Encode(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNotLeaked(t, []byte(strings.ToLower(string(data))), "corp.example")
+}
+
+func TestSupportFreeTextAliasPrecedenceKeepsOrdinaryTableNumbering(t *testing.T) {
+	pinLocalIdentity(t)
+	s := Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+		Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Checks: []Check{{ID: "route", Name: "Route", Status: StatusPass, Ran: true, DurationMs: 1,
+			Detail: "via corp-wifi", Observed: &Observed{SSID: "corp-wifi", Routes: []Route{
+				{Destination: "192.0.2.1", Family: "ipv4", Table: "other-table", TableKnown: true},
+				{Destination: "192.0.2.1", Family: "ipv4", Table: "corp-wifi", TableKnown: true},
+			}}}},
+		Diagnosis: Diagnosis{Verdict: "ok", Summary: "healthy"}, OK: true}
+	got := SanitizeForSupport(s)
+	if got.Checks[0].Detail != "via route-table-2" {
+		t.Errorf("free text = %q, want route-table-2", got.Checks[0].Detail)
+	}
+	routes := got.Checks[0].Observed.Routes
+	if routes[0].Table != "route-table-1" || routes[1].Table != "route-table-2" {
+		t.Errorf("table aliases = %q, %q, want original order", routes[0].Table, routes[1].Table)
+	}
+}
+
+func TestSupportFreeTextAliasPrecedenceAllocatesOnlyThroughAmbiguity(t *testing.T) {
+	pinLocalIdentity(t)
+	s := Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+		Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Checks: []Check{{ID: "route", Name: "Route", Status: StatusPass, Ran: true, DurationMs: 1,
+			Observed: &Observed{SSID: "corp-wifi", Routes: []Route{
+				{Destination: "192.0.2.1", Family: "ipv4", Table: "before", TableKnown: true},
+				{Destination: "192.0.2.1", Family: "ipv4", Table: "corp-wifi", TableKnown: true},
+				{Destination: "192.0.2.1", Family: "ipv4", Table: "after", TableKnown: true},
+			}}}},
+		Diagnosis: Diagnosis{Verdict: "ok", Summary: "healthy"}, OK: true}
+	r := newRedactor()
+	r.collectSnapshot(s)
+	r.snapshot(s)
+	r.finishCollection()
+	if got := r.aliases["route-table"]["before"]; got != "route-table-1" {
+		t.Errorf("earlier table alias = %q, want route-table-1", got)
+	}
+	if got := r.aliases["route-table"]["corp-wifi"]; got != "route-table-2" {
+		t.Errorf("ambiguous table alias = %q, want route-table-2", got)
+	}
+	if got := r.aliases["route-table"]["after"]; got != "" {
+		t.Errorf("later table allocated during finishCollection: %q", got)
+	}
+}
+
 func TestSupportAliasesAvoidOtherNamespaceOriginals(t *testing.T) {
 	pinLocalIdentity(t)
 	for _, test := range []struct{ originalKind, original, aliasKind, value, want string }{

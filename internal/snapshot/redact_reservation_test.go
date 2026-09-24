@@ -76,6 +76,11 @@ func assertAliasInvariants(t *testing.T, r *redactor) {
 			if originals[identity(alias)] {
 				t.Errorf("%s alias %q for %q is also an original", kind, alias, original)
 			}
+			for originalKind, reserved := range r.originalAliases {
+				if originalKind != kind && reserved[aliasKey(originalKind, alias)] {
+					t.Errorf("%s alias %q for %q is an original in %s", kind, alias, original, originalKind)
+				}
+			}
 			if owners[identity(alias)] == nil {
 				owners[identity(alias)] = map[string]bool{}
 			}
@@ -91,6 +96,65 @@ func assertAliasInvariants(t *testing.T, r *redactor) {
 				t.Errorf("%s originals %q collapsed onto %q", kind, names, alias)
 			}
 		}
+	}
+}
+
+func TestSupportInterfaceAliasAvoidsSSIDOriginal(t *testing.T) {
+	pinLocalIdentity(t)
+	s := Snapshot{Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+		Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Checks: []Check{{ID: "wifi", Name: "Wi-Fi", Status: StatusPass, Ran: true, DurationMs: 1,
+			Observed: &Observed{SSID: "interface-1", Interface: "wg0"}}},
+		Diagnosis: Diagnosis{Verdict: "ok", Summary: "healthy"}, OK: true,
+	}
+	got := SanitizeForSupport(s)
+	data, err := Encode(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNotLeaked(t, data, "interface-1", "wg0")
+	if alias := got.Checks[0].Observed.Interface; alias != "interface-2" {
+		t.Errorf("interface alias = %q, want interface-2 after skipping the SSID original", alias)
+	}
+}
+
+func TestSupportAliasesAvoidOtherNamespaceOriginals(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, test := range []struct{ originalKind, original, aliasKind, value, want string }{
+		{"interface", "ssid-1", "ssid", "Cafe", "ssid-2"},
+		{"user", "route-table-1", "route-table", "corp", "route-table-2"},
+		{"route-table", "value-1", "value", "secret", "value-2"},
+		{"value", "path-1", "path", "/private", "path-2"},
+		{"path", "prefix-1", "prefix", "invalid-prefix", "prefix-2"},
+		{"host", "INTERFACE-1", "interface", "wg0", "interface-2"},
+		{"interface", "host-2.invalid", "host", "corp.example", "host-3.invalid"},
+		{"interface", "HOST-2.INVALID", "host", "corp.example", "host-2.invalid"},
+	} {
+		t.Run(test.originalKind+" to "+test.aliasKind+" from "+test.original, func(t *testing.T) {
+			r := newRedactor()
+			r.collectAlias(test.originalKind, test.original)
+			r.collectAlias(test.aliasKind, test.value)
+			r.finishCollection()
+			if got := r.alias(test.aliasKind, test.value); got != test.want {
+				t.Errorf("alias = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestSupportSeededIdentitiesReserveOtherNamespaces(t *testing.T) {
+	original := localIdentity
+	localIdentity = func() (string, string) { return "INTERFACE-1", "route-table-1" }
+	t.Cleanup(func() { localIdentity = original })
+	r := newRedactor()
+	r.collectAlias("interface", "wg0")
+	r.collectAlias("route-table", "corp")
+	r.finishCollection()
+	if got := r.alias("interface", "wg0"); got != "interface-2" {
+		t.Errorf("interface alias = %q, want interface-2", got)
+	}
+	if got := r.alias("route-table", "corp"); got != "route-table-2" {
+		t.Errorf("route-table alias = %q, want route-table-2", got)
 	}
 }
 

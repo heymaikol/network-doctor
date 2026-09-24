@@ -488,3 +488,47 @@ func TestSupportPrefixPseudonymsAvoidOriginalAddresses(t *testing.T) {
 		})
 	}
 }
+
+// An address pseudonym is generated, so only reservation keeps it off an
+// original that another namespace holds. Each interface below is named exactly
+// what its route would otherwise publish: the address pseudonym of its family,
+// the one inside the route's mapped prefix, and that prefix's own network
+// address. Unreserved, the interface name reappears as an address.
+func TestSupportAddressPseudonymsAvoidAliasOriginals(t *testing.T) {
+	pinLocalIdentity(t)
+	for _, test := range []struct{ iface, destination, prefix string }{
+		{"198.18.0.1", "192.0.2.9", ""},
+		{"2001:db8::1", "2001:db8:ffff::9", ""},
+		{"198.18.1.1", "192.0.2.9", "192.0.2.0/24"},
+		{"198.18.1.0", "192.0.2.9", "192.0.2.0/24"},
+	} {
+		t.Run(test.iface, func(t *testing.T) {
+			s := routePrefixSnapshot(Route{Destination: test.destination, Prefix: test.prefix, Interface: test.iface})
+			data, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertNotLeaked(t, data, test.iface, test.destination)
+			got, err := Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			route := got.Checks[0].Observed.Routes[0]
+			if !isAddress(route.Destination) {
+				t.Errorf("destination %q left the address namespace", route.Destination)
+			}
+			if route.Interface != "interface-1" {
+				t.Errorf("interface = %q, want its alias interface-1", route.Interface)
+			}
+			for range 10 {
+				again, err := Encode(SanitizeForSupport(s))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(again) != string(data) {
+					t.Fatalf("sanitizing again differed:\n%s\n%s", data, again)
+				}
+			}
+		})
+	}
+}

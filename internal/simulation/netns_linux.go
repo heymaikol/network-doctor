@@ -279,6 +279,10 @@ type nodeProc struct {
 	// director's goroutine, the fault scheduler from its own, and stop closes it.
 	mu      sync.Mutex
 	stopped bool
+	// Wait starts only after reply sees stdout EOF or stop ends the holder.
+	waitOnce sync.Once
+	waitDone chan struct{}
+	waitErr  error
 	// exitReported records that a reply already read the end of the holder's
 	// stdout and returned that death to its caller. It is atomic rather than
 	// guarded by mu because reply runs with mu already held by the runtime
@@ -569,15 +573,29 @@ func (np *nodeProc) reply(ctx context.Context, want string) (string, error) {
 		return "", ctx.Err()
 	case got := <-ch:
 		if got.err != nil {
-			// The holder's stdout ended, so the holder is gone and this error
-			// is the report of it. Remember that, or stop would reap the same
-			// corpse later and file its exit status a second time, as a failure
-			// to release resources that were in fact released.
+			// Stdout reached EOF. Wait also drains os/exec's stderr copy before
+			// the error samples the holder's logs.
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-np.waitForExit():
+			}
 			np.exitReported.Store(true)
 			return "", fmt.Errorf("holder exited before %q: %s", want, strings.TrimSpace(np.logs.String()))
 		}
 		return got.s, nil
 	}
+}
+
+func (np *nodeProc) waitForExit() <-chan struct{} {
+	np.waitOnce.Do(func() {
+		np.waitDone = make(chan struct{})
+		go func() {
+			np.waitErr = np.cmd.Wait()
+			close(np.waitDone)
+		}()
+	})
+	return np.waitDone
 }
 
 func (e *netnsEnv) Nodes() []NodeInfo {
@@ -1148,18 +1166,18 @@ func (np *nodeProc) stop(ctx context.Context) error {
 	if np.stdin != nil {
 		_ = np.stdin.Close()
 	}
-	done := make(chan error, 1)
-	go func() { done <- np.cmd.Wait() }()
+	done := np.waitForExit()
 	select {
-	case err := <-done:
-		return np.exitFailure(err)
+	case <-done:
+		return np.exitFailure(np.waitErr)
 	case <-time.After(2 * time.Second):
 	case <-ctx.Done():
 	}
 	if err := np.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
-	return np.exitFailure(<-done)
+	<-done
+	return np.exitFailure(np.waitErr)
 }
 
 // exitFailure turns what cmd.Wait said into a teardown failure, except for an

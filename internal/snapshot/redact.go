@@ -51,6 +51,7 @@ func newRedactor() *redactor {
 		aliases:         map[string]map[string]string{},
 		originalAliases: map[string]map[string]bool{},
 		ips:             map[string]string{},
+		issuedIPAliases: map[string]bool{},
 		prefixes:        map[string]string{},
 		retainIP:        map[string]bool{},
 		originalIPs:     map[string]bool{},
@@ -219,6 +220,7 @@ type redactor struct {
 	reservedOrder   []aliasedValue
 	aliasCounters   map[string]int
 	ips             map[string]string
+	issuedIPAliases map[string]bool
 	ipCounters      map[string]uint32
 	prefixes        map[string]string
 	retainIP        map[string]bool
@@ -242,6 +244,7 @@ func (r *redactor) mapAlias(values map[string]string, value, alias string) {
 
 func (r *redactor) mapIP(key, alias string) {
 	r.ips[key] = alias
+	r.issuedIPAliases[alias] = true
 	r.replacements = nil
 }
 
@@ -757,10 +760,8 @@ func (r *redactor) address(value string) string {
 	}
 	address = address.Unmap().WithZone("")
 	key := address.String()
-	for _, alias := range r.ips {
-		if key == alias {
-			return key
-		}
+	if r.issuedIPAliases[key] {
+		return key
 	}
 	if r.retainIP[key] && publicResolverAddress(address) {
 		return key
@@ -785,7 +786,7 @@ func (r *redactor) address(value string) string {
 		for range aliasAttempts(mappedPrefix.Addr().BitLen() - mappedPrefix.Bits()) {
 			r.prefixIPCounts[originalPrefix.String()]++
 			alias := pseudonymWithin(mappedPrefix, r.prefixIPCounts[originalPrefix.String()]).String()
-			if !r.originalIPs[alias] && !r.usedIPAlias(alias) {
+			if !r.originalIPs[alias] && !r.issuedIPAliases[alias] {
 				r.mapIP(key, alias)
 				return alias
 			}
@@ -796,7 +797,7 @@ func (r *redactor) address(value string) string {
 	for range maxAliasAttempts {
 		r.ipCounters[kind]++
 		alias = pseudonymAddress(address, r.ipCounters[kind]).String()
-		if !r.originalIPs[alias] && !r.usedIPAlias(alias) {
+		if !r.originalIPs[alias] && !r.issuedIPAliases[alias] {
 			break
 		}
 	}
@@ -843,15 +844,6 @@ func aliasAttempts(hostBits int) int {
 		return maxAliasAttempts
 	}
 	return 1 << hostBits
-}
-
-func (r *redactor) usedIPAlias(value string) bool {
-	for _, alias := range r.ips {
-		if alias == value {
-			return true
-		}
-	}
-	return false
 }
 
 func pseudonymWithin(prefix netip.Prefix, n uint32) netip.Addr {

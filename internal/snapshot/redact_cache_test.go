@@ -108,10 +108,10 @@ func TestReplacementTableOrder(t *testing.T) {
 		{"ab", "x"}, {"ba", "x"}, {"a", "x"}, {"b", "x"},
 	}
 	for range 20 {
-		r := &redactor{aliases: map[string]map[string]string{}, ips: map[string]string{}}
+		r := &redactor{aliases: map[string]map[string]string{}, ips: map[string]string{}, issuedIPAliases: map[string]bool{}}
 		r.aliases["value"] = map[string]string{"b": "x", "ab": "x", "a": "x", "ba": "x", "abc": "x"}
 		r.aliases["interface"] = map[string]string{"192.0.2.1": "interface-1"}
-		r.ips["192.0.2.1"] = "10.0.0.1"
+		r.mapIP("192.0.2.1", "10.0.0.1")
 		if got := r.replacementTable(); !reflect.DeepEqual(got, want) {
 			t.Fatalf("replacement table = %v, want %v", got, want)
 		}

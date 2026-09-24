@@ -12,7 +12,91 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+type blockedHolderLog struct {
+	logs    *safeLog
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (l *blockedHolderLog) Write(p []byte) (int, error) {
+	select {
+	case l.entered <- struct{}{}:
+	default:
+	}
+	<-l.release
+	return l.logs.Write(p)
+}
+
+type eofSignalReader struct {
+	io.Reader
+	eof chan struct{}
+}
+
+func (r *eofSignalReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if errors.Is(err, io.EOF) {
+		select {
+		case r.eof <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
+}
+
+func TestAwaitWaitsForHolderStderrDrain(t *testing.T) {
+	cmd := exec.Command("sh", "-c", `printf 'bind 127.0.0.1:53: address already in use\nmore context\n' >&2; exit 9`)
+	np := &nodeProc{node: &Node{Name: "client"}, logs: new(safeLog)}
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	cmd.Stderr = &blockedHolderLog{logs: np.logs, entered: entered, release: release}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	eof := make(chan struct{}, 1)
+	np.cmd, np.stdout, np.pid = cmd, bufio.NewReader(&eofSignalReader{Reader: stdout, eof: eof}), cmd.Process.Pid
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(release)
+		}
+		_ = np.stop(context.Background())
+	})
+
+	result := make(chan error, 1)
+	go func() { result <- np.await(context.Background(), holderServicesReady) }()
+	for _, ready := range []<-chan struct{}{entered, eof} {
+		select {
+		case <-ready:
+		case <-time.After(5 * time.Second):
+			t.Fatal("holder did not write stderr and close stdout")
+		}
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("await returned before stderr drained: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	released = true
+	select {
+	case err := <-result:
+		if err == nil || !strings.Contains(err.Error(), "address already in use\nmore context") {
+			t.Fatalf("await error = %v, want complete stderr", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("await did not finish after stderr drained")
+	}
+	if err := np.stop(context.Background()); err != nil {
+		t.Fatalf("stop reported an already observed exit: %v", err)
+	}
+}
 
 // TestAwaitReadsHolderLogsSafely drives the setup-failure path: a holder that
 // answers the wrong line is still running and still writing to stderr while

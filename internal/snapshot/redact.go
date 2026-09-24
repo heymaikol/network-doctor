@@ -344,13 +344,21 @@ func (r *redactor) collectAlias(kind, value string) {
 
 // reserve records value as an original of kind's namespace without giving it
 // a place in the allocation order. It is allocated when output first meets it.
+//
+// An original spelled like an address is also kept out of the address
+// pseudonyms, the only generated values that can spell one. An interface
+// named "198.18.0.1" is no address, but an address pseudonym equal to it
+// would still publish that name. Only originalIPs changes: the spelling is
+// not recorded as an address, so it keeps its own namespace everywhere else.
 func (r *redactor) reserve(kind, value string) {
 	originals := r.originalAliases[kind]
 	if originals == nil {
 		originals = map[string]bool{}
 		r.originalAliases[kind] = originals
 	}
-	originals[aliasKey(kind, value)] = true
+	key := aliasKey(kind, value)
+	originals[key] = true
+	r.reserveIP(key)
 }
 
 // aliasKey is the identity an original holds in kind's namespace. A hostname

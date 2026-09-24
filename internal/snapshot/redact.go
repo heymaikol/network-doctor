@@ -68,7 +68,7 @@ func (r *redactor) finishCollection() {
 	sort.SliceStable(r.prefixOrder, func(i, j int) bool { return r.prefixOrder[i].Bits() > r.prefixOrder[j].Bits() })
 	r.collecting = false
 	// Allocation waits until here, in the order the values were collected, so
-	// every alias is chosen knowing every original in its namespace.
+	// every alias is chosen knowing every original in every alias namespace.
 	for _, collected := range r.aliasOrder {
 		alias := r.alias(collected.kind, collected.value)
 		if collected.shortName != "" {
@@ -372,6 +372,17 @@ func aliasKey(kind, value string) string {
 	return strings.ToLower(strings.TrimSuffix(value, "."))
 }
 
+// reservedAlias checks each original using the identity rule of the namespace
+// that holds it. The alias still belongs to its own namespace.
+func (r *redactor) reservedAlias(alias string) bool {
+	for kind, originals := range r.originalAliases {
+		if originals[aliasKey(kind, alias)] {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *redactor) collectHost(value string) {
 	if value == "" {
 		return
@@ -653,7 +664,7 @@ func (r *redactor) alias(kind, value string) string {
 	// above safe. Every original is reserved before the first allocation, so
 	// skipping value itself only guards a value the collection pass missed.
 	// The search is bounded: each skip consumes one of the finitely many
-	// originals collected in this namespace, or value.
+	// originals collected across namespaces, or value.
 	alias := ""
 	for {
 		r.aliasCounters[kind]++
@@ -662,7 +673,7 @@ func (r *redactor) alias(kind, value string) string {
 			suffix += ".invalid"
 		}
 		alias = kind + "-" + suffix
-		if candidate := aliasKey(kind, alias); candidate != key && !r.originalAliases[kind][candidate] {
+		if candidate := aliasKey(kind, alias); candidate != key && !r.reservedAlias(alias) {
 			break
 		}
 	}

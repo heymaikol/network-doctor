@@ -120,8 +120,17 @@ func parseTarget(raw string) (*Target, error) {
 	}
 	t := &Target{}
 	parseable := s
+	// A bare IPv6 literal has no brackets to set a port apart, and url.Parse
+	// reads whatever follows the last colon as one, so it would reject
+	// "2001:db8::beef" and "::ffff:192.0.2.1" as bad ports and accept
+	// "2001:db8::1" only because its final group happens to be decimal.
+	// Bracketed for the parser alone; Raw keeps the spelling that was typed.
+	bareIPv6 := false
 	if !strings.Contains(s, "://") {
 		parseable = "//" + s
+		if strings.Contains(s, ":") && net.ParseIP(s) != nil {
+			parseable, bareIPv6 = "//["+s+"]", true
+		}
 	}
 	u, err := url.Parse(parseable)
 	if err != nil {
@@ -141,6 +150,9 @@ func parseTarget(raw string) (*Target, error) {
 	}
 
 	host, rawHost := u.Host, u.Host
+	if bareIPv6 {
+		rawHost = s
+	}
 	// Brackets belong to IPv6 literals and nothing else. Go 1.26's url.Parse
 	// enforces that itself, but go.mod still supports 1.25, where
 	// SplitHostPort happily peels the brackets off "[1.2.3.4]:80" and

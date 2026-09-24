@@ -1204,6 +1204,12 @@ func identifierByte(c byte) bool {
 // pattern that finds it cannot tell a dot inside an address from the one that
 // ends the sentence carrying it: "no route to 192.168.7.31." has to redact the
 // same address that "no route to 192.168.7.31, retrying" does.
+//
+// The pattern's bracketed form also matches what neither parser accepts: an
+// address in brackets with no port, which is how an IPv6 target is typed, and
+// a bracketed IPv4 address or out-of-range port. Those are read by their shape
+// instead, the address between the brackets and any port kept as written, and
+// the brackets stay only around an IPv6 pseudonym, as AddrPort writes them.
 func (r *redactor) textAddress(value string) string {
 	for _, trimmed := range [2]string{value, strings.TrimRight(value, ".:")} {
 		suffix := value[len(trimmed):]
@@ -1212,6 +1218,17 @@ func (r *redactor) textAddress(value string) string {
 		}
 		if endpoint, err := netip.ParseAddrPort(trimmed); err == nil {
 			return netip.AddrPortFrom(mustAddr(r.address(endpoint.Addr().String())), endpoint.Port()).String() + suffix
+		}
+	}
+	if rest, ok := strings.CutPrefix(value, "["); ok {
+		if inner, port, ok := strings.Cut(rest, "]"); ok {
+			if address, err := netip.ParseAddr(inner); err == nil {
+				alias := r.address(address.String())
+				if mustAddr(alias).Is6() {
+					alias = "[" + alias + "]"
+				}
+				return alias + port
+			}
 		}
 	}
 	return value

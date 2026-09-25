@@ -24,7 +24,7 @@ var (
 	authValueRE        = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+`)
 	privateKeyRE       = regexp.MustCompile(`(?is)-----BEGIN [^-\r\n]*PRIVATE KEY-----.*?-----END [^-\r\n]*PRIVATE KEY-----`)
 	urlTextRE          = regexp.MustCompile(`(?i)\b(?:https?|socks5h?|ssh)://[^\s"'<>\x00-\x1f]+`)
-	ipTextRE           = regexp.MustCompile(`\[[0-9A-Fa-f:.%]+\](?::[0-9]+)?|[0-9A-Fa-f:.%]+`)
+	ipTextRE           = regexp.MustCompile(`\[[0-9A-Fa-f:.]+(?:%[0-9A-Za-z._-]*[0-9A-Za-z_-])?\](?::[0-9]+)?|[0-9A-Fa-f:.]+(?:%[0-9A-Za-z._-]*[0-9A-Za-z_-])?`)
 	hostTextRE         = regexp.MustCompile(`(?i)\b[a-z0-9](?:[a-z0-9-]{0,62}\.)+(?:[a-z]{2,63}|local|internal|lan|home|test)\b`)
 	identityTextRE     = regexp.MustCompile(`(?i)\b(username|user|hostname|host|machine|ssid)\s*[:=]\s*([^\s,;]+)`)
 	certificateHostRE  = regexp.MustCompile(`(?i)\b(cert(?:ificate)? is for)\s+([^,:;\s]+)`)
@@ -1210,6 +1210,13 @@ func identifierByte(c byte) bool {
 // a bracketed IPv4 address or out-of-range port. Those are read by their shape
 // instead, the address between the brackets and any port kept as written, and
 // the brackets stay only around an IPv6 pseudonym, as AddrPort writes them.
+//
+// A scoped IPv6 address, which Go writes as "[fe80::1%wlan0]:53" in a dial
+// error, has to reach here with its whole zone: cut at the "%" it parses as
+// no address, and cut inside the zone it leaves the rest of the interface
+// name in the text. The pattern reads a zone as an interface name or numeric
+// scope that does not end in a dot, which is left to end the sentence. The
+// pseudonym drops the zone, as it does for a recorded address.
 func (r *redactor) textAddress(value string) string {
 	for _, trimmed := range [2]string{value, strings.TrimRight(value, ".:")} {
 		suffix := value[len(trimmed):]

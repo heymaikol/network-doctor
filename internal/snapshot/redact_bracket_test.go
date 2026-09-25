@@ -181,6 +181,7 @@ func TestSupportPseudonymizesBracketedAddressesInText(t *testing.T) {
 		{"", "[64:ff9b::192.0.2.1]", "", "64:ff9b::c000:201", ""},
 		{"", "[::ffff:10.1.2.3]", "", "10.1.2.3", ""},
 		{"", "[fe80::1%2]", "", "fe80::1", ""},
+		{"", "[fe80::1%12]:53", "", "fe80::1", "53"},
 		{"", "[10.1.2.3]", "", "10.1.2.3", ""},
 		{"", "[10.1.2.3]:443", "", "10.1.2.3", "443"},
 		{"", "[2001:db8::beef]:99999", "", "2001:db8::beef", "99999"},
@@ -231,6 +232,71 @@ func TestSupportPseudonymizesBracketedAddressesInText(t *testing.T) {
 			address, port, ok := literalEndpoint(pseudonym)
 			if !ok || port != test.port || address.Unmap() == netip.MustParseAddr(test.original) {
 				t.Errorf("pseudonym %q is not an endpoint with port %q standing in for %s", pseudonym, test.port, test.original)
+			}
+
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(again) != string(data) {
+				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
+	}
+}
+
+// Go writes a scoped IPv6 peer with its zone, and on Unix the zone is the name
+// of the interface: "dial udp [fe80::1%wlan0]:53". No recorded field names the
+// address or the interface here, so the text pattern is the only thing that
+// can find them, and the zone is not kept: a recorded address loses it too.
+func TestSupportPseudonymizesScopedAddressesInText(t *testing.T) {
+	for _, test := range []struct{ spelling, after, zone, port string }{
+		{"[fe80::1%wlan0]:53", "", "wlan0", "53"},
+		{"[fe80::1%wlan0]", "", "wlan0", ""},
+		{"fe80::1%wlan0", "", "wlan0", ""},
+		// An interface name can hold a dot, but punctuation right after a
+		// zone belongs to the sentence and has to stay there.
+		{"[fe80::1%eth0.100]:53", "", "eth0.100", "53"},
+		{"fe80::1%wlan0", ".", "wlan0", ""},
+		{"fe80::1%wlan0", ":", "wlan0", ""},
+	} {
+		text := test.spelling + test.after
+		t.Run(text, func(t *testing.T) {
+			s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+				Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+				Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail, Ran: true, DurationMs: 1,
+					Detail: "dial udp " + text, Fix: "check " + text}},
+				Diagnosis: Diagnosis{Verdict: "route", Summary: "unreachable via " + text, FailedStage: "route"},
+			}
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), test.zone) || strings.Contains(string(data), "%") {
+				t.Errorf("support artifact kept the zone %q:\n%s", test.zone, data)
+			}
+			assertNoAddress(t, data, "fe80::1")
+
+			fields := map[string]string{"dial udp ": got.Checks[0].Detail, "check ": got.Checks[0].Fix,
+				"unreachable via ": got.Diagnosis.Summary}
+			pseudonym := ""
+			for prefix, field := range fields {
+				rest, okPrefix := strings.CutPrefix(field, prefix)
+				rest, okSuffix := strings.CutSuffix(rest, test.after)
+				if !okPrefix || !okSuffix {
+					t.Fatalf("text lost its shape around the address: %q", field)
+				}
+				if pseudonym == "" {
+					pseudonym = rest
+				}
+				if rest != pseudonym {
+					t.Errorf("one address got two pseudonyms: %q and %q", pseudonym, rest)
+				}
+			}
+			address, port, ok := literalEndpoint(pseudonym)
+			if !ok || port != test.port || address.Zone() != "" || address == netip.MustParseAddr("fe80::1") {
+				t.Errorf("pseudonym %q is not an unscoped endpoint with port %q standing in for fe80::1", pseudonym, test.port)
 			}
 
 			again, err := Encode(SanitizeForSupport(s))

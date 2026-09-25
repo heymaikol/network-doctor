@@ -1378,10 +1378,14 @@ func zoneRest(run, rest string, bracketed bool) (drop, tail int) {
 	return start + n, tail
 }
 
-// zoneEnd returns where the zone that zone begins with ends: before the
+// zoneEnd returns where the zone that zone begins with ends: before the ASCII
 // punctuation that closes it, which belongs to the text around it.
 func zoneEnd(zone string) int {
-	return len(strings.TrimRightFunc(zone, func(c rune) bool { return c < utf8.RuneSelf && !identifierByte(byte(c)) }))
+	n := len(zone)
+	for n > 0 && zone[n-1] < utf8.RuneSelf && !identifierByte(zone[n-1]) {
+		n--
+	}
+	return n
 }
 
 // labelReach bounds how far past a zone zoneRest looks for an address or a

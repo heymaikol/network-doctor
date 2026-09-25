@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // nat64Prefix is the RFC 6052 well-known prefix. An address inside it carries
@@ -547,6 +548,145 @@ func TestSupportScopedTextNamesALabelTheSameEverywhere(t *testing.T) {
 			}
 			for _, original := range test.originals {
 				assertNoAddress(t, data, original)
+			}
+		})
+	}
+}
+
+func TestSupportScopedTextKeepsAdjacentAddressesVisibleToScanner(t *testing.T) {
+	for _, test := range []struct {
+		name, next, before, after string
+	}{
+		{"ipv6", "2001:db8::beef", ":", ""},
+		{"ipv6-short", "2001:db8::1", ":", ""},
+		{"ipv4", "10.9.8.7", ":", ""},
+		{"bracketed", "[2001:db8::1]:53", ":", ""},
+		{"comma", "2001:db8::1", ",", ""},
+		{"semicolon", "2001:db8::1", ";", ""},
+		{"parentheses", "2001:db8::1", "(", ")"},
+		{"identity", "user:alice", " ", ""},
+		{"path", "/home/alice", " ", ""},
+		{"windows-path", `C:\Users\alice`, " ", ""},
+		{"certificate", "cert is for frank", " ", ""},
+		{"unicode", "2001:db8::1", ":", "雪"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prefix := ""
+			if test.name == "unicode" {
+				prefix = "é"
+			}
+			input := prefix + "fe80::1%wlan0" + test.before + test.next + test.after
+			s := freeTextSnapshot(input, "fe80::1%wlan0", test.next)
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !utf8.Valid(data) || strings.Contains(string(data), "%wlan0") || strings.Contains(string(data), "fe80::1") || strings.Contains(string(data), test.next) {
+				t.Fatalf("support artifact kept a secret or corrupted UTF-8:\n%s", data)
+			}
+			first, err := netip.ParseAddr(got.Checks[0].Detail)
+			if err != nil || first.Zone() != "" || first == netip.MustParseAddr("fe80::1") {
+				t.Fatalf("first pseudonym = %q: %v", got.Checks[0].Detail, err)
+			}
+			second := got.Checks[0].Fix
+			if test.name != "identity" && test.name != "path" && test.name != "windows-path" && test.name != "certificate" {
+				address, port, ok := literalEndpoint(second)
+				wantPort := ""
+				if test.name == "bracketed" {
+					wantPort = "53"
+				}
+				if !ok || address.Zone() != "" || port != wantPort {
+					t.Fatalf("second endpoint = %q", second)
+				}
+				original := test.next
+				if strings.HasPrefix(original, "[") {
+					original, _, _ = strings.Cut(original[1:], "]")
+				}
+				assertNoAddress(t, data, original)
+			}
+			if want := prefix + got.Checks[0].Detail + test.before + second + test.after; got.Diagnosis.Summary != want {
+				t.Errorf("summary = %q, want %q", got.Diagnosis.Summary, want)
+			}
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil || string(data) != string(again) {
+				t.Errorf("sanitization changed on repetition: %v", err)
+			}
+		})
+	}
+}
+
+func TestSupportScopedCertificateTextIsConsistentAcrossFields(t *testing.T) {
+	for _, test := range []struct {
+		input   string
+		secrets []string
+	}{
+		{"cert is for frank)fe80::1%wlan0", []string{"frank", "fe80::1", "%wlan0"}},
+		{"cert is for frank)fe80::1%%lan", []string{"frank", "fe80::1", "%lan"}},
+		{"cert is for frank10.9.8.7%12:2001:db8::beef", []string{"frank", "10.9.8.7", "%12", "2001:db8::beef"}},
+	} {
+		t.Run(test.input, func(t *testing.T) {
+			s := freeTextSnapshot(test.input, test.input, test.input)
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Diagnosis.Summary != got.Checks[0].Detail || got.Checks[0].Detail != got.Checks[0].Fix {
+				t.Errorf("identical source text got different aliases: %q, %q, %q", got.Diagnosis.Summary, got.Checks[0].Detail, got.Checks[0].Fix)
+			}
+			for _, secret := range test.secrets {
+				if strings.Contains(string(data), secret) {
+					t.Errorf("support artifact kept %q:\n%s", secret, data)
+				}
+			}
+		})
+	}
+}
+
+func TestSupportFailedScopeKeepsAdjacentBracketedAddress(t *testing.T) {
+	input := "100%x10.9.8.7[10.9.8.7]:53"
+	s := freeTextSnapshot(input, input, input)
+	got := sanitizeValid(t, s)
+	data, err := Encode(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "10.9.8.7") {
+		t.Fatalf("support artifact kept the address:\n%s", data)
+	}
+	first, rest, ok := strings.Cut(strings.TrimPrefix(got.Diagnosis.Summary, "100%x"), "[")
+	second, port, closed := strings.Cut(rest, "]")
+	address, parseErr := netip.ParseAddr(first)
+	if !ok || !closed || port != ":53" || first != second || parseErr != nil || !address.Is4() {
+		t.Errorf("lost the two adjacent addresses or their bracket: %q", got.Diagnosis.Summary)
+	}
+	if got.Checks[0].Detail != got.Diagnosis.Summary || got.Checks[0].Fix != got.Diagnosis.Summary {
+		t.Errorf("same source text changed across fields: %q, %q, %q", got.Diagnosis.Summary, got.Checks[0].Detail, got.Checks[0].Fix)
+	}
+}
+
+func TestSupportPunctuatedZonesDoNotHideAdjacentIPv6(t *testing.T) {
+	for _, zone := range []string{"lan(prod", "lan#prod", "%lan"} {
+		t.Run(zone, func(t *testing.T) {
+			first, second := "fe80::1%"+zone, "2001:db8::beef"
+			s := freeTextSnapshot(first+":"+second, first, second)
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "fe80::1") || strings.Contains(string(data), second) || strings.Contains(string(data), zone) {
+				t.Fatalf("support artifact kept an address or zone:\n%s", data)
+			}
+			if want := got.Checks[0].Detail + ":" + got.Checks[0].Fix; got.Diagnosis.Summary != want {
+				t.Errorf("summary = %q, want two address aliases in %q", got.Diagnosis.Summary, want)
+			}
+			for _, value := range []string{got.Checks[0].Detail, got.Checks[0].Fix} {
+				address, err := netip.ParseAddr(value)
+				if err != nil || address.Zone() != "" {
+					t.Errorf("invalid unscoped pseudonym %q: %v", value, err)
+				}
 			}
 		})
 	}

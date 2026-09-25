@@ -1079,13 +1079,14 @@ func (r *redactor) text(value string) string {
 	if value == "" {
 		return ""
 	}
+	scopedInput := strings.Contains(value, "%")
 	value = r.replaceKnown(value)
 	value = privateKeyRE.ReplaceAllString(value, "<private-key-redacted>")
 	value = credentialHeaderRE.ReplaceAllString(value, "$1: <redacted>")
 	value = credentialValueRE.ReplaceAllString(value, "$1=<redacted>")
 	value = authValueRE.ReplaceAllString(value, "$1 <redacted>")
 	value = urlTextRE.ReplaceAllStringFunc(value, r.sanitizeURL)
-	value = r.textAddresses(value)
+	value = r.textAddresses(value, scopedInput)
 	value = hostTextRE.ReplaceAllStringFunc(value, func(host string) string {
 		// A name under .invalid is normally an alias, or a longer name that
 		// replaceKnown built around one, and is kept. One the collection pass
@@ -1146,11 +1147,43 @@ func (r *redactor) replaceKnown(value string) string {
 	// its own: these keys are substrings of ordinary words often enough to
 	// matter, and an interface named "lo" must not turn "hello" into "helX".
 	var b strings.Builder
+	var scoped [][]int
+	if strings.Contains(value, "%") {
+		for _, loc := range ipTextRE.FindAllStringIndex(value, -1) {
+			run := value[loc[0]:loc[1]]
+			if strings.Contains(run, "%") && textAddressParses(run) {
+				scoped = append(scoped, loc)
+			} else if strings.HasPrefix(value[loc[1]:], "%") {
+				if address, err := netip.ParseAddr(run); err == nil && address.Is6() {
+					scoped = append(scoped, loc)
+				}
+			}
+		}
+	}
 	for i := 0; i < len(value); {
+		for len(scoped) > 0 && scoped[0][1] <= i {
+			scoped = scoped[1:]
+		}
 		replaced := false
 		for _, pair := range pairs {
 			if pair.from == "" || !strings.HasPrefix(value[i:], pair.from) ||
 				!standsAlone(value, i, len(pair.from)) {
+				continue
+			}
+			// Let the address pass read a scoped address whole. A known host
+			// prefix can otherwise consume its first bytes and leave a new,
+			// differently named address in each later field.
+			splitsScoped := false
+			for _, span := range scoped {
+				if span[0] >= i+len(pair.from) {
+					break
+				}
+				if i < span[1] && (i > span[0] || i+len(pair.from) < span[1]) {
+					splitsScoped = true
+					break
+				}
+			}
+			if splitsScoped {
 				continue
 			}
 			// A spelling recorded both as an address and in an alias namespace,
@@ -1208,12 +1241,14 @@ func identifierByte(c byte) bool {
 // name can hold more than that, "veth@peer" among them, so the zone of an
 // address that parsed is read on to the end of its word by zoneRest and
 // dropped with the rest, and nothing of the name but the punctuation that
-// ends it is left beside the pseudonym. A candidate that does not parse is
-// left as it is, for failedScopes, and either way reading resumes where the
-// pattern alone resumes it. Text with no "%" is read exactly as the pattern
-// alone reads it.
-func (r *redactor) textAddresses(value string) string {
+// ends it is left beside the pseudonym. The collection and output passes
+// resume after the same zone boundary, so each later address gets the same
+// scanning opportunity. A candidate that does not parse is left for
+// failedScopes, but a valid address after its colon is still read. Text with
+// no "%" is read exactly as the pattern alone reads it.
+func (r *redactor) textAddresses(value string, scopedInput bool) string {
 	var b strings.Builder
+	afterScoped := false
 	for {
 		loc := ipTextRE.FindStringIndex(value)
 		if loc == nil {
@@ -1221,22 +1256,69 @@ func (r *redactor) textAddresses(value string) string {
 			return b.String()
 		}
 		b.WriteString(value[:loc[0]])
+		if loc[0] > 0 {
+			afterScoped = false
+		}
 		run, rest := value[loc[0]:loc[1]], value[loc[1]:]
+		if colon := strings.IndexByte(run, ':'); scopedInput && loc[0] > 0 && colon > 0 &&
+			identifierByte(value[loc[0]-1]) && strings.ContainsRune("abcdefABCDEF", rune(run[0])) &&
+			textAddressParses(run[colon+1:]) {
+			// A known alias can end in a hex letter and touch the address
+			// after a scoped value. Keep the alias's last letter and colon.
+			address, _ := r.textAddress(run[colon+1:])
+			b.WriteString(run[:colon+1] + address)
+			value = rest
+			afterScoped = false
+			continue
+		}
 		if address, ok := r.textAddress(run); ok {
+			if afterScoped && loc[0] == 0 && strings.HasPrefix(run, "[") && !strings.HasPrefix(address, "[") {
+				// Here the brackets separate two adjacent addresses. Keep
+				// them so failedScopes can still read the first one.
+				_, port, _ := strings.Cut(run, "]")
+				address = "[" + strings.TrimSuffix(address, port) + "]" + port
+			}
 			b.WriteString(address)
+			afterScoped = strings.Contains(run, "%")
 			// The collection pass reads the zone as text, so an address in
 			// it is reserved, and a path or a label around it is collected
 			// with it, as replaceKnown will meet it in text sanitized later.
 			// A zone dropped here is read all the same, so what it holds is
 			// named as it is wherever else it appears.
-			if !r.collecting && !strings.HasPrefix(run, "[") {
+			if !strings.HasPrefix(run, "[") {
 				drop, tail := zoneRest(run, rest, loc[0] > 0 && value[loc[0]-1] == '[')
+				if drop > 0 {
+					afterScoped = true
+				}
 				r.text(rest[:drop])
-				b.WriteString(rest[drop : drop+tail])
+				if r.collecting {
+					b.WriteString(rest[:drop+tail])
+				} else {
+					b.WriteString(rest[drop : drop+tail])
+				}
 				rest = rest[drop+tail:]
 			}
 		} else {
-			b.WriteString(run)
+			recovered := false
+			if afterScoped {
+				// A delimiter can begin an invalid run and hide the valid
+				// address immediately after it. Retry at each colon boundary.
+				for i := 1; i < len(run); i++ {
+					if run[i-1] != ':' {
+						continue
+					}
+					if address, ok := r.textAddress(run[i:]); ok {
+						b.WriteString(run[:i])
+						b.WriteString(address)
+						recovered = true
+						break
+					}
+				}
+			}
+			if !recovered {
+				b.WriteString(run)
+			}
+			afterScoped = strings.Contains(run, "%")
 		}
 		value = rest
 	}
@@ -1286,7 +1368,7 @@ func (r *redactor) unscoped(run, rest string) (string, int) {
 		address, _ = r.textAddress(address)
 	}
 	head, end := addressStart(zone, rest)
-	address += "%" + r.textAddresses(zone[:head])
+	address += "%" + r.textAddresses(zone[:head], true)
 	if head == len(zone) {
 		return address, 0
 	}
@@ -1309,6 +1391,12 @@ func addressStart(zone, rest string) (head, end int) {
 	}
 	if head == len(zone) || end == 0 || textAddressParses(rest[:end]) || !textAddressParses(zone[head:]+rest[:end]) ||
 		labelStart(zone+rest[:min(len(rest), labelReach)], head, head+1) >= 0 {
+		return len(zone), 0
+	}
+	// A hex-letter suffix of a word is still part of the zone when the
+	// address after the colon parses on its own.
+	if head > 0 && identifierByte(zone[head-1]) && strings.ContainsRune("abcdefABCDEF", rune(zone[head])) && strings.HasPrefix(rest, ":") &&
+		textAddressParses(rest[1:end]) {
 		return len(zone), 0
 	}
 	return head, end
@@ -1362,6 +1450,12 @@ func zoneRest(run, rest string, bracketed bool) (drop, tail int) {
 			break
 		}
 		candidate := s[loc[0]:loc[1]]
+		if colon := strings.IndexByte(candidate, ':'); loc[0] > 0 && colon > 0 &&
+			identifierByte(s[loc[0]-1]) && strings.ContainsRune("abcdefABCDEF", rune(candidate[0])) &&
+			textAddressParses(candidate[colon+1:]) {
+			n, tail = zoneEnd(s[:loc[0]+colon]), 0
+			break
+		}
 		_, zone, _ := strings.Cut(candidate, "%")
 		if head, _ := addressStart(zone, s[loc[1]:]); textAddressParses(candidate) || head < len(zone) {
 			n, tail = zoneEnd(s[:loc[0]]), 0

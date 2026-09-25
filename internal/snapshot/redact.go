@@ -1344,7 +1344,7 @@ func zoneRest(run, rest string, bracketed bool) (drop, tail int) {
 		start = 1
 	}
 	s := rest[start:]
-	n := strings.IndexFunc(s, func(c rune) bool {
+	n := strings.IndexFunc(s[:min(len(s), labelReach)], func(c rune) bool {
 		return unicode.IsSpace(c) || unicode.IsControl(c) || c == ']'
 	})
 	if !bracketed || n < 0 || s[n] != ']' {
@@ -1385,9 +1385,11 @@ func zoneEnd(zone string) int {
 }
 
 // labelReach bounds how far past a zone zoneRest looks for an address or a
-// label that begins in it. A label, a certificate name or a path that begins
-// in a zone ends a few words after it, an address sooner, and the bound keeps
-// a text with many zones from being searched to its end once for each of them.
+// label that begins in it, and how far into a bracketed zone it looks for the
+// "]" that ends it. A label, a certificate name or a path that begins in a
+// zone ends a few words after it, an address sooner, and a Linux interface
+// name is at most 15 bytes; the bound keeps a text with many zones from being
+// searched to its end once for each of them.
 const labelReach = 256
 
 // labelStart returns where the first label, certificate name or path, as the

@@ -247,20 +247,42 @@ func TestSupportPseudonymizesBracketedAddressesInText(t *testing.T) {
 
 // Go writes a scoped IPv6 peer with its zone, and on Unix the zone is the name
 // of the interface: "dial udp [fe80::1%wlan0]:53". No recorded field names the
-// address or the interface here, so the text pattern is the only thing that
-// can find them, and the zone is not kept: a recorded address loses it too.
+// address or the interface here, so the text pass is the only thing that can
+// find them, and the zone is not kept: a recorded address loses it too.
 func TestSupportPseudonymizesScopedAddressesInText(t *testing.T) {
-	for _, test := range []struct{ spelling, after, zone, port string }{
-		{"[fe80::1%wlan0]:53", "", "wlan0", "53"},
-		{"[fe80::1%wlan0]", "", "wlan0", ""},
-		{"fe80::1%wlan0", "", "wlan0", ""},
+	for _, test := range []struct{ before, spelling, after, zone, port string }{
+		{"", "[fe80::1%wlan0]:53", "", "wlan0", "53"},
+		{"", "[fe80::1%wlan0]", "", "wlan0", ""},
+		{"", "fe80::1%wlan0", "", "wlan0", ""},
 		// An interface name can hold a dot, but punctuation right after a
 		// zone belongs to the sentence and has to stay there.
-		{"[fe80::1%eth0.100]:53", "", "eth0.100", "53"},
-		{"fe80::1%wlan0", ".", "wlan0", ""},
-		{"fe80::1%wlan0", ":", "wlan0", ""},
+		{"", "[fe80::1%eth0.100]:53", "", "eth0.100", "53"},
+		{"", "fe80::1%wlan0", ".", "wlan0", ""},
+		{"", "fe80::1%wlan0", ":", "wlan0", ""},
+		// A name can hold nearly any character, and Go writes the name it was
+		// given, so a zone is read to the end of its word: read as letters,
+		// digits, dots, "_" and "-" alone, it leaves "@peer" of "veth@peer".
+		{"", "[fe80::1%veth@peer]:53", "", "veth@peer", "53"},
+		{"", "fe80::1%veth@peer", "", "veth@peer", ""},
+		{"", "fe80::1%veth@peer", "?", "veth@peer", ""},
+		{"", "fe80::1%veth@peer", ",", "veth@peer", ""},
+		{"", "fe80::1%veth@br0", ":", "veth@br0", ""},
+		{"(", "fe80::1%veth@peer", ")", "veth@peer", ""},
+		{"", "[fe80::1%veth@peer]:53", ".", "veth@peer", "53"},
+		{"", "[fe80::1%veth@peer]:53", ",", "veth@peer", "53"},
+		{"(", "[fe80::1%veth@peer]:53", ")", "veth@peer", "53"},
+		// In brackets the "]" ends the zone, whatever the name holds.
+		{"", "[fe80::1%a+b=c~d$e^f!g?h]:53", "", "a+b=c~d$e^f!g?h", "53"},
+		{"", "[fe80::1%a,b]:53", "", "a,b", "53"},
+		// What ends a word ends a bare zone and stays in the text: ping writes
+		// "%wlan0(", and nslookup and dig write a port after "#".
+		{"", "fe80::1%wlan0", ",", "wlan0", ""},
+		{"", "fe80::1%wlan0", ";", "wlan0", ""},
+		{"(", "fe80::1%wlan0", ")", "wlan0", ""},
+		{`"`, "fe80::1%wlan0", `"`, "wlan0", ""},
+		{"", "fe80::1%wlan0", "#53", "wlan0", ""},
 	} {
-		text := test.spelling + test.after
+		text := test.before + test.spelling + test.after
 		t.Run(text, func(t *testing.T) {
 			s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
 				Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
@@ -276,13 +298,20 @@ func TestSupportPseudonymizesScopedAddressesInText(t *testing.T) {
 			if strings.Contains(string(data), test.zone) || strings.Contains(string(data), "%") {
 				t.Errorf("support artifact kept the zone %q:\n%s", test.zone, data)
 			}
+			// A zone read only up to its punctuation leaves the rest of the
+			// name behind: "@peer" of "veth@peer".
+			for i := 1; i < len(test.zone); i++ {
+				if !identifierByte(test.zone[i]) && strings.Contains(string(data), test.zone[i:]) {
+					t.Errorf("support artifact kept %q of the zone %q:\n%s", test.zone[i:], test.zone, data)
+				}
+			}
 			assertNoAddress(t, data, "fe80::1")
 
 			fields := map[string]string{"dial udp ": got.Checks[0].Detail, "check ": got.Checks[0].Fix,
 				"unreachable via ": got.Diagnosis.Summary}
 			pseudonym := ""
 			for prefix, field := range fields {
-				rest, okPrefix := strings.CutPrefix(field, prefix)
+				rest, okPrefix := strings.CutPrefix(field, prefix+test.before)
 				rest, okSuffix := strings.CutSuffix(rest, test.after)
 				if !okPrefix || !okSuffix {
 					t.Fatalf("text lost its shape around the address: %q", field)
@@ -305,6 +334,117 @@ func TestSupportPseudonymizesScopedAddressesInText(t *testing.T) {
 			}
 			if string(again) != string(data) {
 				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
+	}
+}
+
+// freeTextSnapshot carries its text in free-text fields alone, so only the
+// text pass can find what they name.
+func freeTextSnapshot(summary, detail, fix string) Snapshot {
+	return Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+		Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail, Ran: true, DurationMs: 1,
+			Detail: detail, Fix: fix}},
+		Diagnosis: Diagnosis{Verdict: "route", Summary: summary, FailedStage: "route"},
+	}
+}
+
+// A zone only proposes a longer candidate, and reading one must never cost an
+// address beside it its pseudonym. Read as far as the next address, the zone
+// "?10.9.8.7" of "100%?10.9.8.7" makes a run that parses as nothing, and such
+// a run is returned whole. A candidate a zone made that does not parse is
+// read again piece by piece, the IPv4 address netip will not scope and the
+// zone each on its own, and the zone of an address that did parse is dropped
+// with what it holds.
+func TestSupportScopedTextHidesNoOtherAddress(t *testing.T) {
+	for _, test := range []struct {
+		text      string
+		originals []string
+	}{
+		{"loss 100%?10.9.8.7", []string{"10.9.8.7"}},
+		{"loss 100%x 10.9.8.7", []string{"10.9.8.7"}},
+		{"loss 100%x10.9.8.7", []string{"10.9.8.7"}},
+		{"route 10.9.8.7%eth0", []string{"10.9.8.7"}},
+		{"dial udp [10.9.8.7%eth0]:53", []string{"10.9.8.7"}},
+		{"via a%br-lan2620:fe::fe", []string{"2620:fe::fe"}},
+		{"fe80::1%?10.9.8.7", []string{"fe80::1", "10.9.8.7"}},
+		{"fe80::1%x@10.9.8.7:53", []string{"fe80::1", "10.9.8.7"}},
+		{"[fe80::1%veth@peer]:53 then 10.9.8.7", []string{"fe80::1", "10.9.8.7"}},
+		{"fe80::1%veth@peer,fe80::2%wlan0", []string{"fe80::1", "fe80::2"}},
+	} {
+		t.Run(test.text, func(t *testing.T) {
+			s := freeTextSnapshot("unreachable: "+test.text, test.text, "check "+test.text)
+			data, err := Encode(sanitizeValid(t, s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, original := range test.originals {
+				assertNoAddress(t, data, original)
+			}
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(again) != string(data) {
+				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
+	}
+}
+
+// The rest of a zone is dropped only when it stands alone. A label, a
+// certificate name or a path that begins in it and runs on past it is left
+// to the pattern that redacts it, which needs all of it: dropping "@y=" of
+// "@y=/home/alice" would leave the path without the "=" it is found after.
+func TestSupportScopedTextLeavesLabelsWhole(t *testing.T) {
+	for _, text := range []string{
+		"fe80::1%x@user:alice",
+		"fe80::1%x@y=/home/alice",
+		"fe80::1%x?cert is for alice",
+	} {
+		t.Run(text, func(t *testing.T) {
+			data, err := Encode(sanitizeValid(t, freeTextSnapshot("unreachable: "+text, text, "check "+text)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "alice") {
+				t.Errorf("support artifact kept alice:\n%s", data)
+			}
+			assertNoAddress(t, data, "fe80::1")
+		})
+	}
+}
+
+// replaceKnown writes the name of whatever the pass has named wherever it
+// meets the spelling again, so what one field names has to be named for the
+// same text everywhere. A spelling collected in two alias namespaces is named
+// before any field is sanitized, from the text the collection pass read,
+// which is why that pass reads a zone's rest as text instead of dropping it.
+// A candidate that did not parse is recovered only after the label patterns,
+// so a certificate name that holds one is named for the same text in every
+// field. And an IPv6 address that failed with its zone is malformed and left
+// unnamed: "::dead:beef" stands apart inside "fe80::dead:beef", and named, it
+// would split the scoped address in the next field and leave its zone behind.
+func TestSupportScopedTextNamesALabelTheSameEverywhere(t *testing.T) {
+	for _, test := range []struct {
+		summary, detail, fix, secret string
+		originals                    []string
+	}{
+		{"", "open /srv/fe80::1%veth@peer10.9.8.7x", "ssid:/srv/fe80::1%veth@peer10.9.8.7x", "peer", []string{"fe80::1", "10.9.8.7"}},
+		{"tls: cert is for frank10.9.8.7%12", "dial frank10.9.8.7%12", "", "frank", []string{"10.9.8.7"}},
+		{"gateway ::dead:beef.%eth0 unreachable", "dial udp [fe80::dead:beef%veth]:53", "", "veth", []string{"fe80::dead:beef"}},
+	} {
+		t.Run(test.secret, func(t *testing.T) {
+			data, err := Encode(sanitizeValid(t, freeTextSnapshot(test.summary, test.detail, test.fix)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), test.secret) {
+				t.Errorf("support artifact kept %s:\n%s", test.secret, data)
+			}
+			for _, original := range test.originals {
+				assertNoAddress(t, data, original)
 			}
 		})
 	}

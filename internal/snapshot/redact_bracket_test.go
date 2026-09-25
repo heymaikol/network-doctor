@@ -2,10 +2,12 @@ package snapshot
 
 import (
 	"net/netip"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // nat64Prefix is the RFC 6052 well-known prefix. An address inside it carries
@@ -181,6 +183,7 @@ func TestSupportPseudonymizesBracketedAddressesInText(t *testing.T) {
 		{"", "[64:ff9b::192.0.2.1]", "", "64:ff9b::c000:201", ""},
 		{"", "[::ffff:10.1.2.3]", "", "10.1.2.3", ""},
 		{"", "[fe80::1%2]", "", "fe80::1", ""},
+		{"", "[fe80::1%12]:53", "", "fe80::1", "53"},
 		{"", "[10.1.2.3]", "", "10.1.2.3", ""},
 		{"", "[10.1.2.3]:443", "", "10.1.2.3", "443"},
 		{"", "[2001:db8::beef]:99999", "", "2001:db8::beef", "99999"},
@@ -239,6 +242,451 @@ func TestSupportPseudonymizesBracketedAddressesInText(t *testing.T) {
 			}
 			if string(again) != string(data) {
 				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
+	}
+}
+
+// Go writes a scoped IPv6 peer with its zone, and on Unix the zone is the name
+// of the interface: "dial udp [fe80::1%wlan0]:53". No recorded field names the
+// address or the interface here, so the text pass is the only thing that can
+// find them, and the zone is not kept: a recorded address loses it too.
+func TestSupportPseudonymizesScopedAddressesInText(t *testing.T) {
+	for _, test := range []struct{ before, spelling, after, zone, port string }{
+		{"", "[fe80::1%wlan0]:53", "", "wlan0", "53"},
+		{"", "[fe80::1%wlan0]", "", "wlan0", ""},
+		{"", "fe80::1%wlan0", "", "wlan0", ""},
+		// An interface name can hold a dot, but punctuation right after a
+		// zone belongs to the sentence and has to stay there.
+		{"", "[fe80::1%eth0.100]:53", "", "eth0.100", "53"},
+		{"", "fe80::1%wlan0", ".", "wlan0", ""},
+		{"", "fe80::1%wlan0", ":", "wlan0", ""},
+		// A name can hold nearly any character, and Go writes the name it was
+		// given, so a zone is read to the end of its word: read as letters,
+		// digits, dots, "_" and "-" alone, it leaves "@peer" of "veth@peer".
+		{"", "[fe80::1%veth@peer]:53", "", "veth@peer", "53"},
+		{"", "fe80::1%veth@peer", "", "veth@peer", ""},
+		{"", "fe80::1%veth@peer", "?", "veth@peer", ""},
+		{"", "fe80::1%veth@peer", ",", "veth@peer", ""},
+		{"", "fe80::1%veth@br0", ":", "veth@br0", ""},
+		{"(", "fe80::1%veth@peer", ")", "veth@peer", ""},
+		{"", "[fe80::1%veth@peer]:53", ".", "veth@peer", "53"},
+		{"", "[fe80::1%veth@peer]:53", ",", "veth@peer", "53"},
+		{"(", "[fe80::1%veth@peer]:53", ")", "veth@peer", "53"},
+		// In brackets the "]" ends the zone, whatever the name holds.
+		{"", "[fe80::1%a+b=c~d$e^f!g?h]:53", "", "a+b=c~d$e^f!g?h", "53"},
+		{"", "[fe80::1%a,b]:53", "", "a,b", "53"},
+		{"", "[fe80::1%lan#prod]:53", "", "lan#prod", "53"},
+		{"", "[fe80::1%lan[prod]:53", "", "lan[prod", "53"},
+		// Linux refuses only "/", ":" and whitespace in an interface name, so
+		// "lan#prod", "lan,prod" and "lan(prod" are names like "wlan0". A bare
+		// zone is read to the next of those, and only the punctuation that
+		// ends it stays in the text.
+		{"", "fe80::1%lan#prod", "", "lan#prod", ""},
+		{"", "fe80::1%lan,prod", "", "lan,prod", ""},
+		{"", "fe80::1%lan;prod", "", "lan;prod", ""},
+		{"", "fe80::1%lan(prod", "", "lan(prod", ""},
+		{"", "fe80::1%lan{prod", "", "lan{prod", ""},
+		{"", "fe80::1%lan]prod", "", "lan]prod", ""},
+		{"", `fe80::1%lan"prod`, "", `lan"prod`, ""},
+		{"", "fe80::1%lan,prod", ", retrying", "lan,prod", ""},
+		{"", "fe80::1%lan#prod", ":", "lan#prod", ""},
+		{"(", "fe80::1%lan(prod", ")", "lan(prod", ""},
+		{`"`, "fe80::1%lan;prod", `".`, "lan;prod", ""},
+		{"", "fe80::1%veth@br0", ":53", "veth@br0", ""},
+		// netip takes "%" in a zone too, and a zone ends at no "%".
+		{"", "fe80::1%%lan", "", "%lan", ""},
+		{"", "fe80::1%lan,prod%x", "", "lan,prod%x", ""},
+		// Punctuation that ends a zone stays in the text: ping writes
+		// "%wlan0(", and a sentence goes on after a comma or a semicolon.
+		{"", "fe80::1%wlan0", ",", "wlan0", ""},
+		{"", "fe80::1%wlan0", ";", "wlan0", ""},
+		{"", "fe80::1%wlan0", ", retrying", "wlan0", ""},
+		{"", "fe80::1%wlan0", "; retrying", "wlan0", ""},
+		{"(", "fe80::1%wlan0", ")", "wlan0", ""},
+		{"(", "fe80::1%wlan0", "),", "wlan0", ""},
+		{`"`, "fe80::1%wlan0", `"`, "wlan0", ""},
+		// nslookup and dig write a port after "#", but "wlan0#53" is a name
+		// too, and one that cannot be told from it. The "#53" goes with the
+		// zone rather than leave what may be the end of a name behind.
+		{"", "fe80::1%wlan0#53", "", "wlan0#53", ""},
+	} {
+		text := test.before + test.spelling + test.after
+		t.Run(text, func(t *testing.T) {
+			s := Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+				Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+				Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail, Ran: true, DurationMs: 1,
+					Detail: "dial udp " + text, Fix: "check " + text}},
+				Diagnosis: Diagnosis{Verdict: "route", Summary: "unreachable via " + text, FailedStage: "route"},
+			}
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), test.zone) || strings.Contains(string(data), "%") {
+				t.Errorf("support artifact kept the zone %q:\n%s", test.zone, data)
+			}
+			// A zone read only up to its punctuation leaves the rest of the
+			// name behind: "@peer" of "veth@peer".
+			for i := 1; i < len(test.zone); i++ {
+				if !identifierByte(test.zone[i]) && strings.Contains(string(data), test.zone[i:]) {
+					t.Errorf("support artifact kept %q of the zone %q:\n%s", test.zone[i:], test.zone, data)
+				}
+			}
+			assertNoAddress(t, data, "fe80::1")
+
+			fields := map[string]string{"dial udp ": got.Checks[0].Detail, "check ": got.Checks[0].Fix,
+				"unreachable via ": got.Diagnosis.Summary}
+			pseudonym := ""
+			for prefix, field := range fields {
+				rest, okPrefix := strings.CutPrefix(field, prefix+test.before)
+				rest, okSuffix := strings.CutSuffix(rest, test.after)
+				if !okPrefix || !okSuffix {
+					t.Fatalf("text lost its shape around the address: %q", field)
+				}
+				if pseudonym == "" {
+					pseudonym = rest
+				}
+				if rest != pseudonym {
+					t.Errorf("one address got two pseudonyms: %q and %q", pseudonym, rest)
+				}
+			}
+			address, port, ok := literalEndpoint(pseudonym)
+			if !ok || port != test.port || address.Zone() != "" || address == netip.MustParseAddr("fe80::1") {
+				t.Errorf("pseudonym %q is not an unscoped endpoint with port %q standing in for fe80::1", pseudonym, test.port)
+			}
+
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(again) != string(data) {
+				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
+	}
+}
+
+// A line can hold a zone more than once, or run one zone into the next
+// address with no space between: ping writes "PING host(address)", dig writes
+// "address#port(address)", and a list joins addresses with commas. Every
+// zone goes, whatever punctuation its name holds, and the text between the
+// addresses stays. In want, "{n}" stands for the pseudonym of fe80::bee:n,
+// which has to be an unscoped address, and "{user}" for a user label's alias.
+func TestSupportScopedTextDropsEveryZoneOnALine(t *testing.T) {
+	for _, test := range []struct{ text, want string }{
+		{"PING fe80::bee:1%lan(prod(fe80::bee:1%lan(prod) 56 data bytes", "PING {1}({1}) 56 data bytes"},
+		{"PING fe80::bee:1%wlan0(fe80::bee:1%wlan0) 56 data bytes", "PING {1}({1}) 56 data bytes"},
+		{"SERVER: fe80::bee:1%lan#prod#53(fe80::bee:1%lan#prod)", "SERVER: {1}({1})"},
+		{"SERVER: fe80::bee:1%wlan0#53(fe80::bee:1%wlan0)", "SERVER: {1}({1})"},
+		{"fe80::bee:1%lan,prod,fe80::bee:2%lan;prod", "{1},{2}"},
+		{"fe80::bee:1%wlan0,fe80::bee:2%eth0", "{1},{2}"},
+		{"fe80::bee:1%wlan0,fe80::bee:2,fe80::bee:2", "{1},{2},{2}"},
+		{"fe80::bee:1%lan#prod,[fe80::bee:2]:53", "{1},[{2}]:53"},
+		{"fe80::bee:1%lan,prod,user:alice", "{1},user={user}"},
+	} {
+		t.Run(test.text, func(t *testing.T) {
+			s := freeTextSnapshot("unreachable: "+test.text, test.text, "check "+test.text)
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, secret := range []string{"%", "prod", "wlan0", "eth0", "alice"} {
+				if strings.Contains(string(data), secret) {
+					t.Errorf("support artifact kept %q:\n%s", secret, data)
+				}
+			}
+			assertNoAddress(t, data, "fe80::bee:1")
+			assertNoAddress(t, data, "fe80::bee:2")
+
+			placeholder := regexp.MustCompile(`\\\{([12])\\\}`)
+			quoted := regexp.QuoteMeta(test.want)
+			var order []string
+			for _, match := range placeholder.FindAllStringSubmatch(quoted, -1) {
+				order = append(order, match[1])
+			}
+			pattern := regexp.MustCompile("^" + strings.Replace(placeholder.ReplaceAllString(quoted, "([0-9a-f:.]+)"), regexp.QuoteMeta("{user}"), "user-[0-9]+", 1) + "$")
+			pseudonyms := map[string]string{}
+			for prefix, field := range map[string]string{"unreachable: ": got.Diagnosis.Summary, "": got.Checks[0].Detail, "check ": got.Checks[0].Fix} {
+				rest, ok := strings.CutPrefix(field, prefix)
+				groups := pattern.FindStringSubmatch(rest)
+				if !ok || groups == nil {
+					t.Fatalf("sanitized %q, want the shape %q", field, test.want)
+				}
+				for i, pseudonym := range groups[1:] {
+					original := netip.MustParseAddr("fe80::bee:" + order[i])
+					address, err := netip.ParseAddr(pseudonym)
+					if err != nil || address.Zone() != "" || address == original {
+						t.Errorf("pseudonym %q is not an unscoped address standing in for %s", pseudonym, original)
+					}
+					if seen, ok := pseudonyms[original.String()]; ok && seen != pseudonym {
+						t.Errorf("%s got two pseudonyms: %q and %q", original, seen, pseudonym)
+					}
+					pseudonyms[original.String()] = pseudonym
+				}
+			}
+			if len(pseudonyms) == 2 && pseudonyms["fe80::bee:1"] == pseudonyms["fe80::bee:2"] {
+				t.Errorf("two addresses share the pseudonym %q", pseudonyms["fe80::bee:1"])
+			}
+
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(again) != string(data) {
+				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
+	}
+}
+
+// freeTextSnapshot carries its text in free-text fields alone, so only the
+// text pass can find what they name.
+func freeTextSnapshot(summary, detail, fix string) Snapshot {
+	return Snapshot{Tool: Tool{Version: "dev", OS: "linux", Arch: "amd64"},
+		Schema: Schema, CreatedAt: "2026-08-25T12:00:00Z",
+		Checks: []Check{{ID: "route", Name: "Route", Status: StatusFail, Ran: true, DurationMs: 1,
+			Detail: detail, Fix: fix}},
+		Diagnosis: Diagnosis{Verdict: "route", Summary: summary, FailedStage: "route"},
+	}
+}
+
+// A zone only proposes a longer candidate, and reading one must never cost an
+// address beside it its pseudonym. Read as far as the next address, the zone
+// "?10.9.8.7" of "100%?10.9.8.7" makes a run that parses as nothing, and such
+// a run is returned whole. A candidate a zone made that does not parse is
+// read again piece by piece, the IPv4 address netip will not scope and the
+// zone each on its own, and the zone of an address that did parse is dropped
+// with what it holds.
+func TestSupportScopedTextHidesNoOtherAddress(t *testing.T) {
+	for _, test := range []struct {
+		text      string
+		originals []string
+	}{
+		{"loss 100%?10.9.8.7", []string{"10.9.8.7"}},
+		{"loss 100%x 10.9.8.7", []string{"10.9.8.7"}},
+		{"loss 100%x10.9.8.7", []string{"10.9.8.7"}},
+		{"route 10.9.8.7%eth0", []string{"10.9.8.7"}},
+		{"dial udp [10.9.8.7%eth0]:53", []string{"10.9.8.7"}},
+		{"via a%br-lan2620:fe::fe", []string{"2620:fe::fe"}},
+		{"fe80::1%?10.9.8.7", []string{"fe80::1", "10.9.8.7"}},
+		{"fe80::1%x@10.9.8.7:53", []string{"fe80::1", "10.9.8.7"}},
+		{"[fe80::1%veth@peer]:53 then 10.9.8.7", []string{"fe80::1", "10.9.8.7"}},
+		{"fe80::1%veth@peer,fe80::2%wlan0", []string{"fe80::1", "fe80::2"}},
+	} {
+		t.Run(test.text, func(t *testing.T) {
+			s := freeTextSnapshot("unreachable: "+test.text, test.text, "check "+test.text)
+			data, err := Encode(sanitizeValid(t, s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, original := range test.originals {
+				assertNoAddress(t, data, original)
+			}
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(again) != string(data) {
+				t.Errorf("sanitizing twice differed:\n%s\n%s", data, again)
+			}
+		})
+	}
+}
+
+// A label, a certificate name or a path that begins in the rest of a zone
+// and runs on past it ends the zone there, and is left whole to the pattern
+// that redacts it, which needs all of it: dropping the "=" of "@y=/home/alice"
+// would leave the path without the "=" it is found after.
+func TestSupportScopedTextLeavesLabelsWhole(t *testing.T) {
+	for _, text := range []string{
+		"fe80::1%x@user:alice",
+		"fe80::1%x@y=/home/alice",
+		"fe80::1%x?cert is for alice",
+	} {
+		t.Run(text, func(t *testing.T) {
+			data, err := Encode(sanitizeValid(t, freeTextSnapshot("unreachable: "+text, text, "check "+text)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "alice") {
+				t.Errorf("support artifact kept alice:\n%s", data)
+			}
+			assertNoAddress(t, data, "fe80::1")
+		})
+	}
+}
+
+// replaceKnown writes the name of whatever the pass has named wherever it
+// meets the spelling again, so what one field names has to be named for the
+// same text everywhere. A spelling collected in two alias namespaces is named
+// before any field is sanitized, from the text the collection pass read,
+// which is why that pass reads a zone's rest as text instead of dropping it.
+// A candidate that did not parse is recovered only after the label patterns,
+// so a certificate name that holds one is named for the same text in every
+// field. And an IPv6 address that failed with its zone is malformed and left
+// unnamed: "::dead:beef" stands apart inside "fe80::dead:beef", and named, it
+// would split the scoped address in the next field and leave its zone behind.
+func TestSupportScopedTextNamesALabelTheSameEverywhere(t *testing.T) {
+	for _, test := range []struct {
+		summary, detail, fix, secret string
+		originals                    []string
+	}{
+		{"", "open /srv/fe80::1%veth@peer10.9.8.7x", "ssid:/srv/fe80::1%veth@peer10.9.8.7x", "peer", []string{"fe80::1", "10.9.8.7"}},
+		{"tls: cert is for frank10.9.8.7%12", "dial frank10.9.8.7%12", "", "frank", []string{"10.9.8.7"}},
+		{"gateway ::dead:beef.%eth0 unreachable", "dial udp [fe80::dead:beef%veth]:53", "", "veth", []string{"fe80::dead:beef"}},
+	} {
+		t.Run(test.secret, func(t *testing.T) {
+			data, err := Encode(sanitizeValid(t, freeTextSnapshot(test.summary, test.detail, test.fix)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), test.secret) {
+				t.Errorf("support artifact kept %s:\n%s", test.secret, data)
+			}
+			for _, original := range test.originals {
+				assertNoAddress(t, data, original)
+			}
+		})
+	}
+}
+
+func TestSupportScopedTextKeepsAdjacentAddressesVisibleToScanner(t *testing.T) {
+	for _, test := range []struct {
+		name, next, before, after string
+	}{
+		{"ipv6", "2001:db8::beef", ":", ""},
+		{"ipv6-short", "2001:db8::1", ":", ""},
+		{"ipv4", "10.9.8.7", ":", ""},
+		{"bracketed", "[2001:db8::1]:53", ":", ""},
+		{"comma", "2001:db8::1", ",", ""},
+		{"semicolon", "2001:db8::1", ";", ""},
+		{"parentheses", "2001:db8::1", "(", ")"},
+		{"identity", "user:alice", " ", ""},
+		{"path", "/home/alice", " ", ""},
+		{"windows-path", `C:\Users\alice`, " ", ""},
+		{"certificate", "cert is for frank", " ", ""},
+		{"unicode", "2001:db8::1", ":", "雪"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prefix := ""
+			if test.name == "unicode" {
+				prefix = "é"
+			}
+			input := prefix + "fe80::1%wlan0" + test.before + test.next + test.after
+			s := freeTextSnapshot(input, "fe80::1%wlan0", test.next)
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !utf8.Valid(data) || strings.Contains(string(data), "%wlan0") || strings.Contains(string(data), "fe80::1") || strings.Contains(string(data), test.next) {
+				t.Fatalf("support artifact kept a secret or corrupted UTF-8:\n%s", data)
+			}
+			first, err := netip.ParseAddr(got.Checks[0].Detail)
+			if err != nil || first.Zone() != "" || first == netip.MustParseAddr("fe80::1") {
+				t.Fatalf("first pseudonym = %q: %v", got.Checks[0].Detail, err)
+			}
+			second := got.Checks[0].Fix
+			if test.name != "identity" && test.name != "path" && test.name != "windows-path" && test.name != "certificate" {
+				address, port, ok := literalEndpoint(second)
+				wantPort := ""
+				if test.name == "bracketed" {
+					wantPort = "53"
+				}
+				if !ok || address.Zone() != "" || port != wantPort {
+					t.Fatalf("second endpoint = %q", second)
+				}
+				original := test.next
+				if strings.HasPrefix(original, "[") {
+					original, _, _ = strings.Cut(original[1:], "]")
+				}
+				assertNoAddress(t, data, original)
+			}
+			if want := prefix + got.Checks[0].Detail + test.before + second + test.after; got.Diagnosis.Summary != want {
+				t.Errorf("summary = %q, want %q", got.Diagnosis.Summary, want)
+			}
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil || string(data) != string(again) {
+				t.Errorf("sanitization changed on repetition: %v", err)
+			}
+		})
+	}
+}
+
+func TestSupportScopedCertificateTextIsConsistentAcrossFields(t *testing.T) {
+	for _, test := range []struct {
+		input   string
+		secrets []string
+	}{
+		{"cert is for frank)fe80::1%wlan0", []string{"frank", "fe80::1", "%wlan0"}},
+		{"cert is for frank)fe80::1%%lan", []string{"frank", "fe80::1", "%lan"}},
+		{"cert is for frank10.9.8.7%12:2001:db8::beef", []string{"frank", "10.9.8.7", "%12", "2001:db8::beef"}},
+	} {
+		t.Run(test.input, func(t *testing.T) {
+			s := freeTextSnapshot(test.input, test.input, test.input)
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Diagnosis.Summary != got.Checks[0].Detail || got.Checks[0].Detail != got.Checks[0].Fix {
+				t.Errorf("identical source text got different aliases: %q, %q, %q", got.Diagnosis.Summary, got.Checks[0].Detail, got.Checks[0].Fix)
+			}
+			for _, secret := range test.secrets {
+				if strings.Contains(string(data), secret) {
+					t.Errorf("support artifact kept %q:\n%s", secret, data)
+				}
+			}
+		})
+	}
+}
+
+func TestSupportFailedScopeKeepsAdjacentBracketedAddress(t *testing.T) {
+	input := "100%x10.9.8.7[10.9.8.7]:53"
+	s := freeTextSnapshot(input, input, input)
+	got := sanitizeValid(t, s)
+	data, err := Encode(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "10.9.8.7") {
+		t.Fatalf("support artifact kept the address:\n%s", data)
+	}
+	first, rest, ok := strings.Cut(strings.TrimPrefix(got.Diagnosis.Summary, "100%x"), "[")
+	second, port, closed := strings.Cut(rest, "]")
+	address, parseErr := netip.ParseAddr(first)
+	if !ok || !closed || port != ":53" || first != second || parseErr != nil || !address.Is4() {
+		t.Errorf("lost the two adjacent addresses or their bracket: %q", got.Diagnosis.Summary)
+	}
+	if got.Checks[0].Detail != got.Diagnosis.Summary || got.Checks[0].Fix != got.Diagnosis.Summary {
+		t.Errorf("same source text changed across fields: %q, %q, %q", got.Diagnosis.Summary, got.Checks[0].Detail, got.Checks[0].Fix)
+	}
+}
+
+func TestSupportPunctuatedZonesDoNotHideAdjacentIPv6(t *testing.T) {
+	for _, zone := range []string{"lan(prod", "lan#prod", "%lan"} {
+		t.Run(zone, func(t *testing.T) {
+			first, second := "fe80::1%"+zone, "2001:db8::beef"
+			s := freeTextSnapshot(first+":"+second, first, second)
+			got := sanitizeValid(t, s)
+			data, err := Encode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(data), "fe80::1") || strings.Contains(string(data), second) || strings.Contains(string(data), zone) {
+				t.Fatalf("support artifact kept an address or zone:\n%s", data)
+			}
+			if want := got.Checks[0].Detail + ":" + got.Checks[0].Fix; got.Diagnosis.Summary != want {
+				t.Errorf("summary = %q, want two address aliases in %q", got.Diagnosis.Summary, want)
+			}
+			for _, value := range []string{got.Checks[0].Detail, got.Checks[0].Fix} {
+				address, err := netip.ParseAddr(value)
+				if err != nil || address.Zone() != "" {
+					t.Errorf("invalid unscoped pseudonym %q: %v", value, err)
+				}
 			}
 		})
 	}

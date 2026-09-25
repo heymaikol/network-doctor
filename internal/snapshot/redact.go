@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -1206,10 +1207,11 @@ func identifierByte(c byte) bool {
 // interface name or numeric scope of letters, digits, ".", "_" and "-". A
 // name can hold more than that, "veth@peer" among them, so the zone of an
 // address that parsed is read on to the end of its word by zoneRest and
-// dropped with the rest, and no part of the name is left beside the pseudonym.
-// A candidate that does not parse is left as it is, for failedScopes, and
-// either way reading resumes where the pattern alone resumes it. Text with no
-// "%" is read exactly as the pattern alone reads it.
+// dropped with the rest, and nothing of the name but the punctuation that
+// ends it is left beside the pseudonym. A candidate that does not parse is
+// left as it is, for failedScopes, and either way reading resumes where the
+// pattern alone resumes it. Text with no "%" is read exactly as the pattern
+// alone reads it.
 func (r *redactor) textAddresses(value string) string {
 	var b strings.Builder
 	for {
@@ -1306,7 +1308,7 @@ func addressStart(zone, rest string) (head, end int) {
 		end = len(rest)
 	}
 	if head == len(zone) || end == 0 || textAddressParses(rest[:end]) || !textAddressParses(zone[head:]+rest[:end]) ||
-		labelSpans(zone+rest[:min(len(rest), labelReach)], head, head+1) {
+		labelStart(zone+rest[:min(len(rest), labelReach)], head, head+1) >= 0 {
 		return len(zone), 0
 	}
 	return head, end
@@ -1314,20 +1316,25 @@ func addressStart(zone, rest string) (head, end int) {
 
 // zoneRest returns how much of rest, which follows run, an unbracketed IPv6
 // address that parsed, is the rest of its zone. netip takes any zone at all
-// and Go writes the name it was given, so where a zone ends is decided here:
-// at the end of the word. That is whitespace or a control character, a quote,
-// a bracket, "," or ";", or "/", ":" and "%", which no interface name holds
-// and which after an address begin a prefix length, a port or a percentage,
-// or "#", which nslookup and dig write before a port. A ".", "!" or "?" at the
-// end is the sentence's. In brackets the "]" ends the zone instead.
+// and Go writes the name it was given, so where a zone ends is decided here.
+// Linux refuses only "/", ":" and whitespace in an interface name, so a
+// quote, a bracket, "#", "," or ";" can be part of one, and a zone is read on
+// to the next of those or a control character, which after an address begin
+// a prefix length, a port or the next word. Punctuation at its end is the
+// text's and stays: the "," of "fe80::1%wlan0, retrying" and the ")" of
+// "(fe80::1%wlan0)". No letter, digit, "_" or "-" of a zone is left, which
+// costs "fe80::1%wlan0#53" its "#53": "wlan0#53" is a name too. In brackets
+// the "]" ends the zone instead.
 //
-// The rest is dropped only when it stands alone: when no address, "%" zone,
-// label, certificate name or path that the text pass reads begins in it and
-// runs on past it. Otherwise it is left as it is, and every part of it is read
-// as the text around it is. A run of address characters that ends the rest
-// and reaches past it only through a ":" or the dots of a sentence, and is no
-// address, is punctuation: the rest is dropped and that tail is left as it
-// stands, unread, as it was when the whole run was read and was no address.
+// An address is no part of a zone. Where one begins in it, or a candidate
+// that failedScopes reads on from past it, or a label, certificate name or
+// path that runs on past it, the zone ends, and what begins there is left to
+// be read as the text around it is: the "(" and the address after it in
+// "fe80::1%wlan0(fe80::1%wlan0)", or the "," and the address after it in
+// "fe80::1%wlan0,10.1.2.3". A run of address characters that begins in the
+// zone and reaches past it, and is no address, is dropped as far as the zone
+// goes, and the rest of that run is left as it stands, unread, as it was when
+// the whole run was read and was no address.
 func zoneRest(run, rest string, bracketed bool) (drop, tail int) {
 	start := 0
 	if !strings.Contains(run, "%") {
@@ -1338,58 +1345,70 @@ func zoneRest(run, rest string, bracketed bool) (drop, tail int) {
 	}
 	s := rest[start:]
 	n := strings.IndexFunc(s, func(c rune) bool {
-		return unicode.IsSpace(c) || unicode.IsControl(c) || c == '[' || c == ']'
+		return unicode.IsSpace(c) || unicode.IsControl(c) || c == ']'
 	})
 	if !bracketed || n < 0 || s[n] != ']' {
 		n = strings.IndexFunc(s, func(c rune) bool {
-			return unicode.IsSpace(c) || unicode.IsControl(c) || strings.ContainsRune("\"'`()[]{}<>,;/:%#", c)
+			return unicode.IsSpace(c) || unicode.IsControl(c) || c == '/' || c == ':'
 		})
 		if n < 0 {
 			n = len(s)
 		}
-		n = len(strings.TrimRight(s[:n], ".!?"))
+		n = zoneEnd(s[:n])
 	}
-	if n == 0 || strings.HasPrefix(s[n:], "%") {
-		return 0, 0
-	}
-	head := len(strings.TrimRightFunc(s[:n], func(c rune) bool {
-		return c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
-	}))
-	if head < n {
-		if tail = strings.IndexFunc(s[n:], func(c rune) bool { return !strings.ContainsRune("0123456789abcdefABCDEF:.", c) }); tail < 0 {
-			tail = len(s) - n
+	s = s[:min(len(s), n+labelReach)]
+	for _, loc := range ipTextRE.FindAllStringIndex(s, -1) {
+		if loc[0] >= n {
+			break
 		}
-		if tail > 0 && (strings.Trim(s[n:n+tail], ".:") != "" || textAddressParses(s[head:n+tail]) || strings.HasPrefix(s[n+tail:], "%")) {
-			return 0, 0
+		candidate := s[loc[0]:loc[1]]
+		_, zone, _ := strings.Cut(candidate, "%")
+		if head, _ := addressStart(zone, s[loc[1]:]); textAddressParses(candidate) || head < len(zone) {
+			n, tail = zoneEnd(s[:loc[0]]), 0
+			break
 		}
+		tail = max(0, loc[1]-n)
 	}
-	if labelSpans(s[:min(len(s), n+labelReach)], n, n) {
+	if at := labelStart(s, n, n); at >= 0 {
+		n, tail = zoneEnd(s[:at]), 0
+	}
+	if n == 0 {
 		return 0, 0
 	}
 	return start + n, tail
 }
 
-// labelReach bounds how far past a zone labelSpans looks. A label, a
-// certificate name or a path that begins in a zone ends a few words after it,
-// and the bound keeps a text with many zones from being searched to its end
-// once for each of them.
+// zoneEnd returns where the zone that zone begins with ends: before the
+// punctuation that closes it, which belongs to the text around it.
+func zoneEnd(zone string) int {
+	return len(strings.TrimRightFunc(zone, func(c rune) bool { return c < utf8.RuneSelf && !identifierByte(byte(c)) }))
+}
+
+// labelReach bounds how far past a zone zoneRest looks for an address or a
+// label that begins in it. A label, a certificate name or a path that begins
+// in a zone ends a few words after it, an address sooner, and the bound keeps
+// a text with many zones from being searched to its end once for each of them.
 const labelReach = 256
 
-// labelSpans reports whether a label, a certificate name or a path, as the
-// text patterns after the address pass read one in s, begins before to and
-// ends after from.
-func labelSpans(s string, from, to int) bool {
+// labelStart returns where the first label, certificate name or path, as the
+// text patterns after the address pass read one in s, that begins before to
+// and ends after from begins, or -1 when none does.
+func labelStart(s string, from, to int) int {
+	start := -1
 	for _, pattern := range [...]*regexp.Regexp{identityTextRE, certificateHostRE, unixPathRE, windowsPathRE} {
 		for _, loc := range pattern.FindAllStringIndex(s, -1) {
 			if loc[0] >= to {
 				break
 			}
 			if loc[1] > from {
-				return true
+				if start < 0 || loc[0] < start {
+					start = loc[0]
+				}
+				break
 			}
 		}
 	}
-	return false
+	return start
 }
 
 // textAddressParses reports whether textAddress reads value as an address.

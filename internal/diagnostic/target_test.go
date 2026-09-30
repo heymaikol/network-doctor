@@ -34,6 +34,7 @@ func TestParseTarget(t *testing.T) {
 		{"ssh://host", "host", 22, ProtoSSH, false},
 		{"smtp://host", "host", 25, ProtoSMTP, false},
 		{"1.1.1.1", "1.1.1.1", 443, ProtoTLSHTTP, true},
+		{"127.0.0.1", "127.0.0.1", 443, ProtoTLSHTTP, true},
 		{"1.1.1.1:25", "1.1.1.1", 25, ProtoSMTP, true},
 		{"mail.example.com:587", "mail.example.com", 587, ProtoSMTP, false},
 		{"https://github.com/owner/repo", "github.com", 443, ProtoTLSHTTP, false},
@@ -106,6 +107,28 @@ func TestParseTargetErrors(t *testing.T) {
 	for _, in := range bad {
 		if tg, err := ParseTarget(in); err == nil {
 			t.Errorf("ParseTarget(%q) = %+v, want error", in, tg)
+		}
+	}
+}
+
+// The unspecified address names no host. Connecting to it is left to the OS,
+// which on Linux quietly means this machine, so a run would probe a local
+// service while every row and report still named 0.0.0.0 or :: as the target.
+// Rejected on the parsed address, not the spelling, so the port and URL forms
+// and an IPv4-mapped :: are refused too. Loopback stays a valid destination.
+func TestParseTargetRejectsUnspecifiedAddress(t *testing.T) {
+	for _, in := range []string{
+		"0.0.0.0", "0.0.0.0:80", "http://0.0.0.0:8080",
+		"::", "[::]:80", "http://[::]:8080",
+		"::ffff:0.0.0.0",
+	} {
+		tg, err := ParseTarget(in)
+		if err == nil {
+			t.Errorf("ParseTarget(%q) = %+v, want the unspecified address rejected", in, tg)
+			continue
+		}
+		if got := err.Error(); !strings.Contains(got, "unspecified") || got != textsafe.Clean(got) {
+			t.Errorf("ParseTarget(%q) error = %q, want a terminal-safe unspecified-address reject", in, got)
 		}
 	}
 }
@@ -315,9 +338,10 @@ func FuzzParseTarget(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		target, err := ParseTarget(input)
 		// A bare address is an IP literal and nothing else: its final group is
-		// never read as a port, and Raw is the spelling typed.
+		// never read as a port, and Raw is the spelling typed. The unspecified
+		// address is the one literal refused outright.
 		if bare := strings.TrimSpace(input); !strings.Contains(bare, "://") {
-			if ip := net.ParseIP(bare); ip != nil && (err != nil || !ip.Equal(target.IP) || target.PortExplicit || target.Raw != bare) {
+			if ip := net.ParseIP(bare); ip != nil && !ip.IsUnspecified() && (err != nil || !ip.Equal(target.IP) || target.PortExplicit || target.Raw != bare) {
 				t.Fatalf("ParseTarget(%q) = %+v, %v; want the IP literal %v", input, target, err, ip)
 			}
 		}

@@ -208,6 +208,12 @@ func parseTarget(raw string) (*Target, error) {
 	}
 
 	if ip := net.ParseIP(host); ip != nil {
+		// The unspecified address names no host: the OS picks what a connect
+		// to it reaches, which on Linux is this machine, while every row and
+		// report would still call 0.0.0.0 or :: the target.
+		if ip.IsUnspecified() {
+			return nil, fmt.Errorf("invalid target %q: %s is the unspecified address, not a destination", s, host)
+		}
 		t.IP = ip
 		if v4 := ip.To4(); v4 != nil {
 			t.IP = v4

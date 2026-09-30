@@ -66,6 +66,8 @@ func TestExplanationFollowsTheDiagnosis(t *testing.T) {
 			if e.Headline == "" {
 				t.Fatal("empty headline")
 			}
+			// rune 0x2014 is the em dash, built at run time because a literal
+			// one fails TestNoEmDashInTrackedTextFiles.
 			for _, bad := range []string{"{host}", string(rune(0x2014)), "Oops", "Don't worry", "perfect"} {
 				if strings.Contains(all, bad) {
 					t.Errorf("explanation contains %q: %+v", bad, e)

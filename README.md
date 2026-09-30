@@ -39,10 +39,16 @@ netdoc --watch host     # catch intermittent failures
 netdoc --json host      # structured report for scripts or bug reports
 ```
 
-A finished run leads with the answer: the verdict, the fix, the tool worth
-reaching for next, and the one line of evidence the verdict rests on, above the
-checks that produced them. Select any other row for its own evidence and fix,
-press `e` for the causal explanation, and `?` for every shortcut.
+A finished run leads with the answer in plain language: whether Network Doctor
+found a problem, which part of the connection it is in, what that means, and
+what to try first. Under it, marked `Technical:`, come the diagnosis itself, the
+fix, the tool worth reaching for next, and the one line of evidence the verdict
+rests on, above the checks that produced them. Select any other row for its own
+evidence and fix, press `D` for a check's complete details, `e` for the causal
+explanation, `w` to save a report you can send to someone who can help, and `?`
+for every shortcut. When the evidence does not establish a cause, the answer
+says so rather than guessing, and a clean run means no obvious problem was
+found, not that every application will work.
 
 The recording above is one worked example: an office printer hostname that no
 longer resolves. The DNS row fails, every check that depended on it is skipped

@@ -77,10 +77,24 @@ func (m model) answerWrap(block string) string {
 // the diagnosis's next action, wrapped so every one of those lines keeps its
 // indent. It is the answer to "what is wrong" and "what do I do", and the
 // layout below it yields rows to it rather than the other way round.
-func (m model) answerBlock() string {
-	block := m.banner()
+//
+// elaborate adds the plain-language lines a reader without networking
+// vocabulary needs: what the finding means, what to try first, and how to
+// hand the evidence to someone else. View drops them only when keeping them
+// would push the results block off the screen, and the headline and the
+// technical lines stay either way.
+func (m model) answerBlock() string { return m.answerBlockFor(true) }
+
+func (m model) answerBlockFor(elaborate bool) string {
+	block := m.bannerFor(elaborate)
 	if rem := m.answerRemediation(); len(rem) > 0 {
 		block += "\n" + strings.Join(rem, "\n")
+	}
+	if elaborate && m.allDone() && m.chainRan() && m.keys.bound(ctxList, actSave) && m.actionAvailable(actSave) {
+		if _, verdict := m.diagnose(m.probeOrder()); verdict != diagnostic.VerdictOK {
+			block += "\n  " + m.st.faint.Render("Need help? Press ") + m.st.sel.Render(m.keys.label(ctxList, actSave)) +
+				m.st.faint.Render(" to save a report you can send to someone technical")
+		}
 	}
 	return m.answerWrap(block)
 }
@@ -137,6 +151,20 @@ func (m model) View() string {
 	if m.viewing {
 		return m.outputView()
 	}
+	// The plain-language elaboration yields to the Actions menu while it is
+	// open, and to the Checks section when keeping both would push that
+	// section off the screen: the headline and the technical answer under it
+	// stay either way.
+	if out, bodyKept := m.layout(!m.actionsOpen); bodyKept {
+		return out
+	}
+	out, _ := m.layout(false)
+	return out
+}
+
+// layout is the main screen with the answer block elaborated or not, and
+// whether the results block survived the height it was given.
+func (m model) layout(elaborate bool) (string, bool) {
 	deferred := m.toolbox && !m.chainRan()
 
 	// shrink re-renders the selected supporting region inside a row budget.
@@ -149,7 +177,7 @@ func (m model) View() string {
 		bodyFloor = mapMinRows
 	}
 	body := shrink(0)
-	answer := m.answerBlock() + "\n"
+	answer := m.answerBlockFor(elaborate) + "\n"
 	// The blank row under a multi-line answer is the boundary between what the
 	// run concluded and everything that merely supports it: the context strip,
 	// the causal path and the sections are all about the block above them, and
@@ -263,8 +291,9 @@ func (m model) View() string {
 	if m.height > 0 && avail < minAvail && body != "" {
 		shrinkBody()
 	}
+	bodyKept := true
 	if m.height > 0 && avail < minAvail && body != "" {
-		body = ""
+		body, bodyKept = "", false
 		if ordinaryHelp {
 			tail = m.hiddenRegionHelp(deferred) + "\n"
 		}
@@ -282,7 +311,7 @@ func (m model) View() string {
 		// verdict and the guidance under it live.
 		out = lipgloss.NewStyle().MaxHeight(m.height).Render(out)
 	}
-	return out
+	return out, bodyKept
 }
 
 // bodyMinRows is the shortest useful results block: the Checks heading with
@@ -2446,7 +2475,9 @@ func (m model) quitNoticeFooter(footer string) string {
 // banner is the full-width guidance block under the header: what is happening,
 // what it means in plain English, and, on a failure, what to do about it and
 // which tool to reach for next.
-func (m model) banner() string {
+func (m model) banner() string { return m.bannerFor(true) }
+
+func (m model) bannerFor(elaborate bool) string {
 	if m.toolbox && !m.chainRan() {
 		return "Welcome! Press " + m.st.sel.Render("r") + " to check your connection, or run a tool below."
 	}
@@ -2455,12 +2486,33 @@ func (m model) banner() string {
 	}
 	summary, verdict := m.diagnose(m.probeOrder())
 	st := verdictStatus(verdict)
+	plain := diagnostic.Explain(m.target, m.probeOrder(), m.results)
 	// Bold as well as coloured: the panel titles under this sentence are bold,
 	// and the answer must not be the lighter of the two. A terminal that
 	// renders no attributes at all drops both together, which is why the
 	// hierarchy is carried by position, by the glyph and by the labels below,
 	// and never by weight alone.
-	lines := []string{m.st.status[st].Bold(true).Render(probeGlyph(st) + " " + summary)}
+	//
+	// The plain-language answer leads, for a reader with no networking
+	// vocabulary, and the diagnosis's own technical sentence follows it as
+	// the first line of evidence for a reader who has it.
+	lines := []string{m.st.status[st].Bold(true).Render(probeGlyph(st) + " " + plain.Headline)}
+	if elaborate {
+		meaning := plain.Meaning
+		switch n := plain.Unexplained; {
+		case n == 1:
+			meaning += " 1 other failed check, marked ✗ below, is not explained by this."
+		case n > 1:
+			meaning += fmt.Sprintf(" %d other failed checks, marked ✗ below, are not explained by this.", n)
+		}
+		if meaning != "" {
+			lines = append(lines, "  "+strings.TrimSpace(meaning))
+		}
+		if plain.TryFirst != "" {
+			lines = append(lines, "  "+m.st.sel.Render("Try first: ")+plain.TryFirst)
+		}
+	}
+	lines = append(lines, "  "+m.st.faint.Render("Technical: "+summary))
 	// All three lines under the verdict follow the row the diagnosis blames
 	// rather than the first failing row: a path MTU black hole fails TLS but
 	// the evidence and the remedy are both on the Path MTU row, and a "Fix:"
@@ -2471,9 +2523,9 @@ func (m model) banner() string {
 		// Nothing to fix and nothing to chase, which is the one moment there
 		// is room to say what else netdoc can be pointed at.
 		if hint := m.localDeviceHint(); hint != "" {
-			return lines[0] + "\n  " + hint
+			lines = append(lines, "  "+hint)
 		}
-		return lines[0]
+		return strings.Join(lines, "\n")
 	}
 	blamed := m.probes[i].ID
 	// The row's own hint is shown here only when the diagnosis reached no

@@ -178,10 +178,10 @@ func TestConstrainedHeightDegradesCleanly(t *testing.T) {
 				if n := unclosedPanels(v); n != 0 {
 					t.Errorf("%dx%d jobs=%v: %d panel border(s) left unclosed:\n%s", w, h, withJobs, n, v)
 				}
-				// The verdict's first word survives at any height: it is the
+				// The headline's first words survive at any height: it is the
 				// top line, and everything below it, the strip included,
 				// yields before it does.
-				if !strings.Contains(v, "TCP reaches") {
+				if !strings.Contains(v, "Larger transfers") {
 					t.Errorf("%dx%d jobs=%v: the verdict must survive:\n%s", w, h, withJobs, v)
 				}
 			}

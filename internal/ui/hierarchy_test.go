@@ -69,11 +69,13 @@ func TestNextActionRidesWithTheAnswer(t *testing.T) {
 
 // TestEvidenceYieldsBeforeTheAnswer walks one terminal down a row at a time.
 // Every line of the answer block survives every height at which anything is on
-// screen at all, and the evidence regions are what disappear on the way.
+// screen at all, and the evidence regions are what disappear on the way. The
+// plain-language elaboration is the one part of the block that yields to the
+// results block rather than outlasting it; plain_test.go pins when.
 func TestEvidenceYieldsBeforeTheAnswer(t *testing.T) {
 	m := blackHoleFocused(t)
 	full, _ := sized(t, m, 100, 40)
-	answer := viewLines(full.answerBlock())
+	answer := viewLines(full.answerBlockFor(false))
 
 	sawBodyGo := false
 	for h := 30; h >= 10; h-- {

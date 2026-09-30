@@ -1215,6 +1215,14 @@ In the TUI the same advice appears in the Details panel of the row the diagnosis
 
 `remediation` is additive: it appears alongside the fields findings have always carried, and `fix` on each check is unchanged. A row's `fix` is still the one-line hint that row wrote about itself, with the certificate dates and measurements only that probe held; the remediation is the finished diagnosis's answer for the run. New `id` values are added over time, so treat an unrecognized one as "some specific advice" and show `action` and `steps` rather than branching on it.
 
+### Plain-language answer
+
+The TUI leads a finished run with the same diagnosis retold for a reader with no networking vocabulary: a headline saying whether anything is wrong and which part of the connection it is in, a sentence or two on what that means, and a `Try first:` step where the evidence supports one. Under it, marked `Technical:`, is the diagnosis's own sentence, followed by the remediation, the next tool, and the evidence line. A failing run also names the key that saves a report to send to someone who can help.
+
+It is a view of the finding, not a second diagnosis. It is chosen from the finding's `id` alone, with two refinements from the run's own evidence: a name lookup failure says whether direct egress worked beside it, and points at the connection first when egress failed too. A finding whose [confidence](#diagnosis-confidence) is `low` or `insufficient_evidence` says so in plain words, and failed checks the finding neither rests on nor explains as consequences are counted rather than hidden. A healthy run says that no obvious problem was found, which is not a promise that every application works. The first step is omitted where nothing is worth trying, such as a working fallback or a fault on the far end.
+
+It is interactive text only. The JSON report, saved reports, snapshots, comparisons and exit codes do not carry it and are unchanged by it. On a terminal too short for both the plain lines and the checks, the plain lines yield first and the headline and the technical answer stay.
+
 ## Diagnostic snapshots
 
 `--save file` runs the checks headless and writes a **diagnostic snapshot** of the finished run, conventionally with a `.ndoc` extension:

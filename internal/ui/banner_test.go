@@ -86,7 +86,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 			// Degraded: the target works, so the banner warns rather than
 			// painting a red failure over a sentence that says so. The
 			// remediation block is unchanged by that.
-			want: "! The target answered a direct connection, so direct egress works; the egress check's own fixed reference endpoints are what did not answer.\n" +
+			want: "! The internet works, but Network Doctor's own test sites did not answer\n" +
+				"  Technical: The target answered a direct connection, so direct egress works; the egress check's own fixed reference endpoints are what did not answer.\n" +
 				"  Next: press p for ping the host (ping)",
 			fix: egressFix,
 		},
@@ -100,7 +101,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTP:      fail(httpFix),
 				diagnostic.ProbeHTTPS:     fail(httpsFix),
 			},
-			want: "✗ example.com resolves but neither it nor the egress check's reference endpoints are reachable, and this machine's own routing state says why: local egress problem.\n" +
+			want: "✗ This computer cannot reach the internet\n" +
+				"  Technical: example.com resolves but neither it nor the egress check's reference endpoints are reachable, and this machine's own routing state says why: local egress problem.\n" +
 				"  Next: press p for ping the host (ping)",
 			fix: egressFix,
 		},
@@ -113,7 +115,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTP:      fail(httpFix),
 				diagnostic.ProbeHTTPS:     fail(httpsFix),
 			},
-			want: "✗ Cannot resolve example.com: DNS failure. (The general internet is reachable.)\n" +
+			want: "✗ Website names are not being found\n" +
+				"  Technical: Cannot resolve example.com: DNS failure. (The general internet is reachable.)\n" +
 				"  Next: press d for DNS lookup (dig)",
 			fix: dnsFix,
 		},
@@ -125,7 +128,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTP:  fail(httpFix),
 				diagnostic.ProbeHTTPS: fail(httpsFix),
 			},
-			want: "✗ TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.\n" +
+			want: "✗ The secure connection to example.com failed\n" +
+				"  Technical: TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.\n" +
 				"  Next: press c for web check (curl)",
 			fix: tlsFix,
 		},
@@ -137,7 +141,8 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTP:  fail(httpFix),
 				diagnostic.ProbeHTTPS: fail(httpsFix),
 			},
-			want: "✗ TCP reaches example.com:443 but the protocol and bulk-transfer checks both stall, which is evidence of a path MTU black hole rather than a broken service (see the Path MTU row).\n" +
+			want: "✗ Larger transfers are getting stuck on the way to example.com\n" +
+				"  Technical: TCP reaches example.com:443 but the protocol and bulk-transfer checks both stall, which is evidence of a path MTU black hole rather than a broken service (see the Path MTU row).\n" +
 				"  Next: press t for trace the path (traceroute)",
 			fix: pmtuFix,
 		},
@@ -159,8 +164,10 @@ func TestBannerFailureGuidance(t *testing.T) {
 				r.ID = p.ID
 				m.results[p.ID] = r
 			}
-			if got := m.banner(); got != tt.want {
-				t.Errorf("banner() =\n%s\n\nwant\n%s", got, tt.want)
+			// Without the plain-language elaboration, which plain_test.go
+			// pins: the headline, the technical sentence, and the guidance.
+			if got := m.bannerFor(false); got != tt.want {
+				t.Errorf("bannerFor(false) =\n%s\n\nwant\n%s", got, tt.want)
 			}
 			// The hint moved, it did not vanish, and it still comes from the
 			// row the verdict blames rather than from the first failure.
@@ -285,9 +292,14 @@ func TestBannerSeverityFollowsVerdict(t *testing.T) {
 			if tt.failRow != "" && m.results[tt.failRow].Status != diagnostic.StatusFail {
 				t.Fatalf("%s row = %v, want FAIL", tt.failRow, m.results[tt.failRow].Status)
 			}
+			// The glyph leads the plain headline, and the diagnosis's own
+			// sentence follows it as the technical line.
 			banner := m.banner()
-			if want := tt.wantGlyph + " " + summary; !strings.HasPrefix(banner, want) {
+			if want := tt.wantGlyph + " " + plainHeadline(m); !strings.HasPrefix(banner, want) {
 				t.Errorf("banner =\n%s\nwant it to start with\n%s", banner, want)
+			}
+			if want := "\n  Technical: " + summary; !strings.Contains(banner, want) {
+				t.Errorf("banner =\n%s\nwant it to carry\n%s", banner, want)
 			}
 			if line := m.verdictLine(); line != tt.wantPrefix+summary {
 				t.Errorf("verdictLine = %q, want %q", line, tt.wantPrefix+summary)

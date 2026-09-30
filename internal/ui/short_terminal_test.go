@@ -83,7 +83,7 @@ func TestShortTerminalKeepsAnswerAndCheckEvidenceReachable(t *testing.T) {
 			u, _ := base.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 			m := asModel(t, u)
 			main := ansi.Strip(m.View())
-			for _, line := range strings.Split(ansi.Strip(m.answerBlock()), "\n") {
+			for _, line := range strings.Split(ansi.Strip(m.answerBlockFor(false)), "\n") {
 				if line != "" && !strings.Contains(main, strings.TrimSpace(line)) {
 					t.Errorf("the answer lost %q:\n%s", line, main)
 				}

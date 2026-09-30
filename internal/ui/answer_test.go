@@ -396,11 +396,12 @@ func TestAnswerBlockStaysAFixedHeight(t *testing.T) {
 		},
 	}.build(t)
 	m.width = 100
-	// The verdict, the drill-down hint and the one-row evidence quote. The
-	// blamed row's own hint is not among them: this run reaches a diagnosis
-	// with an action of its own, which is printed instead.
-	if n := len(strings.Split(m.banner(), "\n")); n != 3 {
-		t.Errorf("the answer block is %d lines, want the verdict plus Next and Evidence:\n%s", n, m.banner())
+	// The headline, the technical sentence, the drill-down hint and the
+	// one-row evidence quote. The blamed row's own hint is not among them:
+	// this run reaches a diagnosis with an action of its own, which is
+	// printed instead.
+	if n := len(strings.Split(m.bannerFor(false), "\n")); n != 4 {
+		t.Errorf("the answer block is %d lines, want the headline, the verdict, Next and Evidence:\n%s", n, m.bannerFor(false))
 	}
 	line, whole := m.evidenceLine(long)
 	if whole {
@@ -455,13 +456,15 @@ func TestHealthyCompletionIsConcise(t *testing.T) {
 	m := answerScenarios(t)[0].build(t)
 	_, v := renderAt(t, m)
 	lines := viewLines(v)
-	if got := len(strings.Split(m.banner(), "\n")); got != 1 {
-		t.Errorf("a healthy answer is %d lines, want one:\n%s", got, m.banner())
+	// The headline, the one sentence saying what a clean run does not
+	// prove, and the diagnosis's own sentence. No guidance and no evidence.
+	if got := len(strings.Split(m.banner(), "\n")); got != 3 {
+		t.Errorf("a healthy answer is %d lines, want three:\n%s", got, m.banner())
 	}
 	if collapsedRow(v) == "" {
 		t.Errorf("a healthy run still lists its passing checks one by one:\n%s", v)
 	}
-	if panel := firstBodyLine(lines); panel < 0 || panel > 3 {
+	if panel := firstBodyLine(lines); panel < 0 || panel > 7 {
 		t.Errorf("the results block starts at row %d, too far under a one-line answer:\n%s", panel, v)
 	}
 }
@@ -507,9 +510,12 @@ func TestNarrowAndShortTerminalsKeepTheAnswer(t *testing.T) {
 				if n := len(lines); n > size.h {
 					t.Fatalf("%dx%d: the view is %d rows, so the renderer eats the top:\n%s", size.w, size.h, n, v)
 				}
+				if lineWith(lines, answerLead(plainHeadline(m))) != 0 {
+					t.Errorf("%dx%d: the headline is not the first row:\n%s", size.w, size.h, v)
+				}
 				summary, _ := m.diagnose(m.probeOrder())
-				if lineWith(lines, answerLead(summary)) != 0 {
-					t.Errorf("%dx%d: the verdict is not the first row:\n%s", size.w, size.h, v)
+				if lineWith(lines, answerLead("Technical: "+summary)) < 0 {
+					t.Errorf("%dx%d: the technical verdict was shed:\n%s", size.w, size.h, v)
 				}
 				// Whichever of the two the answer block is carrying: the
 				// diagnosis's action where it reached one, and otherwise the
@@ -598,8 +604,7 @@ func TestToolJobKeepsTheAnswerOnTop(t *testing.T) {
 	}
 	_, v := renderAt(t, m)
 	lines := viewLines(v)
-	summary, _ := m.diagnose(m.probeOrder())
-	if lineWith(lines, answerLead(summary)) != 0 {
+	if lineWith(lines, answerLead(plainHeadline(m))) != 0 {
 		t.Errorf("the job pane displaced the answer:\n%s", v)
 	}
 	if lineWith(lines, "dig printer.local") <= firstBodyLine(lines) {

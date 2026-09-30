@@ -189,7 +189,7 @@ The TUI's default key bindings:
 | `home`/`end`, `pgup`/`pgdn` (viewer) | jump to top/bottom (`end` re-enables follow) or page through the output |
 | `y` / `w` (viewer) | copy / save the viewer's retained output (up to 5,000 lines; respects its filter) |
 | `r` | restart with a new target |
-| `R` | retest: rerun the same checks on the same target, after acting on the remediation the Details panel shows |
+| `R` | retest: rerun the same checks on the same target, after acting on the remediation the answer block shows |
 | `S` | SSH login: a form for username, key, and password, then hands the terminal to `ssh` (hinted only once the SSH banner check passes, but usable against any target) |
 | `tab` | switch between running tool jobs |
 | `esc` | cancel the focused job only (`tab` picks which), or leave an opened device on the map; `q` is the stop-everything path |
@@ -1166,7 +1166,7 @@ The advice is chosen from the finding's `id` and, where the focused check classi
 
 Where netdoc genuinely cannot tell two causes apart, the remediation says what to investigate instead of presenting a guess as fact: `narrow_tls_failure` lists what is still possible rather than naming one, and `rerun_with_egress_check` says the run itself was too narrow to blame either end.
 
-In the TUI the same advice appears in the Details panel of the row the diagnosis focuses, and `R` reruns the identical checks against the same target once you have acted on it.
+In the TUI the action and its `command` appear in the answer block at the top of the screen, under the [plain-language answer](#plain-language-answer) and its `Technical:` line. The rest of the remediation (`why`, `steps` and `expect`) appears in the Details section of the row the diagnosis focuses. `R` reruns the identical checks against the same target once you have acted on it.
 
 | `id` | Next action |
 |---|---|

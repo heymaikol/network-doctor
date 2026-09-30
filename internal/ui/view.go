@@ -2482,7 +2482,7 @@ func (m model) bannerFor(elaborate bool) string {
 		return "Welcome! Press " + m.st.sel.Render("r") + " to check your connection, or run a tool below."
 	}
 	if !m.allDone() {
-		return m.spinner.View() + " Checking your connection…"
+		return m.spinner.View() + " Checking your connection" + m.activity() + "…"
 	}
 	summary, verdict := m.diagnose(m.probeOrder())
 	st := verdictStatus(verdict)
@@ -2555,6 +2555,40 @@ func (m model) bannerFor(elaborate bool) string {
 		lines = append(lines, m.st.faint.Render(line))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// activity is what the run is doing now, in words that need no networking
+// vocabulary: the first probe in chain order that has started and not
+// reported. Empty between probes and for a probe with no phrase of its own.
+func (m model) activity() string {
+	for _, p := range m.probes {
+		if _, done := m.results[p.ID]; done || !m.started[p.ID] {
+			continue
+		}
+		host := "the target"
+		if m.target != nil {
+			host = m.target.Host
+		}
+		switch p.ID {
+		case diagnostic.ProbeIface:
+			return ": this computer's network connection"
+		case diagnostic.ProbeInternet, diagnostic.ProbeQUIC:
+			return ": reaching the internet"
+		case diagnostic.ProbeProxy:
+			return ": the proxy"
+		case diagnostic.ProbeDNS, diagnostic.ProbeDNSPublic, diagnostic.ProbeDNSEncrypted:
+			return ": looking up names"
+		case diagnostic.ProbeTargetTCP:
+			return ": reaching " + host
+		case diagnostic.ProbePMTU:
+			return ": larger transfers to " + host
+		case diagnostic.ProbeTLS:
+			return ": the secure connection to " + host
+		case diagnostic.ProbeHTTP, diagnostic.ProbeHTTPS, diagnostic.ProbeSSH, diagnostic.ProbeSMTP:
+			return ": the service at " + host
+		}
+	}
+	return ""
 }
 
 // localDeviceHint is the way into the local-device workflow for a reader with

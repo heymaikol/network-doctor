@@ -41,7 +41,7 @@ func TestAggregateProgressHasOneOwnerDuringActiveRun(t *testing.T) {
 	if old := fmt.Sprintf("1 of %d done", len(m.probes)); strings.Contains(plain, old) {
 		t.Errorf("active view still carries the banner's duplicate %q:\n%s", old, plain)
 	}
-	if got, want := ansi.Strip(m.banner()), ansi.Strip(m.spinner.View())+" Checking your connection…"; got != want {
+	if got, want := ansi.Strip(m.banner()), ansi.Strip(m.spinner.View())+" Checking your connection: looking up names…"; got != want {
 		t.Errorf("running banner = %q, want qualitative active state %q", got, want)
 	}
 	if got := m.glyph(diagnostic.ProbeDNS); got != m.spinner.View() {

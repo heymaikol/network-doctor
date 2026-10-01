@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"math/big"
 	"net"
@@ -2261,6 +2262,37 @@ func TestHTTPSProbeSupportsHTTP2OnlyServer(t *testing.T) {
 	}
 }
 
+// The probe's TLS connection is built for the HTTP/2 observation, so pin that
+// it still verifies the chain and the name before anything reaches the server.
+func TestHTTPSProbeStillVerifiesTheCertificate(t *testing.T) {
+	cert, roots := selfSignedCert(t, "http2.example")
+	for _, tc := range []struct {
+		name, host string
+		roots      *x509.CertPool
+	}{
+		{"wrong name", "other.example", roots},
+		{"untrusted issuer", "http2.example", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var reached atomic.Bool
+			p := newPipeNet(t)
+			srv := &http.Server{
+				TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}},
+				ReadHeaderTimeout: 100 * time.Millisecond,
+				ErrorLog:          log.New(io.Discard, "", 0),
+				Handler:           http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached.Store(true) }),
+			}
+			p.serve(t, srv, func() error { return srv.ServeTLS(p, "", "") })
+			ops := &netops{dialContext: p.dial, tlsRootCAs: tc.roots}
+			deps := map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}}
+			r := ops.httpProbe(tc.host, 443, "https", ProbeTLS)(context.Background(), deps)
+			if r.Status != StatusFail || r.Cause != "" || !strings.Contains(r.Detail, "x509") || reached.Load() {
+				t.Fatalf("result = %+v, handler reached %v; want a certificate failure before any request", r, reached.Load())
+			}
+		})
+	}
+}
+
 // bodyMatches accepts only the documented clean forms: the exact payload and
 // the same payload with a trailing CRLF. Truncation, an altered byte, or any
 // further trailing content is rejected, and the read stays bounded.
@@ -3294,6 +3326,132 @@ func TestHTTP2ProbeCloseBeforeHeadersIsAClose(t *testing.T) {
 		if s = strings.ToLower(s); strings.Contains(s, "no http response") || strings.Contains(s, "holding") {
 			t.Errorf("%q describes silence, want a close", s)
 		}
+	}
+}
+
+// h2Frame encodes one HTTP/2 frame for a test server to write raw.
+func h2Frame(typ, flags byte, stream uint32, payload ...byte) []byte {
+	//nolint:gosec // G115: test payloads are a few bytes, far under the 24-bit length field.
+	b := []byte{byte(len(payload) >> 16), byte(len(payload) >> 8), byte(len(payload)), typ, flags}
+	return append(binary.BigEndian.AppendUint32(b, stream), payload...)
+}
+
+// Issue #216: the HTTP/2 transport reports the first response byte only once a
+// whole header block decodes, so a frame on the request's stream that never
+// completes one is still the endpoint answering. Frames that manage the
+// connection, or that touch the stream without carrying a response, are not.
+func TestHTTP2ProbeSeparatesResponseFramesFromSilence(t *testing.T) {
+	const host = "h2.example"
+	cert, roots := selfSignedCert(t, host)
+	settings := h2Frame(0x4, 0, 0)
+	ping := h2Frame(0x6, 0, 0, make([]byte, 8)...)
+	window := h2Frame(0x8, 0, 0, 0, 0, 0x10, 0)
+	// 0x88 is the HPACK static entry for ":status: 200".
+	headers := h2Frame(0x1, 0x5, 1, 0x88)
+	for _, tc := range []struct {
+		name   string
+		writes [][]byte
+		// end is how the server finishes after its writes: close, reset, or
+		// stall until the probe deadline.
+		end      string
+		status   Status
+		cause    string
+		timedOut bool
+	}{
+		{"silence", nil, "stall", StatusFail, "", true},
+		{"connection frames then silence", [][]byte{settings, ping, window}, "stall", StatusFail, "", true},
+		{"connection frames then close", [][]byte{settings, ping, window}, "close", StatusFail, ConnectionCauseClosed, false},
+		{"stream window update then close", [][]byte{settings, h2Frame(0x8, 0, 1, 0, 0, 0x10, 0)}, "close", StatusFail, ConnectionCauseClosed, false},
+		{"stream reset", [][]byte{settings, h2Frame(0x3, 0, 1, 0, 0, 0, 0x1)}, "stall", StatusFail, "", false},
+		{"valid headers", [][]byte{settings, headers}, "stall", StatusPass, "", false},
+		{"headers frame header then close", [][]byte{settings, headers[:9]}, "close", StatusFail, HTTPCauseInvalidResponse, false},
+		{"headers split into single bytes then close", slices.Collect(func(yield func([]byte) bool) {
+			for i := range headers[:9] {
+				if !yield(headers[i : i+1]) {
+					return
+				}
+			}
+		}), "close", StatusFail, HTTPCauseInvalidResponse, false},
+		{"connection frames and headers frame header in one write", [][]byte{slices.Concat(settings, ping, headers[:9])}, "close", StatusFail, HTTPCauseInvalidResponse, false},
+		// An extension frame is skipped whole, even when its payload looks
+		// like a response frame header.
+		{"extension frame payload is not a frame", [][]byte{settings, h2Frame(0xb, 0, 1, headers[:9]...)}, "close", StatusFail, ConnectionCauseClosed, false},
+		{"header block never ends then close", [][]byte{settings, h2Frame(0x1, 0x1, 1, 0x88)}, "close", StatusFail, HTTPCauseInvalidResponse, false},
+		{"undecodable header block", [][]byte{settings, h2Frame(0x1, 0x5, 1, 0xff)}, "stall", StatusFail, HTTPCauseInvalidResponse, false},
+		{"data before headers", [][]byte{settings, h2Frame(0x0, 0x1, 1, 'x')}, "stall", StatusFail, HTTPCauseInvalidResponse, false},
+		{"headers frame header then reset", [][]byte{settings, headers[:9]}, "reset", StatusFail, HTTPCauseInvalidResponse, false},
+		{"headers frame header then silence", [][]byte{settings, headers[:9]}, "stall", StatusFail, HTTPCauseInvalidResponse, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			negotiated := make(chan string, 1)
+			ops := &netops{tlsRootCAs: roots, dialContext: func(context.Context, string, string) (net.Conn, error) {
+				client, server := net.Pipe()
+				go func() {
+					conn := tls.Server(server, &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2"}})
+					defer func() { _ = conn.Close() }()
+					if conn.Handshake() != nil {
+						return
+					}
+					negotiated <- conn.ConnectionState().NegotiatedProtocol
+					if _, err := io.ReadFull(conn, make([]byte, len("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))); err != nil {
+						return
+					}
+					// Read frames until the request's HEADERS, which must open
+					// stream 1, then answer on that stream.
+					for {
+						var hdr [9]byte
+						if _, err := io.ReadFull(conn, hdr[:]); err != nil {
+							return
+						}
+						n := int(hdr[0])<<16 | int(hdr[1])<<8 | int(hdr[2])
+						if _, err := io.ReadFull(conn, make([]byte, n)); err != nil {
+							return
+						}
+						if hdr[3] == 0x1 {
+							if id := binary.BigEndian.Uint32(hdr[5:]); id != 1 {
+								t.Errorf("request opened stream %d, want 1", id)
+							}
+							break
+						}
+					}
+					drained := make(chan struct{})
+					go func() { _, _ = io.Copy(io.Discard, conn); close(drained) }()
+					for _, w := range tc.writes {
+						if _, err := conn.Write(w); err != nil {
+							return
+						}
+					}
+					switch tc.end {
+					case "stall":
+						<-drained
+					case "reset":
+						// Drop the transport without a close_notify, so the
+						// client reads EOF and eofResetConn turns it into a reset.
+						_ = server.Close()
+					}
+				}()
+				if tc.end == "reset" {
+					return eofResetConn{client}, nil
+				}
+				return client, nil
+			}}
+			timeout := 5 * time.Second
+			if tc.end == "stall" {
+				timeout = 500 * time.Millisecond
+			}
+			var firstByte atomic.Bool
+			trace := &httptrace.ClientTrace{GotFirstResponseByte: func() { firstByte.Store(true) }}
+			ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(context.Background(), trace), timeout)
+			defer cancel()
+			r := ops.httpProbe(host, 443, "https", ProbeTLS)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
+			if proto := <-negotiated; proto != "h2" {
+				t.Fatalf("negotiated %q, want h2", proto)
+			}
+			if r.Status != tc.status || r.Cause != tc.cause || r.timedOut != tc.timedOut {
+				t.Fatalf("result = %+v (timedOut %v, GotFirstResponseByte %v), want status %v cause %q timedOut %v",
+					r, r.timedOut, firstByte.Load(), tc.status, tc.cause, tc.timedOut)
+			}
+		})
 	}
 }
 

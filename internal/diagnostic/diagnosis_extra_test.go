@@ -379,7 +379,7 @@ func TestReconcileClockSkewFixHints(t *testing.T) {
 
 // The headline stops hedging only when the measurement explains the failure.
 func TestDiagnoseTLSClockSkew(t *testing.T) {
-	const hedge = "bad/expired cert, clock skew, or MITM proxy"
+	const hedge = "as expired according to this machine's clock."
 	tg := mustTarget(t, "https://host")
 	cases := []struct {
 		name    string
@@ -390,23 +390,26 @@ func TestDiagnoseTLSClockSkew(t *testing.T) {
 	}{
 		{
 			name: "slow clock explains a not-yet-valid cert", offset: -72 * time.Hour, cause: TLSCauseCertificateNotYet,
-			want: "fails because this machine's clock is about 3 days slow, so certificates that are already valid look not yet valid.", wantNot: hedge,
+			want: "fails because this machine's clock is about 3 days slow, so certificates that are already valid look not yet valid.", wantNot: "rejects the certificate",
 		},
 		{
 			name: "fast clock explains an expired cert", offset: 5 * time.Hour, cause: TLSCauseCertificateExpired,
-			want: "fails because this machine's clock is about 5 hours fast, so certificates that are still valid look expired.", wantNot: hedge,
+			want: "fails because this machine's clock is about 5 hours fast, so certificates that are still valid look expired.", wantNot: "rejects the certificate",
 		},
 		{name: "no reading keeps the hedge", offset: 0, cause: TLSCauseCertificateExpired, want: hedge},
 		{name: "sub-threshold skew keeps the hedge", offset: clockSkewThreshold - time.Second, cause: TLSCauseCertificateExpired, want: hedge},
 		{
 			name: "slow clock cannot have expired the cert", offset: -5 * time.Hour, cause: TLSCauseCertificateExpired,
-			want: "fails: bad/expired cert or MITM proxy.", wantNot: "clock",
+			want: "rejects the certificate as expired.", wantNot: "clock",
 		},
 		{
 			name: "fast clock cannot have made the cert not yet valid", offset: 5 * time.Hour, cause: TLSCauseCertificateNotYet,
-			want: "fails: bad/expired cert or MITM proxy.", wantNot: "clock",
+			want: "rejects the certificate as not yet valid.", wantNot: "clock",
 		},
-		{name: "hostname mismatch keeps the hedge", offset: 5 * time.Hour, cause: TLSCauseHostnameMismatch, want: hedge},
+		{
+			name: "hostname mismatch ignores an unrelated skew", offset: 5 * time.Hour, cause: TLSCauseHostnameMismatch,
+			want: "does not match the requested host.", wantNot: "clock",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -59,7 +59,7 @@ func TestBannerFailureGuidance(t *testing.T) {
 		proxyFix  = "proxy configured but unreachable: check HTTPS_PROXY/HTTP_PROXY/ALL_PROXY and the proxy host"
 		dnsFix    = "name resolution failing: check /etc/resolv.conf / DNS"
 		tcpFix    = "port 443 blocked/refused: firewall, wrong network, or VPN routing?"
-		tlsFix    = "TLS timed out after TCP connected; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
+		tlsFix    = "TLS check timed out; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
 		httpFix   = "HTTP blocked: proxy or firewall?"
 		httpsFix  = "HTTPS blocked: proxy or firewall?"
 		pmtuFix   = "bulk TCP stalled after the handshake; if lowering MTU makes it drain, lower the interface MTU"
@@ -129,7 +129,7 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTPS: fail(httpsFix),
 			},
 			want: "✗ The secure connection to example.com failed\n" +
-				"  Technical: TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.\n" +
+				"  Technical: TCP reaches example.com:443 but the TLS handshake fails in a way this run could not classify more specifically.\n" +
 				"  Next: press c for web check (curl)",
 			fix: tlsFix,
 		},
@@ -327,7 +327,7 @@ func TestBannerSeverityFollowsVerdict(t *testing.T) {
 // verdict names.
 const (
 	blackHolePMTUFix = "bulk TCP stalled after the handshake; if lowering MTU makes it drain, lower the interface MTU"
-	blackHoleTLSFix  = "TLS timed out after TCP connected; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
+	blackHoleTLSFix  = "TLS check timed out; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
 	blackHoleHTTPFix = "HTTP blocked: proxy or firewall?"
 )
 

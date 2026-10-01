@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/big"
 	"net"
 	"net/http"
@@ -1390,7 +1391,7 @@ func TestTLSProbeHandshakeFailure(t *testing.T) {
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
 
 	r := ops.tlsProbe("example.com", 443)(context.Background(), deps)
-	if r.Status != StatusFail || !strings.Contains(r.Detail, "TLS handshake to 192.0.2.1 failed") ||
+	if r.Status != StatusFail || !strings.Contains(r.Detail, "TLS check to 192.0.2.1 failed") ||
 		!strings.Contains(r.Detail, "certificate has expired") || r.Fix == "" {
 		t.Errorf("handshake failure = %+v, want FAIL with error detail and a fix", r)
 	}
@@ -1440,7 +1441,7 @@ func TestTLSProbeIncludesBackwardCompatibleCause(t *testing.T) {
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
 	r := ops.tlsProbe("secure-target.test", 443)(context.Background(), deps)
 	if r.Status != StatusFail || r.Cause != TLSCauseCertificateExpired ||
-		!strings.HasPrefix(r.Detail, "TLS handshake to 192.0.2.1 failed:") || r.Fix == "" {
+		!strings.HasPrefix(r.Detail, "TLS check to 192.0.2.1 failed:") || r.Fix == "" {
 		t.Fatalf("TLS result = %+v", r)
 	}
 }
@@ -3291,6 +3292,48 @@ func TestHTTP2ProbeCloseBeforeHeadersIsAClose(t *testing.T) {
 	for _, s := range []string{d.Summary, rem.Why} {
 		if s = strings.ToLower(s); strings.Contains(s, "no http response") || strings.Contains(s, "holding") {
 			t.Errorf("%q describes silence, want a close", s)
+		}
+	}
+}
+
+// The TLS probe dials its own TCP connection, so a timeout can come from that
+// dial before any handshake starts. The endpoint row passing does not prove
+// the TLS probe's connection opened, so no text may say it did.
+func TestTLSDialTimeoutSummaryIsStageNeutral(t *testing.T) {
+	c := matrixCaseNamed(t, "TLS timed out with a healthy path")
+	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	}}
+	res := maps.Clone(c.res)
+	res[ProbeTargetTCP] = ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.1")}
+	res[ProbeTLS] = ops.tlsProbe("example.com", 443)(context.Background(), res)
+	if res[ProbeTLS].Cause != TLSCauseTimeout {
+		t.Fatalf("dial timeout cause = %q, want %q", res[ProbeTLS].Cause, TLSCauseTimeout)
+	}
+	if r := res[ProbeTLS]; !strings.HasPrefix(r.Detail, "TLS check to 192.0.2.1 failed:") || strings.Contains(r.Fix, "TCP connected") ||
+		!strings.Contains(r.Fix, "Path MTU row") {
+		t.Errorf("TLS row detail %q, fix %q: want a stage-neutral detail and a Path MTU hint", r.Detail, r.Fix)
+	}
+	d := Interpret(c.target, c.order, res)
+	if len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisTLSTimeout {
+		t.Fatalf("findings = %+v, want %s", d.Findings, DiagnosisTLSTimeout)
+	}
+	rem, _ := Remediate(d, res, "linux")
+	if !strings.Contains(rem.Why, "endpoint TCP check reached") || !strings.Contains(rem.Why, "own connection") ||
+		!strings.Contains(strings.Join(rem.Steps, " "), "Path MTU row") {
+		t.Errorf("remediation why %q, steps %q: want the endpoint check, the TLS check's own connection, and the Path MTU row", rem.Why, rem.Steps)
+	}
+	for _, overclaim := range []string{"TCP connected", "the handshake spent"} {
+		if strings.Contains(rem.Why, overclaim) {
+			t.Errorf("remediation why %q claims %q", rem.Why, overclaim)
+		}
+	}
+	if !strings.Contains(d.Summary, "reaches example.com:443") || !strings.Contains(d.Summary, "TLS check times out") {
+		t.Errorf("summary %q does not say the endpoint check reached the host and the TLS check timed out", d.Summary)
+	}
+	for _, overclaim := range []string{"after the connection opens", "handshake times out"} {
+		if strings.Contains(d.Summary, overclaim) {
+			t.Errorf("summary %q claims %q for a timeout that may have come from the TLS probe's own dial", d.Summary, overclaim)
 		}
 	}
 }

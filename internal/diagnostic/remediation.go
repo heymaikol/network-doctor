@@ -675,7 +675,7 @@ var remedies = map[remedyKey]remedy{
 	{id: DiagnosisTLSTimeout}: {
 		id:     RemedyCheckTLSPath,
 		action: "Check the path before blaming the service",
-		why:    "TCP connected and then the handshake spent its whole budget without an answer. That is more often a path dropping large packets than a broken service, since a handshake is the first thing on a connection big enough to hit a black hole.",
+		why:    "The endpoint TCP check reached the host, but the separate TLS check spent its whole budget without completing. That attempt may have stalled while opening its own connection or during the handshake. A path dropping large packets can do this, so the Path MTU row and a retest on another path help separate a path problem from a broken service.",
 		steps: []string{
 			"Read the Path MTU row: it says whether full-size packets are reaching the far end.",
 			"Retest over another network, or without the VPN or tunnel, to see whether the stall follows the path.",
@@ -706,13 +706,14 @@ var remedies = map[remedyKey]remedy{
 	{id: DiagnosisTLSHandshakeFailure}: {
 		id:     RemedyNarrowTLSFailure,
 		action: "Narrow the handshake failure down by hand",
-		why:    "The handshake failed in a way this client could not classify, so netdoc will not name a cause. A bad or expired certificate, an intercepting proxy, and a wrong clock are all still on the table.",
+		why:    "The handshake failed in a way this client could not classify, so netdoc will not name a cause. Any of these is still possible: a service that does not speak TLS on this port, a protocol the server refuses, a certificate problem, an intercepting proxy, or a wrong clock.",
 		steps: []string{
+			"Confirm the port is meant to speak TLS at all.",
 			"Check this machine's clock, since a wrong one breaks validation on its own.",
 			"Compare the result from another network, which is what separates an interception from a server-side problem.",
 		},
 		command: showClock,
-		expect:  "Enough evidence to tell an interception from a certificate problem.",
+		expect:  "Enough evidence to tell a non-TLS service, an interception, and a certificate problem apart.",
 	},
 
 	// The application on top of a working connection.

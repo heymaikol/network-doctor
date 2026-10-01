@@ -328,27 +328,32 @@ func TestNoCounterfactualIsDrawnFromInterceptedRows(t *testing.T) {
 	}
 }
 
-// The identity says the TLS check's own dial did not reach the port. The
-// sentence has to say that too: the three maybes it used to offer are all
-// about a handshake, and no handshake started.
-func TestTLSDialRefusedDoesNotOfferHandshakeCauses(t *testing.T) {
+// None of these causes saw a certificate: the dial never connected, the
+// handshake stalled or was cut off, or it failed in a way nothing classified.
+// The sentence must not offer certificate, clock, or interception causes the
+// handshake did not reach.
+func TestTLSFailuresWithoutACertificateDoNotOfferCertificateCauses(t *testing.T) {
 	target := mustTarget(t, "github.com")
 	order := planOrder(t, target)
 	pub := net.ParseIP("140.82.121.4")
-	res := settle(t, target, order, map[ProbeID]ProbeResult{
-		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
-		ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
-		ProbeTLS:       {Status: StatusFail, Cause: TLSCauseTCPUnreachable},
-	})
-	d := Interpret(target, order, res)
-	if len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisTLSTCPUnreachable {
-		t.Fatalf("finding = %+v, want %q", d.Findings, DiagnosisTLSTCPUnreachable)
-	}
-	for _, phrase := range []string{"cert", "clock skew", "MITM"} {
-		if strings.Contains(d.Summary, phrase) {
-			t.Errorf("summary offers %q for a dial that never handshook: %q", phrase, d.Summary)
-		}
+	for _, cause := range []string{TLSCauseTCPUnreachable, TLSCauseTimeout, TLSCauseConnectionClosed, TLSCauseHandshake} {
+		t.Run(cause, func(t *testing.T) {
+			res := settle(t, target, order, map[ProbeID]ProbeResult{
+				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
+				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
+				ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
+				ProbeTLS:       {Status: StatusFail, Cause: cause},
+			})
+			d := Interpret(target, order, res)
+			if len(d.Findings) == 0 || d.Findings[0].ID != tlsDiagnosisID(cause) {
+				t.Fatalf("finding = %+v, want %q", d.Findings, tlsDiagnosisID(cause))
+			}
+			for _, phrase := range []string{"cert", "clock", "MITM"} {
+				if strings.Contains(d.Summary, phrase) {
+					t.Errorf("summary offers %q for a handshake that saw no certificate: %q", phrase, d.Summary)
+				}
+			}
+		})
 	}
 }
 

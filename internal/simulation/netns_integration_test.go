@@ -2787,7 +2787,7 @@ func TestPMTUBlackholeScenario(t *testing.T) {
 	if !strings.Contains(bulk.Diagnosis.Summary, "path MTU black hole") {
 		t.Errorf("summary = %q, want it to name the path MTU black hole", bulk.Diagnosis.Summary)
 	}
-	if strings.Contains(bulk.Diagnosis.Summary, "bad/expired cert") {
+	if strings.Contains(bulk.Diagnosis.Summary, "TLS handshake") {
 		t.Errorf("summary = %q, want the path answer rather than the service one", bulk.Diagnosis.Summary)
 	}
 	assertCleanedUp(t, rep)

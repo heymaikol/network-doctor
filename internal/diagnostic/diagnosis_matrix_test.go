@@ -575,7 +575,7 @@ func diagnosisMatrix() []matrixCase {
 			res: with(map[ProbeID]ProbeResult{
 				ProbeTLS: {Status: StatusFail, Cause: TLSCauseHandshake}, ProbeHTTPS: {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.",
+			summary: "TCP reaches example.com:443 but the TLS handshake fails in a way this run could not classify more specifically.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_handshake_failure", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},
@@ -597,7 +597,7 @@ func diagnosisMatrix() []matrixCase {
 				ProbeTLS:      {Status: StatusFail, Cause: TLSCauseCertificateExpired},
 				ProbeHTTPS:    {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert or MITM proxy.",
+			summary: "TCP reaches example.com:443 but TLS rejects the certificate as expired.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_certificate_expired", evidence: []ProbeID{ProbeTLS, ProbeInternet, ProbeTargetTCP},
 		},
@@ -606,20 +606,18 @@ func diagnosisMatrix() []matrixCase {
 			res: with(map[ProbeID]ProbeResult{
 				ProbeTLS: {Status: StatusFail, Cause: TLSCauseHostnameMismatch}, ProbeHTTPS: {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.",
+			summary: "TCP reaches example.com:443 but TLS rejects the certificate because it does not match the requested host.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_hostname_mismatch", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},
 		{
-			// The remaining handshake causes keep the same hedged sentence and
-			// separate only by identity, which is the whole point of having
-			// one: the prose cannot promise what the handshake did not prove,
-			// and the ID can say what it did.
+			// No clock reading, so the rejection is only as good as this
+			// machine's clock and the sentence says so.
 			name: "TLS certificate not yet valid", target: tls, order: webOrder,
 			res: with(map[ProbeID]ProbeResult{
 				ProbeTLS: {Status: StatusFail, Cause: TLSCauseCertificateNotYet}, ProbeHTTPS: {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.",
+			summary: "TCP reaches example.com:443 but TLS rejects the certificate as not yet valid according to this machine's clock.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_certificate_not_yet_valid", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},
@@ -628,19 +626,19 @@ func diagnosisMatrix() []matrixCase {
 			res: with(map[ProbeID]ProbeResult{
 				ProbeTLS: {Status: StatusFail, Cause: TLSCauseUntrustedIssuer}, ProbeHTTPS: {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.",
+			summary: "TCP reaches example.com:443 but TLS rejects the certificate because this machine does not trust its issuer.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_untrusted_issuer", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},
 		{
-			// A handshake timeout with the bulk-write row healthy: the path
+			// A TLS timeout with the bulk-write row healthy: the path
 			// carried a full-size write, so this is not the path MTU case one
 			// rung above and stays a service answer.
 			name: "TLS timed out with a healthy path", target: tls, order: webOrder,
 			res: with(map[ProbeID]ProbeResult{
 				ProbeTLS: {Status: StatusFail, Cause: TLSCauseTimeout}, ProbeHTTPS: {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.",
+			summary: "The endpoint check reaches example.com:443, but the TLS check times out before it completes.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_timeout", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},
@@ -649,7 +647,7 @@ func diagnosisMatrix() []matrixCase {
 			res: with(map[ProbeID]ProbeResult{
 				ProbeTLS: {Status: StatusFail, Cause: TLSCauseConnectionClosed}, ProbeHTTPS: {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.",
+			summary: "TCP reaches example.com:443 but the peer closes or resets the connection during the TLS handshake.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_connection_closed", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},

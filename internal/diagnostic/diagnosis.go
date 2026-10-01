@@ -626,24 +626,16 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 				evidence := addEvidence(supportRows(ProbeTLS, ProbeInternet, ProbeTargetTCP),
 					rulesOut(DiagnosisTLSClockSkew, ProbeInternet, ObservationClockOffset),
 					rulesOut(DiagnosisTLSTCPUnreachable, ProbeTargetTCP, ObservationStatusPass))
-				return withEvidence(id, ProbeTLS, "TCP reaches "+hp+" but the TLS handshake fails: bad/expired cert or MITM proxy.", VerdictService, evidence)
+				return withEvidence(id, ProbeTLS, tlsFailureSummary(res[ProbeTLS].Cause, hp, true), VerdictService, evidence)
 			}
 		}
 		id := tlsDiagnosisID(res[ProbeTLS].Cause)
 		evidence := supportRows(ProbeTLS, ProbeTargetTCP)
-		summary := "TCP reaches " + hp + " but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy."
-		if id == DiagnosisTLSTCPUnreachable {
-			// The handshake never started, so the three maybes above are
-			// about something this run did not observe. What it observed is
-			// two connections to the same endpoint disagreeing: the endpoint
-			// check reached it and the TLS check's own dial was refused or
-			// had no route.
-			summary = "The endpoint check reached " + hp + ", but the TLS check's own connection to it did not: the port may have stopped listening, or a filter may be rejecting some connections to it."
-		} else {
+		if id != DiagnosisTLSTCPUnreachable {
 			evidence = addEvidence(evidence,
 				rulesOut(DiagnosisTLSTCPUnreachable, ProbeTargetTCP, ObservationStatusPass))
 		}
-		return withEvidence(id, ProbeTLS, summary, VerdictService, evidence)
+		return withEvidence(id, ProbeTLS, tlsFailureSummary(res[ProbeTLS].Cause, hp, false), VerdictService, evidence)
 	case has(ProbeHTTPS) && fail(ProbeHTTPS):
 		evidence := addEvidence(supportRows(ProbeHTTPS, ProbeTLS),
 			rulesOut(DiagnosisTLSHandshakeFailure, ProbeTLS, ObservationStatusPass))
@@ -855,6 +847,38 @@ func localIP(ip net.IP) bool {
 func intercepted(res map[ProbeID]ProbeResult) bool {
 	r, ok := res[ProbeInternet]
 	return ok && r.Portal != nil
+}
+
+// tlsFailureSummary says what the TLS row classified and no more. A
+// certificate-date rejection is only as good as this machine's clock, so it
+// says so until clockRuledOut records a measured offset that cannot explain it.
+func tlsFailureSummary(cause, hp string, clockRuledOut bool) string {
+	reached := "TCP reaches " + hp + " but "
+	switch cause {
+	case TLSCauseCertificateExpired, TLSCauseCertificateNotYet:
+		window := "expired"
+		if cause == TLSCauseCertificateNotYet {
+			window = "not yet valid"
+		}
+		if clockRuledOut {
+			return reached + "TLS rejects the certificate as " + window + "."
+		}
+		return reached + "TLS rejects the certificate as " + window + " according to this machine's clock."
+	case TLSCauseHostnameMismatch:
+		return reached + "TLS rejects the certificate because it does not match the requested host."
+	case TLSCauseUntrustedIssuer:
+		return reached + "TLS rejects the certificate because this machine does not trust its issuer."
+	case TLSCauseTimeout:
+		return "The endpoint check reaches " + hp + ", but the TLS check times out before it completes."
+	case TLSCauseConnectionClosed:
+		return reached + "the peer closes or resets the connection during the TLS handshake."
+	case TLSCauseTCPUnreachable:
+		// The handshake never started. What this run observed is two
+		// connections to the same endpoint disagreeing: the endpoint check
+		// reached it and the TLS check's own dial was refused or had no route.
+		return "The endpoint check reached " + hp + ", but the TLS check's own connection to it did not: the port may have stopped listening, or a filter may be rejecting some connections to it."
+	}
+	return reached + "the TLS handshake fails in a way this run could not classify more specifically."
 }
 
 // certificateRejected reports whether the TLS row failed on the certificate

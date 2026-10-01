@@ -869,7 +869,7 @@ func tlsFailureSummary(cause, hp string, clockRuledOut bool) string {
 	case TLSCauseUntrustedIssuer:
 		return reached + "TLS rejects the certificate because this machine does not trust its issuer."
 	case TLSCauseTimeout:
-		return reached + "the TLS handshake times out after the connection opens."
+		return "The endpoint check reaches " + hp + ", but the TLS check times out before it completes."
 	case TLSCauseConnectionClosed:
 		return reached + "the peer closes or resets the connection during the TLS handshake."
 	case TLSCauseTCPUnreachable:

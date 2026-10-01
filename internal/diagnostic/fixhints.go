@@ -61,7 +61,7 @@ func tlsFix(err error) string {
 	case errors.As(err, &record):
 		return "the port answered but not with TLS: plaintext service or wrong port?"
 	case timeoutError(err):
-		return "TLS timed out after TCP connected; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
+		return "TLS check timed out; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
 	}
 	return "TLS broken: clock skew, bad/expired cert, or MITM proxy?"
 }

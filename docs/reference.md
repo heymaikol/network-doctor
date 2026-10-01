@@ -1051,7 +1051,7 @@ The array is omitted when the run reached no specific conclusion: everything pas
 | `tls_hostname_mismatch` | The certificate is for a different name |
 | `tls_untrusted_issuer` | The certificate is signed by a CA this machine does not trust |
 | `tls_clock_skew` | A measured clock offset explains the certificate rejection |
-| `tls_timeout` | The handshake spent its whole budget without answering |
+| `tls_timeout` | The TLS check spent its budget without completing, during its own connection attempt or the handshake |
 | `tls_connection_closed` | The peer closed or reset during the handshake |
 | `tls_tcp_unreachable` | The TLS dial itself could not reach the port |
 | `tls_handshake_failure` | The handshake failed with no cause the client could classify |

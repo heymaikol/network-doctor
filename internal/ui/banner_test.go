@@ -59,7 +59,7 @@ func TestBannerFailureGuidance(t *testing.T) {
 		proxyFix  = "proxy configured but unreachable: check HTTPS_PROXY/HTTP_PROXY/ALL_PROXY and the proxy host"
 		dnsFix    = "name resolution failing: check /etc/resolv.conf / DNS"
 		tcpFix    = "port 443 blocked/refused: firewall, wrong network, or VPN routing?"
-		tlsFix    = "TLS timed out after TCP connected; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
+		tlsFix    = "TLS check timed out; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
 		httpFix   = "HTTP blocked: proxy or firewall?"
 		httpsFix  = "HTTPS blocked: proxy or firewall?"
 		pmtuFix   = "bulk TCP stalled after the handshake; if lowering MTU makes it drain, lower the interface MTU"
@@ -327,7 +327,7 @@ func TestBannerSeverityFollowsVerdict(t *testing.T) {
 // verdict names.
 const (
 	blackHolePMTUFix = "bulk TCP stalled after the handshake; if lowering MTU makes it drain, lower the interface MTU"
-	blackHoleTLSFix  = "TLS timed out after TCP connected; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
+	blackHoleTLSFix  = "TLS check timed out; read the Path MTU row: it says whether full-size packets are reaching the far end (VPN, PPPoE, or tunnel)"
 	blackHoleHTTPFix = "HTTP blocked: proxy or firewall?"
 )
 

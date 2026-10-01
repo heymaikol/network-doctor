@@ -631,14 +631,14 @@ func diagnosisMatrix() []matrixCase {
 			id: "tls_untrusted_issuer", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},
 		{
-			// A handshake timeout with the bulk-write row healthy: the path
+			// A TLS timeout with the bulk-write row healthy: the path
 			// carried a full-size write, so this is not the path MTU case one
 			// rung above and stays a service answer.
 			name: "TLS timed out with a healthy path", target: tls, order: webOrder,
 			res: with(map[ProbeID]ProbeResult{
 				ProbeTLS: {Status: StatusFail, Cause: TLSCauseTimeout}, ProbeHTTPS: {Status: StatusSkip},
 			}),
-			summary: "TCP reaches example.com:443 but the TLS handshake times out after the connection opens.",
+			summary: "The endpoint check reaches example.com:443, but the TLS check times out before it completes.",
 			verdict: VerdictService, focus: ProbeTLS,
 			id: "tls_timeout", evidence: []ProbeID{ProbeTLS, ProbeTargetTCP},
 		},

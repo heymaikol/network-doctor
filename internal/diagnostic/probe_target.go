@@ -319,8 +319,23 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		// fires it after peeking a byte from the reader above the connection,
 		// which for HTTPS is the decrypted stream, so TLS handshake records
 		// never count; HTTP/2 fires it on a HEADERS frame.
-		var answered atomic.Bool
-		trace := &httptrace.ClientTrace{GotFirstResponseByte: func() { answered.Store(true) }}
+		//
+		// started is the evidence that this request's protocol exchange began:
+		// GotConn hands it a connection, and for HTTPS TLSHandshakeStart opens
+		// the handshake first, which GotConn only follows once it completes. A
+		// dial can finish after the deadline, and the transport still handshakes
+		// it or hands it over, so an event counts only before the deadline.
+		var answered, started atomic.Bool
+		begin := func() {
+			if ctx.Err() == nil {
+				started.Store(true)
+			}
+		}
+		trace := &httptrace.ClientTrace{
+			GotConn:              func(httptrace.GotConnInfo) { begin() },
+			TLSHandshakeStart:    begin,
+			GotFirstResponseByte: func() { answered.Store(true) },
+		}
 		req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodHead, url, nil)
 		if err != nil {
 			r.Status, r.Detail = StatusFail, "cannot build request: "+err.Error()
@@ -332,7 +347,10 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		dialMu.Unlock()
 		if err != nil {
 			r.Status = StatusFail
-			r.timedOut = timeoutError(err)
+			// A timeout before the exchange began is a stalled dial that
+			// exchanged nothing. SelectedIP cannot tell: a dial that finishes
+			// as the deadline expires records one the request never used.
+			r.timedOut = timeoutError(err) && started.Load()
 			// Name the winner if one address connected and the failure came
 			// later, otherwise everything tried.
 			tried := joinIPs(addrs)

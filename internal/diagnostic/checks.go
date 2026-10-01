@@ -220,10 +220,12 @@ type ProbeResult struct {
 	// was sent".
 	ConnectCleartext bool
 	// timedOut marks a protocol exchange that timed out, which is half the
-	// PMTU black-hole correlation. For HTTP/HTTPS that is any timeout. TLS
-	// records it only for a handshake that timed out on a connection the probe
-	// opened: its timeout Cause also covers the probe's own dial, which
-	// exchanged no TLS at all.
+	// PMTU black-hole correlation. Every protocol row records it only for a
+	// timeout after its exchange began on its own connection: TLS for a
+	// stalled handshake, HTTP once the transport handed the request its
+	// connection, and HTTPS once the TLS handshake under the request started.
+	// A timeout during the probe's own dial exchanged nothing, and TLS still
+	// records its timeout Cause for that.
 	timedOut bool
 	// clockOffset is this machine's clock minus the Date of a connectivity
 	// endpoint's documented clean response: positive when the local clock runs
@@ -240,9 +242,10 @@ type ProbeResult struct {
 	ifaceAmbiguous bool
 }
 
-// SetProtocolTimeout records a protocol exchange timing out, independently of
-// its status or failure cause. Observation producers use this same fact for
-// HTTP/HTTPS, whose failures have no TLS-style timeout cause.
+// SetProtocolTimeout records a protocol exchange timing out after it began on
+// the probe's own connection, independently of its status or failure cause.
+// Observation producers use this same fact for HTTP/HTTPS, whose failures have
+// no TLS-style timeout cause.
 func (r *ProbeResult) SetProtocolTimeout(timedOut bool) { r.timedOut = timedOut }
 
 // SetFailureCause records a classified failure and the address family that

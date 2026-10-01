@@ -169,6 +169,15 @@ func replayResult(id ProbeID, status Status, check snapshot.Check) (ProbeResult,
 	result.Iface = observed.Interface
 	result.Network = observed.SSID
 	result.timedOut = observed.Timeout
+	// A live probe records Timeout only once its exchange began. Artifacts
+	// written before that also record it for a dial timeout, and the only
+	// surviving evidence against that is a missing selected IP, which the
+	// probe records only for a dial that connected. This is a compatibility
+	// inference for those artifacts: a selected IP is kept as the stall it
+	// was recorded as, since they hold nothing finer.
+	if id == ProbeHTTP || id == ProbeHTTPS {
+		result.timedOut = result.timedOut && result.SelectedIP != nil
+	}
 	result.ifaceAmbiguous = observed.InterfaceAmbiguous
 	result.ConnectCleartext = observed.ConnectCleartext
 	if observed.Families != nil {

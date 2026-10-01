@@ -690,6 +690,64 @@ func diagnosisMatrix() []matrixCase {
 			id: "http_no_response", evidence: []ProbeID{ProbeHTTP, ProbeTargetTCP},
 		},
 		{
+			name: "invalid HTTPS response", target: tls, order: webOrder,
+			res: with(map[ProbeID]ProbeResult{
+				ProbeHTTPS: {Status: StatusFail, Cause: HTTPCauseInvalidResponse},
+			}),
+			summary: "TLS is fine and example.com:443 answered, but the response could not be read as HTTP.",
+			verdict: VerdictService, focus: ProbeHTTPS,
+			id: "invalid_http_response", evidence: []ProbeID{ProbeHTTPS, ProbeTLS},
+		},
+		{
+			name: "invalid plain HTTP response beside working HTTPS", target: tls, order: webOrder,
+			res: with(map[ProbeID]ProbeResult{
+				ProbeHTTP: {Status: StatusFail, Cause: HTTPCauseInvalidResponse},
+			}),
+			summary: "HTTPS works, and example.com:80 answered, but the response could not be read as HTTP.",
+			verdict: VerdictService, focus: ProbeHTTP,
+			id: "invalid_http_response", evidence: []ProbeID{ProbeHTTP, ProbeHTTPS},
+		},
+		{
+			name: "invalid HTTP response", target: httpOnly,
+			order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbeHTTP},
+			res: map[ProbeID]ProbeResult{
+				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass), ProbeDNS: ok(StatusPass),
+				ProbeTargetTCP: ok(StatusPass), ProbeHTTP: {Status: StatusFail, Cause: HTTPCauseInvalidResponse},
+			},
+			summary: "example.com:80 answered, but the response could not be read as HTTP.",
+			verdict: VerdictService, focus: ProbeHTTP,
+			id: "invalid_http_response", evidence: []ProbeID{ProbeHTTP, ProbeTargetTCP},
+		},
+		{
+			name: "HTTPS connection reset before a response", target: tls, order: webOrder,
+			res: with(map[ProbeID]ProbeResult{
+				ProbeHTTPS: {Status: StatusFail, Cause: ConnectionCauseReset},
+			}),
+			summary: "TLS is fine, but example.com:443 reset the connection before sending an HTTP response.",
+			verdict: VerdictService, focus: ProbeHTTPS,
+			id: "http_connection_closed", evidence: []ProbeID{ProbeHTTPS, ProbeTLS},
+		},
+		{
+			name: "plain HTTP connection closed beside working HTTPS", target: tls, order: webOrder,
+			res: with(map[ProbeID]ProbeResult{
+				ProbeHTTP: {Status: StatusFail, Cause: ConnectionCauseClosed},
+			}),
+			summary: "HTTPS works, but example.com:80 closed the connection before sending an HTTP response.",
+			verdict: VerdictService, focus: ProbeHTTP,
+			id: "http_connection_closed", evidence: []ProbeID{ProbeHTTP, ProbeHTTPS},
+		},
+		{
+			name: "HTTP connection closed before a response", target: httpOnly,
+			order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbeHTTP},
+			res: map[ProbeID]ProbeResult{
+				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass), ProbeDNS: ok(StatusPass),
+				ProbeTargetTCP: ok(StatusPass), ProbeHTTP: {Status: StatusFail, Cause: ConnectionCauseClosed},
+			},
+			summary: "example.com:80 accepted the connection, then closed it before sending an HTTP response.",
+			verdict: VerdictService, focus: ProbeHTTP,
+			id: "http_connection_closed", evidence: []ProbeID{ProbeHTTP, ProbeTargetTCP},
+		},
+		{
 			name: "service banner check failed", target: ssh,
 			order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbeSSH},
 			res: map[ProbeID]ProbeResult{

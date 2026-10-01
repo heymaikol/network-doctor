@@ -647,8 +647,26 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	case has(ProbeHTTPS) && fail(ProbeHTTPS):
 		evidence := addEvidence(supportRows(ProbeHTTPS, ProbeTLS),
 			rulesOut(DiagnosisTLSHandshakeFailure, ProbeTLS, ObservationStatusPass))
+		switch res[ProbeHTTPS].Cause {
+		case HTTPCauseInvalidResponse:
+			return withEvidence(DiagnosisInvalidHTTPResponse, ProbeHTTPS, "TLS is fine and "+hp+" answered, but the response could not be read as HTTP.", VerdictService, evidence)
+		case ConnectionCauseClosed, ConnectionCauseReset:
+			return withEvidence(DiagnosisHTTPConnectionClosed, ProbeHTTPS, "TLS is fine, but "+hp+" "+endedHow(res[ProbeHTTPS].Cause)+" the connection before sending an HTTP response.", VerdictService, evidence)
+		}
 		return withEvidence(DiagnosisHTTPSNoResponse, ProbeHTTPS, "TLS is fine but no HTTPS response from "+hp+": application-layer or proxy block.", VerdictService, evidence)
 	case has(ProbeHTTP) && fail(ProbeHTTP):
+		switch cause := res[ProbeHTTP].Cause; cause {
+		case HTTPCauseInvalidResponse:
+			if t.Proto == ProtoTLSHTTP {
+				return blame(DiagnosisInvalidHTTPResponse, ProbeHTTP, "HTTPS works, and "+net.JoinHostPort(host, "80")+" answered, but the response could not be read as HTTP.", VerdictService, ProbeHTTPS)
+			}
+			return blame(DiagnosisInvalidHTTPResponse, ProbeHTTP, hp+" answered, but the response could not be read as HTTP.", VerdictService, ProbeTargetTCP)
+		case ConnectionCauseClosed, ConnectionCauseReset:
+			if t.Proto == ProtoTLSHTTP {
+				return blame(DiagnosisHTTPConnectionClosed, ProbeHTTP, "HTTPS works, but "+net.JoinHostPort(host, "80")+" "+endedHow(cause)+" the connection before sending an HTTP response.", VerdictService, ProbeHTTPS)
+			}
+			return blame(DiagnosisHTTPConnectionClosed, ProbeHTTP, hp+" accepted the connection, then "+endedHow(cause)+" it before sending an HTTP response.", VerdictService, ProbeTargetTCP)
+		}
 		if t.Proto == ProtoTLSHTTP {
 			return blame(DiagnosisHTTPNoResponse, ProbeHTTP, "HTTPS works but no HTTP response from "+net.JoinHostPort(host, "80")+": the redirect/plain-HTTP endpoint may be blocked.", VerdictService, ProbeHTTPS)
 		}
@@ -752,6 +770,14 @@ func bannerRow(res map[ProbeID]ProbeResult, match func(ProbeID) bool) ProbeID {
 		return ProbeSSH
 	}
 	return ProbeSMTP
+}
+
+// endedHow words an HTTP row's connection cause for a summary.
+func endedHow(cause string) string {
+	if cause == ConnectionCauseReset {
+		return "reset"
+	}
+	return "closed"
 }
 
 // encryptedDNSSummary is what the probes can actually support: plaintext

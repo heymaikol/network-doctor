@@ -217,8 +217,18 @@ var plainTexts = map[DiagnosisID]plainText{
 	DiagnosisTLSTCPUnreachable:   plainTLS,
 	DiagnosisTLSHandshakeFailure: plainTLS,
 
-	DiagnosisHTTPSNoResponse:            plainNoReply,
-	DiagnosisHTTPNoResponse:             plainNoReply,
+	DiagnosisHTTPSNoResponse: plainNoReply,
+	DiagnosisHTTPNoResponse:  plainNoReply,
+	DiagnosisHTTPConnectionClosed: {
+		"{host} hung up without replying",
+		"The connection worked, but the service at {host} ended it before sending a web response. That points to the service itself, or to something in front of it, rather than to your internet connection.",
+		"Check that the address and port are the right ones for this website.",
+	},
+	DiagnosisInvalidHTTPResponse: {
+		"{host} replied, but not in a form this computer understands",
+		"The connection worked and the service at {host} sent something back, but it was not a proper web response. That points to the service itself, or to something in front of it, rather than to your internet connection.",
+		"Check that the address and port are the right ones for this website.",
+	},
 	DiagnosisServiceBannerFailure:       plainNoReply,
 	DiagnosisServiceBannerMissing:       plainNoReply,
 	DiagnosisSelectedServiceCheckFailed: plainSelected,

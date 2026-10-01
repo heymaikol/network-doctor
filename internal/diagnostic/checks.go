@@ -50,6 +50,7 @@ const (
 	DNSCauseTemporaryFailure      = "dns_temporary_failure"
 	ConnectionCauseRefused        = "connection_refused"
 	ConnectionCauseReset          = "connection_reset"
+	ConnectionCauseClosed         = "connection_closed"
 	ConnectionCauseTimeout        = "timeout"
 	ConnectionCauseUnreachable    = "unreachable"
 	ConnectionCauseCanceled       = "canceled"
@@ -311,6 +312,14 @@ const (
 	TLSCauseTimeout            = "timeout"
 	TLSCauseConnectionClosed   = "connection_closed"
 )
+
+// HTTPCauseInvalidResponse marks an HTTP or HTTPS row whose endpoint sent
+// response bytes from which no acceptable HTTP response could be read: a
+// status line that does not parse, headers over the probe's size limit, or a
+// response cut off by a close, a reset, or the deadline. It is recorded only
+// when the transport saw the first byte of a response, so silence and a close
+// before any response never carry it.
+const HTTPCauseInvalidResponse = "invalid_response"
 
 // Path-MTU probe sizes. See pmtuProbe for what the asymmetry between them
 // proves.

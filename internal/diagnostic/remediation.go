@@ -718,6 +718,28 @@ var remedies = map[remedyKey]remedy{
 	// The application on top of a working connection.
 	{id: DiagnosisHTTPSNoResponse}: noHTTPResponse,
 	{id: DiagnosisHTTPNoResponse}:  noHTTPResponse,
+	{id: DiagnosisHTTPConnectionClosed}: {
+		id:     RemedyCheckApplication,
+		action: "Check what is ending the connection",
+		why:    "The connection completed and the endpoint then closed or reset it before any HTTP response arrived. A service on the port that does not speak HTTP, a server rejecting the request, and a proxy, load balancer, or firewall cutting it all look the same from here.",
+		steps: []string{
+			"Check what is bound to that port on the far end, and that it speaks HTTP there.",
+			"Check the server's own logs for the request and why it was dropped.",
+			"Look for a proxy, load balancer, or firewall in front of it that aborts connections.",
+		},
+		expect: "An HTTP status line back from the endpoint.",
+	},
+	{id: DiagnosisInvalidHTTPResponse}: {
+		id:     RemedyIdentifyListener,
+		action: "Confirm which service is on that port",
+		why:    "The connection completed and the endpoint answered, but what came back could not be read as HTTP. Another service on the port, a misconfigured server, and something in front of it answering in another protocol all look the same from here.",
+		steps: []string{
+			"Check what is bound to that port on the far end, and that it speaks HTTP there.",
+			"Check the server's own logs and configuration for the request.",
+			"Look for a proxy, load balancer, or port forward in front of it that answers on its behalf.",
+		},
+		expect: "A well-formed HTTP status line back from the endpoint.",
+	},
 	{id: DiagnosisServiceBannerFailure}: {
 		id:     RemedyCheckBannerService,
 		action: "Check the service behind the open port",

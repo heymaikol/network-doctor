@@ -82,8 +82,12 @@ const (
 	DiagnosisTLSHandshakeFailure       DiagnosisID = "tls_handshake_failure"
 
 	// The application on top of a working connection.
-	DiagnosisHTTPSNoResponse      DiagnosisID = "https_no_response"
-	DiagnosisHTTPNoResponse       DiagnosisID = "http_no_response"
+	DiagnosisHTTPSNoResponse DiagnosisID = "https_no_response"
+	DiagnosisHTTPNoResponse  DiagnosisID = "http_no_response"
+	// The next two cover HTTP and HTTPS alike, told apart by the row they
+	// focus. The row's cause says whether a close was clean or a reset.
+	DiagnosisHTTPConnectionClosed DiagnosisID = "http_connection_closed"
+	DiagnosisInvalidHTTPResponse  DiagnosisID = "invalid_http_response"
 	DiagnosisServiceBannerFailure DiagnosisID = "service_banner_failure"
 	DiagnosisServiceBannerMissing DiagnosisID = "service_banner_missing"
 

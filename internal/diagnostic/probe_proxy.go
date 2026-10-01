@@ -145,7 +145,9 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 	auth := false
 	for {
 		if proxyURL.Scheme == "https" {
-			conn, err = o.dialTLS(ctx, "tcp", addr, &tls.Config{ServerName: proxyURL.Hostname()})
+			var tcpOK bool
+			conn, tcpOK, err = o.dialTLS(ctx, "tcp", addr, &tls.Config{ServerName: proxyURL.Hostname()})
+			_ = tcpOK
 		} else {
 			conn, err = o.dialContext(ctx, "tcp", addr)
 		}

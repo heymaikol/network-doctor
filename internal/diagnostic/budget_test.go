@@ -439,19 +439,19 @@ func (f *budgetFixture) ops() *netops {
 			return portalObservation{clean: true, code: ep.want, date: time.Now()}, nil
 		},
 	}
-	o.dialTLS = func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+	o.dialTLS = func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, bool, error) {
 		conn, err := f.dial(ctx, network, addr)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		trusted := cfg.Clone()
 		trusted.RootCAs = f.roots
 		client := tls.Client(conn, trusted)
 		if err := client.HandshakeContext(ctx); err != nil {
 			_ = conn.Close()
-			return nil, err
+			return nil, true, err
 		}
-		return client, nil
+		return client, true, nil
 	}
 	o.routes = newRouteCache(o.routeFor, o.sources)
 	return o
@@ -581,17 +581,17 @@ func (s *budgetStall) ops() *netops {
 			return portalObservation{}, ctx.Err()
 		},
 	}
-	o.dialTLS = func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+	o.dialTLS = func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, bool, error) {
 		conn, err := s.pipe.dial(ctx, network, addr)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		client := tls.Client(conn, cfg)
 		if err := client.HandshakeContext(ctx); err != nil {
 			_ = conn.Close()
-			return nil, err
+			return nil, true, err
 		}
-		return client, nil
+		return client, true, nil
 	}
 	o.routes = newRouteCache(o.routeFor, o.sources)
 	return o

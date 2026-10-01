@@ -871,8 +871,8 @@ func TestProxyProbeNonHTTPProxiesAreNotCleartext(t *testing.T) {
 	t.Run("https", func(t *testing.T) {
 		conn := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}
 		ops := proxyOps("https://proxy.corp:3129", nil)
-		ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) {
-			return conn, nil
+		ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, bool, error) {
+			return conn, true, nil
 		}
 		r := ops.proxyProbe(context.Background(), nil)
 		if r.Status != StatusPass {
@@ -965,10 +965,10 @@ func TestProxyProbeHTTPSCredentialsWaitForChallenge(t *testing.T) {
 	second := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}
 	conns := []*scriptConn{first, second}
 	ops := proxyOps("https://user:pw@proxy.corp:3128", nil)
-	ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+	ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, bool, error) {
 		conn := conns[0]
 		conns = conns[1:]
-		return conn, nil
+		return conn, true, nil
 	}
 	r := ops.proxyProbe(context.Background(), nil)
 	if r.Status != StatusPass {

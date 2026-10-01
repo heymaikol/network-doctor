@@ -274,9 +274,9 @@ func TestInternationalizedTargetReachesDNSAndTLSAsASCII(t *testing.T) {
 			queried = host
 			return []net.IP{net.ParseIP("192.0.2.10")}, nil, nil
 		},
-		dialTLS: func(_ context.Context, _, _ string, cfg *tls.Config) (net.Conn, error) {
+		dialTLS: func(_ context.Context, _, _ string, cfg *tls.Config) (net.Conn, bool, error) {
 			sni = cfg.ServerName
-			return nil, errors.New("stopped after the ClientHello")
+			return nil, true, errors.New("stopped after the ClientHello")
 		},
 	}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.10")}}

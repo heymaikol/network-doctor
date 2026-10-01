@@ -192,7 +192,8 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 			r.Status, r.Detail = StatusSkip, "no pinned IP from Target TCP"
 			return r
 		}
-		conn, err := o.dialTLS(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)), &tls.Config{ServerName: host})
+		conn, tcpOK, err := o.dialTLS(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)), &tls.Config{ServerName: host})
+		r.tlsTCPEstablished = tcpOK
 		if err != nil {
 			// Name the address: the cert that failed belongs to whatever the
 			// resolver handed us, and that's often the actual culprit.

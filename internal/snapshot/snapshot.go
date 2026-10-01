@@ -420,6 +420,10 @@ type Observed struct {
 	// Absent means the observation was not recorded, never that a TLS hop to the
 	// proxy was confirmed and never that no cleartext hostname was sent.
 	ConnectCleartext bool `json:"connect_cleartext,omitempty"`
+	// TLSTCPEstablished is true when the TLS probe opened its own TCP connection
+	// before the handshake. Absent/false with cause timeout means the dial timed
+	// out before connect, which is not a protocol stall for Path MTU correlation.
+	TLSTCPEstablished bool `json:"tls_tcp_established,omitempty"`
 }
 
 // Route is one destination's selected path, as the operating system reported

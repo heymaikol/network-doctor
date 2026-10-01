@@ -469,9 +469,15 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	// verdict.
 	var stalled []ProbeID
 	for _, id := range []ProbeID{ProbeTLS, ProbeHTTP, ProbeHTTPS} {
-		if fail(id) && timedOut(id) {
-			stalled = append(stalled, id)
+		if !fail(id) || !timedOut(id) {
+			continue
 		}
+		// A TLS dial-stage timeout never reached the protocol: Target TCP
+		// passing does not prove this probe's own connection opened.
+		if id == ProbeTLS && res[id].Cause == TLSCauseTimeout && !res[id].tlsTCPEstablished {
+			continue
+		}
+		stalled = append(stalled, id)
 	}
 	// The other half of the same rule, for the rung a stall on one row cannot
 	// speak for. A certificate this machine read and rejected arrived from the

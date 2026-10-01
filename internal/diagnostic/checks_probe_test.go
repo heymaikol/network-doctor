@@ -1385,8 +1385,8 @@ func TestInternetProbeEndpointChecksHonorContext(t *testing.T) {
 // A TLS handshake error is a FAIL with the cleaned error in the detail and a
 // fix hint, not a panic and not a skip.
 func TestTLSProbeHandshakeFailure(t *testing.T) {
-	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) {
-		return nil, errors.New("x509: certificate has expired")
+	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, bool, error) {
+		return nil, true, errors.New("x509: certificate has expired")
 	}}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
 
@@ -1435,8 +1435,8 @@ func TestTLSProbeIncludesBackwardCompatibleCause(t *testing.T) {
 		Cert:   &x509.Certificate{NotBefore: now.Add(-48 * time.Hour), NotAfter: now.Add(-24 * time.Hour)},
 		Reason: x509.Expired,
 	}
-	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) {
-		return nil, fmt.Errorf("verify peer: %w", errExpired)
+	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, bool, error) {
+		return nil, true, fmt.Errorf("verify peer: %w", errExpired)
 	}}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
 	r := ops.tlsProbe("secure-target.test", 443)(context.Background(), deps)
@@ -1448,8 +1448,8 @@ func TestTLSProbeIncludesBackwardCompatibleCause(t *testing.T) {
 
 func TestTLSProbeTimeoutReportsMTU(t *testing.T) {
 	ops := &netops{
-		dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) {
-			return nil, context.DeadlineExceeded
+		dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, bool, error) {
+			return nil, true, context.DeadlineExceeded
 		},
 		interfaces: func() ([]net.Interface, error) {
 			return []net.Interface{{Name: "fake0", MTU: 1420}}, nil
@@ -3301,8 +3301,8 @@ func TestHTTP2ProbeCloseBeforeHeadersIsAClose(t *testing.T) {
 // the TLS probe's connection opened, so no text may say it did.
 func TestTLSDialTimeoutSummaryIsStageNeutral(t *testing.T) {
 	c := matrixCaseNamed(t, "TLS timed out with a healthy path")
-	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) {
-		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, bool, error) {
+		return nil, false, &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
 	}}
 	res := maps.Clone(c.res)
 	res[ProbeTargetTCP] = ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.1")}
@@ -3335,5 +3335,64 @@ func TestTLSDialTimeoutSummaryIsStageNeutral(t *testing.T) {
 		if strings.Contains(d.Summary, overclaim) {
 			t.Errorf("summary %q claims %q for a timeout that may have come from the TLS probe's own dial", d.Summary, overclaim)
 		}
+	}
+}
+
+// A TLS dial-stage timeout is not a protocol stall. Combined with a Path MTU
+// warning it must not claim probable_path_mtu_problem the way a post-connect
+// handshake stall would.
+func TestTLSDialTimeoutDoesNotCountAsPathMTUProtocolStall(t *testing.T) {
+	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, bool, error) {
+		return nil, false, &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	}}
+	target := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
+	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTPS}
+	res := map[ProbeID]ProbeResult{
+		ProbeIface:     {Status: StatusPass},
+		ProbeInternet:  {Status: StatusPass},
+		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("192.0.2.1")}},
+		ProbeTargetTCP: {Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.1")},
+		ProbePMTU:      {Status: StatusWarn, Detail: "stalled without draining the send buffer"},
+		ProbeHTTPS:     {Status: StatusSkip},
+	}
+	res[ProbeTLS] = ops.tlsProbe("example.com", 443)(context.Background(), res)
+	if res[ProbeTLS].Cause != TLSCauseTimeout || res[ProbeTLS].tlsTCPEstablished {
+		t.Fatalf("TLS row = %+v (established %v), want dial-stage timeout", res[ProbeTLS], res[ProbeTLS].tlsTCPEstablished)
+	}
+	d := Interpret(target, order, res)
+	if len(d.Findings) == 0 {
+		t.Fatal("no findings")
+	}
+	if d.Findings[0].ID == DiagnosisProbablePathMTU {
+		t.Fatalf("finding %s (%q): dial-stage TLS timeout must not correlate with Path MTU as a protocol stall", d.Findings[0].ID, d.Summary)
+	}
+	if d.Findings[0].ID != DiagnosisTLSTimeout {
+		t.Fatalf("finding = %s %q, want %s", d.Findings[0].ID, d.Summary, DiagnosisTLSTimeout)
+	}
+}
+
+// A TLS timeout after the probe's own TCP connection opened still correlates
+// with a Path MTU warning as a protocol stall.
+func TestTLSHandshakeTimeoutStillCountsAsPathMTUProtocolStall(t *testing.T) {
+	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, bool, error) {
+		return nil, true, context.DeadlineExceeded
+	}}
+	target := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
+	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTPS}
+	res := map[ProbeID]ProbeResult{
+		ProbeIface:     {Status: StatusPass},
+		ProbeInternet:  {Status: StatusPass},
+		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("192.0.2.1")}},
+		ProbeTargetTCP: {Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.1")},
+		ProbePMTU:      {Status: StatusWarn, Detail: "stalled without draining the send buffer"},
+		ProbeHTTPS:     {Status: StatusSkip},
+	}
+	res[ProbeTLS] = ops.tlsProbe("example.com", 443)(context.Background(), res)
+	if res[ProbeTLS].Cause != TLSCauseTimeout || !res[ProbeTLS].tlsTCPEstablished {
+		t.Fatalf("TLS row = %+v (established %v), want post-connect timeout", res[ProbeTLS], res[ProbeTLS].tlsTCPEstablished)
+	}
+	d := Interpret(target, order, res)
+	if len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisProbablePathMTU {
+		t.Fatalf("finding = %+v, want %s for handshake stall + PMTU warn", d.Findings, DiagnosisProbablePathMTU)
 	}
 }

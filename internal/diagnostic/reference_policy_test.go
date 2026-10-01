@@ -111,9 +111,9 @@ func recordingOps(log *egressLog) *netops {
 			log.record(network + " dial to " + addr)
 			return nil, errNoNetworkInThisTest
 		},
-		dialTLS: func(_ context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+		dialTLS: func(_ context.Context, network, addr string, cfg *tls.Config) (net.Conn, bool, error) {
 			log.record(network + " TLS dial to " + addr + " as " + cfg.ServerName)
-			return nil, errNoNetworkInThisTest
+			return nil, false, errNoNetworkInThisTest
 		},
 		quicHandshake: func(context.Context, net.Conn, *tls.Config) (quicState, error) {
 			log.record("QUIC handshake")

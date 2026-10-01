@@ -223,6 +223,12 @@ type ProbeResult struct {
 	// the PMTU black-hole correlation. TLS reports the same fact through
 	// Cause, so it has no flag of its own.
 	timedOut bool
+	// tlsTCPEstablished is true when the TLS probe's own TCP connection opened
+	// before the handshake ran (or failed). A TLSCauseTimeout with this false
+	// is a dial-stage timeout and must not count as a protocol stall for Path
+	// MTU correlation. Zero means the dial did not connect (or the fact was
+	// never recorded).
+	tlsTCPEstablished bool
 	// clockOffset is this machine's clock minus the Date of a connectivity
 	// endpoint's documented clean response: positive when the local clock runs
 	// fast. Zero means there was no usable reading, which behaves the same as a
@@ -501,7 +507,7 @@ type netops struct {
 	// real socket, which is how the PMTU probe picks its inference.
 	queued       func(net.Conn) (int, error)
 	tcpMSS       func(net.Conn) (int, error)
-	dialTLS      func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error)
+	dialTLS      func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, bool, error)
 	tlsRootCAs   *x509.CertPool
 	ssid         func(ctx context.Context, iface string) string
 	proxyFromEnv func(*http.Request) (*url.URL, error)
@@ -554,9 +560,22 @@ var defaultOps = &netops{
 	sendBuffer:    socketSendBuffer,
 	queued:        socketQueued,
 	tcpMSS:        socketMSS,
-	dialTLS: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-		d := tls.Dialer{NetDialer: new(net.Dialer), Config: cfg}
-		return d.DialContext(ctx, network, addr)
+	dialTLS: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, bool, error) {
+		// Dial TCP first so a timeout before connect is distinguishable from a
+		// handshake stall after the socket is up. tls.Dialer alone hides that.
+		raw, err := new(net.Dialer).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, false, err
+		}
+		if cfg == nil {
+			cfg = &tls.Config{}
+		}
+		tc := tls.Client(raw, cfg)
+		if err := tc.HandshakeContext(ctx); err != nil {
+			_ = tc.Close()
+			return nil, true, err
+		}
+		return tc, true, nil
 	},
 	ssid:         ssid,
 	proxyFromEnv: proxyFromEnvironment,

@@ -171,6 +171,7 @@ func replayResult(id ProbeID, status Status, check snapshot.Check) (ProbeResult,
 	result.timedOut = observed.Timeout
 	result.ifaceAmbiguous = observed.InterfaceAmbiguous
 	result.ConnectCleartext = observed.ConnectCleartext
+	result.tlsTCPEstablished = observed.TLSTCPEstablished
 	if observed.Families != nil {
 		if err := replayFamilies(observed.Families); err != nil {
 			return ProbeResult{}, err

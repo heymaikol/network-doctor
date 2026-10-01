@@ -155,6 +155,7 @@ func observedFrom(r ProbeResult) *snapshot.Observed {
 		Timeout:            r.timedOut,
 		InterfaceAmbiguous: r.ifaceAmbiguous,
 		ConnectCleartext:   r.ConnectCleartext,
+		TLSTCPEstablished:  r.tlsTCPEstablished,
 	}
 	for _, ip := range r.Addrs {
 		o.Addresses = append(o.Addresses, ip.String())

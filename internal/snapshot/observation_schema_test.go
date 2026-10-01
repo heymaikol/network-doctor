@@ -41,6 +41,7 @@ var observationValidationPolicy = map[string]string{
 	"Observed.InterfaceAmbiguous": "opaque: observation, not a count or list of interfaces",
 	"Observed.Routes":             "parent: validateObservedRoute for each decision",
 	"Observed.ConnectCleartext":   "opaque: positive transport observation; false proves nothing; no probe-ID restriction",
+	"Observed.TLSTCPEstablished":  "opaque: positive TLS dial observation; false with timeout means dial-stage; no probe-ID restriction",
 	"Families.IPv4":               "structural: absent, reachable or unreachable",
 	"Families.IPv6":               "structural: absent, reachable or unreachable",
 	"Portal.RedirectURL":          "opaque: optional display link; support policy may replace it with a non-URL marker",

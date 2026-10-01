@@ -27,17 +27,17 @@ func opsFromSources(sources *SourceAddresses) *netops {
 	}
 	o.sources = copySources
 	o.dialContext = dialContextFromSources(copySources)
-	o.dialTLS = func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+	o.dialTLS = func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, bool, error) {
 		conn, err := o.dialContext(ctx, network, addr)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		tlsConn := tls.Client(conn, cfg)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			_ = conn.Close()
-			return nil, err
+			_ = tlsConn.Close()
+			return nil, true, err
 		}
-		return tlsConn, nil
+		return tlsConn, true, nil
 	}
 	o.lookupIP = func(ctx context.Context, host string) ([]net.IP, []string, error) {
 		return lookupIPWithDial(ctx, host, o.dialContext)

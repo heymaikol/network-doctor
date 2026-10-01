@@ -563,7 +563,7 @@ func (r *redactor) check(c Check) Check {
 		SourceIP: r.address(o.SourceIP), Interface: r.alias("interface", o.Interface),
 		SSID: r.alias("ssid", o.SSID), Timeout: o.Timeout,
 		InterfaceAmbiguous: o.InterfaceAmbiguous, ClockOffsetMs: o.ClockOffsetMs,
-		ConnectCleartext: o.ConnectCleartext,
+		ConnectCleartext: o.ConnectCleartext, TLSTCPEstablished: o.TLSTCPEstablished,
 	}
 	for _, target := range o.ResolverTargets {
 		observed.ResolverTargets = append(observed.ResolverTargets, r.resolverTarget(target))

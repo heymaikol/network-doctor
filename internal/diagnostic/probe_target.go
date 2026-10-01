@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -241,6 +242,65 @@ func dialTLSWith(dial func(ctx context.Context, network, addr string) (net.Conn,
 	}
 }
 
+// h2ResponseConn passes an HTTP/2 connection's decrypted bytes through to the
+// transport untouched and sets answered at the first HEADERS or DATA frame
+// header on stream 1. The transport keeps every decision about the protocol;
+// this only splits the stream at frame boundaries, holding at most one frame
+// header. Stream 1 is this request's: a client opens its streams from 1, and a
+// transport with DisableKeepAlives makes each HTTP/2 connection single use, so
+// a retried request gets a new connection and a new stream 1. Frames on stream
+// 0 manage the connection, and other types on stream 1 carry no response.
+type h2ResponseConn struct {
+	*tls.Conn
+	answered *atomic.Bool
+
+	checked, h2 bool
+	hdr         [9]byte
+	have        int // bytes of hdr read so far
+	skip        int // payload bytes left in the current frame, under 1<<24
+}
+
+// Read is called only by the transport's single read loop, after the
+// handshake, so the negotiated protocol is known on the first call.
+func (c *h2ResponseConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if !c.checked {
+		c.checked = true
+		c.h2 = c.ConnectionState().NegotiatedProtocol == "h2"
+	}
+	for b := p[:n]; c.h2 && len(b) > 0; {
+		if c.skip > 0 {
+			k := min(c.skip, len(b))
+			b, c.skip = b[k:], c.skip-k
+			continue
+		}
+		k := copy(c.hdr[c.have:], b)
+		b, c.have = b[k:], c.have+k
+		if c.have < len(c.hdr) {
+			break
+		}
+		c.have = 0
+		c.skip = int(c.hdr[0])<<16 | int(c.hdr[1])<<8 | int(c.hdr[2])
+		// Type 0 is DATA and 1 is HEADERS; the top stream ID bit is reserved.
+		if typ, id := c.hdr[3], binary.BigEndian.Uint32(c.hdr[5:])&(1<<31-1); id == 1 && typ <= 1 {
+			c.answered.Store(true)
+			c.h2 = false
+		}
+	}
+	return n, err
+}
+
+// Close keeps the HTTP/2 transport's bound on closing an unresponsive peer,
+// which it applies only to a bare *tls.Conn: the close_notify alert gets 250ms
+// before the connection underneath is closed.
+func (c *h2ResponseConn) Close() error {
+	if c.ConnectionState().NegotiatedProtocol == "h2" {
+		t := time.AfterFunc(250*time.Millisecond, func() { _ = c.NetConn().Close() })
+		defer t.Stop()
+	}
+	return c.Conn.Close()
+}
+
 func tlsFailureCause(err error, now time.Time) string {
 	var (
 		hostErr x509.HostnameError
@@ -290,25 +350,37 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		var dialMu sync.Mutex
 		var dialIP net.IP
 		var dialAttempts []Attempt
-		tr := &http.Transport{
-			Proxy:             nil,
-			ForceAttemptHTTP2: true,
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				conn, selected, attempts, _ := o.dialIPs(ctx, addrs, port)
-				dialMu.Lock()
-				dialIP, dialAttempts = selected, attempts
-				dialMu.Unlock()
-				if conn == nil {
-					if len(attempts) > 0 && attempts[len(attempts)-1].Err != nil {
-						return nil, attempts[len(attempts)-1].Err
-					}
-					return nil, fmt.Errorf("all %s addresses failed", protocol)
+		var answered, started atomic.Bool
+		dial := func(ctx context.Context, _, _ string) (net.Conn, error) {
+			conn, selected, attempts, _ := o.dialIPs(ctx, addrs, port)
+			dialMu.Lock()
+			dialIP, dialAttempts = selected, attempts
+			dialMu.Unlock()
+			if conn == nil {
+				if len(attempts) > 0 && attempts[len(attempts)-1].Err != nil {
+					return nil, attempts[len(attempts)-1].Err
 				}
-				return conn, nil
-			},
+				return nil, fmt.Errorf("all %s addresses failed", protocol)
+			}
+			return conn, nil
+		}
+		tr := &http.Transport{
+			Proxy:                  nil,
+			ForceAttemptHTTP2:      true,
+			DialContext:            dial,
 			TLSClientConfig:        &tls.Config{ServerName: host, RootCAs: o.tlsRootCAs},
 			MaxResponseHeaderBytes: 64 << 10,
 			DisableKeepAlives:      true,
+		}
+		// The connection goes back without a handshake: the transport runs it
+		// with its own traces, and has already added h2 to the ALPN list of the
+		// config cloned here, as it does for the connections it wraps itself.
+		tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := dial(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &h2ResponseConn{Conn: tls.Client(conn, tr.TLSClientConfig.Clone()), answered: &answered}, nil
 		}
 		client := &http.Client{
 			Transport:     tr,
@@ -318,14 +390,14 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		// GotFirstResponseByte is the evidence that the endpoint answered. HTTP/1
 		// fires it after peeking a byte from the reader above the connection,
 		// which for HTTPS is the decrypted stream, so TLS handshake records
-		// never count; HTTP/2 fires it on a HEADERS frame.
+		// never count. HTTP/2 fires it only once a whole header block decodes,
+		// so h2ResponseConn adds the first frame header of a response.
 		//
 		// started is the evidence that this request's protocol exchange began:
 		// GotConn hands it a connection, and for HTTPS TLSHandshakeStart opens
 		// the handshake first, which GotConn only follows once it completes. A
 		// dial can finish after the deadline, and the transport still handshakes
 		// it or hands it over, so an event counts only before the deadline.
-		var answered, started atomic.Bool
 		begin := func() {
 			if ctx.Err() == nil {
 				started.Store(true)

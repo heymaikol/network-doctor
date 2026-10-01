@@ -327,7 +327,8 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 				r.Cause = ConnectionCauseReset
 				r.Detail = tried + " reset the connection before any " + protocol + " response: " + err.Error()
 				r.Fix = "the endpoint aborted the request: another service on this port, or a server or intermediary rejecting it?"
-			case errors.Is(err, io.EOF):
+			case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+				// HTTP/2 reports a clean close before headers as ErrUnexpectedEOF.
 				r.Cause = ConnectionCauseClosed
 				r.Detail = tried + " closed the connection before any " + protocol + " response: " + err.Error()
 				r.Fix = "the endpoint aborted the request: another service on this port, or a server or intermediary rejecting it?"

@@ -3209,11 +3209,13 @@ func TestHTTPSProbeDistinguishesFailuresBeforeAResponse(t *testing.T) {
 				client, server := net.Pipe()
 				go func() {
 					conn := tls.Server(server, &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"http/1.1"}})
-					defer conn.Close()
+					defer func() { _ = conn.Close() }()
 					if _, err := http.ReadRequest(bufio.NewReader(conn)); err == nil {
 						_, _ = conn.Write([]byte(tc.reply))
-						if tc.stall {
-							_, _ = conn.Read(make([]byte, 1))
+						// Wait for the client to close first: on a net.Pipe two
+						// close_notify alerts with no reader block for 5s.
+						if tc.reply != "" {
+							_, _ = io.Copy(io.Discard, conn)
 						}
 					}
 				}()
@@ -3230,5 +3232,65 @@ func TestHTTPSProbeDistinguishesFailuresBeforeAResponse(t *testing.T) {
 				t.Fatalf("HTTPS %s = %+v, want FAIL with %q", tc.name, r, tc.cause)
 			}
 		})
+	}
+}
+
+// The HTTP/2 transport reports a clean close before response headers as
+// io.ErrUnexpectedEOF, not io.EOF; it is still a close, not silence.
+func TestHTTP2ProbeCloseBeforeHeadersIsAClose(t *testing.T) {
+	const host = "h2.example"
+	cert, roots := selfSignedCert(t, host)
+	negotiated := make(chan string, 1)
+	ops := &netops{tlsRootCAs: roots, dialContext: func(context.Context, string, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		go func() {
+			conn := tls.Server(server, &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2"}})
+			defer func() { _ = conn.Close() }()
+			if conn.Handshake() != nil {
+				return
+			}
+			negotiated <- conn.ConnectionState().NegotiatedProtocol
+			// Read the client preface, then frames until the request's
+			// HEADERS, and close without sending a frame back.
+			if _, err := io.ReadFull(conn, make([]byte, len("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))); err != nil {
+				return
+			}
+			for {
+				var hdr [9]byte
+				if _, err := io.ReadFull(conn, hdr[:]); err != nil {
+					return
+				}
+				n := int(hdr[0])<<16 | int(hdr[1])<<8 | int(hdr[2])
+				if _, err := io.ReadFull(conn, make([]byte, n)); err != nil || hdr[3] == 0x1 {
+					return
+				}
+			}
+		}()
+		return client, nil
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	r := ops.httpProbe(host, 443, "https", ProbeTLS)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
+	if proto := <-negotiated; proto != "h2" {
+		t.Fatalf("negotiated %q, want h2", proto)
+	}
+	// connection_closed ranks below the answered branch, so it also proves
+	// no response byte was seen.
+	if r.Status != StatusFail || r.Cause != ConnectionCauseClosed || r.timedOut {
+		t.Fatalf("result = %+v (timedOut %v), want FAIL with %q", r, r.timedOut, ConnectionCauseClosed)
+	}
+	target := &Target{Raw: host, Host: host, Port: 443, Proto: ProtoTLSHTTP}
+	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbeTLS, ProbeHTTPS}
+	res := map[ProbeID]ProbeResult{ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusPass},
+		ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass}, ProbeTLS: {Status: StatusPass}, ProbeHTTPS: r}
+	d := Interpret(target, order, res)
+	rem, _ := Remediate(d, res, "linux")
+	if d.Findings[0].ID != DiagnosisHTTPConnectionClosed || !strings.Contains(d.Summary, "closed the connection") {
+		t.Errorf("finding %s %q, want %s describing a close", d.Findings[0].ID, d.Summary, DiagnosisHTTPConnectionClosed)
+	}
+	for _, s := range []string{d.Summary, rem.Why} {
+		if s = strings.ToLower(s); strings.Contains(s, "no http response") || strings.Contains(s, "holding") {
+			t.Errorf("%q describes silence, want a close", s)
+		}
 	}
 }

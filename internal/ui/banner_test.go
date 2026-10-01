@@ -50,7 +50,9 @@ func TestBannerFailureGuidance(t *testing.T) {
 	// A handshake that ran out of time rather than failing outright. It is the
 	// half of the black-hole correlation the protocol rows contribute.
 	stalled := func(fix string) diagnostic.ProbeResult {
-		return diagnostic.ProbeResult{Status: diagnostic.StatusFail, Fix: fix, Cause: diagnostic.TLSCauseTimeout}
+		r := diagnostic.ProbeResult{Status: diagnostic.StatusFail, Fix: fix, Cause: diagnostic.TLSCauseTimeout}
+		r.SetProtocolTimeout(true)
+		return r
 	}
 	// Fix strings are the real ones the probes emit, so a case reads like a
 	// screen a user would actually see.
@@ -354,6 +356,9 @@ func blackHoleModel(t *testing.T) model {
 		if !ok {
 			r = diagnostic.ProbeResult{Status: diagnostic.StatusPass}
 		}
+		// The TLS row stalled on an open connection, the half of the
+		// correlation the protocol rows contribute.
+		r.SetProtocolTimeout(p.ID == diagnostic.ProbeTLS)
 		r.ID = p.ID
 		m.results[p.ID] = r
 	}

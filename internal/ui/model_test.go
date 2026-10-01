@@ -1121,6 +1121,7 @@ func TestCompletionSelectsBlamedRow(t *testing.T) {
 	// verdict correlates with the Path MTU warning.
 	stall := func(r *diagnostic.ProbeResult) {
 		r.Status, r.Cause = diagnostic.StatusFail, diagnostic.TLSCauseTimeout
+		r.SetProtocolTimeout(true)
 	}
 	breakTLS := func(r *diagnostic.ProbeResult) { r.Status = diagnostic.StatusFail }
 

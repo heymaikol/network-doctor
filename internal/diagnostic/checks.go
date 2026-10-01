@@ -219,9 +219,11 @@ type ProbeResult struct {
 	// there. False therefore means "not recorded", never "no cleartext hostname
 	// was sent".
 	ConnectCleartext bool
-	// timedOut marks an HTTP/HTTPS failure that was a timeout, which is half
-	// the PMTU black-hole correlation. TLS reports the same fact through
-	// Cause, so it has no flag of its own.
+	// timedOut marks a protocol exchange that timed out, which is half the
+	// PMTU black-hole correlation. For HTTP/HTTPS that is any timeout. TLS
+	// records it only for a handshake that timed out on a connection the probe
+	// opened: its timeout Cause also covers the probe's own dial, which
+	// exchanged no TLS at all.
 	timedOut bool
 	// clockOffset is this machine's clock minus the Date of a connectivity
 	// endpoint's documented clean response: positive when the local clock runs
@@ -554,12 +556,9 @@ var defaultOps = &netops{
 	sendBuffer:    socketSendBuffer,
 	queued:        socketQueued,
 	tcpMSS:        socketMSS,
-	dialTLS: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-		d := tls.Dialer{NetDialer: new(net.Dialer), Config: cfg}
-		return d.DialContext(ctx, network, addr)
-	},
-	ssid:         ssid,
-	proxyFromEnv: proxyFromEnvironment,
+	dialTLS:       dialTLSWith(new(net.Dialer).DialContext),
+	ssid:          ssid,
+	proxyFromEnv:  proxyFromEnvironment,
 	portalCheck: func(ctx context.Context, ep portalEndpoint) (portalObservation, error) {
 		return portalCheckWithDial(ctx, ep, new(net.Dialer).DialContext)
 	},

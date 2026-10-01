@@ -563,7 +563,7 @@ func diagnosisMatrix() []matrixCase {
 			name: "path MTU black hole", target: tls, order: webOrder,
 			res: with(map[ProbeID]ProbeResult{
 				ProbePMTU:  ok(StatusWarn),
-				ProbeTLS:   {Status: StatusFail, Cause: TLSCauseTimeout},
+				ProbeTLS:   {Status: StatusFail, Cause: TLSCauseTimeout, timedOut: true},
 				ProbeHTTPS: {Status: StatusSkip},
 			}),
 			summary: "TCP reaches example.com:443 but the protocol and bulk-transfer checks both stall, which is evidence of a path MTU black hole rather than a broken service (see the Path MTU row).",

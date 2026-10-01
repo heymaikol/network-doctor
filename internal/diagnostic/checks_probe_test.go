@@ -3337,3 +3337,106 @@ func TestTLSDialTimeoutSummaryIsStageNeutral(t *testing.T) {
 		}
 	}
 }
+
+// The TLS probe's own TCP dial timing out is not a TLS exchange stalling, so
+// only a handshake that timed out on a connection the probe opened is half of
+// the path-MTU correlation. A passing endpoint row is a separate connection
+// and proves nothing about this one. The cases run the production dialTLS
+// around a scripted dial, so the stage comes from where the probe failed.
+func TestTLSTimeoutJoinsPathMTUCorrelationOnlyAfterConnecting(t *testing.T) {
+	cases := []struct {
+		name        string
+		dial        func(context.Context, string, string) (net.Conn, error)
+		cause       string
+		stalled     bool
+		withPMTU    DiagnosisID
+		withoutPMTU DiagnosisID
+	}{
+		{name: "dial timeout", dial: func(context.Context, string, string) (net.Conn, error) {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}
+		}, cause: TLSCauseTimeout, withPMTU: DiagnosisTLSTimeout, withoutPMTU: DiagnosisTLSTimeout},
+		{name: "handshake timeout", dial: func(context.Context, string, string) (net.Conn, error) {
+			client, server := net.Pipe()
+			go func() { _, _ = io.Copy(io.Discard, server) }()
+			return client, nil
+		}, cause: TLSCauseTimeout, stalled: true, withPMTU: DiagnosisProbablePathMTU, withoutPMTU: DiagnosisTLSTimeout},
+		{name: "dial refused", dial: func(context.Context, string, string) (net.Conn, error) {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+		}, cause: TLSCauseTCPUnreachable, withPMTU: DiagnosisTLSTCPUnreachable, withoutPMTU: DiagnosisTLSTCPUnreachable},
+		// The far end answering by closing is an answer, never a stall.
+		{name: "closed during handshake", dial: func(context.Context, string, string) (net.Conn, error) {
+			client, server := net.Pipe()
+			go func() {
+				// Read the whole ClientHello record, then hang up.
+				header := make([]byte, 5)
+				if _, err := io.ReadFull(server, header); err == nil {
+					_, _ = io.CopyN(io.Discard, server, int64(header[3])<<8|int64(header[4]))
+				}
+				_ = server.Close()
+			}()
+			return client, nil
+		}, cause: TLSCauseConnectionClosed, withPMTU: DiagnosisTLSConnectionClosed, withoutPMTU: DiagnosisTLSConnectionClosed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := matrixCaseNamed(t, "TLS timed out with a healthy path")
+			ops := &netops{dialTLS: dialTLSWith(tc.dial)}
+			res := maps.Clone(c.res)
+			res[ProbeTargetTCP] = ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.1")}
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			r := ops.tlsProbe("example.com", 443)(ctx, res)
+			if r.Status != StatusFail || r.Cause != tc.cause || r.timedOut != tc.stalled {
+				t.Fatalf("TLS result = %+v (timedOut %v), want FAIL with %q and timedOut %v", r, r.timedOut, tc.cause, tc.stalled)
+			}
+			res[ProbeTLS] = r
+			d := Interpret(c.target, c.order, res)
+			if d.Findings[0].ID != tc.withoutPMTU {
+				t.Errorf("without a PMTU warning, finding = %s, want %s", d.Findings[0].ID, tc.withoutPMTU)
+			}
+			if tc.cause == TLSCauseTimeout && d.Summary != c.summary {
+				t.Errorf("summary = %q, want the stage-neutral %q", d.Summary, c.summary)
+			}
+			res[ProbePMTU] = ProbeResult{Status: StatusWarn}
+			d = Interpret(c.target, c.order, res)
+			if d.Findings[0].ID != tc.withPMTU {
+				t.Fatalf("with a PMTU warning, finding = %s %q, want %s", d.Findings[0].ID, d.Summary, tc.withPMTU)
+			}
+			if tc.withPMTU == DiagnosisTLSTimeout && d.Summary != c.summary {
+				t.Errorf("summary = %q, want the stage-neutral %q", d.Summary, c.summary)
+			}
+			if tc.withPMTU == DiagnosisProbablePathMTU && (d.Verdict != VerdictNetwork || d.Findings[0].Focus != ProbePMTU) {
+				t.Errorf("verdict %s focus %s, want %s focus %s", d.Verdict, d.Findings[0].Focus, VerdictNetwork, ProbePMTU)
+			}
+			// Replay recomputes the diagnosis from the artifact alone, so the
+			// stage has to travel in it.
+			probes := make([]Probe, len(c.order))
+			for i, id := range c.order {
+				probes[i] = Probe{ID: id, Name: string(id)}
+			}
+			data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(c.target, probes, timedResults(res))))
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact, err := snapshot.Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			replayed, err := ReplaySnapshot(artifact)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertDiagnosisSemantics(t, replayed, d)
+		})
+	}
+	// Marking the stage hides nothing the classifier reads.
+	if got := tlsFailureCause(tlsHandshakeError{x509.UnknownAuthorityError{}}, time.Now()); got != TLSCauseUntrustedIssuer {
+		t.Errorf("a rejected certificate from the handshake classifies as %q, want %q", got, TLSCauseUntrustedIssuer)
+	}
+	// A completed handshake records no stall.
+	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) { return fakeConn{}, nil }}
+	r := ops.tlsProbe("example.com", 443)(context.Background(), map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}})
+	if r.Status != StatusPass || r.timedOut {
+		t.Errorf("successful TLS = %+v (timedOut %v), want PASS with no stall", r, r.timedOut)
+	}
+}

@@ -107,13 +107,6 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	pass := func(id ProbeID) bool { r, ok := res[id]; return ok && r.Status == StatusPass }
 	fail := func(id ProbeID) bool { r, ok := res[id]; return ok && r.Status == StatusFail }
 	warn := func(id ProbeID) bool { r, ok := res[id]; return ok && r.Status == StatusWarn }
-	// Each protocol probe reports a timeout in the vocabulary it has: TLS
-	// classifies every handshake failure into a Cause, HTTP and HTTPS have no
-	// such taxonomy and carry a plain flag.
-	timedOut := func(id ProbeID) bool {
-		r, ok := res[id]
-		return ok && (r.timedOut || r.Cause == TLSCauseTimeout)
-	}
 	directOK := func() bool { return directEgressOK(res) }
 	// observed turns one probe result into the most specific typed fact it
 	// carries. The result remains the observation store; this only identifies
@@ -469,7 +462,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	// verdict.
 	var stalled []ProbeID
 	for _, id := range []ProbeID{ProbeTLS, ProbeHTTP, ProbeHTTPS} {
-		if fail(id) && timedOut(id) {
+		if fail(id) && res[id].timedOut {
 			stalled = append(stalled, id)
 		}
 	}

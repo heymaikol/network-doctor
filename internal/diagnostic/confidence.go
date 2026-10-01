@@ -183,8 +183,13 @@ var diagnosisConfidence = map[DiagnosisID]confidenceClass{
 
 	// The application on a working connection. Each of these is silence at a
 	// protocol: real, and no more specific than the rung it happened on.
-	DiagnosisHTTPSNoResponse:      classInferred,
-	DiagnosisHTTPNoResponse:       classInferred,
+	DiagnosisHTTPSNoResponse: classInferred,
+	DiagnosisHTTPNoResponse:  classInferred,
+	// A close is observed, but not why the endpoint chose it.
+	DiagnosisHTTPConnectionClosed: classInferred,
+	// Bytes that arrived and could not be read are the condition itself,
+	// whatever put them on the port.
+	DiagnosisInvalidHTTPResponse:  classObserved,
 	DiagnosisServiceBannerFailure: classInferred,
 	DiagnosisServiceBannerMissing: classInferred,
 

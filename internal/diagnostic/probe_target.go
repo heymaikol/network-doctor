@@ -10,9 +10,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -285,7 +287,13 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		}
 		url := scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port))
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+		// GotFirstResponseByte is the evidence that the endpoint answered. HTTP/1
+		// fires it after peeking a byte from the reader above the connection,
+		// which for HTTPS is the decrypted stream, so TLS handshake records
+		// never count; HTTP/2 fires it on a HEADERS frame.
+		var answered atomic.Bool
+		trace := &httptrace.ClientTrace{GotFirstResponseByte: func() { answered.Store(true) }}
+		req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodHead, url, nil)
 		if err != nil {
 			r.Status, r.Detail = StatusFail, "cannot build request: "+err.Error()
 			return r
@@ -297,9 +305,6 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		if err != nil {
 			r.Status = StatusFail
 			r.timedOut = timeoutError(err)
-			if errors.Is(err, syscall.ECONNRESET) {
-				r.Cause = ConnectionCauseReset
-			}
 			// Name the winner if one address connected and the failure came
 			// later, otherwise everything tried.
 			tried := joinIPs(addrs)
@@ -308,6 +313,25 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 			}
 			r.Detail = "no " + protocol + " response from " + tried + ": " + err.Error()
 			r.Fix = protocol + " blocked: proxy or firewall?"
+			// Bytes arriving outrank how the attempt ended: an endpoint that
+			// answered and then closed, reset, or stalled still answered, with
+			// something unreadable. timedOut is recorded beside the cause, so
+			// a stall after bytes still counts for the PMTU correlation.
+			switch {
+			case answered.Load():
+				r.Cause = HTTPCauseInvalidResponse
+				r.Detail = protocol + " response from " + tried + " could not be read: " + err.Error()
+				r.Fix = "the endpoint answered, but not with a readable " + protocol + " response: another service on this port, or a broken server or intermediary?"
+			case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE):
+				// EPIPE is a write to a connection the peer already reset.
+				r.Cause = ConnectionCauseReset
+				r.Detail = tried + " reset the connection before any " + protocol + " response: " + err.Error()
+				r.Fix = "the endpoint aborted the request: another service on this port, or a server or intermediary rejecting it?"
+			case errors.Is(err, io.EOF):
+				r.Cause = ConnectionCauseClosed
+				r.Detail = tried + " closed the connection before any " + protocol + " response: " + err.Error()
+				r.Fix = "the endpoint aborted the request: another service on this port, or a server or intermediary rejecting it?"
+			}
 			return r
 		}
 		_ = resp.Body.Close()

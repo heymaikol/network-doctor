@@ -6,6 +6,7 @@ package diagnostic
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -2179,7 +2180,7 @@ func TestHTTPProbeHeaderLimit(t *testing.T) {
 	defer cancel()
 
 	r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP)(ctx, deps)
-	if r.Status != StatusFail || !strings.Contains(r.Detail, "no HTTP response from 192.0.2.1") || !strings.Contains(r.Detail, "exceeded") {
+	if r.Status != StatusFail || r.Cause != HTTPCauseInvalidResponse || !strings.Contains(r.Detail, "HTTP response from 192.0.2.1 could not be read") || !strings.Contains(r.Detail, "exceeded") {
 		t.Errorf("oversized headers = %+v, want FAIL naming the address and the exceeded header limit", r)
 	}
 }
@@ -3059,6 +3060,174 @@ func TestInternetProbeSaysWhichPartOfAnEndpointAnswerDiffered(t *testing.T) {
 			}
 			if replayed.Summary != want {
 				t.Errorf("replayed summary:\n got %q\nwant %q", replayed.Summary, want)
+			}
+		})
+	}
+}
+
+// pipeHTTPServer is a netops.dialContext whose far end reads the request's
+// header block and then hands the connection to respond. Everything happens
+// over net.Pipe, so nothing binds a port and nothing waits on a clock.
+func pipeHTTPServer(respond func(net.Conn)) func(context.Context, string, string) (net.Conn, error) {
+	return func(context.Context, string, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		go func() {
+			defer server.Close()
+			br := bufio.NewReader(server)
+			for {
+				line, err := br.ReadString('\n')
+				if err != nil {
+					return
+				}
+				if line == "\r\n" {
+					break
+				}
+			}
+			respond(server)
+		}()
+		return client, nil
+	}
+}
+
+// eofResetConn reads a clean close as a TCP reset, which net.Pipe cannot
+// produce, wrapped the way the kernel error reaches the transport.
+type eofResetConn struct{ net.Conn }
+
+func (c eofResetConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if errors.Is(err, io.EOF) {
+		err = &net.OpError{Op: "read", Net: "tcp", Err: &os.SyscallError{Syscall: "read", Err: syscall.ECONNRESET}}
+	}
+	return n, err
+}
+
+// Issue #212: silence, a close or reset before any response, and response
+// bytes that cannot be read as HTTP are different failures, and only silence
+// may be described as no response or a held request. Bytes arriving outrank how
+// the connection then ended, so a reset after them is still an invalid
+// response. An HTTP error status is still a response.
+func TestHTTPProbeDistinguishesFailuresBeforeAResponse(t *testing.T) {
+	cases := []struct {
+		name     string
+		respond  func(net.Conn)
+		reset    bool
+		timeout  time.Duration
+		status   Status
+		cause    string
+		timedOut bool
+		id       DiagnosisID
+		says     string
+	}{
+		{name: "invalid status line", respond: func(c net.Conn) { _, _ = c.Write([]byte("THIS IS NOT HTTP\r\n\r\n")) },
+			status: StatusFail, cause: HTTPCauseInvalidResponse, id: DiagnosisInvalidHTTPResponse, says: "answered"},
+		{name: "oversized headers", respond: func(c net.Conn) {
+			_, _ = c.Write([]byte("HTTP/1.1 200 OK\r\nX-Big: " + strings.Repeat("a", 128<<10) + "\r\n\r\n"))
+		}, status: StatusFail, cause: HTTPCauseInvalidResponse, id: DiagnosisInvalidHTTPResponse, says: "answered"},
+		{name: "reset after response bytes", respond: func(c net.Conn) { _, _ = c.Write([]byte("HTTP/1.1 200")) }, reset: true,
+			status: StatusFail, cause: HTTPCauseInvalidResponse, id: DiagnosisInvalidHTTPResponse, says: "answered"},
+		{name: "silence", respond: func(c net.Conn) { _, _ = c.Read(make([]byte, 1)) }, timeout: 100 * time.Millisecond,
+			status: StatusFail, timedOut: true, id: DiagnosisHTTPNoResponse, says: "No HTTP response"},
+		// The deadline ends it, but bytes already arrived: still an answer,
+		// and still a timeout.
+		{name: "response bytes then silence", respond: func(c net.Conn) {
+			_, _ = c.Write([]byte("HTTP/1.1 200"))
+			_, _ = c.Read(make([]byte, 1))
+		}, timeout: 100 * time.Millisecond,
+			status: StatusFail, cause: HTTPCauseInvalidResponse, timedOut: true, id: DiagnosisInvalidHTTPResponse, says: "answered"},
+		{name: "clean close", respond: func(net.Conn) {},
+			status: StatusFail, cause: ConnectionCauseClosed, id: DiagnosisHTTPConnectionClosed, says: "then closed it"},
+		{name: "reset", respond: func(net.Conn) {}, reset: true,
+			status: StatusFail, cause: ConnectionCauseReset, id: DiagnosisHTTPConnectionClosed, says: "then reset it"},
+		{name: "404", respond: func(c net.Conn) { _, _ = c.Write([]byte("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")) },
+			status: StatusPass},
+	}
+	silent := func(s string) bool {
+		s = strings.ToLower(s)
+		return strings.Contains(s, "no http response") || strings.Contains(s, "holding")
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dial := pipeHTTPServer(tc.respond)
+			ops := &netops{dialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				c, err := dial(ctx, network, addr)
+				if tc.reset {
+					c = eofResetConn{c}
+				}
+				return c, err
+			}}
+			deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+			timeout := cmp.Or(tc.timeout, 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP)(ctx, deps)
+			if r.Status != tc.status || r.Cause != tc.cause || r.timedOut != tc.timedOut {
+				t.Fatalf("result = %+v (timedOut %v), want status %v cause %q timedOut %v", r, r.timedOut, tc.status, tc.cause, tc.timedOut)
+			}
+			if r.Status == StatusPass {
+				return
+			}
+			target := &Target{Raw: "example.com", Host: "example.com", Port: 80, Proto: ProtoHTTP}
+			order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbeHTTP}
+			res := map[ProbeID]ProbeResult{ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusPass},
+				ProbeDNS: {Status: StatusPass}, ProbeTargetTCP: {Status: StatusPass}, ProbeHTTP: r}
+			d := Interpret(target, order, res)
+			rem, _ := Remediate(d, res, "linux")
+			if d.Findings[0].ID != tc.id || !strings.Contains(d.Summary, tc.says) {
+				t.Errorf("finding %s %q, want %s saying %q", d.Findings[0].ID, d.Summary, tc.id, tc.says)
+			}
+			if got, want := silent(d.Summary) || silent(rem.Why), tc.id == DiagnosisHTTPNoResponse; got != want {
+				t.Errorf("summary %q / remediation %q: claims silence = %v, want %v", d.Summary, rem.Why, got, want)
+			}
+			// A timeout, whatever arrived before it, is half of the path-MTU
+			// correlation; an immediate failure is not.
+			res[ProbePMTU] = ProbeResult{Status: StatusWarn}
+			order = append(order, ProbePMTU)
+			if got := Interpret(target, order, res).Findings[0].ID == DiagnosisProbablePathMTU; got != tc.timedOut {
+				t.Errorf("with a PMTU warning, path-MTU finding = %v, want %v", got, tc.timedOut)
+			}
+		})
+	}
+}
+
+// HTTPS gets the same classification from decrypted application bytes, never
+// from the TLS records that carried the handshake.
+func TestHTTPSProbeDistinguishesFailuresBeforeAResponse(t *testing.T) {
+	const host = "invalid.example"
+	cert, roots := selfSignedCert(t, host)
+	for _, tc := range []struct {
+		name  string
+		reply string
+		cause string
+		stall bool
+	}{
+		{"invalid", "THIS IS NOT HTTP\r\n\r\n", HTTPCauseInvalidResponse, false},
+		{"clean close", "", ConnectionCauseClosed, false},
+		{"response bytes then silence", "HTTP/1.1 200", HTTPCauseInvalidResponse, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := &netops{tlsRootCAs: roots, dialContext: func(context.Context, string, string) (net.Conn, error) {
+				client, server := net.Pipe()
+				go func() {
+					conn := tls.Server(server, &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"http/1.1"}})
+					defer conn.Close()
+					if _, err := http.ReadRequest(bufio.NewReader(conn)); err == nil {
+						_, _ = conn.Write([]byte(tc.reply))
+						if tc.stall {
+							_, _ = conn.Read(make([]byte, 1))
+						}
+					}
+				}()
+				return client, nil
+			}}
+			timeout := 5 * time.Second
+			if tc.stall {
+				timeout = time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			r := ops.httpProbe(host, 443, "https", ProbeTLS)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
+			if r.Status != StatusFail || r.Cause != tc.cause || r.timedOut != tc.stall {
+				t.Fatalf("HTTPS %s = %+v, want FAIL with %q", tc.name, r, tc.cause)
 			}
 		})
 	}

@@ -399,9 +399,10 @@ type Observed struct {
 	// it is gone the moment the process exits.
 	ClockOffsetMs *int64 `json:"clock_offset_ms,omitempty"`
 	// Timeout marks a protocol exchange that failed by timing out rather than
-	// by a refusal or a reset. A TLS row sets it only for a handshake that
-	// timed out on an open connection, not for its own dial timing out, though
-	// both record the timeout Cause.
+	// by a refusal or a reset, after the exchange began on the row's own
+	// connection. A row whose own dial timed out does not set it, though TLS
+	// records the timeout Cause for both. HTTP/HTTPS rows written before this
+	// distinction may set it for a dial timeout, always without a selected IP.
 	Timeout bool `json:"timeout,omitempty"`
 	// InterfaceAmbiguous means the source address resolved to more than one
 	// interface, so Interface above is display text and not a name.

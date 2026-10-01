@@ -311,6 +311,32 @@ func TestReplayedAttemptErrorIsOnlyATypedFailureMarker(t *testing.T) {
 	}
 }
 
+// An artifact written before HTTP/HTTPS told a dial timeout from a stall can
+// record either as a timeout. A missing selected IP proves the dial never
+// connected, so that timeout is dropped; with one the artifact holds nothing
+// finer and the recorded stall stands. TLS already told them apart.
+func TestReplayKeepsAnOldHTTPTimeoutOnlyWithASelectedIP(t *testing.T) {
+	for _, tc := range []struct {
+		id       ProbeID
+		selected string
+		want     bool
+	}{
+		{ProbeHTTP, "", false},
+		{ProbeHTTP, "192.0.2.10", true},
+		{ProbeHTTPS, "", false},
+		{ProbeHTTPS, "192.0.2.10", true},
+		{ProbeTLS, "", true},
+	} {
+		result, err := replayResult(tc.id, StatusFail, snapshot.Check{Observed: &snapshot.Observed{Timeout: true, SelectedIP: tc.selected}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.timedOut != tc.want {
+			t.Errorf("%s with selected IP %q: timedOut = %v, want %v", tc.id, tc.selected, result.timedOut, tc.want)
+		}
+	}
+}
+
 func TestReplayClockOffsetKeepsThresholdSemantics(t *testing.T) {
 	ms := clockSkewThreshold.Milliseconds()
 	result, err := replayResult(ProbeInternet, StatusPass, snapshot.Check{Observed: &snapshot.Observed{ClockOffsetMs: &ms}})

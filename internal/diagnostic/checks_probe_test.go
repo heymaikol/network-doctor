@@ -22,6 +22,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"slices"
@@ -3438,5 +3439,121 @@ func TestTLSTimeoutJoinsPathMTUCorrelationOnlyAfterConnecting(t *testing.T) {
 	r := ops.tlsProbe("example.com", 443)(context.Background(), map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}})
 	if r.Status != StatusPass || r.timedOut {
 		t.Errorf("successful TLS = %+v (timedOut %v), want PASS with no stall", r, r.timedOut)
+	}
+}
+
+// An HTTP or HTTPS probe dials its own connection, so its timeout can come
+// from that dial before any exchange starts, and a passing endpoint row is a
+// separate connection that proves nothing about this one. Only a timeout after
+// the exchange began, whether in the TLS handshake the transport runs on the
+// connection or in the request itself, is half of the path-MTU correlation.
+// The cases run the real httpProbe, so the stage comes from where it failed,
+// and a trace on the request shows which stage that was.
+func TestHTTPTimeoutJoinsPathMTUCorrelationOnlyAfterConnecting(t *testing.T) {
+	const host = "stall.example"
+	cert, roots := selfSignedCert(t, host)
+	ip := net.ParseIP("192.0.2.10")
+	// The transport detaches its dial from the request context and cancels it
+	// once the request gives up, so a dial that never connects returns then.
+	dialStall := func(ctx context.Context, _, _ string) (net.Conn, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	// The connection opens and the far end reads everything without a word.
+	silent := func(context.Context, string, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		go func() { _, _ = io.Copy(io.Discard, server) }()
+		return client, nil
+	}
+	// The TLS handshake completes and the request is read, but never answered.
+	tlsSilent := func(context.Context, string, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		go func() {
+			conn := tls.Server(server, &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"http/1.1"}})
+			_, _ = io.Copy(io.Discard, conn)
+		}()
+		return client, nil
+	}
+	for _, tc := range []struct {
+		name   string
+		scheme string
+		dial   func(context.Context, string, string) (net.Conn, error)
+		// gotConn and handshake are the trace events the stage implies.
+		gotConn, handshake, stalled bool
+	}{
+		{"HTTP dial", "http", dialStall, false, false, false},
+		{"HTTP request", "http", silent, true, false, true},
+		{"HTTPS dial", "https", dialStall, false, false, false},
+		{"HTTPS handshake", "https", silent, false, true, true},
+		{"HTTPS request", "https", tlsSilent, true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := &netops{tlsRootCAs: roots, dialContext: tc.dial}
+			target := &Target{Raw: host, Host: host, Port: 80, Proto: ProtoHTTP}
+			id, dep, port, noResponse := ProbeHTTP, ProbeTargetTCP, 80, DiagnosisHTTPNoResponse
+			order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeHTTP}
+			res := map[ProbeID]ProbeResult{ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusPass},
+				ProbeDNS: {Status: StatusPass, Addrs: []net.IP{ip}}, ProbeTargetTCP: {Status: StatusPass, SelectedIP: ip}}
+			if tc.scheme == "https" {
+				target = &Target{Raw: host, Host: host, Port: 443, Proto: ProtoTLSHTTP}
+				id, dep, port, noResponse = ProbeHTTPS, ProbeTLS, 443, DiagnosisHTTPSNoResponse
+				order = []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTPS}
+				res[ProbeTLS] = ProbeResult{Status: StatusPass, SelectedIP: ip}
+			}
+			var gotConn, handshake atomic.Bool
+			trace := &httptrace.ClientTrace{
+				GotConn:           func(httptrace.GotConnInfo) { gotConn.Store(true) },
+				TLSHandshakeStart: func() { handshake.Store(true) },
+			}
+			ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(context.Background(), trace), 500*time.Millisecond)
+			defer cancel()
+			r := ops.httpProbe(host, port, tc.scheme, dep)(ctx, res)
+			if gotConn.Load() != tc.gotConn || handshake.Load() != tc.handshake {
+				t.Fatalf("GotConn %v, TLSHandshakeStart %v, want %v, %v", gotConn.Load(), handshake.Load(), tc.gotConn, tc.handshake)
+			}
+			if r.Status != StatusFail || r.Cause != "" || r.timedOut != tc.stalled {
+				t.Fatalf("result = %+v (timedOut %v), want FAIL with no cause and timedOut %v", r, r.timedOut, tc.stalled)
+			}
+			res[id] = r
+			res[ProbePMTU] = ProbeResult{Status: StatusPass}
+			if got := Interpret(target, order, res).Findings[0].ID; got != noResponse {
+				t.Errorf("without a PMTU warning, finding = %s, want %s", got, noResponse)
+			}
+			res[ProbePMTU] = ProbeResult{Status: StatusWarn}
+			want := noResponse
+			if tc.stalled {
+				want = DiagnosisProbablePathMTU
+			}
+			d := Interpret(target, order, res)
+			if d.Findings[0].ID != want {
+				t.Fatalf("with a PMTU warning, finding = %s %q, want %s", d.Findings[0].ID, d.Summary, want)
+			}
+			// Replay recomputes the diagnosis from the artifact alone. An
+			// artifact written before the stage was told apart may record a
+			// dial timeout as a stall, and its missing selected IP still says
+			// the probe never connected.
+			for _, recorded := range []bool{r.timedOut, true} {
+				old := r
+				old.timedOut = recorded
+				res[id] = old
+				probes := make([]Probe, len(order))
+				for i, id := range order {
+					probes[i] = Probe{ID: id, Name: string(id)}
+				}
+				data, err := snapshot.Encode(withSnapshotProvenance(BuildSnapshot(target, probes, timedResults(res))))
+				if err != nil {
+					t.Fatal(err)
+				}
+				artifact, err := snapshot.Decode(data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				replayed, err := ReplaySnapshot(artifact)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertDiagnosisSemantics(t, replayed, d)
+			}
+		})
 	}
 }

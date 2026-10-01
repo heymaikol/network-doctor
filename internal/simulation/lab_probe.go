@@ -302,10 +302,12 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 		timedOut := false
 		for _, a := range ips {
 			ip := labIPAddr(a)
-			if outcome := p.connect(node.Name, ip, requestPort); outcome != labDelivered {
-				timedOut = timedOut || outcome == "timeout"
+			// A connect timeout exchanged nothing, so like the real probe only
+			// a stall on an open connection, which records its address, counts.
+			if p.connect(node.Name, ip, requestPort) != labDelivered {
 				continue
 			}
+			r.SelectedIP = a
 			if outcome := p.send(node.Name, ip, "tcp", requestPort, 256); outcome != labDelivered {
 				timedOut = timedOut || outcome == "timeout"
 				continue

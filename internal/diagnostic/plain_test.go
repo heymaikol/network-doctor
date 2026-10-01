@@ -203,7 +203,7 @@ func TestSpecificExplanations(t *testing.T) {
 		{"target reachable over IPv4 only", "one way but not the other", ""},
 		{"target reachable over IPv6 only", "one way but not the other", ""},
 		{"TLS expiry explained by a fast clock", "clock is wrong", "date and time"},
-		{"TLS expiry with the clock ruled out", "expired", "Do not click past"},
+		{"TLS expiry with the clock ruled out", "expired", "do not click past"},
 		{"TLS untrusted issuer", "does not trust", "Do not click past"},
 		{"path MTU black hole", "Larger transfers", "VPN"},
 		{"no plain HTTP response beside working HTTPS", "unencrypted web address", "https://"},
@@ -229,5 +229,29 @@ func TestSpecificExplanations(t *testing.T) {
 	v6 := matrixCaseNamed(t, "target reachable over IPv6 only")
 	if e := Explain(v6.target, v6.order, v6.res); !strings.Contains(e.Meaning, "answered over IPv6 but not over IPv4") {
 		t.Errorf("IPv6-only reachability explained as %q", e.Meaning)
+	}
+}
+
+// TestExpiredCertificateExplanationDefersToTheClock keeps the plain retelling
+// of tls_certificate_expired as cautious as the finding: the rejection was
+// judged by this computer's clock, so the reader is sent to check that clock
+// before blaming the site.
+func TestExpiredCertificateExplanationDefersToTheClock(t *testing.T) {
+	c := matrixCaseNamed(t, "TLS expiry with the clock ruled out")
+	res := maps.Clone(c.res)
+	res[ProbeInternet] = ProbeResult{Status: StatusPass}
+	if d := Interpret(c.target, c.order, res); len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisTLSCertificateExpired {
+		t.Fatalf("without a clock reading the findings are %+v, want %s", d.Findings, DiagnosisTLSCertificateExpired)
+	}
+	e := Explain(c.target, c.order, res)
+	if !strings.Contains(e.Meaning, "according to its current date and time") ||
+		!strings.Contains(e.Meaning, "If this computer's clock is correct") {
+		t.Errorf("meaning %q states the expiry as fact instead of as this computer's judgement", e.Meaning)
+	}
+	if !strings.HasPrefix(e.TryFirst, "Check that this computer's date and time are correct.") {
+		t.Errorf("first step %q does not check the clock before blaming the site", e.TryFirst)
+	}
+	if strings.Contains(e.Headline, "has expired") {
+		t.Errorf("headline %q states the expiry as fact", e.Headline)
 	}
 }

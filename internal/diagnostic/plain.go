@@ -188,9 +188,9 @@ var plainTexts = map[DiagnosisID]plainText{
 	},
 
 	DiagnosisTLSCertificateExpired: {
-		"{host}'s security certificate has expired",
-		"A certificate is how a site proves it is genuine. This one is out of date, which is a problem for whoever runs {host}, not with your connection.",
-		"Do not click past security warnings for {host}. Let whoever runs it know its certificate has expired.",
+		"{host}'s security certificate looks expired",
+		"A certificate is how a site proves it is genuine. This computer judged this one to be expired according to its current date and time. If this computer's clock is correct, the certificate needs to be renewed by whoever runs {host}.",
+		"Check that this computer's date and time are correct. If they are, do not click past security warnings for {host}, and let whoever runs it know its certificate has expired.",
 	},
 	DiagnosisTLSCertificateNotYetValid: {
 		"{host}'s security certificate is not valid yet",

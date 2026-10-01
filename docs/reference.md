@@ -1065,7 +1065,7 @@ The array is omitted when the run reached no specific conclusion: everything pas
 | `selected_service_check_failed` | The same, for a service row |
 | `selected_network_check_failed` | The same, for a network row |
 
-The TLS identities are drawn from the same classification the `cause` field publishes, so a finding stays as precise as the handshake was. The sentence in `summary` is deliberately more hedged than the identity for the failures a client genuinely cannot tell apart, and `tls_handshake_failure` is what an unclassifiable handshake gets rather than a specific accusation.
+The TLS identities are drawn from the same classification the `cause` field publishes, so a finding stays as precise as the handshake was, and the sentence in `summary` follows that same classification rather than offering certificate causes for a handshake that timed out or was closed. `tls_certificate_expired` and `tls_certificate_not_yet_valid` say the rejection was judged against this machine's clock until a measured clock offset settles that alternative, either as `tls_clock_skew` or by ruling the clock out. `tls_handshake_failure` is what an unclassifiable handshake gets: it stays deliberately broad rather than making a specific accusation.
 
 Nothing here claims a wrong default route, a missing subnet route, or an operator's intent, because no probe proves those. `id` values are added over time; treat an unrecognized one as "some specific problem" and fall back to `verdict`.
 

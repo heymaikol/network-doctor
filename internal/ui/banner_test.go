@@ -129,7 +129,7 @@ func TestBannerFailureGuidance(t *testing.T) {
 				diagnostic.ProbeHTTPS: fail(httpsFix),
 			},
 			want: "✗ The secure connection to example.com failed\n" +
-				"  Technical: TCP reaches example.com:443 but the TLS handshake fails: bad/expired cert, clock skew, or MITM proxy.\n" +
+				"  Technical: TCP reaches example.com:443 but the TLS handshake fails in a way this run could not classify more specifically.\n" +
 				"  Next: press c for web check (curl)",
 			fix: tlsFix,
 		},

@@ -262,6 +262,9 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 		if p.send(node.Name, ip, "tcp", port, 1500) != labDelivered {
 			r.Status = diagnostic.StatusFail
 			r.Cause = diagnostic.TLSCauseTimeout
+			// The connection opened, so this is a handshake stall, unlike the
+			// connect timeout above.
+			r.SetProtocolTimeout(true)
 			return r
 		}
 		s := p.network.service(ip, port, "tcp")

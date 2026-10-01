@@ -143,9 +143,9 @@ var reportProjection = map[string]decision{
 	"diagnostic.ProbeResult.answerComparison": {category: interpreted, why: "what reconcileDNS concluded when it " +
 		"compared two resolvers' answers. The document publishes the conclusion as the dns_disagreement finding " +
 		"and its counterfactual, and both rows' addrs are already there for a consumer that wants to compare them."},
-	"diagnostic.ProbeResult.timedOut": {category: interpreted, why: "an HTTP or HTTPS failure that was a timeout. " +
-		"It is half the path-MTU correlation Interpret draws, and the document publishes that as the " +
-		"probable_path_mtu_problem finding."},
+	"diagnostic.ProbeResult.timedOut": {category: interpreted, why: "a private timeout observation Interpret uses for the path-MTU correlation. " +
+		"For TLS it means the TLS probe's own TCP connection opened and the handshake then timed out; HTTP/HTTPS retain their existing request-timeout behavior. " +
+		"The document publishes the interpreted result as the probable_path_mtu_problem finding."},
 	"diagnostic.ProbeResult.clockOffset": {category: interpreted, why: "this machine's clock against a reference " +
 		"endpoint's Date header. Interpret reads it only to separate a TLS clock skew from a bad certificate, and " +
 		"the document publishes that separation as the finding id."},

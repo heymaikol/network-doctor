@@ -295,7 +295,7 @@ func TestRejectedCertificateOutranksThePathMTUCorrelation(t *testing.T) {
 		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
 		ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
 		ProbePMTU:      {Status: StatusWarn},
-		ProbeTLS:       {Status: StatusFail, Cause: TLSCauseTimeout},
+		ProbeTLS:       {Status: StatusFail, Cause: TLSCauseTimeout, timedOut: true},
 	})
 	if d := Interpret(target, order, res); len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisProbablePathMTU {
 		t.Errorf("finding = %+v, want %q for two stalls: %q", d.Findings, DiagnosisProbablePathMTU, d.Summary)
@@ -474,7 +474,10 @@ func forEachReachableState(t *testing.T, check func(*testing.T, *Target, []Probe
 		ProbeDNSEncrypted: {{Status: StatusPass}, {Status: StatusFail}, {Status: StatusNA}},
 		ProbeTargetTCP: {{Status: StatusPass, SelectedIP: pub}, {Status: StatusWarn, SelectedIP: pub},
 			{Status: StatusFail, Cause: ConnectionCauseTimeout}, {Status: StatusFail, Cause: ConnectionCauseRefused}},
-		ProbeTLS:  {{Status: StatusPass}, {Status: StatusFail, Cause: TLSCauseTimeout}, {Status: StatusFail, Cause: TLSCauseCertificateExpired}},
+		// A timeout during the TLS probe's own dial, then one during a
+		// handshake on the connection it opened.
+		ProbeTLS: {{Status: StatusPass}, {Status: StatusFail, Cause: TLSCauseTimeout},
+			{Status: StatusFail, Cause: TLSCauseTimeout, timedOut: true}, {Status: StatusFail, Cause: TLSCauseCertificateExpired}},
 		ProbePMTU: {{Status: StatusPass}, {Status: StatusWarn}, {Status: StatusNA}},
 	}
 

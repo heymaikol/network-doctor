@@ -198,6 +198,11 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 			// resolver handed us, and that's often the actual culprit.
 			r.Status, r.SelectedIP = StatusFail, ip
 			r.Cause = tlsFailureCause(err, time.Now())
+			// Only a handshake on a connection this probe opened observed a
+			// TLS exchange stalling. A timeout during the probe's own dial
+			// keeps the same Cause but is not half of the path-MTU correlation.
+			var handshake tlsHandshakeError
+			r.timedOut = r.Cause == TLSCauseTimeout && errors.As(err, &handshake)
 			r.Detail = "TLS check to " + ip.String() + " failed: " + err.Error()
 			r.Fix = tlsFix(err)
 			if iface := deps[ProbeTargetTCP].Iface; timeoutError(err) {
@@ -210,6 +215,29 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 		_ = conn.Close()
 		r.Status, r.SelectedIP, r.Detail = StatusPass, ip, "TLS handshake OK (SNI "+host+")"
 		return r
+	}
+}
+
+// tlsHandshakeError is a dialTLS failure that came after the TCP connection
+// opened, which is what separates a stalled handshake from a stalled dial.
+type tlsHandshakeError struct{ error }
+
+func (e tlsHandshakeError) Unwrap() error { return e.error }
+
+// dialTLSWith opens a connection with dial and runs the TLS handshake on it,
+// marking a handshake failure so the caller can tell it from a failed dial.
+func dialTLSWith(dial func(ctx context.Context, network, addr string) (net.Conn, error)) func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+		conn, err := dial(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		tlsConn := tls.Client(conn, cfg)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			_ = conn.Close()
+			return nil, tlsHandshakeError{err}
+		}
+		return tlsConn, nil
 	}
 }
 

@@ -301,7 +301,7 @@ func TestDiagnosisFocus(t *testing.T) {
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeProxy, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTP, ProbeHTTPS}
 	blackHole := map[ProbeID]ProbeResult{
 		ProbePMTU:  {Status: StatusWarn},
-		ProbeTLS:   {Status: StatusFail, Cause: TLSCauseTimeout},
+		ProbeTLS:   {Status: StatusFail, Cause: TLSCauseTimeout, timedOut: true},
 		ProbeHTTP:  {Status: StatusFail, timedOut: true},
 		ProbeHTTPS: {Status: StatusFail, timedOut: true},
 	}
@@ -357,7 +357,7 @@ func TestDiagnosisFocus(t *testing.T) {
 func TestUnverifiedPathMTUIsNotBlackHoleEvidence(t *testing.T) {
 	tg := mustTarget(t, "github.com")
 	order := []ProbeID{ProbeIface, ProbeInternet, ProbeProxy, ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTP, ProbeHTTPS}
-	stall := ProbeResult{Status: StatusFail, Cause: TLSCauseTimeout}
+	stall := ProbeResult{Status: StatusFail, Cause: TLSCauseTimeout, timedOut: true}
 	unverified := map[ProbeID]ProbeResult{
 		ProbeTLS: stall,
 		ProbePMTU: {Status: StatusNA,
@@ -417,7 +417,7 @@ func TestVerdict(t *testing.T) {
 		// it broke; an immediate protocol error does not.
 		{"tls broken by a black hole", tg, targetOrder, map[ProbeID]ProbeResult{
 			ProbePMTU: {Status: StatusWarn},
-			ProbeTLS:  {Status: StatusFail, Cause: TLSCauseTimeout},
+			ProbeTLS:  {Status: StatusFail, Cause: TLSCauseTimeout, timedOut: true},
 		}, VerdictNetwork},
 		{"certificate failure alongside a bulk stall", tg, targetOrder, map[ProbeID]ProbeResult{
 			ProbePMTU: {Status: StatusWarn},

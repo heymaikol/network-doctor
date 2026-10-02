@@ -822,6 +822,63 @@ func TestProxyProbeParseErrorIsRedacted(t *testing.T) {
 	}
 }
 
+func TestProxyProbeInformationalResponse(t *testing.T) {
+	const hints = "HTTP/1.1 103 Early Hints\r\n\r\n"
+	const granted = "HTTP/1.1 200 Connection established\r\n\r\n"
+	const refused = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"
+	const auth = "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n"
+	const switching = "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
+	for _, tc := range []struct {
+		name, response string
+		status         Status
+		detail, fix    string
+	}{
+		{"final only", granted, StatusPass, "tunnels", "cleartext"},
+		{"early hints", hints + granted, StatusPass, "tunnels", "cleartext"},
+		{"repeated early hints", hints + hints + granted, StatusPass, "tunnels", "cleartext"},
+		{"other informational", "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 102 Processing\r\n\r\n" + hints + granted, StatusPass, "tunnels", "cleartext"},
+		{"unrecognized informational", "HTTP/1.1 199 Informational\r\n\r\n" + granted, StatusPass, "tunnels", "cleartext"},
+		{"refused", hints + refused, StatusFail, "refused CONNECT: 403 Forbidden", "check proxy policy"},
+		{"authentication", hints + hints + auth, StatusFail, "refused CONNECT: 407 Proxy Authentication Required", "credentials"},
+		{"no final", hints, StatusFail, "no CONNECT response", "wrong port or scheme"},
+		{"multiple without final", hints + hints, StatusFail, "no CONNECT response", "wrong port or scheme"},
+		{"malformed final", hints + "not HTTP\r\n\r\n", StatusFail, "no CONNECT response", "wrong port or scheme"},
+		{"byte bound", strings.Repeat(hints, 200) + granted, StatusFail, "no CONNECT response", "wrong port or scheme"},
+		{"switching protocols", switching, StatusFail, "refused CONNECT: 101 Switching Protocols", "check proxy policy"},
+		{"switch then 200", hints + switching + granted, StatusFail, "refused CONNECT: 101 Switching Protocols", "check proxy policy"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := strings.NewReader(tc.response)
+			conn := &scriptConn{r: stream}
+			ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
+				return conn, nil
+			})
+			r := ops.proxyProbe(context.Background(), nil)
+			wantCause := ""
+			if tc.status == StatusFail {
+				wantCause = ProxyCauseProtocol
+			}
+			if r.Status != tc.status || r.Cause != wantCause || !strings.Contains(r.Detail, tc.detail) || !strings.Contains(r.Fix, tc.fix) {
+				t.Fatalf("CONNECT = %+v, want %s, cause %q, detail %q, fix %q", r, tc.status, wantCause, tc.detail, tc.fix)
+			}
+			if got := len(tc.response) - stream.Len(); got > 4096 {
+				t.Fatalf("read %d response bytes, limit 4096", got)
+			}
+		})
+	}
+}
+
+func TestProxyProbeInformationalTimeout(t *testing.T) {
+	conn := &scriptConn{r: io.MultiReader(strings.NewReader("HTTP/1.1 103 Early Hints\r\n\r\n"), silentConn{})}
+	ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
+		return conn, nil
+	})
+	r := ops.proxyProbe(context.Background(), nil)
+	if r.Status != StatusFail || r.Cause != ProxyCauseProtocol || !strings.Contains(r.Detail, "no CONNECT response") || !strings.Contains(r.Detail, "i/o timeout") || !strings.Contains(r.Fix, "wrong port or scheme") {
+		t.Fatalf("informational then timeout = %+v, want protocol failure", r)
+	}
+}
+
 func TestProxyProbeConnectOK(t *testing.T) {
 	conn := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}
 	ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
@@ -947,38 +1004,46 @@ func TestProxyProbeDeadlinelessCtxStillBoundsConn(t *testing.T) {
 }
 
 func TestProxyProbeRefusesCleartextCredentials(t *testing.T) {
-	conn := &scriptConn{r: strings.NewReader("HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")}
-	ops := proxyOps("http://user:pw@proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
-		return conn, nil
-	})
-	r := ops.proxyProbe(context.Background(), nil)
-	if r.Status != StatusFail || !strings.Contains(r.Detail, "refusing") {
-		t.Errorf("auth over http proxy = %+v, want FAIL refusing cleartext credentials", r)
-	}
-	if strings.Contains(conn.w.String(), "Proxy-Authorization") {
-		t.Errorf("CONNECT sent credentials before refusing:\n%s", conn.w.String())
+	for _, prefix := range []string{"", "HTTP/1.1 103 Early Hints\r\n\r\n", "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\n\r\n"} {
+		t.Run(prefix, func(t *testing.T) {
+			conn := &scriptConn{r: strings.NewReader(prefix + "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")}
+			ops := proxyOps("http://user:pw@proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
+				return conn, nil
+			})
+			r := ops.proxyProbe(context.Background(), nil)
+			if r.Status != StatusFail || r.Cause != ProxyCauseProtocol || !strings.Contains(r.Detail, "refusing") || r.Fix != "use an https:// proxy before supplying credentials" {
+				t.Errorf("auth over http proxy = %+v, want FAIL refusing cleartext credentials", r)
+			}
+			if strings.Contains(conn.w.String(), "Proxy-Authorization") {
+				t.Errorf("CONNECT sent credentials before refusing:\n%s", conn.w.String())
+			}
+		})
 	}
 }
 
 func TestProxyProbeHTTPSCredentialsWaitForChallenge(t *testing.T) {
-	first := &scriptConn{r: strings.NewReader("HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")}
-	second := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}
-	conns := []*scriptConn{first, second}
-	ops := proxyOps("https://user:pw@proxy.corp:3128", nil)
-	ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) {
-		conn := conns[0]
-		conns = conns[1:]
-		return conn, nil
-	}
-	r := ops.proxyProbe(context.Background(), nil)
-	if r.Status != StatusPass {
-		t.Fatalf("authenticated CONNECT = %+v, want PASS", r)
-	}
-	if strings.Contains(first.w.String(), "Proxy-Authorization") {
-		t.Errorf("first CONNECT sent credentials preemptively:\n%s", first.w.String())
-	}
-	if !strings.Contains(second.w.String(), "Proxy-Authorization: Basic dXNlcjpwdw==") {
-		t.Errorf("second CONNECT did not answer challenge:\n%s", second.w.String())
+	for _, prefix := range []string{"", "HTTP/1.1 103 Early Hints\r\n\r\n", "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\n\r\n"} {
+		t.Run(prefix, func(t *testing.T) {
+			first := &scriptConn{r: strings.NewReader(prefix + "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")}
+			second := &scriptConn{r: strings.NewReader(prefix + "HTTP/1.1 200 Connection established\r\n\r\n")}
+			conns := []*scriptConn{first, second}
+			ops := proxyOps("https://user:pw@proxy.corp:3128", nil)
+			ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+				conn := conns[0]
+				conns = conns[1:]
+				return conn, nil
+			}
+			r := ops.proxyProbe(context.Background(), nil)
+			if r.Status != StatusPass {
+				t.Fatalf("authenticated CONNECT = %+v, want PASS", r)
+			}
+			if strings.Contains(first.w.String(), "Proxy-Authorization") {
+				t.Errorf("first CONNECT sent credentials preemptively:\n%s", first.w.String())
+			}
+			if !strings.Contains(second.w.String(), "Proxy-Authorization: Basic dXNlcjpwdw==") {
+				t.Errorf("second CONNECT did not answer challenge:\n%s", second.w.String())
+			}
+		})
 	}
 }
 

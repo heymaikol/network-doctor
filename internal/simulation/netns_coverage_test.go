@@ -75,6 +75,15 @@ func TestMissingNetnsScenarioExecutions(t *testing.T) {
 // are spread across scenario, campaign, and hunt tests. Filtered runs are
 // intentionally partial and cannot establish full-suite coverage.
 func TestMain(m *testing.M) {
+	// A test that re-executes this binary as its own director makes the
+	// backend spawn node holders from it too, the way netdoc-sim does.
+	if len(os.Args) == 3 && os.Args[1] == NodeCommand {
+		if err := RunNode(context.Background(), os.Args[2], os.Stdin, os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, "node:", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	code := m.Run()
 	if code != 0 || testFlagSet("run") || testFlagSet("skip") ||
 		!DefaultBackend(false, nil).Capabilities(context.Background()).Supported {

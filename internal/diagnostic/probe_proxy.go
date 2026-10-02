@@ -183,8 +183,17 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 			r.Detail = "cannot set proxy read deadline: " + err.Error()
 			return r
 		}
-		// Bounded read: the response is attacker-controlled.
-		resp, err = http.ReadResponse(bufio.NewReader(io.LimitReader(conn, 4096)), &http.Request{Method: http.MethodConnect})
+		// Bound the entire response sequence, sharing buffered read-ahead across replies.
+		reader := bufio.NewReader(io.LimitReader(conn, 4096))
+		for {
+			resp, err = http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+			// 101 switches protocols rather than preceding another HTTP reply.
+			// We did not request Upgrade, and CONNECT success requires a 2xx.
+			if err != nil || resp.StatusCode/100 != 1 || resp.StatusCode == http.StatusSwitchingProtocols {
+				break
+			}
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			_ = conn.Close()
 			r.Status = StatusFail

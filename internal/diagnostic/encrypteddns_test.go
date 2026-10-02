@@ -983,6 +983,79 @@ func TestEncryptedDNSRowSemantics(t *testing.T) {
 	}
 }
 
+func TestEncryptedDNSOutcomePath(t *testing.T) {
+	servfail := func(resp []byte) []byte {
+		binary.BigEndian.PutUint16(resp[2:4], dnsFlagResponse|dnsFlagRD|dnsRcodeServFail)
+		binary.BigEndian.PutUint16(resp[6:8], 0)
+		return resp[:len(resp)-16] // Remove the fixture's A answer.
+	}
+	for _, c := range []struct {
+		name       string
+		doh        *dohReply
+		dot        *dotReply
+		wantStatus Status
+		wantDetail string
+		wantPath   int
+	}{
+		{"DoH SERVFAIL, DoT succeeds", &dohReply{mutate: servfail}, &dotReply{}, StatusPass, "DoT completed a DNS query", 1},
+		{"DoH succeeds, DoT SERVFAIL", &dohReply{}, &dotReply{mutate: servfail}, StatusPass, "DoH completed a DNS query", 0},
+		{"both succeed", &dohReply{}, &dotReply{}, StatusPass, "DoH and DoT both completed", 0},
+		{"DoH succeeds, DoT unavailable", &dohReply{}, nil, StatusPass, "DoH completed a DNS query", 0},
+		{"DoH unavailable, DoT succeeds", nil, &dotReply{}, StatusPass, "DoT completed a DNS query", 1},
+		{"DoH SERVFAIL, DoT unavailable", &dohReply{mutate: servfail}, nil, StatusWarn, "resolver returned an error", 0},
+		{"DoH unavailable, DoT SERVFAIL", nil, &dotReply{mutate: servfail}, StatusWarn, "resolver returned an error", 1},
+		{"both SERVFAIL", &dohReply{mutate: servfail}, &dotReply{mutate: servfail}, StatusWarn, "resolver returned an error", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ips := []net.IP{net.ParseIP("192.0.2.10"), net.ParseIP("2001:db8::10")}
+			sources := []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")}
+			ifaces := []net.Interface{{Name: "path4"}, {Name: "path6"}}
+			f := newEncryptedDNSFixture(t, ips, c.doh, c.dot)
+			ops := f.ops()
+			ops.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, err
+				}
+				path := 0
+				if port == "853" {
+					path = 1
+				}
+				if host != ips[path].String() {
+					return nil, errors.New("fixture path unavailable")
+				}
+				conn, err := f.dial(ctx, network, addr)
+				if err != nil {
+					return nil, err
+				}
+				return encryptedDNSLocalConn{Conn: conn, local: &net.TCPAddr{IP: sources[path]}}, nil
+			}
+			ops.interfaces = func() ([]net.Interface, error) { return ifaces, nil }
+			ops.interfaceAddrs = func(iface *net.Interface) ([]net.Addr, error) {
+				for i := range ifaces {
+					if iface.Name == ifaces[i].Name {
+						return []net.Addr{&net.IPNet{IP: sources[i]}}, nil
+					}
+				}
+				return nil, nil
+			}
+			r := f.run(t, ops)
+			if r.Status != c.wantStatus || !strings.Contains(r.Detail, c.wantDetail) || r.Cause != "" {
+				t.Fatalf("result = %+v, want %s mentioning %q without a failure cause", r, c.wantStatus, c.wantDetail)
+			}
+			if c.doh != nil && c.doh.mutate != nil || c.dot != nil && c.dot.mutate != nil {
+				if !strings.Contains(r.Detail, "SERVFAIL") {
+					t.Errorf("detail = %q, want SERVFAIL evidence", r.Detail)
+				}
+			}
+			if !r.SelectedIP.Equal(ips[c.wantPath]) || !r.Source.Equal(sources[c.wantPath]) || r.Iface != ifaces[c.wantPath].Name {
+				t.Errorf("selected=%s source=%s interface=%s, want selected=%s source=%s interface=%s",
+					r.SelectedIP, r.Source, r.Iface, ips[c.wantPath], sources[c.wantPath], ifaces[c.wantPath].Name)
+			}
+		})
+	}
+}
+
 func TestEncryptedDNSResolverErrorsWarnWithoutClaimingUnavailable(t *testing.T) {
 	setRcode := func(rcode uint16) func([]byte) []byte {
 		return func(resp []byte) []byte {

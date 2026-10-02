@@ -294,7 +294,9 @@ func (o *netops) encryptedDNSProbe(ep encryptedDNSEndpoint, name string) func(co
 
 		r.Attempts = append(append([]Attempt{}, doh.attempts...), dot.attempts...)
 		won := doh
-		if !resolverAnswered(doh) {
+		// Prefer query success over a resolver error; otherwise retain DoH's
+		// precedence among correlated responses, including resolver errors.
+		if doh.err != nil && (dot.err == nil || !resolverAnswered(doh)) {
 			won = dot
 		}
 		if resolverAnswered(won) {

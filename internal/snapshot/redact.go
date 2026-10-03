@@ -785,6 +785,12 @@ func (r *redactor) address(value string) string {
 		if err != nil {
 			break
 		}
+		// Pseudonym prefixes stay within one address class, but a broad
+		// original prefix can span several. Individual class takes priority
+		// over containment when the prefix's namespace is incompatible.
+		if addressKind(mappedPrefix.Addr()) != addressKind(address) {
+			break
+		}
 		for range aliasAttempts(mappedPrefix.Addr().BitLen() - mappedPrefix.Bits()) {
 			r.prefixIPCounts[originalPrefix.String()]++
 			alias := pseudonymWithin(mappedPrefix, r.prefixIPCounts[originalPrefix.String()]).String()

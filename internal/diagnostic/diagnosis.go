@@ -644,7 +644,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		// here only past a working HTTPS row, which is what lets the summaries
 		// below say "HTTPS works"; a selection that left HTTPS out has no such
 		// row, so it gets the selected-check answer instead of that claim.
-		if t.Proto == ProtoTLSHTTP && !(has(ProbeHTTPS) && functional(res[ProbeHTTPS].Status)) {
+		if t.Proto == ProtoTLSHTTP && (!has(ProbeHTTPS) || !functional(res[ProbeHTTPS].Status)) {
 			evidence := addEvidence(supportRows(ProbeHTTP), notEvaluated(ProbeHTTPS, NotEvaluatedNotSelected))
 			return withEvidence(DiagnosisSelectedServiceCheckFailed, ProbeHTTP, "A selected service check failed.", VerdictService, evidence)
 		}

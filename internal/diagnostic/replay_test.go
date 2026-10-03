@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"reflect"
 	"strings"
 	"testing"
@@ -758,5 +759,94 @@ func TestEveryReconciledDNSStateReplays(t *testing.T) {
 					system.name, public.name, got.answerComparison, want)
 			}
 		}
+	}
+}
+
+func TestReplaySupportBroadPrefixPreservesTargetClass(t *testing.T) {
+	for _, tc := range []struct {
+		name, ip, prefix, finding string
+		private                   bool
+	}{
+		{"private broad", "10.20.30.40", "0.0.0.0/1", "direct_egress_blocked", true},
+		{"private compatible", "10.20.30.40", "10.0.0.0/8", "direct_egress_blocked", true},
+		{"public broad", "93.184.216.34", "0.0.0.0/1", "reference_egress_unreachable", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target, err := ParseTarget(net.JoinHostPort(tc.ip, "9100"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
+			res := map[ProbeID]ProbeResult{
+				ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusFail},
+				ProbeDNS: {Status: StatusNA},
+				ProbeTargetTCP: {Status: StatusPass, SelectedIP: net.ParseIP(tc.ip), Routes: []RouteDecision{{
+					Destination: net.ParseIP(tc.ip), Family: "ipv4", Prefix: netip.MustParsePrefix(tc.prefix),
+				}}},
+			}
+			want, safe := sanitizedReplayInput(t, target, order, res)
+			if len(want.Findings) != 1 || string(want.Findings[0].ID) != tc.finding {
+				t.Fatalf("live findings = %v, want %s", findingIDs(want), tc.finding)
+			}
+			if len(safe.Diagnosis.Findings) != 1 || safe.Diagnosis.Findings[0].ID != tc.finding {
+				t.Fatalf("stored findings = %v, want %s", safe.Diagnosis.Findings, tc.finding)
+			}
+			alias := net.ParseIP(safe.Target.IP)
+			if alias == nil || alias.IsPrivate() != tc.private || alias.Equal(target.IP) {
+				t.Errorf("support target = %q, want a different address with private=%t", safe.Target.IP, tc.private)
+			}
+			got, err := ReplaySnapshot(safe)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertDiagnosisSemantics(t, got, want)
+			probes := make([]Probe, len(order))
+			for i, id := range order {
+				probes[i] = Probe{ID: id, Name: string(id)}
+			}
+			full := withSnapshotProvenance(BuildSnapshot(target, probes, timedResults(res)))
+			data, err := snapshot.Encode(full)
+			if err != nil {
+				t.Fatal(err)
+			}
+			full, err = snapshot.Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if full.Target.IP != tc.ip || full.Redaction != nil {
+				t.Fatalf("full-fidelity target mutated: %+v", full.Target)
+			}
+			got, err = ReplaySnapshot(full)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertDiagnosisSemantics(t, got, want)
+		})
+	}
+}
+
+// Erased support evidence must not become a replayed successful connection.
+func TestReplayRejectsErasedSupportAddress(t *testing.T) {
+	target, err := ParseTarget("10.1.0.0:9100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, safe := sanitizedReplayInput(t, target, []ProbeID{ProbeTargetTCP}, map[ProbeID]ProbeResult{ProbeTargetTCP: {Status: StatusPass, SelectedIP: target.IP}})
+	safe.Target.Host, safe.Target.IP = "<address-redacted>", "<address-redacted>"
+	if _, err := ReplaySnapshot(safe); err == nil {
+		t.Fatal("replayed erased literal target")
+	}
+	safe.Target = nil
+	safe.Checks[0].Observed.SelectedIP = "<address-redacted>"
+	data, err := snapshot.Encode(safe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	safe, err = snapshot.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReplaySnapshot(safe); err == nil {
+		t.Fatal("replayed erased successful target connection")
 	}
 }

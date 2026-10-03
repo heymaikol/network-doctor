@@ -49,19 +49,22 @@ func SanitizeForSupport(s Snapshot) Snapshot {
 
 func newRedactor() *redactor {
 	r := &redactor{
-		collecting:      true,
-		aliases:         map[string]map[string]string{},
-		originalAliases: map[string]map[string]bool{},
-		ips:             map[string]string{},
-		issuedIPAliases: map[string]bool{},
-		prefixes:        map[string]string{},
-		retainIP:        map[string]bool{},
-		originalIPs:     map[string]bool{},
-		recordedIPs:     map[string]bool{},
-		originalPrefix:  map[string]bool{},
-		prefixIPCounts:  map[string]uint32{},
-		aliasCounters:   map[string]int{},
-		ipCounters:      map[string]uint32{},
+		collecting:        true,
+		aliases:           map[string]map[string]string{},
+		originalAliases:   map[string]map[string]bool{},
+		ips:               map[string]string{},
+		issuedIPAliases:   map[string]bool{},
+		exhaustedIPs:      map[string]bool{},
+		issuedPrefixes:    map[string]bool{},
+		exhaustedPrefixes: map[string]bool{},
+		prefixes:          map[string]string{},
+		retainIP:          map[string]bool{},
+		originalIPs:       map[string]bool{},
+		recordedIPs:       map[string]bool{},
+		originalPrefix:    map[string]bool{},
+		prefixIPCounts:    map[string]uint32{},
+		aliasCounters:     map[string]int{},
+		ipCounters:        map[string]uint32{},
 	}
 	r.seedLocalIdentity()
 	return r
@@ -215,22 +218,25 @@ type redactor struct {
 	// can run as a collection pass: alias() and address() only reserve what
 	// they are handed and prefix() allocates nothing, so every original the text
 	// patterns will find is reserved by the same code that later rewrites it.
-	collecting      bool
-	aliases         map[string]map[string]string
-	originalAliases map[string]map[string]bool
-	aliasOrder      []aliasedValue
-	reservedOrder   []aliasedValue
-	aliasCounters   map[string]int
-	ips             map[string]string
-	issuedIPAliases map[string]bool
-	ipCounters      map[string]uint32
-	prefixes        map[string]string
-	retainIP        map[string]bool
-	originalIPs     map[string]bool
-	recordedIPs     map[string]bool
-	originalPrefix  map[string]bool
-	prefixOrder     []netip.Prefix
-	prefixIPCounts  map[string]uint32
+	collecting        bool
+	aliases           map[string]map[string]string
+	originalAliases   map[string]map[string]bool
+	aliasOrder        []aliasedValue
+	reservedOrder     []aliasedValue
+	aliasCounters     map[string]int
+	ips               map[string]string
+	issuedIPAliases   map[string]bool
+	exhaustedIPs      map[string]bool
+	issuedPrefixes    map[string]bool
+	exhaustedPrefixes map[string]bool
+	ipCounters        map[string]uint32
+	prefixes          map[string]string
+	retainIP          map[string]bool
+	originalIPs       map[string]bool
+	recordedIPs       map[string]bool
+	originalPrefix    map[string]bool
+	prefixOrder       []netip.Prefix
+	prefixIPCounts    map[string]uint32
 	// replacements is aliases and ips as the sorted table replaceKnown scans.
 	// It is nil until built and again after any write to either mapping, which
 	// is why every such write goes through mapAlias or mapIP.
@@ -776,13 +782,20 @@ func (r *redactor) address(value string) string {
 	// earlier, and a narrow prefix cannot always resolve that by counting: a
 	// /32 host route is ordinary on a VPN and offers exactly one host address,
 	// so an unbounded search there spins forever. Falling through to the
-	// family-wide pseudonym loses a prefix relationship; it never leaks.
+	// family-wide pseudonym loses a prefix relationship. If that search also
+	// exhausts, support-v1 erases the address rather than publishing a collision.
 	for _, originalPrefix := range r.prefixOrder {
 		if !originalPrefix.Contains(address) {
 			continue
 		}
 		mappedPrefix, err := netip.ParsePrefix(r.prefix(originalPrefix.String()))
 		if err != nil {
+			break
+		}
+		// Pseudonym prefixes stay within one address class, but a broad
+		// original prefix can span several. Individual class takes priority
+		// over containment when the prefix's namespace is incompatible.
+		if addressKind(mappedPrefix.Addr()) != addressKind(address) {
 			break
 		}
 		for range aliasAttempts(mappedPrefix.Addr().BitLen() - mappedPrefix.Bits()) {
@@ -795,16 +808,23 @@ func (r *redactor) address(value string) string {
 		}
 		break
 	}
-	kind, alias := addressKind(address), ""
-	for range maxAliasAttempts {
-		r.ipCounters[kind]++
-		alias = pseudonymAddress(address, r.ipCounters[kind]).String()
-		if !r.originalIPs[alias] && !r.issuedIPAliases[alias] {
-			break
+	kind := addressKind(address)
+	namespace := pseudonymAddress(address, 0).String()
+	if !r.exhaustedIPs[namespace] {
+		for range maxAliasAttempts {
+			r.ipCounters[kind]++
+			alias := pseudonymAddress(address, r.ipCounters[kind]).String()
+			if !r.originalIPs[alias] && !r.issuedIPAliases[alias] {
+				r.mapIP(key, alias)
+				return alias
+			}
 		}
+		r.exhaustedIPs[namespace] = true
 	}
-	r.mapIP(key, alias)
-	return alias
+	// The schema permits erasure in observations. Literal targets and bound
+	// sources reject it at publication instead of inventing endpoint evidence.
+	r.mapIP(key, redactedAddress)
+	return redactedAddress
 }
 
 func (r *redactor) collectResolverTarget(target string, retain bool) {
@@ -831,9 +851,8 @@ const (
 	redactedURL     = "<url-redacted>"
 )
 
-// maxAliasAttempts caps every pseudonym search. Each generator varies at most
-// 16 bits of counter before it repeats, so a search that gets this far has
-// already seen every value it can produce.
+// maxAliasAttempts caps each pseudonym search, including generators whose
+// namespace is larger. Exhaustion erases evidence; it never commits a collision.
 const maxAliasAttempts = 1 << 16
 
 // aliasAttempts is how many distinct hosts a mapped prefix can name, capped at
@@ -945,31 +964,30 @@ func (r *redactor) prefix(value string) string {
 		return prefix.String()
 	}
 	key := prefix.String()
-	if alias := r.prefixes[key]; alias != "" {
+	if alias, ok := r.prefixes[key]; ok {
 		return alias
 	}
 	if r.collecting {
 		return value
 	}
-	var alias string
-	for n := uint32(1); n <= maxAliasAttempts; n++ {
-		candidate := pseudonymPrefix(prefix, n)
-		alias = candidate.String()
-		// A prefix is written with its address, so a candidate whose address
-		// is an original IP would publish that IP verbatim. Containment is
-		// fine; only the spelled address has to differ.
-		used := r.originalPrefix[alias] || r.originalIPs[candidate.Addr().Unmap().String()]
-		if !used {
-			for _, existing := range r.prefixes {
-				used = used || existing == alias
+	namespace := pseudonymPrefix(prefix, 0).String()
+	if !r.exhaustedPrefixes[namespace] {
+		for n := uint32(1); n <= maxAliasAttempts; n++ {
+			candidate := pseudonymPrefix(prefix, n)
+			alias := candidate.String()
+			// Only the spelled address must differ, not every contained host.
+			if !r.originalPrefix[alias] && !r.originalIPs[candidate.Addr().Unmap().String()] && !r.issuedPrefixes[alias] {
+				r.prefixes[key] = alias
+				r.issuedPrefixes[alias] = true
+				return alias
 			}
 		}
-		if !used {
-			break
-		}
+		r.exhaustedPrefixes[namespace] = true
 	}
-	r.prefixes[key] = alias
-	return alias
+	// Route prefixes are optional. An exhausted namespace loses this evidence,
+	// and addresses fall back to their family-wide class-preserving namespace.
+	r.prefixes[key] = ""
+	return ""
 }
 
 // supportPrefix is the network a recorded route prefix names, which is the
@@ -1546,7 +1564,11 @@ func (r *redactor) textAddress(value string) (string, bool) {
 			return r.address(address.String()) + suffix, true
 		}
 		if endpoint, err := netip.ParseAddrPort(trimmed); err == nil {
-			return netip.AddrPortFrom(mustAddr(r.address(endpoint.Addr().String())), endpoint.Port()).String() + suffix, true
+			alias := r.address(endpoint.Addr().String())
+			if alias == redactedAddress {
+				return net.JoinHostPort(alias, strconv.Itoa(int(endpoint.Port()))) + suffix, true
+			}
+			return netip.AddrPortFrom(mustAddr(alias), endpoint.Port()).String() + suffix, true
 		}
 	}
 	if rest, ok := strings.CutPrefix(value, "["); ok {

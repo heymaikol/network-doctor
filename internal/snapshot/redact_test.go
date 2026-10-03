@@ -847,3 +847,89 @@ func TestSupportEquivalentRoutePrefixesShareAPseudonymAcrossNestedSnapshots(t *t
 		t.Errorf("incident states sanitized one network to %q and %q", onsetPrefix, beforePrefix)
 	}
 }
+
+func TestSupportPrefixAddressClass(t *testing.T) {
+	public := func(a netip.Addr) bool {
+		return !a.IsPrivate() && !a.IsLoopback() && !a.IsLinkLocalUnicast() && !a.IsMulticast()
+	}
+	for _, tc := range []struct {
+		name, first, second, prefix string
+		class                       func(netip.Addr) bool
+		contained                   bool
+	}{
+		{"private broad", "10.20.30.40", "10.20.30.41", "0.0.0.0/1", netip.Addr.IsPrivate, false},
+		{"private compatible", "10.20.30.40", "10.20.30.41", "10.0.0.0/8", netip.Addr.IsPrivate, true},
+		{"public broad", "93.184.216.34", "93.184.216.35", "0.0.0.0/1", public, true},
+		{"loopback broad", "127.20.30.40", "127.20.30.41", "0.0.0.0/1", netip.Addr.IsLoopback, false},
+		{"loopback compatible", "127.20.30.40", "127.20.30.41", "127.0.0.0/8", netip.Addr.IsLoopback, true},
+		{"link-local broad", "169.254.30.40", "169.254.30.41", "128.0.0.0/1", netip.Addr.IsLinkLocalUnicast, false},
+		{"link-local prefix", "169.254.30.40", "169.254.30.41", "169.254.0.0/16", netip.Addr.IsLinkLocalUnicast, false},
+		{"multicast broad", "224.20.30.40", "224.20.30.41", "128.0.0.0/1", netip.Addr.IsMulticast, false},
+		{"multicast compatible", "239.20.30.40", "239.20.30.41", "239.0.0.0/8", netip.Addr.IsMulticast, true},
+		{"shared broad", "100.100.30.40", "100.100.30.41", "0.0.0.0/1", netip.Addr.IsPrivate, false},
+		{"mapped private broad", "::ffff:10.20.30.40", "::ffff:10.20.30.41", "0.0.0.0/1", netip.Addr.IsPrivate, false},
+		{"ULA broad", "fd12:3456::40", "fd12:3456::41", "8000::/1", netip.Addr.IsPrivate, false},
+		{"ULA compatible", "fd12:3456::40", "fd12:3456::41", "fd00::/8", netip.Addr.IsPrivate, true},
+		{"IPv6 public broad", "2001:db8:1234::40", "2001:db8:1234::41", "::/1", public, true},
+		{"IPv6 link-local broad", "fe80::40", "fe80::41", "8000::/1", netip.Addr.IsLinkLocalUnicast, false},
+		{"IPv6 link-local compatible", "fe80::40", "fe80::41", "fe80::/10", netip.Addr.IsLinkLocalUnicast, true},
+		{"IPv6 multicast broad", "ff3e::40", "ff3e::41", "8000::/1", netip.Addr.IsMulticast, false},
+		{"IPv6 multicast compatible", "ff3e::40", "ff3e::41", "ff00::/8", netip.Addr.IsMulticast, true},
+		{"IPv6 link-local multicast", "ff02::40", "ff02::41", "ff00::/8", netip.Addr.IsLinkLocalUnicast, false},
+		{"IPv6 site-local broad", "fec0::40", "fec0::41", "8000::/1", netip.Addr.IsPrivate, false},
+		{"IPv4 host", "10.20.30.40", "10.20.30.41", "10.20.30.40/32", netip.Addr.IsPrivate, true},
+		{"IPv6 host", "fd12:3456::40", "fd12:3456::41", "fd12:3456::40/128", netip.Addr.IsPrivate, true},
+		{"IPv4 default", "10.20.30.40", "10.20.30.41", "0.0.0.0/0", netip.Addr.IsPrivate, true},
+		{"IPv6 default", "fd12:3456::40", "fd12:3456::41", "::/0", netip.Addr.IsPrivate, true},
+		{"unspecified policy", "0.0.0.0", "93.184.216.34", "0.0.0.0/1", public, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			family := "ipv6"
+			if netip.MustParseAddr(tc.first).Unmap().Is4() {
+				family = "ipv4"
+			}
+			s := routePrefixSnapshot(Route{Destination: tc.first, Gateway: tc.second, Source: tc.first, Family: family, Prefix: tc.prefix})
+			// Reserve a candidate from each family-wide private namespace only
+			// in text, protecting the collection pass used by fallback allocation.
+			s.Checks[0].Detail = "peer " + tc.first + " reserved 10.0.0.1 fd00::1"
+			data, err := Encode(SanitizeForSupport(s))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			route := got.Checks[0].Observed.Routes[0]
+			first, second := netip.MustParseAddr(route.Destination), netip.MustParseAddr(route.Gateway)
+			if !tc.class(first) || !tc.class(second) {
+				t.Errorf("address class changed: %s, %s -> %s, %s", tc.first, tc.second, first, second)
+			}
+			if first == second || route.Source != route.Destination || !strings.HasPrefix(got.Checks[0].Detail, "peer "+route.Destination+" ") {
+				t.Errorf("equality or distinctness lost: %+v detail=%q", route, got.Checks[0].Detail)
+			}
+			for _, alias := range []netip.Addr{first, second} {
+				for _, original := range []string{tc.first, tc.second, "10.0.0.1", "fd00::1"} {
+					if alias == netip.MustParseAddr(original).Unmap() {
+						t.Errorf("alias leaked original %s", original)
+					}
+				}
+			}
+			prefix := netip.MustParsePrefix(route.Prefix)
+			if prefix.Contains(first) != tc.contained {
+				t.Errorf("%s contains %s = %t, want %t", prefix, first, prefix.Contains(first), tc.contained)
+			}
+			if original := netip.MustParsePrefix(tc.prefix); original.Bits() == 0 {
+				if prefix != original {
+					t.Errorf("default route changed: %s -> %s", original, prefix)
+				}
+			} else if prefix == netip.MustParsePrefix(tc.prefix).Masked() {
+				t.Errorf("original prefix retained: %s", prefix)
+			}
+			again, err := Encode(SanitizeForSupport(s))
+			if err != nil || string(again) != string(data) {
+				t.Fatalf("non-deterministic support artifact: %v", err)
+			}
+		})
+	}
+}

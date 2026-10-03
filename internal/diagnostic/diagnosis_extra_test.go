@@ -630,3 +630,103 @@ func sortedIDs(set map[ProbeID]bool) []ProbeID {
 	slices.Sort(ids)
 	return ids
 }
+
+// A secure target's plain HTTP row depends only on DNS, so a selection can
+// run it without the HTTPS row. A full chain reaches the HTTP arm only after
+// the HTTPS rungs have passed, which is what made "HTTPS works" safe there;
+// a selection has no such ordering, so the claim needs the HTTPS row itself.
+// This goes through the real graph and the real selection, because a
+// hand-built order is how the gap escaped.
+func TestSelectedHTTPFailureDoesNotInventHTTPS(t *testing.T) {
+	selections := []struct {
+		name string
+		sel  ProbeSelection
+		want []ProbeID // nil: only check that HTTPS is gone
+	}{
+		{"check http", ProbeSelection{Check: map[ProbeID]struct{}{ProbeHTTP: {}}}, []ProbeID{ProbeIface, ProbeDNS, ProbeHTTP}},
+		{"skip https", ProbeSelection{Skip: map[ProbeID]struct{}{ProbeHTTPS: {}}}, nil},
+	}
+	causes := []string{"", HTTPCauseInvalidResponse, ConnectionCauseClosed, ConnectionCauseReset}
+	target := mustTarget(t, "https://example.com")
+	for _, s := range selections {
+		var order []ProbeID
+		for _, p := range s.sel.Apply((&netops{}).buildProbes(target, DefaultPublicDNS, true)) {
+			order = append(order, p.ID)
+		}
+		if s.want != nil && !slices.Equal(order, s.want) {
+			t.Fatalf("%s: selected graph = %v, want %v", s.name, order, s.want)
+		}
+		if slices.Contains(order, ProbeHTTPS) {
+			t.Fatalf("%s: selected graph still runs HTTPS: %v", s.name, order)
+		}
+		for _, cause := range causes {
+			res := make(map[ProbeID]ProbeResult, len(order))
+			for _, id := range order {
+				res[id] = ProbeResult{Status: StatusPass}
+			}
+			res[ProbeHTTP] = ProbeResult{Status: StatusFail, Cause: cause}
+			d := Interpret(target, order, res)
+			if strings.Contains(d.Summary, "HTTPS works") {
+				t.Errorf("%s/%q: summary claims HTTPS works without an HTTPS row: %q", s.name, cause, d.Summary)
+			}
+			if len(d.Findings) == 0 {
+				t.Fatalf("%s/%q: no finding for a failed selected row", s.name, cause)
+			}
+			f := d.Findings[0]
+			if f.ID != DiagnosisSelectedServiceCheckFailed || f.Focus != ProbeHTTP {
+				t.Errorf("%s/%q: finding = %s on %s, want %s on %s", s.name, cause, f.ID, f.Focus, DiagnosisSelectedServiceCheckFailed, ProbeHTTP)
+			}
+			notSelected := false
+			for _, e := range f.Evidence {
+				if e.Check != ProbeHTTPS {
+					continue
+				}
+				if e.Kind == EvidenceSupport {
+					t.Errorf("%s/%q: HTTPS cited as support though it never ran: %+v", s.name, cause, e)
+				}
+				notSelected = notSelected || (e.Kind == EvidenceNotEvaluated && e.Reason == NotEvaluatedNotSelected)
+			}
+			if !notSelected {
+				t.Errorf("%s/%q: evidence does not record HTTPS as not selected: %+v", s.name, cause, f.Evidence)
+			}
+			if r, ok := Remediate(d, res, "linux"); !ok || r.ID != RemedyRerunFullChain {
+				t.Errorf("%s/%q: remediation = %v %v, want %s", s.name, cause, r.ID, ok, RemedyRerunFullChain)
+			}
+		}
+	}
+
+	// A plain HTTP target's HTTP row sits on the target TCP rung, so the same
+	// selection keeps the evidence its specific finding cites.
+	plainTarget := mustTarget(t, "http://example.com")
+	var order []ProbeID
+	for _, p := range selections[0].sel.Apply((&netops{}).buildProbes(plainTarget, DefaultPublicDNS, true)) {
+		order = append(order, p.ID)
+	}
+	res := make(map[ProbeID]ProbeResult, len(order))
+	for _, id := range order {
+		res[id] = ProbeResult{Status: StatusPass}
+	}
+	res[ProbeHTTP] = ProbeResult{Status: StatusFail, Cause: ConnectionCauseClosed}
+	if d := Interpret(plainTarget, order, res); d.Summary != "example.com:80 accepted the connection, then closed it before sending an HTTP response." {
+		t.Errorf("plain HTTP target with --check http: summary = %q", d.Summary)
+	}
+}
+
+// HTTPS Warn is functional, the same reading targetRows gives it, so it still
+// supports the cross-protocol summary and is cited as what it was.
+func TestHTTPFailureBesideDegradedHTTPS(t *testing.T) {
+	tg := mustTarget(t, "https://example.com")
+	res := make(map[ProbeID]ProbeResult, len(targetOrder))
+	for _, id := range targetOrder {
+		res[id] = ProbeResult{Status: StatusPass}
+	}
+	res[ProbeHTTPS] = ProbeResult{Status: StatusWarn}
+	res[ProbeHTTP] = ProbeResult{Status: StatusFail}
+	d := Interpret(tg, targetOrder, res)
+	if !strings.HasPrefix(d.Summary, "HTTPS works but no HTTP response") || d.Findings[0].ID != DiagnosisHTTPNoResponse {
+		t.Fatalf("summary = %q, finding = %s", d.Summary, d.Findings[0].ID)
+	}
+	if !slices.Contains(d.Findings[0].Evidence, CausalEvidence{Kind: EvidenceSupport, Check: ProbeHTTPS, Observation: ObservationStatusWarn}) {
+		t.Errorf("HTTPS Warn not cited: %+v", d.Findings[0].Evidence)
+	}
+}

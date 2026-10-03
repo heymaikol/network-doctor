@@ -640,6 +640,14 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		}
 		return withEvidence(DiagnosisHTTPSNoResponse, ProbeHTTPS, "TLS is fine but no HTTPS response from "+hp+": application-layer or proxy block.", VerdictService, evidence)
 	case has(ProbeHTTP) && fail(ProbeHTTP):
+		// A secure target's HTTP row depends only on DNS. A full chain gets
+		// here only past a working HTTPS row, which is what lets the summaries
+		// below say "HTTPS works"; a selection that left HTTPS out has no such
+		// row, so it gets the selected-check answer instead of that claim.
+		if t.Proto == ProtoTLSHTTP && (!has(ProbeHTTPS) || !functional(res[ProbeHTTPS].Status)) {
+			evidence := addEvidence(supportRows(ProbeHTTP), notEvaluated(ProbeHTTPS, NotEvaluatedNotSelected))
+			return withEvidence(DiagnosisSelectedServiceCheckFailed, ProbeHTTP, "A selected service check failed.", VerdictService, evidence)
+		}
 		switch cause := res[ProbeHTTP].Cause; cause {
 		case HTTPCauseInvalidResponse:
 			if t.Proto == ProtoTLSHTTP {

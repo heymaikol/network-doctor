@@ -799,9 +799,7 @@ func TestReplaySupportBroadPrefixPreservesTargetClass(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(got.Findings) != 1 || string(got.Findings[0].ID) != tc.finding {
-				t.Errorf("support replay findings = %v, want %s (target=%s)", findingIDs(got), tc.finding, safe.Target.IP)
-			}
+			assertDiagnosisSemantics(t, got, want)
 			probes := make([]Probe, len(order))
 			for i, id := range order {
 				probes[i] = Probe{ID: id, Name: string(id)}
@@ -824,5 +822,31 @@ func TestReplaySupportBroadPrefixPreservesTargetClass(t *testing.T) {
 			}
 			assertDiagnosisSemantics(t, got, want)
 		})
+	}
+}
+
+// Erased support evidence must not become a replayed successful connection.
+func TestReplayRejectsErasedSupportAddress(t *testing.T) {
+	target, err := ParseTarget("10.1.0.0:9100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, safe := sanitizedReplayInput(t, target, []ProbeID{ProbeTargetTCP}, map[ProbeID]ProbeResult{ProbeTargetTCP: {Status: StatusPass, SelectedIP: target.IP}})
+	safe.Target.Host, safe.Target.IP = "<address-redacted>", "<address-redacted>"
+	if _, err := ReplaySnapshot(safe); err == nil {
+		t.Fatal("replayed erased literal target")
+	}
+	safe.Target = nil
+	safe.Checks[0].Observed.SelectedIP = "<address-redacted>"
+	data, err := snapshot.Encode(safe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	safe, err = snapshot.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReplaySnapshot(safe); err == nil {
+		t.Fatal("replayed erased successful target connection")
 	}
 }

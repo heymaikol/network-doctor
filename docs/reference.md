@@ -1423,6 +1423,13 @@ IP addresses follow an explicit policy:
   `0.0.0.0/0` or `::/0`. Prefix lengths of at least `/16` for IPv4 and `/48`
   for IPv6 are retained; broader prefixes are narrowed to those bounds so
   distinct aliases do not collapse.
+- Collision searches are bounded to 65,536 attempts. If no safe address alias
+  is found, the address is erased as `<address-redacted>` in structured
+  observations and text. Erasure does not assert address identity or locality;
+  replay rejects erased endpoint evidence. Literal targets, configured DNS
+  resolvers, and source bindings cannot carry this marker, so saving fails
+  validation instead. An exhausted route-prefix namespace omits the optional
+  prefix. Successful aliases still preserve class, equality, and distinctness.
 - Ports, address-family results, route selection reasons, tunnel state and
   device kind, MTU, metrics, and whether routes or paths agree remain intact.
 - A field the format declares as an address that does not hold one is written

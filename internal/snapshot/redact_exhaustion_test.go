@@ -25,7 +25,7 @@ func TestSupportAliasExhaustion(t *testing.T) {
 			reserved := make(map[string]bool, 1<<16)
 			for n := uint32(1); n <= 1<<16; n++ {
 				// Independent enumeration of the allocator's first 65,536 candidates.
-				ip := fmt.Sprintf("10.%d.%d.%d", n>>16, byte(n>>8), byte(n))
+				ip := fmt.Sprintf("10.%d.%d.%d", n>>16, (n>>8)&255, n&255)
 				reserved[ip] = true
 				if tc.textOnly {
 					detail.WriteByte(' ')
@@ -101,7 +101,7 @@ func TestSupportAliasNearExhaustion(t *testing.T) {
 	s.Checks[0].Detail = "peer " + original
 	reserved := map[string]bool{original: true, "10.20.30.41": true}
 	for n := uint32(1); n <= 1<<16; n++ {
-		ip := fmt.Sprintf("10.%d.%d.%d", n>>16, byte(n>>8), byte(n))
+		ip := fmt.Sprintf("10.%d.%d.%d", n>>16, (n>>8)&255, n&255)
 		if ip != remaining {
 			reserved[ip] = true
 			s.Checks[0].Observed.Addresses = append(s.Checks[0].Observed.Addresses, ip)
@@ -182,7 +182,7 @@ func TestSupportAliasIssuedExhaustion(t *testing.T) {
 	s := routePrefixSnapshot()
 	originals := map[string]bool{}
 	for n := uint32(0); n <= 1<<16; n++ {
-		ip := fmt.Sprintf("203.%d.%d.%d", n>>16, byte(n>>8), byte(n))
+		ip := fmt.Sprintf("203.%d.%d.%d", n>>16, (n>>8)&255, n&255)
 		originals[ip] = true
 		s.Checks[0].Observed.Addresses = append(s.Checks[0].Observed.Addresses, ip)
 	}

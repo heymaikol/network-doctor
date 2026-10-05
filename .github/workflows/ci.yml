@@ -405,7 +405,7 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
       # GoReleaser shells out to syft for the `sboms` block; the GoReleaser
       # action does not bring it along. Pinned action, pinned tool version.
-      - uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           syft-version: v1.42.0
       # Validate the GoReleaser config here so breakage surfaces before tag day.

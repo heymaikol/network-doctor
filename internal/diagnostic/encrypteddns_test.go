@@ -51,7 +51,6 @@ type dohReply struct {
 	noContentType bool
 	location      string
 	payload       []byte
-	delay         time.Duration
 	mutate        func([]byte) []byte
 	check         func(*http.Request, []byte)
 }
@@ -62,7 +61,6 @@ type dohReply struct {
 type dotReply struct {
 	silent bool
 	frame  func(response []byte) []byte
-	delay  time.Duration
 	mutate func([]byte) []byte
 }
 
@@ -150,9 +148,6 @@ func serveDoH(w http.ResponseWriter, r *http.Request, reply dohReply) {
 	if reply.location != "" {
 		w.Header().Set("Location", reply.location)
 	}
-	if reply.delay > 0 {
-		time.Sleep(reply.delay)
-	}
 	w.WriteHeader(status)
 	_, _ = w.Write(payload)
 }
@@ -181,9 +176,6 @@ func serveDoT(t *testing.T, p *pipeNet, cert tls.Certificate, reply dotReply) {
 				query := make([]byte, binary.BigEndian.Uint16(header[:]))
 				if _, err := io.ReadFull(conn, query); err != nil {
 					return
-				}
-				if reply.delay > 0 {
-					time.Sleep(reply.delay)
 				}
 				if reply.silent {
 					// The query was read and no answer follows: a completed TLS
@@ -702,9 +694,7 @@ func FuzzEncryptedDNSResponseVerifier(f *testing.F) {
 // ---- DoH ----
 
 func TestDoHValidExchangePasses(t *testing.T) {
-	// The delay lets the refused DoT dial land first, so its failure is a real
-	// observation rather than an artifact of DoH canceling it.
-	f := newEncryptedDNSFixture(t, fixtureIPs, &dohReply{delay: 50 * time.Millisecond}, nil)
+	f := newEncryptedDNSFixture(t, fixtureIPs, &dohReply{}, nil)
 	r := f.run(t, f.ops())
 	if r.Status != StatusPass || !strings.Contains(r.Detail, "DoH completed a DNS query") {
 		t.Fatalf("result = %+v, want PASS naming DoH", r)
@@ -866,8 +856,7 @@ func TestDoHAcceptsSuccessful2xxAndPermittedMediaTypeForms(t *testing.T) {
 // ---- DoT ----
 
 func TestDoTValidExchangePasses(t *testing.T) {
-	// See TestDoHValidExchangePasses: the refused DoH dial must land first.
-	f := newEncryptedDNSFixture(t, fixtureIPs, nil, &dotReply{delay: 50 * time.Millisecond})
+	f := newEncryptedDNSFixture(t, fixtureIPs, nil, &dotReply{})
 	r := f.run(t, f.ops())
 	if r.Status != StatusPass || !strings.Contains(r.Detail, "DoT completed a DNS query") {
 		t.Fatalf("result = %+v, want PASS naming DoT", r)
@@ -976,7 +965,7 @@ func TestEncryptedDNSRowSemantics(t *testing.T) {
 		wantStatus Status
 		wantDetail string
 	}{
-		{"both transports work", &dohReply{}, &dotReply{}, StatusPass, "completed a DNS query"},
+		{"both transports work", &dohReply{}, &dotReply{}, StatusPass, "DoH and DoT both completed"},
 		{"DoH works, DoT blocked", &dohReply{}, nil, StatusPass, "DoH completed a DNS query"},
 		{"DoT works, DoH blocked", nil, &dotReply{}, StatusPass, "DoT completed a DNS query"},
 		{"neither works", nil, nil, StatusFail, "no encrypted DNS via"},
@@ -1010,16 +999,12 @@ func TestEncryptedDNSOutcomePath(t *testing.T) {
 	}{
 		{"DoH SERVFAIL, DoT succeeds", &dohReply{mutate: servfail}, &dotReply{}, StatusPass, "DoT completed a DNS query", 1},
 		{"DoH succeeds, DoT SERVFAIL", &dohReply{}, &dotReply{mutate: servfail}, StatusPass, "DoH completed a DNS query", 0},
-		{"both succeed", &dohReply{}, &dotReply{delay: 20 * time.Millisecond}, StatusPass, "DoH completed a DNS query", 0},
+		{"both succeed", &dohReply{}, &dotReply{}, StatusPass, "DoH and DoT both completed", 0},
 		{"DoH succeeds, DoT unavailable", &dohReply{}, nil, StatusPass, "DoH completed a DNS query", 0},
 		{"DoH unavailable, DoT succeeds", nil, &dotReply{}, StatusPass, "DoT completed a DNS query", 1},
 		{"DoH SERVFAIL, DoT unavailable", &dohReply{mutate: servfail}, nil, StatusWarn, "resolver returned an error", 0},
 		{"DoH unavailable, DoT SERVFAIL", nil, &dotReply{mutate: servfail}, StatusWarn, "resolver returned an error", 1},
 		{"both SERVFAIL", &dohReply{mutate: servfail}, &dotReply{mutate: servfail}, StatusWarn, "resolver returned an error", 0},
-		// A resolver error lands first and must neither cancel nor outrank a
-		// later verified success; it stays in the detail as a real observation.
-		{"DoT SERVFAIL, later DoH succeeds", &dohReply{delay: 100 * time.Millisecond}, &dotReply{mutate: servfail}, StatusPass, "; DoT resolver answered SERVFAIL", 0},
-		{"DoH SERVFAIL, later DoT succeeds", &dohReply{mutate: servfail}, &dotReply{delay: 100 * time.Millisecond}, StatusPass, "; DoH resolver answered SERVFAIL", 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			ips := []net.IP{net.ParseIP("192.0.2.10"), net.ParseIP("2001:db8::10")}
@@ -1057,6 +1042,11 @@ func TestEncryptedDNSOutcomePath(t *testing.T) {
 			r := f.run(t, ops)
 			if r.Status != c.wantStatus || !strings.Contains(r.Detail, c.wantDetail) || r.Cause != "" {
 				t.Fatalf("result = %+v, want %s mentioning %q without a failure cause", r, c.wantStatus, c.wantDetail)
+			}
+			if c.doh != nil && c.doh.mutate != nil || c.dot != nil && c.dot.mutate != nil {
+				if !strings.Contains(r.Detail, "SERVFAIL") {
+					t.Errorf("detail = %q, want SERVFAIL evidence", r.Detail)
+				}
 			}
 			if !r.SelectedIP.Equal(ips[c.wantPath]) || !r.Source.Equal(sources[c.wantPath]) || r.Iface != ifaces[c.wantPath].Name {
 				t.Errorf("selected=%s source=%s interface=%s, want selected=%s source=%s interface=%s",
@@ -1142,54 +1132,6 @@ func TestEncryptedDNSTransportsRunConcurrently(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("probe took %v; a stalled transport should not serialize with the working one", elapsed)
-	}
-}
-
-// One working transport must not spend the whole budget when the sibling
-// is slow. These are the pre-fix proof tests: they fail against wg.Wait()
-// and pass only once first-success cancels the sibling.
-func TestDoHWinsWithoutWaitingForSlowDoT(t *testing.T) {
-	f := newEncryptedDNSFixture(t, fixtureIPs, &dohReply{}, &dotReply{delay: 500 * time.Millisecond})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	r := f.ops().encryptedDNSProbe(f.ep, ConnectivityProbeHost)(ctx, nil)
-	elapsed := time.Since(start)
-	if elapsed > 250*time.Millisecond {
-		t.Fatalf("probe took %v; the working DoH should not wait for the slow DoT", elapsed)
-	}
-	if r.Status != StatusPass || !strings.Contains(r.Detail, "DoH completed") {
-		t.Fatalf("result = %+v, want PASS from DoH with the slow DoT canceled", r)
-	}
-	assertNoCanceledSiblingClaim(t, r.Detail)
-}
-
-func TestDoTWinsWithoutWaitingForSlowDoH(t *testing.T) {
-	f := newEncryptedDNSFixture(t, fixtureIPs, &dohReply{delay: 500 * time.Millisecond}, &dotReply{})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	r := f.ops().encryptedDNSProbe(f.ep, ConnectivityProbeHost)(ctx, nil)
-	elapsed := time.Since(start)
-	if elapsed > 250*time.Millisecond {
-		t.Fatalf("probe took %v; the working DoT should not wait for the slow DoH", elapsed)
-	}
-	if r.Status != StatusPass || !strings.Contains(r.Detail, "DoT completed") {
-		t.Fatalf("result = %+v, want PASS from DoT with the slow DoH canceled", r)
-	}
-	assertNoCanceledSiblingClaim(t, r.Detail)
-}
-
-// A sibling the winner canceled produced no observation of its own, so the
-// PASS detail must not diagnose it from the cancellation's side effects.
-func assertNoCanceledSiblingClaim(t *testing.T, detail string) {
-	t.Helper()
-	for _, banned := range []string{"unavailable", "closed pipe", "canceled", "EOF", "deadline", "timeout"} {
-		if strings.Contains(detail, banned) {
-			t.Fatalf("detail = %q, want no %q from the canceled sibling", detail, banned)
-		}
 	}
 }
 

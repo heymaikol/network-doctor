@@ -300,7 +300,7 @@ func TestConfidenceDoesNotDependOnWhichPassBuiltTheFinding(t *testing.T) {
 	// arrives only as a counterfactual finding appended afterwards.
 	fromCounterfactual := map[ProbeID]ProbeResult{
 		ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusPass},
-		ProbeTargetTCP: {Status: StatusFail, Cause: ConnectionCauseTimeout},
+		ProbeTargetTCP: targetFailureOn(ConnectionCauseTimeout, net.ParseIP("192.0.2.1")),
 	}
 	confidence := func(res map[ProbeID]ProbeResult) Confidence {
 		t.Helper()
@@ -474,7 +474,7 @@ func TestTargetSilenceConfidence(t *testing.T) {
 	results := map[ProbeID]ProbeResult{
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
 		ProbeInternet:  {Status: StatusPass},
-		ProbeTargetTCP: {Status: StatusFail},
+		ProbeTargetTCP: targetFailureOn(ConnectionCauseTimeout, net.ParseIP("93.184.216.34")),
 	}
 	order := []ProbeID{ProbeDNS, ProbeInternet, ProbeTargetTCP}
 	got := Interpret(target, order, results)

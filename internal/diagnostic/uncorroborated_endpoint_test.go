@@ -491,14 +491,9 @@ func TestGenericQUICSurvivesASystemAnswerThatRotated(t *testing.T) {
 	assertNoOverclaim(t, d.Summary)
 }
 
-// TestTargetAttemptOfUnknownOriginKeepsTheBroadConclusion is the guard on the
-// other side of that. Probe-derived provenance is granted to the generic QUIC
-// row because that probe resolves its own hostname; the endpoint row dials the
-// addresses the system DNS row resolved, so there membership in that row is
-// what says an attempt used a system answer, and an address in neither
-// resolver's answers is of unknown origin. Nothing may quietly read it as one
-// the system resolver gave.
-func TestTargetAttemptOfUnknownOriginKeepsTheBroadConclusion(t *testing.T) {
+// An attempt outside either resolver's answers cannot establish system-only
+// provenance or the reachability of the resolved addresses left unattempted.
+func TestTargetAttemptOfUnknownOriginDoesNotProveUnreachability(t *testing.T) {
 	tg := mustTarget(t, "example.com")
 	order := planOrder(t, tg)
 	res := settle(t, tg, order, map[ProbeID]ProbeResult{
@@ -509,10 +504,10 @@ func TestTargetAttemptOfUnknownOriginKeepsTheBroadConclusion(t *testing.T) {
 		ProbeTargetTCP: targetFailureOn(ConnectionCauseTimeout, net.ParseIP("203.0.113.77")),
 	})
 	d := Interpret(tg, order, res)
-	if got := findingIDs(d); len(got) == 0 || got[0] != DiagnosisTargetUnreachable {
-		t.Fatalf("findings = %v, want %q first: the attempted address is in neither resolver's answers, so "+
-			"nothing observed says the endpoint row used a system answer (summary: %s)", got, DiagnosisTargetUnreachable, d.Summary)
+	if got := findingIDs(d); len(got) != 0 || d.Verdict != VerdictNetwork {
+		t.Fatalf("findings = %v, verdict = %s: the attempt has unknown origin and the resolved addresses were not tested (summary: %s)", got, d.Verdict, d.Summary)
 	}
+	assertNoOverclaim(t, d.Summary)
 }
 
 // TestTargetDNSDoesNotScopeTheGenericQUICEndpoint keeps hostname provenance

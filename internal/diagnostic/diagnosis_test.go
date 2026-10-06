@@ -823,7 +823,7 @@ func TestDiagnoseLocalTargetFollowsResolvedAddresses(t *testing.T) {
 				ProbeIface:     {Status: StatusPass},
 				ProbeInternet:  {Status: StatusPass},
 				ProbeDNS:       {Status: StatusPass, Addrs: c.addrs},
-				ProbeTargetTCP: {Status: StatusFail},
+				ProbeTargetTCP: targetFailureOn(ConnectionCauseTimeout, c.addrs...),
 			}
 			if v := Interpret(mustTarget(t, "nas.lan:445"), order, res).Summary; !strings.Contains(v, c.want) {
 				t.Errorf("summary = %q, want substring %q", v, c.want)

@@ -511,7 +511,7 @@ func TestReplayKeepsADisagreementSanitizationWouldCollapse(t *testing.T) {
 		// The target fails, so the headline is the target failure and the
 		// disagreement survives only as the appended DNS counterfactual: the
 		// finding this artifact could otherwise lose without changing verdict.
-		ProbeTargetTCP: {Status: StatusFail},
+		ProbeTargetTCP: targetFailureOn(ConnectionCauseTimeout, net.ParseIP("203.0.113.9")),
 		ProbePMTU:      {Status: StatusPass},
 		ProbeTLS:       {Status: StatusSkip},
 		ProbeHTTP:      {Status: StatusSkip},

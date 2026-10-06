@@ -24,7 +24,9 @@ func Interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	// below it. A comparison drawn from intercepted rows describes the
 	// interception and publishes it under the name of the thing intercepted,
 	// so the same rule holds here: the portal is what this run observed.
-	if d.Verdict != VerdictIncomplete && !intercepted(res) {
+	// A failure without a specific finding must keep its broad verdict and
+	// summary rather than being replaced by a sibling comparison.
+	if (len(d.Findings) > 0 || d.Verdict == VerdictOK || d.Verdict == VerdictDegraded) && !intercepted(res) {
 		counterfactuals = counterfactualFindings(t, res)
 	}
 	for _, finding := range counterfactuals {
@@ -573,6 +575,11 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 					contradicts(DiagnosisTargetUnreachable, ProbeDNSPublic, ObservationDNSAnswers),
 					rulesOut(DiagnosisLocalEgressFailure, ProbeInternet, ObservationStatusPass))
 				return withEvidence(DiagnosisUncorroboratedEndpointFailure, ProbeTargetTCP, targetOnUncorroboratedAnswerSummary(hp), VerdictNetwork, evidence)
+			}
+			// Finalize can remove an all-unknown Families record. Use the same
+			// coverage rule as the probe, across all resolved target addresses.
+			if resolved := res[ProbeDNS].Addrs; len(resolved) > 0 && targetFamilyState(resolved, nil, res[ProbeTargetTCP].Attempts) != FamilyUnreachable {
+				return plain("TCP did not connect to "+hp+", but some resolved addresses were not tested, so target reachability remains unknown.", VerdictNetwork)
 			}
 			evidence := addEvidence(supportRows(ProbeTargetTCP, ProbeInternet, ProbeDNS),
 				rulesOut(DiagnosisLocalEgressFailure, ProbeInternet, ObservationStatusPass),

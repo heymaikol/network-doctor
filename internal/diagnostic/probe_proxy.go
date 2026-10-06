@@ -271,6 +271,7 @@ func (o *netops) socks5Probe(ctx context.Context, addr string, remoteDNS bool, d
 		return r
 	}
 	destinations := []socks5Destination{{host: ConnectivityProbeHost, port: 443, remoteDNS: remoteDNS}}
+	resolved := 0
 	if !remoteDNS {
 		ips, targets, lookupErr := o.lookupIP(ctx, ConnectivityProbeHost)
 		if lookupErr != nil || len(ips) == 0 {
@@ -284,6 +285,7 @@ func (o *netops) socks5Probe(ctx context.Context, addr string, remoteDNS bool, d
 			r.Fix = "fix the client's DNS resolver, or use socks5h:// to resolve names through the proxy"
 			return r
 		}
+		resolved = len(ips)
 		ips = interleaveFamilies(ips)
 		if len(ips) > maxAttempts {
 			ips = ips[:maxAttempts]
@@ -314,17 +316,33 @@ func (o *netops) socks5Probe(ctx context.Context, addr string, remoteDNS bool, d
 		r.Cause = proxyCauseForSOCKSError(err, remoteDNS)
 		r.Detail = "SOCKS5 proxy " + addr + ": " + err.Error()
 		r.Fix = "check that the proxy URL names a SOCKS5 port and that the proxy allows this destination"
-		// Only a well-formed refusal is about this destination; anything else
-		// is the proxy itself misbehaving, and another address would hide it.
-		var reply socks5ReplyError
-		if !errors.As(err, &reply) {
+		if !socks5RetryOtherDestination(err) {
 			return r
 		}
 	}
 	if tried > 1 {
-		r.Detail += fmt.Sprintf(" (all %d locally resolved addresses tried)", tried)
+		r.Detail += fmt.Sprintf(" (%d of %d locally resolved addresses tried)", tried, resolved)
 	}
 	return r
+}
+
+// socks5RetryOtherDestination reports whether a failed CONNECT refused only the
+// address it carried, so another locally resolved address could still tunnel.
+// Anything else (a malformed reply, a general server failure, an unsupported
+// command, an unassigned code) describes the proxy itself, and trying another
+// address would hide it.
+func socks5RetryOtherDestination(err error) bool {
+	var reply socks5ReplyError
+	if !errors.As(err, &reply) {
+		return false
+	}
+	switch reply.code {
+	case 2, // ruleset: proxy policy can allow one address and not another
+		3, 4, 5, 6, // network/host unreachable, refused, TTL expired: path to this address
+		8: // address type not supported: the other family may be
+		return true
+	}
+	return false
 }
 
 // socks5Session dials the proxy and completes the no-auth greeting. On failure

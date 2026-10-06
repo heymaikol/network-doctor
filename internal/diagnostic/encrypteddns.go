@@ -287,30 +287,13 @@ func (o *netops) encryptedDNSProbe(ep encryptedDNSEndpoint, name string) func(co
 			return r
 		}
 
-		var doh, dot transportOutcome
 		ctx2, cancel2 := context.WithCancel(ctx)
 		defer cancel2()
 		dohCh := make(chan transportOutcome, 1)
 		dotCh := make(chan transportOutcome, 1)
 		go func() { dohCh <- o.dohExchange(ctx2, ep, dotQuery.withID(0)) }()
 		go func() { dotCh <- o.dotExchange(ctx2, ep, dotQuery) }()
-		// First success cancels the sibling so it exits without spending its
-		// full deadline; the buffered channels collect both outcomes. Once
-		// canceled, a sibling's transport error may be the cancellation itself,
-		// so it is not reported as that transport being unavailable.
-		var canceled bool
-		select {
-		case doh = <-dohCh:
-			if canceled = doh.err == nil; canceled {
-				cancel2()
-			}
-			dot = <-dotCh
-		case dot = <-dotCh:
-			if canceled = dot.err == nil; canceled {
-				cancel2()
-			}
-			doh = <-dohCh
-		}
+		doh, dot, canceled := firstVerified(dohCh, dotCh, cancel2)
 
 		r.Attempts = append(append([]Attempt{}, doh.attempts...), dot.attempts...)
 		won := doh
@@ -373,6 +356,34 @@ func (o *netops) encryptedDNSProbe(ep encryptedDNSEndpoint, name string) func(co
 		}
 		return r
 	}
+}
+
+// firstVerified collects both transport outcomes. A success cancels a sibling
+// still in flight so it exits without spending its full deadline, and only
+// that sibling's error may be the cancellation itself, so only then is it not
+// reported as that transport being unavailable. A sibling outcome already
+// waiting finished on its own and is kept as observed.
+func firstVerified(dohCh, dotCh <-chan transportOutcome, cancel func()) (doh, dot transportOutcome, canceled bool) {
+	select {
+	case doh = <-dohCh:
+		dot, canceled = settleSibling(doh, dotCh, cancel)
+	case dot = <-dotCh:
+		doh, canceled = settleSibling(dot, dohCh, cancel)
+	}
+	return doh, dot, canceled
+}
+
+func settleSibling(first transportOutcome, sibling <-chan transportOutcome, cancel func()) (transportOutcome, bool) {
+	if first.err == nil {
+		select {
+		case out := <-sibling:
+			return out, false
+		default:
+			cancel()
+			return <-sibling, true
+		}
+	}
+	return <-sibling, false
 }
 
 // dohExchange runs one RFC 8484 exchange: POST the wire-format query to the

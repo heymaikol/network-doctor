@@ -1011,7 +1011,9 @@ func TestEncryptedDNSOutcomePath(t *testing.T) {
 	}{
 		{"DoH SERVFAIL, DoT succeeds", &dohReply{mutate: servfail}, &dotReply{}, StatusPass, "DoT completed a DNS query", 1},
 		{"DoH succeeds, DoT SERVFAIL", &dohReply{}, &dotReply{mutate: servfail}, StatusPass, "DoH completed a DNS query", 0},
-		{"both succeed", &dohReply{}, &dotReply{delay: 20 * time.Millisecond}, StatusPass, "DoH completed a DNS query", 0},
+		// A silent DoT holds its answer until teardown, so DoH wins by
+		// construction rather than by a head start.
+		{"DoH succeeds, DoT still in flight", &dohReply{}, &dotReply{silent: true}, StatusPass, "DoH completed a DNS query for", 0},
 		{"DoH succeeds, DoT unavailable", &dohReply{}, nil, StatusPass, "DoH completed a DNS query", 0},
 		{"DoH unavailable, DoT succeeds", nil, &dotReply{}, StatusPass, "DoT completed a DNS query", 1},
 		{"DoH SERVFAIL, DoT unavailable", &dohReply{mutate: servfail}, nil, StatusWarn, "resolver returned an error", 0},
@@ -1062,6 +1064,9 @@ func TestEncryptedDNSOutcomePath(t *testing.T) {
 			r := f.run(t, ops)
 			if r.Status != c.wantStatus || !strings.Contains(r.Detail, c.wantDetail) || r.Cause != "" {
 				t.Fatalf("result = %+v, want %s mentioning %q without a failure cause", r, c.wantStatus, c.wantDetail)
+			}
+			if c.dot != nil && c.dot.silent {
+				assertNoCanceledSiblingClaim(t, r.Detail)
 			}
 			if !r.SelectedIP.Equal(ips[c.wantPath]) || !r.Source.Equal(sources[c.wantPath]) || r.Iface != ifaces[c.wantPath].Name {
 				t.Errorf("selected=%s source=%s interface=%s, want selected=%s source=%s interface=%s",
@@ -1185,6 +1190,60 @@ func TestDoTWinsWithoutWaitingForSlowDoH(t *testing.T) {
 		t.Fatalf("result = %+v, want PASS from DoT with the slow DoH canceled", r)
 	}
 	assertNoCanceledSiblingClaim(t, r.Detail)
+}
+
+// A sibling outcome already waiting when the winner arrives was not caused by
+// the winner's cancellation, so it must be kept whichever ready case select
+// takes first. Both channels are filled before the call, so no timing decides
+// anything; the loop only gives select's random choice room to take both.
+func TestFirstVerifiedKeepsASiblingOutcomeThatWasAlreadyReady(t *testing.T) {
+	refused := errors.New("connect: connection refused")
+	for _, c := range []struct {
+		name     string
+		doh, dot transportOutcome
+	}{
+		{"DoH success, DoT failure", transportOutcome{}, transportOutcome{err: refused}},
+		{"DoT success, DoH failure", transportOutcome{err: refused}, transportOutcome{}},
+		{"both succeed", transportOutcome{}, transportOutcome{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			for range 200 {
+				dohCh, dotCh := make(chan transportOutcome, 1), make(chan transportOutcome, 1)
+				dohCh <- c.doh
+				dotCh <- c.dot
+				doh, dot, canceled := firstVerified(dohCh, dotCh, func() { t.Fatal("canceled a sibling that had already finished") })
+				if canceled || !errors.Is(doh.err, c.doh.err) || !errors.Is(dot.err, c.dot.err) {
+					t.Fatalf("doh=%v dot=%v canceled=%t, want both ready outcomes kept uncanceled", doh.err, dot.err, canceled)
+				}
+			}
+		})
+	}
+}
+
+// A sibling still in flight when the winner arrives is canceled at once, and
+// what it returns afterwards is the cancellation's doing.
+func TestFirstVerifiedCancelsASiblingStillInFlight(t *testing.T) {
+	artifact := errors.New("use of closed network connection")
+	for _, dohWins := range []bool{true, false} {
+		dohCh, dotCh := make(chan transportOutcome, 1), make(chan transportOutcome, 1)
+		winner, sibling := dohCh, dotCh
+		if !dohWins {
+			winner, sibling = dotCh, dohCh
+		}
+		winner <- transportOutcome{}
+		cancels := 0
+		doh, dot, canceled := firstVerified(dohCh, dotCh, func() {
+			cancels++
+			sibling <- transportOutcome{err: artifact}
+		})
+		lost := dot
+		if !dohWins {
+			lost = doh
+		}
+		if !canceled || cancels != 1 || !errors.Is(lost.err, artifact) {
+			t.Fatalf("dohWins=%t: canceled=%t cancels=%d sibling=%v, want one cancel marking the artifact", dohWins, canceled, cancels, lost.err)
+		}
+	}
 }
 
 // A sibling the winner canceled produced no observation of its own, so the

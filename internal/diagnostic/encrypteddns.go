@@ -160,8 +160,11 @@ func dnsQuestion(name string) ([]byte, error) {
 // this exact query. It is the whole point of the row: a TLS handshake, an HTTP
 // 2xx, or a pile of bytes off a socket prove that something answered, not that
 // DNS worked. Transaction id, the response bit, one echoed question, and a
-// real resolver rcode are what separate the two. Answer records are deliberately
-// not parsed: a valid NOERROR/NODATA response still proves resolver reachability.
+// real resolver rcode are what separate the two. Answer RDATA is deliberately
+// not interpreted: a valid NOERROR/NODATA response still proves resolver
+// reachability. The header's answer/authority/additional counts are still
+// walked so a truncated message that claims records it does not carry is
+// rejected.
 //
 // NXDOMAIN counts alongside NOERROR: both are a resolver completing the
 // question that was asked. A standard-query error RCODE still proves that the
@@ -207,6 +210,17 @@ func (q dnsQuery) verify(msg []byte) error {
 	if !bytes.EqualFold(msg[dnsHeaderLen:dnsHeaderLen+len(q.question)], q.question) {
 		return errors.New("response echoes a different question than the one sent")
 	}
+	answers := binary.BigEndian.Uint16(msg[6:8])
+	authority := binary.BigEndian.Uint16(msg[8:10])
+	additional := binary.BigEndian.Uint16(msg[10:12])
+	offset := dnsHeaderLen + len(q.question)
+	for i := 0; i < int(answers)+int(authority)+int(additional); i++ {
+		var err error
+		offset, err = skipDNSResourceRecord(msg, offset)
+		if err != nil {
+			return err
+		}
+	}
 	switch rcode {
 	case dnsRcodeSuccess, dnsRcodeNXDom:
 		return nil
@@ -215,6 +229,53 @@ func (q dnsQuery) verify(msg []byte) error {
 	default:
 		return fmt.Errorf("resolver answered rcode %d, which is not valid for this standard query", rcode)
 	}
+}
+
+// skipDNSName advances past one DNS name, including a compression pointer.
+// It does not follow the pointer: framing only needs the name's wire length.
+func skipDNSName(msg []byte, offset int) (int, error) {
+	for {
+		if offset >= len(msg) {
+			return 0, errors.New("response is truncated: DNS name runs past the message")
+		}
+		label := msg[offset]
+		if label&0xc0 == 0xc0 {
+			if offset+1 >= len(msg) {
+				return 0, errors.New("response is truncated: DNS name pointer is incomplete")
+			}
+			return offset + 2, nil
+		}
+		if label == 0 {
+			return offset + 1, nil
+		}
+		if label > 63 {
+			return 0, errors.New("response has an invalid DNS label length")
+		}
+		offset += 1 + int(label)
+		if offset > len(msg) {
+			return 0, errors.New("response is truncated: DNS name runs past the message")
+		}
+	}
+}
+
+// skipDNSResourceRecord advances past one RR so verify can confirm that every
+// answer, authority, and additional record the header declared is actually
+// present. RDATA bytes are skipped by length; their contents are not read.
+func skipDNSResourceRecord(msg []byte, offset int) (int, error) {
+	offset, err := skipDNSName(msg, offset)
+	if err != nil {
+		return 0, err
+	}
+	const rrFixed = 10 // TYPE + CLASS + TTL + RDLENGTH
+	if offset+rrFixed > len(msg) {
+		return 0, errors.New("response is truncated: header declares records that are not present")
+	}
+	rdlength := binary.BigEndian.Uint16(msg[offset+8 : offset+10])
+	offset += rrFixed
+	if offset+int(rdlength) > len(msg) {
+		return 0, errors.New("response is truncated: header declares records that are not present")
+	}
+	return offset + int(rdlength), nil
 }
 
 // dnsResponseError is a structurally valid, correlated DNS response whose

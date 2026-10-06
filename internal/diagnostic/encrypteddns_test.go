@@ -316,6 +316,36 @@ func TestDNSVerifierRejectsMalformedResponses(t *testing.T) {
 	}
 }
 
+func TestDNSVerifierRejectsMissingDeclaredSections(t *testing.T) {
+	query, err := newDNSQuery(ConnectivityProbeHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := append([]byte(nil), dnsResponseFor(query.wire)[:dnsHeaderLen+len(query.question)]...)
+	binary.BigEndian.PutUint16(base[6:8], 0) // clear ANCOUNT so NS/AR cases isolate framing
+	binary.BigEndian.PutUint16(base[2:4], dnsFlagResponse|dnsFlagRD|dnsRcodeSuccess)
+	for _, c := range []struct {
+		name string
+		set  func([]byte)
+	}{
+		{"ANCOUNT without answer bytes", func(msg []byte) { binary.BigEndian.PutUint16(msg[6:8], 1) }},
+		{"NSCOUNT without authority bytes", func(msg []byte) { binary.BigEndian.PutUint16(msg[8:10], 1) }},
+		{"ARCOUNT without additional bytes", func(msg []byte) { binary.BigEndian.PutUint16(msg[10:12], 1) }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			msg := append([]byte(nil), base...)
+			c.set(msg)
+			if err := query.verify(msg); err == nil || !strings.Contains(err.Error(), "truncated") {
+				t.Fatalf("verify = %v, want a truncated-section error", err)
+			}
+		})
+	}
+	// A compressed A answer that dnsResponseFor builds must still verify.
+	if err := query.verify(dnsResponseFor(query.wire)); err != nil {
+		t.Fatalf("valid compressed answer rejected: %v", err)
+	}
+}
+
 func TestDNSVerifierClassifiesValidReachabilityResponsesWithoutAnswers(t *testing.T) {
 	query, err := newDNSQuery(ConnectivityProbeHost)
 	if err != nil {
@@ -585,10 +615,60 @@ func dnsVerifierOracle(q dnsQuery, msg []byte) (rcode uint16, correlated bool) {
 		if !dnsNameFoldEqual(msg[dnsHeaderLen:dnsHeaderLen+len(q.question)], q.question) {
 			return rcode, false
 		}
+		// Declared answer/authority/additional counts must be structurally present.
+		// Independent of verify's skipDNSResourceRecord: walk name + fixed RR header + RDATA.
+		offset := dnsHeaderLen + len(q.question)
+		for n := 0; n < int(counts[1])+int(counts[2])+int(counts[3]); n++ {
+			offset = oracleSkipRR(msg, offset)
+			if offset < 0 {
+				return rcode, false
+			}
+		}
 	default:
 		return rcode, false
 	}
 	return rcode, true
+}
+
+// oracleSkipRR advances past one RR for the fuzz oracle. Returns -1 if truncated
+// or malformed. Kept separate from production skipDNSResourceRecord so the oracle
+// does not share its implementation.
+func oracleSkipRR(msg []byte, offset int) int {
+	// Skip owner name (labels or a single compression pointer).
+	for {
+		if offset >= len(msg) {
+			return -1
+		}
+		label := msg[offset]
+		if label&0xc0 == 0xc0 {
+			if offset+1 >= len(msg) {
+				return -1
+			}
+			offset += 2
+			break
+		}
+		if label == 0 {
+			offset++
+			break
+		}
+		if label > 63 {
+			return -1
+		}
+		offset += 1 + int(label)
+		if offset > len(msg) {
+			return -1
+		}
+	}
+	const rrFixed = 10 // TYPE + CLASS + TTL + RDLENGTH
+	if offset+rrFixed > len(msg) {
+		return -1
+	}
+	rdlength := int(binary.BigEndian.Uint16(msg[offset+8 : offset+10]))
+	offset += rrFixed
+	if offset+rdlength > len(msg) {
+		return -1
+	}
+	return offset + rdlength
 }
 
 // dnsNameFoldEqual is DNS's own case rule, RFC 4343, ASCII letters and nothing

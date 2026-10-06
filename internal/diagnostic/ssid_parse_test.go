@@ -30,8 +30,8 @@ func TestParseAirportSSID(t *testing.T) {
 	}
 }
 
-// Two-adapter capture: the block is selected by *value* match on the interface
-// name, and the exact "SSID" key excludes BSSID.
+// Two-adapter capture: the block is selected by the *value* of its first field,
+// the interface name, and the exact "SSID" key excludes BSSID.
 const netshTwoAdapters = "There are 2 interfaces on the system:\r\n" +
 	"\r\n" +
 	"    Name                   : Wi-Fi\r\n" +
@@ -49,7 +49,8 @@ const netshTwoAdapters = "There are 2 interfaces on the system:\r\n" +
 	"    BSSID                  : 66:55:44:33:22:11\r\n"
 
 // Non-English capture (German labels): the localized "Name" label is never
-// consulted: the block still matches by value, and "SSID" is untranslated.
+// consulted: the block still matches by its first field's value, and "SSID" is
+// untranslated.
 const netshGerman = "Es gibt 1 Schnittstelle auf dem System:\r\n" +
 	"\r\n" +
 	"    Name                   : WLAN\r\n" +
@@ -71,6 +72,20 @@ func TestParseNetshSSID(t *testing.T) {
 	}
 	if got := parseNetshSSID(netshGerman, "WLAN"); got != "CafeNetz" {
 		t.Errorf("German locale: got %q, want CafeNetz", got)
+	}
+	// An SSID value alone must not select a block.
+	if got := parseNetshSSID(netshTwoAdapters, "HomeNet"); got != "" {
+		t.Errorf("SSID as iface: got %q, want empty", got)
+	}
+	// #244: block 1's SSID equals the requested iface; only block 2's name
+	// field may select a block.
+	collision := "    Name                   : Wi-Fi\r\n" +
+		"    SSID                   : Office\r\n" +
+		"\r\n" +
+		"    Name                   : Office\r\n" +
+		"    SSID                   : Home\r\n"
+	if got := parseNetshSSID(collision, "Office"); got != "Home" {
+		t.Errorf("SSID collision: got %q, want Home", got)
 	}
 	if got := parseNetshSSID("", "Wi-Fi"); got != "" {
 		t.Errorf("empty output: got %q, want empty", got)

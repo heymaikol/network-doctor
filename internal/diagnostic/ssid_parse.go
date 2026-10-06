@@ -32,12 +32,14 @@ func parseAirportSSID(out string) string {
 }
 
 // parseNetshSSID extracts iface's SSID from `netsh wlan show interfaces`.
-// Blocks are blank-line separated; a block matches only when some line's
-// *value* (text after the first ':', trimmed) equals iface, a value comparison,
-// so the localized "Name" label is never consulted. Within the matching block
-// the line whose key is exactly "SSID" wins (netsh does not translate that
-// label; the exact match excludes "BSSID"). No fallback: netsh lists only WLAN
-// interfaces, so a wired/VPN iface never acquires a Wi-Fi SSID.
+// Blocks are blank-line separated; a block matches only when its first line's
+// *value* (text after the first ':', trimmed) equals iface. In known netsh
+// output that first field is the interface name, so the localized "Name" label
+// is never consulted, and no other field (SSID, Description) can select a
+// block. An unexpected layout yields "", never another adapter's SSID. Within
+// the matching block the line whose key is exactly "SSID" wins (netsh does not
+// translate that label; the exact match excludes "BSSID"). No fallback: netsh
+// lists only WLAN interfaces, so a wired/VPN iface never acquires a Wi-Fi SSID.
 func parseNetshSSID(out, iface string) string {
 	var blocks [][]string
 	var cur []string
@@ -55,7 +57,7 @@ func parseNetshSSID(out, iface string) string {
 		blocks = append(blocks, cur)
 	}
 	for _, block := range blocks {
-		if !blockHasValue(block, iface) {
+		if _, v, ok := strings.Cut(block[0], ":"); !ok || strings.TrimSpace(v) != iface {
 			continue
 		}
 		for _, ln := range block {
@@ -65,13 +67,4 @@ func parseNetshSSID(out, iface string) string {
 		}
 	}
 	return ""
-}
-
-func blockHasValue(block []string, want string) bool {
-	for _, ln := range block {
-		if _, v, ok := strings.Cut(ln, ":"); ok && strings.TrimSpace(v) == want {
-			return true
-		}
-	}
-	return false
 }

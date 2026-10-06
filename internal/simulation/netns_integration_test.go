@@ -1264,15 +1264,28 @@ func TestHuntProtocolServiceMutationsAreObserved(t *testing.T) {
 				t.Errorf("UDP-only QUIC failure = %+v", out)
 			}
 		}},
-		{"encrypted_dns.doh_invalid", "healthy", false, nil, func(t *testing.T, control, rep Report) {
+		// Run with DoT dropped at the client (see dropDoT below), so the
+		// malformed DoH answer is the only one the probe can get and the row
+		// fails on it. Verifier rejection is the thing under test: the detail
+		// must carry the DoH header error, and the kernel must have dropped DoT
+		// rather than the fixture having answered it.
+		{"encrypted_dns.doh_invalid", "healthy", true, nil, func(t *testing.T, control, rep Report) {
 			baseline := diagnosisCheck(control.Tests[0], string(diagnostic.ProbeDNSEncrypted))
-			if baseline.Status != "PASS" || !strings.Contains(baseline.Detail, "DoH and DoT both completed") {
+			if baseline.Status != "PASS" {
 				t.Errorf("working encrypted-DNS control = %+v", baseline)
 			}
+			assertEncryptedDNSWinnerAnswered(t, control, baseline)
 			check := diagnosisCheck(rep.Tests[0], string(diagnostic.ProbeDNSEncrypted))
-			if check.Status != "PASS" || !strings.Contains(check.Detail, "DoT completed") ||
-				!strings.Contains(check.Detail, "DoH unavailable") || !strings.Contains(check.Detail, "too short for a DNS header") {
-				t.Errorf("DoH-invalid/DoT-valid diagnosis = %+v", check)
+			if check.Status != "FAIL" || !strings.Contains(check.Detail, "(DoH: ") || !strings.Contains(check.Detail, "too short for a DNS header; DoT: ") {
+				t.Errorf("malformed DoH with DoT dropped = %+v, want FAIL naming the DoH header error", check)
+			}
+			if !droppedOutbound(rep.Evidence, "client", "tcp", encryptedDNSDoTPort) {
+				t.Errorf("the client's TCP/%d drop never matched: %+v", encryptedDNSDoTPort, rep.Evidence.PacketDrops)
+			}
+			for _, status := range []int{http.StatusOK, 0} {
+				if hasServiceReply(rep, "internet", encryptedDNSProbeService, ServiceEncryptedDNS, status) {
+					t.Errorf("the fixture served a valid encrypted-DNS answer: %+v", rep.Evidence.ServiceReplies)
+				}
 			}
 		}},
 		{"http.status_503", "healthy", false, nil, func(t *testing.T, control, rep Report) {
@@ -1398,6 +1411,16 @@ func TestHuntProtocolServiceMutationsAreObserved(t *testing.T) {
 			}
 		}},
 	}
+	// A fault the case runs beside its mutation, kept out of the manifest so
+	// the oracle still has only the mutation to observe. The probe stops at the
+	// first verified transport, and the fixture's DoT usually beats DoH, which
+	// cancels DoH before the malformed answer is ever served. Dropping DoT
+	// leaves DoH as the only transport, so the malformed answer is served and
+	// rejected on every run instead of on whichever run DoT happens to lose.
+	// The "DoT masks a malformed DoH" ordering is pinned in
+	// internal/diagnostic, where transport timing can be controlled.
+	dropDoT := map[string][]Fault{"encrypted_dns.doh_invalid": {{Type: FaultDrop, Node: "client",
+		Direction: DirectionOutbound, Protocol: "tcp", Port: encryptedDNSDoTPort}}}
 	controls := map[string]Report{}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
@@ -1432,6 +1455,7 @@ func TestHuntProtocolServiceMutationsAreObserved(t *testing.T) {
 			if err := applyGeneratedMutation(mutated, mutation); err != nil {
 				t.Fatal(err)
 			}
+			mutated.Faults = append(mutated.Faults, dropDoT[tc.id]...)
 			mutated.Name = "test-" + strings.NewReplacer(".", "-", "_", "-").Replace(tc.id)
 			if err := mutated.Validate(); err != nil {
 				t.Fatal(err)
@@ -2379,19 +2403,16 @@ func TestPlainDNSBlockedScenario(t *testing.T) {
 		t.Errorf("a plaintext query from the client still reached the resolver: %+v", rep.Evidence.DNS)
 	}
 
-	// The positive half. "DoH and DoT both completed" is the only detail the
-	// probe writes when neither transport had to cover for the other, so this
-	// is what keeps one of them from being silently unreachable behind a row
-	// that passes on either.
+	// The positive half. The probe stops at the first transport that completes
+	// a verified query, so the row speaks for the winner only, and the fixture's
+	// own record has to back it. That both transports answer is the fixture's
+	// property (TestEncryptedDNSServiceAnswersDoHAndDoT), and that this file
+	// leaves both ports open is TestEncryptedDNSIsolationPair's.
 	encrypted := diagnosisCheck(out, string(diagnostic.ProbeDNSEncrypted))
-	if encrypted.Status != "PASS" || !strings.Contains(encrypted.Detail, "DoH and DoT both completed") {
-		t.Errorf("dns_encrypted = %+v, want both transports completing", encrypted)
+	if encrypted.Status != "PASS" {
+		t.Errorf("dns_encrypted = %+v, want PASS", encrypted)
 	}
-	// Stated by the fixture rather than by netdoc: the DoH endpoint served a
-	// wire-format answer.
-	if !hasServiceReply(rep, "internet", encryptedDNSProbeService, ServiceEncryptedDNS, 200) {
-		t.Errorf("the encrypted-DNS fixture never answered: %+v", rep.Evidence.ServiceReplies)
-	}
+	assertEncryptedDNSWinnerAnswered(t, rep, encrypted)
 
 	// The negative half, and the diagnosis it has to produce: a name-resolution
 	// failure, not an outage, and not something encrypted DNS papers over.
@@ -3345,6 +3366,31 @@ func hasServiceReply(rep Report, node, service, serviceType string, status int) 
 		}
 	}
 	return false
+}
+
+// assertEncryptedDNSWinnerAnswered checks a passing encrypted-DNS row against
+// the fixture's own record: every transport the row credits served a
+// wire-format answer. The probe stops at the first verified transport, so the
+// other is credited only when it also finished before being canceled. DoH
+// records its HTTP status, DoT has none.
+func assertEncryptedDNSWinnerAnswered(t *testing.T, rep Report, row DiagnosisCheck) {
+	t.Helper()
+	var statuses []int
+	switch {
+	case strings.HasPrefix(row.Detail, "DoH and DoT both completed"):
+		statuses = []int{http.StatusOK, 0}
+	case strings.HasPrefix(row.Detail, "DoH completed"):
+		statuses = []int{http.StatusOK}
+	case strings.HasPrefix(row.Detail, "DoT completed"):
+		statuses = []int{0}
+	default:
+		t.Errorf("dns_encrypted detail = %q, want it to name the transport that completed", row.Detail)
+	}
+	for _, status := range statuses {
+		if !hasServiceReply(rep, "internet", encryptedDNSProbeService, ServiceEncryptedDNS, status) {
+			t.Errorf("the encrypted-DNS fixture never answered on a transport %q credits: %+v", row.Detail, rep.Evidence.ServiceReplies)
+		}
+	}
 }
 
 // droppedOutbound is the kernel's own count for a node's outbound filter.

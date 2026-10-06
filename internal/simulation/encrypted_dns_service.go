@@ -107,7 +107,7 @@ func startEncryptedDNSServiceWith(ctx context.Context, svc Service, addresses []
 		server.wg.Add(1)
 		go func(listener net.Listener) {
 			defer server.wg.Done()
-			server.serveDoT(listener, config, zone)
+			server.serveDoT(listener, config, zone, svc, recorder)
 		}(listener)
 	}
 	return server, nil
@@ -149,8 +149,10 @@ func serveDoH(w http.ResponseWriter, r *http.Request, zone map[string][]netip.Ad
 }
 
 // serveDoT is DNS over TLS: every message, in both directions, behind the
-// two-byte length prefix DNS-over-TCP framing requires.
-func (s *encryptedDNSServer) serveDoT(listener net.Listener, config *tls.Config, zone map[string][]netip.Addr) {
+// two-byte length prefix DNS-over-TCP framing requires. Each answer is
+// recorded once it is written, as DoH's are, because the probe stops at the
+// first transport that answers and DoH may never be asked at all.
+func (s *encryptedDNSServer) serveDoT(listener net.Listener, config *tls.Config, zone map[string][]netip.Addr, svc Service, recorder *evidenceRecorder) {
 	for {
 		raw, err := listener.Accept()
 		if err != nil {
@@ -191,6 +193,8 @@ func (s *encryptedDNSServer) serveDoT(listener net.Listener, config *tls.Config,
 				if _, err := conn.Write(framed); err != nil {
 					return
 				}
+				_ = recorder.record(evidenceEvent{Kind: evidenceServiceReply, Service: svc.Name,
+					ServiceType: ServiceEncryptedDNS, ServicePort: encryptedDNSDoTPort, Result: replyResponded})
 			}
 		}()
 	}

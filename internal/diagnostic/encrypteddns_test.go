@@ -1000,6 +1000,7 @@ func TestEncryptedDNSOutcomePath(t *testing.T) {
 		binary.BigEndian.PutUint16(resp[6:8], 0)
 		return resp[:len(resp)-16] // Remove the fixture's A answer.
 	}
+	malformed := func(resp []byte) []byte { return resp[:5] }
 	for _, c := range []struct {
 		name       string
 		doh        *dohReply
@@ -1020,6 +1021,10 @@ func TestEncryptedDNSOutcomePath(t *testing.T) {
 		// later verified success; it stays in the detail as a real observation.
 		{"DoT SERVFAIL, later DoH succeeds", &dohReply{delay: 100 * time.Millisecond}, &dotReply{mutate: servfail}, StatusPass, "; DoT resolver answered SERVFAIL", 0},
 		{"DoH SERVFAIL, later DoT succeeds", &dohReply{mutate: servfail}, &dotReply{delay: 100 * time.Millisecond}, StatusPass, "; DoH resolver answered SERVFAIL", 1},
+		// A malformed answer is not a resolver observation, so it lands first,
+		// leaves the sibling running, and is reported as that transport failing.
+		{"malformed DoH, later DoT succeeds", &dohReply{mutate: malformed}, &dotReply{delay: 100 * time.Millisecond}, StatusPass, "; DoH unavailable: response is 5 bytes, too short for a DNS header", 1},
+		{"malformed DoT, later DoH succeeds", &dohReply{delay: 100 * time.Millisecond}, &dotReply{mutate: malformed}, StatusPass, "; DoT unavailable: response is 5 bytes, too short for a DNS header", 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			ips := []net.IP{net.ParseIP("192.0.2.10"), net.ParseIP("2001:db8::10")}

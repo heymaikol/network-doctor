@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -236,6 +238,11 @@ func TestEncryptedDNSServiceAnswersDoHAndDoT(t *testing.T) {
 		Zone:        map[string]string{"probe.test": "192.0.2.7"},
 		Certificate: &TLSCertificate{Mode: TLSCertificateValid, DNSNames: []string{diagnostic.EncryptedDNSHost}},
 	}
+	evidencePath := filepath.Join(work, "evidence.jsonl")
+	recorder, err := openEvidenceRecorder(evidencePath, "internet")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var listeners []net.Listener
 	server, err := startEncryptedDNSServiceWith(context.Background(), svc, nil, work,
 		func([]string, string) ([]net.Listener, error) {
@@ -245,7 +252,7 @@ func TestEncryptedDNSServiceAnswersDoHAndDoT(t *testing.T) {
 			}
 			listeners = append(listeners, ln)
 			return []net.Listener{ln}, nil
-		}, nil)
+		}, recorder)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,6 +333,23 @@ func TestEncryptedDNSServiceAnswersDoHAndDoT(t *testing.T) {
 		if _, err := active.Read(one[:]); err == nil {
 			t.Errorf("active %s connection survived fixture shutdown", name)
 		}
+	}
+	// Each transport states its own answer. The probe stops at the first one
+	// to succeed, so a DoT answer must be evidence on its own rather than an
+	// inference from DoH's.
+	if err := recorder.Close(); err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := readEvidence([]string{evidencePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ServiceReplyEvidence{
+		{Node: "internet", Service: svc.Name, Type: ServiceEncryptedDNS, Port: 443, Status: http.StatusOK, Result: replyResponded, Count: 1},
+		{Node: "internet", Service: svc.Name, Type: ServiceEncryptedDNS, Port: encryptedDNSDoTPort, Result: replyResponded, Count: 1},
+	}
+	if !reflect.DeepEqual(evidence.ServiceReplies, want) {
+		t.Errorf("recorded replies = %+v, want %+v", evidence.ServiceReplies, want)
 	}
 }
 

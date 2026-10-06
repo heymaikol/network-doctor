@@ -262,36 +262,20 @@ func (o *netops) proxyTunnelOK(ctx context.Context, conn net.Conn, addr string, 
 // socks5 resolves the destination with the client's configured resolver and
 // sends an address request; socks5h sends the hostname so the proxy resolves
 // it. The distinction is observable on split-DNS networks and is why both
-// schemes exist.
+// schemes exist. A socks5 CONNECT the proxy refuses only rules out that one
+// answer, so the next locally resolved address gets a fresh session, all under
+// the one deadline.
 func (o *netops) socks5Probe(ctx context.Context, addr string, remoteDNS bool, dl, start time.Time) ProbeResult {
-	var r ProbeResult
-	conn, err := o.dialContext(ctx, "tcp", addr)
-	if err != nil {
-		r.Status = StatusFail
-		r.Cause = ProxyCauseUnreachable
-		r.Detail = "cannot reach proxy " + addr + ": " + err.Error()
-		r.Fix = "proxy configured but unreachable: check HTTPS_PROXY/HTTP_PROXY/ALL_PROXY and the proxy host"
+	conn, r := o.socks5Session(ctx, addr, dl)
+	if conn == nil {
 		return r
 	}
-	defer conn.Close()
-	// net.Conn reads don't know ctx exists; the deadline is the only leash.
-	if err := conn.SetDeadline(dl); err != nil {
-		r.Status = StatusFail
-		r.Cause = ProxyCauseProtocol
-		r.Detail = "cannot set proxy deadline: " + err.Error()
-		return r
-	}
-	if err := socks5Greeting(conn); err != nil {
-		r.Status = StatusFail
-		r.Cause = ProxyCauseProtocol
-		r.Detail = "SOCKS5 proxy " + addr + ": " + err.Error()
-		r.Fix = "check that the proxy URL names a SOCKS5 port and that the proxy allows this destination"
-		return r
-	}
-	destination := socks5Destination{host: ConnectivityProbeHost, port: 443, remoteDNS: remoteDNS}
+	destinations := []socks5Destination{{host: ConnectivityProbeHost, port: 443, remoteDNS: remoteDNS}}
+	resolved := 0
 	if !remoteDNS {
 		ips, targets, lookupErr := o.lookupIP(ctx, ConnectivityProbeHost)
 		if lookupErr != nil || len(ips) == 0 {
+			_ = conn.Close()
 			r.Status = StatusFail
 			r.Cause = ProxyCauseClientDNS
 			r.Detail = "SOCKS5 proxy " + addr + " is reachable, but local DNS cannot resolve " + ConnectivityProbeHost + resolverTargetsNote(targets)
@@ -301,16 +285,95 @@ func (o *netops) socks5Probe(ctx context.Context, addr string, remoteDNS bool, d
 			r.Fix = "fix the client's DNS resolver, or use socks5h:// to resolve names through the proxy"
 			return r
 		}
-		destination.ip = ips[0]
+		resolved = len(ips)
+		ips = interleaveFamilies(ips)
+		if len(ips) > maxAttempts {
+			ips = ips[:maxAttempts]
+		}
+		destinations = destinations[:0]
+		for _, ip := range ips {
+			destinations = append(destinations, socks5Destination{host: ConnectivityProbeHost, ip: ip, port: 443})
+		}
 	}
-	if err := socks5Request(conn, destination); err != nil {
+	tried := 0
+	for _, destination := range destinations {
+		if tried > 0 {
+			if ctx.Err() != nil || !time.Now().Before(dl) {
+				break
+			}
+			if conn, r = o.socks5Session(ctx, addr, dl); conn == nil {
+				return r
+			}
+		}
+		tried++
+		err := socks5Request(conn, destination)
+		if err == nil {
+			defer conn.Close()
+			return o.proxyTunnelOK(ctx, conn, addr, since(start))
+		}
+		_ = conn.Close()
 		r.Status = StatusFail
 		r.Cause = proxyCauseForSOCKSError(err, remoteDNS)
 		r.Detail = "SOCKS5 proxy " + addr + ": " + err.Error()
 		r.Fix = "check that the proxy URL names a SOCKS5 port and that the proxy allows this destination"
-		return r
+		if !socks5RetryOtherDestination(err) {
+			return r
+		}
 	}
-	return o.proxyTunnelOK(ctx, conn, addr, since(start))
+	if tried > 1 {
+		r.Detail += fmt.Sprintf(" (%d of %d locally resolved addresses tried)", tried, resolved)
+	}
+	return r
+}
+
+// socks5RetryOtherDestination reports whether a failed CONNECT refused only the
+// address it carried, so another locally resolved address could still tunnel.
+// Anything else (a malformed reply, a general server failure, an unsupported
+// command, an unassigned code) describes the proxy itself, and trying another
+// address would hide it.
+func socks5RetryOtherDestination(err error) bool {
+	var reply socks5ReplyError
+	if !errors.As(err, &reply) {
+		return false
+	}
+	switch reply.code {
+	case 2, // ruleset: proxy policy can allow one address and not another
+		3, 4, 5, 6, // network/host unreachable, refused, TTL expired: path to this address
+		8: // address type not supported: the other family may be
+		return true
+	}
+	return false
+}
+
+// socks5Session dials the proxy and completes the no-auth greeting. On failure
+// the conn is nil and the result says which stage broke.
+func (o *netops) socks5Session(ctx context.Context, addr string, dl time.Time) (net.Conn, ProbeResult) {
+	var r ProbeResult
+	conn, err := o.dialContext(ctx, "tcp", addr)
+	if err != nil {
+		r.Status = StatusFail
+		r.Cause = ProxyCauseUnreachable
+		r.Detail = "cannot reach proxy " + addr + ": " + err.Error()
+		r.Fix = "proxy configured but unreachable: check HTTPS_PROXY/HTTP_PROXY/ALL_PROXY and the proxy host"
+		return nil, r
+	}
+	// net.Conn reads don't know ctx exists; the deadline is the only leash.
+	if err := conn.SetDeadline(dl); err != nil {
+		_ = conn.Close()
+		r.Status = StatusFail
+		r.Cause = ProxyCauseProtocol
+		r.Detail = "cannot set proxy deadline: " + err.Error()
+		return nil, r
+	}
+	if err := socks5Greeting(conn); err != nil {
+		_ = conn.Close()
+		r.Status = StatusFail
+		r.Cause = ProxyCauseProtocol
+		r.Detail = "SOCKS5 proxy " + addr + ": " + err.Error()
+		r.Fix = "check that the proxy URL names a SOCKS5 port and that the proxy allows this destination"
+		return nil, r
+	}
+	return conn, r
 }
 
 type socks5Destination struct {
@@ -404,7 +467,7 @@ func proxyCauseForSOCKSError(err error, remoteDNS bool) string {
 	var reply socks5ReplyError
 	if errors.As(err, &reply) {
 		switch reply.code {
-		case 3, 5:
+		case 3, 5, 6:
 			return ProxyCauseDestinationUnreachable
 		case 4:
 			// RFC 1928 names code 4 "host unreachable"; it can only
@@ -420,11 +483,10 @@ func proxyCauseForSOCKSError(err error, remoteDNS bool) string {
 	return ProxyCauseProtocol
 }
 
-// socks5Error names an RFC 1928 reply code. Codes 6-7 can't come back from a
-// CONNECT, so they fall through to the number; 8 can, because this probe always
-// asks for ATYP 3.
+// socks5Error names an RFC 1928 reply code; unassigned codes fall through to
+// the number.
 func socks5Error(code byte) string {
-	msgs := [...]string{1: "general failure", 2: "not allowed by ruleset", 3: "network unreachable", 4: "host unreachable", 5: "connection refused", 8: "address type not supported"}
+	msgs := [...]string{1: "general failure", 2: "not allowed by ruleset", 3: "network unreachable", 4: "host unreachable", 5: "connection refused", 6: "TTL expired", 7: "command not supported", 8: "address type not supported"}
 	if int(code) < len(msgs) && msgs[code] != "" {
 		return msgs[code]
 	}

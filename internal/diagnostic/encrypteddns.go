@@ -267,7 +267,8 @@ func encryptedDNSFailureCause(ctx context.Context, dohErr, dotErr error) string 
 // one of the two ports would otherwise spend the whole probe budget on it and
 // report the other as untried, turning a working encrypted path into a failed
 // row. Each half owns and closes its own connection and honors the probe
-// context, and the probe returns only once both have.
+// context. The first successful exchange cancels its sibling so the probe
+// returns as soon as encrypted DNS is proven to work.
 //
 // There is no fallback to plaintext 53 anywhere in here, by design. This row's
 // only job is to say whether encrypted DNS itself works.
@@ -286,11 +287,13 @@ func (o *netops) encryptedDNSProbe(ep encryptedDNSEndpoint, name string) func(co
 			return r
 		}
 
-		var doh, dot transportOutcome
-		var wg sync.WaitGroup
-		wg.Go(func() { doh = o.dohExchange(ctx, ep, dotQuery.withID(0)) })
-		wg.Go(func() { dot = o.dotExchange(ctx, ep, dotQuery) })
-		wg.Wait()
+		ctx2, cancel2 := context.WithCancel(ctx)
+		defer cancel2()
+		dohCh := make(chan transportOutcome, 1)
+		dotCh := make(chan transportOutcome, 1)
+		go func() { dohCh <- o.dohExchange(ctx2, ep, dotQuery.withID(0)) }()
+		go func() { dotCh <- o.dotExchange(ctx2, ep, dotQuery) }()
+		doh, dot, canceled := firstVerified(dohCh, dotCh, cancel2)
 
 		r.Attempts = append(append([]Attempt{}, doh.attempts...), dot.attempts...)
 		won := doh
@@ -319,6 +322,9 @@ func (o *netops) encryptedDNSProbe(ep encryptedDNSEndpoint, name string) func(co
 			if resolverAnswered(dot) {
 				r.Detail = fmt.Sprintf("DoH completed a DNS query for %s via %s in %dms; DoT %v",
 					name, ep.host, Ms(doh.dur), dot.err)
+			} else if canceled {
+				r.Detail = fmt.Sprintf("DoH completed a DNS query for %s via %s in %dms",
+					name, ep.host, Ms(doh.dur))
 			} else {
 				r.Detail = fmt.Sprintf("DoH completed a DNS query for %s via %s in %dms; DoT unavailable: %v",
 					name, ep.host, Ms(doh.dur), dot.err)
@@ -328,6 +334,9 @@ func (o *netops) encryptedDNSProbe(ep encryptedDNSEndpoint, name string) func(co
 			if resolverAnswered(doh) {
 				r.Detail = fmt.Sprintf("DoT completed a DNS query for %s via %s in %dms; DoH %v",
 					name, ep.host, Ms(dot.dur), doh.err)
+			} else if canceled {
+				r.Detail = fmt.Sprintf("DoT completed a DNS query for %s via %s in %dms",
+					name, ep.host, Ms(dot.dur))
 			} else {
 				r.Detail = fmt.Sprintf("DoT completed a DNS query for %s via %s in %dms; DoH unavailable: %v",
 					name, ep.host, Ms(dot.dur), doh.err)
@@ -347,6 +356,34 @@ func (o *netops) encryptedDNSProbe(ep encryptedDNSEndpoint, name string) func(co
 		}
 		return r
 	}
+}
+
+// firstVerified collects both transport outcomes. A success cancels a sibling
+// still in flight so it exits without spending its full deadline, and only
+// that sibling's error may be the cancellation itself, so only then is it not
+// reported as that transport being unavailable. A sibling outcome already
+// waiting finished on its own and is kept as observed.
+func firstVerified(dohCh, dotCh <-chan transportOutcome, cancel func()) (doh, dot transportOutcome, canceled bool) {
+	select {
+	case doh = <-dohCh:
+		dot, canceled = settleSibling(doh, dotCh, cancel)
+	case dot = <-dotCh:
+		doh, canceled = settleSibling(dot, dohCh, cancel)
+	}
+	return doh, dot, canceled
+}
+
+func settleSibling(first transportOutcome, sibling <-chan transportOutcome, cancel func()) (transportOutcome, bool) {
+	if first.err == nil {
+		select {
+		case out := <-sibling:
+			return out, false
+		default:
+			cancel()
+			return <-sibling, true
+		}
+	}
+	return <-sibling, false
 }
 
 // dohExchange runs one RFC 8484 exchange: POST the wire-format query to the

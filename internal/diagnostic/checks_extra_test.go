@@ -4,8 +4,10 @@
 package diagnostic
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
@@ -1019,7 +1021,7 @@ func TestProxyProbeInformationalResponse(t *testing.T) {
 	const hints = "HTTP/1.1 103 Early Hints\r\n\r\n"
 	const granted = "HTTP/1.1 200 Connection established\r\n\r\n"
 	const refused = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"
-	const auth = "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n"
+	const auth = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\nContent-Length: 0\r\n\r\n"
 	const switching = "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
 	for _, tc := range []struct {
 		name, response string
@@ -1199,7 +1201,7 @@ func TestProxyProbeDeadlinelessCtxStillBoundsConn(t *testing.T) {
 func TestProxyProbeRefusesCleartextCredentials(t *testing.T) {
 	for _, prefix := range []string{"", "HTTP/1.1 103 Early Hints\r\n\r\n", "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\n\r\n"} {
 		t.Run(prefix, func(t *testing.T) {
-			conn := &scriptConn{r: strings.NewReader(prefix + "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")}
+			conn := &scriptConn{r: strings.NewReader(prefix + "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\nContent-Length: 0\r\n\r\n")}
 			ops := proxyOps("http://user:pw@proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
 				return conn, nil
 			})
@@ -1208,7 +1210,7 @@ func TestProxyProbeRefusesCleartextCredentials(t *testing.T) {
 				t.Errorf("auth over http proxy = %+v, want FAIL refusing cleartext credentials", r)
 			}
 			if strings.Contains(conn.w.String(), "Proxy-Authorization") {
-				t.Errorf("CONNECT sent credentials before refusing:\n%s", conn.w.String())
+				t.Error("CONNECT sent credentials before refusing")
 			}
 		})
 	}
@@ -1217,7 +1219,7 @@ func TestProxyProbeRefusesCleartextCredentials(t *testing.T) {
 func TestProxyProbeHTTPSCredentialsWaitForChallenge(t *testing.T) {
 	for _, prefix := range []string{"", "HTTP/1.1 103 Early Hints\r\n\r\n", "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\n\r\n"} {
 		t.Run(prefix, func(t *testing.T) {
-			first := &scriptConn{r: strings.NewReader(prefix + "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")}
+			first := &scriptConn{r: strings.NewReader(prefix + "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\nContent-Length: 0\r\n\r\n")}
 			second := &scriptConn{r: strings.NewReader(prefix + "HTTP/1.1 200 Connection established\r\n\r\n")}
 			conns := []*scriptConn{first, second}
 			ops := proxyOps("https://user:pw@proxy.corp:3128", nil)
@@ -1231,10 +1233,149 @@ func TestProxyProbeHTTPSCredentialsWaitForChallenge(t *testing.T) {
 				t.Fatalf("authenticated CONNECT = %+v, want PASS", r)
 			}
 			if strings.Contains(first.w.String(), "Proxy-Authorization") {
-				t.Errorf("first CONNECT sent credentials preemptively:\n%s", first.w.String())
+				t.Error("first CONNECT sent credentials preemptively")
 			}
 			if !strings.Contains(second.w.String(), "Proxy-Authorization: Basic dXNlcjpwdw==") {
-				t.Errorf("second CONNECT did not answer challenge:\n%s", second.w.String())
+				t.Error("second CONNECT did not answer challenge")
+			}
+		})
+	}
+}
+
+// Record every CONNECT without opening sockets or printing credential headers.
+func TestProxyProbeAuthChallenges(t *testing.T) {
+	for _, tc := range []struct {
+		name, headers string
+		wantBasic     bool
+	}{
+		{"Basic", "Proxy-Authenticate: Basic realm=\"test\"\r\n", true},
+		{"Digest only", "Proxy-Authenticate: Digest realm=\"test\"\r\n", false},
+		{"Negotiate only", "Proxy-Authenticate: Negotiate\r\n", false},
+		{"multiple challenges", "Proxy-Authenticate: Digest realm=\"test\", nonce=\"abc\", Basic realm=\"test\"\r\n", true},
+		{"multiple fields", "Proxy-Authenticate: Negotiate\r\nProxy-Authenticate: Basic realm=\"test\"\r\n", true},
+		{"case insensitive", "pRoXy-AuThEnTiCaTe: bAsIc ReAlM=\"test\"\r\n", true},
+		{"quoted commas", "Proxy-Authenticate: Digest realm=\"corp, Basic realm=test\", nonce=\"abc\"\r\n", false},
+		{"quoted commas before Basic", "Proxy-Authenticate: Digest realm=\"corp, other\", Basic realm=\"test, other\"\r\n", true},
+		{"escaped quote", "Proxy-Authenticate: Digest realm=\"corp\\\", Basic realm=test\"\r\n", false},
+		{"parameter name", "Proxy-Authenticate: Digest realm=\"test\", Basic = other\r\n", false},
+		{"parameter value", "Proxy-Authenticate: Digest realm=Basic\r\n", false},
+		{"scheme prefix", "Proxy-Authenticate: BasicOther realm=\"test\"\r\n", false},
+		{"token68 before Basic", "Proxy-Authenticate: Negotiate YWJjZA==, Basic realm=\"test\"\r\n", true},
+		{"Basic first", "Proxy-Authenticate: Basic realm=\"test\", Negotiate\r\n", true},
+		{"Basic additional parameters", "Proxy-Authenticate: Basic realm=\"test\", charset=\"UTF-8\"\r\n", true},
+		{"bare Basic", "Proxy-Authenticate: Basic\r\n", true},
+		{"empty list members", "Proxy-Authenticate: , Digest realm=test, , Basic realm=test,\r\n", true},
+		{"scheme whitespace", "Proxy-Authenticate: Negotiate , Basic realm = test\r\n", true},
+		{"Basic token68", "Proxy-Authenticate: Basic YWJjZA==\r\n", false},
+		{"Basic tab separator", "Proxy-Authenticate: Basic\trealm=test\r\n", false},
+		{"Basic parameter as challenge", "Proxy-Authenticate: Basic=other\r\n", false},
+		{"trailing malformed challenge", "Proxy-Authenticate: Basic realm=test, Digest realm=\"unterminated\r\n", false},
+		{"quoted backslash before Basic", "Proxy-Authenticate: Digest realm=\"corp\\\\\", Basic realm=test\r\n", true},
+		{"invalid scheme token", "Proxy-Authenticate: Other/scheme, Basic realm=test\r\n", false},
+		{"invalid parameter", "Proxy-Authenticate: Basic realm=test, other=/\r\n", false},
+		{"missing", "", false},
+		{"empty", "Proxy-Authenticate:\r\n", false},
+		{"wrong header", "WWW-Authenticate: Basic realm=\"test\"\r\n", false},
+		{"malformed separator", "Proxy-Authenticate: Digest realm=test Basic realm=test\r\n", false},
+		{"malformed Basic", "Proxy-Authenticate: Basic realm=\r\n", false},
+		{"unterminated quote", "Proxy-Authenticate: Basic realm=\"test\r\n", false},
+		{"unterminated Digest quote", "Proxy-Authenticate: Digest realm=\"corp, Basic\r\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			challenge := "HTTP/1.1 407 Proxy Authentication Required\r\n" + tc.headers + "Content-Length: 0\r\n\r\n"
+			var conns []*scriptConn
+			ops := proxyOps("https://user:pw@proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
+				t.Fatal("HTTPS proxy must not use plaintext dial")
+				return nil, nil
+			})
+			ops.dialTLS = func(_ context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+				if network != "tcp" || addr != "proxy.corp:3128" || cfg.ServerName != "proxy.corp" || cfg.InsecureSkipVerify {
+					t.Fatal("HTTPS proxy transport protections changed")
+				}
+				response := challenge
+				if len(conns) > 0 {
+					response = "HTTP/1.1 200 Connection established\r\n\r\n"
+				}
+				conn := &scriptConn{r: strings.NewReader(response)}
+				conns = append(conns, conn)
+				return conn, nil
+			}
+			r := ops.proxyProbe(context.Background(), nil)
+			if strings.Contains(r.Detail+r.Fix, "user") || strings.Contains(r.Detail+r.Fix, "pw") || strings.Contains(r.Detail+r.Fix, base64.StdEncoding.EncodeToString([]byte("user:pw"))) {
+				t.Fatal("proxy credentials leaked into result")
+			}
+			wantRequests, wantStatus := 1, StatusFail
+			if tc.wantBasic {
+				wantRequests, wantStatus = 2, StatusPass
+			}
+			if len(conns) != wantRequests {
+				t.Errorf("sent %d CONNECT requests, want %d", len(conns), wantRequests)
+			}
+			for i, conn := range conns {
+				req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(conn.w.String())))
+				if err != nil {
+					t.Fatal("cannot parse recorded CONNECT")
+				}
+				_ = req.Body.Close()
+				auth := req.Header.Get("Proxy-Authorization")
+				if i == 0 || !tc.wantBasic {
+					if auth != "" {
+						t.Errorf("CONNECT %d sent credentials without an offered Basic challenge", i+1)
+					}
+				} else if auth != "Basic "+base64.StdEncoding.EncodeToString([]byte("user:pw")) {
+					t.Error("retry did not send the expected Basic credentials")
+				}
+			}
+			if r.Status != wantStatus {
+				t.Errorf("status = %s, want %s", r.Status, wantStatus)
+			}
+			if !tc.wantBasic && (!strings.Contains(r.Fix, "supported Basic") || strings.Contains(r.Fix, "set user:pass")) {
+				t.Error("unsupported or absent challenge needs accurate authentication advice")
+			}
+		})
+	}
+}
+
+func TestProxyProbeAuthRetryPolicy(t *testing.T) {
+	const challenge = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\nContent-Length: 0\r\n\r\n"
+	for _, tc := range []struct {
+		name, proxy, fix string
+		wantRequests     int
+	}{
+		{"no credentials", "https://proxy.corp:3128", "set user:pass", 1},
+		{"plaintext credentials", "http://user:pw@proxy.corp:3128", "use an https:// proxy", 1},
+		{"rejected Basic", "https://user:pw@proxy.corp:3128", "proxy rejected Basic authentication", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var conns []*scriptConn
+			dial := func(context.Context, string, string) (net.Conn, error) {
+				if len(conns) == 2 {
+					t.Fatal("proxy authentication must stop after one retry")
+				}
+				conn := &scriptConn{r: strings.NewReader(challenge)}
+				conns = append(conns, conn)
+				return conn, nil
+			}
+			ops := proxyOps(tc.proxy, dial)
+			ops.dialTLS = func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+				return dial(ctx, network, addr)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
+			defer cancel()
+			r := ops.proxyProbe(ctx, nil)
+			if r.Status != StatusFail || r.Cause != ProxyCauseProtocol || !strings.Contains(r.Fix, tc.fix) {
+				t.Error("authentication failure needs accurate advice")
+			}
+			if len(conns) != tc.wantRequests {
+				t.Errorf("sent %d CONNECT requests, want %d", len(conns), tc.wantRequests)
+			}
+			for i, conn := range conns {
+				if got := strings.Contains(conn.w.String(), "Proxy-Authorization: Basic "); got != (i == 1) {
+					t.Errorf("CONNECT %d: Basic credentials sent = %v, want %v", i+1, got, i == 1)
+				}
+				if deadline, _ := ctx.Deadline(); !conn.writeDeadline.Equal(deadline) {
+					t.Error("CONNECT changed the shared probe deadline")
+				}
 			}
 		})
 	}
@@ -1242,7 +1383,7 @@ func TestProxyProbeHTTPSCredentialsWaitForChallenge(t *testing.T) {
 
 func TestProxyProbeAuthRequired(t *testing.T) {
 	ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
-		return &scriptConn{r: strings.NewReader("HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")}, nil
+		return &scriptConn{r: strings.NewReader("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\nContent-Length: 0\r\n\r\n")}, nil
 	})
 	r := ops.proxyProbe(context.Background(), nil)
 	if r.Status != StatusFail || !strings.Contains(r.Fix, "credentials") {

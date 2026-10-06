@@ -372,14 +372,21 @@ type scriptConn struct {
 	r               io.Reader
 	w               strings.Builder
 	readDeadlineErr error
+	readDeadline    time.Time
 	writeDeadline   time.Time
 }
 
-func (c *scriptConn) Read(p []byte) (int, error)         { return c.r.Read(p) }
-func (c *scriptConn) Write(p []byte) (int, error)        { return c.w.Write(p) }
-func (c *scriptConn) SetReadDeadline(time.Time) error    { return c.readDeadlineErr }
+func (c *scriptConn) Read(p []byte) (int, error)  { return c.r.Read(p) }
+func (c *scriptConn) Write(p []byte) (int, error) { return c.w.Write(p) }
+func (c *scriptConn) SetReadDeadline(d time.Time) error {
+	c.readDeadline = d
+	return c.readDeadlineErr
+}
 func (c *scriptConn) SetWriteDeadline(d time.Time) error { c.writeDeadline = d; return nil }
-func (c *scriptConn) SetDeadline(d time.Time) error      { c.writeDeadline = d; return nil }
+func (c *scriptConn) SetDeadline(d time.Time) error {
+	c.readDeadline, c.writeDeadline = d, d
+	return nil
+}
 
 func proxyOps(proxy string, dial func(context.Context, string, string) (net.Conn, error)) *netops {
 	return &netops{
@@ -1336,6 +1343,61 @@ func TestProxyProbeAuthChallenges(t *testing.T) {
 	}
 }
 
+func TestProxyProbeUnsupportedAuthSchemes(t *testing.T) {
+	for _, tc := range []struct {
+		name, headers, schemes string
+	}{
+		{"Digest", "Proxy-Authenticate: Digest realm=\"private-realm\", nonce=\"private-nonce\"\r\n", "Digest"},
+		{"Negotiate", "Proxy-Authenticate: Negotiate private-token==\r\n", "Negotiate"},
+		{"multiple challenges", "Proxy-Authenticate: Digest realm=\"private-realm, Basic\", Negotiate private-token==\r\n", "Digest, Negotiate"},
+		{"parameter named Basic", "Proxy-Authenticate: Digest realm=\"private-realm\", Basic=private-parameter\r\n", "Digest"},
+		{"multiple fields and duplicates", "pRoXy-AuThEnTiCaTe: dIgEsT realm=\"private-realm\"\r\nProxy-Authenticate: Negotiate\r\nProxy-Authenticate: DIGEST realm=\"private-other\"\r\n", "dIgEsT, Negotiate"},
+		{"other scheme", "Proxy-Authenticate: Custom-Auth realm=\"private-realm\"\r\n", "Custom-Auth"},
+		{"malformed after valid scheme", "Proxy-Authenticate: Negotiate, Digest realm=\"private-unterminated\r\n", ""},
+		{"malformed after Basic", "Proxy-Authenticate: Basic realm=\"private-realm\", Negotiate, Digest realm=\"private-unterminated\r\n", ""},
+		{"malformed separator", "Proxy-Authenticate: Digest realm=private-realm Negotiate\r\n", ""},
+		{"malformed scheme", "Proxy-Authenticate: Digest/private-token\r\n", ""},
+		{"malformed Basic", "Proxy-Authenticate: Basic realm=\r\n", ""},
+		{"empty", "Proxy-Authenticate:\r\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var conns []*scriptConn
+			ops := proxyOps("https://user:pw@proxy.corp:3128", nil)
+			ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+				conn := &scriptConn{r: strings.NewReader("HTTP/1.1 407 Proxy Authentication Required\r\n" + tc.headers + "Content-Length: 0\r\n\r\n")}
+				conns = append(conns, conn)
+				return conn, nil
+			}
+			r := ops.proxyProbe(context.Background(), nil)
+			if r.Status != StatusFail || r.Cause != ProxyCauseProtocol || len(conns) != 1 {
+				t.Error("unsupported or malformed authentication must fail without retry")
+			}
+			for _, conn := range conns {
+				if strings.Contains(conn.w.String(), "Proxy-Authorization") {
+					t.Error("unsupported or malformed authentication sent credentials")
+				}
+			}
+			want := "proxy proxy.corp:3128 refused CONNECT: 407 Proxy Authentication Required; "
+			if tc.schemes == "" {
+				want += "proxy did not offer a supported Basic authentication challenge"
+			} else {
+				want += "unsupported proxy authentication schemes: " + tc.schemes
+			}
+			if r.Detail != want {
+				t.Error("authentication detail must name only safely parsed schemes or give generic advice")
+			}
+			if !strings.Contains(r.Fix, "supported Basic") || strings.Contains(r.Fix, "set user:pass") {
+				t.Error("unsupported authentication needs accurate advice")
+			}
+			for _, private := range []string{"private-", "realm=", "nonce=", "user", "pw", base64.StdEncoding.EncodeToString([]byte("user:pw"))} {
+				if strings.Contains(r.Detail+r.Fix, private) {
+					t.Error("authentication reporting leaked challenge data or credentials")
+				}
+			}
+		})
+	}
+}
+
 func TestProxyProbeAuthRetryPolicy(t *testing.T) {
 	const challenge = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\nContent-Length: 0\r\n\r\n"
 	for _, tc := range []struct {
@@ -1374,7 +1436,10 @@ func TestProxyProbeAuthRetryPolicy(t *testing.T) {
 					t.Errorf("CONNECT %d: Basic credentials sent = %v, want %v", i+1, got, i == 1)
 				}
 				if deadline, _ := ctx.Deadline(); !conn.writeDeadline.Equal(deadline) {
-					t.Error("CONNECT changed the shared probe deadline")
+					t.Errorf("CONNECT %d changed the shared probe write deadline", i+1)
+				}
+				if deadline, _ := ctx.Deadline(); !conn.readDeadline.Equal(deadline) {
+					t.Errorf("CONNECT %d changed the shared probe read deadline", i+1)
 				}
 			}
 		})

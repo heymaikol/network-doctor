@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -207,7 +208,7 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 		if resp.StatusCode != http.StatusProxyAuthRequired || proxyURL.User == nil || auth {
 			break
 		}
-		if !proxyOffersBasic(resp.Header) {
+		if basic, _ := proxyAuthChallenges(resp.Header); !basic {
 			break
 		}
 		_ = conn.Close()
@@ -227,9 +228,14 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 		r.Cause = ProxyCauseProtocol
 		r.Detail = "proxy " + addr + " refused CONNECT: " + resp.Status
 		if resp.StatusCode == http.StatusProxyAuthRequired {
+			basic, unsupported := proxyAuthChallenges(resp.Header)
 			switch {
-			case !proxyOffersBasic(resp.Header):
-				r.Detail += "; proxy did not offer a supported Basic authentication challenge"
+			case !basic:
+				if len(unsupported) > 0 {
+					r.Detail += "; unsupported proxy authentication schemes: " + strings.Join(unsupported, ", ")
+				} else {
+					r.Detail += "; proxy did not offer a supported Basic authentication challenge"
+				}
 				r.Fix = "this probe only supports Basic proxy authentication; check the proxy's authentication policy and Proxy-Authenticate response for supported Basic challenges"
 			case auth:
 				r.Fix = "proxy rejected Basic authentication: check the configured credentials and proxy authentication policy"
@@ -255,29 +261,35 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 	return r
 }
 
-// proxyOffersBasic parses the RFC 9110 challenge list, failing closed on invalid
-// syntax. A comma can separate parameters or challenges, and quoted values can
-// contain commas. A token followed by '=' is a parameter, never an auth scheme.
-func proxyOffersBasic(header http.Header) bool {
+// proxyAuthChallenges reports Basic support and unsupported scheme names from
+// the RFC 9110 challenge list, discarding both on invalid syntax. It never returns
+// parameter values or token68 data. A comma can separate parameters or challenges,
+// and quoted values can contain commas. A token followed by '=' is a parameter.
+func proxyAuthChallenges(header http.Header) (bool, []string) {
 	s := strings.Join(header.Values("Proxy-Authenticate"), ",")
 	basic := false
+	var unsupported []string
 	for {
 		s = strings.TrimLeft(s, " \t,")
 		if s == "" {
-			return basic
+			return basic, unsupported
 		}
 		scheme, rest := proxyAuthToken(s)
 		if scheme == "" {
-			return false
+			return false, nil
 		}
-		basic = basic || strings.EqualFold(scheme, "Basic")
+		if strings.EqualFold(scheme, "Basic") {
+			basic = true
+		} else if !slices.ContainsFunc(unsupported, func(known string) bool { return strings.EqualFold(known, scheme) }) {
+			unsupported = append(unsupported, scheme)
+		}
 		s = rest
 		if tail := strings.TrimLeft(s, " \t"); tail == "" || tail[0] == ',' {
 			s = tail
 			continue
 		}
 		if s[0] != ' ' {
-			return false
+			return false, nil
 		}
 		s = strings.TrimLeft(s, " ")
 		// token68 is opaque challenge data, with optional trailing '=' padding.
@@ -288,7 +300,7 @@ func proxyOffersBasic(header http.Header) bool {
 		if tail := strings.TrimLeft(strings.TrimLeft(s[n:], "="), " \t"); n > 0 && (tail == "" || tail[0] == ',') {
 			// RFC 7617 Basic challenges use parameters, not token68 data.
 			if strings.EqualFold(scheme, "Basic") {
-				return false
+				return false, nil
 			}
 			s = tail
 			continue
@@ -297,19 +309,19 @@ func proxyOffersBasic(header http.Header) bool {
 			name, tail := proxyAuthToken(s)
 			tail = strings.TrimLeft(tail, " \t")
 			if name == "" || !strings.HasPrefix(tail, "=") {
-				return false
+				return false, nil
 			}
 			var ok bool
 			s, ok = proxyAuthValue(strings.TrimLeft(tail[1:], " \t"))
 			if !ok {
-				return false
+				return false, nil
 			}
 			s = strings.TrimLeft(s, " \t")
 			if s == "" {
 				break
 			}
 			if s[0] != ',' {
-				return false
+				return false, nil
 			}
 			s = strings.TrimLeft(s, " \t,")
 			_, tail = proxyAuthToken(s)

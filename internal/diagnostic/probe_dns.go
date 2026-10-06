@@ -2,6 +2,7 @@ package diagnostic
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"runtime"
@@ -108,18 +109,126 @@ func answeredWithoutDNS(ctx context.Context, host string) bool {
 // tried, which is true whoever answered.
 func lookupIPPublicWithDial(ctx context.Context, host string, dial func(context.Context, string, string) (net.Conn, error), server string) ([]net.IP, []string, error) {
 	var targets resolverTargetRecorder
+	var responses publicDNSResponses
 	r := net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			targets.add(server)
-			return dial(ctx, network, server)
+			conn, err := dial(ctx, network, server)
+			if err != nil {
+				return conn, err
+			}
+			_, packet := conn.(net.PacketConn)
+			observed := &publicDNSConn{Conn: conn, packet: packet, responses: &responses}
+			if packet {
+				return publicDNSPacketConn{observed}, nil
+			}
+			return observed, nil
 		},
 	}
 	ips, err := r.LookupIP(ctx, "ip", host)
 	if err == nil && len(ips) > 0 && answeredWithoutDNS(ctx, host) {
 		return nil, targets.snapshot(), errHostsFileAnswer
 	}
+	if err != nil {
+		responses.mu.Lock()
+		defer responses.mu.Unlock()
+		if responses.failure != nil {
+			err = &publicDNSAnsweredError{responses.failure}
+		} else if responses.answered && !dnsNotFound(err) {
+			err = &publicDNSAnsweredError{err}
+		}
+	}
 	return ips, targets.snapshot(), err
+}
+
+// publicDNSAnsweredError preserves proof of a response even if Go's final
+// error is a timeout on the sibling family or a subsequent retry.
+type publicDNSAnsweredError struct{ error }
+
+func (e *publicDNSAnsweredError) Unwrap() error { return e.error }
+
+type publicDNSResponses struct {
+	mu       sync.Mutex
+	answered bool
+	failure  *dnsResponseError
+}
+
+// publicDNSConn observes the single query Go sends per connection. Verification
+// reuses the encrypted-DNS header, question and record framing checks for both
+// A and AAAA. Reading bytes or opening a socket alone never proves an answer.
+type publicDNSConn struct {
+	net.Conn
+	packet    bool
+	query     dnsQuery
+	read      []byte
+	responses *publicDNSResponses
+}
+
+func (c *publicDNSConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	msg := p[:n]
+	if !c.packet {
+		if len(msg) < 2 || int(binary.BigEndian.Uint16(msg[:2])) != len(msg)-2 {
+			return n, err
+		}
+		msg = msg[2:]
+	}
+	if len(msg) >= dnsHeaderLen && binary.BigEndian.Uint16(msg[4:6]) == 1 {
+		end, parseErr := skipDNSName(msg, dnsHeaderLen)
+		if parseErr == nil && end+4 <= len(msg) {
+			c.query = dnsQuery{id: binary.BigEndian.Uint16(msg[:2]), question: append([]byte(nil), msg[dnsHeaderLen:end+4]...)}
+		}
+	}
+	return n, err
+}
+
+func (c *publicDNSConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if c.packet {
+		c.observe(p[:n])
+	} else {
+		// Go reads one length-prefixed response, at most 65535 bytes, per
+		// connection. Reads may split both the prefix and the message.
+		c.read = append(c.read, p[:n]...)
+		if len(c.read) >= 2 && len(c.read)-2 == int(binary.BigEndian.Uint16(c.read[:2])) {
+			c.observe(c.read[2:])
+			c.read = nil
+		}
+	}
+	return n, err
+}
+
+func (c *publicDNSConn) observe(msg []byte) {
+	// Unlike encrypted DNS, plaintext needs the echoed question even for
+	// FORMERR/NOTIMP: there is no authenticated transport to correlate it.
+	if len(c.query.question) == 0 || len(msg) < dnsHeaderLen || binary.BigEndian.Uint16(msg[4:6]) != 1 {
+		return
+	}
+	err := c.query.verify(msg)
+	var responseErr *dnsResponseError
+	if err != nil && !errors.As(err, &responseErr) {
+		return
+	}
+	c.responses.mu.Lock()
+	defer c.responses.mu.Unlock()
+	c.responses.answered = true
+	// Keep a deterministic service error across concurrent A/AAAA replies.
+	if responseErr != nil && (c.responses.failure == nil || responseErr.rcode < c.responses.failure.rcode) {
+		c.responses.failure = responseErr
+	}
+}
+
+// Go selects datagram framing by the PacketConn interface, not Dial's network
+// argument. Preserve it while observing the connected socket's Read and Write.
+type publicDNSPacketConn struct{ *publicDNSConn }
+
+func (c publicDNSPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	return c.Conn.(net.PacketConn).ReadFrom(p)
+}
+
+func (c publicDNSPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	return c.Conn.(net.PacketConn).WriteTo(p, addr)
 }
 
 // dnsServerLabel shortens a resolver dial address for a probe row: the bare host
@@ -305,7 +414,7 @@ func (o *netops) dnsProbe(host string, litIP net.IP) func(context.Context, map[P
 // publicDNSProbe asks a second-opinion resolver the same question the system
 // resolver was asked. resolvers is the one address the user named, or the
 // automatic candidates, which are tried in order and only moved along when a
-// resolver could not be reached at all: a resolver that answered, refused, or
+// lookup obtained no usable DNS response: a resolver that answered, refused, or
 // said the name does not exist has answered this row, whatever it said. That is
 // what keeps a host with one working address family from losing the second
 // opinion, and it is deliberately not offered to an explicit --public-dns,
@@ -359,9 +468,9 @@ func publicDNSAttemptContext(ctx context.Context, left int) (context.Context, co
 	return context.WithDeadline(ctx, time.Now().Add(time.Until(deadline)/time.Duration(left)))
 }
 
-// publicDNSAttempt queries one resolver. A non-nil error means that resolver
-// could not be reached at all, which is the one outcome another candidate could
-// still improve on; every other outcome is this row's answer.
+// publicDNSAttempt queries one resolver. A non-nil error permits fallback only
+// when no usable DNS response was observed. It does not prove unreachability:
+// malformed replies and transport failures can both leave no usable response.
 func (o *netops) publicDNSAttempt(ctx context.Context, host, publicDNSIP string) (ProbeResult, error) {
 	ips, targets, err := o.lookupPublicIP(ctx, host, publicDNSServer(publicDNSIP))
 	// A resolver this run dialed is still only a resolver this run tried, so
@@ -381,6 +490,12 @@ func (o *netops) publicDNSAttempt(ctx context.Context, host, publicDNSIP string)
 			detail = "public DNS was not queried: " + err.Error()
 		}
 		return ProbeResult{Status: StatusNA, Detail: detail}, nil
+	}
+	var answered *publicDNSAnsweredError
+	if errors.As(err, &answered) {
+		return ProbeResult{Status: StatusNA, ResolverTargets: targets, resolver: publicDNSIP,
+			Detail: "public DNS " + publicDNSIP + " answered, but could not resolve " + host + ": " + answered.Error(),
+			Fix:    "the resolver answered but did not complete the lookup: retry later or check resolver policy"}, nil
 	}
 	if dnsNotFound(err) || err == nil && len(ips) == 0 {
 		return ProbeResult{

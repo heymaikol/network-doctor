@@ -467,7 +467,7 @@ func proxyCauseForSOCKSError(err error, remoteDNS bool) string {
 	var reply socks5ReplyError
 	if errors.As(err, &reply) {
 		switch reply.code {
-		case 3, 5:
+		case 3, 5, 6:
 			return ProxyCauseDestinationUnreachable
 		case 4:
 			// RFC 1928 names code 4 "host unreachable"; it can only
@@ -483,11 +483,10 @@ func proxyCauseForSOCKSError(err error, remoteDNS bool) string {
 	return ProxyCauseProtocol
 }
 
-// socks5Error names an RFC 1928 reply code. Codes 6-7 can't come back from a
-// CONNECT, so they fall through to the number; 8 can, because this probe always
-// asks for ATYP 3.
+// socks5Error names an RFC 1928 reply code; unassigned codes fall through to
+// the number.
 func socks5Error(code byte) string {
-	msgs := [...]string{1: "general failure", 2: "not allowed by ruleset", 3: "network unreachable", 4: "host unreachable", 5: "connection refused", 8: "address type not supported"}
+	msgs := [...]string{1: "general failure", 2: "not allowed by ruleset", 3: "network unreachable", 4: "host unreachable", 5: "connection refused", 6: "TTL expired", 7: "command not supported", 8: "address type not supported"}
 	if int(code) < len(msgs) && msgs[code] != "" {
 		return msgs[code]
 	}

@@ -494,6 +494,7 @@ func TestProxyProbeSocks5RetriesNextLocalAddress(t *testing.T) {
 		order    []net.IP
 	}{
 		{"host unreachable", 4, []net.IP{v4a, v4b}, []net.IP{v4a, v4b}},
+		{"TTL expired", 6, []net.IP{v4a, v4b}, []net.IP{v4a, v4b}},
 		{"address type not supported", 8, []net.IP{v4a, v6}, []net.IP{v6, v4a}},
 	}
 	for _, c := range cases {
@@ -516,6 +517,22 @@ func TestProxyProbeSocks5RetriesNextLocalAddress(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A TTL expiry on every answer is still a path failure, not a protocol one.
+func TestProxyProbeSocks5TTLExpiredFinalCause(t *testing.T) {
+	conns, dial := socks5Sessions(socks5Rejected(6), socks5Rejected(6))
+	ops := proxyOps("socks5://proxy.corp", dial)
+	ops.lookupIP = func(context.Context, string) ([]net.IP, []string, error) {
+		return []net.IP{net.ParseIP("192.0.2.10"), net.ParseIP("192.0.2.20")}, nil, nil
+	}
+	r := ops.proxyProbe(context.Background(), nil)
+	if len(*conns) != 2 {
+		t.Errorf("opened %d proxy sessions, want 2", len(*conns))
+	}
+	if r.Status != StatusFail || r.Cause != ProxyCauseDestinationUnreachable || !strings.Contains(r.Detail, "TTL expired") {
+		t.Errorf("TTL expired on every answer = %+v, want FAIL with cause %q", r, ProxyCauseDestinationUnreachable)
 	}
 }
 
@@ -652,6 +669,8 @@ func TestProxyProbeSocks5Failures(t *testing.T) {
 		{"auth demanded", []byte{5, 2}, "cleartext"},
 		{"refused", []byte{5, 0, 5, 5, 0, 1, 0, 0, 0, 0, 0, 0}, "connection refused"},
 		{"no domain names", []byte{5, 0, 5, 8, 0, 1, 0, 0, 0, 0, 0, 0}, "address type not supported"},
+		{"TTL expired", []byte{5, 0, 5, 6, 0, 1, 0, 0, 0, 0, 0, 0}, "TTL expired"},
+		{"command not supported", []byte{5, 0, 5, 7, 0, 1, 0, 0, 0, 0, 0, 0}, "command not supported"},
 		{"unknown reply code", []byte{5, 0, 5, 99, 0, 1, 0, 0, 0, 0, 0, 0}, "reply code 99"},
 		{"not a SOCKS port", []byte("HTTP/1.1 400 Bad Request\r\n"), "not a SOCKS5 proxy"},
 		{"truncated", []byte{5, 0, 5, 0, 0, 1}, "truncated"},
@@ -694,6 +713,8 @@ func TestSOCKS5ReplyCausesDistinguishFailureStages(t *testing.T) {
 		{3, ProxyCauseDestinationUnreachable},
 		{4, ProxyCauseProxyDNS},
 		{5, ProxyCauseDestinationUnreachable},
+		{6, ProxyCauseDestinationUnreachable},
+		{7, ProxyCauseProtocol},
 		{8, ProxyCauseProtocol},
 	} {
 		conn := &scriptConn{r: strings.NewReader(string([]byte{5, 0, 5, tc.code, 0, 1, 0, 0, 0, 0, 0, 0}))}

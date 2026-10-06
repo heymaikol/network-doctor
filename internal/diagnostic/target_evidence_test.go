@@ -3,6 +3,7 @@ package diagnostic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"slices"
 	"sync/atomic"
@@ -235,6 +236,106 @@ func TestTargetAttemptLimitLeavesResolvedAddressesUnknown(t *testing.T) {
 	}
 	if _, found := addressCounterfactual(&Target{Host: "example.test"}, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}, ProbeTargetTCP: r}); found {
 		t.Fatal("whole-family failure became partial")
+	}
+}
+
+func TestTargetAttemptCoverageDiagnosis(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		v4, v6              int
+		successFamily       string
+		want4, want6        string
+		wantUnreachable     bool
+		wantFamilyFinding   DiagnosisID
+		independentNotFound bool
+	}{
+		{name: "IPv4 incomplete", v4: maxAttempts + 2},
+		{name: "IPv6 incomplete", v6: maxAttempts + 2},
+		{name: "incomplete with DNS disagreement", v4: maxAttempts + 2, independentNotFound: true},
+		{name: "IPv4 exhausted", v4: maxAttempts, want4: FamilyUnreachable, wantUnreachable: true},
+		{name: "IPv6 exhausted", v6: maxAttempts, want6: FamilyUnreachable, wantUnreachable: true},
+		{name: "dual stack incomplete", v4: maxAttempts/2 + 1, v6: maxAttempts/2 + 1},
+		{name: "dual stack exhausted", v4: maxAttempts / 2, v6: maxAttempts / 2, want4: FamilyUnreachable, want6: FamilyUnreachable, wantUnreachable: true},
+		{name: "IPv4 incomplete IPv6 exhausted", v4: maxAttempts, v6: 1, want6: FamilyUnreachable},
+		{name: "IPv6 incomplete IPv4 exhausted", v4: 1, v6: maxAttempts, want4: FamilyUnreachable},
+		{name: "IPv4 incomplete IPv6 works", v4: maxAttempts, v6: 1, successFamily: "tcp6", want6: FamilyReachable},
+		{name: "IPv6 incomplete IPv4 works", v4: 1, v6: maxAttempts, successFamily: "tcp4", want4: FamilyReachable},
+		{name: "IPv4 works with unattempted siblings IPv6 exhausted", v4: maxAttempts, v6: 1, successFamily: "tcp4", want4: FamilyReachable, want6: FamilyUnreachable, wantFamilyFinding: DiagnosisIPv6TargetUnreachable},
+		{name: "IPv6 works with unattempted siblings IPv4 exhausted", v4: 1, v6: maxAttempts, successFamily: "tcp6", want4: FamilyUnreachable, want6: FamilyReachable, wantFamilyFinding: DiagnosisIPv4TargetUnreachable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var ips []net.IP
+			for i := range tc.v4 {
+				ips = append(ips, net.IPv4(192, 0, 2, byte(i+1)))
+			}
+			for i := range tc.v6 {
+				ips = append(ips, net.ParseIP(fmt.Sprintf("2001:db8::%x", i+1)))
+			}
+			var calls atomic.Int32
+			o := &netops{interfaces: func() ([]net.Interface, error) { return nil, nil }, dialContext: func(_ context.Context, network, _ string) (net.Conn, error) {
+				if network == "tcp4" || network == "tcp6" {
+					calls.Add(1)
+					if network == tc.successFamily {
+						return fakeConn{local: &net.TCPAddr{IP: net.IPv4(192, 0, 2, 100)}}, nil
+					}
+				}
+				return nil, syscall.EHOSTUNREACH
+			}}
+			ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
+			defer cancel()
+			r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
+			if r.Families.IPv4 != tc.want4 || r.Families.IPv6 != tc.want6 {
+				t.Fatalf("families=%+v, want IPv4=%q IPv6=%q", r.Families, tc.want4, tc.want6)
+			}
+			if tc.successFamily == "" {
+				wantAttempts := min(len(ips), maxAttempts)
+				if r.Status != StatusFail || calls.Load() != int32(wantAttempts) || len(r.Attempts) != wantAttempts {
+					t.Fatalf("status=%v calls=%d attempts=%d, want FAIL and %d attempts", r.Status, calls.Load(), len(r.Attempts), wantAttempts)
+				}
+				for _, a := range r.Attempts {
+					if !errors.Is(a.Err, syscall.EHOSTUNREACH) || a.Aborted {
+						t.Fatalf("attempt did not independently fail: %+v", a)
+					}
+				}
+			}
+			unattempted := slices.ContainsFunc(ips, func(ip net.IP) bool {
+				return !slices.ContainsFunc(r.Attempts, func(a Attempt) bool { return a.IP.Equal(ip) })
+			})
+			if unattempted != (len(ips) > maxAttempts) {
+				t.Fatalf("unattempted=%t resolved=%d attempts=%d", unattempted, len(ips), len(r.Attempts))
+			}
+			res := map[ProbeID]ProbeResult{
+				ProbeIface:     {Status: StatusPass},
+				ProbeInternet:  {Status: StatusPass, Families: &FamilyConnectivity{IPv4: FamilyReachable, IPv6: FamilyReachable}},
+				ProbeDNS:       {Status: StatusPass, Addrs: ips},
+				ProbeTargetTCP: r,
+			}
+			order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
+			if tc.independentNotFound {
+				res[ProbeDNSPublic] = ProbeResult{Status: StatusWarn, DNSNotFound: true}
+				order = append(order, ProbeDNSPublic)
+			}
+			Finalize(res)
+			target := &Target{Host: "example.test", Port: 80}
+			d := Interpret(target, order, res)
+			if _, found := findingByID(d, DiagnosisTargetUnreachable); found != tc.wantUnreachable {
+				t.Fatalf("resolved=%d attempts=%d families=%+v diagnosis=%+v, want target_unreachable=%t", len(ips), len(r.Attempts), r.Families, d, tc.wantUnreachable)
+			}
+			for _, id := range []DiagnosisID{DiagnosisIPv4TargetUnreachable, DiagnosisIPv6TargetUnreachable} {
+				if _, found := findingByID(d, id); found != (id == tc.wantFamilyFinding) {
+					t.Fatalf("finding %s: diagnosis=%+v, want %s", id, d, tc.wantFamilyFinding)
+				}
+			}
+			if tc.successFamily == "" && !tc.wantUnreachable {
+				if len(d.Findings) != 0 || d.Verdict != VerdictNetwork {
+					t.Fatalf("incomplete evidence must keep a broad network verdict: %+v", d)
+				}
+				assertNoOverclaim(t, d.Summary)
+				if e := Explain(target, order, res); e.Headline != "Target reachability is unknown" {
+					t.Fatalf("incomplete failure was misrepresented: %+v", e)
+				}
+			}
+		})
 	}
 }
 

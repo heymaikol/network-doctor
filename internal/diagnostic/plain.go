@@ -253,9 +253,13 @@ func Explain(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Explanatio
 				Headline: "Working, with some warnings",
 				Meaning:  "Nothing failed, but some checks reported a problem. It matters only if it matches what you are experiencing.",
 			}
+		case VerdictNetwork:
+			return Explanation{
+				Headline: "Target reachability is unknown",
+				Meaning:  "The connection check failed, but some addresses for this target were not tested. This run cannot tell whether the target can be reached.",
+			}
 		}
-		// Interpret names a finding for every failure, so no finding and no
-		// warning is a run where nothing failed.
+		// No failure, warning or unfinished check remains.
 		return Explanation{
 			Headline: "No obvious problem found",
 			Meaning:  "Network Doctor did not find a problem with this connection. That does not guarantee every app or website will work.",

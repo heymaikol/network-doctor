@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -445,6 +446,136 @@ func TestProxyProbeSocks5(t *testing.T) {
 			}
 			if conn.writeDeadline.IsZero() {
 				t.Error("deadline is zero, want the probe budget as a leash")
+			}
+		})
+	}
+}
+
+// socks5Rejected is a CONNECT the proxy answers with reply code: the greeting
+// picks no-auth, then the request is refused with a bound IPv4 address.
+func socks5Rejected(code byte) string {
+	return string([]byte{5, 0, 5, code, 0, 1, 0, 0, 0, 0, 0, 0})
+}
+
+// socks5Sessions hands each proxy dial the next scripted reply and records
+// every session, so a test can read what each CONNECT carried.
+func socks5Sessions(replies ...string) (*[]*scriptConn, func(context.Context, string, string) (net.Conn, error)) {
+	var conns []*scriptConn
+	return &conns, func(context.Context, string, string) (net.Conn, error) {
+		if len(conns) == len(replies) {
+			return nil, errors.New("unexpected extra proxy session")
+		}
+		c := &scriptConn{r: strings.NewReader(replies[len(conns)])}
+		conns = append(conns, c)
+		return c, nil
+	}
+}
+
+// socks5ConnectWire is the greeting plus a CONNECT to ip:443 as socks5 sends it.
+func socks5ConnectWire(ip net.IP) string {
+	req := []byte{5, 1, 0, 5, 1, 0}
+	if ip4 := ip.To4(); ip4 != nil {
+		req = append(append(req, 1), ip4...)
+	} else {
+		req = append(append(req, 4), ip.To16()...)
+	}
+	return string(append(req, 1, 187))
+}
+
+// Issue #235: one locally resolved answer the proxy cannot reach must not fail
+// the check while a later answer tunnels; each retry needs a fresh session.
+func TestProxyProbeSocks5RetriesNextLocalAddress(t *testing.T) {
+	first, second := net.ParseIP("192.0.2.10"), net.ParseIP("192.0.2.20")
+	conns, dial := socks5Sessions(socks5Rejected(4), socks5Reply)
+	ops := proxyOps("socks5://proxy.corp", dial)
+	ops.lookupIP = func(context.Context, string) ([]net.IP, []string, error) {
+		return []net.IP{first, second}, []string{"192.0.2.53:53"}, nil
+	}
+	r := ops.proxyProbe(context.Background(), nil)
+	if r.Status != StatusPass {
+		t.Errorf("second address tunnels = %+v, want PASS", r)
+	}
+	if len(*conns) != 2 {
+		t.Fatalf("opened %d proxy sessions, want 2", len(*conns))
+	}
+	for i, ip := range []net.IP{first, second} {
+		if got, want := (*conns)[i].w.String(), socks5ConnectWire(ip); got != want {
+			t.Errorf("session %d wire bytes = %q, want CONNECT to %s (%q)", i, got, ip, want)
+		}
+	}
+}
+
+// Every refused answer still fails, the attempts interleave families IPv6
+// first, and the session count stops at maxAttempts.
+func TestProxyProbeSocks5LocalAddressesBoundedAndInterleaved(t *testing.T) {
+	v6 := net.ParseIP("2001:db8::1")
+	ips := []net.IP{}
+	for i := range maxAttempts {
+		ips = append(ips, net.IPv4(192, 0, 2, byte(10+i)))
+	}
+	ips = append(ips, v6)
+	replies := make([]string, maxAttempts+1)
+	for i := range replies {
+		replies[i] = socks5Rejected(4)
+	}
+	conns, dial := socks5Sessions(replies...)
+	ops := proxyOps("socks5://proxy.corp", dial)
+	ops.lookupIP = func(context.Context, string) ([]net.IP, []string, error) {
+		return ips, []string{"192.0.2.53:53"}, nil
+	}
+	r := ops.proxyProbe(context.Background(), nil)
+	if r.Status != StatusFail || r.Cause != ProxyCauseDestinationUnreachable ||
+		!strings.Contains(r.Detail, "all "+strconv.Itoa(maxAttempts)+" locally resolved addresses tried") {
+		t.Errorf("every answer refused = %+v, want FAIL naming %d tried addresses", r, maxAttempts)
+	}
+	if len(*conns) != maxAttempts {
+		t.Fatalf("opened %d proxy sessions, want maxAttempts = %d", len(*conns), maxAttempts)
+	}
+	for i, ip := range []net.IP{v6, ips[0], ips[1]} {
+		if got, want := (*conns)[i].w.String(), socks5ConnectWire(ip); got != want {
+			t.Errorf("session %d wire bytes = %q, want CONNECT to %s", i, got, ip)
+		}
+	}
+}
+
+// Only a well-formed CONNECT refusal moves on to the next address: a broken
+// reply, a socks5h refusal, or an exhausted budget ends the probe after one
+// session.
+func TestProxyProbeSocks5NoRetry(t *testing.T) {
+	cases := []struct {
+		name   string
+		scheme string
+		reply  string
+		cancel bool
+		cause  string
+	}{
+		{"malformed reply", "socks5", string([]byte{5, 0, 4, 4, 0, 1}), false, ProxyCauseProtocol},
+		{"remote DNS", "socks5h", socks5Rejected(4), false, ProxyCauseProxyDNS},
+		{"cancelled", "socks5", socks5Rejected(4), true, ProxyCauseDestinationUnreachable},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			conns, dial := socks5Sessions(c.reply, socks5Reply)
+			ops := proxyOps(c.scheme+"://proxy.corp", func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if c.cancel {
+					cancel()
+				}
+				return dial(ctx, network, addr)
+			})
+			ops.lookupIP = func(context.Context, string) ([]net.IP, []string, error) {
+				if c.scheme == "socks5h" {
+					t.Error("socks5h must not resolve the destination locally")
+				}
+				return []net.IP{net.ParseIP("192.0.2.10"), net.ParseIP("192.0.2.20")}, nil, nil
+			}
+			r := ops.proxyProbe(ctx, nil)
+			if r.Status != StatusFail || r.Cause != c.cause {
+				t.Errorf("%s = %+v, want FAIL with cause %q", c.name, r, c.cause)
+			}
+			if len(*conns) != 1 {
+				t.Errorf("opened %d proxy sessions, want 1", len(*conns))
 			}
 		})
 	}

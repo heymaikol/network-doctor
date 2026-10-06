@@ -262,36 +262,19 @@ func (o *netops) proxyTunnelOK(ctx context.Context, conn net.Conn, addr string, 
 // socks5 resolves the destination with the client's configured resolver and
 // sends an address request; socks5h sends the hostname so the proxy resolves
 // it. The distinction is observable on split-DNS networks and is why both
-// schemes exist.
+// schemes exist. A socks5 CONNECT the proxy refuses only rules out that one
+// answer, so the next locally resolved address gets a fresh session, all under
+// the one deadline.
 func (o *netops) socks5Probe(ctx context.Context, addr string, remoteDNS bool, dl, start time.Time) ProbeResult {
-	var r ProbeResult
-	conn, err := o.dialContext(ctx, "tcp", addr)
-	if err != nil {
-		r.Status = StatusFail
-		r.Cause = ProxyCauseUnreachable
-		r.Detail = "cannot reach proxy " + addr + ": " + err.Error()
-		r.Fix = "proxy configured but unreachable: check HTTPS_PROXY/HTTP_PROXY/ALL_PROXY and the proxy host"
+	conn, r := o.socks5Session(ctx, addr, dl)
+	if conn == nil {
 		return r
 	}
-	defer conn.Close()
-	// net.Conn reads don't know ctx exists; the deadline is the only leash.
-	if err := conn.SetDeadline(dl); err != nil {
-		r.Status = StatusFail
-		r.Cause = ProxyCauseProtocol
-		r.Detail = "cannot set proxy deadline: " + err.Error()
-		return r
-	}
-	if err := socks5Greeting(conn); err != nil {
-		r.Status = StatusFail
-		r.Cause = ProxyCauseProtocol
-		r.Detail = "SOCKS5 proxy " + addr + ": " + err.Error()
-		r.Fix = "check that the proxy URL names a SOCKS5 port and that the proxy allows this destination"
-		return r
-	}
-	destination := socks5Destination{host: ConnectivityProbeHost, port: 443, remoteDNS: remoteDNS}
+	destinations := []socks5Destination{{host: ConnectivityProbeHost, port: 443, remoteDNS: remoteDNS}}
 	if !remoteDNS {
 		ips, targets, lookupErr := o.lookupIP(ctx, ConnectivityProbeHost)
 		if lookupErr != nil || len(ips) == 0 {
+			_ = conn.Close()
 			r.Status = StatusFail
 			r.Cause = ProxyCauseClientDNS
 			r.Detail = "SOCKS5 proxy " + addr + " is reachable, but local DNS cannot resolve " + ConnectivityProbeHost + resolverTargetsNote(targets)
@@ -301,16 +284,78 @@ func (o *netops) socks5Probe(ctx context.Context, addr string, remoteDNS bool, d
 			r.Fix = "fix the client's DNS resolver, or use socks5h:// to resolve names through the proxy"
 			return r
 		}
-		destination.ip = ips[0]
+		ips = interleaveFamilies(ips)
+		if len(ips) > maxAttempts {
+			ips = ips[:maxAttempts]
+		}
+		destinations = destinations[:0]
+		for _, ip := range ips {
+			destinations = append(destinations, socks5Destination{host: ConnectivityProbeHost, ip: ip, port: 443})
+		}
 	}
-	if err := socks5Request(conn, destination); err != nil {
+	tried := 0
+	for _, destination := range destinations {
+		if tried > 0 {
+			if ctx.Err() != nil || !time.Now().Before(dl) {
+				break
+			}
+			if conn, r = o.socks5Session(ctx, addr, dl); conn == nil {
+				return r
+			}
+		}
+		tried++
+		err := socks5Request(conn, destination)
+		if err == nil {
+			defer conn.Close()
+			return o.proxyTunnelOK(ctx, conn, addr, since(start))
+		}
+		_ = conn.Close()
 		r.Status = StatusFail
 		r.Cause = proxyCauseForSOCKSError(err, remoteDNS)
 		r.Detail = "SOCKS5 proxy " + addr + ": " + err.Error()
 		r.Fix = "check that the proxy URL names a SOCKS5 port and that the proxy allows this destination"
-		return r
+		// Only a well-formed refusal is about this destination; anything else
+		// is the proxy itself misbehaving, and another address would hide it.
+		var reply socks5ReplyError
+		if !errors.As(err, &reply) {
+			return r
+		}
 	}
-	return o.proxyTunnelOK(ctx, conn, addr, since(start))
+	if tried > 1 {
+		r.Detail += fmt.Sprintf(" (all %d locally resolved addresses tried)", tried)
+	}
+	return r
+}
+
+// socks5Session dials the proxy and completes the no-auth greeting. On failure
+// the conn is nil and the result says which stage broke.
+func (o *netops) socks5Session(ctx context.Context, addr string, dl time.Time) (net.Conn, ProbeResult) {
+	var r ProbeResult
+	conn, err := o.dialContext(ctx, "tcp", addr)
+	if err != nil {
+		r.Status = StatusFail
+		r.Cause = ProxyCauseUnreachable
+		r.Detail = "cannot reach proxy " + addr + ": " + err.Error()
+		r.Fix = "proxy configured but unreachable: check HTTPS_PROXY/HTTP_PROXY/ALL_PROXY and the proxy host"
+		return nil, r
+	}
+	// net.Conn reads don't know ctx exists; the deadline is the only leash.
+	if err := conn.SetDeadline(dl); err != nil {
+		_ = conn.Close()
+		r.Status = StatusFail
+		r.Cause = ProxyCauseProtocol
+		r.Detail = "cannot set proxy deadline: " + err.Error()
+		return nil, r
+	}
+	if err := socks5Greeting(conn); err != nil {
+		_ = conn.Close()
+		r.Status = StatusFail
+		r.Cause = ProxyCauseProtocol
+		r.Detail = "SOCKS5 proxy " + addr + ": " + err.Error()
+		r.Fix = "check that the proxy URL names a SOCKS5 port and that the proxy allows this destination"
+		return nil, r
+	}
+	return conn, r
 }
 
 type socks5Destination struct {

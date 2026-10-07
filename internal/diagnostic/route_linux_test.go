@@ -482,6 +482,10 @@ func TestMainIPv6DefaultsExcludeOtherTables(t *testing.T) {
 	if len(routes) != 1 || routes[0].iface != "eth0" || routes[0].metric != 50 || !routes[0].gateway.Equal(net.ParseIP("2001:db8::1")) {
 		t.Fatalf("main defaults = %+v", routes)
 	}
+	worst := rtMsg(unix.AF_INET6, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_OIF, u32(2)), rtAttr(unix.RTA_PRIORITY, u32(0xffffffff)))
+	if routes := mainIPv6Defaults([]netlinkMessage{worst}, name); len(routes) != 1 || routes[0].metric != 0xffffffff {
+		t.Fatalf("highest priority defaults = %+v", routes)
+	}
 	multipath := rtMsg(unix.AF_INET6, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_MULTIPATH, nil))
 	if routes := mainIPv6Defaults([]netlinkMessage{main, multipath}, name); routes != nil {
 		t.Fatalf("partial inventory = %+v", routes)

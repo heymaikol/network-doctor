@@ -3,7 +3,6 @@
 package diagnostic
 
 import (
-	"math"
 	"net"
 	"strconv"
 	"syscall"
@@ -90,12 +89,8 @@ func windowsDefaultRoutes(family uint16, routes []windows.MibIpForwardRow2,
 		if !ok {
 			continue
 		}
-		// Both halves are uint32, so their sum is widened before it is
-		// narrowed to the int the comparison uses.
+		// Both halves are uint32, so their sum is widened to hold the carry.
 		metric := uint64(row.Metric) + uint64(interfaceMetric)
-		if metric > math.MaxInt32 {
-			metric = math.MaxInt32
-		}
 		// The unspecified next hop is how Windows spells an on-link default
 		// route, which has no neighbor to resolve.
 		gateway := sockaddrInetIP(&row.NextHop)
@@ -103,7 +98,7 @@ func windowsDefaultRoutes(family uint16, routes []windows.MibIpForwardRow2,
 			gateway = nil
 		}
 		out = append(out, defaultRouteState{iface: strconv.FormatUint(uint64(row.InterfaceIndex), 10),
-			gateway: gateway, metric: int(metric)})
+			gateway: gateway, metric: metric})
 	}
 	return out
 }

@@ -51,7 +51,7 @@ type defaultRouteState struct {
 	// compared against another value read from the same host.
 	iface   string
 	gateway net.IP // nil when the default route is on-link, with no next hop to check
-	metric  int
+	metric  uint64
 }
 
 // classifyDefaultRoutes turns a host's default routes into one route cause.

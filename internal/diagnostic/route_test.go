@@ -631,7 +631,7 @@ func TestCompetingDefaultsStaySilentWithoutARealCompetition(t *testing.T) {
 	selected.Metric, selected.MetricKnown = 100, true
 	many := []defaultRouteState{{iface: "eth0", metric: 100}}
 	for i := range maxCompetingRoutes + 3 {
-		many = append(many, defaultRouteState{iface: "wlan0", metric: 600 + i})
+		many = append(many, defaultRouteState{iface: "wlan0", metric: uint64(600 + i)})
 	}
 	o := &netops{defaultRoutes: func(string) []defaultRouteState { return many }}
 	got := o.competingDefaults(selected)

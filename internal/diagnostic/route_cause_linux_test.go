@@ -2,10 +2,7 @@
 
 package diagnostic
 
-import (
-	"math"
-	"testing"
-)
+import "testing"
 
 func TestRouteFailureCauseFromKernelTables(t *testing.T) {
 	header := "Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\n"
@@ -109,14 +106,21 @@ func TestParseIPv6DefaultRoutesMetricRange(t *testing.T) {
 				}
 				return
 			}
-			// A 32-bit int cannot hold the top half of the uint32 range, so
-			// there the metric saturates rather than wrapping negative.
-			if len(parsed) != 1 || parsed[0].metric < 0 || uint64(parsed[0].metric) != min(tc.want, math.MaxInt) {
+			if len(parsed) != 1 || parsed[0].metric != tc.want {
 				t.Fatalf("parsed = %+v, want one route with metric %#x", parsed, tc.want)
 			}
 			if got := routeFailureCauseIPv6From([]byte(raw)); got != RouteCauseSelectedPathFailed {
 				t.Fatalf("cause = %q, want %q", got, RouteCauseSelectedPathFailed)
 			}
 		})
+	}
+}
+
+func TestIPv6RouteFailureCauseOrdersMetricsAcrossInt32Max(t *testing.T) {
+	zero := "00000000000000000000000000000000"
+	routes := zero + " 00 " + zero + " 00 20010db8007900030000000000000001 80000000 00000000 00000000 00000003 alt0\n" +
+		zero + " 00 " + zero + " 00 20010db8007900010000000000000001 7fffffff 00000000 00000000 00000003 pref0\n"
+	if got := routeFailureCauseIPv6From([]byte(routes)); got != RouteCausePreferredPathFailed {
+		t.Fatalf("IPv6 cause = %q, want %q", got, RouteCausePreferredPathFailed)
 	}
 }

@@ -1,6 +1,7 @@
 package diagnostic
 
 import (
+	"math"
 	"net"
 	"net/netip"
 	"slices"
@@ -615,10 +616,17 @@ func (o *netops) competingDefaults(selected RouteDecision) []CompetingRoute {
 	routes := o.defaultRoutes(selected.Family)
 	var out []CompetingRoute
 	for _, r := range routes {
-		if r.iface == selected.Iface && r.metric == selected.Metric {
+		if r.iface == selected.Iface && selected.Metric >= 0 && uint64(selected.Metric) == r.metric {
 			continue
 		}
-		out = append(out, CompetingRoute{Iface: r.iface, Metric: r.metric})
+		// The reported metric is an int, which on a 32-bit build cannot hold
+		// the top half of a uint32. Saturate so the competitor is still named
+		// and still sorts after every lower metric.
+		metric := r.metric
+		if metric > math.MaxInt {
+			metric = math.MaxInt
+		}
+		out = append(out, CompetingRoute{Iface: r.iface, Metric: int(metric)})
 	}
 	if len(out) == 0 {
 		return nil

@@ -3152,6 +3152,55 @@ func TestBannerProbeSSHPreliminaryLines(t *testing.T) {
 	}
 }
 
+// RFC 4253 section 4.2 defines the identification string as
+// "SSH-protoversion-softwareversion SP comments CR LF". Once a line starts with
+// "SSH-" it claims to be that string, so malformed syntax fails instead of
+// being skipped as a preliminary line.
+func TestBannerProbeSSHIdentificationSyntax(t *testing.T) {
+	tests := []struct {
+		name   string
+		server string
+		want   Status
+	}{
+		{"SSH 2.0", "SSH-2.0-OpenSSH_9.7\r\n", StatusPass},
+		{"SSH 2.0 with comments", "SSH-2.0-OpenSSH_9.7 Ubuntu-7ubuntu4\r\n", StatusPass},
+		{"SSH 2.0 with empty comments", "SSH-2.0-OpenSSH_9.7 \r\n", StatusPass},
+		{"compat 1.99", "SSH-1.99-OpenSSH_3.9p1\r\n", StatusPass},
+		{"legacy 1.5", "SSH-1.5-Cisco-1.25\r\n", StatusPass},
+		{"dash inside software version, as real devices send", "SSH-2.0-Cisco-1.25\r\n", StatusPass},
+		{"bare LF", "SSH-2.0-test\n", StatusPass},
+		{"longest legal line", "SSH-2.0-" + strings.Repeat("x", 245) + "\r\n", StatusPass},
+		{"line over 255 bytes", "SSH-2.0-" + strings.Repeat("x", 246) + "\r\n", StatusFail},
+		{"prefix only", "SSH-\r\n", StatusFail},
+		{"garbage", "SSH-garbage\r\n", StatusFail},
+		{"missing software version", "SSH-2.0\r\n", StatusFail},
+		{"empty software version", "SSH-2.0-\r\n", StatusFail},
+		{"empty software version with comments", "SSH-2.0- comment\r\n", StatusFail},
+		{"empty protocol version", "SSH--OpenSSH_9.7\r\n", StatusFail},
+		{"protocol version without minor", "SSH-2-OpenSSH_9.7\r\n", StatusFail},
+		{"protocol version with letters", "SSH-two.zero-OpenSSH_9.7\r\n", StatusFail},
+		{"protocol version with empty minor", "SSH-2.-OpenSSH_9.7\r\n", StatusFail},
+		{"space in protocol version", "SSH-2.0 -OpenSSH_9.7\r\n", StatusFail},
+		{"control byte in software version", "SSH-2.0-Open\x00SSH\r\n", StatusFail},
+		{"preliminary text then valid", "Authorized use only\r\nSSH-2.0-OpenSSH_9.7\r\n", StatusPass},
+		{"preliminary text then malformed", "Authorized use only\r\nSSH-garbage\r\n", StatusFail},
+		{"valid after malformed is not reached", "SSH-garbage\r\nSSH-2.0-OpenSSH_9.7\r\n", StatusFail},
+		{"SMTP greeting", "220 mail.example ESMTP\r\n", StatusFail},
+	}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+				return &scriptConn{r: strings.NewReader(tt.server)}, nil
+			}}
+			r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(context.Background(), deps)
+			if r.Status != tt.want {
+				t.Errorf("status = %v (%q), want %v", r.Status, r.Detail, tt.want)
+			}
+		})
+	}
+}
+
 // The read deadline is set once, before the first line, so a server that sends
 // a preliminary line and then stalls cannot stretch the probe: the search for
 // the identification string ends at the same deadline as a single read.

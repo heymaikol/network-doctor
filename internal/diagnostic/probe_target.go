@@ -473,6 +473,35 @@ func readBannerLine(br *bufio.Reader) (line string, complete bool, err error) {
 	return strings.TrimRight(line, "\r\n"), err == nil, err
 }
 
+// validSSHIdentification reports whether line, already stripped of CR LF, is
+// "SSH-protoversion-softwareversion [SP comments]" per RFC 4253 section 4.2.
+// protoversion is DIGITS "." DIGITS and softwareversion is non-empty printable
+// ASCII without whitespace. A dash inside softwareversion is tolerated, as
+// OpenSSH does, because real devices send it ("SSH-2.0-Cisco-1.25"). The RFC
+// caps the line at 255 bytes including CR LF.
+func validSSHIdentification(line string) bool {
+	rest, ok := strings.CutPrefix(line, "SSH-")
+	if !ok || len(line) > 253 {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] < 0x20 || rest[i] == 0x7f {
+			return false
+		}
+	}
+	proto, rest, ok := strings.Cut(rest, "-")
+	major, minor, ok2 := strings.Cut(proto, ".")
+	if !ok || !ok2 || !allDigits(major) || !allDigits(minor) {
+		return false
+	}
+	software, _, _ := strings.Cut(rest, " ")
+	return software != ""
+}
+
+func allDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
+}
+
 // bannerProbe reads the service's greeting. A non-empty tlsHost means the
 // service speaks only inside TLS, so the greeting is read over a verified TLS
 // connection to that name, after the TLS row has passed.
@@ -541,7 +570,7 @@ func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe 
 		} else if first == "" {
 			// Port answered but the service said nothing: functional, degraded.
 			r.Status, r.Detail = StatusWarn, "connected, no banner within deadline"
-		} else if valid := complete && (id == ProbeSSH && strings.HasPrefix(line, "SSH-") ||
+		} else if valid := complete && (id == ProbeSSH && validSSHIdentification(line) ||
 			id == ProbeSMTP && (strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-"))); !valid {
 			r.Status, r.Detail = StatusFail, "unexpected service banner: "+first
 		} else {

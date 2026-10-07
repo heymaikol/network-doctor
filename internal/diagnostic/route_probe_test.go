@@ -1,9 +1,11 @@
 package diagnostic
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"slices"
 	"sync"
 	"testing"
@@ -183,5 +185,79 @@ func TestAPlatformThatCannotAnswerRecordsNothing(t *testing.T) {
 	}
 	if _, ok := selectedTargetRoute(res); ok {
 		t.Error("an unanswered platform produced a selected target route")
+	}
+}
+
+// fe80::1 is on two links here, and a lookup that ignores the zone answers
+// for wlan0. A target scoped to eth0 must record eth0's route or none: never
+// a route the connection did not take. The platform's zoned lookup is what
+// can answer; where there is none, nothing is recorded.
+func TestScopedTargetRouteFollowsItsZone(t *testing.T) {
+	answers := map[string]RouteDecision{
+		internetEndpointCloudflareIPv4: {Iface: "eth0", Tunnel: TunnelDirect},
+		internetEndpointCloudflareIPv6: {Iface: "eth0", Tunnel: TunnelDirect},
+		"fe80::1":                      {Iface: "wlan0", Tunnel: TunnelDirect},
+	}
+	zoned := func(dst, _ net.IP, zone string) (RouteDecision, bool) {
+		return RouteDecision{Iface: zone, Tunnel: TunnelDirect}, dst.String() == "fe80::1"
+	}
+	for _, c := range []struct {
+		target, want string
+		lookup       func(dst, source net.IP, zone string) (RouteDecision, bool)
+	}{
+		{"[fe80::1%eth0]:22", "eth0", zoned},
+		{"[fe80::1%wlan0]:22", "wlan0", zoned},
+		{"[fe80::1%eth0]:22", "", nil}, // a platform that cannot scope the lookup
+	} {
+		target, err := ParseTarget(c.target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o := stubRouteOps(answers, nil)
+		o.routeForZone = c.lookup
+		o.scope = netip.MustParseAddr("fe80::1%" + target.Zone)
+		o.routes.scoped, o.routes.lookupZone = o.scoped, o.routeForZone
+		res := map[ProbeID]ProbeResult{}
+		for _, p := range o.buildProbes(target, "", false) {
+			if p.ID == ProbeIface || p.ID == ProbeDNS || p.ID == ProbeTargetTCP {
+				res[p.ID] = p.Run(context.Background(), res)
+			}
+		}
+		var got []string
+		for _, route := range res[ProbeTargetTCP].Routes {
+			if route.Destination.Equal(target.IP) {
+				got = append(got, route.Iface)
+			}
+		}
+		if want := []string{c.want}; c.want == "" && len(got) != 0 || c.want != "" && !slices.Equal(got, want) {
+			t.Errorf("%s with zoned lookup %v: target routes name %q, want %q", c.target, c.lookup != nil, got, c.want)
+		}
+	}
+}
+
+// The zone is part of the cache key: an answer for fe80::1%eth0 must not
+// serve fe80::1%wlan0, nor the unscoped fe80::1, and the reverse.
+func TestRouteCacheKeysOnTheZone(t *testing.T) {
+	var asked []string
+	cache := newRouteCache(func(dst, _ net.IP) (RouteDecision, bool) {
+		asked = append(asked, dst.String())
+		return RouteDecision{Iface: "wlan0"}, true
+	}, nil)
+	cache.lookupZone = func(dst, _ net.IP, zone string) (RouteDecision, bool) {
+		asked = append(asked, dst.String()+"%"+zone)
+		return RouteDecision{Iface: zone}, true
+	}
+	zone := ""
+	cache.scoped = func(net.IP) string { return zone }
+	dst := net.ParseIP("fe80::1")
+	for _, z := range []string{"eth0", "wlan0", "", "eth0", "wlan0", ""} {
+		zone = z
+		got, ok := cache.get(dst)
+		if want := cmp.Or(z, "wlan0"); !ok || got.Iface != want {
+			t.Errorf("zone %q: route via %q, want %q", z, got.Iface, want)
+		}
+	}
+	if want := []string{"fe80::1%eth0", "fe80::1%wlan0", "fe80::1"}; !slices.Equal(asked, want) {
+		t.Errorf("asked %q, want each scope looked up exactly once: %q", asked, want)
 	}
 }

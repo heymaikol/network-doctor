@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"slices"
@@ -513,7 +514,7 @@ func TestScopedTargetDialsCarryTheZone(t *testing.T) {
 				mu.Unlock()
 				return record(addr)
 			},
-			zone: target.Zone,
+			scope: netip.MustParseAddr(target.IP.String() + "%" + target.Zone),
 		}
 		ip := target.IP
 		deps := map[ProbeID]ProbeResult{

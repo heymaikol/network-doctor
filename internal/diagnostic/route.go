@@ -445,7 +445,13 @@ func samePath(a, b RouteDecision) bool {
 type routeCache struct {
 	lookup  func(dst, source net.IP) (RouteDecision, bool)
 	sources *SourceAddresses
-	mu      sync.Mutex
+	// scoped names the zone a destination is dialed with, which a lookup for
+	// it has to carry too, and lookupZone is the lookup that can. The zone is
+	// part of the cache key, so a scoped answer never serves an unscoped
+	// question for the same address, or the other way around.
+	scoped     func(net.IP) string
+	lookupZone func(dst, source net.IP, zone string) (RouteDecision, bool)
+	mu         sync.Mutex
 	// answers holds a pointer so that "the platform could not answer" is
 	// cached as nil rather than retried by every later probe.
 	answers map[string]*RouteDecision
@@ -475,16 +481,29 @@ func (c *routeCache) get(dst net.IP) (RouteDecision, bool) {
 	if c == nil || c.lookup == nil || dst == nil {
 		return RouteDecision{}, false
 	}
-	key := dst.String()
+	key, zone := dst.String(), ""
+	if c.scoped != nil {
+		zone = c.scoped(dst)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if zone != "" {
+		key += "%" + zone
+	}
 	if cached, seen := c.answers[key]; seen {
 		if cached == nil {
 			return RouteDecision{}, false
 		}
 		return *cached, true
 	}
-	decision, ok := c.lookup(dst, c.sourceFor(dst))
+	var decision RouteDecision
+	var ok bool
+	switch {
+	case zone == "":
+		decision, ok = c.lookup(dst, c.sourceFor(dst))
+	case c.lookupZone != nil:
+		decision, ok = c.lookupZone(dst, c.sourceFor(dst), zone)
+	}
 	if !ok {
 		c.answers[key] = nil
 		return RouteDecision{}, false

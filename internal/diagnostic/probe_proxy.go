@@ -13,7 +13,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
@@ -206,6 +208,9 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 		if resp.StatusCode != http.StatusProxyAuthRequired || proxyURL.User == nil || auth {
 			break
 		}
+		if basic, _ := proxyAuthChallenges(resp.Header); !basic {
+			break
+		}
 		_ = conn.Close()
 		if proxyURL.Scheme == "http" {
 			r.Status = StatusFail
@@ -223,7 +228,20 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 		r.Cause = ProxyCauseProtocol
 		r.Detail = "proxy " + addr + " refused CONNECT: " + resp.Status
 		if resp.StatusCode == http.StatusProxyAuthRequired {
-			r.Fix = "proxy requires credentials: set user:pass@host in the proxy URL"
+			basic, unsupported := proxyAuthChallenges(resp.Header)
+			switch {
+			case !basic:
+				if len(unsupported) > 0 {
+					r.Detail += "; unsupported proxy authentication schemes: " + strings.Join(unsupported, ", ")
+				} else {
+					r.Detail += "; proxy did not offer a supported Basic authentication challenge"
+				}
+				r.Fix = "this probe only supports Basic proxy authentication; check the proxy's authentication policy and Proxy-Authenticate response for supported Basic challenges"
+			case auth:
+				r.Fix = "proxy rejected Basic authentication: check the configured credentials and proxy authentication policy"
+			default:
+				r.Fix = "proxy requires credentials: set user:pass@host in the proxy URL"
+			}
 		} else {
 			r.Fix = "proxy reachable but refusing tunnels: check proxy policy"
 		}
@@ -241,6 +259,108 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 		r.Fix = cleartextConnectAdvice
 	}
 	return r
+}
+
+// proxyAuthChallenges reports Basic support and unsupported scheme names from
+// the RFC 9110 challenge list, discarding both on invalid syntax. It never returns
+// parameter values or token68 data. A comma can separate parameters or challenges,
+// and quoted values can contain commas. A token followed by '=' is a parameter.
+func proxyAuthChallenges(header http.Header) (bool, []string) {
+	s := strings.Join(header.Values("Proxy-Authenticate"), ",")
+	basic := false
+	var unsupported []string
+	for {
+		s = strings.TrimLeft(s, " \t,")
+		if s == "" {
+			return basic, unsupported
+		}
+		scheme, rest := proxyAuthToken(s)
+		if scheme == "" {
+			return false, nil
+		}
+		if strings.EqualFold(scheme, "Basic") {
+			basic = true
+		} else if !slices.ContainsFunc(unsupported, func(known string) bool { return strings.EqualFold(known, scheme) }) {
+			unsupported = append(unsupported, scheme)
+		}
+		s = rest
+		if tail := strings.TrimLeft(s, " \t"); tail == "" || tail[0] == ',' {
+			s = tail
+			continue
+		}
+		if s[0] != ' ' {
+			return false, nil
+		}
+		s = strings.TrimLeft(s, " ")
+		// token68 is opaque challenge data, with optional trailing '=' padding.
+		n := 0
+		for n < len(s) && (s[n] >= 'a' && s[n] <= 'z' || s[n] >= 'A' && s[n] <= 'Z' || s[n] >= '0' && s[n] <= '9' || strings.ContainsRune("-._~+/", rune(s[n]))) {
+			n++
+		}
+		if tail := strings.TrimLeft(strings.TrimLeft(s[n:], "="), " \t"); n > 0 && (tail == "" || tail[0] == ',') {
+			// RFC 7617 Basic challenges use parameters, not token68 data.
+			if strings.EqualFold(scheme, "Basic") {
+				return false, nil
+			}
+			s = tail
+			continue
+		}
+		for {
+			name, tail := proxyAuthToken(s)
+			tail = strings.TrimLeft(tail, " \t")
+			if name == "" || !strings.HasPrefix(tail, "=") {
+				return false, nil
+			}
+			var ok bool
+			s, ok = proxyAuthValue(strings.TrimLeft(tail[1:], " \t"))
+			if !ok {
+				return false, nil
+			}
+			s = strings.TrimLeft(s, " \t")
+			if s == "" {
+				break
+			}
+			if s[0] != ',' {
+				return false, nil
+			}
+			s = strings.TrimLeft(s, " \t,")
+			_, tail = proxyAuthToken(s)
+			if !strings.HasPrefix(strings.TrimLeft(tail, " \t"), "=") {
+				break
+			}
+		}
+	}
+}
+
+func proxyAuthToken(s string) (string, string) {
+	n := 0
+	for n < len(s) && (s[n] >= 'a' && s[n] <= 'z' || s[n] >= 'A' && s[n] <= 'Z' || s[n] >= '0' && s[n] <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(s[n]))) {
+		n++
+	}
+	return s[:n], s[n:]
+}
+
+// proxyAuthValue consumes a token or HTTP quoted-string, including quoted-pair.
+func proxyAuthValue(s string) (string, bool) {
+	if !strings.HasPrefix(s, "\"") {
+		token, rest := proxyAuthToken(s)
+		return rest, token != ""
+	}
+	for i := 1; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			return s[i+1:], true
+		case '\\':
+			i++
+			if i == len(s) {
+				return "", false
+			}
+		}
+		if s[i] < ' ' && s[i] != '\t' || s[i] == 0x7f {
+			return "", false
+		}
+	}
+	return "", false
 }
 
 // cleartextConnectAdvice hangs off a working http:// proxy row. It does not

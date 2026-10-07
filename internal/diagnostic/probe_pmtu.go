@@ -59,7 +59,7 @@ func (o *netops) pmtuProbe(port int, proto Proto) func(context.Context, map[Prob
 			return r
 		}
 		ip := dep.SelectedIP
-		conn, err := o.dialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+		conn, err := o.dialContext(ctx, "tcp", o.hostPort(ip, port))
 		if err != nil {
 			// TCP connected moments ago, so a second refusal is flakiness on the
 			// path, not a verdict about it.

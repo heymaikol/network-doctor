@@ -163,7 +163,12 @@ func toolsFor(t *diagnostic.Target, goos string, b toolBind) []Tool {
 	if t == nil {
 		return cacheAvailability(tools)
 	}
-	host := t.Host
+	// A link-local target is only reachable with its zone, and every tool
+	// that connects takes the scoped spelling. A name lookup never does.
+	host, name := t.Host, t.Host
+	if t.Zone != "" {
+		host += "%" + t.Zone
+	}
 
 	switch goos {
 	case "darwin":
@@ -181,11 +186,11 @@ func toolsFor(t *diagnostic.Target, goos string, b toolBind) []Tool {
 	}
 
 	if goos == "windows" {
-		tools = append(tools, staticTool(quote, "d", "DNS lookup", "nslookup", host))
+		tools = append(tools, staticTool(quote, "d", "DNS lookup", "nslookup", name))
 	} else if t.IP != nil {
-		tools = append(tools, staticTool(quote, "d", "reverse DNS lookup", "dig", "+time=2", "+tries=1", "-x", host))
+		tools = append(tools, staticTool(quote, "d", "reverse DNS lookup", "dig", "+time=2", "+tries=1", "-x", name))
 	} else {
-		tools = append(tools, digTool(quote, host))
+		tools = append(tools, digTool(quote, name))
 	}
 
 	// The "c" slot is the application-layer check, matched to the target's
@@ -322,7 +327,8 @@ func lanDiscoveryTool(quote func([]string) string, cidr string) Tool {
 // source address instead: the same link, spelled the way that build honors.
 func curlTool(host, goos string, b toolBind) Tool {
 	if strings.Contains(host, ":") {
-		host = "[" + host + "]"
+		// A URL spells a zone "%25" (RFC 6874).
+		host = "[" + strings.Replace(host, "%", "%25", 1) + "]"
 	}
 	bin, devNull := "curl", "/dev/null"
 	bind := b.either("--interface")

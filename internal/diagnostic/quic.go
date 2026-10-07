@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"time"
 
 	quic "github.com/quic-go/quic-go"
@@ -136,7 +135,7 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 				if ip.To4() != nil {
 					network = "udp4"
 				}
-				conn, err := o.dialContext(dctx, network, net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+				conn, err := o.dialContext(dctx, network, o.hostPort(ip, port))
 				var source net.IP
 				var state quicState
 				if err == nil {

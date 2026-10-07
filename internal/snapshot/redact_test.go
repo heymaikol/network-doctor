@@ -933,3 +933,20 @@ func TestSupportPrefixAddressClass(t *testing.T) {
 		})
 	}
 }
+
+// A scoped link-local target carries its zone in Raw alone. Support redaction
+// must drop the interface name and give Raw the pseudonym Host and IP get,
+// in the RFC 6874 URL spelling too.
+func TestSanitizeScopedTargetRaw(t *testing.T) {
+	for _, c := range []struct{ raw, want string }{
+		{"[fe80::1%eth0]:22", "[fe80::2]:22"},
+		{"ssh://[fe80::1%25eth0]:22", "ssh://[fe80::2]:22"},
+		{"fe80::1%wlan0", "fe80::2"},
+	} {
+		out := SanitizeForSupport(Snapshot{Schema: Schema, Checks: []Check{},
+			Target: &Target{Raw: c.raw, Host: "fe80::1", IP: "fe80::1", Port: 22, Protocol: "ssh"}})
+		if out.Target.Raw != c.want || out.Target.Host != "fe80::2" || out.Target.IP != "fe80::2" {
+			t.Errorf("SanitizeForSupport(%q) target = %+v, want raw %q with host and IP fe80::2", c.raw, *out.Target, c.want)
+		}
+	}
+}

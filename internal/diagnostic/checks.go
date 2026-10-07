@@ -532,6 +532,20 @@ type netops struct {
 	// routes memoizes routeFor for one pass. BuildProbesFromSources installs a
 	// fresh one per pass, so Watch Mode never serves a stale path.
 	routes *routeCache
+	// zone is the target's IPv6 zone, which hostPort puts back on a
+	// link-local address. BuildProbesFromSources sets it on the pass's copy.
+	zone string
+}
+
+// hostPort is the dial address for one destination address. A link-local
+// address only names a destination with its zone, and the only one a run is
+// given is the target's: DNS answers and the fixed endpoints carry none.
+func (o *netops) hostPort(ip net.IP, port int) string {
+	host := ip.String()
+	if o.zone != "" && ip.To4() == nil && ip.IsLinkLocalUnicast() {
+		host += "%" + o.zone
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // SourceAddresses are the usable IPv4 and IPv6 addresses selected by
@@ -601,6 +615,9 @@ func BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS strin
 	// than once; a later pass must not be answered from an earlier one, since
 	// the whole point of Watch Mode is to see the route change.
 	o.routes = newRouteCache(o.routeFor, o.sources)
+	if t != nil {
+		o.zone = t.Zone
+	}
 	probes := o.buildProbes(t, publicDNS, publicDNSAuto, explicit...)
 	for i := range probes {
 		probes[i].Run = wrapRun(probes[i].Run)

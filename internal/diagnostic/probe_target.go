@@ -171,7 +171,7 @@ func (o *netops) verifyTargetSibling(ctx context.Context, resolved []net.IP, win
 			network = "tcp4"
 		}
 		start := time.Now()
-		conn, err := o.dialContext(vctx, network, net.JoinHostPort(candidate.String(), strconv.Itoa(port)))
+		conn, err := o.dialContext(vctx, network, o.hostPort(candidate, port))
 		if conn != nil {
 			_ = conn.Close()
 		}
@@ -193,7 +193,7 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 			r.Status, r.Detail = StatusSkip, "no pinned IP from Target TCP"
 			return r
 		}
-		conn, err := o.dialTLS(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)), &tls.Config{ServerName: host})
+		conn, err := o.dialTLS(ctx, "tcp", o.hostPort(ip, port), &tls.Config{ServerName: host})
 		if err != nil {
 			r = tlsFailed(ip, err)
 			if iface := deps[ProbeTargetTCP].Iface; timeoutError(err) {
@@ -527,7 +527,7 @@ func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe 
 			r.Status, r.Detail = StatusSkip, "no pinned IP from "+depName
 			return r
 		}
-		addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+		addr := o.hostPort(ip, port)
 		var conn net.Conn
 		var err error
 		if tlsHost == "" {

@@ -195,6 +195,9 @@ func TestToolsCTargetArg(t *testing.T) {
 		{"2001:db8::1", "https://[2001:db8::1]"},
 		{"[2001:db8::1]:443", "https://[2001:db8::1]:443"},
 		{"[2001:db8::1]:587", "[2001:db8::1]:587"},
+		{"[fe80::1%eth0]:8443", "https://[fe80::1%25eth0]:8443"},
+		{"ssh://[fe80::1%eth0]", "fe80::1%eth0"},
+		{"[fe80::1%eth0]:587", "[fe80::1%eth0]:587"},
 	}
 	for _, tt := range tests {
 		target := mustTarget(t, tt.target)
@@ -206,8 +209,9 @@ func TestToolsCTargetArg(t *testing.T) {
 }
 
 func TestDigReversesLiteralTargets(t *testing.T) {
-	for _, raw := range []string{"1.1.1.1", "2001:db8::1"} {
+	for _, raw := range []string{"1.1.1.1", "2001:db8::1", "fe80::1%eth0"} {
 		target := mustTarget(t, raw)
+		raw = target.Host // a zone scopes a connection, not a name
 		tool := toolByKey(t, toolsFor(target, "linux", toolBind{}), "d")
 		args, _, display := tool.Build(target, nil)
 		want := []string{"+time=2", "+tries=1", "-x", raw}

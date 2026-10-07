@@ -137,6 +137,8 @@ var evidenceProjection = map[string]decision{
 	"diagnostic.Target.Port":             {category: replayed},
 	"diagnostic.Target.Proto":            {category: replayed},
 	"diagnostic.Target.PortExplicit":     {category: replayed},
+	"diagnostic.Target.Zone": {category: redundant, why: "Raw carries the zone, and the zone is no part of Host " +
+		"or IP. Only a dial address reads it, and replay dials nothing, so it is left behind."},
 
 	// The durable model. Everything here either comes back as diagnostic state
 	// or says why the artifact keeps it without replay reading it.
@@ -332,7 +334,7 @@ func maximalResult() ProbeResult {
 const transientSentinel = "zz-transient-alternate-zz"
 
 func maximalTarget() *Target {
-	return &Target{Raw: "192.0.2.10:443", Host: "192.0.2.10", IP: net.ParseIP("192.0.2.10"),
+	return &Target{Raw: "[fe80::10%eth0]:443", Host: "fe80::10", IP: net.ParseIP("fe80::10"), Zone: "eth0",
 		Port: 443, Proto: ProtoTLSHTTP, PortExplicit: true}
 }
 

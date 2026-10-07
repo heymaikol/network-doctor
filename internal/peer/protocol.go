@@ -34,7 +34,6 @@ const (
 	MaxPairingCodeSize  = 512
 	maxMessageSize      = 16 << 10
 	maxEndpointSize     = 96
-	maxZoneSize         = 32
 	maxEndpointCount    = 2
 	maxObservationCount = 2
 	maxPeerNameSize     = 128
@@ -281,7 +280,7 @@ func normalizeEndpoint(address string, allowZero bool) (string, string, error) {
 	if addr.Is6() && addr.IsLinkLocalUnicast() {
 		// Without the scope a link-local address names no reachable
 		// destination, so the bare form is not a usable peer endpoint.
-		if !validZone(zone) {
+		if !diagnostic.ValidZone(zone) {
 			return "", "", errInvalidPairing
 		}
 	} else if zone != "" {
@@ -300,23 +299,6 @@ func normalizeEndpoint(address string, allowZero bool) (string, string, error) {
 	}
 	// JoinHostPort brackets the IPv6 literal, zone included.
 	return net.JoinHostPort(addr.String(), strconv.Itoa(port)), family, nil
-}
-
-// validZone bounds an interface scope to what real zones look like: a Unix
-// interface name or a Windows numeric scope identifier. Endpoints reach here
-// from a peer, and they are stored and displayed, so the zone may not carry
-// arbitrary text.
-func validZone(zone string) bool {
-	if zone == "" || len(zone) > maxZoneSize {
-		return false
-	}
-	for _, r := range zone {
-		alphanumeric := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9'
-		if !alphanumeric && r != '.' && r != '-' && r != '_' {
-			return false
-		}
-	}
-	return true
 }
 
 func encodeSecret(value []byte) string {

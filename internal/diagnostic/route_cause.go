@@ -118,6 +118,23 @@ func defaultPathMatches(path RouteDecision, route defaultRouteState) bool {
 		path.Gateway != nil && path.Gateway.Equal(route.gateway)
 }
 
+// policyRoutedCause withdraws a missing IPv4 default as the explanation when
+// the kernel's own lookup for the failed destination chose a usable route from
+// a known non-main table. Linux's IPv4 default inventory is /proc/net/route,
+// which lists the main table only, so policy routing leaves it empty without
+// any local break. The route says nothing about whether the path works, so the
+// cause becomes unknown rather than anything healthier. An unknown table, an
+// unreachable answer, or no answer at all keeps the original cause.
+func policyRoutedCause(cause string, routes []RouteDecision, dst net.IP) string {
+	if cause != RouteCauseNoDefaultRoute || dst.To4() == nil {
+		return cause
+	}
+	if path, ok := routeFor(routes, dst); ok && path.TableKnown && path.Table != "" && !path.Unreachable {
+		return ""
+	}
+	return cause
+}
+
 const preferredPathSummary = "Reference TCP connections failed through the preferred default path, but the target connected through a lower-preference alternate path."
 
 func reconcilePreferredPath(res map[ProbeID]ProbeResult) {

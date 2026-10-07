@@ -9,6 +9,8 @@
 package diagnostic
 
 import (
+	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -358,5 +360,63 @@ func TestFailedRouteFamiliesPreserveUncertaintyAndContext(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+// TestPolicyRoutedReferenceDoesNotBlameMissingDefault pins issue #237. Linux's
+// IPv4 default inventory is /proc/net/route, which shows the main table only,
+// so a host whose rules send traffic through another table has no default
+// there. When the kernel's own lookup for the failed reference address names
+// such a table and a usable route, that missing main-table default is not why
+// the connection failed, and it must not localize the failure on this machine.
+// Anything weaker than that proof keeps the original cause.
+func TestPolicyRoutedReferenceDoesNotBlameMissingDefault(t *testing.T) {
+	target := &Target{Raw: "example.com", Host: "example.com", Port: 443, Proto: ProtoTLSHTTP}
+	order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
+	policy := RouteDecision{Iface: "eth0", Gateway: net.ParseIP("10.77.0.1"), Source: net.ParseIP("10.77.0.2"), Table: "table 100", TableKnown: true}
+	for _, tc := range []struct {
+		name      string
+		decision  func(RouteDecision) RouteDecision
+		found     bool
+		wantCause string
+		want      DiagnosisID
+	}{
+		{"usable policy table route", func(d RouteDecision) RouteDecision { return d }, true, "", DiagnosisReachabilityUnlocalized},
+		{"main table route", func(d RouteDecision) RouteDecision { d.Table = ""; return d }, true, RouteCauseNoDefaultRoute, DiagnosisLocalEgressFailure},
+		{"unknown table provenance", func(d RouteDecision) RouteDecision { d.Table, d.TableKnown = "", false; return d }, true, RouteCauseNoDefaultRoute, DiagnosisLocalEgressFailure},
+		{"policy table says unreachable", func(d RouteDecision) RouteDecision { d.Unreachable = true; return d }, true, RouteCauseNoDefaultRoute, DiagnosisLocalEgressFailure},
+		{"no kernel route decision", func(d RouteDecision) RouteDecision { return d }, false, RouteCauseNoDefaultRoute, DiagnosisLocalEgressFailure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sources := &SourceAddresses{IPv4: net.ParseIP("10.77.0.2")}
+			ops := &netops{
+				dialContext: func(context.Context, string, string) (net.Conn, error) {
+					return nil, errors.New("connection timed out")
+				},
+				interfaces:    func() ([]net.Interface, error) { return nil, nil },
+				sources:       sources,
+				routeCause:    func(net.IP) string { return RouteCauseNoDefaultRoute },
+				defaultRoutes: func(string) []defaultRouteState { return nil },
+			}
+			ops.routes = newRouteCache(func(dst, _ net.IP) (RouteDecision, bool) {
+				d := tc.decision(policy)
+				d.Destination, d.Family = dst, routeFamily(dst)
+				return d, tc.found
+			}, sources)
+			internet := ops.internetProbe(context.Background(), nil)
+			if internet.Status != StatusFail || internet.Cause != tc.wantCause {
+				t.Fatalf("internet = %s cause %q, want FAIL cause %q", internet.Status, internet.Cause, tc.wantCause)
+			}
+			res := map[ProbeID]ProbeResult{
+				ProbeIface:     {Status: StatusPass},
+				ProbeInternet:  internet,
+				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
+				ProbeTargetTCP: {Status: StatusFail},
+			}
+			d := Interpret(target, order, res)
+			if len(d.Findings) != 1 || d.Findings[0].ID != tc.want {
+				t.Fatalf("findings = %+v, want %q", d.Findings, tc.want)
+			}
+		})
 	}
 }

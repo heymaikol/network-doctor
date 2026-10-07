@@ -243,9 +243,6 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 			// below still owns this failure.
 			r.Detail += ", and one connectivity endpoint answered unexpectedly: " + portalNote(obs, intercepted)
 		}
-		if o.routeCause != nil {
-			r.Cause, r.causeFamily = failedRouteCause(o.routeCause, v4.ips, v6.ips)
-		}
 		if ctx.Err() != context.Canceled {
 			// A timeout is useful failure evidence, but must not start more
 			// kernel queries after the probe has spent its budget.
@@ -259,6 +256,10 @@ func (o *netops) internetProbe(ctx context.Context, _ map[ProbeID]ProbeResult) P
 				case <-ctx.Done():
 				}
 			}
+		}
+		if o.routeCause != nil {
+			classify := func(ip net.IP) string { return policyRoutedCause(o.routeCause(ip), r.Routes, ip) }
+			r.Cause, r.causeFamily = failedRouteCause(classify, v4.ips, v6.ips)
 		}
 		// The routing table decides the advice: a missing default route and a
 		// filtered upstream are different repairs. An empty or unrecognized

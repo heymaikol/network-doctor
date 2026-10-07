@@ -451,10 +451,11 @@ type routeCache struct {
 	// question for the same address, or the other way around.
 	scoped     func(net.IP) string
 	lookupZone func(dst, source net.IP, zone string) (RouteDecision, bool)
-	mu         sync.Mutex
-	// answers holds a pointer so that "the platform could not answer" is
-	// cached as nil rather than retried by every later probe.
-	answers map[string]*RouteDecision
+	// mu guards only the map, never a lookup, so destinations that differ
+	// ask the kernel concurrently. A key's entry is claimed before its lookup
+	// starts, and a later asker for the same key waits for that one answer.
+	mu      sync.Mutex
+	answers map[string]*routeAnswer
 	// reference is the pass's yardstick, computed once because three probe
 	// rows read it and it costs a second look at the default routes.
 	referenceOnce sync.Once
@@ -462,7 +463,16 @@ type routeCache struct {
 }
 
 func newRouteCache(lookup func(dst, source net.IP) (RouteDecision, bool), sources *SourceAddresses) *routeCache {
-	return &routeCache{lookup: lookup, sources: sources, answers: map[string]*RouteDecision{}}
+	return &routeCache{lookup: lookup, sources: sources, answers: map[string]*routeAnswer{}}
+}
+
+// routeAnswer is one key's lookup, readable once done is closed. It records
+// ok so that "the platform could not answer" is cached rather than retried by
+// every later probe.
+type routeAnswer struct {
+	done     chan struct{}
+	decision RouteDecision
+	ok       bool
 }
 
 // sourceFor is the local address this pass's probes dial a destination of this
@@ -485,17 +495,21 @@ func (c *routeCache) get(dst net.IP) (RouteDecision, bool) {
 	if c.scoped != nil {
 		zone = c.scoped(dst)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if zone != "" {
 		key += "%" + zone
 	}
-	if cached, seen := c.answers[key]; seen {
-		if cached == nil {
-			return RouteDecision{}, false
-		}
-		return *cached, true
+	c.mu.Lock()
+	answer, seen := c.answers[key]
+	if !seen {
+		answer = &routeAnswer{done: make(chan struct{})}
+		c.answers[key] = answer
 	}
+	c.mu.Unlock()
+	if seen {
+		<-answer.done
+		return answer.decision, answer.ok
+	}
+	defer close(answer.done)
 	var decision RouteDecision
 	var ok bool
 	switch {
@@ -505,12 +519,11 @@ func (c *routeCache) get(dst net.IP) (RouteDecision, bool) {
 		decision, ok = c.lookupZone(dst, c.sourceFor(dst), zone)
 	}
 	if !ok {
-		c.answers[key] = nil
 		return RouteDecision{}, false
 	}
 	decision.Destination = append(net.IP(nil), dst...)
 	decision.Family = routeFamily(dst)
-	c.answers[key] = &decision
+	answer.decision, answer.ok = decision, true
 	return decision, true
 }
 

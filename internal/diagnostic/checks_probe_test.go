@@ -1983,10 +1983,9 @@ func TestBannerProbeReadTimeoutHonorsContext(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
-			start := time.Now()
 			r := ops.bannerProbe(tt.id, "service banner", "", 22).Run(ctx, deps)
-			if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-				t.Errorf("banner probe took %v, want context deadline to cap the read", elapsed)
+			if want, _ := ctx.Deadline(); !conn.readDeadline.Equal(want) {
+				t.Errorf("read deadline = %v, want the context deadline %v", conn.readDeadline, want)
 			}
 			if r.Status != tt.want || r.Detail != tt.detail {
 				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, tt.want, tt.detail)
@@ -1996,13 +1995,18 @@ func TestBannerProbeReadTimeoutHonorsContext(t *testing.T) {
 }
 
 // preludeConn serves bytes already received before reading from Conn, whose
-// deadlines it keeps.
+// deadlines it keeps. readDeadline records the last read deadline requested.
 type preludeConn struct {
 	net.Conn
-	r io.Reader
+	r            io.Reader
+	readDeadline time.Time
 }
 
 func (c *preludeConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+func (c *preludeConn) SetReadDeadline(d time.Time) error {
+	c.readDeadline = d
+	return c.Conn.SetReadDeadline(d)
+}
 
 // runScriptedBanner runs the banner probe id against a peer that sends server
 // and then closes the connection.

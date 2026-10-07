@@ -401,7 +401,7 @@ func labelRight(row, label string, width int) string {
 // targetHP is the target endpoint as host:port; JoinHostPort brackets IPv6
 // literals so the rendered endpoint reads back as the same target.
 func (m model) targetHP() string {
-	return net.JoinHostPort(m.target.Host, strconv.Itoa(m.target.Port))
+	return net.JoinHostPort(m.target.ScopedHost(), strconv.Itoa(m.target.Port))
 }
 
 // headerView is the context strip under the banner. The complete target,

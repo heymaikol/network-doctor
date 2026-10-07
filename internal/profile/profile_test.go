@@ -353,3 +353,42 @@ func TestAComponentWithNoFocusRowIsNotTested(t *testing.T) {
 		t.Error("the artifact format reads a missing focus row differently")
 	}
 }
+
+// A scoped link-local target's zone is connection scope. Every endpoint a
+// profile derives for that destination, primary or alternate, keeps it, and
+// Host stays the plain address. Hostname and global IPv6 targets are the
+// controls: their plans are what they always were.
+func TestProfilesKeepTheTargetZone(t *testing.T) {
+	cases := []struct {
+		profile, target string
+		want            []string
+	}{
+		{"ssh", "fe80::1%eth0", []string{"ssh=ssh://[fe80::1%25eth0]:22"}},
+		{"ssh", "[fe80::1%eth0]:2222", []string{"ssh=ssh://[fe80::1%25eth0]:2222"}},
+		{"smtp", "fe80::1%eth0", []string{"smtp=smtp://[fe80::1%25eth0]:25", "submission=smtp://[fe80::1%25eth0]:587"}},
+		{"smtp", "smtp://[fe80::1%eth0]:587", []string{"smtp=smtp://[fe80::1%25eth0]:587", "relay=smtp://[fe80::1%25eth0]:25"}},
+		{"web", "fe80::1%eth0", []string{"https=https://[fe80::1%25eth0]:443", "http=http://[fe80::1%25eth0]:80"}},
+		{"web", "2001:db8::1", []string{"https=https://[2001:db8::1]:443", "http=http://[2001:db8::1]:80"}},
+		{"smtp", "[2001:db8::1]:587", []string{"smtp=smtp://[2001:db8::1]:587", "relay=smtp://[2001:db8::1]:25"}},
+		{"ssh", "server.example.com:2222", []string{"ssh=ssh://server.example.com:2222"}},
+	}
+	for _, c := range cases {
+		definition, _ := Builtins().Lookup(c.profile)
+		plan, err := definition.Plan(c.target)
+		if err != nil {
+			t.Errorf("--profile %s %q: %v", c.profile, c.target, err)
+			continue
+		}
+		parsed, _ := diagnostic.ParseTarget(c.target)
+		got := make([]string, len(plan.Runs))
+		for i, run := range plan.Runs {
+			got[i] = run.ID + "=" + run.Target.Raw
+			if run.Target.Zone != parsed.Zone || run.Target.Host != parsed.Host || strings.Contains(run.Target.Host, "%") {
+				t.Errorf("--profile %s %q: %s target %+v, want host %q zone %q", c.profile, c.target, run.ID, *run.Target, parsed.Host, parsed.Zone)
+			}
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("--profile %s %q: runs = %v, want %v", c.profile, c.target, got, c.want)
+		}
+	}
+}

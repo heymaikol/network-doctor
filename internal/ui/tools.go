@@ -165,10 +165,7 @@ func toolsFor(t *diagnostic.Target, goos string, b toolBind) []Tool {
 	}
 	// A link-local target is only reachable with its zone, and every tool
 	// that connects takes the scoped spelling. A name lookup never does.
-	host, name := t.Host, t.Host
-	if t.Zone != "" {
-		host += "%" + t.Zone
-	}
+	host, name := t.ScopedHost(), t.Host
 
 	switch goos {
 	case "darwin":

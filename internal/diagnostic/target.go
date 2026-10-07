@@ -334,6 +334,23 @@ func ValidZone(zone string) bool {
 	return true
 }
 
+// ScopedHost is Host with the zone, fe80::1%eth0, the spelling anything that
+// connects to the target, or parses it again, needs. Names and identity stay
+// Host.
+func (t *Target) ScopedHost() string {
+	if t.Zone == "" {
+		return t.Host
+	}
+	return t.Host + "%" + t.Zone
+}
+
+// Endpoint is the same destination reached by another scheme and port. It is
+// derived through ParseTarget like any target, and it keeps the zone, which a
+// rebuild from Host alone would drop.
+func (t *Target) Endpoint(scheme string, port int) (*Target, error) {
+	return ParseTarget(scheme + "://" + escapeZone(net.JoinHostPort(t.ScopedHost(), strconv.Itoa(port)), false))
+}
+
 func parsePort(s string) (int, error) {
 	port, err := strconv.Atoi(s)
 	if err != nil || port < 1 || port > 65535 {

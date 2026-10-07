@@ -1097,6 +1097,84 @@ func TestProxyProbeConnectOK(t *testing.T) {
 	}
 }
 
+// Reading beyond the final headers can wait out the probe deadline. CONNECT
+// success switches to a tunnel, and refused connections are closed rather
+// than reused, so neither outcome needs the response body to be drained.
+type proxyHeadersOnlyConn struct {
+	scriptConn
+	headers   *strings.Reader
+	bodyReads int
+	closed    bool
+}
+
+func (c *proxyHeadersOnlyConn) Read(p []byte) (int, error) {
+	if c.headers.Len() == 0 {
+		c.bodyReads++
+		return 0, os.ErrDeadlineExceeded
+	}
+	return c.headers.Read(p)
+}
+
+func (c *proxyHeadersOnlyConn) Close() error {
+	c.closed = true
+	return nil
+}
+
+func TestProxyProbeDoesNotDrainFinalResponseBody(t *testing.T) {
+	for _, status := range []string{"200 Connection established", "403 Forbidden", "407 Proxy Authentication Required"} {
+		for _, framing := range []string{"Content-Length: 1", "Transfer-Encoding: chunked"} {
+			t.Run(status+"/"+framing, func(t *testing.T) {
+				conn := &proxyHeadersOnlyConn{headers: strings.NewReader("HTTP/1.1 " + status + "\r\n" + framing + "\r\n\r\n")}
+				ops := proxyOps("http://proxy.corp:3128", func(context.Context, string, string) (net.Conn, error) {
+					return conn, nil
+				})
+				r := ops.proxyProbe(context.Background(), nil)
+				want := StatusFail
+				if strings.HasPrefix(status, "200") {
+					want = StatusPass
+				}
+				if r.Status != want {
+					t.Errorf("CONNECT = %+v, want %s", r, want)
+				}
+				if conn.bodyReads != 0 {
+					t.Errorf("read response body %d times after final headers", conn.bodyReads)
+				}
+				if !conn.closed {
+					t.Error("proxy connection was not closed")
+				}
+			})
+		}
+	}
+}
+
+func TestProxyProbeDoesNotDrainAuthenticationChallenge(t *testing.T) {
+	challenge := &proxyHeadersOnlyConn{headers: strings.NewReader("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\nContent-Length: 1\r\n\r\n")}
+	granted := &proxyHeadersOnlyConn{headers: strings.NewReader("HTTP/1.1 200 Connection established\r\nContent-Length: 1\r\n\r\n")}
+	conns := []*proxyHeadersOnlyConn{challenge, granted}
+	dials := 0
+	ops := proxyOps("https://user:secret@proxy.corp:3129", nil)
+	ops.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+		if dials >= len(conns) {
+			t.Fatal("unexpected authentication retry")
+		}
+		conn := conns[dials]
+		dials++
+		return conn, nil
+	}
+	r := ops.proxyProbe(context.Background(), nil)
+	if r.Status != StatusPass || dials != 2 {
+		t.Fatalf("authenticated CONNECT = %+v, dials %d; want PASS with one retry", r, dials)
+	}
+	for i, conn := range conns {
+		if conn.bodyReads != 0 || !conn.closed {
+			t.Errorf("connection %d: body reads %d, closed %t; want no body reads and closed", i, conn.bodyReads, conn.closed)
+		}
+	}
+	if strings.Contains(challenge.w.String(), "Proxy-Authorization") || !strings.Contains(granted.w.String(), "Proxy-Authorization: Basic ") {
+		t.Error("credentials must only be sent on the challenged retry")
+	}
+}
+
 // A working http:// proxy carried the CONNECT over a bare TCP hop, so the row
 // records the cleartext-hostname observation and hedged advice. The observation
 // does not move the status: this row earned no dial warning, so it stays PASS.

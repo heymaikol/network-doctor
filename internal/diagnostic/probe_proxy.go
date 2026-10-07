@@ -204,7 +204,9 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 			r.Fix = "proxy reachable but not speaking HTTP: wrong port or scheme?"
 			return r
 		}
-		_ = resp.Body.Close()
+		// This connection is never reused. Close it on retry or return instead
+		// of draining the body; after a successful CONNECT, bytes belong to
+		// the tunnel rather than an HTTP response body.
 		if resp.StatusCode != http.StatusProxyAuthRequired || proxyURL.User == nil || auth {
 			break
 		}

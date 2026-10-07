@@ -307,6 +307,7 @@ func TestInternationalizedTargetReachesDNSAndTLSAsASCII(t *testing.T) {
 }
 
 func FuzzParseTarget(f *testing.F) {
+	rlo := string(rune(0x202e))
 	seeds := []string{
 		// Ordinary host, address, port, and URL forms.
 		"example.com", "www.example.com", "example.com.", "192.0.2.1",
@@ -341,7 +342,7 @@ func FuzzParseTarget(f *testing.F) {
 		// IPv6 zones: scoped, unscoped, encoded, empty, misplaced, hostile.
 		"fe80::1%eth0", "[fe80::1%eth0]:22", "ssh://[fe80::1%eth0]:22", "ssh://[fe80::1%25eth0]",
 		"ssh://[fe80::1%2525]", "[fe80::1%25]:80", "fe80::1%", "[fe80::1%]", "2001:db8::1%eth0",
-		"[fe80::1%eth0%x]", "[fe80::1%eth0", "fe80::1%eth0:22", "[fe80::1%\u202e]",
+		"[fe80::1%eth0%x]", "[fe80::1%eth0", "fe80::1%eth0:22", "[fe80::1%" + rlo + "]",
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -428,6 +429,7 @@ func TestProtoString(t *testing.T) {
 // zone, so the scoped form parses into the address and its zone, kept apart,
 // and the bare form is refused with the reason rather than accepted unusable.
 func TestParseTargetIPv6Zone(t *testing.T) {
+	rlo := string(rune(0x202e))
 	cases := []struct {
 		in, raw, host, zone string
 		port                int
@@ -471,7 +473,7 @@ func TestParseTargetIPv6Zone(t *testing.T) {
 		"fe80::1%eth0:22",                       // a port needs the brackets
 		"[fe80::1%eth 0]:22", "[fe80::1%eth/0]", // not an interface name
 		"[fe80::1%" + strings.Repeat("a", 33) + "]",
-		"[fe80::1%eth0\u202e]:22", "fe80::1%eth0\x1b[2J",
+		"[fe80::1%eth0" + rlo + "]:22", "fe80::1%eth0\x1b[2J",
 	} {
 		if got, err := ParseTarget(in); err == nil {
 			t.Errorf("ParseTarget(%q) = %+v, want error", in, got)

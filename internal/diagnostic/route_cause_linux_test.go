@@ -21,6 +21,19 @@ func TestRouteFailureCauseFromKernelTables(t *testing.T) {
 		{"equal metric defaults are ECMP", header +
 			"eth1 00000000 01034D0A 0003 0 0 50 00000000 0 0 0\n" +
 			"eth0 00000000 01014D0A 0003 0 0 50 00000000 0 0 0\n", arpHeader, RouteCauseSelectedPathFailed},
+		{"one dead equal metric gateway listed first", header +
+			"eth0 00000000 01014D0A 0003 0 0 50 00000000 0 0 0\n" +
+			"eth1 00000000 01034D0A 0003 0 0 50 00000000 0 0 0\n",
+			arpHeader + "10.77.1.1 0x1 0x0 00:00:00:00:00:00 * eth0\n", RouteCauseSelectedPathFailed},
+		{"one dead equal metric gateway listed last", header +
+			"eth1 00000000 01034D0A 0003 0 0 50 00000000 0 0 0\n" +
+			"eth0 00000000 01014D0A 0003 0 0 50 00000000 0 0 0\n",
+			arpHeader + "10.77.1.1 0x1 0x0 00:00:00:00:00:00 * eth0\n", RouteCauseSelectedPathFailed},
+		{"every equal metric gateway dead", header +
+			"eth0 00000000 01014D0A 0003 0 0 50 00000000 0 0 0\n" +
+			"eth1 00000000 01034D0A 0003 0 0 50 00000000 0 0 0\n",
+			arpHeader + "10.77.1.1 0x1 0x0 00:00:00:00:00:00 * eth0\n" +
+				"10.77.3.1 0x1 0x0 00:00:00:00:00:00 * eth1\n", RouteCauseGatewayUnreachable},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

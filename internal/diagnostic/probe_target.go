@@ -470,15 +470,22 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 // send and never a valid protocol greeting, however it starts.
 func readBannerLine(br *bufio.Reader) (line string, complete bool, err error) {
 	line, err = br.ReadString('\n')
-	return strings.TrimRight(line, "\r\n"), err == nil, err
+	// Strip exactly one LF and at most one CR before it. A further CR stays in
+	// the line, so identification validation can see malformed termination.
+	line = strings.TrimSuffix(line, "\n")
+	return strings.TrimSuffix(line, "\r"), err == nil, err
 }
 
-// validSSHIdentification reports whether line, already stripped of CR LF, is
+// validSSHIdentification reports whether line, stripped of one CR LF, looks like
 // "SSH-protoversion-softwareversion [SP comments]" per RFC 4253 section 4.2.
-// protoversion is DIGITS "." DIGITS and softwareversion is non-empty printable
-// ASCII without whitespace. A dash inside softwareversion is tolerated, as
-// OpenSSH does, because real devices send it ("SSH-2.0-Cisco-1.25"). The RFC
-// caps the line at 255 bytes including CR LF.
+// It is not strict RFC validation: Network Doctor identifies working SSH
+// services, so it tolerates one deliberate deviation. RFC 4253 excludes the
+// minus sign from softwareversion, but real devices send it
+// ("SSH-2.0-Cisco-1.25"), so a dash inside softwareversion is accepted.
+// protoversion is DIGITS "." DIGITS. softwareversion is non-empty printable
+// ASCII and ends at the first space. Comments are free text, though control
+// bytes (including a stray CR) are rejected anywhere. The RFC caps the line at
+// 255 bytes including CR LF, so 253 here.
 func validSSHIdentification(line string) bool {
 	rest, ok := strings.CutPrefix(line, "SSH-")
 	if !ok || len(line) > 253 {
@@ -495,7 +502,7 @@ func validSSHIdentification(line string) bool {
 		return false
 	}
 	software, _, _ := strings.Cut(rest, " ")
-	return software != ""
+	return software != "" && !strings.ContainsFunc(software, func(r rune) bool { return r > 0x7e })
 }
 
 func allDigits(s string) bool {

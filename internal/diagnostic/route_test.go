@@ -4,7 +4,10 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 )
 
 // decisionTo builds a decision the way the platform collectors do, so a test states
@@ -519,6 +522,66 @@ func TestRouteCacheAsksTheKernelOncePerDestination(t *testing.T) {
 	}
 	if _, ok := (*routeCache)(nil).get(net.ParseIP("93.184.216.34")); ok {
 		t.Error("a nil cache answered a lookup")
+	}
+}
+
+// Lookups for different destinations overlap: each one waits inside the kernel
+// lookup until the other has entered too, which a cache holding one lock
+// across the lookup can never allow.
+func TestRouteCacheLooksUpDifferentDestinationsConcurrently(t *testing.T) {
+	entered, release := make(chan string), make(chan struct{})
+	c := newRouteCache(func(dst, _ net.IP) (RouteDecision, bool) {
+		entered <- dst.String()
+		<-release
+		return RouteDecision{Iface: "eth0"}, true
+	}, nil)
+	var wg sync.WaitGroup
+	for _, dst := range []string{"93.184.216.34", "2606:2800::1"} {
+		wg.Go(func() {
+			if _, ok := c.get(net.ParseIP(dst)); !ok {
+				t.Errorf("%s lost its answer", dst)
+			}
+		})
+	}
+	<-entered
+	<-entered
+	close(release)
+	wg.Wait()
+}
+
+// Askers for a destination already being looked up wait for that lookup
+// instead of starting their own, whether the platform answers or not.
+// synctest.Wait returns only once every asker is blocked, so the later ones
+// are provably waiting while the first is still inside the lookup.
+func TestRouteCacheLooksUpOneDestinationOnceWhileInFlight(t *testing.T) {
+	for _, answers := range []bool{true, false} {
+		synctest.Test(t, func(t *testing.T) {
+			var asked atomic.Int32
+			release := make(chan struct{})
+			c := newRouteCache(func(net.IP, net.IP) (RouteDecision, bool) {
+				asked.Add(1)
+				<-release
+				return RouteDecision{Iface: "eth0"}, answers
+			}, nil)
+			dst := net.ParseIP("93.184.216.34")
+			var wg sync.WaitGroup
+			for range 3 {
+				wg.Go(func() {
+					if got, ok := c.get(dst); ok != answers || answers && got.Iface != "eth0" {
+						t.Errorf("answers %v: got %+v, %v", answers, got, ok)
+					}
+				})
+			}
+			synctest.Wait()
+			if n := asked.Load(); n != 1 {
+				t.Errorf("answers %v: %d lookups in flight, want 1", answers, n)
+			}
+			close(release)
+			wg.Wait()
+			if _, ok := c.get(dst); ok != answers || asked.Load() != 1 {
+				t.Errorf("answers %v: a later asker got %v after %d lookups, want the cached answer", answers, ok, asked.Load())
+			}
+		})
 	}
 }
 

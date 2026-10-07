@@ -117,6 +117,37 @@ func TestComposeSelectionKeepsProfileMinimumAndDependencyClosure(t *testing.T) {
 	}
 }
 
+// An explicit 465 in either spelling is implicit-TLS submission, so the
+// component's own graph reads the greeting only after the TLS row. The 587
+// component beside it still greets in plaintext.
+func TestSMTPProfilePort465ReadsTheGreetingOverTLS(t *testing.T) {
+	definition, _ := Builtins().Lookup("smtp")
+	for _, target := range []string{"mail.example.com:465", "smtp://mail.example.com:465"} {
+		t.Run(target, func(t *testing.T) {
+			plan, err := definition.Plan(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string][]diagnostic.ProbeID{
+				"smtp":       {diagnostic.ProbeTLS},
+				"submission": {diagnostic.ProbeTargetTCP},
+			}
+			for _, run := range plan.Runs {
+				selection, _ := ComposeSelection(run, nil, nil)
+				var deps []diagnostic.ProbeID
+				for _, probe := range selection.BuildProbesFromSources(run.Target, nil, diagnostic.DefaultPublicDNS, true) {
+					if probe.ID == diagnostic.ProbeSMTP {
+						deps = probe.Deps
+					}
+				}
+				if !slices.Equal(deps, want[run.ID]) {
+					t.Errorf("%s (%s) SMTP row depends on %v, want %v", run.ID, run.Target.Raw, deps, want[run.ID])
+				}
+			}
+		})
+	}
+}
+
 func TestComponentStatusKeepsWorkingServiceAsDegraded(t *testing.T) {
 	r := report.Report{
 		Checks: []report.Check{

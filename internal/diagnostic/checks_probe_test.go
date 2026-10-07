@@ -180,7 +180,7 @@ func (deadlineErrorConn) SetReadDeadline(time.Time) error { return errors.New("u
 
 func TestBannerProbeClassifiesWrappedReset(t *testing.T) {
 	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) { return resetConn{}, nil }}
-	probe := ops.bannerProbe(ProbeSSH, "SSH", 22)
+	probe := ops.bannerProbe(ProbeSSH, "SSH", "", 22)
 	r := probe.Run(context.Background(), map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}})
 	if r.Status != StatusFail || r.Cause != ConnectionCauseReset {
 		t.Fatalf("reset result = %+v", r)
@@ -198,7 +198,7 @@ func TestHTTPProbeClassifiesWrappedReset(t *testing.T) {
 
 func TestBannerProbeRejectsUnboundedRead(t *testing.T) {
 	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) { return deadlineErrorConn{}, nil }}
-	r := ops.bannerProbe(ProbeSSH, "SSH", 22).Run(context.Background(), map[ProbeID]ProbeResult{
+	r := ops.bannerProbe(ProbeSSH, "SSH", "", 22).Run(context.Background(), map[ProbeID]ProbeResult{
 		ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")},
 	})
 	if r.Status != StatusFail || !strings.Contains(r.Detail, "cannot set banner read deadline") {
@@ -1946,7 +1946,7 @@ func TestBannerProbeReadTimeout(t *testing.T) {
 	}}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
 
-	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(context.Background(), deps)
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(context.Background(), deps)
 	if r.Status != StatusWarn || r.Detail != "connected, no banner within deadline" {
 		t.Errorf("silent server = %+v, want WARN with no-banner detail", r)
 	}
@@ -1966,7 +1966,7 @@ func TestBannerProbeReadTimeoutHonorsContext(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, deps)
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(ctx, deps)
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
 		t.Errorf("banner probe took %v, want context deadline to cap the read", elapsed)
 	}
@@ -1994,9 +1994,179 @@ func TestBannerProbeValidatesProtocol(t *testing.T) {
 			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
 				return &scriptConn{r: strings.NewReader(tt.banner)}, nil
 			}}
-			r := ops.bannerProbe(tt.id, "service banner", 22).Run(context.Background(), deps)
+			r := ops.bannerProbe(tt.id, "service banner", "", 22).Run(context.Background(), deps)
 			if r.Status != tt.want {
 				t.Errorf("status = %v, detail = %q, want %v", r.Status, r.Detail, tt.want)
+			}
+		})
+	}
+}
+
+// serveImplicitTLSSMTP answers the way an RFC 8314 submissions server on port
+// 465 does: it says nothing until the client opens TLS, and sends greeting only
+// over the finished TLS session. sni reports the name the last client asked for.
+func serveImplicitTLSSMTP(t *testing.T, cert tls.Certificate, greeting string) (p *pipeNet, sni func() string) {
+	t.Helper()
+	p = newPipeNet(t)
+	var name atomic.Value
+	name.Store("")
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			raw, err := p.Accept()
+			if err != nil {
+				return
+			}
+			wg.Go(func() {
+				defer raw.Close()
+				// net.Pipe has no buffer, so a client that rejects the
+				// certificate blocks sending its alert while this side blocks
+				// sending the rest of its flight. A short handshake deadline
+				// breaks that tie the way the HTTPS fixtures do.
+				_ = raw.SetDeadline(time.Now().Add(100 * time.Millisecond))
+				conn := tls.Server(raw, &tls.Config{
+					Certificates: []tls.Certificate{cert},
+					GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+						name.Store(hello.ServerName)
+						return nil, nil
+					},
+				})
+				if conn.Handshake() != nil {
+					return
+				}
+				_ = raw.SetDeadline(time.Now().Add(5 * time.Second))
+				// Write and read at once, for the same reason: a client that
+				// hangs up without reading the greeting must not be left
+				// stuck sending close_notify.
+				wg.Go(func() { _, _ = io.WriteString(conn, greeting) })
+				_, _ = io.Copy(io.Discard, conn)
+			})
+		}
+	})
+	t.Cleanup(func() {
+		_ = p.Close()
+		wg.Wait()
+	})
+	return p, func() string { return name.Load().(string) }
+}
+
+// runSMTPRows runs the SMTP banner row of target's graph and everything it
+// depends on above Target TCP, with Target TCP pinned to a fixed address.
+func runSMTPRows(t *testing.T, ops *netops, target string) map[ProbeID]ProbeResult {
+	t.Helper()
+	var rows []Probe
+	for _, p := range (ProbeSelection{Check: probeSet(ProbeSMTP)}).Apply(ops.buildProbes(mustTarget(t, target), "", false)) {
+		switch p.ID {
+		case ProbeIface, ProbeDNS:
+			continue
+		case ProbeTargetTCP:
+			p.Deps = nil
+			p.Run = func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+				return ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.25")}
+			}
+		}
+		rows = append(rows, p)
+	}
+	return RunAll(t.Context(), rows, DefaultProbeTimeout)
+}
+
+// implicitTLSOps dials p and trusts roots, for both the TLS row and the SMTP
+// row's own TLS connection.
+func implicitTLSOps(p *pipeNet, roots *x509.CertPool) *netops {
+	dial := dialTLSWith(p.dial)
+	return &netops{dialContext: p.dial, tlsRootCAs: roots, dialTLS: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+		cfg = cfg.Clone()
+		cfg.RootCAs = roots
+		return dial(ctx, network, addr, cfg)
+	}}
+}
+
+// Port 465 is implicit TLS (RFC 8314 section 3.3): a healthy server waits for
+// the ClientHello and greets only inside TLS. A client that waits for a
+// plaintext 220 first never gets one, so this fixture fails any probe that does.
+func TestSMTPOnPort465GreetsOverImplicitTLS(t *testing.T) {
+	const host = "mail.example"
+	cert, roots := selfSignedCert(t, host)
+	p, sni := serveImplicitTLSSMTP(t, cert, "220 mail.example ESMTP\r\n")
+	res := runSMTPRows(t, implicitTLSOps(p, roots), "smtp://"+host+":465")
+	if r := res[ProbeSMTP]; r.Status != StatusPass || r.Detail != "banner: 220 mail.example ESMTP" {
+		t.Fatalf("SMTP row = %+v, want PASS on the greeting sent over TLS", r)
+	}
+	if r, ok := res[ProbeTLS]; !ok || r.Status != StatusPass {
+		t.Errorf("TLS row = %+v (present %v), want PASS", r, ok)
+	}
+	if got := sni(); got != host {
+		t.Errorf("SNI = %q, want %q", got, host)
+	}
+}
+
+// Each layer of an implicit-TLS endpoint fails as itself: a rejected handshake
+// is a TLS failure that leaves the greeting untested, never a missing or
+// unexpected plaintext banner, and a working handshake followed by silence or
+// the wrong greeting is the SMTP row's finding.
+func TestSMTPOnPort465ReportsTheLayerThatFailed(t *testing.T) {
+	const host = "mail.example"
+	for _, tc := range []struct {
+		name, certHost, greeting string
+		tls, smtp                Status
+		tlsCause, detail         string
+	}{
+		{"certificate for another name", "other.example", "220 other.example ESMTP\r\n", StatusFail, StatusSkip, TLSCauseHostnameMismatch, "skipped: a prerequisite failed"},
+		{"silent after TLS", host, "", StatusPass, StatusWarn, "", "connected, no banner within deadline"},
+		{"wrong greeting after TLS", host, "554 go away\r\n", StatusPass, StatusFail, "", "unexpected service banner: 554 go away"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cert, roots := selfSignedCert(t, tc.certHost)
+			p, _ := serveImplicitTLSSMTP(t, cert, tc.greeting)
+			res := runSMTPRows(t, implicitTLSOps(p, roots), "smtp://"+host+":465")
+			if r, ok := res[ProbeTLS]; !ok || r.Status != tc.tls || r.Cause != tc.tlsCause {
+				t.Errorf("TLS row = %+v (present %v), want %v %q", r, ok, tc.tls, tc.tlsCause)
+			}
+			if r := res[ProbeSMTP]; r.Status != tc.smtp || r.Detail != tc.detail {
+				t.Errorf("SMTP row = %+v, want %v %q", r, tc.smtp, tc.detail)
+			}
+		})
+	}
+}
+
+// The diagnosis follows the rows: a rejected certificate on port 465 is the
+// TLS finding, not a service banner one.
+func TestSMTPOnPort465DiagnosesTLSFailureAsTLS(t *testing.T) {
+	target := mustTarget(t, "smtp://mail.example:465")
+	order := planOrder(t, target)
+	ip := net.ParseIP("192.0.2.25")
+	res := settle(t, target, order, map[ProbeID]ProbeResult{
+		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{ip}},
+		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{ip}},
+		ProbeTargetTCP: {Status: StatusPass, SelectedIP: ip},
+		ProbeTLS:       {Status: StatusFail, SelectedIP: ip, Cause: TLSCauseHostnameMismatch},
+	})
+	d := Interpret(target, order, res)
+	if want := tlsDiagnosisID(TLSCauseHostnameMismatch); len(d.Findings) == 0 || d.Findings[0].ID != want {
+		t.Fatalf("finding = %+v, want %q: %q", d.Findings, want, d.Summary)
+	}
+}
+
+// Relay and submission ports greet in plaintext at connection start; STARTTLS,
+// if any, comes later. Only 465 moves the greeting inside TLS.
+func TestSMTPOnPlaintextPortsReadsTheBannerBeforeAnyTLS(t *testing.T) {
+	for _, target := range []string{"mail.example:25", "mail.example:587", "smtp://mail.example", "smtp://mail.example:587", "smtp://mail.example:2525"} {
+		t.Run(target, func(t *testing.T) {
+			ops := &netops{
+				dialContext: func(context.Context, string, string) (net.Conn, error) {
+					return &scriptConn{r: strings.NewReader("220 mail.example ESMTP\r\n")}, nil
+				},
+				dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+					t.Error("a plaintext SMTP port opened TLS")
+					return nil, errors.New("unexpected TLS dial")
+				},
+			}
+			res := runSMTPRows(t, ops, target)
+			if _, ok := res[ProbeTLS]; ok {
+				t.Errorf("graph has a TLS row for %s", target)
+			}
+			if r := res[ProbeSMTP]; r.Status != StatusPass {
+				t.Errorf("SMTP row = %+v, want PASS on the plaintext greeting", r)
 			}
 		})
 	}
@@ -2093,7 +2263,7 @@ func TestBannerProbeRequiresCompleteLine(t *testing.T) {
 			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
 				return &scriptConn{r: strings.NewReader(tt.server)}, nil
 			}}
-			r := ops.bannerProbe(tt.id, "service banner", 22).Run(context.Background(), deps)
+			r := ops.bannerProbe(tt.id, "service banner", "", 22).Run(context.Background(), deps)
 			if r.Status != tt.want || r.Detail != tt.detail {
 				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, tt.want, tt.detail)
 			}
@@ -2109,7 +2279,7 @@ func TestBannerProbeEndlessStreamStaysBounded(t *testing.T) {
 		return &scriptConn{r: stream}, nil
 	}}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
-	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(context.Background(), deps)
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(context.Background(), deps)
 	if stream.n > 1024 {
 		t.Errorf("read %d bytes, want the 1024-byte limit to hold", stream.n)
 	}
@@ -2154,7 +2324,7 @@ func TestProbesMalformedDeps(t *testing.T) {
 	if r := ops.httpProbe("example.com", 443, "https", ProbeTLS)(ctx, empty); r.Status != StatusSkip {
 		t.Errorf("https without TLS pinned IP = %+v, want SKIP", r)
 	}
-	if r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, empty); r.Status != StatusSkip {
+	if r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(ctx, empty); r.Status != StatusSkip {
 		t.Errorf("banner without pinned IP = %+v, want SKIP", r)
 	}
 }
@@ -2930,7 +3100,7 @@ func TestBannerProbeSSHPreliminaryLines(t *testing.T) {
 			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
 				return &scriptConn{r: strings.NewReader(tt.server)}, nil
 			}}
-			r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(context.Background(), deps)
+			r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(context.Background(), deps)
 			if r.Status != tt.want || r.Detail != tt.detail {
 				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, tt.want, tt.detail)
 			}
@@ -2953,7 +3123,7 @@ func TestBannerProbeSSHPreliminaryLineStallHonorsDeadline(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, deps)
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(ctx, deps)
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
 		t.Errorf("banner probe took %v, want the read deadline to cap the line search", elapsed)
 	}
@@ -2975,7 +3145,7 @@ func TestBannerProbeSSHTruncatedIdentificationAtDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	r := ops.bannerProbe(ProbeSSH, "SSH banner", 22).Run(ctx, deps)
+	r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(ctx, deps)
 	if r.Status != StatusFail || r.Detail != "unexpected service banner: Authorized use only" {
 		t.Errorf("identification cut off by the deadline = %+v, want FAIL", r)
 	}

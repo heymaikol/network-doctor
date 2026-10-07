@@ -170,6 +170,12 @@ func TestProbeGraphStagesAndWorstCaseBudget(t *testing.T) {
 			{ProbeTargetTCP},
 			{ProbePMTU, ProbeSMTP},
 		}},
+		{name: "smtp implicit tls", target: "smtp://target.test:465", stages: [][]ProbeID{
+			root, offIface,
+			{ProbeTargetTCP},
+			{ProbePMTU, ProbeTLS},
+			{ProbeSMTP},
+		}},
 		{name: "no protocol row", target: "target.test:9999", stages: [][]ProbeID{
 			root, offIface,
 			{ProbeTargetTCP},

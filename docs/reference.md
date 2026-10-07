@@ -43,7 +43,7 @@ Each row lands in one of five states: **✓ Pass**, **! Warn** (reachable but de
 | **TLS** | The TLS handshake (SNI + cert verification) succeeds | certificate time, hostname, issuer, protocol, timeout, early-close, and TCP failures receive stable JSON causes |
 | **HTTP** | Port 80 returns any HTTP response (incl. 3xx/4xx/5xx) | Independent HEAD after DNS, redirects off, proxy off; a close or reset before any response fails with cause `connection_closed` or `connection_reset`, and response bytes that cannot be read as HTTP fail with cause `invalid_response` |
 | **HTTPS** | The selected TLS port returns any HTTP response | HEAD against the TLS-validated IP, redirects off, proxy off; a close or reset before any response fails with cause `connection_closed` or `connection_reset`, and response bytes that cannot be read as HTTP fail with cause `invalid_response` |
-| **SSH/SMTP banner** | TCP connects (banner read best-effort) | bounded read; connected but silent → Warn (not a failure) |
+| **SSH/SMTP banner** | TCP connects (banner read best-effort) | bounded read; connected but silent → Warn (not a failure); an SMTP target on port 465 is implicit TLS (RFC 8314), so it adds the TLS row and reads the greeting over a verified TLS connection |
 
 ### Path MTU without root
 
@@ -262,14 +262,14 @@ stable and is also the component output order.
 |---|---|---|
 | `github` | Forbidden; the endpoints are canonical | `web`: HTTPS at `github.com:443`; `api`: HTTPS at `api.github.com:443`; `ssh`: SSH banner at `github.com:22`; `ssh-alt`: SSH banner at `ssh.github.com:443` |
 | `ssh` | Required | One requested SSH endpoint, using port 22 when omitted, with its DNS, route, TCP, path-MTU, and banner evidence |
-| `smtp` | Required | SMTP banner at the requested port, or relay port 25 when omitted; an independent SMTP banner on submission port 587. When 587 is primary, port 25 is the comparison path |
+| `smtp` | Required | SMTP banner at the requested port, or relay port 25 when omitted, read inside TLS when that port is 465; an independent SMTP banner on submission port 587. When 587 is primary, port 25 is the comparison path |
 | `web` | Required | Certificate-validated HTTPS at the requested port, or 443 when omitted; an independent plain HTTP response on port 80 |
 
 GitHub's web and API components issue the existing bounded, redirect-free
 HTTP `HEAD` checks. The profile does not claim a Git repository operation or
-an authenticated API request. The SMTP profile does not claim STARTTLS or
-implicit-TLS SMTP support because those primitives do not exist in the
-ordinary engine. These limits keep the profile answers tied to evidence the
+an authenticated API request. The SMTP profile does not claim STARTTLS
+support because that primitive does not exist in the ordinary engine; port
+465 reuses the ordinary TLS check before reading the greeting. These limits keep the profile answers tied to evidence the
 current diagnostic layer can actually collect.
 
 Each component's minimum selection contains its service probe plus the

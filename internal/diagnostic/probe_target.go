@@ -469,15 +469,29 @@ func readBannerLine(br *bufio.Reader) (line string, complete bool, err error) {
 	return strings.TrimRight(line, "\r\n"), err == nil, err
 }
 
-func (o *netops) bannerProbe(id ProbeID, label string, port int) Probe {
-	return Probe{ID: id, Name: label, Deps: []ProbeID{ProbeTargetTCP}, Run: func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
+// bannerProbe reads the service's greeting. A non-empty tlsHost means the
+// service speaks only inside TLS, so the greeting is read over a verified TLS
+// connection to that name, after the TLS row has passed.
+func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe {
+	dep, depName := ProbeTargetTCP, "Target TCP"
+	if tlsHost != "" {
+		dep, depName = ProbeTLS, "TLS"
+	}
+	return Probe{ID: id, Name: label, Deps: []ProbeID{dep}, Run: func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
 		var r ProbeResult
-		ip := deps[ProbeTargetTCP].SelectedIP
+		ip := deps[dep].SelectedIP
 		if ip == nil {
-			r.Status, r.Detail = StatusSkip, "no pinned IP from Target TCP"
+			r.Status, r.Detail = StatusSkip, "no pinned IP from "+depName
 			return r
 		}
-		conn, err := o.dialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+		addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+		var conn net.Conn
+		var err error
+		if tlsHost == "" {
+			conn, err = o.dialContext(ctx, "tcp", addr)
+		} else {
+			conn, err = o.dialTLS(ctx, "tcp", addr, &tls.Config{ServerName: tlsHost, RootCAs: o.tlsRootCAs})
+		}
 		if err != nil {
 			r.Status, r.SelectedIP = StatusFail, ip
 			r.Detail = "connect to " + ip.String() + " failed: " + err.Error()

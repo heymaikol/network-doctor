@@ -1955,24 +1955,53 @@ func TestBannerProbeReadTimeout(t *testing.T) {
 	}
 }
 
+// A peer that stays connected but stops talking is ended by the read deadline,
+// capped here by the context. One that said only an SMTP continuation line
+// before going quiet sent an unterminated reply, which must not pass.
 func TestBannerProbeReadTimeoutHonorsContext(t *testing.T) {
-	client, server := net.Pipe()
-	t.Cleanup(func() { _ = server.Close() })
+	tests := []struct {
+		name, prelude string
+		id            ProbeID
+		want          Status
+		detail        string
+	}{
+		{"silent server", "", ProbeSSH, StatusWarn, "connected, no banner within deadline"},
+		{"SMTP continuation line then silence", "220-mail.example ESMTP ready\r\n", ProbeSMTP, StatusFail, "unexpected service banner: 220-mail.example ESMTP ready"},
+	}
+	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, server := net.Pipe()
+			t.Cleanup(func() { _ = server.Close() })
+			// net.Pipe is unbuffered, so the write returns once the probe has
+			// read the prelude, and the server then holds the connection open.
+			go func() { _, _ = io.WriteString(server, tt.prelude) }()
+			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
+				return client, nil
+			}}
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+
+			start := time.Now()
+			r := ops.bannerProbe(tt.id, "service banner", "", 22).Run(ctx, deps)
+			if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+				t.Errorf("banner probe took %v, want context deadline to cap the read", elapsed)
+			}
+			if r.Status != tt.want || r.Detail != tt.detail {
+				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, tt.want, tt.detail)
+			}
+		})
+	}
+}
+
+// runScriptedBanner runs the banner probe id against a peer that sends server
+// and then closes the connection.
+func runScriptedBanner(id ProbeID, server string) ProbeResult {
 	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
-		return client, nil
+		return &scriptConn{r: strings.NewReader(server)}, nil
 	}}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	start := time.Now()
-	r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(ctx, deps)
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Errorf("banner probe took %v, want context deadline to cap the read", elapsed)
-	}
-	if r.Status != StatusWarn {
-		t.Errorf("silent server = %+v, want WARN", r)
-	}
+	return ops.bannerProbe(id, "service banner", "", 22).Run(context.Background(), deps)
 }
 
 func TestBannerProbeValidatesProtocol(t *testing.T) {
@@ -1989,13 +2018,9 @@ func TestBannerProbeValidatesProtocol(t *testing.T) {
 		{"SMTP unterminated multiline greeting", ProbeSMTP, "220-mail.example ESMTP\r\n", StatusFail},
 		{"SMTP impostor", ProbeSMTP, "SSH-2.0-OpenSSH_9.7\r\n", StatusFail},
 	}
-	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
-				return &scriptConn{r: strings.NewReader(tt.banner)}, nil
-			}}
-			r := ops.bannerProbe(tt.id, "service banner", "", 22).Run(context.Background(), deps)
+			r := runScriptedBanner(tt.id, tt.banner)
 			if r.Status != tt.want {
 				t.Errorf("status = %v, detail = %q, want %v", r.Status, r.Detail, tt.want)
 			}
@@ -2295,55 +2320,6 @@ func TestBannerProbeRequiresCompleteLine(t *testing.T) {
 			detail: "unexpected service banner: 220-mail.exam",
 		},
 		{
-			name:   "SMTP continuation line then EOF",
-			id:     ProbeSMTP,
-			server: "220-mail.example ESMTP ready\r\n",
-			want:   StatusFail,
-			detail: "unexpected service banner: 220-mail.example ESMTP ready",
-		},
-		{
-			name:   "SMTP continuation lines then EOF",
-			id:     ProbeSMTP,
-			server: "220-mail.example ESMTP ready\r\n220-feature one\r\n",
-			want:   StatusFail,
-			detail: "unexpected service banner: 220-mail.example ESMTP ready",
-		},
-		{
-			name:   "SMTP continuation then a truncated final line",
-			id:     ProbeSMTP,
-			server: "220-mail.example ESMTP ready\r\n220 fin",
-			want:   StatusFail,
-			detail: "unexpected service banner: 220-mail.example ESMTP ready",
-		},
-		{
-			name:   "SMTP continuation ended by another reply code",
-			id:     ProbeSMTP,
-			server: "220-mail.example ESMTP ready\r\n554 no service\r\n",
-			want:   StatusFail,
-			detail: "unexpected service banner: 220-mail.example ESMTP ready",
-		},
-		{
-			name:   "SMTP non-220 greeting",
-			id:     ProbeSMTP,
-			server: "554 mail.example no service\r\n",
-			want:   StatusFail,
-			detail: "unexpected service banner: 554 mail.example no service",
-		},
-		{
-			name:   "SMTP multiline greeting cut off by the byte limit",
-			id:     ProbeSMTP,
-			server: strings.Repeat("220-feature\r\n", 100) + "220 ready\r\n",
-			want:   StatusFail,
-			detail: "unexpected service banner: 220-feature",
-		},
-		{
-			name:   "complete SMTP multiline greeting",
-			id:     ProbeSMTP,
-			server: "220-mail.example ESMTP ready\r\n220-feature one\r\n220 feature two\r\n",
-			want:   StatusPass,
-			detail: "banner: 220-mail.example ESMTP ready",
-		},
-		{
 			name:   "complete SMTP greeting",
 			id:     ProbeSMTP,
 			server: "220 mail.example ESMTP\r\n",
@@ -2351,15 +2327,40 @@ func TestBannerProbeRequiresCompleteLine(t *testing.T) {
 			detail: "banner: 220 mail.example ESMTP",
 		},
 	}
-	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
-				return &scriptConn{r: strings.NewReader(tt.server)}, nil
-			}}
-			r := ops.bannerProbe(tt.id, "service banner", "", 22).Run(context.Background(), deps)
+			r := runScriptedBanner(tt.id, tt.server)
 			if r.Status != tt.want || r.Detail != tt.detail {
 				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, tt.want, tt.detail)
+			}
+		})
+	}
+}
+
+// An SMTP reply is complete only at a line whose code is followed by a space
+// (RFC 5321 section 4.2.1). Every earlier line of a greeting reads "220-", and
+// the whole reply shares the one 1024-byte read limit.
+func TestBannerProbeRequiresTerminatedSMTPGreeting(t *testing.T) {
+	const first = "220-mail.example ESMTP ready\r\n"
+	const unterminated = "unexpected service banner: 220-mail.example ESMTP ready"
+	tests := []struct{ name, server, detail string }{
+		{"continuation line then EOF", first, unterminated},
+		{"continuation lines then EOF", first + "220-feature one\r\n", unterminated},
+		{"continuation then a truncated final line", first + "220 fin", unterminated},
+		{"continuation ended by another reply code", first + "554 no service\r\n", unterminated},
+		{"non-220 greeting", "554 mail.example no service\r\n", "unexpected service banner: 554 mail.example no service"},
+		{"multiline greeting cut off by the byte limit", strings.Repeat("220-feature\r\n", 100) + "220 ready\r\n", "unexpected service banner: 220-feature"},
+		{"complete multiline greeting", first + "220-feature one\r\n220 feature two\r\n", "banner: 220-mail.example ESMTP ready"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := StatusFail
+			if strings.HasPrefix(tt.detail, "banner: ") {
+				want = StatusPass
+			}
+			r := runScriptedBanner(ProbeSMTP, tt.server)
+			if r.Status != want || r.Detail != tt.detail {
+				t.Errorf("status = %v, detail = %q, want %v %q", r.Status, r.Detail, want, tt.detail)
 			}
 		})
 	}

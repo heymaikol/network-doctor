@@ -731,9 +731,16 @@ func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool
 			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.httpProbe(host, port, "http", ProbeTargetTCP)},
 		)
 	case ProtoSSH:
-		probes = append(probes, o.bannerProbe(ProbeSSH, "SSH banner "+hp, port))
+		probes = append(probes, o.bannerProbe(ProbeSSH, "SSH banner "+hp, "", port))
 	case ProtoSMTP:
-		probes = append(probes, o.bannerProbe(ProbeSMTP, "SMTP banner "+hp, port))
+		// Port 465 is implicit-TLS submission (RFC 8314 section 3.3): the
+		// server waits for a ClientHello and greets only inside TLS.
+		tlsHost := ""
+		if port == 465 {
+			tlsHost = host
+			probes = append(probes, Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.tlsProbe(host, port)})
+		}
+		probes = append(probes, o.bannerProbe(ProbeSMTP, "SMTP banner "+hp, tlsHost, port))
 	}
 	return probes
 }

@@ -462,8 +462,9 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	// path-MTU verdict cites. Immediate failures such as a bad certificate are
 	// deliberately absent: they must continue down to their service-specific
 	// verdict.
+	tlsRow, tlsFailedRow := tlsFailureRow(res)
 	var stalled []ProbeID
-	for _, id := range []ProbeID{ProbeTLS, ProbeHTTP, ProbeHTTPS} {
+	for _, id := range []ProbeID{tlsRow, ProbeHTTP, ProbeHTTPS} {
 		if fail(id) && res[id].timedOut {
 			stalled = append(stalled, id)
 		}
@@ -474,7 +475,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	// service answered on it: the correlation below denies both in the same
 	// sentence, and one immediate rejection beside one stalled sibling is not
 	// evidence that it should.
-	certRejected := fail(ProbeTLS) && certificateRejected(res[ProbeTLS].Cause)
+	certRejected := tlsFailedRow && certificateRejected(res[tlsRow].Cause)
 
 	switch {
 	case intercepted(res):
@@ -608,7 +609,15 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		// evidence for a path problem. Immediate failures such as a bad
 		// certificate must continue down to their service-specific verdict.
 		return blame(DiagnosisProbablePathMTU, ProbePMTU, "TCP reaches "+hp+" but the protocol and bulk-transfer checks both stall, which is evidence of a path MTU black hole rather than a broken service (see the Path MTU row).", VerdictNetwork, append([]ProbeID{ProbeTargetTCP}, stalled...)...)
-	case has(ProbeTLS) && fail(ProbeTLS):
+	case tlsFailedRow:
+		// The SMTP row's handshake is a second connection after a passing TLS
+		// row, so the sentence says which connection failed.
+		tlsSummary := func(summary string) string {
+			if tlsRow != ProbeTLS {
+				summary += " This was the SMTP check's own TLS connection; the TLS row's handshake passed."
+			}
+			return summary
+		}
 		// With a measured offset that points the same way as the certificate
 		// error there is nothing left to hedge about, so name it instead.
 		// An offset pointing the other way settles the hedge just as well, in
@@ -616,26 +625,26 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		// the list of maybes instead of onto it.
 		if d, ok := clockSkew(res); ok {
 			switch {
-			case skewExplainsTLS(res[ProbeTLS].Cause, d):
-				evidence := addEvidence(supportRows(ProbeTLS, ProbeInternet, ProbeTargetTCP),
+			case skewExplainsTLS(res[tlsRow].Cause, d):
+				evidence := addEvidence(supportRows(tlsRow, ProbeInternet, ProbeTargetTCP),
 					supportObservation(ProbeInternet, ObservationClockOffset),
 					rulesOut(DiagnosisTLSTCPUnreachable, ProbeTargetTCP, ObservationStatusPass))
-				return withEvidence(DiagnosisTLSClockSkew, ProbeTLS, "TCP reaches "+hp+" but the TLS handshake fails because "+clockSkewPhrase(d)+", so "+clockSkewEffect(d)+".", VerdictService, evidence)
-			case skewDisprovesTLS(res[ProbeTLS].Cause, d):
-				id := tlsDiagnosisID(res[ProbeTLS].Cause)
-				evidence := addEvidence(supportRows(ProbeTLS, ProbeInternet, ProbeTargetTCP),
+				return withEvidence(DiagnosisTLSClockSkew, tlsRow, tlsSummary("TCP reaches "+hp+" but the TLS handshake fails because "+clockSkewPhrase(d)+", so "+clockSkewEffect(d)+"."), VerdictService, evidence)
+			case skewDisprovesTLS(res[tlsRow].Cause, d):
+				id := tlsDiagnosisID(res[tlsRow].Cause)
+				evidence := addEvidence(supportRows(tlsRow, ProbeInternet, ProbeTargetTCP),
 					rulesOut(DiagnosisTLSClockSkew, ProbeInternet, ObservationClockOffset),
 					rulesOut(DiagnosisTLSTCPUnreachable, ProbeTargetTCP, ObservationStatusPass))
-				return withEvidence(id, ProbeTLS, tlsFailureSummary(res[ProbeTLS].Cause, hp, true), VerdictService, evidence)
+				return withEvidence(id, tlsRow, tlsSummary(tlsFailureSummary(res[tlsRow].Cause, hp, true)), VerdictService, evidence)
 			}
 		}
-		id := tlsDiagnosisID(res[ProbeTLS].Cause)
-		evidence := supportRows(ProbeTLS, ProbeTargetTCP)
+		id := tlsDiagnosisID(res[tlsRow].Cause)
+		evidence := supportRows(tlsRow, ProbeTargetTCP)
 		if id != DiagnosisTLSTCPUnreachable {
 			evidence = addEvidence(evidence,
 				rulesOut(DiagnosisTLSTCPUnreachable, ProbeTargetTCP, ObservationStatusPass))
 		}
-		return withEvidence(id, ProbeTLS, tlsFailureSummary(res[ProbeTLS].Cause, hp, false), VerdictService, evidence)
+		return withEvidence(id, tlsRow, tlsSummary(tlsFailureSummary(res[tlsRow].Cause, hp, false)), VerdictService, evidence)
 	case has(ProbeHTTPS) && fail(ProbeHTTPS):
 		evidence := addEvidence(supportRows(ProbeHTTPS, ProbeTLS),
 			rulesOut(DiagnosisTLSHandshakeFailure, ProbeTLS, ObservationStatusPass))
@@ -887,6 +896,34 @@ func tlsFailureSummary(cause, hp string, clockRuledOut bool) string {
 		return "The endpoint check reached " + hp + ", but the TLS check's own connection to it did not: the port may have stopped listening, or a filter may be rejecting some connections to it."
 	}
 	return reached + "the TLS handshake fails in a way this run could not classify more specifically."
+}
+
+// tlsFailureRow names the row holding the run's failed TLS handshake: the TLS
+// row, or, when that passed, an implicit-TLS SMTP row whose own second
+// handshake failed before any greeting was read. ok is false when neither did.
+func tlsFailureRow(res map[ProbeID]ProbeResult) (row ProbeID, ok bool) {
+	tlsRow, has := res[ProbeTLS]
+	switch {
+	case !has:
+		return ProbeTLS, false
+	case tlsRow.Status == StatusFail:
+		return ProbeTLS, true
+	}
+	if smtp := res[ProbeSMTP]; smtp.Status == StatusFail && tlsCause(smtp.Cause) {
+		return ProbeSMTP, true
+	}
+	return ProbeTLS, false
+}
+
+// tlsCause reports whether cause is one tlsFailureCause assigns.
+func tlsCause(cause string) bool {
+	switch cause {
+	case TLSCauseCertificateExpired, TLSCauseCertificateNotYet, TLSCauseHostnameMismatch,
+		TLSCauseUntrustedIssuer, TLSCauseHandshake, TLSCauseTCPUnreachable,
+		TLSCauseTimeout, TLSCauseConnectionClosed:
+		return true
+	}
+	return false
 }
 
 // certificateRejected reports whether the TLS row failed on the certificate
@@ -1329,10 +1366,11 @@ func reconcileClockSkew(res map[ProbeID]ProbeResult) {
 	if !ok {
 		return
 	}
-	r, has := res[ProbeTLS]
-	if !has || r.Status != StatusFail {
+	row, failed := tlsFailureRow(res)
+	if !failed {
 		return
 	}
+	r := res[row]
 	switch {
 	case skewExplainsTLS(r.Cause, d):
 		r.Fix = clockSkewPhrase(d) + ", so " + clockSkewEffect(d) + ": set the clock (enable network time) and retry"
@@ -1345,7 +1383,7 @@ func reconcileClockSkew(res map[ProbeID]ProbeResult) {
 	default:
 		return
 	}
-	res[ProbeTLS] = r
+	res[row] = r
 }
 
 // clockSkewPhrase states the measurement. Direction is the half that decides

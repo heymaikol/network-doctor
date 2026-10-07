@@ -98,7 +98,8 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 		r.Detail = "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)"
 		return r
 	}
-	if proxyURL.Hostname() == "" || proxyURL.Path != "" || proxyURL.RawQuery != "" || proxyURL.ForceQuery || proxyURL.Fragment != "" {
+	// A bare root path ("http://proxy:3128/") is the same endpoint as none.
+	if proxyURL.Hostname() == "" || (proxyURL.Path != "" && proxyURL.Path != "/") || proxyURL.RawQuery != "" || proxyURL.ForceQuery || proxyURL.Fragment != "" {
 		r.Status = StatusFail
 		r.Cause = ProxyCauseProtocol
 		r.Detail = "bad proxy configuration: proxy URL must have a valid host and no path, query, or fragment"

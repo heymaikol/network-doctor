@@ -982,8 +982,10 @@ func TestProxyProbeUnreachable(t *testing.T) {
 }
 
 func TestProxyProbeMalformedURLFailsWithoutDial(t *testing.T) {
-	// The last value is net/http's fallback parse of http://proxy:65536.
-	for _, proxy := range []string{"://bad", "http://:3128", "http://proxy:0", "http://proxy:65536", "https://proxy:65536", "http://http://proxy:65536"} {
+	// The value after the port cases is net/http's fallback parse of
+	// http://proxy:65536. A bare root path is fine, see
+	// TestProxyProbeAcceptsTrailingSlash; anything past it is not.
+	for _, proxy := range []string{"://bad", "http://:3128", "http://proxy:0", "http://proxy:65536", "https://proxy:65536", "http://http://proxy:65536", "http://proxy:3128/pac", "http://proxy:3128//", "http://proxy:3128/?", "http://proxy:3128/?x=1", "http://proxy:3128/#frag"} {
 		t.Run(proxy, func(t *testing.T) {
 			ops := proxyOps(proxy, func(context.Context, string, string) (net.Conn, error) {
 				t.Fatal("malformed proxy must not be dialed")
@@ -992,6 +994,28 @@ func TestProxyProbeMalformedURLFailsWithoutDial(t *testing.T) {
 			r := ops.proxyProbe(context.Background(), nil)
 			if r.Status != StatusFail || !strings.Contains(r.Detail, "bad proxy configuration") {
 				t.Errorf("malformed proxy = %+v, want FAIL bad proxy configuration", r)
+			}
+		})
+	}
+}
+
+func TestProxyProbeAcceptsTrailingSlash(t *testing.T) {
+	// net/url keeps the root slash as Path "/", which names the same proxy
+	// endpoint as no path at all.
+	for _, proxy := range []string{"http://proxy.corp:3128/", "http://user:pw@proxy.corp:3128/"} {
+		t.Run(proxy, func(t *testing.T) {
+			var dialed string
+			conn := &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}
+			ops := proxyOps(proxy, func(_ context.Context, _, addr string) (net.Conn, error) {
+				dialed = addr
+				return conn, nil
+			})
+			r := ops.proxyProbe(context.Background(), nil)
+			if r.Status != StatusPass {
+				t.Fatalf("proxy with trailing slash = %+v, want PASS", r)
+			}
+			if dialed != "proxy.corp:3128" {
+				t.Errorf("dialed %q, want proxy.corp:3128", dialed)
 			}
 		})
 	}

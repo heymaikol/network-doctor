@@ -3169,8 +3169,11 @@ func TestBannerProbeSSHIdentificationSyntax(t *testing.T) {
 		{"legacy 1.5", "SSH-1.5-Cisco-1.25\r\n", StatusPass},
 		{"dash inside software version, as real devices send", "SSH-2.0-Cisco-1.25\r\n", StatusPass},
 		{"bare LF", "SSH-2.0-test\n", StatusPass},
-		{"longest legal line", "SSH-2.0-" + strings.Repeat("x", 245) + "\r\n", StatusPass},
-		{"line over 255 bytes", "SSH-2.0-" + strings.Repeat("x", 246) + "\r\n", StatusFail},
+		// "SSH-2.0-" is 8 bytes; the x run fills the rest. Limit is 255 bytes on the wire.
+		{"253 bytes + CRLF = 255", "SSH-2.0-" + strings.Repeat("x", 245) + "\r\n", StatusPass},
+		{"254 bytes + CRLF = 256", "SSH-2.0-" + strings.Repeat("x", 246) + "\r\n", StatusFail},
+		{"254 bytes + LF = 255", "SSH-2.0-" + strings.Repeat("x", 246) + "\n", StatusPass},
+		{"255 bytes + LF = 256", "SSH-2.0-" + strings.Repeat("x", 247) + "\n", StatusFail},
 		{"prefix only", "SSH-\r\n", StatusFail},
 		{"garbage", "SSH-garbage\r\n", StatusFail},
 		{"missing software version", "SSH-2.0\r\n", StatusFail},

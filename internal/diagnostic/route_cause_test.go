@@ -112,3 +112,25 @@ func ifaces(routes []defaultRouteState) []string {
 	}
 	return out
 }
+
+// The IPv4 inventory is main-table only, but /proc/net/ipv6_route is not, so
+// a policy-table route says nothing new about a missing IPv6 default. Only the
+// IPv4 no_default_route cause is withdrawn.
+func TestPolicyRoutedCauseScope(t *testing.T) {
+	policy := func(dst string) []RouteDecision {
+		return []RouteDecision{{Destination: net.ParseIP(dst), Table: "table 100", TableKnown: true}}
+	}
+	for _, tc := range []struct {
+		name, cause, dst, want string
+	}{
+		{"IPv4 missing default", RouteCauseNoDefaultRoute, "1.1.1.1", ""},
+		{"IPv6 missing default", RouteCauseNoDefaultRoute, "2606:4700:4700::1111", RouteCauseNoDefaultRoute},
+		{"IPv4 unresolved gateway", RouteCauseGatewayUnreachable, "1.1.1.1", RouteCauseGatewayUnreachable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := policyRoutedCause(tc.cause, policy(tc.dst), net.ParseIP(tc.dst)); got != tc.want {
+				t.Errorf("cause = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

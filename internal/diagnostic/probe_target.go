@@ -195,17 +195,7 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 		}
 		conn, err := o.dialTLS(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)), &tls.Config{ServerName: host})
 		if err != nil {
-			// Name the address: the cert that failed belongs to whatever the
-			// resolver handed us, and that's often the actual culprit.
-			r.Status, r.SelectedIP = StatusFail, ip
-			r.Cause = tlsFailureCause(err, time.Now())
-			// Only a handshake on a connection this probe opened observed a
-			// TLS exchange stalling. A timeout during the probe's own dial
-			// keeps the same Cause but is not half of the path-MTU correlation.
-			var handshake tlsHandshakeError
-			r.timedOut = r.Cause == TLSCauseTimeout && errors.As(err, &handshake)
-			r.Detail = "TLS check to " + ip.String() + " failed: " + err.Error()
-			r.Fix = tlsFix(err)
+			r = tlsFailed(ip, err)
 			if iface := deps[ProbeTargetTCP].Iface; timeoutError(err) {
 				if mtu := o.mtuFor(iface); mtu > 0 {
 					r.Detail += fmt.Sprintf(" (%s MTU is %d)", iface, mtu)
@@ -217,6 +207,20 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 		r.Status, r.SelectedIP, r.Detail = StatusPass, ip, "TLS handshake OK (SNI "+host+")"
 		return r
 	}
+}
+
+// tlsFailed classifies a failed dialTLS to ip. Name the address: the cert
+// that failed belongs to whatever the resolver handed us, and that's often the
+// actual culprit.
+func tlsFailed(ip net.IP, err error) ProbeResult {
+	r := ProbeResult{Status: StatusFail, SelectedIP: ip, Cause: tlsFailureCause(err, time.Now()), Fix: tlsFix(err)}
+	// Only a handshake on a connection this probe opened observed a TLS
+	// exchange stalling. A timeout during the probe's own dial keeps the same
+	// Cause but is not half of the path-MTU correlation.
+	var handshake tlsHandshakeError
+	r.timedOut = r.Cause == TLSCauseTimeout && errors.As(err, &handshake)
+	r.Detail = "TLS check to " + ip.String() + " failed: " + err.Error()
+	return r
 }
 
 // tlsHandshakeError is a dialTLS failure that came after the TCP connection
@@ -491,6 +495,11 @@ func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe 
 			conn, err = o.dialContext(ctx, "tcp", addr)
 		} else {
 			conn, err = o.dialTLS(ctx, "tcp", addr, &tls.Config{ServerName: tlsHost, RootCAs: o.tlsRootCAs})
+			if err != nil {
+				// No greeting was read: this is TLS evidence about this
+				// connection, classified the way the TLS row classifies its own.
+				return tlsFailed(ip, err)
+			}
 		}
 		if err != nil {
 			r.Status, r.SelectedIP = StatusFail, ip

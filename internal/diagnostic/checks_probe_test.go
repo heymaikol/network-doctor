@@ -2005,11 +2005,13 @@ func TestBannerProbeValidatesProtocol(t *testing.T) {
 // serveImplicitTLSSMTP answers the way an RFC 8314 submissions server on port
 // 465 does: it says nothing until the client opens TLS, and sends greeting only
 // over the finished TLS session. sni reports the name the last client asked for.
-func serveImplicitTLSSMTP(t *testing.T, cert tls.Certificate, greeting string) (p *pipeNet, sni func() string) {
+// Each connection presents the next of certs, and the last one from then on.
+func serveImplicitTLSSMTP(t *testing.T, greeting string, certs ...tls.Certificate) (p *pipeNet, sni func() string) {
 	t.Helper()
 	p = newPipeNet(t)
 	var name atomic.Value
 	name.Store("")
+	var accepted atomic.Int32
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		for {
@@ -2017,6 +2019,7 @@ func serveImplicitTLSSMTP(t *testing.T, cert tls.Certificate, greeting string) (
 			if err != nil {
 				return
 			}
+			cert := certs[min(int(accepted.Add(1)), len(certs))-1]
 			wg.Go(func() {
 				defer raw.Close()
 				// net.Pipe has no buffer, so a client that rejects the
@@ -2087,7 +2090,7 @@ func implicitTLSOps(p *pipeNet, roots *x509.CertPool) *netops {
 func TestSMTPOnPort465GreetsOverImplicitTLS(t *testing.T) {
 	const host = "mail.example"
 	cert, roots := selfSignedCert(t, host)
-	p, sni := serveImplicitTLSSMTP(t, cert, "220 mail.example ESMTP\r\n")
+	p, sni := serveImplicitTLSSMTP(t, "220 mail.example ESMTP\r\n", cert)
 	res := runSMTPRows(t, implicitTLSOps(p, roots), "smtp://"+host+":465")
 	if r := res[ProbeSMTP]; r.Status != StatusPass || r.Detail != "banner: 220 mail.example ESMTP" {
 		t.Fatalf("SMTP row = %+v, want PASS on the greeting sent over TLS", r)
@@ -2117,7 +2120,7 @@ func TestSMTPOnPort465ReportsTheLayerThatFailed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cert, roots := selfSignedCert(t, tc.certHost)
-			p, _ := serveImplicitTLSSMTP(t, cert, tc.greeting)
+			p, _ := serveImplicitTLSSMTP(t, tc.greeting, cert)
 			res := runSMTPRows(t, implicitTLSOps(p, roots), "smtp://"+host+":465")
 			if r, ok := res[ProbeTLS]; !ok || r.Status != tc.tls || r.Cause != tc.tlsCause {
 				t.Errorf("TLS row = %+v (present %v), want %v %q", r, ok, tc.tls, tc.tlsCause)
@@ -2144,6 +2147,47 @@ func TestSMTPOnPort465DiagnosesTLSFailureAsTLS(t *testing.T) {
 	d := Interpret(target, order, res)
 	if want := tlsDiagnosisID(TLSCauseHostnameMismatch); len(d.Findings) == 0 || d.Findings[0].ID != want {
 		t.Fatalf("finding = %+v, want %q: %q", d.Findings, want, d.Summary)
+	}
+}
+
+// The SMTP row on port 465 opens a TLS connection of its own after the TLS row
+// passed. When that second handshake fails, no greeting was read, so it is the
+// TLS finding about the SMTP row's connection, not a service banner failure.
+func TestSMTPOnPort465SecondHandshakeFailureStaysTLS(t *testing.T) {
+	const host = "mail.example"
+	good, roots := selfSignedCert(t, host)
+	// Trusted, so the second handshake fails on the name alone.
+	other, _ := selfSignedCert(t, "other.example")
+	roots.AddCert(other.Leaf)
+	p, _ := serveImplicitTLSSMTP(t, "220 mail.example ESMTP\r\n", good, other)
+	target := mustTarget(t, "smtp://"+host+":465")
+	ran := runSMTPRows(t, implicitTLSOps(p, roots), target.Raw)
+	if r := ran[ProbeTLS]; r.Status != StatusPass {
+		t.Fatalf("TLS row = %+v, want PASS on the first handshake", r)
+	}
+	smtp := ran[ProbeSMTP]
+	if smtp.Status != StatusFail || smtp.Cause != TLSCauseHostnameMismatch || strings.Contains(smtp.Detail, "banner") || smtp.Fix == "" {
+		t.Errorf("SMTP row = %+v, want FAIL with cause %q, a TLS fix, and no banner", smtp, TLSCauseHostnameMismatch)
+	}
+
+	order := planOrder(t, target)
+	ip := net.ParseIP("192.0.2.25")
+	res := settle(t, target, order, map[ProbeID]ProbeResult{
+		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{ip}},
+		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{ip}},
+		ProbeTargetTCP: {Status: StatusPass, SelectedIP: ip},
+		ProbeTLS:       ran[ProbeTLS],
+		ProbeSMTP:      smtp,
+	})
+	d := Interpret(target, order, res)
+	if len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisTLSHostnameMismatch || d.Focus() != ProbeSMTP || d.Blamed != ProbeSMTP {
+		t.Fatalf("diagnosis = %+v, want %q about the SMTP row", d, DiagnosisTLSHostnameMismatch)
+	}
+	if ev := d.Findings[0].Evidence; len(ev) == 0 || ev[0].Check != ProbeSMTP || ev[0].Kind != EvidenceSupport {
+		t.Errorf("evidence = %+v, want the SMTP row first", ev)
+	}
+	if !strings.Contains(d.Summary, "TLS row's handshake passed") {
+		t.Errorf("summary = %q, want it to say the TLS row passed and this was the SMTP check's own connection", d.Summary)
 	}
 }
 

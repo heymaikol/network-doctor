@@ -467,10 +467,49 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 // readBannerLine reads one banner line and reports whether it is complete. A
 // line without its "\n" delimiter was cut short by EOF, a reset, the read
 // deadline or the byte limit, so it is a fragment of what the peer meant to
-// send and never a valid protocol greeting, however it starts.
-func readBannerLine(br *bufio.Reader) (line string, complete bool, err error) {
+// send and never a valid protocol greeting, however it starts. wire is the
+// number of bytes read for the line, terminator included.
+func readBannerLine(br *bufio.Reader) (line string, wire int, complete bool, err error) {
 	line, err = br.ReadString('\n')
-	return strings.TrimRight(line, "\r\n"), err == nil, err
+	wire = len(line)
+	// Strip exactly one LF and at most one CR before it. A further CR stays in
+	// the line, so identification validation can see malformed termination.
+	line = strings.TrimSuffix(line, "\n")
+	return strings.TrimSuffix(line, "\r"), wire, err == nil, err
+}
+
+// validSSHIdentification reports whether line, stripped of one CR LF, looks like
+// "SSH-protoversion-softwareversion [SP comments]" per RFC 4253 section 4.2.
+// It is not strict RFC validation: Network Doctor identifies working SSH
+// services, so it tolerates one deliberate deviation. RFC 4253 excludes the
+// minus sign from softwareversion, but real devices send it
+// ("SSH-2.0-Cisco-1.25"), so a dash inside softwareversion is accepted.
+// protoversion is DIGITS "." DIGITS. softwareversion is non-empty printable
+// ASCII and ends at the first space. Comments are free text, though control
+// bytes (including a stray CR) are rejected anywhere. wire is the on-wire
+// length including the terminator, which the RFC caps at 255 bytes. That counts
+// 2 for CR LF and 1 for the bare LF older peers send.
+func validSSHIdentification(line string, wire int) bool {
+	rest, ok := strings.CutPrefix(line, "SSH-")
+	if !ok || wire > 255 {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] < 0x20 || rest[i] == 0x7f {
+			return false
+		}
+	}
+	proto, rest, ok := strings.Cut(rest, "-")
+	major, minor, ok2 := strings.Cut(proto, ".")
+	if !ok || !ok2 || !allDigits(major) || !allDigits(minor) {
+		return false
+	}
+	software, _, _ := strings.Cut(rest, " ")
+	return software != "" && !strings.ContainsFunc(software, func(r rune) bool { return r > 0x7e })
+}
+
+func allDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
 }
 
 // bannerProbe reads the service's greeting. A non-empty tlsHost means the
@@ -522,14 +561,14 @@ func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe 
 		// Strict byte limit: a hostile server streaming without a newline can't
 		// exhaust memory.
 		br := bufio.NewReader(io.LimitReader(conn, 1024))
-		line, complete, readErr := readBannerLine(br)
+		line, wire, complete, readErr := readBannerLine(br)
 		first := line
 		// RFC 4253 section 4.2 lets an SSH server send other lines of data
 		// before its identification string, and forbids those lines from
 		// starting with "SSH-". Keep reading complete lines under the same byte
 		// limit and read deadline until the identification string shows up.
 		for id == ProbeSSH && complete && !strings.HasPrefix(line, "SSH-") {
-			line, complete, readErr = readBannerLine(br)
+			line, wire, complete, readErr = readBannerLine(br)
 			if first == "" {
 				first = line
 			}
@@ -541,7 +580,7 @@ func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe 
 		} else if first == "" {
 			// Port answered but the service said nothing: functional, degraded.
 			r.Status, r.Detail = StatusWarn, "connected, no banner within deadline"
-		} else if valid := complete && (id == ProbeSSH && strings.HasPrefix(line, "SSH-") ||
+		} else if valid := complete && (id == ProbeSSH && validSSHIdentification(line, wire) ||
 			id == ProbeSMTP && (strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-"))); !valid {
 			r.Status, r.Detail = StatusFail, "unexpected service banner: "+first
 		} else {

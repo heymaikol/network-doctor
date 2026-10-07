@@ -2,7 +2,10 @@
 
 package diagnostic
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestRouteFailureCauseFromKernelTables(t *testing.T) {
 	header := "Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\n"
@@ -78,5 +81,42 @@ func TestIPv6RouteFailureCauseRejectsMissingAndMalformedDefaults(t *testing.T) {
 		zero + " 00 " + zero + " 00 nothex 00000032 00000000 00000000 00000003 eth0\n"
 	if got := parseIPv6DefaultRoutes([]byte(raw)); len(got) != 0 {
 		t.Fatalf("malformed IPv6 defaults = %+v", got)
+	}
+}
+
+func TestParseIPv6DefaultRoutesMetricRange(t *testing.T) {
+	zero := "00000000000000000000000000000000"
+	tests := []struct {
+		metric string
+		want   uint64
+		ok     bool
+	}{
+		{"00000000", 0, true},
+		{"7fffffff", 0x7fffffff, true},
+		{"80000000", 0x80000000, true},
+		{"ffffffff", 0xffffffff, true},
+		{"nothex", 0, false},
+		{"-0000001", 0, false},
+		{"100000000", 0, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.metric, func(t *testing.T) {
+			raw := zero + " 00 " + zero + " 00 " + zero + " " + tc.metric + " 00000000 00000000 00000001 eth0\n"
+			parsed := parseIPv6DefaultRoutes([]byte(raw))
+			if !tc.ok {
+				if len(parsed) != 0 {
+					t.Fatalf("parsed = %+v, want rejected", parsed)
+				}
+				return
+			}
+			// A 32-bit int cannot hold the top half of the uint32 range, so
+			// there the metric saturates rather than wrapping negative.
+			if len(parsed) != 1 || parsed[0].metric < 0 || uint64(parsed[0].metric) != min(tc.want, math.MaxInt) {
+				t.Fatalf("parsed = %+v, want one route with metric %#x", parsed, tc.want)
+			}
+			if got := routeFailureCauseIPv6From([]byte(raw)); got != RouteCauseSelectedPathFailed {
+				t.Fatalf("cause = %q, want %q", got, RouteCauseSelectedPathFailed)
+			}
+		})
 	}
 }

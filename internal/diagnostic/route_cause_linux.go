@@ -4,6 +4,7 @@ package diagnostic
 
 import (
 	"encoding/hex"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -60,8 +61,8 @@ func parseIPv6DefaultRoutes(raw []byte) []defaultRouteState {
 		if err != nil || flags&routeFlagUp == 0 {
 			continue
 		}
-		metric, err := strconv.ParseInt(fields[5], 16, 32)
-		if err != nil || metric < 0 {
+		metric, err := strconv.ParseUint(fields[5], 16, 32)
+		if err != nil {
 			continue
 		}
 		gatewayRaw, err := hex.DecodeString(fields[4])
@@ -72,7 +73,9 @@ func parseIPv6DefaultRoutes(raw []byte) []defaultRouteState {
 		if !net.IP(gatewayRaw).IsUnspecified() {
 			gateway = net.IP(gatewayRaw)
 		}
-		out = append(out, defaultRouteState{iface: fields[9], gateway: gateway, metric: int(metric)})
+		// The kernel metric is a uint32. A 32-bit int cannot hold its top half,
+		// so there it saturates rather than wrapping negative and sorting first.
+		out = append(out, defaultRouteState{iface: fields[9], gateway: gateway, metric: int(min(metric, math.MaxInt))})
 	}
 	return out
 }

@@ -573,6 +573,14 @@ func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe 
 				first = line
 			}
 		}
+		// An SMTP reply is multiline while its lines read "220-" (RFC 5321
+		// section 4.2.1), and it ends only at a "220 " line with the same code.
+		// The greeting text worth showing is on its first line.
+		shown := line
+		for id == ProbeSMTP && complete && strings.HasPrefix(line, "220-") {
+			line, wire, complete, readErr = readBannerLine(br)
+			shown = first
+		}
 		r.SelectedIP = ip
 		if first == "" && errors.Is(readErr, syscall.ECONNRESET) {
 			r.Status, r.Cause = StatusFail, ConnectionCauseReset
@@ -581,10 +589,10 @@ func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe 
 			// Port answered but the service said nothing: functional, degraded.
 			r.Status, r.Detail = StatusWarn, "connected, no banner within deadline"
 		} else if valid := complete && (id == ProbeSSH && validSSHIdentification(line, wire) ||
-			id == ProbeSMTP && (strings.HasPrefix(line, "220 ") || strings.HasPrefix(line, "220-"))); !valid {
+			id == ProbeSMTP && strings.HasPrefix(line, "220 ")); !valid {
 			r.Status, r.Detail = StatusFail, "unexpected service banner: "+first
 		} else {
-			r.Status, r.Detail = StatusPass, "banner: "+line
+			r.Status, r.Detail = StatusPass, "banner: "+shown
 		}
 		return r
 	}}

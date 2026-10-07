@@ -470,7 +470,7 @@ func TestParseTargetIPv6Zone(t *testing.T) {
 		"fe80::1%eth0:22",                       // a port needs the brackets
 		"[fe80::1%eth 0]:22", "[fe80::1%eth/0]", // not an interface name
 		"[fe80::1%" + strings.Repeat("a", 33) + "]",
-		"[fe80::1%eth0‮]:22", "fe80::1%eth0\x1b[2J",
+		"[fe80::1%eth0\u202e]:22", "fe80::1%eth0\x1b[2J",
 	} {
 		if got, err := ParseTarget(in); err == nil {
 			t.Errorf("ParseTarget(%q) = %+v, want error", in, got)

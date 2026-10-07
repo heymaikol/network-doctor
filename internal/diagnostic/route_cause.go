@@ -3,6 +3,7 @@ package diagnostic
 import (
 	"context"
 	"net"
+	"slices"
 	"sort"
 )
 
@@ -54,8 +55,8 @@ type defaultRouteState struct {
 }
 
 // classifyDefaultRoutes turns a host's default routes into one route cause.
-// gatewayFailed reports whether the selected route's next hop is unresolved at
-// the link layer; a platform that cannot prove that passes nil, which keeps the
+// gatewayFailed reports whether a route's next hop is unresolved at the link
+// layer; a platform that cannot prove that passes nil, which keeps the
 // classification at a selection-only legacy cause rather than inventing a
 // neighbor failure. selected_path_failed and preferred_route_failed retain their
 // wire IDs but neither proves where connectivity failed.
@@ -64,8 +65,14 @@ func classifyDefaultRoutes(routes []defaultRouteState, gatewayFailed func(defaul
 		return RouteCauseNoDefaultRoute
 	}
 	sort.SliceStable(routes, func(i, j int) bool { return routes[i].metric < routes[j].metric })
-	selected := routes[0]
-	if gatewayFailed != nil && gatewayFailed(selected) {
+	// Nothing here says which of several equal-metric defaults carried the
+	// failed connections, and enumeration order is not evidence. A gateway is
+	// only blamed when every route tied for the best metric has a failed one.
+	tied := 1
+	for tied < len(routes) && routes[tied].metric == routes[0].metric {
+		tied++
+	}
+	if gatewayFailed != nil && !slices.ContainsFunc(routes[:tied], func(r defaultRouteState) bool { return !gatewayFailed(r) }) {
 		return RouteCauseGatewayUnreachable
 	}
 	if len(routes) > 1 && routes[0].metric < routes[1].metric {

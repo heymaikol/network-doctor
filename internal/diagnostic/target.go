@@ -39,9 +39,15 @@ func (p Proto) String() string {
 // endpoint Port (explicit > scheme default > 443) and the Proto of the
 // protocol rows (explicit scheme wins; else inferred from the effective port).
 type Target struct {
-	Raw          string // validated endpoint spelling, echoed back in the restart prompt
-	Host         string
-	IP           net.IP // non-nil iff the target is an IP literal
+	Raw  string // validated endpoint spelling, echoed back in the restart prompt
+	Host string
+	IP   net.IP // non-nil iff the target is an IP literal
+	// Zone is the interface an IPv6 link-local IP is reached through, as in
+	// fe80::1%eth0; ParseTarget sets it exactly when IP is link-local. It is
+	// kept out of Host and IP because a zone is no part of the address, and
+	// DNS, SNI, the HTTP Host header and the snapshot identity must never see
+	// it. Raw carries it, which is what a restart or a --via worker reparses.
+	Zone         string
 	Port         int
 	Proto        Proto
 	PortExplicit bool
@@ -55,6 +61,7 @@ const TargetForms = `  example.com            hostname (default port 443)
   ssh://example.com:8022 URL (scheme sets protocol and default port; path ignored)
   192.0.2.1, 2001:db8::1 IP literal
   [2001:db8::1]:443      IP literal with port (IPv6 needs the brackets)
+  [fe80::1%eth0]:22      IPv6 link-local literal with its interface (zone)
   (nothing)              no target, runs the generic checks`
 
 // hostnameRe is a strict RFC-1123-ish hostname allowlist (labels of
@@ -125,13 +132,21 @@ func parseTarget(raw string) (*Target, error) {
 	// "2001:db8::beef" and "::ffff:192.0.2.1" as bad ports and accept
 	// "2001:db8::1" only because its final group happens to be decimal.
 	// Bracketed for the parser alone; Raw keeps the spelling that was typed.
+	//
+	// A zone reaches url.Parse percent-encoded, as RFC 6874 has a URL spell
+	// it, since a bare "%" starts an escape there. Outside a URL the zone is
+	// what follows the "%", verbatim. Inside one an already encoded "%25" is
+	// taken as the encoding, so ssh://[fe80::1%25eth0] and the
+	// ssh://[fe80::1%eth0] people actually type are the same target.
 	bareIPv6 := false
-	if !strings.Contains(s, "://") {
+	isURL := strings.Contains(s, "://")
+	if !isURL {
 		parseable = "//" + s
-		if strings.Contains(s, ":") && net.ParseIP(s) != nil {
+		if addr, _, _ := strings.Cut(s, "%"); strings.Contains(addr, ":") && net.ParseIP(addr) != nil {
 			parseable, bareIPv6 = "//["+s+"]", true
 		}
 	}
+	parseable = escapeZone(parseable, isURL)
 	u, err := url.Parse(parseable)
 	if err != nil {
 		return nil, fmt.Errorf("invalid target %q: %w", s, err)
@@ -158,7 +173,7 @@ func parseTarget(raw string) (*Target, error) {
 	// SplitHostPort happily peels the brackets off "[1.2.3.4]:80" and
 	// "[hostname]:80". Check it here so the rule doesn't depend on toolchain.
 	if strings.HasPrefix(host, "[") {
-		if h := u.Hostname(); !strings.Contains(h, ":") || net.ParseIP(h) == nil {
+		if h, _, _ := strings.Cut(u.Hostname(), "%"); !strings.Contains(h, ":") || net.ParseIP(h) == nil {
 			return nil, fmt.Errorf("invalid target %q: brackets are only for IPv6 literals", s)
 		}
 	}
@@ -178,6 +193,9 @@ func parseTarget(raw string) (*Target, error) {
 			t.PortExplicit = true
 		}
 	}
+	// The zone comes off before anything reads the host as a name or an
+	// address, so it cannot be canonicalized as DNS text or reach SNI.
+	host, zone, scoped := strings.Cut(host, "%")
 	if host == "" {
 		return nil, errors.New("missing host")
 	}
@@ -214,11 +232,24 @@ func parseTarget(raw string) (*Target, error) {
 		if ip.IsUnspecified() {
 			return nil, fmt.Errorf("invalid target %q: %s is the unspecified address, not a destination", s, host)
 		}
-		t.IP = ip
+		// A link-local address is configured on every IPv6 link at once, so
+		// only its zone says which link the target is on.
+		linkLocal := ip.To4() == nil && ip.IsLinkLocalUnicast()
+		switch {
+		case scoped && !linkLocal:
+			return nil, fmt.Errorf("invalid target %q: a zone only scopes an IPv6 link-local address", s)
+		case linkLocal && !scoped:
+			return nil, fmt.Errorf("invalid target %q: %s is IPv6 link-local and needs a zone naming its interface, as in %s%%eth0", s, host, host)
+		case scoped && !ValidZone(zone):
+			return nil, fmt.Errorf("invalid target %q: zone %q is not an interface name or index", s, zone)
+		}
+		t.IP, t.Zone = ip, zone
 		if v4 := ip.To4(); v4 != nil {
 			t.IP = v4
 		}
 		t.Host = host
+	} else if scoped {
+		return nil, fmt.Errorf("invalid target %q: a zone only scopes an IPv6 link-local address", s)
 	} else {
 		name := strings.TrimSuffix(host, ".")
 		if len(name) > 253 || !hostnameRe.MatchString(name) {
@@ -267,9 +298,57 @@ func parseTarget(raw string) (*Target, error) {
 	}
 	t.Raw = rawHost
 	if scheme != "" {
-		t.Raw = scheme + "://" + rawHost
+		t.Raw = scheme + "://" + escapeZone(rawHost, false)
 	}
 	return t, nil
+}
+
+// escapeZone percent-encodes the zone of the bracketed IPv6 host that opens
+// s's authority. keepEncoded leaves a zone already spelled "%25" alone.
+func escapeZone(s string, keepEncoded bool) string {
+	host := s
+	if i := strings.Index(s, "//"); i >= 0 {
+		host = s[i+2:]
+	}
+	pct := strings.IndexByte(host[:max(strings.IndexByte(host, ']'), 0)], '%')
+	if !strings.HasPrefix(host, "[") || pct < 0 || keepEncoded && strings.HasPrefix(host[pct:], "%25") {
+		return s
+	}
+	at := len(s) - len(host) + pct
+	return s[:at] + "%25" + s[at+1:]
+}
+
+// ValidZone bounds an IPv6 zone to what real zones look like: a Unix
+// interface name or a Windows numeric scope identifier. Zones are displayed,
+// stored, and handed to the OS, so they may not carry arbitrary text.
+func ValidZone(zone string) bool {
+	if zone == "" || len(zone) > 32 {
+		return false
+	}
+	for _, r := range zone {
+		alphanumeric := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9'
+		if !alphanumeric && r != '.' && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// ScopedHost is Host with the zone, fe80::1%eth0, the spelling anything that
+// connects to the target, or parses it again, needs. Names and identity stay
+// Host.
+func (t *Target) ScopedHost() string {
+	if t.Zone == "" {
+		return t.Host
+	}
+	return t.Host + "%" + t.Zone
+}
+
+// Endpoint is the same destination reached by another scheme and port. It is
+// derived through ParseTarget like any target, and it keeps the zone, which a
+// rebuild from Host alone would drop.
+func (t *Target) Endpoint(scheme string, port int) (*Target, error) {
+	return ParseTarget(scheme + "://" + escapeZone(net.JoinHostPort(t.ScopedHost(), strconv.Itoa(port)), false))
 }
 
 func parsePort(s string) (int, error) {

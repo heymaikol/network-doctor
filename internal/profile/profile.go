@@ -309,7 +309,7 @@ func serviceTarget(raw, scheme string, defaultPort int) (*diagnostic.Target, err
 	if parsed.PortExplicit || strings.Contains(raw, "://") {
 		port = parsed.Port
 	}
-	return endpoint(scheme, parsed.Host, port)
+	return parsed.Endpoint(scheme, port)
 }
 
 func githubProfile() Definition {
@@ -368,7 +368,7 @@ func smtpProfile() Definition {
 			if primary.Port == 587 {
 				alternatePort, alternateID, alternateLabel = 25, "relay", "SMTP relay on port 25"
 			}
-			alternate, err := endpoint("smtp", primary.Host, alternatePort)
+			alternate, err := primary.Endpoint("smtp", alternatePort)
 			if err != nil {
 				return nil, err
 			}
@@ -389,7 +389,7 @@ func webProfile() Definition {
 			if err != nil {
 				return nil, err
 			}
-			plain, err := endpoint("http", secure.Host, 80)
+			plain, err := secure.Endpoint("http", 80)
 			if err != nil {
 				return nil, err
 			}

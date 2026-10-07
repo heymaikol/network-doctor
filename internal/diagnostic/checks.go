@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
@@ -525,6 +526,11 @@ type netops struct {
 	// than a guessed path. A platform whose route API takes no source ignores
 	// the argument rather than pretending the constraint was applied.
 	routeFor func(dst, source net.IP) (RouteDecision, bool)
+	// routeForZone is routeFor for a link-local destination bound to the
+	// interface zone names. Nil where the platform cannot apply that
+	// constraint, and the scoped target then gets no route rather than one
+	// for another link.
+	routeForZone func(dst, source net.IP, zone string) (RouteDecision, bool)
 	// defaultRoutes lists this family's usable default routes, which is what
 	// lets a decision name the competitor it beat. Nil on a platform that
 	// exposes no comparable preference.
@@ -532,6 +538,29 @@ type netops struct {
 	// routes memoizes routeFor for one pass. BuildProbesFromSources installs a
 	// fresh one per pass, so Watch Mode never serves a stale path.
 	routes *routeCache
+	// scope is the target's link-local address with its zone, and invalid
+	// for any other target. BuildProbesFromSources sets it on the pass's copy.
+	scope netip.Addr
+}
+
+// scoped is the zone a connection to ip must carry: the target's, when ip is
+// the target's link-local address, and "" for every other address.
+func (o *netops) scoped(ip net.IP) string {
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok || !o.scope.IsValid() || addr.Unmap() != o.scope.WithZone("") {
+		return ""
+	}
+	return o.scope.Zone()
+}
+
+// hostPort is the dial address for one destination address, with the zone
+// that only the target's link-local address carries.
+func (o *netops) hostPort(ip net.IP, port int) string {
+	host := ip.String()
+	if zone := o.scoped(ip); zone != "" {
+		host += "%" + zone
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // SourceAddresses are the usable IPv4 and IPv6 addresses selected by
@@ -567,6 +596,7 @@ var defaultOps = &netops{
 	},
 	routeCause:    routeFailureCause,
 	routeFor:      lookupRouteDecision,
+	routeForZone:  lookupScopedRouteDecision,
 	defaultRoutes: defaultRoutesFor,
 }
 
@@ -600,7 +630,13 @@ func BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS strin
 	// several probes, and a pass must not pay for the same kernel lookup more
 	// than once; a later pass must not be answered from an earlier one, since
 	// the whole point of Watch Mode is to see the route change.
+	if t != nil && t.Zone != "" {
+		if addr, ok := netip.AddrFromSlice(t.IP); ok {
+			o.scope = addr.Unmap().WithZone(t.Zone)
+		}
+	}
 	o.routes = newRouteCache(o.routeFor, o.sources)
+	o.routes.scoped, o.routes.lookupZone = o.scoped, o.routeForZone
 	probes := o.buildProbes(t, publicDNS, publicDNSAuto, explicit...)
 	for i := range probes {
 		probes[i].Run = wrapRun(probes[i].Run)

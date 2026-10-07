@@ -431,6 +431,10 @@ func TestSSHHostValueRoundTrip(t *testing.T) {
 		{"[2001:db8::1]:2222", []string{"-p", "2222", "2001:db8::1"}},
 		{"[2001:db8::1]:22", []string{"2001:db8::1"}},
 		{"2001:db8::1", []string{"2001:db8::1"}},
+		// The zone is connection scope: ssh needs it, and the form's
+		// host field must reparse with it.
+		{"[fe80::1%eth0]:2222", []string{"-p", "2222", "fe80::1%eth0"}},
+		{"ssh://[fe80::1%eth0]", []string{"fe80::1%eth0"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.target, func(t *testing.T) {

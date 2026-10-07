@@ -130,9 +130,9 @@ func sshHostValue(t *diagnostic.Target) string {
 		return ""
 	}
 	if t.PortExplicit && t.Port != 22 {
-		return net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
+		return net.JoinHostPort(t.ScopedHost(), strconv.Itoa(t.Port))
 	}
-	return t.Host
+	return t.ScopedHost()
 }
 
 // listSSHKeys returns the private keys in ~/.ssh, recognized by their public
@@ -292,7 +292,7 @@ func sshCommand(host, login, key string) (args []string, err error) {
 		// starting with "-" stays a name instead of becoming an ssh option.
 		args = append(args, "-l", login)
 	}
-	return append(args, t.Host), nil
+	return append(args, t.ScopedHost()), nil
 }
 
 // resolveSSH performs every external configuration read in a tea.Cmd. Its

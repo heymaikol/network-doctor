@@ -81,11 +81,49 @@ func lookupRouteDecision(dst, source net.IP) (RouteDecision, bool) {
 	}
 	addr = addr.Unmap()
 	src := routeQuerySource(addr, source)
-	decision, ok := routeLookup(addr, src)
+	decision, ok := routeLookup(addr, src, 0)
 	if !ok && src.IsValid() {
-		return routeLookup(addr, netip.Addr{})
+		return routeLookup(addr, netip.Addr{}, 0)
 	}
 	return decision, ok
+}
+
+// lookupScopedRouteDecision is lookupRouteDecision for a link-local
+// destination reached through the interface its zone names. The lookup
+// carries that interface as RTA_OIF, which is what a socket connected to
+// fe80::1%eth0 is bound to, and the kernel matches a link-local destination
+// strictly against it. An answer naming any other interface is discarded
+// rather than reported: no route evidence beats evidence for another link.
+func lookupScopedRouteDecision(dst, source net.IP, zone string) (RouteDecision, bool) {
+	addr, ok := netip.AddrFromSlice(dst)
+	ifi, err := zoneInterface(zone)
+	if !ok || err != nil {
+		return RouteDecision{}, false
+	}
+	addr = addr.Unmap()
+	src := routeQuerySource(addr, source)
+	decision, ok := routeLookup(addr, src, ifi.Index)
+	if !ok && src.IsValid() {
+		decision, ok = routeLookup(addr, netip.Addr{}, ifi.Index)
+	}
+	if !ok || !decision.Unreachable && decision.Iface != ifi.Name {
+		return RouteDecision{}, false
+	}
+	return decision, true
+}
+
+// zoneInterface reads a zone the way Go's dialer does: an interface name
+// first, then a numeric index.
+func zoneInterface(zone string) (*net.Interface, error) {
+	ifi, err := net.InterfaceByName(zone)
+	if err == nil {
+		return ifi, nil
+	}
+	index, convErr := strconv.Atoi(zone)
+	if convErr != nil {
+		return nil, err
+	}
+	return net.InterfaceByIndex(index)
 }
 
 // routeQuerySource is the source address a lookup for dst may carry: the
@@ -103,14 +141,15 @@ func routeQuerySource(dst netip.Addr, source net.IP) netip.Addr {
 	return src
 }
 
-// routeLookupRequest builds the rtmsg body of one lookup: a destination, and
-// the source the flow would carry when there is one.
+// routeLookupRequest builds the rtmsg body of one lookup: a destination, the
+// source the flow would carry when there is one, and the output interface a
+// scoped destination is bound to when oif is not 0.
 //
 // dst_len is the length of the address supplied, which is how a lookup asks
 // about one host rather than about a prefix. src_len says the same about the
 // source, and both have to be set or the kernel reads the attribute as a
 // prefix of length zero and the constraint is silently lost.
-func routeLookupRequest(dst, src netip.Addr) []byte {
+func routeLookupRequest(dst, src netip.Addr, oif int) []byte {
 	family, raw := uint8(unix.AF_INET), dst.AsSlice()
 	if !dst.Is4() {
 		family = unix.AF_INET6
@@ -125,13 +164,16 @@ func routeLookupRequest(dst, src netip.Addr) []byte {
 		body[2] = uint8(len(srcRaw) * 8) // #nosec G115 -- an IP address is 4 or 16 bytes
 		body = append(body, rtAttr(unix.RTA_SRC, srcRaw)...)
 	}
+	if oif > 0 {
+		body = append(body, rtAttr(unix.RTA_OIF, binary.NativeEndian.AppendUint32(nil, uint32(oif)))...) // #nosec G115 -- a positive interface index
+	}
 	return body
 }
 
 // routeLookup performs one RTM_GETROUTE exchange, optionally constrained to a
-// source address.
-func routeLookup(dst, src netip.Addr) (RouteDecision, bool) {
-	replies, err := netlinkExchange(unix.RTM_GETROUTE, routeLookupRequest(dst, src))
+// source address and an output interface.
+func routeLookup(dst, src netip.Addr, oif int) (RouteDecision, bool) {
+	replies, err := netlinkExchange(unix.RTM_GETROUTE, routeLookupRequest(dst, src, oif))
 	if err != nil {
 		if unreachableNetlinkError(err) {
 			return RouteDecision{Unreachable: true}, true

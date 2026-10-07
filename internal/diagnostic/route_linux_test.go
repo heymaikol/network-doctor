@@ -305,7 +305,7 @@ func TestLookupRouteDecisionAnswersForLoopback(t *testing.T) {
 // kernel reads it as a zero-length prefix and ignores the constraint.
 func TestRouteLookupRequestCarriesTheBoundSource(t *testing.T) {
 	dst := netip.MustParseAddr("198.51.100.7")
-	plain := routeLookupRequest(dst, netip.Addr{})
+	plain := routeLookupRequest(dst, netip.Addr{}, 0)
 	if plain[2] != 0 {
 		t.Errorf("src_len = %d on an unconstrained lookup, want 0", plain[2])
 	}
@@ -316,7 +316,7 @@ func TestRouteLookupRequestCarriesTheBoundSource(t *testing.T) {
 	}
 
 	src := netip.MustParseAddr("192.168.1.20")
-	bound := routeLookupRequest(dst, src)
+	bound := routeLookupRequest(dst, src, 0)
 	if bound[2] != 32 {
 		t.Errorf("src_len = %d, want 32 so the kernel reads the source as one address", bound[2])
 	}
@@ -331,8 +331,41 @@ func TestRouteLookupRequestCarriesTheBoundSource(t *testing.T) {
 	}
 
 	v6 := netip.MustParseAddr("2001:db8::7")
-	if got := routeLookupRequest(v6, netip.MustParseAddr("2001:db8::20")); got[2] != 128 {
+	if got := routeLookupRequest(v6, netip.MustParseAddr("2001:db8::20"), 0); got[2] != 128 {
 		t.Errorf("IPv6 src_len = %d, want 128", got[2])
+	}
+}
+
+// A scoped link-local lookup is bound to its zone's interface, the way the
+// connected socket is: RTA_OIF carries the index, and nothing else changes.
+func TestRouteLookupRequestCarriesTheZoneInterface(t *testing.T) {
+	dst := netip.MustParseAddr("fe80::1")
+	for _, oif := range []uint32{0, 7} {
+		var got []uint32
+		for _, attr := range netlinkAttrs(routeLookupRequest(dst, netip.Addr{}, int(oif))[rtMsgLen:]) {
+			if attr.Type == unix.RTA_OIF && len(attr.Value) == 4 {
+				got = append(got, binary.NativeEndian.Uint32(attr.Value))
+			}
+		}
+		if oif == 0 && len(got) != 0 || oif != 0 && (len(got) != 1 || got[0] != oif) {
+			t.Errorf("oif %d: RTA_OIF = %v", oif, got)
+		}
+	}
+}
+
+// Against the real kernel, a scoped lookup answers for the zone's interface or
+// not at all. Loopback is the one interface every host has; whatever this
+// kernel says about fe80::1 through it, it may not name another link. Its
+// index is 1 in every network namespace, which covers the numeric zone.
+func TestScopedRouteLookupNamesOnlyItsZone(t *testing.T) {
+	for _, zone := range []string{"lo", "1"} {
+		got, ok := lookupScopedRouteDecision(net.ParseIP("fe80::1"), nil, zone)
+		if ok && !got.Unreachable && got.Iface != "lo" {
+			t.Errorf("zone %q: route via %q, want lo or no answer", zone, got.Iface)
+		}
+	}
+	if got, ok := lookupScopedRouteDecision(net.ParseIP("fe80::1"), nil, "netdoc-no-such-if"); ok {
+		t.Errorf("unknown zone answered %+v, want no route", got)
 	}
 }
 

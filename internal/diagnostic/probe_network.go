@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"slices"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -296,7 +295,7 @@ func (o *netops) dialIPs(ctx context.Context, ips []net.IP, port int) (net.Conn,
 				if ip.To4() != nil {
 					network = "tcp4"
 				}
-				conn, err := o.dialContext(dctx, network, net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+				conn, err := o.dialContext(dctx, network, o.hostPort(ip, port))
 				att := Attempt{IP: ip, Dur: since(start), Err: err}
 				if err != nil {
 					att.Cause = ConnectionFailureCause(err)
@@ -376,7 +375,7 @@ func (o *netops) pathIdentity(ctx context.Context, conn net.Conn, dstIP net.IP, 
 			src = la.IP
 		}
 	} else if dstIP != nil {
-		if c, err := o.dialContext(ctx, "udp", net.JoinHostPort(dstIP.String(), strconv.Itoa(port))); err == nil {
+		if c, err := o.dialContext(ctx, "udp", o.hostPort(dstIP, port)); err == nil {
 			if la, ok := c.LocalAddr().(*net.UDPAddr); ok {
 				src = la.IP
 			}

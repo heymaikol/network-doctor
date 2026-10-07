@@ -12,7 +12,7 @@ import (
 // printUsage writes the full help text: usage line, the target grammar
 // ParseTarget accepts, and the flags.
 func printUsage(w io.Writer, fs *flag.FlagSet) {
-	fmt.Fprint(w, `Usage: netdoc [flags] [target]
+	_, _ = io.WriteString(w, `Usage: netdoc [flags] [target]
        netdoc --profile github
        netdoc --profile ssh target
        netdoc --via ssh-destination [flags] [target]

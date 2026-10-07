@@ -7,9 +7,16 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
@@ -40,7 +47,7 @@ func TestParseTarget(t *testing.T) {
 		{"https://github.com/owner/repo", "github.com", 443, ProtoTLSHTTP, false},
 		{"host:8443", "host", 8443, ProtoTLSHTTP, false},
 		{"::1", "::1", 443, ProtoTLSHTTP, true},
-		{"fe80::1", "fe80::1", 443, ProtoTLSHTTP, true},
+		{"fe80::1%eth0", "fe80::1", 443, ProtoTLSHTTP, true},
 		{"[::1]", "::1", 443, ProtoTLSHTTP, true},
 		{"[2001:db8::1]:22", "2001:db8::1", 22, ProtoSSH, true},
 		{"https://[2001:db8::1]:8443/path", "2001:db8::1", 8443, ProtoTLSHTTP, true},
@@ -86,7 +93,7 @@ func TestParseTarget(t *testing.T) {
 
 func TestParseTargetErrors(t *testing.T) {
 	bad := []string{"", "host:0", "host:99999", "ftp://host", "bad_host!",
-		"[::1", "[::1]x", "[1.2.3.4]:80", "[hostname]:80", "[]:80", "[fe80::1%eth0]", "a:b:c",
+		"[::1", "[::1]x", "[1.2.3.4]:80", "[hostname]:80", "[]:80", "[fe80::1]", "a:b:c",
 		"https://user@example.com", "https://host:not-a-port", "host:65536", "host:-1",
 		"host:9999999999999999999999999999999999999999", "host:\x0080",
 		// Internationalized names get no relaxation: the A-label the lookup
@@ -199,7 +206,7 @@ func TestParseTargetBareIPv6Literal(t *testing.T) {
 		"2001:db8::1",    // decimal final group: always parsed
 		"2620:fe::fe",    // hex final group
 		"2001:db8::beef", // hex final group
-		"fe80::a",        // one hex digit
+		"fe80::a%eth0",   // one hex digit, and a zone
 		"2001:db8::",     // no final group at all
 		"64:ff9b::192.0.2.1",
 		"::ffff:192.0.2.1",
@@ -300,6 +307,7 @@ func TestInternationalizedTargetReachesDNSAndTLSAsASCII(t *testing.T) {
 }
 
 func FuzzParseTarget(f *testing.F) {
+	rlo := string(rune(0x202e))
 	seeds := []string{
 		// Ordinary host, address, port, and URL forms.
 		"example.com", "www.example.com", "example.com.", "192.0.2.1",
@@ -330,6 +338,11 @@ func FuzzParseTarget(f *testing.F) {
 		"bücher..example", "-bücher.example", "ü", "\u200b.example", "\u202ebücher.example",
 		"１.１.１.１", "faß.example", "\xff.example", strings.Repeat("ü", 63) + ".example",
 		strings.Repeat("ü", 30) + strings.Repeat("."+strings.Repeat("ü", 30), 6),
+
+		// IPv6 zones: scoped, unscoped, encoded, empty, misplaced, hostile.
+		"fe80::1%eth0", "[fe80::1%eth0]:22", "ssh://[fe80::1%eth0]:22", "ssh://[fe80::1%25eth0]",
+		"ssh://[fe80::1%2525]", "[fe80::1%25]:80", "fe80::1%", "[fe80::1%]", "2001:db8::1%eth0",
+		"[fe80::1%eth0%x]", "[fe80::1%eth0", "fe80::1%eth0:22", "[fe80::1%" + rlo + "]",
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -340,8 +353,9 @@ func FuzzParseTarget(f *testing.F) {
 		// A bare address is an IP literal and nothing else: its final group is
 		// never read as a port, and Raw is the spelling typed. The unspecified
 		// address is the one literal refused outright.
+		// A link-local IPv6 one is refused without its zone.
 		if bare := strings.TrimSpace(input); !strings.Contains(bare, "://") {
-			if ip := net.ParseIP(bare); ip != nil && !ip.IsUnspecified() && (err != nil || !ip.Equal(target.IP) || target.PortExplicit || target.Raw != bare) {
+			if ip := net.ParseIP(bare); ip != nil && !ip.IsUnspecified() && (ip.To4() != nil || !ip.IsLinkLocalUnicast()) && (err != nil || !ip.Equal(target.IP) || target.PortExplicit || target.Raw != bare) {
 				t.Fatalf("ParseTarget(%q) = %+v, %v; want the IP literal %v", input, target, err, ip)
 			}
 		}
@@ -369,6 +383,10 @@ func FuzzParseTarget(f *testing.F) {
 		if target.Host != textsafe.Clean(target.Host) || target.Raw != textsafe.Clean(target.Raw) {
 			t.Fatalf("ParseTarget(%q) returned terminal-unsafe target %+v", input, target)
 		}
+		if linkLocal := target.IP != nil && target.IP.To4() == nil && target.IP.IsLinkLocalUnicast(); linkLocal != (target.Zone != "") ||
+			target.Zone != "" && !ValidZone(target.Zone) || strings.Contains(target.Host, "%") {
+			t.Fatalf("ParseTarget(%q) = %+v, want a valid zone exactly on a link-local IP, and never in Host", input, target)
+		}
 
 		ip := net.ParseIP(target.Host)
 		if (ip == nil) != (target.IP == nil) || ip != nil && !ip.Equal(target.IP) {
@@ -381,7 +399,7 @@ func FuzzParseTarget(f *testing.F) {
 		}
 		sameIP := target.IP == nil && again.IP == nil || target.IP != nil && again.IP != nil && target.IP.Equal(again.IP)
 		if again.Raw != target.Raw || again.Host != target.Host || again.Port != target.Port ||
-			again.Proto != target.Proto || again.PortExplicit != target.PortExplicit || !sameIP {
+			again.Proto != target.Proto || again.PortExplicit != target.PortExplicit || again.Zone != target.Zone || !sameIP {
 			t.Fatalf("ParseTarget(%q) is not stable through Raw: first %+v, again %+v", input, target, again)
 		}
 	})
@@ -403,6 +421,131 @@ func TestProtoString(t *testing.T) {
 	for _, c := range cases {
 		if got := c.p.String(); got != c.want {
 			t.Errorf("Proto(%d).String() = %q, want %q", c.p, got, c.want)
+		}
+	}
+}
+
+// An IPv6 link-local address names a destination only together with its
+// zone, so the scoped form parses into the address and its zone, kept apart,
+// and the bare form is refused with the reason rather than accepted unusable.
+func TestParseTargetIPv6Zone(t *testing.T) {
+	rlo := string(rune(0x202e))
+	cases := []struct {
+		in, raw, host, zone string
+		port                int
+		proto               Proto
+	}{
+		{"fe80::1%eth0", "fe80::1%eth0", "fe80::1", "eth0", 443, ProtoTLSHTTP},
+		{"[fe80::1%eth0]:22", "[fe80::1%eth0]:22", "fe80::1", "eth0", 22, ProtoSSH},
+		{"[fe80::1%eth0]", "[fe80::1%eth0]", "fe80::1", "eth0", 443, ProtoTLSHTTP},
+		// A URL spells the zone the RFC 6874 way, and so does its Raw, since
+		// that is the spelling a reparse reads back unambiguously.
+		{"ssh://[fe80::1%eth0]:2222", "ssh://[fe80::1%25eth0]:2222", "fe80::1", "eth0", 2222, ProtoSSH},
+		{"ssh://[fe80::1%25eth0]", "ssh://[fe80::1%25eth0]", "fe80::1", "eth0", 22, ProtoSSH},
+		{"ssh://[fe80::1%2525]", "ssh://[fe80::1%2525]", "fe80::1", "25", 22, ProtoSSH},
+		{"https://[fe80::a%en0.100]:8443/x", "https://[fe80::a%25en0.100]:8443", "fe80::a", "en0.100", 8443, ProtoTLSHTTP},
+		// Outside a URL the zone is verbatim.
+		{"fe80::1%12", "fe80::1%12", "fe80::1", "12", 443, ProtoTLSHTTP},
+		{"[fe80::1%25]:80", "[fe80::1%25]:80", "fe80::1", "25", 80, ProtoHTTP},
+	}
+	for _, c := range cases {
+		got, err := ParseTarget(c.in)
+		if err != nil {
+			t.Errorf("ParseTarget(%q): %v", c.in, err)
+			continue
+		}
+		if got.Raw != c.raw || got.Host != c.host || got.Zone != c.zone || got.Port != c.port || got.Proto != c.proto ||
+			got.IP.String() != c.host {
+			t.Errorf("ParseTarget(%q) = %+v, want raw %q host %q zone %q port %d proto %v", c.in, got, c.raw, c.host, c.zone, c.port, c.proto)
+		}
+		// Raw is what the restart prompt and a --via worker parse again.
+		again, err := ParseTarget(got.Raw)
+		if err != nil || !reflect.DeepEqual(again, got) {
+			t.Errorf("ParseTarget(%q) reparsed to %+v, %v; want %+v", got.Raw, again, err, got)
+		}
+	}
+
+	for _, in := range []string{
+		"fe80::1", "[fe80::1]:22", "ssh://[fe80::1]:22", "https://[fe80::1]", // link-local needs its zone
+		"fe80::1%", "[fe80::1%]:22", "ssh://[fe80::1%25]", // empty zone
+		"2001:db8::1%eth0", "[2001:db8::1%eth0]:22", "::1%lo", // a zone only scopes link-local
+		"192.0.2.1%eth0", "example.com%eth0", "[example.com%eth0]:22", "ff02::1%eth0",
+		"fe80::1%eth0:22",                       // a port needs the brackets
+		"[fe80::1%eth 0]:22", "[fe80::1%eth/0]", // not an interface name
+		"[fe80::1%" + strings.Repeat("a", 33) + "]",
+		"[fe80::1%eth0" + rlo + "]:22", "fe80::1%eth0\x1b[2J",
+	} {
+		if got, err := ParseTarget(in); err == nil {
+			t.Errorf("ParseTarget(%q) = %+v, want error", in, got)
+		}
+	}
+	_, err := ParseTarget("[fe80::1]:22")
+	if err == nil || !strings.Contains(err.Error(), "zone") {
+		t.Errorf("unscoped link-local error = %v, want one that asks for the zone", err)
+	}
+}
+
+// The zone reaches every connection the target rows make, and only there:
+// the address the rows report, and the name TLS is offered, stay unscoped.
+func TestScopedTargetDialsCarryTheZone(t *testing.T) {
+	for _, raw := range []string{"[fe80::1%eth0]:443", "ssh://[fe80::1%eth0]", "smtp://[fe80::1%eth0]:465"} {
+		target, err := ParseTarget(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var (
+			mu     sync.Mutex
+			dialed []string
+			sni    []string
+		)
+		record := func(addr string) (net.Conn, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			dialed = append(dialed, addr)
+			return nil, errors.New("no network in tests")
+		}
+		o := &netops{
+			interfaces:     func() ([]net.Interface, error) { return nil, nil },
+			interfaceAddrs: func(*net.Interface) ([]net.Addr, error) { return nil, nil },
+			proxyFromEnv:   func(*http.Request) (*url.URL, error) { return nil, nil },
+			ssid:           func(context.Context, string) string { return "" },
+			dialContext:    func(_ context.Context, _, addr string) (net.Conn, error) { return record(addr) },
+			dialTLS: func(_ context.Context, _, addr string, cfg *tls.Config) (net.Conn, error) {
+				mu.Lock()
+				sni = append(sni, cfg.ServerName)
+				mu.Unlock()
+				return record(addr)
+			},
+			scope: netip.MustParseAddr(target.IP.String() + "%" + target.Zone),
+		}
+		ip := target.IP
+		deps := map[ProbeID]ProbeResult{
+			ProbeDNS:       {Addrs: []net.IP{ip}, SelectedIP: ip},
+			ProbeTargetTCP: {SelectedIP: ip},
+			ProbeTLS:       {SelectedIP: ip},
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		for _, p := range o.buildProbes(target, "", false, ProbePMTU) {
+			switch p.ID {
+			case ProbeDNS, ProbeTargetTCP, ProbePMTU, ProbeTLS, ProbeHTTP, ProbeHTTPS, ProbeSSH, ProbeSMTP:
+				p.Run(ctx, deps)
+			}
+		}
+		cancel()
+		t.Logf("%s: dialed %q, offered TLS %q", raw, dialed, sni)
+		want := "[fe80::1%eth0]:" + strconv.Itoa(target.Port)
+		if !slices.Contains(dialed, want) {
+			t.Errorf("%s: dialed %q, want %q among them", raw, dialed, want)
+		}
+		for _, addr := range dialed {
+			if strings.Contains(addr, "fe80::1") && !strings.HasPrefix(addr, "[fe80::1%eth0]:") {
+				t.Errorf("%s: dialed %q, want the link-local address only with its zone", raw, addr)
+			}
+		}
+		for _, name := range sni {
+			if name != "fe80::1" {
+				t.Errorf("%s: TLS offered %q, want the unscoped address", raw, name)
+			}
 		}
 	}
 }

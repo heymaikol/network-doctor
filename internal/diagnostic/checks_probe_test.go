@@ -1973,11 +1973,12 @@ func TestBannerProbeReadTimeoutHonorsContext(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client, server := net.Pipe()
 			t.Cleanup(func() { _ = server.Close() })
-			// net.Pipe is unbuffered, so the write returns once the probe has
-			// read the prelude, and the server then holds the connection open.
-			go func() { _, _ = io.WriteString(server, tt.prelude) }()
+			// The prelude is already in the client's buffer when the probe
+			// starts, so no writer races the deadline. Once it is read, the
+			// server holds the pipe open and the real read deadline ends it.
+			conn := &preludeConn{Conn: client, r: io.MultiReader(strings.NewReader(tt.prelude), client)}
 			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
-				return client, nil
+				return conn, nil
 			}}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
@@ -1993,6 +1994,15 @@ func TestBannerProbeReadTimeoutHonorsContext(t *testing.T) {
 		})
 	}
 }
+
+// preludeConn serves bytes already received before reading from Conn, whose
+// deadlines it keeps.
+type preludeConn struct {
+	net.Conn
+	r io.Reader
+}
+
+func (c *preludeConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 
 // runScriptedBanner runs the banner probe id against a peer that sends server
 // and then closes the connection.

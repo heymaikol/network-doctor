@@ -623,6 +623,19 @@ func TestRouteDecisionsAreBoundedAndDeduplicated(t *testing.T) {
 	}
 }
 
+// The kernel reports a uint32 metric, which a 32-bit int stores wrapped. The
+// selected route must still match its own default-route entry.
+func TestCompetingDefaultsExcludeSelectedRouteAboveInt32Max(t *testing.T) {
+	kernel := uint32(0x80000000)
+	selected := decisionTo("2001:db8::1", "eth0", "::/0")
+	selected.Metric, selected.MetricKnown = int(kernel), true
+	routes := []defaultRouteState{{iface: "eth0", metric: uint64(kernel)}, {iface: "wlan0", metric: 600}}
+	o := &netops{defaultRoutes: func(string) []defaultRouteState { return routes }}
+	if got := o.competingDefaults(selected); len(got) != 1 || got[0] != (CompetingRoute{Iface: "wlan0", Metric: 600}) {
+		t.Fatalf("competitors = %+v, want only wlan0", got)
+	}
+}
+
 // Competing routes explain a decision and never mirror a table: one default
 // route is not a competition, and a platform reporting no metric cannot say
 // which of several would win.

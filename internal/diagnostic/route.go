@@ -616,7 +616,9 @@ func (o *netops) competingDefaults(selected RouteDecision) []CompetingRoute {
 	routes := o.defaultRoutes(selected.Family)
 	var out []CompetingRoute
 	for _, r := range routes {
-		if r.iface == selected.Iface && selected.Metric >= 0 && uint64(selected.Metric) == r.metric {
+		// Every platform that sets MetricKnown stores a uint32 as an int, which
+		// wraps on a 32-bit build, so this metric is converted the same way.
+		if r.iface == selected.Iface && r.metric <= math.MaxUint32 && int(uint32(r.metric)) == selected.Metric {
 			continue
 		}
 		// The reported metric is an int, which on a 32-bit build cannot hold

@@ -614,33 +614,35 @@ func (o *netops) competingDefaults(selected RouteDecision) []CompetingRoute {
 		return nil
 	}
 	routes := o.defaultRoutes(selected.Family)
-	var out []CompetingRoute
+	var competitors []defaultRouteState
 	for _, r := range routes {
 		// Every platform that sets MetricKnown stores a uint32 as an int, which
 		// wraps on a 32-bit build, so this metric is converted the same way.
 		if r.iface == selected.Iface && r.metric <= math.MaxUint32 && int(uint32(r.metric)) == selected.Metric {
 			continue
 		}
+		competitors = append(competitors, r)
+	}
+	if len(competitors) == 0 {
+		return nil
+	}
+	sort.SliceStable(competitors, func(i, j int) bool {
+		if competitors[i].metric != competitors[j].metric {
+			return competitors[i].metric < competitors[j].metric
+		}
+		return competitors[i].iface < competitors[j].iface
+	})
+	competitors = competitors[:min(len(competitors), maxCompetingRoutes)]
+	out := make([]CompetingRoute, len(competitors))
+	for i, r := range competitors {
 		// The reported metric is an int, which on a 32-bit build cannot hold
-		// the top half of a uint32. Saturate so the competitor is still named
-		// and still sorts after every lower metric.
+		// the top half of a uint32. Ranking is already done on the real
+		// metric, so saturating here only affects the number shown.
 		metric := r.metric
 		if metric > math.MaxInt {
 			metric = math.MaxInt
 		}
-		out = append(out, CompetingRoute{Iface: r.iface, Metric: int(metric)})
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Metric != out[j].Metric {
-			return out[i].Metric < out[j].Metric
-		}
-		return out[i].Iface < out[j].Iface
-	})
-	if len(out) > maxCompetingRoutes {
-		out = out[:maxCompetingRoutes]
+		out[i] = CompetingRoute{Iface: r.iface, Metric: int(metric)}
 	}
 	return out
 }

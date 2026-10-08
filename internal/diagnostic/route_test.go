@@ -636,6 +636,27 @@ func TestCompetingDefaultsExcludeSelectedRouteAboveInt32Max(t *testing.T) {
 	}
 }
 
+// Metrics above a 32-bit int's range all display as math.MaxInt there, so the
+// cap must be applied by the real metric, never by the interface tie-break.
+func TestCompetingDefaultsKeepLowestMetricsAboveInt32Max(t *testing.T) {
+	selected := decisionTo("2001:db8::1", "eth0", "::/0")
+	selected.Metric, selected.MetricKnown = 100, true
+	routes := []defaultRouteState{{iface: "eth0", metric: 100}}
+	names := []string{"e", "d", "c", "b", "a"}
+	for i, name := range names {
+		routes = append(routes, defaultRouteState{iface: name, metric: 0x80000000 + uint64(i)})
+	}
+	o := &netops{defaultRoutes: func(string) []defaultRouteState { return routes }}
+	got := o.competingDefaults(selected)
+	var ifaces []string
+	for _, c := range got {
+		ifaces = append(ifaces, c.Iface)
+	}
+	if !slices.Equal(ifaces, names[:maxCompetingRoutes]) {
+		t.Fatalf("competitors = %+v, want %v in metric order", got, names[:maxCompetingRoutes])
+	}
+}
+
 // Competing routes explain a decision and never mirror a table: one default
 // route is not a competition, and a platform reporting no metric cannot say
 // which of several would win.

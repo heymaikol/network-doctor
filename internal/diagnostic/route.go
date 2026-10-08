@@ -1,6 +1,7 @@
 package diagnostic
 
 import (
+	"math"
 	"net"
 	"net/netip"
 	"slices"
@@ -613,24 +614,35 @@ func (o *netops) competingDefaults(selected RouteDecision) []CompetingRoute {
 		return nil
 	}
 	routes := o.defaultRoutes(selected.Family)
-	var out []CompetingRoute
+	var competitors []defaultRouteState
 	for _, r := range routes {
-		if r.iface == selected.Iface && r.metric == selected.Metric {
+		// Every platform that sets MetricKnown stores a uint32 as an int, which
+		// wraps on a 32-bit build, so this metric is converted the same way.
+		if r.iface == selected.Iface && r.metric <= math.MaxUint32 && int(uint32(r.metric)) == selected.Metric {
 			continue
 		}
-		out = append(out, CompetingRoute{Iface: r.iface, Metric: r.metric})
+		competitors = append(competitors, r)
 	}
-	if len(out) == 0 {
+	if len(competitors) == 0 {
 		return nil
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Metric != out[j].Metric {
-			return out[i].Metric < out[j].Metric
+	sort.SliceStable(competitors, func(i, j int) bool {
+		if competitors[i].metric != competitors[j].metric {
+			return competitors[i].metric < competitors[j].metric
 		}
-		return out[i].Iface < out[j].Iface
+		return competitors[i].iface < competitors[j].iface
 	})
-	if len(out) > maxCompetingRoutes {
-		out = out[:maxCompetingRoutes]
+	competitors = competitors[:min(len(competitors), maxCompetingRoutes)]
+	out := make([]CompetingRoute, len(competitors))
+	for i, r := range competitors {
+		// The reported metric is an int, which on a 32-bit build cannot hold
+		// the top half of a uint32. Ranking is already done on the real
+		// metric, so saturating here only affects the number shown.
+		metric := r.metric
+		if metric > math.MaxInt {
+			metric = math.MaxInt
+		}
+		out[i] = CompetingRoute{Iface: r.iface, Metric: int(metric)}
 	}
 	return out
 }

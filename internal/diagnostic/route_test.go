@@ -623,6 +623,40 @@ func TestRouteDecisionsAreBoundedAndDeduplicated(t *testing.T) {
 	}
 }
 
+// The kernel reports a uint32 metric, which a 32-bit int stores wrapped. The
+// selected route must still match its own default-route entry.
+func TestCompetingDefaultsExcludeSelectedRouteAboveInt32Max(t *testing.T) {
+	kernel := uint32(0x80000000)
+	selected := decisionTo("2001:db8::1", "eth0", "::/0")
+	selected.Metric, selected.MetricKnown = int(kernel), true
+	routes := []defaultRouteState{{iface: "eth0", metric: uint64(kernel)}, {iface: "wlan0", metric: 600}}
+	o := &netops{defaultRoutes: func(string) []defaultRouteState { return routes }}
+	if got := o.competingDefaults(selected); len(got) != 1 || got[0] != (CompetingRoute{Iface: "wlan0", Metric: 600}) {
+		t.Fatalf("competitors = %+v, want only wlan0", got)
+	}
+}
+
+// Metrics above a 32-bit int's range all display as math.MaxInt there, so the
+// cap must be applied by the real metric, never by the interface tie-break.
+func TestCompetingDefaultsKeepLowestMetricsAboveInt32Max(t *testing.T) {
+	selected := decisionTo("2001:db8::1", "eth0", "::/0")
+	selected.Metric, selected.MetricKnown = 100, true
+	routes := []defaultRouteState{{iface: "eth0", metric: 100}}
+	names := []string{"e", "d", "c", "b", "a"}
+	for i, name := range names {
+		routes = append(routes, defaultRouteState{iface: name, metric: 0x80000000 + uint64(i)})
+	}
+	o := &netops{defaultRoutes: func(string) []defaultRouteState { return routes }}
+	got := o.competingDefaults(selected)
+	var ifaces []string
+	for _, c := range got {
+		ifaces = append(ifaces, c.Iface)
+	}
+	if !slices.Equal(ifaces, names[:maxCompetingRoutes]) {
+		t.Fatalf("competitors = %+v, want %v in metric order", got, names[:maxCompetingRoutes])
+	}
+}
+
 // Competing routes explain a decision and never mirror a table: one default
 // route is not a competition, and a platform reporting no metric cannot say
 // which of several would win.
@@ -631,7 +665,7 @@ func TestCompetingDefaultsStaySilentWithoutARealCompetition(t *testing.T) {
 	selected.Metric, selected.MetricKnown = 100, true
 	many := []defaultRouteState{{iface: "eth0", metric: 100}}
 	for i := range maxCompetingRoutes + 3 {
-		many = append(many, defaultRouteState{iface: "wlan0", metric: 600 + i})
+		many = append(many, defaultRouteState{iface: "wlan0", metric: uint64(600 + i)})
 	}
 	o := &netops{defaultRoutes: func(string) []defaultRouteState { return many }}
 	got := o.competingDefaults(selected)

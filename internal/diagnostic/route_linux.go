@@ -400,7 +400,7 @@ func mainIPv6Defaults(replies []netlinkMessage, interfaceName func(int) string) 
 				route.gateway = netlinkIP(attr.Value)
 			case unix.RTA_PRIORITY:
 				if len(attr.Value) >= 4 {
-					route.metric = int(binary.NativeEndian.Uint32(attr.Value))
+					route.metric = uint64(binary.NativeEndian.Uint32(attr.Value))
 				}
 			case unix.RTA_MULTIPATH, rtaNHID:
 				multipath = true

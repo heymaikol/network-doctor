@@ -60,8 +60,8 @@ func parseIPv6DefaultRoutes(raw []byte) []defaultRouteState {
 		if err != nil || flags&routeFlagUp == 0 {
 			continue
 		}
-		metric, err := strconv.ParseInt(fields[5], 16, 32)
-		if err != nil || metric < 0 {
+		metric, err := strconv.ParseUint(fields[5], 16, 32)
+		if err != nil {
 			continue
 		}
 		gatewayRaw, err := hex.DecodeString(fields[4])
@@ -72,7 +72,7 @@ func parseIPv6DefaultRoutes(raw []byte) []defaultRouteState {
 		if !net.IP(gatewayRaw).IsUnspecified() {
 			gateway = net.IP(gatewayRaw)
 		}
-		out = append(out, defaultRouteState{iface: fields[9], gateway: gateway, metric: int(metric)})
+		out = append(out, defaultRouteState{iface: fields[9], gateway: gateway, metric: metric})
 	}
 	return out
 }
@@ -89,8 +89,8 @@ func parseDefaultRoutes(raw []byte) []defaultRouteState {
 		if err != nil || flags&routeFlagUp == 0 {
 			continue
 		}
-		metric, err := strconv.Atoi(fields[6])
-		if err != nil || metric < 0 {
+		metric, err := strconv.ParseUint(fields[6], 10, 32)
+		if err != nil {
 			continue
 		}
 		var gateway net.IP

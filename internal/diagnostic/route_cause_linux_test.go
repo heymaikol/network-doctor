@@ -80,3 +80,47 @@ func TestIPv6RouteFailureCauseRejectsMissingAndMalformedDefaults(t *testing.T) {
 		t.Fatalf("malformed IPv6 defaults = %+v", got)
 	}
 }
+
+func TestParseIPv6DefaultRoutesMetricRange(t *testing.T) {
+	zero := "00000000000000000000000000000000"
+	tests := []struct {
+		metric string
+		want   uint64
+		ok     bool
+	}{
+		{"00000000", 0, true},
+		{"7fffffff", 0x7fffffff, true},
+		{"80000000", 0x80000000, true},
+		{"ffffffff", 0xffffffff, true},
+		{"nothex", 0, false},
+		{"-0000001", 0, false},
+		{"100000000", 0, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.metric, func(t *testing.T) {
+			raw := zero + " 00 " + zero + " 00 " + zero + " " + tc.metric + " 00000000 00000000 00000001 eth0\n"
+			parsed := parseIPv6DefaultRoutes([]byte(raw))
+			if !tc.ok {
+				if len(parsed) != 0 {
+					t.Fatalf("parsed = %+v, want rejected", parsed)
+				}
+				return
+			}
+			if len(parsed) != 1 || parsed[0].metric != tc.want {
+				t.Fatalf("parsed = %+v, want one route with metric %#x", parsed, tc.want)
+			}
+			if got := routeFailureCauseIPv6From([]byte(raw)); got != RouteCauseSelectedPathFailed {
+				t.Fatalf("cause = %q, want %q", got, RouteCauseSelectedPathFailed)
+			}
+		})
+	}
+}
+
+func TestIPv6RouteFailureCauseOrdersMetricsAcrossInt32Max(t *testing.T) {
+	zero := "00000000000000000000000000000000"
+	routes := zero + " 00 " + zero + " 00 20010db8007900030000000000000001 80000000 00000000 00000000 00000003 alt0\n" +
+		zero + " 00 " + zero + " 00 20010db8007900010000000000000001 7fffffff 00000000 00000000 00000003 pref0\n"
+	if got := routeFailureCauseIPv6From([]byte(routes)); got != RouteCausePreferredPathFailed {
+		t.Fatalf("IPv6 cause = %q, want %q", got, RouteCausePreferredPathFailed)
+	}
+}

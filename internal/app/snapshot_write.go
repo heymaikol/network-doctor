@@ -11,11 +11,6 @@ import (
 // snapshotWriteFile is stubbed in tests that need the write itself to fail.
 var snapshotWriteFile = snapshot.WriteFile
 
-// writeSnapshot builds the portable artifact for a finished run and saves it.
-func writeSnapshot(h headless, probes []diagnostic.Probe, results map[diagnostic.ProbeID]diagnostic.ProbeResult) error {
-	return saveSnapshot(h, buildSnapshotArtifact(h, probes, results))
-}
-
 // buildSnapshotArtifact is the portable artifact for a finished run.
 //
 // The conversion from probe results lives in internal/diagnostic, which is the

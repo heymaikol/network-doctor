@@ -78,6 +78,55 @@ func TestSourceAddressesPrimary(t *testing.T) {
 	}
 }
 
+func TestSourceAddressesPreferNonLinkLocal(t *testing.T) {
+	cases := []struct {
+		name  string
+		addrs []string
+		want4 string
+		want6 string
+	}{
+		{"IPv4 link-local first", []string{"169.254.10.20", "10.0.0.20"}, "10.0.0.20", ""},
+		{"IPv6 link-local first", []string{"fe80::1234", "2001:db8::1234"}, "", "2001:db8::1234"},
+		{"dual-stack link-local first", []string{"169.254.10.20", "fe80::1234", "10.0.0.20", "fd00::1234"}, "10.0.0.20", "fd00::1234"},
+		{"non-link-local first", []string{"10.0.0.20", "fd00::1234", "169.254.10.20", "fe80::1234"}, "10.0.0.20", "fd00::1234"},
+		{"first non-link-local stays selected", []string{"169.254.10.20", "fe80::1234", "10.0.0.20", "fd00::1234", "192.0.2.20", "2001:db8::1234"}, "10.0.0.20", "fd00::1234"},
+		{"link-local fallback", []string{"169.254.10.20", "fe80::1234", "169.254.10.21", "fe80::1235"}, "169.254.10.20", "fe80::1234"},
+		{"families are independent", []string{"169.254.10.20", "fe80::1234", "10.0.0.20"}, "10.0.0.20", "fe80::1234"},
+		{"IPv4-mapped addresses", []string{"::ffff:169.254.10.20", "::ffff:10.0.0.20"}, "10.0.0.20", ""},
+		{"unusable addresses are skipped", []string{"", "0.0.0.0", "::", "224.0.0.1", "ff02::1", "169.254.10.20", "fe80::1234"}, "169.254.10.20", "fe80::1234"},
+		{"loopback stays usable", []string{"127.0.0.1", "::1"}, "127.0.0.1", "::1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var addrs []net.Addr
+			for _, address := range tc.addrs {
+				addrs = append(addrs, &net.IPNet{IP: net.ParseIP(address)})
+			}
+			sources := sourceAddresses(addrs)
+			if sources == nil || !sources.IPv4.Equal(net.ParseIP(tc.want4)) || !sources.IPv6.Equal(net.ParseIP(tc.want6)) {
+				t.Fatalf("sourceAddresses() = %+v, want IPv4 %s IPv6 %s", sources, tc.want4, tc.want6)
+			}
+			for _, dial := range []struct {
+				network string
+				dest    string
+				want    string
+			}{
+				{"tcp4", "192.0.2.1:443", tc.want4},
+				{"tcp6", "[2001:db8::1]:443", tc.want6},
+			} {
+				if dial.want == "" {
+					continue
+				}
+				source, _ := sources.forDial(dial.network, dial.dest)
+				bound := dialerFromSource(source, dial.network, nil).LocalAddr.(*net.TCPAddr)
+				if !bound.IP.Equal(net.ParseIP(dial.want)) {
+					t.Errorf("%s source = %s, want %s", dial.network, bound.IP, dial.want)
+				}
+			}
+		})
+	}
+}
+
 func TestSourceAddressesSelectAndBindEachFamily(t *testing.T) {
 	v4 := net.ParseIP("192.0.2.2")
 	v6 := net.ParseIP("2001:db8::2")

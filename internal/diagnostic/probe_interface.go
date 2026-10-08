@@ -9,6 +9,7 @@ import (
 
 // ResolveSource resolves an interface name to one usable address per family,
 // or an exact local IP to only that address's family.
+// Interface names prefer non-link-local addresses within each family.
 func ResolveSource(iface string) (*SourceAddresses, error) {
 	if want := net.ParseIP(iface); want != nil {
 		ifaces, err := net.Interfaces()
@@ -60,10 +61,11 @@ func sourceAddresses(addrs []net.Addr) *SourceAddresses {
 		if ip == nil || ip.IsUnspecified() || ip.IsMulticast() {
 			continue
 		}
-		if ip4 := ip.To4(); ip4 != nil && sources.IPv4 == nil {
-			sources.IPv4 = append(net.IP(nil), ip4...)
-		}
-		if ip.To4() == nil && sources.IPv6 == nil {
+		if ip4 := ip.To4(); ip4 != nil {
+			if sources.IPv4 == nil || sources.IPv4.IsLinkLocalUnicast() && !ip4.IsLinkLocalUnicast() {
+				sources.IPv4 = append(net.IP(nil), ip4...)
+			}
+		} else if sources.IPv6 == nil || sources.IPv6.IsLinkLocalUnicast() && !ip.IsLinkLocalUnicast() {
 			sources.IPv6 = append(net.IP(nil), ip...)
 		}
 	}

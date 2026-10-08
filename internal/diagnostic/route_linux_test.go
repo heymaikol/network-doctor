@@ -353,7 +353,9 @@ func TestLinkCacheReadsOneInterfaceOnceWhileInFlight(t *testing.T) {
 func TestLinkCacheReadsDifferentInterfacesConcurrently(t *testing.T) {
 	saved := linkAcquire
 	t.Cleanup(func() { linkAcquire = saved })
-	entered, release := make(chan int), make(chan struct{})
+	// Buffered for both workers, so a read that runs late never blocks on
+	// announcing itself.
+	entered, release := make(chan int, 2), make(chan struct{})
 	linkAcquire = func(index int) (string, int, ifaceFacts) {
 		entered <- index
 		<-release
@@ -361,6 +363,11 @@ func TestLinkCacheReadsDifferentInterfacesConcurrently(t *testing.T) {
 	}
 	links := newLinkCache()
 	var wg sync.WaitGroup
+	// Deferred, so every return path, including the failed Fatal, closes release
+	// and joins both workers before Cleanup restores linkAcquire. Defers run in
+	// reverse order: close(release) first, then the Wait.
+	defer wg.Wait()
+	defer close(release)
 	for _, index := range []int{7, 9} {
 		wg.Go(func() { links.get(index) })
 	}
@@ -368,12 +375,9 @@ func TestLinkCacheReadsDifferentInterfacesConcurrently(t *testing.T) {
 		select {
 		case <-entered:
 		case <-time.After(5 * time.Second):
-			close(release)
 			t.Fatal("interface reads were serialized: the second never entered while the first was in flight")
 		}
 	}
-	close(release)
-	wg.Wait()
 }
 
 // Each pass builds its own lookups, so the interface cache is fresh on every

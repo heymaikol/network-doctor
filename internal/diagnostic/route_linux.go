@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -75,15 +76,22 @@ func nlAlign(n int) int { return (n + netlinkAlignTo - 1) &^ (netlinkAlignTo - 1
 // will not make either. Retrying unconstrained there would replace the truth
 // about this run with a path it never used.
 func lookupRouteDecision(dst, source net.IP) (RouteDecision, bool) {
+	return lookupRouteDecisionWith(nil, dst, source)
+}
+
+// lookupRouteDecisionWith is lookupRouteDecision reading interface facts
+// through links, which a pass shares across its lookups. A nil links reads
+// them every time.
+func lookupRouteDecisionWith(links *linkCache, dst, source net.IP) (RouteDecision, bool) {
 	addr, ok := netip.AddrFromSlice(dst)
 	if !ok {
 		return RouteDecision{}, false
 	}
 	addr = addr.Unmap()
 	src := routeQuerySource(addr, source)
-	decision, ok := routeLookup(addr, src, 0)
+	decision, ok := routeLookup(addr, src, 0, links)
 	if !ok && src.IsValid() {
-		return routeLookup(addr, netip.Addr{}, 0)
+		return routeLookup(addr, netip.Addr{}, 0, links)
 	}
 	return decision, ok
 }
@@ -95,6 +103,12 @@ func lookupRouteDecision(dst, source net.IP) (RouteDecision, bool) {
 // strictly against it. An answer naming any other interface is discarded
 // rather than reported: no route evidence beats evidence for another link.
 func lookupScopedRouteDecision(dst, source net.IP, zone string) (RouteDecision, bool) {
+	return lookupScopedRouteDecisionWith(nil, dst, source, zone)
+}
+
+// lookupScopedRouteDecisionWith is lookupScopedRouteDecision reading interface
+// facts through links, as lookupRouteDecisionWith does.
+func lookupScopedRouteDecisionWith(links *linkCache, dst, source net.IP, zone string) (RouteDecision, bool) {
 	addr, ok := netip.AddrFromSlice(dst)
 	ifi, err := zoneInterface(zone)
 	if !ok || err != nil {
@@ -102,9 +116,9 @@ func lookupScopedRouteDecision(dst, source net.IP, zone string) (RouteDecision, 
 	}
 	addr = addr.Unmap()
 	src := routeQuerySource(addr, source)
-	decision, ok := routeLookup(addr, src, ifi.Index)
+	decision, ok := routeLookup(addr, src, ifi.Index, links)
 	if !ok && src.IsValid() {
-		decision, ok = routeLookup(addr, netip.Addr{}, ifi.Index)
+		decision, ok = routeLookup(addr, netip.Addr{}, ifi.Index, links)
 	}
 	if !ok || !decision.Unreachable && decision.Iface != ifi.Name {
 		return RouteDecision{}, false
@@ -172,7 +186,7 @@ func routeLookupRequest(dst, src netip.Addr, oif int) []byte {
 
 // routeLookup performs one RTM_GETROUTE exchange, optionally constrained to a
 // source address and an output interface.
-func routeLookup(dst, src netip.Addr, oif int) (RouteDecision, bool) {
+func routeLookup(dst, src netip.Addr, oif int, links *linkCache) (RouteDecision, bool) {
 	replies, err := netlinkExchange(unix.RTM_GETROUTE, routeLookupRequest(dst, src, oif))
 	if err != nil {
 		if unreachableNetlinkError(err) {
@@ -180,7 +194,7 @@ func routeLookup(dst, src netip.Addr, oif int) (RouteDecision, bool) {
 		}
 		return RouteDecision{}, false
 	}
-	decision, ok := parseRouteReply(replies, dst)
+	decision, ok := parseRouteReply(replies, dst, links)
 	// A lookup that supplied the source is answered without RTA_PREFSRC,
 	// since the kernel has no selection left to report. The address the flow
 	// leaves from is still known: it is the one the question carried.
@@ -193,12 +207,13 @@ func routeLookup(dst, src netip.Addr, oif int) (RouteDecision, bool) {
 // parseRouteReply reads the kernel's answer into a decision. It takes the
 // first RTM_NEWROUTE in the reply: a lookup for one destination is answered
 // with one route, and a multipath route reports its chosen next hop there.
-func parseRouteReply(replies []netlinkMessage, dst netip.Addr) (RouteDecision, bool) {
+func parseRouteReply(replies []netlinkMessage, dst netip.Addr, links *linkCache) (RouteDecision, bool) {
 	for _, msg := range replies {
 		if msg.Type != unix.RTM_NEWROUTE || len(msg.Data) < rtMsgLen {
 			continue
 		}
 		out := RouteDecision{}
+		var facts ifaceFacts
 		// The three route types that answer "nothing leads there". RTN_THROW
 		// is deliberately not among them: it tells the kernel to abandon this
 		// table and carry on with the next rule, so a later table may well
@@ -225,7 +240,7 @@ func parseRouteReply(replies []netlinkMessage, dst netip.Addr) (RouteDecision, b
 			switch attr.Type {
 			case unix.RTA_OIF:
 				if len(attr.Value) >= 4 {
-					out.Iface, out.MTU, out.TunnelKind = linkFacts(int(binary.NativeEndian.Uint32(attr.Value)))
+					out.Iface, out.MTU, facts = links.get(int(binary.NativeEndian.Uint32(attr.Value)))
 				}
 			case unix.RTA_GATEWAY:
 				out.Gateway = netlinkIP(attr.Value)
@@ -251,10 +266,84 @@ func parseRouteReply(replies []netlinkMessage, dst netip.Addr) (RouteDecision, b
 			}
 		}
 		out.Table, out.TableKnown = routeTableName(table)
-		out.Tunnel, out.TunnelKind = classifyTunnel(linkClassificationFacts(out.Iface, out.TunnelKind))
+		out.Tunnel, out.TunnelKind = classifyTunnel(facts)
 		return out, true
 	}
 	return RouteDecision{}, false
+}
+
+// linkAcquire is one acquisition of an interface: its name and MTU, and the
+// facts that classify it. It is a variable so a test can count how often a
+// decision reads an interface, without a live kernel.
+var linkAcquire = func(index int) (string, int, ifaceFacts) {
+	name, mtu, kind := linkFacts(index)
+	return name, mtu, linkClassificationFacts(name, kind)
+}
+
+// linkCache holds the interfaces one diagnostic pass has read, one acquisition
+// per interface index. Several destinations often leave by the same interface,
+// and each would otherwise repeat the kernel exchange and the lookup by name.
+//
+// It is created per pass by newPassRouteLookups, so it lives exactly as long as
+// the route cache beside it. Watch Mode reads every interface again on the
+// next pass, and an index is never keyed by name, since a name can be reused.
+type linkCache struct {
+	// mu guards only the map, never an acquisition, so interfaces that differ
+	// are read concurrently.
+	mu    sync.Mutex
+	links map[int]*linkAnswer
+}
+
+// linkAnswer is one interface's acquisition, readable once done is closed. A
+// failed or partial read is kept too: the fallback is part of the answer, and
+// asking again within the pass would only repeat it.
+type linkAnswer struct {
+	done  chan struct{}
+	name  string
+	mtu   int
+	facts ifaceFacts
+}
+
+func newLinkCache() *linkCache {
+	return &linkCache{links: map[int]*linkAnswer{}}
+}
+
+// get returns one interface's name, MTU, and classification facts, acquiring
+// them once per index. A nil cache acquires them every time, as lookups made
+// outside a pass always have.
+func (c *linkCache) get(index int) (string, int, ifaceFacts) {
+	if c == nil {
+		return linkAcquire(index)
+	}
+	c.mu.Lock()
+	answer, seen := c.links[index]
+	if !seen {
+		answer = &linkAnswer{done: make(chan struct{})}
+		c.links[index] = answer
+	}
+	c.mu.Unlock()
+	if seen {
+		<-answer.done
+		return answer.name, answer.mtu, answer.facts
+	}
+	defer close(answer.done)
+	answer.name, answer.mtu, answer.facts = linkAcquire(index)
+	return answer.name, answer.mtu, answer.facts
+}
+
+// newPassRouteLookups returns one pass's destination and zoned route lookups.
+// Both draw interface facts from the same cache, created here, so the cache
+// belongs to the pass that builds the probes and to no other.
+var newPassRouteLookups = func() (
+	func(dst, source net.IP) (RouteDecision, bool),
+	func(dst, source net.IP, zone string) (RouteDecision, bool),
+) {
+	links := newLinkCache()
+	return func(dst, source net.IP) (RouteDecision, bool) {
+			return lookupRouteDecisionWith(links, dst, source)
+		}, func(dst, source net.IP, zone string) (RouteDecision, bool) {
+			return lookupScopedRouteDecisionWith(links, dst, source, zone)
+		}
 }
 
 // routeTableName spells the routing table a decision came from, and says

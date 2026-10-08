@@ -135,6 +135,11 @@ func TestEachPassGetsAFreshRouteCache(t *testing.T) {
 	original := defaultOps.routeFor
 	defaultOps.routeFor = answers
 	defer func() { defaultOps.routeFor = original }()
+	// A platform's pass lookups would replace the fake routeFor, so this test
+	// runs the pass with the defaults it set.
+	originalPass := defaultOps.passRoutes
+	defaultOps.passRoutes = nil
+	defer func() { defaultOps.passRoutes = originalPass }()
 	run := func(probes []Probe) string {
 		for _, p := range probes {
 			if p.ID == ProbeIface {

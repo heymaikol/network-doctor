@@ -24,7 +24,7 @@ import (
 // command it returns expires the notice it sets when the viewer's incident is
 // discarded, and is nil otherwise.
 func (m *model) recordIncident(at time.Time) tea.Cmd {
-	s := diagnostic.BuildSnapshot(m.target, m.probes, m.results)
+	s := diagnostic.BuildSnapshotWithDiagnosis(m.target, m.probes, m.results, m.diagnosis())
 	s.CreatedAt = at.UTC().Format(time.RFC3339)
 	s.Tool = ndoc.Tool{Version: m.version, OS: runtime.GOOS, Arch: runtime.GOARCH}
 	s.Options = ndoc.Options{

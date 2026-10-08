@@ -27,7 +27,7 @@ func TestPlainAnswerLeadsAFinishedRun(t *testing.T) {
 	_, v := renderAt(t, m)
 	lines := viewLines(v)
 	plain := diagnostic.Explain(m.target, m.probeOrder(), m.results)
-	summary, _ := m.diagnose(m.probeOrder())
+	summary, _ := m.diagnose()
 	want := []string{
 		"✗ " + plain.Headline,
 		answerLead(plain.Meaning),

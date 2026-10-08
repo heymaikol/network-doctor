@@ -161,7 +161,7 @@ func TestProgressDisappearsWhenTheRunCompletes(t *testing.T) {
 		if !strings.Contains(strip, "github.com:443") {
 			t.Errorf("context strip = %q, want it to keep its target", strip)
 		}
-		summary, _ := m.diagnose(m.probeOrder())
+		summary, _ := m.diagnose()
 		if !strings.Contains(view, summary) {
 			t.Errorf("finished view lost diagnosis %q:\n%s", summary, view)
 		}
@@ -445,7 +445,7 @@ func TestRetestCompletionLeavesNoStaleProgress(t *testing.T) {
 	if strings.Contains(plain, fmt.Sprintf("%d/%d complete", len(next.probes), len(next.probes))) || strings.Contains(plain, " running") {
 		t.Errorf("completed retest retained progress:\n%s", plain)
 	}
-	summary, _ := next.diagnose(next.probeOrder())
+	summary, _ := next.diagnose()
 	if !strings.Contains(plain, summary) {
 		t.Errorf("completed retest lost diagnosis %q:\n%s", summary, plain)
 	}

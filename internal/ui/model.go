@@ -142,6 +142,14 @@ const (
 // have to sleep through it.
 var WatchEvery = 5 * time.Second
 
+// Replaced after each result revision; readers never modify its slices or map.
+type resultAnalysis struct {
+	order       []diagnostic.ProbeID
+	diagnosis   diagnostic.Diagnosis
+	collateral  map[diagnostic.ProbeID]bool
+	explanation diagnostic.Explanation
+}
+
 type model struct {
 	target  *diagnostic.Target
 	probes  []diagnostic.Probe
@@ -165,8 +173,10 @@ type model struct {
 
 	// results + started are owned exclusively by Update; probe goroutines get an
 	// immutable snapshot, never the live map.
-	results map[diagnostic.ProbeID]diagnostic.ProbeResult
-	started map[diagnostic.ProbeID]bool
+	results       map[diagnostic.ProbeID]diagnostic.ProbeResult
+	started       map[diagnostic.ProbeID]bool
+	analysis      resultAnalysis
+	analysisReady bool
 
 	selected int
 	// selMoved: the user touched the cursor this run, so completion must not
@@ -369,6 +379,7 @@ func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses,
 		}
 		saveHistory(histFile, m.history) // launch targets count as history too
 	}
+	m.refreshAnalysis()
 	return m
 }
 
@@ -385,12 +396,29 @@ func (m *model) setTheme(t Theme) {
 // this single structure, so two panels can never diagnose the same run
 // differently.
 func (m model) diagnosis() diagnostic.Diagnosis {
-	return diagnostic.Interpret(m.target, m.probeOrder(), m.results)
+	return m.currentAnalysis().diagnosis
 }
 
-func (m model) diagnose(order []diagnostic.ProbeID) (string, string) {
-	d := diagnostic.Interpret(m.target, order, m.results)
+func (m model) diagnose() (string, string) {
+	d := m.diagnosis()
 	return d.Summary, d.Verdict
+}
+
+func (m *model) refreshAnalysis() {
+	order := diagnostic.ProbeOrder(m.probes)
+	d := diagnostic.Interpret(m.target, order, m.results)
+	m.analysis = resultAnalysis{order: order, diagnosis: d,
+		collateral: d.Collateral(order, m.results), explanation: d.Explain(m.target, order, m.results)}
+	m.analysisReady = true
+}
+
+// Low-level callers can assemble inputs without Update. A render prepares its
+// own copy once; production stores analysis after each write, before rendering.
+func (m model) currentAnalysis() resultAnalysis {
+	if !m.analysisReady {
+		m.refreshAnalysis()
+	}
+	return m.analysis
 }
 
 // Target history persists as one line per target, oldest first. Everything
@@ -672,6 +700,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ctx, m.cancel = context.WithCancel(context.Background())
 		}
 		cmds := m.scheduleStep()
+		if !m.analysisReady {
+			m.refreshAnalysis()
+		}
 		if m.watch && m.allDone() {
 			cmds = append(cmds, m.watchCmd())
 		}
@@ -712,12 +743,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		res := msg.res
 		res.ID = msg.id // scheduler identity wins over whatever the probe wrote on its own name tag
+		// Keep a value-copied model's results and analysis on the same revision.
+		m.results = maps.Clone(m.results)
+		m.analysisReady = false
 		m.results[msg.id] = res
 		// scheduleStep first: it records skip results synchronously, which can
 		// be what completes the run.
 		cmds := m.scheduleStep()
 		if m.allDone() {
 			diagnostic.Finalize(m.results)
+		}
+		m.refreshAnalysis()
+		if m.allDone() {
 			// recordRun comes before the focus decision, not after it: a watch
 			// pass moves the cursor for what changed since the previous pass,
 			// and appending this pass's statuses is what makes the two

@@ -243,7 +243,14 @@ func Explain(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Explanatio
 	if len(order) == 0 {
 		return Explanation{Headline: "No checks were run"}
 	}
-	d := Interpret(t, order, res)
+	return Interpret(t, order, res).Explain(t, order, res)
+}
+
+// Explain retells this diagnosis without interpreting the same inputs again.
+func (d Diagnosis) Explain(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Explanation {
+	if len(order) == 0 {
+		return Explanation{Headline: "No checks were run"}
+	}
 	if len(d.Findings) == 0 {
 		switch d.Verdict {
 		case VerdictIncomplete:
@@ -328,7 +335,7 @@ func Explain(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Explanatio
 	for _, s := range []*string{&e.Headline, &e.Meaning, &e.TryFirst} {
 		*s = strings.ReplaceAll(*s, "{host}", host)
 	}
-	collateral := Collateral(t, order, res)
+	collateral := d.Collateral(order, res)
 	explained := f.EvidenceRows()
 	for _, id := range order {
 		if r, ok := res[id]; ok && r.Status == StatusFail && id != d.Blamed && !collateral[id] && !slices.Contains(explained, id) {

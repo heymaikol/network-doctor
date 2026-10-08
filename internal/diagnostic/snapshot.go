@@ -31,6 +31,20 @@ import (
 // down with it. Absence is never written as a pass: reading a status off the
 // zero ProbeResult would say PASS, so this never reads one.
 func BuildSnapshot(t *Target, probes []Probe, results map[ProbeID]ProbeResult) snapshot.Snapshot {
+	return BuildSnapshotWithDiagnosis(t, probes, results, Interpret(t, ProbeOrder(probes), results))
+}
+
+// ProbeOrder returns the IDs of the executed plan in presentation order.
+func ProbeOrder(probes []Probe) []ProbeID {
+	order := make([]ProbeID, len(probes))
+	for i, p := range probes {
+		order[i] = p.ID
+	}
+	return order
+}
+
+// BuildSnapshotWithDiagnosis projects a diagnosis already computed for these inputs.
+func BuildSnapshotWithDiagnosis(t *Target, probes []Probe, results map[ProbeID]ProbeResult, d Diagnosis) snapshot.Snapshot {
 	s := snapshot.Snapshot{Schema: snapshot.Schema, Checks: []snapshot.Check{}, OK: true}
 	if t != nil {
 		s.Target = &snapshot.Target{
@@ -41,9 +55,7 @@ func BuildSnapshot(t *Target, probes []Probe, results map[ProbeID]ProbeResult) s
 			s.Target.IP = t.IP.String()
 		}
 	}
-	order := make([]ProbeID, len(probes))
-	for i, p := range probes {
-		order[i] = p.ID
+	for _, p := range probes {
 		// reported, not the result itself, is the fact this loop turns on: a
 		// missing entry yields the zero ProbeResult, and its Status is
 		// StatusPass. Every field below that could otherwise carry a zero value
@@ -85,9 +97,6 @@ func BuildSnapshot(t *Target, probes []Probe, results map[ProbeID]ProbeResult) s
 		}
 		s.Checks = append(s.Checks, c)
 	}
-	// One interpretation, read for every diagnostic field, so the summary, the
-	// verdict, and the findings in a snapshot cannot describe different runs.
-	d := Interpret(t, order, results)
 	s.Diagnosis.Verdict, s.Diagnosis.Summary, s.Diagnosis.Blamed = d.Verdict, d.Summary, string(d.Blamed)
 	for _, f := range d.Findings {
 		finding := snapshot.Finding{

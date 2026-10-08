@@ -147,7 +147,8 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 			// so reporting that pass would be a lie.
 			return code
 		}
-		rep := buildReport(h.target, probes, results)
+		d := diagnostic.Interpret(h.target, diagnostic.ProbeOrder(probes), results)
+		rep := buildReportWithDiagnosis(h.target, probes, results, d)
 		code = 0
 		if !rep.OK {
 			code = 1
@@ -165,7 +166,7 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 		// the stdout contract already honored: the run's answer reaches a pipe
 		// either way, and only the exit code says the artifact is missing.
 		if h.save != "" {
-			if err := writeSnapshot(h, probes, results); err != nil {
+			if err := saveSnapshot(h, buildSnapshotArtifactWithDiagnosis(h, probes, results, d)); err != nil {
 				flagName := "-save"
 				if h.support {
 					flagName = "-support"
@@ -212,9 +213,10 @@ func diagnoseHeadless(ctx context.Context, h headless, wantSnapshot bool) diagno
 	if ctx.Err() != nil {
 		return diagnosisOutput{err: ctx.Err()}
 	}
-	out := diagnosisOutput{report: buildReport(h.target, probes, results), tool: invocationTool()}
+	d := diagnostic.Interpret(h.target, diagnostic.ProbeOrder(probes), results)
+	out := diagnosisOutput{report: buildReportWithDiagnosis(h.target, probes, results, d), tool: invocationTool()}
 	if wantSnapshot {
-		out.snapshot = buildSnapshotArtifact(h, probes, results)
+		out.snapshot = buildSnapshotArtifactWithDiagnosis(h, probes, results, d)
 	}
 	return out
 }

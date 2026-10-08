@@ -91,7 +91,7 @@ func (m model) answerBlockFor(elaborate bool) string {
 		block += "\n" + strings.Join(rem, "\n")
 	}
 	if elaborate && m.allDone() && m.chainRan() && m.keys.bound(ctxList, actSave) && m.actionAvailable(actSave) {
-		if _, verdict := m.diagnose(m.probeOrder()); verdict != diagnostic.VerdictOK {
+		if _, verdict := m.diagnose(); verdict != diagnostic.VerdictOK {
 			block += "\n  " + m.st.faint.Render("Need help? Press ") + m.st.sel.Render(m.keys.label(ctxList, actSave)) +
 				m.st.faint.Render(" to save a report you can send to someone technical")
 		}
@@ -139,6 +139,9 @@ func (m model) networkLine() string {
 }
 
 func (m model) View() string {
+	if !m.analysisReady {
+		m.refreshAnalysis()
+	}
 	if m.helping {
 		return m.helpOverlay()
 	}
@@ -480,9 +483,8 @@ func (m model) bodyView(deferred bool, rows int) string {
 	// to the row the Details section is describing.
 	sel := max(slices.Index(shown, m.selected), 0)
 	// Which of the failed rows the diagnosis has already explained as
-	// downstream of another one. It is read from the current results on every
-	// render, so a watch pass that repairs the path takes the labels with it.
-	collateral := diagnostic.Collateral(m.target, m.probeOrder(), m.results)
+	// downstream of another one, from the analysis of this result revision.
+	collateral := m.currentAnalysis().collateral
 
 	// The rows are built before the section has a width, because what the rows
 	// come to is what decides that width, so the labels are placed in a second
@@ -797,13 +799,11 @@ func (m model) outcomeLine(r diagnostic.ProbeResult) string {
 // It states the relation and stops. Which check to fix, and how, belong to the
 // answer block, and repeating either here would be a second diagnosis.
 func (m model) consequenceLine(id diagnostic.ProbeID, status diagnostic.Status) string {
-	// Only a failure is ever downstream of another one, and the question costs
-	// a whole interpretation of the run to answer, so it is asked only of the
-	// rows that can be answered yes.
+	// Only a failure is ever downstream of another one.
 	if status != diagnostic.StatusFail {
 		return ""
 	}
-	if !diagnostic.Collateral(m.target, m.probeOrder(), m.results)[id] {
+	if !m.currentAnalysis().collateral[id] {
 		return ""
 	}
 	blamed := m.diagnosis().Blamed
@@ -2484,9 +2484,9 @@ func (m model) bannerFor(elaborate bool) string {
 	if !m.allDone() {
 		return m.spinner.View() + " Checking your connection" + m.activity() + "…"
 	}
-	summary, verdict := m.diagnose(m.probeOrder())
+	summary, verdict := m.diagnose()
 	st := verdictStatus(verdict)
-	plain := diagnostic.Explain(m.target, m.probeOrder(), m.results)
+	plain := m.currentAnalysis().explanation
 	// Bold as well as coloured: the panel titles under this sentence are bold,
 	// and the answer must not be the lighter of the two. A terminal that
 	// renders no attributes at all drops both together, which is why the
@@ -2642,11 +2642,7 @@ func (m model) answerRow() int {
 // reads. It deliberately reports nothing about which row failed: the blamed
 // row is the diagnosis's call alone, and focusRow is the only place that asks.
 func (m model) probeOrder() []diagnostic.ProbeID {
-	order := make([]diagnostic.ProbeID, len(m.probes))
-	for i, probe := range m.probes {
-		order[i] = probe.ID
-	}
-	return order
+	return m.currentAnalysis().order
 }
 
 // verdictStatus is the presentation severity of a finished run, and the
@@ -2727,7 +2723,7 @@ func (m model) changedRow(id diagnostic.ProbeID) bool {
 // behind it. That is what puts the cursor on DNS rather than on the target
 // connect DNS took down with it.
 func (m model) changedFocus() int {
-	collateral := diagnostic.Collateral(m.target, m.probeOrder(), m.results)
+	collateral := m.currentAnalysis().collateral
 	first := -1
 	for i, probe := range m.probes {
 		if !hasCheckRow(probe.ID) || !m.changedRow(probe.ID) {

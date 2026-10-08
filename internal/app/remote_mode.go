@@ -246,7 +246,8 @@ func diagnoseRemote(ctx context.Context, req remote.Request) (*report.Report, *s
 		// pass would be a lie, the same judgement a local interrupted run makes.
 		return nil, nil, errors.New("the run was interrupted before it finished")
 	}
-	rep := buildReport(h.target, probes, results)
-	s := buildSnapshotArtifact(h, probes, results)
+	d := diagnostic.Interpret(h.target, diagnostic.ProbeOrder(probes), results)
+	rep := buildReportWithDiagnosis(h.target, probes, results, d)
+	s := buildSnapshotArtifactWithDiagnosis(h, probes, results, d)
 	return &rep, &s, nil
 }

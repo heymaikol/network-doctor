@@ -28,7 +28,11 @@ func writeSnapshot(h headless, probes []diagnostic.Probe, results map[diagnostic
 // --via can hand the same artifact back over the wire and let the machine that
 // asked for it decide what to keep.
 func buildSnapshotArtifact(h headless, probes []diagnostic.Probe, results map[diagnostic.ProbeID]diagnostic.ProbeResult) snapshot.Snapshot {
-	s := diagnostic.BuildSnapshot(h.target, probes, results)
+	return buildSnapshotArtifactWithDiagnosis(h, probes, results, diagnostic.Interpret(h.target, diagnostic.ProbeOrder(probes), results))
+}
+
+func buildSnapshotArtifactWithDiagnosis(h headless, probes []diagnostic.Probe, results map[diagnostic.ProbeID]diagnostic.ProbeResult, d diagnostic.Diagnosis) snapshot.Snapshot {
+	s := diagnostic.BuildSnapshotWithDiagnosis(h.target, probes, results, d)
 	s.Tool = invocationTool()
 	s.CreatedAt = timeNow().UTC().Format(time.RFC3339)
 	s.Options = snapshot.Options{

@@ -29,7 +29,7 @@ func writeSnapshot(h headless, probes []diagnostic.Probe, results map[diagnostic
 // asked for it decide what to keep.
 func buildSnapshotArtifact(h headless, probes []diagnostic.Probe, results map[diagnostic.ProbeID]diagnostic.ProbeResult) snapshot.Snapshot {
 	s := diagnostic.BuildSnapshot(h.target, probes, results)
-	s.Tool = snapshot.Tool{Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH}
+	s.Tool = invocationTool()
 	s.CreatedAt = timeNow().UTC().Format(time.RFC3339)
 	s.Options = snapshot.Options{
 		ProbeTimeoutMs: diagnostic.ProbeTimeoutMs(h.timeout),
@@ -51,6 +51,13 @@ func buildSnapshotArtifact(h headless, probes []diagnostic.Probe, results map[di
 		s.Options.Source = &source
 	}
 	return s
+}
+
+// invocationTool names the build and platform that ran a diagnosis. It is
+// returned with every local run, snapshot or not, so the tool field never
+// depends on whether a snapshot was asked for.
+func invocationTool() snapshot.Tool {
+	return snapshot.Tool{Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH}
 }
 
 // saveSnapshot applies the run's privacy policy and writes the artifact. It is

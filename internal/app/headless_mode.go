@@ -81,13 +81,13 @@ func runLiveTwoSided(parent context.Context, h headless, stdout, stderr io.Write
 	var local, remote diagnosisOutput
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		local = diagnoseHeadless(ctx, localRun)
+		local = diagnoseHeadless(ctx, localRun, true)
 		if local.err != nil {
 			cancel()
 		}
 	})
 	wg.Go(func() {
-		remote = diagnoseHeadless(ctx, h)
+		remote = diagnoseHeadless(ctx, h, true)
 		if remote.err != nil {
 			cancel()
 		}
@@ -195,10 +195,11 @@ type diagnosisOutput struct {
 	err      error
 }
 
-// diagnoseHeadless performs one ordinary diagnosis and returns both canonical
-// artifacts. A via run uses the worker's artifacts; a local run builds them
-// from the same probe results.
-func diagnoseHeadless(ctx context.Context, h headless) diagnosisOutput {
+// diagnoseHeadless performs one ordinary diagnosis. A via run always uses the
+// worker's artifacts. A local run always builds the report, and builds the
+// snapshot only when wantSnapshot asks for it, so a caller that discards the
+// snapshot does not pay to project it.
+func diagnoseHeadless(ctx context.Context, h headless, wantSnapshot bool) diagnosisOutput {
 	if h.via != "" {
 		resp, err := remoteRun(ctx, h.via, h.viaCommand, requestForRemote(h), h.viaBatch)
 		if err != nil {
@@ -211,6 +212,9 @@ func diagnoseHeadless(ctx context.Context, h headless) diagnosisOutput {
 	if ctx.Err() != nil {
 		return diagnosisOutput{err: ctx.Err()}
 	}
-	s := buildSnapshotArtifact(h, probes, results)
-	return diagnosisOutput{report: buildReport(h.target, probes, results), snapshot: s, tool: s.Tool}
+	out := diagnosisOutput{report: buildReport(h.target, probes, results), tool: invocationTool()}
+	if wantSnapshot {
+		out.snapshot = buildSnapshotArtifact(h, probes, results)
+	}
+	return out
 }

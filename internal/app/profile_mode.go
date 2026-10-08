@@ -103,7 +103,9 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// reference-egress decision is not a component's to drop.
 		h.selection.NoReferenceEgress = base.selection.NoReferenceEgress
 		h.viaBatch = batch
-		outputs[i] = diagnoseHeadless(ctx, h)
+		// Only -save and -support read a component's snapshot, and both arrive
+		// here as base.save.
+		outputs[i] = diagnoseHeadless(ctx, h, base.save != "")
 	}
 	// together runs every component from first onwards at once. A component
 	// that fails does not cancel its siblings: each one is an independent

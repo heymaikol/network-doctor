@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -135,6 +136,9 @@ func TestRunProfileSupportRedactsAllComponents(t *testing.T) {
 		if component.Snapshot.Redaction == nil || component.Snapshot.Target.Host == "server.internal" {
 			t.Errorf("component was not sanitized: %+v", component)
 		}
+		if component.Snapshot.Schema != snapshot.Schema || len(component.Snapshot.Checks) == 0 {
+			t.Errorf("component %s lost its snapshot structure", component.ID)
+		}
 	}
 }
 
@@ -245,6 +249,52 @@ func TestProfilePassHonorsCancellation(t *testing.T) {
 	_, _, _, err = runProfilePass(ctx, headless{publicDNS: diagnostic.DefaultPublicDNS, timeout: time.Second}, plan)
 	if err == nil || !strings.Contains(err.Error(), "canceled") {
 		t.Fatalf("cancellation error = %v", err)
+	}
+}
+
+// Nothing reads a component's snapshot unless -save or -support is set, so an
+// unsaved pass should not build one. BuildSnapshot always sets Schema, so a
+// non-empty Schema here means the projection ran.
+func TestProfilePassSkipsSnapshotsWithoutSave(t *testing.T) {
+	stubPassingRun(t)
+	plan := githubPlan(t)
+	_, snapshots, tools, err := runProfilePass(context.Background(), headless{publicDNS: diagnostic.DefaultPublicDNS, timeout: time.Second}, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, s := range snapshots {
+		if s.Schema != "" {
+			t.Errorf("component %s built a snapshot nobody asked for", plan.Runs[i].Label)
+		}
+		if tools[i].OS == "" {
+			t.Errorf("component %s has no tool identity", plan.Runs[i].Label)
+		}
+	}
+}
+
+// Saving is the only consumer of snapshots, so a saved pass keeps them. The
+// report it returns must not depend on whether they were built.
+func TestProfilePassSavedAndUnsavedReportsMatch(t *testing.T) {
+	stubPassingRun(t)
+	plan := githubPlan(t)
+	base := headless{publicDNS: diagnostic.DefaultPublicDNS, timeout: time.Second}
+	unsaved, _, _, err := runProfilePass(context.Background(), base, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := base
+	saved.save = filepath.Join(t.TempDir(), "profile.ndoc")
+	result, snapshots, _, err := runProfilePass(context.Background(), saved, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(unsaved, result) {
+		t.Errorf("saved result differs from unsaved:\nunsaved: %+v\nsaved:   %+v", unsaved, result)
+	}
+	for i, s := range snapshots {
+		if s.Schema != snapshot.Schema || len(s.Checks) == 0 {
+			t.Errorf("saved component %s has no snapshot", plan.Runs[i].Label)
+		}
 	}
 }
 

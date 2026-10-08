@@ -3,11 +3,18 @@
 package diagnostic
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
+	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -46,7 +53,7 @@ func TestParseRouteReplyReadsTheKernelsDecision(t *testing.T) {
 		rtAttr(unix.RTA_PRIORITY, u32(100)),
 		rtAttr(unix.RTA_TABLE, u32(unix.RT_TABLE_MAIN)),
 	)
-	got, ok := parseRouteReply([]netlinkMessage{msg}, dst)
+	got, ok := parseRouteReply([]netlinkMessage{msg}, dst, nil)
 	if !ok {
 		t.Fatal("a well formed reply was not parsed")
 	}
@@ -73,11 +80,11 @@ func TestParseRouteReplyReadsTheKernelsDecision(t *testing.T) {
 // the same thing.
 func TestParseRouteReplyKeepsAZeroMetricApartFromNone(t *testing.T) {
 	dst := netip.MustParseAddr("198.51.100.7")
-	with, _ := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_PRIORITY, u32(0)))}, dst)
+	with, _ := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_PRIORITY, u32(0)))}, dst, nil)
 	if !with.MetricKnown || with.Metric != 0 {
 		t.Errorf("an explicit metric of 0 = %d (known %t), want a recorded zero", with.Metric, with.MetricKnown)
 	}
-	without, _ := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST)}, dst)
+	without, _ := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST)}, dst, nil)
 	if without.MetricKnown {
 		t.Error("an absent metric was reported as known")
 	}
@@ -89,12 +96,12 @@ func TestParseRouteReplyKeepsAZeroMetricApartFromNone(t *testing.T) {
 // answer a question the kernel had not finished asking.
 func TestParseRouteReplyReportsUnreachableRouteTypes(t *testing.T) {
 	dst := netip.MustParseAddr("198.51.100.7")
-	thrown, ok := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_THROW)}, dst)
+	thrown, ok := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_THROW)}, dst, nil)
 	if ok && thrown.Unreachable {
 		t.Error("a throw route was reported as no route, but it only ends one table's lookup")
 	}
 	for _, rtType := range []uint8{unix.RTN_UNREACHABLE, unix.RTN_BLACKHOLE, unix.RTN_PROHIBIT} {
-		got, ok := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, rtType)}, dst)
+		got, ok := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, rtType)}, dst, nil)
 		if !ok || !got.Unreachable {
 			t.Errorf("rtm_type %d = %+v/%v, want an unreachable decision", rtType, got, ok)
 		}
@@ -113,7 +120,7 @@ func TestParseRouteReplyReadsAViaNextHop(t *testing.T) {
 	via := append(append([]byte{}, u16(unix.AF_INET6)...), net.ParseIP("fe80::1").To16()...)
 	got, ok := parseRouteReply([]netlinkMessage{
 		rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_VIA, via)),
-	}, dst)
+	}, dst, nil)
 	if !ok || got.Gateway == nil || got.Gateway.String() != "fe80::1" {
 		t.Fatalf("gateway = %v (ok %v), want the via next hop", got.Gateway, ok)
 	}
@@ -152,7 +159,7 @@ func TestRouteTableNameKeepsPolicyTableNumbers(t *testing.T) {
 	}
 	// rtm_table saturates at a byte, so the attribute has to win.
 	dst := netip.MustParseAddr("198.51.100.7")
-	got, _ := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, 253, unix.RTN_UNICAST, rtAttr(unix.RTA_TABLE, u32(51820)))}, dst)
+	got, _ := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, 0, 253, unix.RTN_UNICAST, rtAttr(unix.RTA_TABLE, u32(51820)))}, dst, nil)
 	if got.Table != "table 51820" {
 		t.Errorf("table = %q, want the attribute to win over the saturated byte", got.Table)
 	}
@@ -162,13 +169,13 @@ func TestRouteTableNameKeepsPolicyTableNumbers(t *testing.T) {
 // rather than a decision assembled out of zeroes.
 func TestParseRouteReplyRefusesWhatIsNotADecision(t *testing.T) {
 	dst := netip.MustParseAddr("198.51.100.7")
-	if _, ok := parseRouteReply(nil, dst); ok {
+	if _, ok := parseRouteReply(nil, dst, nil); ok {
 		t.Error("an empty reply produced a decision")
 	}
-	if _, ok := parseRouteReply([]netlinkMessage{{Type: unix.RTM_NEWLINK, Data: make([]byte, rtMsgLen)}}, dst); ok {
+	if _, ok := parseRouteReply([]netlinkMessage{{Type: unix.RTM_NEWLINK, Data: make([]byte, rtMsgLen)}}, dst, nil); ok {
 		t.Error("a link message was parsed as a route")
 	}
-	if _, ok := parseRouteReply([]netlinkMessage{{Type: unix.RTM_NEWROUTE, Data: []byte{1, 2}}}, dst); ok {
+	if _, ok := parseRouteReply([]netlinkMessage{{Type: unix.RTM_NEWROUTE, Data: []byte{1, 2}}}, dst, nil); ok {
 		t.Error("a truncated route message produced a decision")
 	}
 }
@@ -181,7 +188,7 @@ func TestParseRouteReplyRefusesWhatIsNotADecision(t *testing.T) {
 func TestParseRouteReplyNeverReadsTheEchoedPrefixLength(t *testing.T) {
 	dst := netip.MustParseAddr("198.51.100.7")
 	for _, dstLen := range []uint8{0, 16, 32, 99} {
-		got, ok := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, dstLen, unix.RT_TABLE_MAIN, unix.RTN_UNICAST)}, dst)
+		got, ok := parseRouteReply([]netlinkMessage{rtMsg(unix.AF_INET, dstLen, unix.RT_TABLE_MAIN, unix.RTN_UNICAST)}, dst, nil)
 		if !ok {
 			t.Fatalf("dst_len %d: the reply was rejected outright", dstLen)
 		}
@@ -192,6 +199,276 @@ func TestParseRouteReplyNeverReadsTheEchoedPrefixLength(t *testing.T) {
 			t.Errorf("dst_len %d was read as a host route", dstLen)
 		}
 	}
+}
+
+// Destinations that leave by one interface read that interface once per pass,
+// not once per destination. The probe budget allows maxAttempts destinations,
+// so that many routes through one egress is the realistic worst case.
+func TestParseRouteReplyAcquiresASharedInterfaceOnce(t *testing.T) {
+	var acquired []int
+	saved := linkAcquire
+	linkAcquire = func(index int) (string, int, ifaceFacts) {
+		acquired = append(acquired, index)
+		return "eth0", 1500, ifaceFacts{Name: "eth0", NoLinkLayer: true}
+	}
+	t.Cleanup(func() { linkAcquire = saved })
+	links := newLinkCache()
+	for i := range maxAttempts {
+		dst := netip.AddrFrom4([4]byte{198, 51, 100, byte(i + 1)})
+		msg := rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_OIF, u32(7)))
+		got, ok := parseRouteReply([]netlinkMessage{msg}, dst, links)
+		if !ok || got.Iface != "eth0" {
+			t.Fatalf("destination %d = %+v/%v, want a route through eth0", i, got, ok)
+		}
+	}
+	if len(acquired) != 1 {
+		t.Errorf("acquired interface %d times for %d destinations through it (indexes %v), want once", len(acquired), maxAttempts, acquired)
+	}
+}
+
+// Outside a pass there is no cache, and each decision reads its interface, as
+// every lookup did before the pass cache existed.
+func TestNilLinkCacheReadsEveryDecision(t *testing.T) {
+	var acquired int
+	saved := linkAcquire
+	linkAcquire = func(int) (string, int, ifaceFacts) {
+		acquired++
+		return "eth0", 1500, ifaceFacts{Name: "eth0"}
+	}
+	t.Cleanup(func() { linkAcquire = saved })
+	for i := range 3 {
+		dst := netip.AddrFrom4([4]byte{198, 51, 100, byte(i + 1)})
+		msg := rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_OIF, u32(7)))
+		if _, ok := parseRouteReply([]netlinkMessage{msg}, dst, nil); !ok {
+			t.Fatalf("destination %d was not parsed", i)
+		}
+	}
+	if acquired != 3 {
+		t.Errorf("acquired interface %d times without a pass cache, want one per decision", acquired)
+	}
+}
+
+// Different interfaces stay apart: each index is read once, and a decision
+// reports the interface its own index named, never another pass's.
+func TestLinkCacheKeepsInterfacesApart(t *testing.T) {
+	names := map[int]string{7: "eth0", 9: "wg0"}
+	reads := map[int]int{}
+	saved := linkAcquire
+	linkAcquire = func(index int) (string, int, ifaceFacts) {
+		reads[index]++
+		return names[index], 1500, ifaceFacts{Name: names[index]}
+	}
+	t.Cleanup(func() { linkAcquire = saved })
+	links := newLinkCache()
+	dst := netip.MustParseAddr("198.51.100.7")
+	for _, index := range []uint32{7, 9, 7, 9, 7} {
+		msg := rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_OIF, u32(index)))
+		got, ok := parseRouteReply([]netlinkMessage{msg}, dst, links)
+		if !ok || got.Iface != names[int(index)] {
+			t.Fatalf("index %d = %+v/%v, want %q", index, got, ok, names[int(index)])
+		}
+	}
+	if reads[7] != 1 || reads[9] != 1 {
+		t.Errorf("reads = %v, want one per interface index", reads)
+	}
+}
+
+// A read that found nothing is the answer for the pass. The interface stays
+// unknown, and asking again would only repeat the miss.
+func TestLinkCacheKeepsAFailedReadAsTheAnswer(t *testing.T) {
+	var reads int
+	saved := linkAcquire
+	linkAcquire = func(int) (string, int, ifaceFacts) {
+		reads++
+		return "", 0, ifaceFacts{}
+	}
+	t.Cleanup(func() { linkAcquire = saved })
+	links := newLinkCache()
+	dst := netip.MustParseAddr("198.51.100.7")
+	for range 3 {
+		msg := rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST, rtAttr(unix.RTA_OIF, u32(7)))
+		got, ok := parseRouteReply([]netlinkMessage{msg}, dst, links)
+		if !ok || got.Iface != "" || got.MTU != 0 || got.Tunnel != TunnelUnknown {
+			t.Fatalf("failed read = %+v/%v, want an unknown interface", got, ok)
+		}
+	}
+	if reads != 1 {
+		t.Errorf("read the failed interface %d times, want once per pass", reads)
+	}
+}
+
+// The cache changes when an interface is read, never what a decision says.
+func TestLinkCacheDecisionsMatchUncachedReads(t *testing.T) {
+	saved := linkAcquire
+	linkAcquire = func(int) (string, int, ifaceFacts) {
+		return "wg0", 1420, ifaceFacts{Name: "wg0", Kind: "wireguard", PointToPoint: true}
+	}
+	t.Cleanup(func() { linkAcquire = saved })
+	dst := netip.MustParseAddr("198.51.100.7")
+	msg := rtMsg(unix.AF_INET, 0, unix.RT_TABLE_MAIN, unix.RTN_UNICAST,
+		rtAttr(unix.RTA_GATEWAY, net.ParseIP("192.168.1.1").To4()), rtAttr(unix.RTA_OIF, u32(5)))
+	plain, _ := parseRouteReply([]netlinkMessage{msg}, dst, nil)
+	cached, _ := parseRouteReply([]netlinkMessage{msg}, dst, newLinkCache())
+	if !reflect.DeepEqual(plain, cached) {
+		t.Errorf("cached decision = %+v, want the uncached %+v", cached, plain)
+	}
+	if cached.Iface != "wg0" || cached.MTU != 1420 {
+		t.Errorf("decision = %+v, want wg0 at MTU 1420", cached)
+	}
+}
+
+// Askers for an interface already being read wait for that read, which happens
+// once. synctest.Wait returns only once every asker is blocked in the cache.
+func TestLinkCacheReadsOneInterfaceOnceWhileInFlight(t *testing.T) {
+	saved := linkAcquire
+	defer func() { linkAcquire = saved }()
+	synctest.Test(t, func(t *testing.T) {
+		var reads atomic.Int32
+		release := make(chan struct{})
+		linkAcquire = func(int) (string, int, ifaceFacts) {
+			reads.Add(1)
+			<-release
+			return "eth0", 1500, ifaceFacts{Name: "eth0"}
+		}
+		links := newLinkCache()
+		var wg sync.WaitGroup
+		for range 3 {
+			wg.Go(func() {
+				if name, _, _ := links.get(7); name != "eth0" {
+					t.Errorf("waiter read %q, want eth0", name)
+				}
+			})
+		}
+		synctest.Wait()
+		if n := reads.Load(); n != 1 {
+			t.Errorf("%d reads in flight, want 1", n)
+		}
+		close(release)
+		wg.Wait()
+	})
+}
+
+// Reads of different interfaces overlap: each waits inside the read until the
+// other has entered too. A cache holding one lock across a read cannot allow it.
+func TestLinkCacheReadsDifferentInterfacesConcurrently(t *testing.T) {
+	saved := linkAcquire
+	t.Cleanup(func() { linkAcquire = saved })
+	// Buffered for both workers, so a read that runs late never blocks on
+	// announcing itself.
+	entered, release := make(chan int, 2), make(chan struct{})
+	linkAcquire = func(index int) (string, int, ifaceFacts) {
+		entered <- index
+		<-release
+		return "eth0", 1500, ifaceFacts{Name: "eth0"}
+	}
+	links := newLinkCache()
+	var wg sync.WaitGroup
+	// Deferred, so every return path, including the failed Fatal, closes release
+	// and joins both workers before Cleanup restores linkAcquire. Defers run in
+	// reverse order: close(release) first, then the Wait.
+	defer wg.Wait()
+	defer close(release)
+	for _, index := range []int{7, 9} {
+		wg.Go(func() { links.get(index) })
+	}
+	for range 2 {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("interface reads were serialized: the second never entered while the first was in flight")
+		}
+	}
+}
+
+// Each pass builds its own lookups, so the interface cache is fresh on every
+// Watch Mode pass, and one pass's reads never serve the next.
+func TestEachPassGetsItsOwnLinkCache(t *testing.T) {
+	saved := linkAcquire
+	var reads int
+	linkAcquire = func(index int) (string, int, ifaceFacts) {
+		reads++
+		return saved(index)
+	}
+	t.Cleanup(func() { linkAcquire = saved })
+	loopback := func(routeFor func(dst, source net.IP) (RouteDecision, bool)) {
+		for i := 1; i <= 4; i++ {
+			if _, ok := routeFor(net.IPv4(127, 0, 0, byte(i)), nil); !ok {
+				t.Skip("the kernel did not answer loopback route lookups in this environment")
+			}
+		}
+	}
+	first, _ := newPassRouteLookups()
+	loopback(first)
+	if reads != 1 {
+		t.Errorf("first pass read loopback %d times for four destinations, want once", reads)
+	}
+	second, _ := newPassRouteLookups()
+	loopback(second)
+	if reads != 2 {
+		t.Errorf("second pass read loopback %d times in total, want a fresh read (2)", reads)
+	}
+}
+
+// BuildProbesFromSources asks for one lookup pair per pass and installs it, so
+// each pass's probes answer from the pair that pass was built with. A count
+// alone would pass even if the pair were built and never reached the cache.
+func TestBuildProbesFromSourcesBuildsOnePassLookupPair(t *testing.T) {
+	saved := defaultOps.passRoutes
+	var built int
+	defaultOps.passRoutes = func() (
+		func(dst, source net.IP) (RouteDecision, bool),
+		func(dst, source net.IP, zone string) (RouteDecision, bool),
+	) {
+		built++
+		name := fmt.Sprintf("pass-%d", built)
+		return func(net.IP, net.IP) (RouteDecision, bool) {
+				return RouteDecision{Iface: name}, true
+			}, func(net.IP, net.IP, string) (RouteDecision, bool) {
+				return RouteDecision{}, false
+			}
+	}
+	t.Cleanup(func() { defaultOps.passRoutes = saved })
+	for pass := 1; pass <= 2; pass++ {
+		var got string
+		for _, p := range BuildProbesFromSources(nil, nil, "", false) {
+			if p.ID == ProbeIface {
+				if r := p.Run(context.Background(), map[ProbeID]ProbeResult{}); len(r.Routes) != 0 {
+					got = r.Routes[0].Iface
+				}
+			}
+		}
+		if want := fmt.Sprintf("pass-%d", pass); got != want {
+			t.Errorf("pass %d reported route via %q, want %q from its own lookup pair", pass, got, want)
+		}
+	}
+	if built != 2 {
+		t.Errorf("built %d lookup pairs for two passes, want one each", built)
+	}
+}
+
+// One pass asking about sixteen loopback destinations, all leaving by lo. The
+// real kernel answers every lookup, so the gap between the two rows is the
+// interface reads a pass no longer repeats. Numbers are for loopback only.
+func BenchmarkRouteLookupsOneEgress(b *testing.B) {
+	dsts := make([]net.IP, maxAttempts)
+	for i := range dsts {
+		dsts[i] = net.IPv4(127, 0, 0, byte(i+1))
+	}
+	b.Run("uncached", func(b *testing.B) {
+		for b.Loop() {
+			for _, dst := range dsts {
+				lookupRouteDecision(dst, nil)
+			}
+		}
+	})
+	b.Run("per-pass", func(b *testing.B) {
+		for b.Loop() {
+			routeFor, _ := newPassRouteLookups()
+			for _, dst := range dsts {
+				routeFor(dst, nil)
+			}
+		}
+	})
 }
 
 // The real kernel, on this machine, for a destination that is certainly not a

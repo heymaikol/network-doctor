@@ -143,7 +143,7 @@ func recordingOps(log *egressLog) *netops {
 // that only ask this machine about itself.
 var (
 	netopsEmittingFields = []string{"lookupIP", "lookupPublicIP", "dialContext", "dialTLS", "quicHandshake", "portalCheck", "proxyFromEnv"}
-	netopsLocalFields    = []string{"interfaces", "interfaceAddrs", "sources", "sendBuffer", "queued", "tcpMSS", "tlsRootCAs", "ssid", "routeCause", "routeFor", "routeForZone", "defaultRoutes", "routes", "scope"}
+	netopsLocalFields    = []string{"interfaces", "interfaceAddrs", "sources", "sendBuffer", "queued", "tcpMSS", "tlsRootCAs", "ssid", "routeCause", "routeFor", "routeForZone", "passRoutes", "defaultRoutes", "routes", "scope"}
 )
 
 // TestEveryNetopsTouchpointIsClassifiedAndRecorded is the guard that keeps the

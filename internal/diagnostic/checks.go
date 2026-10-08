@@ -531,6 +531,14 @@ type netops struct {
 	// constraint, and the scoped target then gets no route rather than one
 	// for another link.
 	routeForZone func(dst, source net.IP, zone string) (RouteDecision, bool)
+	// passRoutes, where the platform can share interface facts across a pass,
+	// builds that pass's routeFor and routeForZone. BuildProbesFromSources
+	// installs them for that pass alone, so a platform without it keeps the
+	// lookups above.
+	passRoutes func() (
+		func(dst, source net.IP) (RouteDecision, bool),
+		func(dst, source net.IP, zone string) (RouteDecision, bool),
+	)
 	// defaultRoutes lists this family's usable default routes, which is what
 	// lets a decision name the competitor it beat. Nil on a platform that
 	// exposes no comparable preference.
@@ -597,6 +605,7 @@ var defaultOps = &netops{
 	routeCause:    routeFailureCause,
 	routeFor:      lookupRouteDecision,
 	routeForZone:  lookupScopedRouteDecision,
+	passRoutes:    newPassRouteLookups,
 	defaultRoutes: defaultRoutesFor,
 }
 
@@ -634,6 +643,9 @@ func BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS strin
 		if addr, ok := netip.AddrFromSlice(t.IP); ok {
 			o.scope = addr.Unmap().WithZone(t.Zone)
 		}
+	}
+	if o.passRoutes != nil {
+		o.routeFor, o.routeForZone = o.passRoutes()
 	}
 	o.routes = newRouteCache(o.routeFor, o.sources)
 	o.routes.scoped, o.routes.lookupZone = o.scoped, o.routeForZone

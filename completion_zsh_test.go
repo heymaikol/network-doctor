@@ -152,6 +152,11 @@ func TestZshCompletionOffersSnapshotsOnlyWhereTheyAreRead(t *testing.T) {
 			files: true,
 		},
 		{
+			name:  "explain takes a topology file",
+			line:  "netdoc --explain ",
+			files: true,
+		},
+		{
 			name:  "offline two-sided takes snapshots",
 			line:  "netdoc --two-sided ",
 			files: true,

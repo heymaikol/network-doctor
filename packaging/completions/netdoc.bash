@@ -74,9 +74,11 @@ _netdoc() {
     # Targets are hostnames, URLs, and IP literals, none of them enumerable, so
     # a non-flag word completes to nothing rather than to local filenames. The
     # exceptions are --compare and offline --two-sided, whose two arguments
-    # are local snapshot files. With --via, two-sided takes a target instead.
+    # are local snapshot files, and --explain, whose topology file is one.
+    # With --via, two-sided takes a target instead.
     if [[ $cur != -* ]]; then
-        if [[ " ${COMP_WORDS[*]} " == *" -compare "* || " ${COMP_WORDS[*]} " == *" --compare "* ]]; then
+        if [[ " ${COMP_WORDS[*]} " == *" -compare "* || " ${COMP_WORDS[*]} " == *" --compare "* ||
+              " ${COMP_WORDS[*]} " == *" -explain "* || " ${COMP_WORDS[*]} " == *" --explain "* ]]; then
             COMPREPLY=($(compgen -f -- "$cur"))
         elif [[ ( " ${COMP_WORDS[*]} " == *" -two-sided "* || " ${COMP_WORDS[*]} " == *" --two-sided "* ) &&
                 " ${COMP_WORDS[*]} " != *" -via "* && " ${COMP_WORDS[*]} " != *" --via "* ]]; then
@@ -94,6 +96,7 @@ _netdoc() {
         -support --support
         -compare --compare
         -two-sided --two-sided
+        -explain --explain
         -peer-listen --peer-listen
         -peer-connect --peer-connect
         -via --via

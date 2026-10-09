@@ -19,6 +19,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --peer-listen IP:port [--peer-listen IP:port]
        netdoc --peer-connect [--json]
        netdoc --compare before.ndoc after.ndoc [--json]
+       netdoc --explain topology.json DEST [--json]
        netdoc --two-sided here.ndoc there.ndoc [--json]
        netdoc --two-sided --via ssh-destination [target] [--json]
 
@@ -42,6 +43,13 @@ string; the connector reads it from a hidden prompt so it does not enter argv.
 Compare mode is headless and runs no probes: it reads two snapshots written by
 --save or --support and reports what changed between them. It exits 0 when they describe the
 same state and 1 when they do not.
+
+--explain reads a topology file and a destination and says how traffic to that
+destination should leave the network, where the forwarding table and the
+control plane disagree, and which segments a recorded failure could lie in. It
+is headless and runs no probe: the file is the only evidence, and the
+destination must be an IP address, because a name would need a resolver. The
+file's format is documented under Route path explanation in the reference.
 
 --two-sided reads two snapshots as two machines looking at one target and says
 whether the evidence places a failure on side A, side B, something shared, or

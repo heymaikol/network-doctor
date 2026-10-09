@@ -88,6 +88,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	support := fs.String("support", "", "run the checks headless and write a sanitized support snapshot to `file` (.ndoc)")
 	compareMode := fs.Bool("compare", false, "compare two saved snapshots given as arguments; runs no probes")
 	twoSided := fs.Bool("two-sided", false, "localize a failure from two saved snapshots, or from local and -via live runs")
+	explain := fs.Bool("explain", false, "explain how traffic to a destination should leave a topology file; runs no probes")
 	watch := fs.Bool("watch", false, "continuously re-run checks (with -json, stream one report per line)")
 	profileName := fs.String("profile", "", "run a service `profile` ("+strings.Join(profiles.Names(), ", ")+"; use list to describe them)")
 	var peerListen peerListenList
@@ -136,7 +137,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	allowed := 1
-	if *compareMode || *twoSided && !liveTwoSided {
+	if *compareMode || *explain || *twoSided && !liveTwoSided {
 		allowed = 2
 	}
 	if len(positional) > allowed {
@@ -183,6 +184,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *compareMode && *twoSided {
 		fmt.Fprintln(stderr, "netdoc: -compare and -two-sided cannot be combined")
 		return 2
+	}
+	// Explain reads a topology file and a destination. Like compare it runs no
+	// probe, so it is dispatched here, before any probe setting is checked.
+	if *explain {
+		if *compareMode || *twoSided {
+			fmt.Fprintln(stderr, "netdoc: -explain cannot be combined with -compare or -two-sided")
+			return 2
+		}
+		return runExplain(positional, setFlagNames(fs), *jsonOut, stdout, stderr)
 	}
 	if *compareMode {
 		return runCompare(positional, setFlagNames(fs), *jsonOut, stdout, stderr)

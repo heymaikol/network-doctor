@@ -33,8 +33,9 @@ _netdoc_snapshots() {
 
 # Positional arguments are normally targets -- hostnames, URLs and IP literals,
 # none of them enumerable -- so completion offers nothing rather than local
-# filenames. The exceptions are the two arguments of --compare, and of
-# --two-sided when it is offline: those are local snapshots.
+# filenames. The exceptions are the two arguments of --compare, of --two-sided
+# when it is offline (those are local snapshots), and the arguments of
+# --explain, whose topology file is local too.
 #
 # `--two-sided --via` is the case worth stating, because it inverts: side B is
 # then a live target, not a file, so file completion has to stay off. That is
@@ -56,7 +57,9 @@ _netdoc_wants_snapshots() {
 # spec up front keeps the ordinary case exactly the single `:target:` it has
 # always been, and the flags keep coming back.
 local -a _netdoc_rest
-if _netdoc_wants_snapshots; then
+if (( ${words[(I)(--explain|-explain)]} )); then
+  _netdoc_rest=( '*:file:_files' )
+elif _netdoc_wants_snapshots; then
   _netdoc_rest=( '*:snapshot:_netdoc_snapshots' )
 else
   _netdoc_rest=( ':target:' )
@@ -73,8 +76,9 @@ _arguments \
   '(--profile -profile)'{--profile,-profile}='[run a built-in service profile]:profile:(github ssh smtp web list)' \
   '(--save -save --support -support)'{--save,-save}='[write a diagnostic snapshot (.ndoc) to a file]:file:_files' \
   '(--support -support --save -save)'{--support,-support}='[write a sanitized support snapshot (.ndoc) to a file]:file:_files' \
-  '(--compare -compare --two-sided -two-sided)'{--compare,-compare}'[compare two saved snapshots (.ndoc); runs no probes]' \
-  '(--two-sided -two-sided --compare -compare)'{--two-sided,-two-sided}'[localize two saved snapshots, or local and --via live runs]' \
+  '(--compare -compare --two-sided -two-sided --explain -explain)'{--compare,-compare}'[compare two saved snapshots (.ndoc); runs no probes]' \
+  '(--two-sided -two-sided --compare -compare --explain -explain)'{--two-sided,-two-sided}'[localize two saved snapshots, or local and --via live runs]' \
+  '(--explain -explain --compare -compare --two-sided -two-sided)'{--explain,-explain}'[explain how traffic to a destination should leave a topology file; runs no probes]' \
   '*'{--peer-listen,-peer-listen}='[listen for an authenticated peer on an exact IP\:port]:address:' \
   '(--peer-connect -peer-connect)'{--peer-connect,-peer-connect}'[read a temporary pairing string and run a two-ended diagnosis]' \
   '(--via -via)'{--via,-via}='[run remotely, or provide side B for live two-sided diagnosis]:destination:_hosts' \

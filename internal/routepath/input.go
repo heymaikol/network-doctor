@@ -2,11 +2,13 @@ package routepath
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/netip"
+	"slices"
 	"time"
 
 	"github.com/heymaikol/network-doctor/internal/netmodel"
@@ -28,11 +30,21 @@ type wireFile struct {
 	Source       wireStart         `json:"source"`
 	Observations []wireObservation `json:"observations"`
 	Checks       []wireCheck       `json:"checks"`
+	Boundaries   []wireBoundary    `json:"boundaries"`
 }
 
 type wireStart struct {
-	Node string `json:"node"`
-	VRF  string `json:"vrf"`
+	Node    string `json:"node"`
+	VRF     string `json:"vrf"`
+	Address string `json:"address"`
+}
+
+type wireBoundary struct {
+	Source      string `json:"source"`
+	CollectedAt string `json:"collected_at"`
+	Node        string `json:"node"`
+	VRF         string `json:"vrf"`
+	Kind        string `json:"kind"`
 }
 
 type wireObservation struct {
@@ -129,7 +141,60 @@ func Decode(data []byte) (File, error) {
 		}
 		checks = append(checks, c)
 	}
-	return File{Source: Start{Node: w.Source.Node, VRF: w.Source.VRF}, Model: m, Checks: checks}, nil
+	srcAddr, err := optionalAddr(w.Source.Address)
+	if err != nil {
+		return File{}, fmt.Errorf(`topology file "source" address: %w`, err)
+	}
+	bounds := make([]Boundary, 0, len(w.Boundaries))
+	for i, wb := range w.Boundaries {
+		b, err := decodeBoundary(wb)
+		if err != nil {
+			return File{}, fmt.Errorf("boundary %d: %w", i, err)
+		}
+		bounds = append(bounds, b)
+	}
+	slices.SortFunc(bounds, compareBoundaries)
+	return File{
+		Source:     Start{Node: w.Source.Node, VRF: w.Source.VRF},
+		SourceAddr: srcAddr,
+		Model:      m,
+		Checks:     checks,
+		Boundaries: bounds,
+	}, nil
+}
+
+func decodeBoundary(w wireBoundary) (Boundary, error) {
+	at, err := parseTime(w.CollectedAt)
+	if err != nil {
+		return Boundary{}, err
+	}
+	if w.Source == "" || w.Node == "" || w.VRF == "" {
+		return Boundary{}, errors.New("needs source, node, and vrf")
+	}
+	kind := BoundaryKind(w.Kind)
+	switch kind {
+	case BoundaryStatefulFirewall, BoundaryNAT, BoundaryTunnel:
+	default:
+		return Boundary{}, fmt.Errorf(`kind %q is not "stateful_firewall", "nat", or "tunnel"`, w.Kind)
+	}
+	return Boundary{
+		Provenance: netmodel.Provenance{Source: w.Source, CollectedAt: at},
+		Node:       w.Node,
+		VRF:        w.VRF,
+		Kind:       kind,
+	}, nil
+}
+
+// compareBoundaries orders boundaries by every field, provenance included, so
+// two rows that differ only in source still sort the same way in any file order.
+func compareBoundaries(a, b Boundary) int {
+	return cmp.Or(
+		cmp.Compare(a.Node, b.Node),
+		cmp.Compare(a.VRF, b.VRF),
+		cmp.Compare(string(a.Kind), string(b.Kind)),
+		cmp.Compare(a.Source, b.Source),
+		a.CollectedAt.Compare(b.CollectedAt),
+	)
 }
 
 func observation(w wireObservation) (netmodel.Observation, error) {

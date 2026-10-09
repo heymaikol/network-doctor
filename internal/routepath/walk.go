@@ -73,9 +73,18 @@ type walker struct {
 }
 
 // Explain walks file from its source toward dest, once along the expected
-// routes and once along the forwarding table, then compares the two. It sends
-// no traffic and reads nothing beyond file.
+// routes and once along the forwarding table, then compares the two. When file
+// names the source address, it also compares the return route. It sends no
+// traffic and reads nothing beyond file.
 func Explain(f File, dest netip.Addr) Explanation {
+	e, w := explainWalks(f, dest)
+	e.Asymmetry = w.asymmetry(f, e)
+	return e
+}
+
+// explainWalks is Explain without the return comparison. The return walk uses
+// it, so a return walk never compares itself with another return.
+func explainWalks(f File, dest netip.Addr) (Explanation, *walker) {
 	dest = dest.WithZone("").Unmap()
 	w := newWalker(f, dest)
 	start := state{node: f.Source.Node, vrf: f.Source.VRF}
@@ -95,7 +104,7 @@ func Explain(f File, dest netip.Addr) Explanation {
 	e.Findings = compareWalks(&e.Expected, &e.Forwarding)
 	e.Regions = failureRegions(&e.Forwarding)
 	e.Limitations = limitations(&e.Expected, &e.Forwarding, expNotes, fwdNotes)
-	return e
+	return e, w
 }
 
 func newWalker(f File, dest netip.Addr) *walker {

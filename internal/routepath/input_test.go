@@ -80,6 +80,9 @@ func TestDecodeRefusesMalformedFiles(t *testing.T) {
 		{"hostname destination", strings.Replace(base, `"destination": "10.20.40.8"`, `"destination": "server.example"`, 1), "destination"},
 		{"bad check next hop", strings.Replace(base, `"result": "fail"`, `"next_hop": "not-an-address", "result": "fail"`, 1), "next_hop"},
 		{"oversize", strings.Repeat(" ", MaxFileBytes+1), "exceeds the maximum topology size"},
+		{"bad source address", strings.Replace(base, `"node": "r1", "vrf": "default"},`, `"node": "r1", "vrf": "default", "address": "10.0.12.x"},`, 1), `source" address`},
+		{"bad boundary kind", strings.Replace(base, `"checks": [`, `"boundaries": [{"source": "policy:r2", "collected_at": "2026-10-09T12:00:00Z", "node": "r2", "vrf": "default", "kind": "proxy"}], "checks": [`, 1), `kind "proxy"`},
+		{"boundary without provenance", strings.Replace(base, `"checks": [`, `"boundaries": [{"collected_at": "2026-10-09T12:00:00Z", "node": "r2", "vrf": "default", "kind": "nat"}], "checks": [`, 1), "needs source"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

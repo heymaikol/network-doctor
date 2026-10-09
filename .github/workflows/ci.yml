@@ -396,9 +396,9 @@ jobs:
           # Not go.mod: that pins the oldest *supported* toolchain, and
           # govulncheck reports every stdlib CVE patched since it. The test
           # matrix above still proves the code builds on that minimum.
-          # The floor must stay above the Go the runner image pre-caches, or
-          # setup-go resolves to that cache entry instead of downloading.
-          go-version: ">=1.27.0"
+          # Pin the patched release so setup-go cannot reuse an older,
+          # vulnerable toolchain from the runner cache.
+          go-version: "1.27.2"
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.13.1

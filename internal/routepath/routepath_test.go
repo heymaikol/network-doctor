@@ -506,3 +506,30 @@ func TestExplanationIsDeterministicAcrossInputOrder(t *testing.T) {
 		t.Errorf("JSON output changed between two encodings of one explanation")
 	}
 }
+
+// A planned or observed address is not evidence that a node owns it, so it must
+// not turn a forwarding decision into local delivery.
+func TestIntendedAndObservedAddressesOwnNothing(t *testing.T) {
+	obs := append(threeRouters(),
+		netmodel.Observation{
+			Provenance: netmodel.Provenance{Source: "intent:r1", CollectedAt: t0},
+			Plane:      netmodel.PlaneIntended,
+			Node:       "r1",
+			VRF:        "default",
+			Interfaces: []netmodel.Interface{ifc("lo", "10.20.40.8/32")},
+		},
+		netmodel.Observation{
+			Provenance: netmodel.Provenance{Source: "observed:r1", CollectedAt: t0},
+			Plane:      netmodel.PlaneObserved,
+			Node:       "r1",
+			VRF:        "default",
+			Interfaces: []netmodel.Interface{ifc("lo0", "10.20.40.8/32")},
+		})
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := e.Forwarding.Decision.Kind; got != KindForward {
+		t.Errorf("r1 forwarding = %s, want forward: intended and observed addresses must not own the destination", got)
+	}
+	if got := e.Expected.Decision.Kind; got == KindLocal {
+		t.Errorf("r1 expected = %s, want anything but local", got)
+	}
+}

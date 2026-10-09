@@ -26,6 +26,10 @@ const (
 var (
 	expectedPlanes   = []netmodel.Plane{netmodel.PlaneControl, netmodel.PlaneConfigured}
 	forwardingPlanes = []netmodel.Plane{netmodel.PlaneFIB}
+	// readPlanes are the only planes the explanation reads. The decoder validates
+	// intended and observed rows and then leaves them unread, so they cannot own
+	// an address or name a neighbor.
+	readPlanes = []netmodel.Plane{netmodel.PlaneControl, netmodel.PlaneConfigured, netmodel.PlaneFIB}
 )
 
 // state is one routing domain on one node: where a walk stands.
@@ -76,10 +80,14 @@ func Explain(f File, dest netip.Addr) Explanation {
 func newWalker(f File, dest netip.Addr) *walker {
 	w := &walker{
 		m:      f.Model,
-		obs:    f.Model.Observations(),
 		dest:   dest,
 		owners: map[netip.Addr][]state{},
 		checks: map[checkKey][]CheckResult{},
+	}
+	for _, o := range f.Model.Observations() {
+		if slices.Contains(readPlanes, o.Plane) {
+			w.obs = append(w.obs, o)
+		}
 	}
 	for _, o := range w.obs {
 		for _, i := range o.Interfaces {

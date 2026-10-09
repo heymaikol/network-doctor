@@ -94,6 +94,9 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 }
 
 func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (profile.Result, []snapshot.Snapshot, []snapshot.Tool, error) {
+	if base.via == "" {
+		base.profilePass = diagnostic.NewProfilePass(base.sources)
+	}
 	outputs := make([]diagnosisOutput, len(plan.Runs))
 	run := func(i int, batch bool) {
 		h := base

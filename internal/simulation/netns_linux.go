@@ -203,6 +203,7 @@ const directorTeardownGrace = 10 * time.Second
 func LaunchDirector(ctx context.Context, self string, argv []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	// #nosec G204 -- self comes from os.Executable and argv is built as discrete arguments.
 	cmd := exec.CommandContext(ctx, self, argv...)
+	cmd.Env = ChildEnv()
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = stdout, stderr, stdin
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET | syscall.CLONE_NEWNS,
@@ -408,6 +409,7 @@ func (e *netnsEnv) startHolder(ctx context.Context, np *nodeProc) error {
 	}
 	// #nosec G204 -- self comes from os.Executable and path is this run's private config.
 	cmd := exec.CommandContext(e.holderCtx, self, NodeCommand, path)
+	cmd.Env = ChildEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags:   syscall.CLONE_NEWNET | syscall.CLONE_NEWNS,
 		Unshareflags: syscall.CLONE_NEWNS,
@@ -1093,21 +1095,21 @@ func (e *netnsEnv) TrustAnchor(service string) (string, error) {
 	return "", fmt.Errorf("unknown tls service %q", service)
 }
 
-// simEnv is the environment commands run with inside a node. The host's proxy
-// variables are stripped: a simulation must not inherit the operator's proxy
-// configuration, or a scenario's result would depend on whose laptop ran it.
-// A scenario that wants a proxy sets one on its own node.
+// simEnv is the environment commands run with inside a node. It starts from
+// ChildEnv, so no GitHub credential reaches a node even if the director was
+// started some other way. The host's proxy variables are stripped too: a
+// simulation must not inherit the operator's proxy configuration, or a
+// scenario's result would depend on whose laptop ran it. A scenario that wants
+// a proxy sets one on its own node.
 func simEnv() []string {
-	var out []string
-	for _, kv := range os.Environ() {
+	return slices.DeleteFunc(ChildEnv(), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		switch strings.ToUpper(name) {
 		case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "FTP_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR":
-			continue
+			return true
 		}
-		out = append(out, kv)
-	}
-	return out
+		return false
+	})
 }
 
 func (e *netnsEnv) Cleanup(ctx context.Context, keep bool) CleanupInfo {
@@ -1207,7 +1209,9 @@ const netemSeedIproute2 = "6.6"
 func tcSupportsNetemSeed(ctx context.Context) (bool, string) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "tc", "-V").Output()
+	cmd := exec.CommandContext(ctx, "tc", "-V")
+	cmd.Env = ChildEnv()
+	out, err := cmd.Output()
 	if err != nil {
 		return false, "no tc"
 	}
@@ -1246,6 +1250,7 @@ func (e *netnsEnv) run(ctx context.Context, argv ...string) error {
 	}
 	// #nosec G204 -- validated simulator operations build argv; no shell interprets it.
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Env = ChildEnv()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

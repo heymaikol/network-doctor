@@ -622,3 +622,17 @@ func TestFailureNamesItsRecordedSource(t *testing.T) {
 		t.Fatalf("fib_forwarding_failed = %+v, want the detail to name probe:r1 and when it ran", got)
 	}
 }
+
+// A no-route decision must name the complete table that proves the absence.
+func TestMissingRouteNamesItsAbsenceEvidence(t *testing.T) {
+	obs := without(threeRouters(), "fib:r1:default")
+	obs = append(obs, table(netmodel.PlaneFIB, "r1", "default", true))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	d := e.Forwarding.Decision
+	if d.Kind != KindNoRoute {
+		t.Fatalf("r1 forwarding = %s, want no_route from the complete FIB", d.Kind)
+	}
+	if len(d.Evidence) != 1 || !d.Evidence[0].Absent || d.Evidence[0].Source != "fib:r1:default" {
+		t.Errorf("no_route evidence = %+v, want the complete fib:r1:default table named as absent", d.Evidence)
+	}
+}

@@ -208,7 +208,7 @@ func (w *walker) decide(planes []netmodel.Plane, at state) (Decision, []netmodel
 			return w.choose(at, p, cands)
 		}
 		if w.complete(at, p) {
-			return Decision{Kind: KindNoRoute, Basis: p, Proven: true, Reason: fmt.Sprintf("complete %s table holds no route to %s", p, w.dest)}, nil
+			return Decision{Kind: KindNoRoute, Basis: p, Proven: true, Evidence: w.absence(at, p), Reason: fmt.Sprintf("complete %s table holds no route to %s", p, w.dest)}, nil
 		}
 	}
 	return Decision{Kind: KindUnknown, Basis: planes[0], Reason: "no complete table and no matching route for this node"}, nil
@@ -354,6 +354,18 @@ func sortSupports(out []Support) []Support {
 		return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.CollectedAt, b.CollectedAt))
 	})
 	return out
+}
+
+// absence names the complete observations that prove a route is missing, so a
+// no-route decision traces back to the tables that hold the proof.
+func (w *walker) absence(at state, p netmodel.Plane) []Support {
+	var out []Support
+	for _, o := range w.obs {
+		if o.Node == at.node && o.VRF == at.vrf && o.Plane == p && o.RoutesComplete {
+			out = append(out, Support{Source: o.Source, CollectedAt: utcText(o.CollectedAt), Absent: true})
+		}
+	}
+	return sortSupports(out)
 }
 
 // keyAddr is the canonical text of a next-hop address, or empty when there is none.

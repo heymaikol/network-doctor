@@ -295,10 +295,15 @@ type model struct {
 	// causal evidence. It changes no result, diagnosis, or report.
 	explaining bool
 
-	toolbox    bool // --toolbox: chain deferred until 'r'
-	watch      bool
-	runHistory map[diagnostic.ProbeID][]diagnostic.Status
-	incidents  incident.Timeline
+	toolbox bool // --toolbox: chain deferred until 'r'
+	watch   bool
+	// watchSession reuses passing observations between Watch passes, and pass
+	// is the pass the current graph belongs to, decided when it completes. Both
+	// are nil outside a Watch run.
+	watchSession *diagnostic.WatchSession
+	pass         *diagnostic.WatchPass
+	runHistory   map[diagnostic.ProbeID][]diagnostic.Status
+	incidents    incident.Timeline
 	// Incident inspection is a small read-only viewer alongside the existing
 	// job-output viewer. The timeline itself remains owned by Update.
 	incidentViewing  bool
@@ -357,7 +362,6 @@ func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses,
 	sp.Spinner = spinner.MiniDot
 	m := model{
 		target:        t,
-		probes:        graph(t),
 		sources:       sources,
 		selection:     selection,
 		graph:         graph,
@@ -379,6 +383,10 @@ func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses,
 	for _, opt := range opts {
 		opt(&m)
 	}
+	if watch {
+		m.watchSession = diagnostic.NewWatchSession(m.now)
+	}
+	m.buildPass()
 	// After the options, since one of them names the preference file.
 	m.setTheme(loadTheme(m.themePath))
 	m.history = loadHistory(histFile)
@@ -770,6 +778,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			diagnostic.Finalize(m.results)
 		}
 		m.refreshAnalysis()
+		if m.allDone() && m.pass != nil && !m.pass.Publish(m.results) {
+			// The pass reused a row and changed a status or cause, so it is
+			// evidence to confirm, not a result: it is not recorded. The next
+			// pass runs fresh at once.
+			m.applyTarget(m.target, false)
+			return m, tea.Batch(append(cmds, m.restartRun())...)
+		}
 		if m.allDone() {
 			// recordRun comes before the focus decision, not after it: a watch
 			// pass moves the cursor for what changed since the previous pass,
@@ -918,6 +933,18 @@ func (m *model) recordRun() tea.Cmd {
 		m.runHistory[p.ID] = history
 	}
 	return m.recordIncident(m.incidentNow())
+}
+
+// buildPass builds the probe graph for the current target. In a Watch run the
+// graph is wrapped by a new pass, which decides when its results are shown.
+func (m *model) buildPass() {
+	probes := m.graph(m.target)
+	m.pass = nil
+	if m.watchSession != nil {
+		m.pass = m.watchSession.Begin(probes)
+		probes = m.pass.Probes()
+	}
+	m.probes = probes
 }
 
 func (m model) watchCmd() tea.Cmd {

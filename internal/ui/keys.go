@@ -667,6 +667,10 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // its way out, and it is the only thing on screen that says a second run
 // started: the checks it reruns are the same ones that were already listed.
 func (m model) retest() (tea.Model, tea.Cmd) {
+	if m.watchSession != nil {
+		// A retest asks for fresh evidence, not the last pass again.
+		m.watchSession.Force()
+	}
 	next, cmd := m.restartWithTarget(m.target, false)
 	restarted, ok := next.(model)
 	if !ok {
@@ -730,7 +734,11 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // underneath the preserved history.
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
-	m.probes = m.graph(t)
+	if newQuestion && m.watchSession != nil {
+		// Nothing measured for the last target may answer for this one.
+		m.watchSession = diagnostic.NewWatchSession(m.now)
+	}
+	m.buildPass()
 	m.analysisReady = false
 	if !newQuestion {
 		return

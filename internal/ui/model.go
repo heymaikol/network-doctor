@@ -173,8 +173,11 @@ type model struct {
 
 	// results + started are owned exclusively by Update; probe goroutines get an
 	// immutable snapshot, never the live map.
-	results       map[diagnostic.ProbeID]diagnostic.ProbeResult
-	started       map[diagnostic.ProbeID]bool
+	results map[diagnostic.ProbeID]diagnostic.ProbeResult
+	started map[diagnostic.ProbeID]bool
+	// Like started, scheduler is Update-owned across model value copies.
+	// A new generation replaces it rather than reusing mutable pass state.
+	scheduler     *diagnostic.ProbeScheduler
 	analysis      resultAnalysis
 	analysisReady bool
 
@@ -747,6 +750,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.results = maps.Clone(m.results)
 		m.analysisReady = false
 		m.results[msg.id] = res
+		if m.scheduler != nil {
+			m.scheduler.Complete(res)
+		}
 		// scheduleStep first: it records skip results synchronously, which can
 		// be what completes the run.
 		cmds := m.scheduleStep()

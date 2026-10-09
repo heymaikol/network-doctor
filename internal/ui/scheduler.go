@@ -11,35 +11,31 @@ import (
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
 )
 
-// scheduleStep marks newly-skippable probes (a dependency failed) and returns run
-// commands for newly-runnable probes, repeating until no further progress so
-// skips propagate through dependents in one pass. Mutates results/started.
+// scheduleStep drains ready work and propagates skips synchronously. The queue,
+// results, and started map belong to Update, never to asynchronous commands.
 func (m *model) scheduleStep() []tea.Cmd {
-	var cmds []tea.Cmd
-	for progress := true; progress; {
-		progress = false
-		for _, p := range m.probes {
-			if m.started[p.ID] {
-				continue
-			}
-			ready, blocked := diagnostic.DepsState(p.Deps, m.results)
-			if !ready {
-				continue
-			}
-			m.started[p.ID] = true
-			progress = true
-			if blocked {
-				if m.analysisReady {
-					m.results = maps.Clone(m.results)
-					m.analysisReady = false
-				}
-				m.results[p.ID] = diagnostic.SkipPrereq(p.ID)
-				continue
-			}
-			cmds = append(cmds, m.runProbe(p))
-		}
+	if m.scheduler == nil {
+		m.scheduler = diagnostic.NewProbeScheduler(m.probes, m.started, m.results)
 	}
-	return cmds
+	var cmds []tea.Cmd
+	for {
+		i, blocked, ok := m.scheduler.Next()
+		if !ok {
+			return cmds
+		}
+		p := m.probes[i]
+		if blocked {
+			if m.analysisReady {
+				m.results = maps.Clone(m.results)
+				m.analysisReady = false
+			}
+			res := diagnostic.SkipPrereq(p.ID)
+			m.results[p.ID] = res
+			m.scheduler.Complete(res)
+			continue
+		}
+		cmds = append(cmds, m.runProbe(p))
+	}
 }
 
 // runProbe builds the tea.Cmd for a probe, capturing the generation, the parent

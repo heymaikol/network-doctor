@@ -797,6 +797,7 @@ func (m *model) restartRun() tea.Cmd {
 	m.results = map[diagnostic.ProbeID]diagnostic.ProbeResult{}
 	m.refreshAnalysis()
 	m.started = map[diagnostic.ProbeID]bool{}
+	m.scheduler = nil
 	m.namesPending = nil
 	gen := m.generation
 	cmds := []tea.Cmd{func() tea.Msg { return scheduleMsg{gen: gen} }}

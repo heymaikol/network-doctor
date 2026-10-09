@@ -5,6 +5,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"reflect"
 	"strings"
@@ -484,5 +485,88 @@ func TestScheduleStepDispatchesEveryReadyProbeConcurrently(t *testing.T) {
 		if done.res.Status != diagnostic.StatusPass {
 			t.Errorf("%s: %s", done.id, done.res.Detail)
 		}
+	}
+}
+
+func TestSchedulerGenerationReset(t *testing.T) {
+	m := newModel(nil, false)
+	var calls [4]int
+	m.probes = []diagnostic.Probe{
+		diffProbe("root", diagnostic.StatusWarn),
+		diffProbe("na", diagnostic.StatusNA),
+		diffProbe("join", diagnostic.StatusPass, "root", "na"),
+		diffProbe("tail", diagnostic.StatusPass, "join"),
+	}
+	for i := range m.probes {
+		run := m.probes[i].Run
+		m.probes[i].Run = func(ctx context.Context, deps map[diagnostic.ProbeID]diagnostic.ProbeResult) diagnostic.ProbeResult {
+			calls[i]++
+			res := run(ctx, deps)
+			res.ID = "wrong"
+			return res
+		}
+	}
+	m = asModel(t, must(m.Update(scheduleMsg{gen: m.generation})))
+	if m.scheduler == nil || len(m.started) != 2 {
+		t.Fatal("roots were not dispatched")
+	}
+	oldScheduler := m.scheduler
+	stale := probeDoneMsg{id: "root", gen: m.generation, res: diagnostic.ProbeResult{Status: diagnostic.StatusFail}}
+	oldGeneration := m.generation
+	_ = m.restartRun()
+	if m.scheduler != nil || len(m.results) != 0 || len(m.started) != 0 {
+		t.Fatal("restart retained scheduling state")
+	}
+	m = asModel(t, must(m.Update(stale)))
+	m = asModel(t, must(m.Update(scheduleMsg{gen: oldGeneration})))
+	if m.scheduler != nil || len(m.results) != 0 {
+		t.Fatal("stale messages mutated new pass")
+	}
+	m = driveTUIScheduler(t, m, false)
+	if !m.allDone() || m.scheduler == oldScheduler {
+		t.Fatal("restart did not finish with fresh scheduler")
+	}
+	for id, res := range m.results {
+		if res.ID != id {
+			t.Errorf("%s result ID=%s", id, res.ID)
+		}
+	}
+	m.watch = true
+	m = asModel(t, must(m.Update(watchMsg{gen: m.generation})))
+	if m.scheduler != nil || len(m.results) != 0 {
+		t.Fatal("watch retained scheduling state")
+	}
+	// Drive this pass without watch timers. Existing watch tests pin history.
+	m.watch = false
+	m = driveTUIScheduler(t, m, true)
+	if !m.allDone() {
+		t.Fatal("watch reset did not finish")
+	}
+	for i, count := range calls {
+		if count != 2 {
+			t.Errorf("probe %d calls=%d, want 2", i, count)
+		}
+	}
+	t.Cleanup(m.clearCancel)
+}
+
+func TestExecutorsWideDAG(t *testing.T) {
+	const n = 100
+	for _, lifo := range []bool{false, true} {
+		t.Run(fmt.Sprintf("lifo=%v", lifo), func(t *testing.T) {
+			probes := []diagnostic.Probe{diffProbe("root", diagnostic.StatusPass)}
+			var deps []diagnostic.ProbeID
+			for i := range n {
+				id := diagnostic.ProbeID(fmt.Sprint(i))
+				deps = append(deps, id)
+				probes = append(probes, diffProbe(id, diagnostic.StatusWarn, "root"))
+			}
+			probes = append(probes, diffProbe("join", diagnostic.StatusPass, deps...))
+			headless := diagnostic.RunAll(t.Context(), probes, diagnostic.DefaultProbeTimeout)
+			tui := runTUIScheduler(t, probes, lifo)
+			if len(headless) != len(probes) || canonicalResults(headless) != canonicalResults(tui) {
+				t.Fatal("wide DAG executor results differ")
+			}
+		})
 	}
 }

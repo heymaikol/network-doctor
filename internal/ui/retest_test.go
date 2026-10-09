@@ -59,6 +59,10 @@ func TestRetestPreservesTheRunConfiguration(t *testing.T) {
 	}
 	m.results[diagnostic.ProbeIface] = diagnostic.ProbeResult{Status: diagnostic.StatusFail}
 	m.started[diagnostic.ProbeIface] = true
+	m.scheduleStep()
+	if m.scheduler == nil {
+		t.Fatal("the previous pass has no scheduler to reset")
+	}
 	m.selMoved, m.expanded = true, true
 
 	after := asModel(t, pressed(t, m, keyMsg("R")))
@@ -74,7 +78,7 @@ func TestRetestPreservesTheRunConfiguration(t *testing.T) {
 	if !slices.Equal(probeIDs(after), before) {
 		t.Errorf("retest rebuilt a different probe set: %v, want %v", probeIDs(after), before)
 	}
-	if len(after.results) != 0 || len(after.started) != 0 {
+	if len(after.results) != 0 || len(after.started) != 0 || after.scheduler != nil {
 		t.Errorf("retest kept stale run state: %d results, %d started", len(after.results), len(after.started))
 	}
 	if after.generation != m.generation+1 {

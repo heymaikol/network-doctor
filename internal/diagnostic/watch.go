@@ -56,6 +56,9 @@ type WatchSession struct {
 	// force only if no request came after that, so a retest that arrives while a
 	// pass runs still gets its fresh pass.
 	requests uint64
+	// fresh makes every pass acquire every row, so the session never reuses. It
+	// is set once, at construction, and nothing clears it.
+	fresh bool
 }
 
 // watchObservation is one passing, reusable row and the evidence it was
@@ -87,6 +90,17 @@ func NewWatchSession(now func() time.Time) *WatchSession {
 	return &WatchSession{now: now, cache: map[ProbeID]watchObservation{}, force: true}
 }
 
+// NewFreshWatchSession returns a session that never reuses a row: every pass
+// acquires every row, so each row in a published pass was measured on that
+// pass. Use it where published passes outlive the pass. An incident keeps its
+// passes as Before, During, and Recovered, and a reused row there would be an
+// earlier measurement presented as this pass's.
+func NewFreshWatchSession(now func() time.Time) *WatchSession {
+	s := NewWatchSession(now)
+	s.fresh = true
+	return s
+}
+
 // Force makes the next pass acquire every row fresh. A user-requested retest
 // asks for it.
 func (s *WatchSession) Force() {
@@ -99,7 +113,7 @@ func (s *WatchSession) Force() {
 func (s *WatchSession) Begin(base []Probe) *WatchPass {
 	pass := &WatchPass{
 		session:      s,
-		force:        s.force,
+		force:        s.force || s.fresh,
 		requested:    s.requests,
 		cache:        maps.Clone(s.cache),
 		ancestors:    ancestorsOf(base),

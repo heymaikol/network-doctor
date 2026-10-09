@@ -297,9 +297,9 @@ type model struct {
 
 	toolbox bool // --toolbox: chain deferred until 'r'
 	watch   bool
-	// watchSession reuses passing observations between Watch passes, and pass
-	// is the pass the current graph belongs to, decided when it completes. Both
-	// are nil outside a Watch run.
+	// watchSession runs every row on every Watch pass, and pass is the pass the
+	// current graph belongs to, decided when it completes. Both are nil outside
+	// a Watch run.
 	watchSession *diagnostic.WatchSession
 	pass         *diagnostic.WatchPass
 	runHistory   map[diagnostic.ProbeID][]diagnostic.Status
@@ -384,7 +384,7 @@ func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses,
 		opt(&m)
 	}
 	if watch {
-		m.watchSession = diagnostic.NewWatchSession(m.now)
+		m.watchSession = newWatchSession(m.now)
 	}
 	m.buildPass()
 	// After the options, since one of them names the preference file.
@@ -933,6 +933,14 @@ func (m *model) recordRun() tea.Cmd {
 		m.runHistory[p.ID] = history
 	}
 	return m.recordIncident(m.incidentNow())
+}
+
+// newWatchSession starts the Watch session for a TUI run. Every published pass
+// is recorded into the incident timeline, which can keep a pass as Before,
+// During, or Recovered. A row reused from an earlier pass would appear in that
+// evidence as if this pass had measured it, so the TUI never reuses a row.
+func newWatchSession(now func() time.Time) *diagnostic.WatchSession {
+	return diagnostic.NewFreshWatchSession(now)
 }
 
 // buildPass builds the probe graph for the current target. In a Watch run the

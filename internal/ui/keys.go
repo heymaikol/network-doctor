@@ -736,7 +736,7 @@ func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
 	if newQuestion && m.watchSession != nil {
 		// Nothing measured for the last target may answer for this one.
-		m.watchSession = diagnostic.NewWatchSession(m.now)
+		m.watchSession = newWatchSession(m.now)
 	}
 	m.buildPass()
 	m.analysisReady = false

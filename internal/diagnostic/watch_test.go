@@ -205,6 +205,27 @@ func TestWatchFirstPassRunsEveryRow(t *testing.T) {
 	assertFreshDiagnosis(t, n, res)
 }
 
+// A fresh session is the TUI's. Every stable pass acquires every row, so no row
+// in a recorded pass was measured on an earlier one.
+func TestWatchFreshSessionRunsEveryRowOnEveryPass(t *testing.T) {
+	clock := newWatchClock()
+	n := newWatchNet()
+	s := NewFreshWatchSession(clock.Now)
+	watchPass(t, s, n)
+	for pass := 1; pass <= 3; pass++ {
+		clock.Advance(5 * time.Second)
+		_, runs, attempts := watchPass(t, s, n)
+		if attempts != 1 {
+			t.Errorf("stable pass %d took %d attempts, want 1", pass, attempts)
+		}
+		for _, p := range n.graph() {
+			if runs[p.ID] != 1 {
+				t.Errorf("stable pass %d ran %s %d times, want 1: a fresh session reuses nothing", pass, p.ID, runs[p.ID])
+			}
+		}
+	}
+}
+
 func TestWatchStablePassRunsOnlyFreshRows(t *testing.T) {
 	clock := newWatchClock()
 	n := newWatchNet()

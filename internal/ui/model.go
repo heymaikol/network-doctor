@@ -297,9 +297,9 @@ type model struct {
 
 	toolbox bool // --toolbox: chain deferred until 'r'
 	watch   bool
-	// watchSession runs every row on every Watch pass, and pass is the pass the
-	// current graph belongs to, decided when it completes. Both are nil outside
-	// a Watch run.
+	// watchSession decides which rows a Watch pass reuses, and pass is the pass
+	// the current graph belongs to, decided when it completes. Both are nil
+	// outside a Watch run.
 	watchSession *diagnostic.WatchSession
 	pass         *diagnostic.WatchPass
 	runHistory   map[diagnostic.ProbeID][]diagnostic.Status
@@ -384,7 +384,7 @@ func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses,
 		opt(&m)
 	}
 	if watch {
-		m.watchSession = newWatchSession(m.now)
+		m.watchSession = diagnostic.NewWatchSession(m.now)
 	}
 	m.buildPass()
 	// After the options, since one of them names the preference file.
@@ -924,6 +924,11 @@ func (m *model) clearCancel() {
 	}
 }
 
+// recordRun records a published pass in the status history, and in the incident
+// timeline when the pass measured every row. The timeline keeps passes as
+// Before, During, and Recovered, so a reused row there would be an earlier
+// measurement presented as this pass's. A pass with a reused row is still shown
+// and still counts in the history. It is just not evidence of the whole graph.
 func (m *model) recordRun() tea.Cmd {
 	for _, p := range m.probes {
 		history := append(m.runHistory[p.ID], m.results[p.ID].Status)
@@ -932,15 +937,10 @@ func (m *model) recordRun() tea.Cmd {
 		}
 		m.runHistory[p.ID] = history
 	}
+	if m.pass != nil && !m.pass.Fresh() {
+		return nil
+	}
 	return m.recordIncident(m.incidentNow())
-}
-
-// newWatchSession starts the Watch session for a TUI run. Every published pass
-// is recorded into the incident timeline, which can keep a pass as Before,
-// During, or Recovered. A row reused from an earlier pass would appear in that
-// evidence as if this pass had measured it, so the TUI never reuses a row.
-func newWatchSession(now func() time.Time) *diagnostic.WatchSession {
-	return diagnostic.NewFreshWatchSession(now)
 }
 
 // buildPass builds the probe graph for the current target. In a Watch run the

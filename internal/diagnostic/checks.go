@@ -208,8 +208,12 @@ type ProbeResult struct {
 	// connections. Zero means the row dialed its own socket.
 	acquisition uint64
 	Dur         time.Duration // wall time the probe took; zero for probes that never ran
-	Detail      string
-	Fix         string
+	// reusedFrom is when the Watch pass that measured this row sampled it. Zero
+	// means this pass measured it. Dur is zero for a reused row, so this is what
+	// tells a reader its evidence is older than the pass it appears in.
+	reusedFrom time.Time
+	Detail     string
+	Fix        string
 	// ConnectCleartext records that this row reached a working result over a
 	// plaintext HTTP CONNECT: the destination hostname was sent to the proxy
 	// without TLS on the client-to-proxy hop. It is a property of the proxy
@@ -252,6 +256,14 @@ type ProbeResult struct {
 // Observation producers use this same fact for HTTP/HTTPS, whose failures have
 // no TLS-style timeout cause.
 func (r *ProbeResult) SetProtocolTimeout(timedOut bool) { r.timedOut = timedOut }
+
+// ReusedFrom reports whether a Watch pass answered this row from an earlier
+// pass, and if so when that pass sampled it. Such a row carries no duration, and
+// its attempts' durations are zero, so its evidence has to be labelled with this
+// time rather than shown as measured by the current pass.
+func (r ProbeResult) ReusedFrom() (time.Time, bool) {
+	return r.reusedFrom, !r.reusedFrom.IsZero()
+}
 
 // SetFailureCause records a classified failure and the address family that
 // supplied it. An empty family records a family-neutral observation.

@@ -48,6 +48,15 @@ type WatchSession struct {
 	// published pass. A reused row describes the path it was sampled on, so a
 	// pass that measured a different path is not published with it.
 	path string
+	// settled says the last published pass was OK: every row reported and none
+	// failed. Only a settled session reuses a row. After a failing pass, every
+	// row runs again, so a failure is followed, and its recovery confirmed, on
+	// evidence measured in full.
+	settled bool
+	// lastFull is when the last published pass that reused no row began. Every
+	// row in such a pass was measured by it, so it is the newest whole
+	// measurement the session holds.
+	lastFull time.Time
 	// force makes the next pass acquire every row fresh. It stays set until a
 	// pass that ran fresh is published, so a cancelled forced pass is retried.
 	force bool
@@ -56,9 +65,6 @@ type WatchSession struct {
 	// force only if no request came after that, so a retest that arrives while a
 	// pass runs still gets its fresh pass.
 	requests uint64
-	// fresh makes every pass acquire every row, so the session never reuses. It
-	// is set once, at construction, and nothing clears it.
-	fresh bool
 }
 
 // watchObservation is one passing, reusable row and the evidence it was
@@ -90,17 +96,6 @@ func NewWatchSession(now func() time.Time) *WatchSession {
 	return &WatchSession{now: now, cache: map[ProbeID]watchObservation{}, force: true}
 }
 
-// NewFreshWatchSession returns a session that never reuses a row: every pass
-// acquires every row, so each row in a published pass was measured on that
-// pass. Use it where published passes outlive the pass. An incident keeps its
-// passes as Before, During, and Recovered, and a reused row there would be an
-// earlier measurement presented as this pass's.
-func NewFreshWatchSession(now func() time.Time) *WatchSession {
-	s := NewWatchSession(now)
-	s.fresh = true
-	return s
-}
-
 // Force makes the next pass acquire every row fresh. A user-requested retest
 // asks for it.
 func (s *WatchSession) Force() {
@@ -110,10 +105,18 @@ func (s *WatchSession) Force() {
 
 // Begin starts one pass over base, the probe graph of this session's target.
 // Run the probes Begin returns, then give the results to Publish.
+//
+// A pass acquires every row when the session is forced, when the last
+// published pass was not settled, or when the last whole measurement is no
+// longer within watchMaxAge. The last rule is what bounds the age of a whole
+// measurement. Rows that reach their maximum age at different times, after an
+// input changed, could otherwise leave no pass in which every row was measured.
 func (s *WatchSession) Begin(base []Probe) *WatchPass {
+	at := s.now()
 	pass := &WatchPass{
 		session:      s,
-		force:        s.force || s.fresh,
+		at:           at,
+		force:        s.force || !s.settled || !within(at.Sub(s.lastFull)),
 		requested:    s.requests,
 		cache:        maps.Clone(s.cache),
 		ancestors:    ancestorsOf(base),
@@ -159,6 +162,7 @@ func ancestorsOf(base []Probe) map[ProbeID][]ProbeID {
 // which mu guards. The session changes only in Publish.
 type WatchPass struct {
 	session   *WatchSession
+	at        time.Time
 	force     bool
 	requested uint64
 	probes    []Probe
@@ -205,9 +209,15 @@ func (p *WatchPass) wrap(probe Probe) Probe {
 	return probe
 }
 
+// within reports whether an age is inside the window a measurement stands for.
+// A negative age means the clock went back, and nothing is trusted from it.
+func within(age time.Duration) bool {
+	return age >= 0 && age < watchMaxAge
+}
+
 // reuse answers a row from its passing observation when nothing it was sampled
-// from has changed, and the observation is younger than watchMaxAge. It never
-// answers a forced pass.
+// from has changed, and the observation is within watchMaxAge. It never answers
+// a forced pass.
 func (p *WatchPass) reuse(id ProbeID, now time.Time) (ProbeResult, string, bool) {
 	if p.force {
 		return ProbeResult{}, "", false
@@ -216,7 +226,7 @@ func (p *WatchPass) reuse(id ProbeID, now time.Time) (ProbeResult, string, bool)
 	if !ok {
 		return ProbeResult{}, "", false
 	}
-	if age := now.Sub(ob.sampled); age < 0 || age >= watchMaxAge {
+	if !within(now.Sub(ob.sampled)) {
 		return ProbeResult{}, "", false
 	}
 	for _, a := range p.ancestors[id] {
@@ -235,10 +245,21 @@ func (p *WatchPass) reuse(id ProbeID, now time.Time) (ProbeResult, string, bool)
 	r := cloneProbeResult(ob.result)
 	r.Dur = 0
 	r.acquisition = 0
+	r.reusedFrom = ob.sampled
 	for i := range r.Attempts {
 		r.Attempts[i].Dur = 0
 	}
 	return r, ob.fingerprint, true
+}
+
+// Fresh reports whether every row in a published pass was measured by that
+// pass. It is false when any row was answered from an earlier one. Only a fresh
+// pass measures the whole graph, so it is the only kind a caller may record as
+// one run's evidence.
+func (p *WatchPass) Fresh() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.reused) == 0
 }
 
 func (p *WatchPass) record(id ProbeID, fp string, sampled time.Time, r ProbeResult) {
@@ -277,11 +298,15 @@ func (p *WatchPass) fingerprintFor(id ProbeID) (string, bool) {
 // pass that reused no row, is always published: every row in it is fresh.
 // A pass that reused a row is published only when every row has the same
 // status and cause as in the last published pass, and the routes its rows that
-// always run measured are the same. Such a pass may still carry new addresses, because a row whose
-// inputs changed was run again. A reused pass whose verdicts or routes differ
-// may have judged a change against evidence older than this pass, so nothing
-// from it is kept and the next pass runs fresh. When Publish returns false, the
-// caller runs the next pass straight away.
+// always run measured are the same. Such a pass may still carry new addresses,
+// because a row whose inputs changed was run again. A reused pass whose
+// verdicts or routes differ may have judged a change against evidence older
+// than this pass, so nothing from it is kept and the next pass runs fresh. When
+// Publish returns false, the caller runs the next pass straight away.
+//
+// Publish also records whether the session may reuse at all. Only a pass whose
+// results are OK settles it, and only a pass that reused no row moves lastFull.
+// Fresh tells a caller which of the two a published pass was.
 func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 	s := p.session
 	verdicts := make(map[ProbeID]watchVerdict, len(results))
@@ -307,8 +332,23 @@ func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 	s.cache = next
 	s.last = verdicts
 	s.path = path
+	s.settled = p.settledBy(results)
+	if reused == 0 {
+		s.lastFull = p.at
+	}
 	if s.requests == p.requested {
 		s.force = false
+	}
+	return true
+}
+
+// settledBy reports whether results are OK over the rows this pass ran.
+func (p *WatchPass) settledBy(results map[ProbeID]ProbeResult) bool {
+	for _, probe := range p.probes {
+		r, reported := results[probe.ID]
+		if !okResult(r, reported) {
+			return false
+		}
 	}
 	return true
 }

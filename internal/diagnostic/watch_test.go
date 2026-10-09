@@ -205,25 +205,50 @@ func TestWatchFirstPassRunsEveryRow(t *testing.T) {
 	assertFreshDiagnosis(t, n, res)
 }
 
-// A fresh session is the TUI's. Every stable pass acquires every row, so no row
-// in a recorded pass was measured on an earlier one.
-func TestWatchFreshSessionRunsEveryRowOnEveryPass(t *testing.T) {
+// A failure is measured in full, and so is the recovery that closes it. After a
+// pass that is not OK, the session reuses nothing until a pass is OK again.
+func TestWatchUnsettledSessionRunsEveryRowUntilRecovery(t *testing.T) {
 	clock := newWatchClock()
 	n := newWatchNet()
-	s := NewFreshWatchSession(clock.Now)
+	s := NewWatchSession(clock.Now)
 	watchPass(t, s, n)
+	clock.Advance(5 * time.Second)
+	watchPass(t, s, n)
+
+	n.targetDown = true
 	for pass := 1; pass <= 3; pass++ {
 		clock.Advance(5 * time.Second)
-		_, runs, attempts := watchPass(t, s, n)
-		if attempts != 1 {
-			t.Errorf("stable pass %d took %d attempts, want 1", pass, attempts)
+		res, runs, attempts := watchPass(t, s, n)
+		if pass == 1 && attempts != 2 {
+			t.Errorf("failure took %d attempts, want 2: the reused pass that saw it is discarded", attempts)
 		}
-		for _, p := range n.graph() {
-			if runs[p.ID] != 1 {
-				t.Errorf("stable pass %d ran %s %d times, want 1: a fresh session reuses nothing", pass, p.ID, runs[p.ID])
+		if got := res[ProbeTargetTCP].Status; got != StatusFail {
+			t.Fatalf("failing pass %d published target TCP as %v", pass, got)
+		}
+		for _, id := range watchIDs() {
+			if _, reused := res[id].ReusedFrom(); reused {
+				t.Errorf("failing pass %d reused %s", pass, id)
+			}
+			// A row behind the failed target connect is skipped, not run, so only
+			// the rows that were scheduled must have run.
+			if res[id].Status != StatusSkip && runs[id] != 1 {
+				t.Errorf("failing pass %d ran %s %d times, want 1", pass, id, runs[id])
 			}
 		}
 	}
+
+	n.targetDown = false
+	clock.Advance(5 * time.Second)
+	res, runs, _ := watchPass(t, s, n)
+	for _, id := range watchIDs() {
+		if runs[id] != 1 {
+			t.Errorf("recovery pass ran %s %d times, want 1", id, runs[id])
+		}
+	}
+	if got := res[ProbeTargetTCP].Status; got != StatusPass {
+		t.Errorf("recovery pass published target TCP as %v", got)
+	}
+	assertFreshDiagnosis(t, n, res)
 }
 
 func TestWatchStablePassRunsOnlyFreshRows(t *testing.T) {
@@ -428,14 +453,16 @@ func TestWatchTargetOutageAndRecoveryConfirmWithFreshPass(t *testing.T) {
 	n.targetDown = false
 	clock.Advance(5 * time.Second)
 	res, runs, passes = watchPass(t, s, n)
-	if passes != 2 {
-		t.Fatalf("recovery took %d attempts, want 2", passes)
+	// The failing pass left the session unsettled, so the recovery pass runs
+	// every row and needs no confirming pass of its own.
+	if passes != 1 {
+		t.Fatalf("recovery took %d attempts, want 1: the session is unsettled and runs every row", passes)
 	}
 	if res[ProbeTargetTCP].Status != StatusPass || res[ProbeTLS].Status != StatusPass {
 		t.Errorf("published recovery: target %v, TLS %v; want pass", res[ProbeTargetTCP].Status, res[ProbeTLS].Status)
 	}
 	if runs[ProbeHTTPS] != 1 {
-		t.Errorf("confirmation pass reused HTTPS after recovery: ran %d times", runs[ProbeHTTPS])
+		t.Errorf("recovery pass reused HTTPS after an outage: ran %d times", runs[ProbeHTTPS])
 	}
 	assertFreshDiagnosis(t, n, res)
 }
@@ -633,16 +660,16 @@ func TestWatchFingerprintIgnoresTimingAndFollowsEvidence(t *testing.T) {
 	}
 }
 
-// maxRowShare is the largest share of the baseline row executions the hour
-// scenario may use. The scenario measured 58% once path MTU and public DNS were
-// kept fresh, which cost reuse for correctness; the bound leaves a small margin
-// for row changes that do not touch reuse.
-const maxRowShare = 0.60
-
 // Over an hour of stable Watch, faults come and go. The rows that a pass runs
 // are counted against running the whole graph every pass. Each published pass
 // must match a fresh pass, except during the one known window where a silent
 // TLS fault is still masked.
+//
+// The guard on reuse is per quiet pass, not per hour. A pass that follows a
+// fault runs every row, by design, until the network is OK again, so an hourly
+// share mostly measures how many faults the script contains. A quiet pass has no
+// fault active and no event within watchMaxAge, so it runs the rows that always
+// run, plus one refresh of each reusable row per watchMaxAge.
 func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 	clock := newWatchClock()
 	n := newWatchNet()
@@ -651,25 +678,35 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 
 	const passes = 720 // one hour at the five-second cadence
 	total, full, discarded, masked := 0, 0, 0, 0
+	quietRows, quietPasses := 0, 0
+	lastEvent := -passes
 	perRow := map[ProbeID]int{}
 	for pass := 0; pass < passes; pass++ {
 		switch pass {
 		case 60:
 			n.iface = "wlan0" // interface and route change
+			lastEvent = pass
 		case 180:
 			n.targetDown = true
+			lastEvent = pass
 		case 190:
 			n.targetDown = false
+			lastEvent = pass
 		case 300:
 			n.tlsBroken = true
+			lastEvent = pass
 		case 420:
 			n.tlsBroken = false
+			lastEvent = pass
 		case 500:
 			n.ifaceDown = true
+			lastEvent = pass
 		case 505:
 			n.ifaceDown = false
+			lastEvent = pass
 		case 600:
 			n.addr = net.ParseIP("198.51.100.8") // answer rotates; status does not
+			lastEvent = pass
 		}
 		if pass > 0 {
 			clock.Advance(5 * time.Second)
@@ -681,9 +718,16 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 		}
 		// The work a pass did includes the attempt it rejected: that work ran
 		// on the network whether or not anything was printed.
+		executed := 0
 		for id, c := range n.allRuns() {
 			perRow[id] += c - before[id]
 			total += c - before[id]
+			executed += c - before[id]
+		}
+		faulted := n.targetDown || n.tlsBroken || n.ifaceDown
+		if !faulted && pass-lastEvent > int(watchMaxAge/(5*time.Second)) {
+			quietRows += executed
+			quietPasses++
 		}
 		published := 0
 		for _, c := range runs {
@@ -704,11 +748,25 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 	for _, id := range watchIDs() {
 		t.Logf("  %-16s executed %4d of %d", id, perRow[id], passes)
 	}
-	// The bound guards the reuse path against regressions. It is not a claim
-	// about time: rows are counted, not timed, and the fakes cost nothing.
-	if float64(total) > maxRowShare*float64(baseline) {
-		t.Errorf("executed %d of %d baseline rows (%.0f%%), want at most %.0f%%",
-			total, baseline, 100*float64(total)/float64(baseline), 100*maxRowShare)
+	// The bound is per quiet pass: the rows that always run, plus each reusable
+	// row once per watchMaxAge, with slack for a refresh that lands on the window
+	// edge. It is a count, not a time: the fakes cost nothing to run.
+	always, reusable := 0, 0
+	for _, id := range watchIDs() {
+		if watchReusable[id] {
+			reusable++
+		} else {
+			always++
+		}
+	}
+	if quietPasses == 0 {
+		t.Fatal("the script has no quiet passes to measure")
+	}
+	perQuiet := float64(quietRows) / float64(quietPasses)
+	bound := float64(always) + float64(reusable)*float64(5*time.Second)/float64(watchMaxAge) + 0.5
+	t.Logf("quiet passes=%d executions per quiet pass=%.2f bound=%.2f", quietPasses, perQuiet, bound)
+	if perQuiet > bound {
+		t.Errorf("quiet passes ran %.2f rows each, want at most %.2f", perQuiet, bound)
 	}
 	if masked > int(watchMaxAge/(5*time.Second)) {
 		t.Errorf("silent TLS fault masked for %d passes, past max age", masked)
@@ -768,5 +826,135 @@ func benchPass(b *testing.B, s *WatchSession, n *watchNet) {
 	results := RunAll(context.Background(), pass.Probes(), time.Second)
 	if !pass.Publish(results) {
 		b.Fatal("stable pass was not published")
+	}
+}
+
+// publishedFresh runs one pass the way watchPass does and reports whether the
+// published pass measured every row itself.
+func publishedFresh(t *testing.T, s *WatchSession, n *watchNet) bool {
+	t.Helper()
+	for attempt := 1; attempt <= 2; attempt++ {
+		pass := s.Begin(n.graph())
+		results := RunAll(context.Background(), pass.Probes(), time.Second)
+		if pass.Publish(results) {
+			return pass.Fresh()
+		}
+	}
+	t.Fatal("a fresh pass was not published")
+	return false
+}
+
+// An input that changes for some reusable rows and not others leaves them
+// expiring at different times. Then no pass may ever measure every row by
+// itself, and a whole measurement drifts out of the window. The session bounds
+// that: a whole measurement is never older than watchMaxAge.
+func TestWatchWholeMeasurementStaysWithinMaxAgeAfterRowsDesync(t *testing.T) {
+	clock := newWatchClock()
+	n := newWatchNet()
+	s := NewWatchSession(clock.Now)
+	watchPass(t, s, n)
+	for i := 0; i < 2; i++ {
+		clock.Advance(5 * time.Second)
+		watchPass(t, s, n)
+	}
+
+	// The system resolver's answer rotates. The rows that read it run again now,
+	// while QUIC, the proxy, and encrypted DNS read only the interface and keep the
+	// observation they made at the start.
+	n.addr = net.ParseIP("198.51.100.8")
+	clock.Advance(5 * time.Second)
+	watchPass(t, s, n)
+
+	const passes = 40
+	var whole []int
+	mixed := 0
+	for pass := 1; pass <= passes; pass++ {
+		clock.Advance(5 * time.Second)
+		if publishedFresh(t, s, n) {
+			whole = append(whole, pass)
+		} else {
+			mixed++
+		}
+	}
+	if mixed == 0 {
+		t.Fatal("no pass reused a row after the change, so the desync is not exercised")
+	}
+	gap := int(watchMaxAge / (5 * time.Second))
+	last := 0
+	for _, pass := range whole {
+		if pass-last > gap {
+			t.Errorf("no whole measurement between passes %d and %d, want at most %d apart", last, pass, gap)
+		}
+		last = pass
+	}
+	if passes-last > gap {
+		t.Errorf("no whole measurement in the last %d passes", passes-last)
+	}
+}
+
+// A reused row names the pass that sampled it, and a pass with a reused row is
+// not a measurement of the whole graph.
+func TestWatchReusedRowNamesTheSamplingPass(t *testing.T) {
+	clock := newWatchClock()
+	n := newWatchNet()
+	s := NewWatchSession(clock.Now)
+	sampledAt := clock.Now()
+
+	pass := s.Begin(n.graph())
+	results := RunAll(context.Background(), pass.Probes(), time.Second)
+	if !pass.Publish(results) || !pass.Fresh() {
+		t.Fatal("first pass was not published as a fresh measurement")
+	}
+	for _, id := range watchIDs() {
+		if _, reused := results[id].ReusedFrom(); reused {
+			t.Errorf("first pass reports %s as reused", id)
+		}
+	}
+
+	clock.Advance(5 * time.Second)
+	pass = s.Begin(n.graph())
+	results = RunAll(context.Background(), pass.Probes(), time.Second)
+	if !pass.Publish(results) {
+		t.Fatal("stable pass was not published")
+	}
+	if pass.Fresh() {
+		t.Error("stable pass reused rows but reports itself fresh")
+	}
+	for _, id := range watchIDs() {
+		when, reused := results[id].ReusedFrom()
+		switch {
+		case watchReusable[id] && !reused:
+			t.Errorf("stable pass did not reuse %s", id)
+		case watchReusable[id] && !when.Equal(sampledAt):
+			t.Errorf("reused %s names sampling time %v, want the first pass at %v", id, when, sampledAt)
+		case !watchReusable[id] && reused:
+			t.Errorf("stable pass reused %s, which always runs", id)
+		}
+	}
+}
+
+// A reused observation is refused once it is older than watchMaxAge, even when
+// the session's last full pass is recent. Normally the full-pass clock forces a
+// fresh pass first, so this per-row bound is what the reuse check itself must
+// hold: lastFull is moved here by hand to take that path away.
+func TestWatchReuseRefusesAnObservationOlderThanMaxAge(t *testing.T) {
+	clock := newWatchClock()
+	n := newWatchNet()
+	s := NewWatchSession(clock.Now)
+	watchPass(t, s, n)
+
+	clock.Advance(watchMaxAge + time.Second)
+	s.lastFull = clock.Now()
+	results, ran, _ := watchPass(t, s, n)
+	for _, id := range watchIDs() {
+		if !watchReusable[id] {
+			continue
+		}
+		if _, reused := results[id].ReusedFrom(); reused {
+			t.Errorf("%s was reused from a measurement %v old, want it run", id, watchMaxAge+time.Second)
+		}
+		if ran[id] != 1 {
+			t.Errorf("%s ran %d times, want 1 once its measurement is past the maximum age", id, ran[id])
+		}
 	}
 }

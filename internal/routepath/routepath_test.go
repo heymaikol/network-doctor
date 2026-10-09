@@ -715,6 +715,21 @@ func TestNextHopOrderDoesNotChangeAgreement(t *testing.T) {
 	}
 }
 
+// hasLimitation reports whether one limitation holds every part, so a test can
+// find its limitation without matching the whole wording.
+func hasLimitation(e Explanation, parts ...string) bool {
+	for _, l := range e.Limitations {
+		matched := true
+		for _, p := range parts {
+			matched = matched && strings.Contains(l, p)
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
 // Local ownership decides the hop, as the kernel's local table does. The
 // decision must still name the rows that own the address, and it must not claim
 // a proof that no complete table backs.
@@ -740,6 +755,33 @@ func TestLocalDecisionNamesTheRowsThatOwnTheAddress(t *testing.T) {
 	}
 }
 
+// r3 owns the destination in its configured plane, and its complete FIB holds a
+// route to the destination that contradicts that ownership. Ownership still
+// decides the hop, but the FIB route must not vanish: the explanation has to
+// name it as unchecked.
+func TestConfiguredOwnershipKeepsAContradictingFIBRouteVisible(t *testing.T) {
+	cases := []struct {
+		name string
+		fib  netmodel.Route
+		want string
+	}{
+		{"discard", netmodel.Route{Prefix: pfx("10.20.40.0/24"), Origin: "kernel", Discard: true}, "discard 10.20.40.0/24"},
+		{"forward to r2", netmodel.Route{Prefix: pfx("10.20.40.0/24"), Origin: "kernel", NextHops: []netmodel.NextHop{nh("10.0.23.2", "eth0")}}, "forward 10.20.40.0/24 via eth0 10.0.23.2"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			obs := append(without(threeRouters(), "fib:r3:default"), table(netmodel.PlaneFIB, "r3", "default", true, c.fib))
+			e := explainFrom(t, obs, nil, fromR1, dest)
+			if got := spine(e.Forwarding)[2].Decision.Kind; got != KindLocal {
+				t.Fatalf("forwarding r3 = %v, want local: ownership decides the hop", got)
+			}
+			if !hasLimitation(e, "r3 (default)", "fib:r3:default", c.want) {
+				t.Errorf("limitations = %q, want one naming r3, fib:r3:default, and %q, the route local ownership did not check", e.Limitations, c.want)
+			}
+		})
+	}
+}
+
 // A FIB that agrees with ownership, or says nothing about the address, adds
 // no limitation. A connected on-link route is the normal case, not a conflict.
 func TestLocalOwnershipAddsNoLimitationWhenTheFIBAgreesOrIsSilent(t *testing.T) {
@@ -761,5 +803,26 @@ func TestLocalOwnershipAddsNoLimitationWhenTheFIBAgreesOrIsSilent(t *testing.T) 
 				t.Errorf("limitations = %q, want none", e.Limitations)
 			}
 		})
+	}
+}
+
+// Two equal-cost next hops reach the same owner, so the walk visits it twice.
+// The contradicting FIB route is still named once.
+func TestRepeatedOwnerNamesTheContradictingRouteOnce(t *testing.T) {
+	obs := []netmodel.Observation{
+		configured("r1", "default", []netmodel.Interface{ifc("eth1", "10.0.12.1/30"), ifc("eth2", "10.0.13.1/30")}),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", "10.0.12.2/30"), ifc("eth1", "10.0.13.2/30"), ifc("lan", "10.20.40.8/24")}),
+		table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", nh("10.0.12.2", "eth1"), nh("10.0.13.2", "eth2"))),
+		table(netmodel.PlaneFIB, "r2", "default", true, netmodel.Route{Prefix: pfx("10.20.40.0/24"), Origin: "kernel", Discard: true}),
+	}
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	n := 0
+	for _, l := range e.Limitations {
+		if strings.Contains(l, "fib:r2:default") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("limitations naming fib:r2:default = %d, want 1: %q", n, e.Limitations)
 	}
 }

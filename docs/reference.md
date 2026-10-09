@@ -1805,6 +1805,8 @@ The explanation has four parts:
 
 Limitations list each decision the file could not make, and the walk it came from.
 
+Ownership decides a local hop. When the address is listed only in a plane this walk does not read, the walk still stops at that node, and the limitation names the route that the walk's own planes give there. A missing route and an on-link route are not named, since a main table normally omits local addresses and a connected route covers them. Any other route is named, so a FIB row that contradicts ownership stays visible instead of vanishing.
+
 A walk stops at the destination, at a node the file does not describe, at a loop, or at 32 hops or 512 node visits, whichever comes first. A route can list more than 64 next hops. Its decision and comparison read all of them, but the walk follows only the first 64 at that node, and the explanation is marked `truncated`. A walk stopped by a bound is marked the same way.
 
 ### Machine-readable explanation

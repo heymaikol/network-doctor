@@ -69,6 +69,7 @@ type walker struct {
 	checks    map[checkKey][]Check
 	budget    int
 	truncated bool
+	notes     []string
 }
 
 // Explain walks file from its source toward dest, once along the expected
@@ -91,7 +92,7 @@ func Explain(f File, dest netip.Addr) Explanation {
 	e.Truncated = expTrunc || fwdTrunc
 	e.Findings = compareWalks(&e.Expected, &e.Forwarding)
 	e.Regions = failureRegions(&e.Forwarding)
-	e.Limitations = limitations(&e.Expected, &e.Forwarding)
+	e.Limitations = append(limitations(&e.Expected, &e.Forwarding), w.notes...)
 	return e
 }
 
@@ -180,7 +181,8 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 // localDecision says the destination is an address on this node. Ownership
 // decides the hop, as the kernel's local table does, but the decision names only
 // the plane whose rows list the address, and it claims no proof: interface lists
-// are partial, so no complete table backs ownership.
+// are partial, so no complete table backs ownership. When the walk does not read
+// that plane, noteUnchecked says what the walk's own planes decide there.
 func (w *walker) localDecision(planes []netmodel.Plane, at state, owned []owning) Decision {
 	var p netmodel.Plane
 	for _, q := range slices.Concat(planes, readPlanes) {
@@ -196,7 +198,41 @@ func (w *walker) localDecision(planes []netmodel.Plane, at state, owned []owning
 		}
 	}
 	ev = sortSupports(ev)
+	if !slices.Contains(planes, p) {
+		w.noteUnchecked(planes, at, ev)
+	}
 	return Decision{Kind: KindLocal, Basis: p, Evidence: ev, Reason: "destination is an address on this node"}
+}
+
+// noteUnchecked records what the walk's planes decide at the node when local
+// ownership came from planes outside them. A missing route or an on-link route
+// is consistent with ownership: main tables normally omit local addresses, and
+// a connected route covers them. Any other decision contradicts ownership, so
+// the explanation names it rather than dropping it.
+func (w *walker) noteUnchecked(planes []netmodel.Plane, at state, ev []Support) {
+	d, hops := w.decide(planes, at)
+	if d.Kind == KindNoRoute || d.Kind == KindUnknown || onLinkOnly(d, hops) {
+		return
+	}
+	// Several branches can reach the same owner, so the same note can come up twice.
+	note := fmt.Sprintf("%s (%s): destination is an address in %s, which this walk does not read. The walk's planes decide %s. The local decision keeps ownership without checking that decision.", at.node, at.vrf, evidenceText(ev), decisionText(d))
+	if !slices.Contains(w.notes, note) {
+		w.notes = append(w.notes, note)
+	}
+}
+
+// onLinkOnly reports a forward decision whose next hops name no address, so the
+// destination itself is the next hop, as a connected route says.
+func onLinkOnly(d Decision, hops []netmodel.NextHop) bool {
+	if d.Kind != KindForward {
+		return false
+	}
+	for _, n := range hops {
+		if n.Addr.IsValid() {
+			return false
+		}
+	}
+	return true
 }
 
 // resolve follows one next hop to the node that owns its address. The owner's

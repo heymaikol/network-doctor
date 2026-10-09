@@ -25,7 +25,12 @@ type watchNet struct {
 
 type watchCounts struct {
 	mu   sync.Mutex
-	runs map[ProbeID]int
+	runs map[ProbeID]int // executions since the last resetRuns
+	all  map[ProbeID]int // every execution, including attempts a pass rejected
+}
+
+func newWatchCounts() *watchCounts {
+	return &watchCounts{runs: map[ProbeID]int{}, all: map[ProbeID]int{}}
 }
 
 func newWatchNet() *watchNet {
@@ -33,7 +38,7 @@ func newWatchNet() *watchNet {
 		iface:      "eth0",
 		addr:       net.ParseIP("198.51.100.7"),
 		publicAddr: net.ParseIP("198.51.100.53"),
-		counts:     &watchCounts{runs: map[ProbeID]int{}},
+		counts:     newWatchCounts(),
 	}
 }
 
@@ -59,6 +64,7 @@ func (n *watchNet) graph() []Probe {
 		probes[i].Run = func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
 			n.counts.mu.Lock()
 			n.counts.runs[id]++
+			n.counts.all[id]++
 			n.counts.mu.Unlock()
 			return n.result(id)
 		}
@@ -98,6 +104,17 @@ func (n *watchNet) resetRuns() {
 	n.counts.mu.Lock()
 	n.counts.runs = map[ProbeID]int{}
 	n.counts.mu.Unlock()
+}
+
+// allRuns returns every execution so far, across all attempts of all passes.
+func (n *watchNet) allRuns() map[ProbeID]int {
+	n.counts.mu.Lock()
+	defer n.counts.mu.Unlock()
+	out := make(map[ProbeID]int, len(n.counts.all))
+	for id, c := range n.counts.all {
+		out[id] = c
+	}
+	return out
 }
 
 func (n *watchNet) snapshotRuns() map[ProbeID]int {
@@ -144,7 +161,7 @@ func watchPass(t *testing.T, s *WatchSession, n *watchNet) (map[ProbeID]ProbeRes
 func assertFreshDiagnosis(t *testing.T, n *watchNet, published map[ProbeID]ProbeResult) {
 	t.Helper()
 	twin := *n
-	twin.counts = &watchCounts{runs: map[ProbeID]int{}}
+	twin.counts = newWatchCounts()
 	probes := twin.graph()
 	fresh := RunAll(context.Background(), probes, time.Second)
 	want := Interpret(watchTarget(), ProbeOrder(probes), fresh)
@@ -411,28 +428,53 @@ func TestWatchForcedPassRunsEveryRow(t *testing.T) {
 }
 
 // A confirmation pass that is cancelled before it is published must not clear
-// the request for a fresh pass. Here the interface blip that caused the
-// confirmation is gone by the next pass, so a session that forgot the request
-// would reuse TLS from before the blip.
+// the request for a fresh pass. The outage pass reuses QUIC, which reads only
+// the interface, so it is discarded and a confirmation is owed. The confirmation
+// is cancelled. Recovery must then run QUIC fresh, not reuse it.
 func TestWatchCancelledConfirmationStaysForced(t *testing.T) {
 	clock := newWatchClock()
 	n := newWatchNet()
 	s := NewWatchSession(clock.Now)
 	watchPass(t, s, n)
 
-	n.ifaceDown = true
+	n.targetDown = true
 	clock.Advance(5 * time.Second)
-	watchPass(t, s, n) // discarded; the session now wants a fresh pass
+	outage := s.Begin(n.graph())
+	if outage.Publish(RunAll(context.Background(), outage.Probes(), time.Second)) {
+		t.Fatal("outage pass that reused rows was published, want discarded")
+	}
 
-	n.ifaceDown = false
 	clock.Advance(5 * time.Second)
 	cancelled := s.Begin(n.graph())
 	RunAll(context.Background(), cancelled.Probes(), time.Second) // never published
 
+	n.targetDown = false
+	clock.Advance(5 * time.Second)
+	_, runs, _ := watchPass(t, s, n)
+	if runs[ProbeQUIC] != 1 {
+		t.Errorf("recovery after a cancelled confirmation ran QUIC %d times, want 1: it reused a row from before the outage", runs[ProbeQUIC])
+	}
+}
+
+// A retest can arrive while a pass is running. The pass was started before the
+// request, so publishing it must not clear the request: the next pass runs fresh.
+func TestWatchRequestDuringPassSurvivesPublish(t *testing.T) {
+	clock := newWatchClock()
+	n := newWatchNet()
+	s := NewWatchSession(clock.Now)
+	watchPass(t, s, n)
+
+	clock.Advance(5 * time.Second)
+	inFlight := s.Begin(n.graph())
+	s.Force() // retest requested while the pass runs
+	if !inFlight.Publish(RunAll(context.Background(), inFlight.Probes(), time.Second)) {
+		t.Fatal("stable in-flight pass was not published")
+	}
+
 	clock.Advance(5 * time.Second)
 	_, runs, _ := watchPass(t, s, n)
 	if runs[ProbeTLS] != 1 {
-		t.Errorf("pass after a cancelled confirmation ran TLS %d times, want 1", runs[ProbeTLS])
+		t.Errorf("pass after a retest that arrived mid-pass ran TLS %d times, want 1: the request was lost", runs[ProbeTLS])
 	}
 }
 
@@ -515,19 +557,22 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 		if pass > 0 {
 			clock.Advance(5 * time.Second)
 		}
+		before := n.allRuns()
 		res, runs, attempts := watchPass(t, s, n)
 		if attempts == 2 {
 			discarded++
 		}
-		executed := 0
+		// The work a pass did includes the attempt it rejected: that work ran
+		// on the network whether or not anything was printed.
+		for id, c := range n.allRuns() {
+			perRow[id] += c - before[id]
+			total += c - before[id]
+		}
+		published := 0
 		for _, c := range runs {
-			executed += c
+			published += c
 		}
-		total += executed
-		for id, c := range runs {
-			perRow[id] += c
-		}
-		if executed == graphRows {
+		if published == graphRows {
 			full++
 		}
 		if n.tlsBroken && res[ProbeTLS].Status == StatusPass {

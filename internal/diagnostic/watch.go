@@ -46,6 +46,11 @@ type WatchSession struct {
 	// force makes the next pass acquire every row fresh. It stays set until a
 	// pass that ran fresh is published, so a cancelled forced pass is retried.
 	force bool
+	// requests counts each request for a fresh pass, from Force or from a
+	// discarded pass. A pass records the count when it begins. Publishing clears
+	// force only if no request came after that, so a retest that arrives while a
+	// pass runs still gets its fresh pass.
+	requests uint64
 }
 
 // watchObservation is one passing, reusable row and the evidence it was
@@ -80,6 +85,7 @@ func NewWatchSession(now func() time.Time) *WatchSession {
 // asks for it.
 func (s *WatchSession) Force() {
 	s.force = true
+	s.requests++
 }
 
 // Begin starts one pass over base, the probe graph of this session's target.
@@ -88,6 +94,7 @@ func (s *WatchSession) Begin(base []Probe) *WatchPass {
 	pass := &WatchPass{
 		session:      s,
 		force:        s.force,
+		requested:    s.requests,
 		cache:        maps.Clone(s.cache),
 		ran:          map[ProbeID]watchObservation{},
 		reused:       map[ProbeID]bool{},
@@ -104,10 +111,11 @@ func (s *WatchSession) Begin(base []Probe) *WatchPass {
 // they touch only the copy of the cache taken at Begin and their own records,
 // which mu guards. The session changes only in Publish.
 type WatchPass struct {
-	session *WatchSession
-	force   bool
-	probes  []Probe
-	cache   map[ProbeID]watchObservation
+	session   *WatchSession
+	force     bool
+	requested uint64
+	probes    []Probe
+	cache     map[ProbeID]watchObservation
 
 	mu     sync.Mutex
 	ran    map[ProbeID]watchObservation
@@ -232,6 +240,7 @@ func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 	p.mu.Unlock()
 	if !p.force && reused > 0 && !maps.Equal(s.last, verdicts) {
 		s.force = true
+		s.requests++
 		return false
 	}
 	next := make(map[ProbeID]watchObservation, len(p.ran)+len(p.reused))
@@ -243,7 +252,9 @@ func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 	}
 	s.cache = next
 	s.last = verdicts
-	s.force = false
+	if s.requests == p.requested {
+		s.force = false
+	}
 	return true
 }
 

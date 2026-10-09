@@ -158,11 +158,13 @@ func dropFirstDial(_ testing.TB, f *budgetFixture, o *netops) {
 // request handler.
 type rawConnKey struct{}
 
-// dropReusedSocket serves HTTP/1.1 and closes the first connection that
-// completes a handshake as soon as its first request arrives. The TLS row
-// hands that connection to HTTPS when sharing is on, so only the shared HTTPS
-// request meets the closure. A fresh HTTPS connection is never the first.
-func dropReusedSocket(t testing.TB, f *budgetFixture, o *netops) {
+// dropReusedSocket serves the target and closes the first connection that
+// completes a handshake as soon as its first request arrives. The TLS row hands
+// that connection to HTTPS when sharing is on, so only the shared HTTPS request
+// meets the closure. A fresh HTTPS connection is never the first. With http1
+// set the server speaks HTTP/1.1 only, so the closure lands before any response
+// bytes. Otherwise HTTP/2 is negotiated, as in production.
+func dropReusedSocket(t testing.TB, f *budgetFixture, o *netops, http1 bool) {
 	cert, roots := selfSignedCert(t, budgetTargetHost)
 	p := newPipeNet(t)
 	var mu sync.Mutex
@@ -192,14 +194,17 @@ func dropReusedSocket(t testing.TB, f *budgetFixture, o *netops) {
 			doomed := raw != nil && raw == first
 			mu.Unlock()
 			if doomed && dropped.CompareAndSwap(false, true) {
+				f.targetProto.Store(int32(r.ProtoMajor))
 				_ = raw.Close()
 				return
 			}
 			w.WriteHeader(http.StatusOK)
 		}),
+	}
+	if http1 {
 		// An empty map turns HTTP/2 off, so the closure lands between the request
 		// and any response bytes, with nothing in flight to fail on.
-		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
+		srv.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
 	}
 	p.serve(t, srv, func() error { return srv.ServeTLS(p, "", "") })
 	f.tlsPipe = p
@@ -207,11 +212,95 @@ func dropReusedSocket(t testing.TB, f *budgetFixture, o *netops) {
 	o.dialTLS = trustingDialTLS(f.dial, roots)
 }
 
+// differentialRun is one diagnosis of the target rows on a fresh fixture.
+type differentialRun struct {
+	diag  Diagnosis
+	res   map[ProbeID]ProbeResult
+	dials int64 // connections the probes made to the target
+	proto int32 // HTTP major version of the request the fixture dropped
+}
+
+// runDifferential diagnoses the target rows once on a fresh fixture, shared or
+// disarmed. It counts the connections the probes make to the target, whichever
+// path dials them, and records the protocol of any dropped request.
+func runDifferential(t *testing.T, setup func(testing.TB, *budgetFixture, *netops), shared bool) differentialRun {
+	t.Helper()
+	f := newBudgetFixture(t)
+	o := f.ops()
+	setup(t, f, o)
+	var dials atomic.Int64
+	countedDial := o.dialContext
+	o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if strings.HasSuffix(addr, ":443") {
+			dials.Add(1)
+		}
+		return countedDial(ctx, network, addr)
+	}
+	countedTLS := o.dialTLS
+	o.dialTLS = func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+		if strings.HasSuffix(addr, ":443") {
+			dials.Add(1)
+		}
+		return countedTLS(ctx, network, addr, cfg)
+	}
+	tg := mustTarget(t, budgetTargetHost+":443")
+	probes := ProbeSelection{Check: differentialRows}.Apply(o.timedProbes(tg, DefaultPublicDNS, true))
+	if !shared {
+		disarm(probes)
+	}
+	res := RunAll(context.Background(), probes, DefaultProbeTimeout)
+	requireRows(t, res, ProbeTargetTCP, ProbeTLS, ProbeHTTPS)
+	order := make([]ProbeID, len(probes))
+	for i, p := range probes {
+		order[i] = p.ID
+	}
+	return differentialRun{
+		diag:  Interpret(tg, order, res),
+		res:   res,
+		dials: dials.Load(),
+		proto: f.targetProto.Load(),
+	}
+}
+
+// requireAgreement compares a shared run with a disarmed one: each row's status,
+// cause, pinned address, detail and attempts, and the diagnosis and its findings.
+func requireAgreement(t *testing.T, shared, plain differentialRun) {
+	t.Helper()
+	for id, want := range plain.res {
+		got := shared.res[id]
+		if got.Status != want.Status || got.Cause != want.Cause {
+			t.Errorf("%s = %v/%q shared, %v/%q disarmed", id, got.Status, got.Cause, want.Status, want.Cause)
+		}
+		if !got.SelectedIP.Equal(want.SelectedIP) {
+			t.Errorf("%s pinned %v shared, %v disarmed", id, got.SelectedIP, want.SelectedIP)
+		}
+		if id != ProbeTargetTCP && got.Detail != want.Detail {
+			t.Errorf("%s detail %q shared, %q disarmed", id, got.Detail, want.Detail)
+		}
+		requireSameAttempts(t, id, got.Attempts, want.Attempts)
+	}
+	if shared.diag.Verdict != plain.diag.Verdict || shared.diag.Blamed != plain.diag.Blamed {
+		t.Errorf("diagnosis = %s blaming %q shared, %s blaming %q disarmed",
+			shared.diag.Verdict, shared.diag.Blamed, plain.diag.Verdict, plain.diag.Blamed)
+	}
+	if len(shared.diag.Findings) != len(plain.diag.Findings) {
+		t.Fatalf("findings = %d shared, %d disarmed", len(shared.diag.Findings), len(plain.diag.Findings))
+	}
+	for i := range shared.diag.Findings {
+		s, p := shared.diag.Findings[i], plain.diag.Findings[i]
+		if s.ID != p.ID || s.Focus != p.Focus || s.Confidence != p.Confidence {
+			t.Errorf("finding %d = %s/%s/%v shared, %s/%s/%v disarmed",
+				i, s.ID, s.Focus, s.Confidence, p.ID, p.Focus, p.Confidence)
+		}
+	}
+}
+
 // Sharing changes how many sockets the rows use, not what they conclude. Each
-// case runs once shared and once disarmed on fresh fixtures. Both runs must
-// agree on every row's status, its report-visible fields, and the diagnosis.
-// fresh names the rows that fell back to a fresh connection in the shared run,
-// which must carry no provenance.
+// case runs once shared and once disarmed on fresh fixtures, and the two runs
+// must agree on every row, the target connections, and the diagnosis. dials is
+// how many connections the shared run makes to the target. fresh names the rows
+// that fell back to a fresh connection in the shared run, which must carry no
+// provenance.
 func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -219,8 +308,7 @@ func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 		// wantTLS and wantHTTPS prove the case reaches the outcome it is named for.
 		wantTLS, wantHTTPS Status
 		fresh              []ProbeID
-		// dials is how many connections the shared run makes to the target.
-		dials int
+		dials              int64
 	}{
 		{"healthy", func(testing.TB, *budgetFixture, *netops) {}, StatusPass, StatusPass, nil, 1},
 		{"server closes after accept", func(t testing.TB, f *budgetFixture, _ *netops) {
@@ -257,94 +345,59 @@ func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 			o.dialTLS = dialTLSWith(f.dial)
 		}, StatusFail, StatusSkip, nil, 1},
 		{"first dial dropped", dropFirstDial, StatusPass, StatusPass, []ProbeID{ProbeTLS, ProbeHTTPS}, 3},
-		{"reused socket dropped", dropReusedSocket, StatusPass, StatusPass, []ProbeID{ProbeHTTPS}, 2},
+		{"reused socket dropped over HTTP/1.1", func(t testing.TB, f *budgetFixture, o *netops) {
+			dropReusedSocket(t, f, o, true)
+		}, StatusPass, StatusPass, []ProbeID{ProbeHTTPS}, 2},
 	}
-	tg := mustTarget(t, budgetTargetHost+":443")
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			run := func(shared bool) (Diagnosis, map[ProbeID]ProbeResult, int64) {
-				f := newBudgetFixture(t)
-				o := f.ops()
-				c.setup(t, f, o)
-				// Count every connection the probes make to the target, whichever path dials it.
-				var dials atomic.Int64
-				countedDial := o.dialContext
-				o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-					if strings.HasSuffix(addr, ":443") {
-						dials.Add(1)
-					}
-					return countedDial(ctx, network, addr)
-				}
-				countedTLS := o.dialTLS
-				o.dialTLS = func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-					if strings.HasSuffix(addr, ":443") {
-						dials.Add(1)
-					}
-					return countedTLS(ctx, network, addr, cfg)
-				}
-				probes := ProbeSelection{Check: differentialRows}.Apply(o.timedProbes(tg, DefaultPublicDNS, true))
-				if !shared {
-					disarm(probes)
-				}
-				res := RunAll(context.Background(), probes, DefaultProbeTimeout)
-				requireRows(t, res, ProbeTargetTCP, ProbeTLS, ProbeHTTPS)
-				order := make([]ProbeID, len(probes))
-				for i, p := range probes {
-					order[i] = p.ID
-				}
-				return Interpret(tg, order, res), res, dials.Load()
+			shared := runDifferential(t, c.setup, true)
+			plain := runDifferential(t, c.setup, false)
+			if got := shared.res[ProbeTLS].Status; got != c.wantTLS {
+				t.Fatalf("TLS = %v shared, want %v: %s", got, c.wantTLS, shared.res[ProbeTLS].Cause)
 			}
-			shared, sharedRes, sharedDials := run(true)
-			plain, plainRes, _ := run(false)
-
-			if sharedDials != int64(c.dials) {
-				t.Errorf("shared run made %d target connections, want %d", sharedDials, c.dials)
+			if got := shared.res[ProbeHTTPS].Status; got != c.wantHTTPS {
+				t.Fatalf("HTTPS = %v shared, want %v: %s", got, c.wantHTTPS, shared.res[ProbeHTTPS].Cause)
 			}
-
-			if got := sharedRes[ProbeTLS].Status; got != c.wantTLS {
-				t.Fatalf("TLS = %v shared, want %v: %s", got, c.wantTLS, sharedRes[ProbeTLS].Cause)
-			}
-			if got := sharedRes[ProbeHTTPS].Status; got != c.wantHTTPS {
-				t.Fatalf("HTTPS = %v shared, want %v: %s", got, c.wantHTTPS, sharedRes[ProbeHTTPS].Cause)
+			if shared.dials != c.dials {
+				t.Errorf("shared run made %d target connections, want %d", shared.dials, c.dials)
 			}
 			for _, id := range []ProbeID{ProbeTLS, ProbeHTTPS} {
 				fresh := slices.Contains(c.fresh, id)
 				switch {
-				case fresh && sharedRes[id].acquisition != 0:
-					t.Errorf("%s fell back to a fresh connection but still claims socket %d", id, sharedRes[id].acquisition)
-				case !fresh && sharedRes[id].Status != StatusSkip && sharedRes[id].acquisition == 0:
+				case fresh && shared.res[id].acquisition != 0:
+					t.Errorf("%s fell back to a fresh connection but still claims socket %d", id, shared.res[id].acquisition)
+				case !fresh && shared.res[id].Status != StatusSkip && shared.res[id].acquisition == 0:
 					t.Errorf("%s dialed on its own in the shared run, so sharing was not exercised", id)
 				}
 			}
-			for id, want := range plainRes {
-				got := sharedRes[id]
-				if got.Status != want.Status || got.Cause != want.Cause {
-					t.Errorf("%s = %v/%q shared, %v/%q disarmed", id, got.Status, got.Cause, want.Status, want.Cause)
-				}
-				if !got.SelectedIP.Equal(want.SelectedIP) {
-					t.Errorf("%s pinned %v shared, %v disarmed", id, got.SelectedIP, want.SelectedIP)
-				}
-				if id != ProbeTargetTCP && got.Detail != want.Detail {
-					t.Errorf("%s detail %q shared, %q disarmed", id, got.Detail, want.Detail)
-				}
-				requireSameAttempts(t, id, got.Attempts, want.Attempts)
-			}
-			if shared.Verdict != plain.Verdict || shared.Blamed != plain.Blamed {
-				t.Errorf("diagnosis = %s blaming %q shared, %s blaming %q disarmed",
-					shared.Verdict, shared.Blamed, plain.Verdict, plain.Blamed)
-			}
-			if len(shared.Findings) != len(plain.Findings) {
-				t.Fatalf("findings = %d shared, %d disarmed", len(shared.Findings), len(plain.Findings))
-			}
-			for i := range shared.Findings {
-				s, p := shared.Findings[i], plain.Findings[i]
-				if s.ID != p.ID || s.Focus != p.Focus || s.Confidence != p.Confidence {
-					t.Errorf("finding %d = %s/%s/%v shared, %s/%s/%v disarmed",
-						i, s.ID, s.Focus, s.Confidence, p.ID, p.Focus, p.Confidence)
-				}
-			}
+			requireAgreement(t, shared, plain)
 		})
 	}
+}
+
+// Production negotiates HTTP/2, and the case above turns it off. This keeps it
+// on: the dropped request is an HTTP/2 stream whose response never arrives. The
+// HTTPS row must fall back to one fresh connection and report no provenance.
+func TestSharedHTTP2SocketDroppedFallsBack(t *testing.T) {
+	setup := func(t testing.TB, f *budgetFixture, o *netops) { dropReusedSocket(t, f, o, false) }
+	shared := runDifferential(t, setup, true)
+	plain := runDifferential(t, setup, false)
+	if shared.proto != 2 {
+		t.Fatalf("the dropped request used HTTP/%d, want HTTP/2", shared.proto)
+	}
+	for _, id := range []ProbeID{ProbeTargetTCP, ProbeTLS, ProbeHTTPS} {
+		if got := shared.res[id]; got.Status != StatusPass {
+			t.Errorf("%s = %v shared: %s", id, got.Status, got.Cause)
+		}
+	}
+	if got := shared.res[ProbeHTTPS].acquisition; got != 0 {
+		t.Errorf("HTTPS fell back but still claims socket %d", got)
+	}
+	if shared.dials != 2 {
+		t.Errorf("shared run made %d target connections, want 2: the shared socket and one fresh", shared.dials)
+	}
+	requireAgreement(t, shared, plain)
 }
 
 // requireSameAttempts compares the dials two runs report for one row, entry by

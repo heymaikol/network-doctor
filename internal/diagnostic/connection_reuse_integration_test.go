@@ -29,6 +29,9 @@ type liveServer struct {
 	roots      *x509.CertPool
 	accepts    atomic.Int64 // sockets accepted
 	handshakes atomic.Int64 // TLS handshakes completed
+	// dropFirst closes the first socket accepted before any byte is read, as a
+	// middlebox or a restarting backend does right after accept.
+	dropFirst bool
 }
 
 type countingListener struct {
@@ -37,17 +40,24 @@ type countingListener struct {
 }
 
 func (l *countingListener) Accept() (net.Conn, error) {
-	c, err := l.Listener.Accept()
-	if err == nil {
-		l.live.accepts.Add(1)
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		n := l.live.accepts.Add(1)
+		if l.live.dropFirst && n == 1 {
+			_ = c.Close()
+			continue
+		}
+		return c, nil
 	}
-	return c, err
 }
 
-func startLiveServer(t *testing.T) *liveServer {
+func startLiveServer(t *testing.T, dropFirst bool) *liveServer {
 	t.Helper()
 	cert, roots := selfSignedCert(t, "localhost")
-	live := &liveServer{roots: roots}
+	live := &liveServer{roots: roots, dropFirst: dropFirst}
 	srv := &http.Server{
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
@@ -95,9 +105,9 @@ func (d *dialLog) wrap(dial func(context.Context, string, string) (net.Conn, err
 }
 
 // runLive diagnoses the live server with the target rows, shared or disarmed.
-func runLive(t *testing.T, shared bool) (map[ProbeID]ProbeResult, *liveServer) {
+func runLive(t *testing.T, shared, dropFirst bool) (map[ProbeID]ProbeResult, *liveServer) {
 	t.Helper()
-	live := startLiveServer(t)
+	live := startLiveServer(t, dropFirst)
 	tg, err := ParseTarget("https://localhost:" + live.port)
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +160,7 @@ func awaitClosed(t *testing.T, dials *dialLog) {
 // handshake, and closes it. The disarmed run dials one socket per row, with two
 // handshakes. Both must agree on every row's status.
 func TestSharedSocketAgainstLiveHTTPSServer(t *testing.T) {
-	shared, sharedLive := runLive(t, true)
+	shared, sharedLive := runLive(t, true, false)
 	for _, id := range []ProbeID{ProbeTargetTCP, ProbeTLS, ProbeHTTPS} {
 		if shared[id].Status != StatusPass {
 			t.Fatalf("%s = %v on a live server: %s", id, shared[id].Status, shared[id].Cause)
@@ -163,7 +173,7 @@ func TestSharedSocketAgainstLiveHTTPSServer(t *testing.T) {
 		t.Errorf("server completed %d handshakes, want 1", got)
 	}
 
-	plain, plainLive := runLive(t, false)
+	plain, plainLive := runLive(t, false, false)
 	for _, id := range []ProbeID{ProbeTargetTCP, ProbeTLS, ProbeHTTPS} {
 		if plain[id].Status != shared[id].Status {
 			t.Errorf("%s = %v disarmed, %v shared", id, plain[id].Status, shared[id].Status)
@@ -174,5 +184,35 @@ func TestSharedSocketAgainstLiveHTTPSServer(t *testing.T) {
 	}
 	if got := plainLive.handshakes.Load(); got != 2 {
 		t.Errorf("disarmed server completed %d handshakes, want 2", got)
+	}
+}
+
+// A socket the server drops right after accept must not fail the rows. TCP
+// connects to it and passes. TLS reads the closure, dials again, and passes.
+// HTTPS then dials for itself. Both runs agree, and no socket is left open.
+func TestSharedSocketSurvivesDroppedFirstSocket(t *testing.T) {
+	shared, sharedLive := runLive(t, true, true)
+	for _, id := range []ProbeID{ProbeTargetTCP, ProbeTLS, ProbeHTTPS} {
+		if shared[id].Status != StatusPass {
+			t.Fatalf("%s = %v shared on a live server: %s", id, shared[id].Status, shared[id].Cause)
+		}
+	}
+	for _, id := range []ProbeID{ProbeTLS, ProbeHTTPS} {
+		if got := shared[id].acquisition; got != 0 {
+			t.Errorf("%s fell back to a fresh connection but still claims socket %d", id, got)
+		}
+	}
+	if got := sharedLive.accepts.Load(); got != 3 {
+		t.Errorf("server accepted %d sockets, want 3: the dropped one, its replacement, and HTTPS", got)
+	}
+	if got := sharedLive.handshakes.Load(); got != 2 {
+		t.Errorf("server completed %d handshakes, want 2", got)
+	}
+
+	plain, _ := runLive(t, false, true)
+	for _, id := range []ProbeID{ProbeTargetTCP, ProbeTLS, ProbeHTTPS} {
+		if plain[id].Status != shared[id].Status {
+			t.Errorf("%s = %v disarmed, %v shared", id, plain[id].Status, shared[id].Status)
+		}
 	}
 }

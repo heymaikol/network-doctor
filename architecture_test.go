@@ -19,7 +19,8 @@ func TestPackageLayering(t *testing.T) {
 	// there: it moves the two published artifacts over SSH and runs no probe of
 	// its own, so it depends on the schemas and never on the probe engine. Field
 	// cases sit beside comparison: they validate stored artifacts and metadata,
-	// never live probe state.
+	// never live probe state. The netmodel schema imports nothing internal, so
+	// it sits at the bottom beside report, snapshot and textsafe.
 	// Checking every direct edge also rules out a transitive path to the same or
 	// a higher layer.
 	layers := map[string]int{
@@ -27,6 +28,7 @@ func TestPackageLayering(t *testing.T) {
 		"internal/textsafe":   0,
 		"internal/report":     0,
 		"internal/snapshot":   0,
+		"internal/netmodel":   0,
 		"internal/compare":    1,
 		"internal/diagnostic": 1,
 		"internal/fieldcase":  1,
@@ -86,7 +88,7 @@ func TestPackageLayering(t *testing.T) {
 				continue
 			}
 			if sourceKnown && dependencyLayer >= sourceLayer {
-				t.Errorf("%s: package layering violation: %s depends on %s; rule: dependencies must point down ui -> incident/peer/simulation -> diagnostic/compare/fieldcase -> report/snapshot/textsafe", fset.Position(spec.Pos()), pkg, dependency)
+				t.Errorf("%s: package layering violation: %s depends on %s; rule: dependencies must point down ui -> incident/peer/simulation -> diagnostic/compare/fieldcase -> report/snapshot/textsafe/netmodel", fset.Position(spec.Pos()), pkg, dependency)
 			}
 		}
 		return nil

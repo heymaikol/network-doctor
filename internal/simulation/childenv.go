@@ -11,10 +11,12 @@ import (
 // child that inherits one can read it.
 var gitHubCredentialVars = []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"}
 
-// ChildEnv is the environment every process the simulator starts is given: the
-// launcher's environment without the GitHub credentials. A command started
-// with no environment set inherits all of them, so every start sets Env from
-// here. Values passed explicitly to Exec and ExecInteractive are appended
+// ChildEnv is the environment the simulator's child processes are started with:
+// the launcher's environment without the GitHub credentials. A command started
+// with no environment set inherits all of them, so starts set Env from here.
+// The tc -V version probe is the one exception; it takes no credential and
+// inherits its director's filtered environment. Values passed explicitly to
+// Exec and ExecInteractive are appended
 // after it, unfiltered; callers build those from scenario data, never from the
 // host environment.
 func ChildEnv() []string {

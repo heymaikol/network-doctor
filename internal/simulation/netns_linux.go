@@ -1209,9 +1209,7 @@ const netemSeedIproute2 = "6.6"
 func tcSupportsNetemSeed(ctx context.Context) (bool, string) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "tc", "-V")
-	cmd.Env = ChildEnv()
-	out, err := cmd.Output()
+	out, err := exec.CommandContext(ctx, "tc", "-V").Output()
 	if err != nil {
 		return false, "no tc"
 	}

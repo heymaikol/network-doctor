@@ -134,4 +134,10 @@ func TestWatchSessionRestartsBuildOneFreshGraph(t *testing.T) {
 	if *builds != 1 {
 		t.Fatalf("target switch built %d graphs, want 1", *builds)
 	}
+	// The pass runs the rows the model holds. Closing the pass's socket must
+	// close the one the model's rows would hand along. Last, since it closes it.
+	diagnostic.ReleaseProbes(switched.pass.Probes())
+	if diagnostic.TargetSocketOpen(switched.probes) {
+		t.Error("the model's rows are not the pass's rows, so they hold a socket the pass cannot close")
+	}
 }

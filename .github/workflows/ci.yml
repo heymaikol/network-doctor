@@ -20,11 +20,12 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: Install GoHawk v0.5.0
-        run: go install github.com/kojah/gohawk@v0.5.0
+      # Version lives in tools/go.mod. Bump with: go -C tools get -tool github.com/kojah/gohawk@vX.Y.Z
+      - name: Build GoHawk from the locked tools module
+        run: go -C tools build -o "$RUNNER_TEMP/gohawk" github.com/kojah/gohawk
       - name: Run GoHawk core analyzers
         run: |
-          "$(go env GOPATH)/bin/gohawk" ./...
+          "$RUNNER_TEMP/gohawk" ./...
 
   dependency-review:
     if: github.event_name == 'pull_request'

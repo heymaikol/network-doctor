@@ -54,7 +54,8 @@ type DriftFinding struct {
 // Drift compares intended routes with the FIB at each node where intent states
 // a decision. Intended is the walk that follows intent where it speaks and the
 // FIB elsewhere, and Compared counts the nodes where intent decided. Level is
-// the worst finding, and at least unknown when a walk was truncated.
+// the worst finding, and at least unknown when the intended walk or the FIB
+// walk from the source was truncated.
 type Drift struct {
 	Level     DriftLevel     `json:"level"`
 	Compared  int            `json:"compared"`
@@ -72,32 +73,45 @@ const (
 	reachFailed               // some leaf drops or loops
 )
 
-// drift compares intent with the FIB along the intended walk. It returns nil
-// when the file holds no intended routes, so the explanation is unchanged.
+// drift compares intent with the FIB at each node where intent decides. Each
+// node is judged by the intent at that node alone, with the FIB after it, so
+// intent further on never moves a node's level. It returns nil when the file
+// holds no intended routes, so the explanation is unchanged.
 func (w *walker) drift(e *Explanation) *Drift {
 	if !slices.ContainsFunc(w.obs, func(o netmodel.Observation) bool {
 		return o.Plane == netmodel.PlaneIntended && (len(o.Routes) > 0 || o.RoutesComplete)
 	}) {
 		return nil
 	}
-	intended, trunc := w.run(intendedPlanes, state{e.Source.Node, e.Source.VRF})
-	trunc = trunc || e.Truncated
-	live, want := map[state]reach{}, map[state]reach{}
-	root := reachOf(&e.Forwarding, live)
-	reachOf(&intended, want)
-	// A bound hides part of a walk, so nothing it shows proves delivery.
-	bounded := func(r reach) reach {
-		if trunc {
-			return max(r, reachUnknown)
+	src := state{e.Source.Node, e.Source.VRF}
+	overlay, overTrunc := w.run(intendedPlanes, src)
+	fwd, fwdTrunc := w.run(forwardingPlanes, src)
+	// sub is the reach of the FIB alone from s.
+	// ponytail: one FIB walk per compared node, memoized by state; memoize further or bound the node count if topologies grow.
+	fibs := map[state]reach{src: reachOf(&fwd, nil)}
+	sub := func(s state) reach {
+		r, ok := fibs[s]
+		if !ok {
+			h, _ := w.run(forwardingPlanes, s)
+			r = reachOf(&h, nil)
+			fibs[s] = r
 		}
 		return r
 	}
-	d := &Drift{Level: DriftNone, Truncated: trunc, Intended: intended, Findings: []DriftFinding{}}
-	if trunc {
-		d.Level = DriftUnknown
+	root := fibs[src]
+	on := map[state]bool{}
+	walkHops(&e.Forwarding, func(h *Hop) { on[state{h.Node, h.VRF}] = true })
+	d := &Drift{Level: DriftNone, Truncated: overTrunc || fwdTrunc, Intended: overlay, Findings: []DriftFinding{}}
+	raise := func(l DriftLevel) {
+		if slices.Index(driftRank, l) > slices.Index(driftRank, d.Level) {
+			d.Level = l
+		}
+	}
+	if d.Truncated {
+		raise(DriftUnknown)
 	}
 	seen := map[state]bool{}
-	walkHops(&intended, func(h *Hop) {
+	walkHops(&overlay, func(h *Hop) {
 		s := state{h.Node, h.VRF}
 		// When every plane is silent, decide still names intended as the basis,
 		// with no prefix. Intent stated nothing there.
@@ -106,29 +120,37 @@ func (w *walker) drift(e *Explanation) *Drift {
 		}
 		seen[s] = true
 		d.Compared++
-		after, on := live[s]
-		if !on {
-			after = root
-		}
-		if f, ok := w.classify(s, on, bounded(after), bounded(want[s])); ok {
+		if f, ok := w.classify(s, on[s], sub(s), reachOf(h, sub), root); ok {
 			d.Findings = append(d.Findings, f)
-			if slices.Index(driftRank, f.Level) > slices.Index(driftRank, d.Level) {
-				d.Level = f.Level
-			}
+			raise(f.Level)
 		}
 	})
+	// Intent at several nodes can deliver together where intent at any one of
+	// them does not. A finding at the source keeps that loss in the level,
+	// unless a node already accounts for it.
+	if root == reachFailed && reachOf(&overlay, nil) == reachOK && d.Level != DriftReachabilityLost {
+		f := w.finding(src, overlay.Decision, e.Forwarding.Decision)
+		f.Level, f.Detail = DriftReachabilityLost, "the FIB path from the source fails, and the intended path reaches the destination; no single node accounts for it"
+		d.Findings = append(d.Findings, f)
+		raise(f.Level)
+	}
 	return d
 }
 
+func (w *walker) finding(s state, in, fib Decision) DriftFinding {
+	return DriftFinding{Node: s.node, VRF: s.vrf, Intended: in, Forwarding: fib, Facts: slices.Concat(
+		w.facts(s, netmodel.PlaneIntended, in.Prefix), w.facts(s, netmodel.PlaneFIB, fib.Prefix))}
+}
+
 // classify compares the intended and FIB decisions at s. on says whether the
-// live walk visits s. after is the live reach from s, or from the source when
-// the live walk does not visit s, and want is the intended reach from s. It
-// reports false when the two decisions match.
-func (w *walker) classify(s state, on bool, after, want reach) (DriftFinding, bool) {
+// FIB walk from the source visits s, sub is the FIB reach from s, want is the
+// reach from s when intent decides at s and the FIB decides after it, and root
+// is the FIB reach from the source. It reports false when the two decisions
+// match.
+func (w *walker) classify(s state, on bool, sub, want, root reach) (DriftFinding, bool) {
 	in, ih := w.decide([]netmodel.Plane{netmodel.PlaneIntended}, s)
 	fib, fh := w.decide(forwardingPlanes, s)
-	f := DriftFinding{Node: s.node, VRF: s.vrf, Intended: in, Forwarding: fib, Facts: slices.Concat(
-		w.facts(s, netmodel.PlaneIntended, in.Prefix), w.facts(s, netmodel.PlaneFIB, fib.Prefix))}
+	f := w.finding(s, in, fib)
 	drops := func(d Decision) bool { return d.Kind == KindNoRoute || d.Kind == KindDiscard }
 	same := (drops(in) && drops(fib)) || (in.Kind == fib.Kind && netmodel.CoversHops(fh, ih) && netmodel.CoversHops(ih, fh))
 	// fewer is a FIB that keeps some intended next hops and adds none. That
@@ -141,9 +163,10 @@ func (w *walker) classify(s state, on bool, after, want reach) (DriftFinding, bo
 		if !slices.ContainsFunc(f.Facts, func(x Fact) bool { return x.Plane == netmodel.PlaneFIB }) {
 			why = fmt.Sprintf("no FIB observation for %s (%s)", s.node, s.vrf)
 		}
-	case !in.Proven && prefixBits(in.Prefix) <= prefixBits(fib.Prefix):
+	case !in.Proven && (drops(fib) || prefixBits(in.Prefix) <= prefixBits(fib.Prefix)):
 		// As with control, a partial intended table may hide a more specific
-		// route, so it cannot show what the FIB differs from.
+		// route, so it cannot show what the FIB differs from, even where the FIB
+		// drops.
 		f.Level, why = DriftUnknown, "the intended table is partial, so a more specific intended route may exist"
 	case same && in.Prefix == fib.Prefix:
 		return f, false
@@ -151,14 +174,13 @@ func (w *walker) classify(s state, on bool, after, want reach) (DriftFinding, bo
 		f.Level, why = DriftBenign, "the same decision on another prefix"
 	case drops(in):
 		f.Level, why = DriftUnknown, "intent drops and the FIB forwards, which is not classified"
-	case on && after == reachFailed && want == reachOK:
-		f.Level, why = DriftReachabilityLost, "the FIB path fails where the intended path reaches the destination"
-	case fewer || (!on && drops(fib)):
+	case on && sub == reachFailed && want == reachOK:
+		f.Level, why = DriftReachabilityLost, "the FIB path from here fails where intent here, with the FIB after it, reaches the destination"
+	case root != reachOK:
+		f.Level, why = DriftUnknown, "delivery from the source is not proven, so the impact is unknown"
+	case fewer || (!on && sub == reachFailed && want == reachOK):
 		f.Level, why = DriftRedundancyLost, "the FIB lacks an intended alternative, and the destination is still reached"
-		if after != reachOK {
-			f.Level, why = DriftUnknown, "the FIB lacks an intended alternative, and delivery is not proven"
-		}
-	case after == reachOK:
+	case sub == reachOK:
 		f.Level, why = DriftBenign, "the destination is still reached"
 	default:
 		f.Level, why = DriftUnknown, "delivery is not proven, so the impact is unknown"
@@ -174,29 +196,39 @@ func sideText(d Decision) string {
 	return string(d.Kind) + " (" + stopText(d) + ")"
 }
 
-// reachOf returns the reach from h, and records the worst reach of each node in
-// by. A leaf that drops or loops fails. Any other leaf that is not local, and a
-// segment with a recorded outcome other than none or pass, leave it unknown.
-func reachOf(h *Hop, by map[state]reach) reach {
-	r := reachOK
+// reachOf returns the reach from h. A leaf that drops or loops fails. Any other
+// leaf that is not local, an unproven forward from a partial table, a hop whose
+// walk followed only some of its next hops, and a segment with a recorded
+// outcome other than none or pass leave it unknown. So a walk stopped by a
+// bound never proves delivery. When below is set, it gives the reach of each
+// next hop that names a node, in place of the walk under it.
+func reachOf(h *Hop, below func(state) reach) reach {
+	r := reachUnknown
 	switch h.Decision.Kind {
-	case KindLocal, KindForward:
+	case KindLocal:
+		r = reachOK
+	case KindForward:
+		if h.Decision.Proven {
+			r = reachOK
+		}
 	case KindNoRoute, KindDiscard, KindLoop:
 		r = reachFailed
-	default:
-		r = reachUnknown
+	}
+	if len(h.Next) < len(h.Decision.NextHops) {
+		r = max(r, reachUnknown)
 	}
 	for i := range h.Next {
 		c := &h.Next[i]
-		cr := reachOf(c, by)
+		var cr reach
+		if below != nil && c.Node != "" {
+			cr = below(state{c.Node, c.VRF})
+		} else {
+			cr = reachOf(c, nil)
+		}
 		if c.Via.Outcome != OutcomeNone && c.Via.Outcome != OutcomePass {
 			cr = max(cr, reachUnknown)
 		}
 		r = max(r, cr)
-	}
-	if h.Node != "" {
-		s := state{h.Node, h.VRF}
-		by[s] = max(by[s], r)
 	}
 	return r
 }

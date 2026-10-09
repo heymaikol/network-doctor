@@ -92,6 +92,9 @@ func TestDriftMisdirectedNextHopLosesReachability(t *testing.T) {
 	if f := driftAt(t, d, "r1"); f.Level != DriftReachabilityLost {
 		t.Errorf("r1 = %s (%s), want reachability_lost: r4 holds no route, and the intended path through r2 reaches srv", f.Level, f.Detail)
 	}
+	if len(d.Findings) != 1 {
+		t.Errorf("drift findings = %+v, want only r1: it accounts for the loss, so the source adds none", d.Findings)
+	}
 }
 
 func TestDriftIgnoresNodesWithoutIntent(t *testing.T) {
@@ -304,5 +307,190 @@ func TestDriftIntentDropsWhileFIBForwardsIsUnknown(t *testing.T) {
 				t.Errorf("r1 = %s (%s), want unknown naming the dropped intent", f.Level, f.Detail)
 			}
 		})
+	}
+}
+
+// partialIntent is an intended table that may omit routes.
+func partialIntent(node string, routes ...netmodel.Route) netmodel.Observation {
+	return table(netmodel.PlaneIntended, node, "default", false, routes...)
+}
+
+// noSrvAtR2 gives r2 in twoPathNet a complete FIB with only the return route,
+// so r2 provably drops traffic toward srv.
+func noSrvAtR2(obs []netmodel.Observation) []netmodel.Observation {
+	return append(without(obs, "fib:r2:default"), table(netmodel.PlaneFIB, "r2", "default", true, route("10.0.1.0/24", "kernel", nh("10.0.12.1", "eth0"))))
+}
+
+// Intent at r1 alone sends traffic to r2, which the FIB drops, and intent at r2
+// alone is off the FIB path. Only both together deliver, so the loss is kept at
+// the source without blaming either node.
+func TestDriftIntentThatDeliversOnlyTogetherIsLostAtTheSource(t *testing.T) {
+	obs := append(noSrvAtR2(r1Via(twoPathNet("r2"), viaR4)),
+		intent("r1", route("10.20.0.0/16", "static", viaR2)),
+		intent("r2", route("10.20.0.0/16", "static", nh("10.0.23.3", "eth1"))))
+	d := driftOf(t, explainTwoPath(t, obs, nil, nil, ""))
+	if d.Level != DriftReachabilityLost {
+		t.Errorf("drift = %s with findings %+v, want reachability_lost", d.Level, d.Findings)
+	}
+	for _, node := range []string{"r1", "r2"} {
+		if f := driftAt(t, d, node); f.Level != DriftUnknown {
+			t.Errorf("%s = %s (%s), want unknown: intent at %s alone does not deliver from the source", node, f.Level, f.Detail, node)
+		}
+	}
+	f := driftAt(t, d, "h1")
+	if f.Level != DriftReachabilityLost || !strings.Contains(f.Detail, "no single node accounts for it") {
+		t.Errorf("h1 = %s (%s), want reachability_lost at the source naming no single node", f.Level, f.Detail)
+	}
+	if want := (Fact{Source: "fib:h1:default", CollectedAt: utcText(t0), Plane: netmodel.PlaneFIB, Complete: true, Origin: "kernel", Prefix: "0.0.0.0/0",
+		NextHops: []NextHop{{Addr: "10.0.1.1", Interface: "eth0"}}}); !hasFact(f.Facts, want) {
+		t.Errorf("h1 facts = %+v, want %+v", f.Facts, want)
+	}
+}
+
+// A partial intended table proves no intended delivery, even when the walk
+// through it reaches the destination.
+func TestDriftPartialIntentDoesNotProveDeliveryAtTheSource(t *testing.T) {
+	obs := append(noSrvAtR2(r1Via(twoPathNet("r2"), viaR4)),
+		intent("r1", route("10.20.0.0/16", "static", viaR2)),
+		partialIntent("r2", route("10.20.0.0/16", "static", nh("10.0.23.3", "eth1"))))
+	d := driftOf(t, explainTwoPath(t, obs, nil, nil, ""))
+	if d.Level != DriftUnknown || slices.ContainsFunc(d.Findings, func(f DriftFinding) bool { return f.Node == "h1" }) {
+		t.Errorf("drift = %s with findings %+v, want unknown with no finding at the source", d.Level, d.Findings)
+	}
+}
+
+// A partial intended table may hide a more specific route, so it is unknown
+// whatever the FIB holds, including a complete FIB with no route.
+func TestDriftPartialIntentIsUnknown(t *testing.T) {
+	toR3 := route("10.20.0.0/16", "static", nh("10.0.23.3", "eth1"))
+	emptyR2 := func(planned netmodel.Observation) []netmodel.Observation {
+		return append(without(threeRouters(), "fib:r2:default"), table(netmodel.PlaneFIB, "r2", "default", true), planned)
+	}
+	cases := []struct {
+		name string
+		obs  []netmodel.Observation
+	}{
+		{"matches the FIB", append(threeRouters(), partialIntent("r2", toR3))},
+		{"forwards where the FIB has no route", emptyR2(partialIntent("r2", toR3))},
+		{"hides a more specific discard", emptyR2(partialIntent("r2", toR3, netmodel.Route{Prefix: pfx("10.20.40.0/24"), Origin: "static", Discard: true}))},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := driftOf(t, explainFrom(t, c.obs, nil, fromR1, dest))
+			f := driftAt(t, d, "r2")
+			if f.Level != DriftUnknown || d.Level != DriftUnknown || !strings.Contains(f.Detail, "intended table is partial") {
+				t.Errorf("r2 = %s (%s), overall %s, want unknown naming the partial intended table", f.Level, f.Detail, d.Level)
+			}
+		})
+	}
+}
+
+// offPathR4 is twoPathNet with r4 off the FIB path: r1 forwards through r2,
+// intent at r1 names r4, and r4 also links to r5, whose complete FIB is empty.
+// r4Hop is r4's FIB next hop toward srv, and r4Intent its intended one.
+func offPathR4(r4Hop, r4Intent netmodel.NextHop) []netmodel.Observation {
+	return append(without(twoPathNet("r2"), "config:r4:default", "fib:r4:default"),
+		configured("r4", "default", []netmodel.Interface{ifc("eth0", "10.0.34.4/30"), ifc("eth1", "10.0.14.2/30"), ifc("eth3", "10.0.45.4/30")}),
+		configured("r5", "default", []netmodel.Interface{ifc("eth0", "10.0.45.5/30")}),
+		table(netmodel.PlaneFIB, "r5", "default", true),
+		table(netmodel.PlaneFIB, "r4", "default", true, route("10.20.0.0/16", "kernel", r4Hop), route("10.0.1.0/24", "kernel", nh("10.0.14.1", "eth1"))),
+		intent("r1", route("10.20.0.0/16", "static", viaR4)),
+		intent("r4", route("10.20.0.0/16", "static", r4Intent)))
+}
+
+// Off the FIB path, a node is judged by where its own FIB leads, not by
+// whether the source delivers.
+func TestDriftOffPathNodeFollowsItsOwnFIB(t *testing.T) {
+	toR3, toR5, nobody := nh("10.0.34.3", "eth0"), nh("10.0.45.5", "eth3"), nh("10.0.34.9", "eth0")
+	cases := []struct {
+		name string
+		obs  []netmodel.Observation
+		want DriftLevel
+	}{
+		// The FIB forwards into a node that drops, and intent reaches srv.
+		{"FIB leads to a drop", offPathR4(toR5, toR3), DriftRedundancyLost},
+		// Intent names a next hop that no modeled node owns.
+		{"intent is not proven to deliver", offPathR4(toR5, nobody), DriftUnknown},
+		// The FIB names a next hop that no modeled node owns.
+		{"FIB is not proven to deliver", offPathR4(nobody, toR3), DriftUnknown},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := driftOf(t, explainTwoPath(t, c.obs, nil, nil, ""))
+			if f := driftAt(t, d, "r1"); f.Level != DriftBenign {
+				t.Errorf("r1 = %s (%s), want benign: the FIB path through r2 reaches srv", f.Level, f.Detail)
+			}
+			if f := driftAt(t, d, "r4"); f.Level != c.want || d.Level != c.want {
+				t.Errorf("r4 = %s (%s), overall %s, want %s", f.Level, f.Detail, d.Level, c.want)
+			}
+		})
+	}
+}
+
+// Intent further along the path never moves a node's level. Each pair differs
+// only in intent past r1, and r1 reads the same with or without it.
+func TestDriftDownstreamIntentDoesNotMoveAnUpstreamNode(t *testing.T) {
+	// r3 provably drops srv, and both FIB paths cross r3.
+	r3Drops := append(without(r4ToR3(r1Via(twoPathNet("r2"), viaR4)), "fib:r3:default"),
+		table(netmodel.PlaneFIB, "r3", "default", true, route("10.0.1.0/24", "kernel", nh("10.0.23.2", "eth0"))))
+	cases := []struct {
+		name, at   string
+		obs        []netmodel.Observation
+		downstream netmodel.Observation
+	}{
+		// Intent at r1 avoids r4, yet still reaches r3.
+		{"intent at r3", "r3", append(r3Drops, intent("r1", route("10.20.0.0/16", "static", viaR2))),
+			intent("r3", route("10.20.40.0/24", "connected", onLink("eth1")))},
+		// r1's FIB keeps its only working leg, through r4, that intent leaves out.
+		{"intent at r2", "r2", append(noSrvAtR2(r4ToR3(r1Via(twoPathNet("r2"), viaR2, viaR4))), intent("r1", route("10.20.0.0/16", "static", viaR2))),
+			intent("r2", route("10.20.0.0/16", "static", nh("10.0.23.3", "eth1")))},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			alone := driftAt(t, driftOf(t, explainTwoPath(t, c.obs, nil, nil, "")), "r1")
+			d := driftOf(t, explainTwoPath(t, append(slices.Clone(c.obs), c.downstream), nil, nil, ""))
+			if f := driftAt(t, d, "r1"); f.Level != DriftUnknown || alone.Level != DriftUnknown {
+				t.Errorf("r1 = %s alone and %s with intent at %s (%s), want unknown both times", alone.Level, f.Level, c.at, f.Detail)
+			}
+			if f := driftAt(t, d, c.at); f.Level != DriftReachabilityLost || d.Level != DriftReachabilityLost {
+				t.Errorf("%s = %s (%s), overall %s, want reachability_lost where the intent differs", c.at, f.Level, f.Detail, d.Level)
+			}
+		})
+	}
+}
+
+// Only the walks drift reads can make it unknown. A bound on the expected
+// walk leaves a matching intent healthy.
+func TestDriftIgnoresTruncationOfTheExpectedWalk(t *testing.T) {
+	hops := make([]netmodel.NextHop, 70)
+	for i := range hops {
+		hops[i] = netmodel.NextHop{Addr: netip.AddrFrom4([4]byte{10, 9, 0, byte(i + 1)}), Interface: "eth1"}
+	}
+	obs := append(without(threeRouters(), "control:r1:default"),
+		table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", "ospf", hops...)),
+		intent("r1", route("10.20.0.0/16", "static", nh("10.0.12.2", "eth1"))))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if d := driftOf(t, e); !e.Truncated || d.Truncated || d.Level != DriftNone {
+		t.Errorf("explanation truncated %v, drift %s and truncated %v, want the explanation truncated and drift none and not truncated", e.Truncated, d.Level, d.Truncated)
+	}
+}
+
+// Intent that names more than maxFanout next hops is followed only in part, so
+// the legs left out prove nothing about intended delivery.
+func TestDriftIntentPastTheFanoutBoundIsUnknown(t *testing.T) {
+	lo := ifc("lo")
+	hops := []netmodel.NextHop{nh("10.0.12.2", "eth1"), nh("10.0.200.1", "eth1")}
+	for i := 1; i < maxFanout; i++ {
+		a := netip.AddrFrom4([4]byte{10, 0, 100, byte(i)})
+		lo.Addresses = append(lo.Addresses, netip.PrefixFrom(a, 32))
+		hops = append(hops, netmodel.NextHop{Addr: a, Interface: "eth1"})
+	}
+	obs := append(without(threeRouters(), "config:r2:default", "fib:r1:default"),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", "10.0.12.2/30"), ifc("eth1", "10.0.23.2/30"), lo}),
+		table(netmodel.PlaneFIB, "r1", "default", true),
+		intent("r1", route("10.20.0.0/16", "static", hops...)))
+	d := driftOf(t, explainFrom(t, obs, nil, fromR1, dest))
+	if f := driftAt(t, d, "r1"); f.Level != DriftUnknown || d.Level != DriftUnknown || !d.Truncated {
+		t.Errorf("r1 = %s (%s), overall %s, truncated %v, want unknown and truncated: the leg through 10.0.200.1 is not followed", f.Level, f.Detail, d.Level, d.Truncated)
 	}
 }

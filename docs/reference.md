@@ -1818,6 +1818,7 @@ Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `confli
 - It collects nothing. Control-plane and FIB tables, interface addresses, and check results come only from the file, so the explanation is as current as the file.
 - It runs no traceroute and no probe, so it cannot confirm a route beyond what the file records.
 - It explains one destination per run.
+- A recorded check whose `next_hop` matches no next hop of the route is not used, and the explanation does not say so.
 
 ## Remote diagnosis over SSH
 

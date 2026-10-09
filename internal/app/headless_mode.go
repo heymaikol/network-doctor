@@ -148,9 +148,12 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 		defer stop()
 	}
 	// A watch run reuses passing observations between passes. A one-shot run
-	// has no next pass to reuse anything for.
+	// has no next pass to reuse anything for. A saved run acquires every row on
+	// every pass: a snapshot records each check's duration, and a reused check
+	// has none, so the file cannot say when its evidence was acquired. This also
+	// covers -support, which writes through the same path.
 	var session *diagnostic.WatchSession
-	if h.watch {
+	if h.watch && h.save == "" {
 		session = diagnostic.NewWatchSession(time.Now)
 	}
 	// code starts at 1: until a pass completes, there's no report to call a

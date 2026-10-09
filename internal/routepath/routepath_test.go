@@ -590,3 +590,24 @@ func TestSharedInterfaceCheckNamesItsNextHopOrNone(t *testing.T) {
 		}
 	})
 }
+
+// A route can list thousands of next hops. The walk follows the first
+// maxFanout, and the explanation says it stopped early.
+func TestWideNextHopListIsBounded(t *testing.T) {
+	hops := make([]netmodel.NextHop, 200)
+	for i := range hops {
+		hops[i] = netmodel.NextHop{Addr: netip.AddrFrom4([4]byte{10, 9, 0, byte(i + 1)}), Interface: "eth1"}
+	}
+	obs := without(threeRouters(), "fib:r1:default")
+	obs = append(obs, table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", hops...)))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if !e.Truncated {
+		t.Error("a 200-way route did not mark the explanation truncated")
+	}
+	if got := len(e.Forwarding.Next); got != maxFanout {
+		t.Errorf("r1 followed %d next hops, want the first %d", got, maxFanout)
+	}
+	if got := len(e.Forwarding.Decision.NextHops); got != maxFanout {
+		t.Errorf("decision lists %d next hops, want the first %d", got, maxFanout)
+	}
+}

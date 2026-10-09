@@ -13,11 +13,14 @@ import (
 
 // maxDepth bounds how many hops one walk follows, and maxStates bounds how many
 // node visits it makes. A wide ECMP fabric multiplies visits, so the state
-// budget is what stops it.
-// ponytail: flat state budget, not per-depth fan-out caps. Add fan-out caps if large fabrics need them.
+// budget is what stops it. maxFanout bounds the next hops followed at one node:
+// a route can list thousands, and the walk keeps the first maxFanout and marks
+// the walk truncated.
+// ponytail: flat state budget over the whole walk, not per-depth limits. Add per-depth caps if large fabrics need them.
 const (
 	maxDepth  = 32
 	maxStates = 512
+	maxFanout = 64
 )
 
 // The expected walk trusts the control plane, then the configured plane, which
@@ -245,9 +248,14 @@ func (w *walker) choose(at state, p netmodel.Plane, cands []netip.Prefix) (Decis
 			d.Reason = "route names no next hop and is not a discard, so forwarding is unknown"
 			return d, nil
 		default:
+			hops := first.NextHops
+			if len(hops) > maxFanout {
+				hops = hops[:maxFanout]
+				w.truncated = true
+			}
 			d.Kind = KindForward
-			d.NextHops = nextHopTexts(first.NextHops)
-			return d, first.NextHops
+			d.NextHops = nextHopTexts(hops)
+			return d, hops
 		}
 		return d, nil
 	case netmodel.Conflicting:

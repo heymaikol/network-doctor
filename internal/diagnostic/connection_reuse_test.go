@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -520,6 +519,8 @@ func TestSharedSocketHasOneOwner(t *testing.T) {
 
 // The shared socket belongs to whichever family won the race. The losing
 // family's failure is recorded on Target TCP and must not leak into TLS or HTTPS.
+// The losing family refuses with this platform's refusal errno: a refusal is
+// the only failure that proves the family is down without egress evidence.
 func TestSharedSocketFollowsTheWinningFamily(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -536,7 +537,7 @@ func TestSharedSocketFollowsTheWinningFamily(t *testing.T) {
 				dial := o.dialContext
 				o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 					if strings.HasPrefix(addr, tc.loser+":") {
-						return nil, syscall.ECONNREFUSED
+						return nil, connectionRefusedErrno
 					}
 					return dial(ctx, network, addr)
 				}
@@ -742,14 +743,16 @@ func BenchmarkHealthyHTTPSRoundTrip(b *testing.B) {
 func TestRefusedTargetLeavesNothingToShare(t *testing.T) {
 	f := newBudgetFixture(t)
 	o := f.ops()
-	refused := func(context.Context, string, string) (net.Conn, error) { return nil, syscall.ECONNREFUSED }
+	refused := func(context.Context, string, string) (net.Conn, error) { return nil, connectionRefusedErrno }
 	o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if strings.HasSuffix(addr, ":443") {
 			return refused(ctx, network, addr)
 		}
 		return f.dial(ctx, network, addr)
 	}
-	o.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) { return nil, syscall.ECONNREFUSED }
+	o.dialTLS = func(context.Context, string, string, *tls.Config) (net.Conn, error) {
+		return nil, connectionRefusedErrno
+	}
 	probes := ProbeSelection{Check: healthyHTTPSRows}.Apply(o.timedProbes(mustTarget(t, budgetTargetHost+":443"), DefaultPublicDNS, true))
 	res := RunAll(context.Background(), probes, DefaultProbeTimeout)
 	requireRows(t, res, ProbeTargetTCP, ProbeTLS, ProbeHTTPS)

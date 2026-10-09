@@ -468,7 +468,7 @@ func TestExpandRevealsExactlyTheHiddenRows(t *testing.T) {
 // TestExpandIsPresentationOnly: the action moves no needle outside the view.
 func TestExpandIsPresentationOnly(t *testing.T) {
 	before := blackHoleModel(t)
-	summary, verdict := before.diagnose(before.probeOrder())
+	summary, verdict := before.diagnose()
 	report := before.report()
 	blamed := before.focusRow()
 	// Copied out, not read back off the model: the two models share one
@@ -483,7 +483,7 @@ func TestExpandIsPresentationOnly(t *testing.T) {
 	if !after.expanded {
 		t.Fatal("expand did not toggle the presentation state")
 	}
-	gotSummary, gotVerdict := after.diagnose(after.probeOrder())
+	gotSummary, gotVerdict := after.diagnose()
 	if gotSummary != summary || gotVerdict != verdict {
 		t.Errorf("diagnosis changed: %q/%q, want %q/%q", gotSummary, gotVerdict, summary, verdict)
 	}

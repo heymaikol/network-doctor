@@ -1221,7 +1221,11 @@ const quicOnDisagreementSummary = "System DNS and public DNS disagree, and the Q
 // failed probe had a working rung under it: a failure with its prerequisite
 // met is evidence about that probe alone.
 func Collateral(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) map[ProbeID]bool {
-	d := Interpret(t, order, res)
+	return Interpret(t, order, res).Collateral(order, res)
+}
+
+// Collateral derives downstream failures from this diagnosis of the same inputs.
+func (d Diagnosis) Collateral(order []ProbeID, res map[ProbeID]ProbeResult) map[ProbeID]bool {
 	if d.Verdict == VerdictIncomplete {
 		return nil
 	}

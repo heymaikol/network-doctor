@@ -277,9 +277,7 @@ func TestBannerSeverityFollowsVerdict(t *testing.T) {
 			tgt := mustTarget(t, "example.com:443")
 			m := newModel(tgt, false)
 			m.tools = toolsFor(tgt, "linux", toolBind{})
-			order := make([]diagnostic.ProbeID, len(m.probes))
-			for i, p := range m.probes {
-				order[i] = p.ID
+			for _, p := range m.probes {
 				r, ok := tt.results[p.ID]
 				if !ok {
 					r = diagnostic.ProbeResult{Status: diagnostic.StatusPass}
@@ -287,7 +285,7 @@ func TestBannerSeverityFollowsVerdict(t *testing.T) {
 				r.ID = p.ID
 				m.results[p.ID] = r
 			}
-			summary, verdict := m.diagnose(order)
+			summary, verdict := m.diagnose()
 			if verdict != tt.wantVerdict {
 				t.Fatalf("verdict = %q, want %q (summary %q)", verdict, tt.wantVerdict, summary)
 			}

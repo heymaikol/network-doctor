@@ -29,7 +29,10 @@ func asModel(t *testing.T, m tea.Model) model {
 }
 
 func newModel(t *diagnostic.Target, toolbox bool) model {
-	return NewWithSelection(t, nil, toolbox, false, "", "test", diagnostic.DefaultPublicDNS, true, diagnostic.ProbeSelection{}).(model)
+	m := NewWithSelection(t, nil, toolbox, false, "", "test", diagnostic.DefaultPublicDNS, true, diagnostic.ProbeSelection{}).(model)
+	// Synthetic fixtures below write inputs directly instead of using Update.
+	m.analysisReady = false
+	return m
 }
 
 func keyMsg(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
@@ -37,6 +40,7 @@ func keyMsg(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: 
 // doneResults fills every probe with a result: failID fails, the rest pass.
 // An empty failID means an all-pass run.
 func doneResults(m *model, failID diagnostic.ProbeID) {
+	m.analysisReady = false
 	for _, p := range m.probes {
 		status := diagnostic.StatusPass
 		if p.ID == failID {
@@ -447,14 +451,12 @@ func TestProbeSelectionPreservesDiagnosis(t *testing.T) {
 	target := mustTarget(t, "1.1.1.1:81")
 	baseline := newModel(target, false)
 	doneResults(&baseline, diagnostic.ProbeTargetTCP)
-	order := baseline.probeOrder()
-	wantSummary, wantVerdict := baseline.diagnose(order)
+	wantSummary, wantVerdict := baseline.diagnose()
 
 	selection := diagnostic.ProbeSelection{Skip: map[diagnostic.ProbeID]struct{}{diagnostic.ProbeSSID: {}}}
 	selected := NewWithSelection(target, nil, false, false, "", "test", diagnostic.DefaultPublicDNS, true, selection).(model)
 	doneResults(&selected, diagnostic.ProbeTargetTCP)
-	order = selected.probeOrder()
-	if summary, verdict := selected.diagnose(order); summary != wantSummary || verdict != wantVerdict {
+	if summary, verdict := selected.diagnose(); summary != wantSummary || verdict != wantVerdict {
 		t.Fatalf("skipping SSID changed diagnosis from %q/%q to %q/%q", wantSummary, wantVerdict, summary, verdict)
 	}
 }

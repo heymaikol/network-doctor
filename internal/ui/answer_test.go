@@ -263,7 +263,7 @@ func TestAnswerBlockCarriesTheDiagnosisGuidance(t *testing.T) {
 	for _, s := range answerScenarios(t) {
 		t.Run(s.name, func(t *testing.T) {
 			m := s.build(t)
-			summary, verdict := m.diagnose(m.probeOrder())
+			summary, verdict := m.diagnose()
 			if verdict != s.verdict {
 				t.Fatalf("verdict = %q, want %q (%q)", verdict, s.verdict, summary)
 			}
@@ -513,7 +513,7 @@ func TestNarrowAndShortTerminalsKeepTheAnswer(t *testing.T) {
 				if lineWith(lines, answerLead(plainHeadline(m))) != 0 {
 					t.Errorf("%dx%d: the headline is not the first row:\n%s", size.w, size.h, v)
 				}
-				summary, _ := m.diagnose(m.probeOrder())
+				summary, _ := m.diagnose()
 				if lineWith(lines, answerLead("Technical: "+summary)) < 0 {
 					t.Errorf("%dx%d: the technical verdict was shed:\n%s", size.w, size.h, v)
 				}
@@ -579,10 +579,7 @@ func TestWatchPassReplacesTheAnswer(t *testing.T) {
 		t.Fatalf("the failing pass does not show its remedy:\n%s", v)
 	}
 	// The next pass: everything works.
-	for _, p := range nm.probes {
-		nm.results[p.ID] = diagnostic.ProbeResult{ID: p.ID, Status: diagnostic.StatusPass, Detail: "ok"}
-		nm.runHistory[p.ID] = append(nm.runHistory[p.ID], diagnostic.StatusPass)
-	}
+	nm = watchRun(t, nm, nil)
 	_, healthy := renderAt(t, nm)
 	plain := ansi.Strip(healthy)
 	for _, stale := range []string{broken.Fix, broken.Detail, "Evidence:", "Next: press"} {

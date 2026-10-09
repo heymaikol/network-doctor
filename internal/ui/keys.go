@@ -731,6 +731,7 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
 	m.probes = m.selection.BuildProbesFromSources(t, m.sources, m.publicDNS, m.publicDNSAuto)
+	m.analysisReady = false
 	if !newQuestion {
 		return
 	}
@@ -794,6 +795,7 @@ func (m *model) restartRun() tea.Cmd {
 	m.tools = toolsFor(m.target, runtime.GOOS, bindFor(m.sources))
 	m.generation++
 	m.results = map[diagnostic.ProbeID]diagnostic.ProbeResult{}
+	m.refreshAnalysis()
 	m.started = map[diagnostic.ProbeID]bool{}
 	m.namesPending = nil
 	gen := m.generation

@@ -21,6 +21,7 @@ import (
 // evidence before it is finalized, which is how a test varies a reading other
 // than the interface without a second pass being recorded for it.
 func recordWatchPass(m *model, at time.Time, failing bool, iface string, also ...func(map[diagnostic.ProbeID]diagnostic.ProbeResult)) tea.Cmd {
+	m.analysisReady = false
 	m.results = make(map[diagnostic.ProbeID]diagnostic.ProbeResult, len(m.probes))
 	for _, probe := range m.probes {
 		status := diagnostic.StatusPass

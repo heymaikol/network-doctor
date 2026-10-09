@@ -5,6 +5,7 @@ package ui
 
 import (
 	"context"
+	"maps"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/heymaikol/network-doctor/internal/diagnostic"
@@ -28,6 +29,10 @@ func (m *model) scheduleStep() []tea.Cmd {
 			m.started[p.ID] = true
 			progress = true
 			if blocked {
+				if m.analysisReady {
+					m.results = maps.Clone(m.results)
+					m.analysisReady = false
+				}
 				m.results[p.ID] = diagnostic.SkipPrereq(p.ID)
 				continue
 			}

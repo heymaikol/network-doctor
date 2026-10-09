@@ -54,13 +54,15 @@ func reportRoutes(routes []diagnostic.RouteDecision) []report.Route {
 }
 
 func buildReport(t *diagnostic.Target, probes []diagnostic.Probe, results map[diagnostic.ProbeID]diagnostic.ProbeResult) report.Report {
+	return buildReportWithDiagnosis(t, probes, results, diagnostic.Interpret(t, diagnostic.ProbeOrder(probes), results))
+}
+
+func buildReportWithDiagnosis(t *diagnostic.Target, probes []diagnostic.Probe, results map[diagnostic.ProbeID]diagnostic.ProbeResult, d diagnostic.Diagnosis) report.Report {
 	rep := report.Report{Version: version, Checks: []report.Check{}, OK: true}
 	if t != nil {
 		rep.Target = &report.Target{Host: t.Host, Port: t.Port, Protocol: t.Proto.String()}
 	}
-	order := make([]diagnostic.ProbeID, len(probes))
-	for i, p := range probes {
-		order[i] = p.ID
+	for _, p := range probes {
 		// reported, not the result itself, is the fact this loop turns on: a
 		// missing entry yields the zero ProbeResult, and its Status is
 		// StatusPass. The report is a published format, so the absence of an
@@ -116,10 +118,6 @@ func buildReport(t *diagnostic.Target, probes []diagnostic.Probe, results map[di
 		c.Routes = reportRoutes(r.Routes)
 		rep.Checks = append(rep.Checks, c)
 	}
-	// One interpretation, read for every diagnostic field the report carries,
-	// so the summary, the verdict and the findings cannot describe different
-	// runs.
-	d := diagnostic.Interpret(t, order, results)
 	rep.Summary, rep.Verdict = d.Summary, d.Verdict
 	for i, f := range d.Findings {
 		finding := report.Finding{ID: string(f.ID), Focus: string(f.Focus), Confidence: string(f.Confidence)}

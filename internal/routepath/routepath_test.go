@@ -767,6 +767,7 @@ func TestConfiguredOwnershipKeepsAContradictingFIBRouteVisible(t *testing.T) {
 	}{
 		{"discard", netmodel.Route{Prefix: pfx("10.20.40.0/24"), Origin: "kernel", Discard: true}, "discard 10.20.40.0/24"},
 		{"forward to r2", netmodel.Route{Prefix: pfx("10.20.40.0/24"), Origin: "kernel", NextHops: []netmodel.NextHop{nh("10.0.23.2", "eth0")}}, "forward 10.20.40.0/24 via eth0 10.0.23.2"},
+		{"local route without next hops", netmodel.Route{Prefix: pfx("10.20.40.8/32"), Origin: "local"}, "unknown: route names no next hop"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

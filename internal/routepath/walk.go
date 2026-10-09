@@ -204,12 +204,12 @@ func (w *walker) localDecision(planes []netmodel.Plane, at state, owned []owning
 }
 
 // noteUnchecked records the decision the walk's planes make at the node when
-// that decision contradicts local ownership. A missing route, an on-link route,
-// and a complete table's route without next hops are consistent with ownership:
-// main tables normally omit local addresses, and a connected route covers them.
-// An unknown decision with no matching prefix says nothing either. Any other
-// decision, including an unproven partial-FIB candidate, is named rather than
-// dropped.
+// that decision contradicts local ownership. A missing route and an on-link
+// route are consistent with ownership: main tables normally omit local
+// addresses, and a connected route covers them. An unknown decision with no
+// matching prefix says nothing either. Any other decision is named rather than
+// dropped, including a route with no next hops, which is named as forwarding
+// unknown, and an unproven partial-FIB candidate.
 func (w *walker) noteUnchecked(planes []netmodel.Plane, at state, ev []Support) {
 	d, hops := w.decide(planes, at)
 	if d.Kind == KindNoRoute || (d.Kind == KindUnknown && d.Prefix == "") || onLinkOnly(d, hops) {

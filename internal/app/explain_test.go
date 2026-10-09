@@ -89,7 +89,9 @@ func TestExplainRefusesBadUsageWithExitTwo(t *testing.T) {
 		{"hostname destination", []string{"--explain", path, "server.example"}, "must be an IP address"},
 		{"port in destination", []string{"--explain", path, "10.20.40.8:443"}, "must be an IP address"},
 		{"zoned destination", []string{"--explain", path, "fe80::1%eth0"}, "must not carry an interface zone"},
-		{"missing file", []string{"--explain", filepath.Join(t.TempDir(), "absent.json"), "10.20.40.8"}, "no such file"},
+		// The OS error text differs by platform ("no such file" on Unix, "cannot
+		// find the file" on Windows), so the case checks for the path it names.
+		{"missing file", []string{"--explain", filepath.Join(t.TempDir(), "absent.json"), "10.20.40.8"}, "absent.json"},
 		{"combined with compare", []string{"--explain", "--compare", path, path}, "cannot be combined with -compare or -two-sided"},
 		{"combined with two-sided", []string{"--explain", "--two-sided", path, path}, "cannot be combined with -compare or -two-sided"},
 		{"probe setting", []string{"--explain", path, "10.20.40.8", "--timeout", "2s"}, "-timeout cannot be combined with -explain"},

@@ -559,6 +559,32 @@ func TestNeighborZoneNamesTheObserversLink(t *testing.T) {
 	}
 }
 
+// TestTieBreakIsInputIndependent covers observations whose main sort keys all
+// match and whose only difference is nil versus empty Attributes. fmt prints
+// both as [], so the order must come from a tie-break that tells them apart.
+func TestTieBreakIsInputIndependent(t *testing.T) {
+	base := func(attrs []Attribute) Observation {
+		return ctl("frr", true, Route{
+			Prefix:     pfx("10.1.0.0/16"),
+			Origin:     OriginStatic,
+			NextHops:   []NextHop{hop("10.0.0.2", "eth0")},
+			Attributes: attrs,
+		})
+	}
+	a, b := base(nil), base([]Attribute{})
+	ab, err := New(a, b)
+	if err != nil {
+		t.Fatalf("New(a, b): %v", err)
+	}
+	ba, err := New(b, a)
+	if err != nil {
+		t.Fatalf("New(b, a): %v", err)
+	}
+	if !reflect.DeepEqual(ab, ba) {
+		t.Fatalf("input order changed the model:\n%+v\n%+v", ab.Observations(), ba.Observations())
+	}
+}
+
 func TestRejectsInvalidObservations(t *testing.T) {
 	valid := func() Observation {
 		return Observation{

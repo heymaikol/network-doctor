@@ -31,7 +31,9 @@
 package netmodel
 
 import (
+	"bytes"
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -414,7 +416,7 @@ func cloneObservation(o Observation) Observation {
 }
 
 // compareObservations orders by the fields a reader scans first. Equal keys
-// fall back to the full printed form, so the order never depends on input.
+// fall back to the JSON encoding, so the order never depends on input.
 func compareObservations(a, b Observation) int {
 	if c := cmp.Or(
 		strings.Compare(string(a.Plane), string(b.Plane)),
@@ -425,7 +427,11 @@ func compareObservations(a, b Observation) int {
 	); c != 0 {
 		return c
 	}
-	return strings.Compare(fmt.Sprint(a), fmt.Sprint(b))
+	// Every field is a string, number, bool, time, or netip value, so Marshal
+	// cannot fail. Unlike fmt, its output tells nil lists from empty ones.
+	ja, _ := json.Marshal(a)
+	jb, _ := json.Marshal(b)
+	return bytes.Compare(ja, jb)
 }
 
 func compareNeighbors(a, b Neighbor) int {

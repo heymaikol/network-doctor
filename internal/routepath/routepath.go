@@ -13,6 +13,12 @@
 // The two are compared hop by hop, and recorded Checks are attached to the
 // segments they name. A failed Check is reported as a region of segments, never
 // as a named node, because one recorded failure cannot say which hop broke.
+//
+// When the file names the source address, a third walk follows the forwarding
+// table back from the destination's routing domain. Its route is compared with
+// the forward route as an Asymmetry. An asymmetric pair raises a concern only
+// with a policy boundary, a routing-domain change, or a recorded failure on one
+// direction. Asymmetry alone is never a failure.
 package routepath
 
 import (
@@ -56,8 +62,12 @@ const (
 // and what was recorded about specific segments.
 type File struct {
 	Source Start
-	Model  netmodel.Model
-	Checks []Check
+	// SourceAddr is the address the source uses toward the destination. When it
+	// is set, Explain also walks the return direction toward it.
+	SourceAddr netip.Addr
+	Model      netmodel.Model
+	Checks     []Check
+	Boundaries []Boundary
 }
 
 // Kind says what happens to the destination at one node.
@@ -203,4 +213,7 @@ type Explanation struct {
 	Regions     []FailureRegion `json:"failure_regions"`
 	Limitations []string        `json:"limitations"`
 	Truncated   bool            `json:"truncated"`
+	// Asymmetry compares this forward route with the return route. It is nil
+	// unless the topology names the source address.
+	Asymmetry *Asymmetry `json:"asymmetry,omitempty"`
 }

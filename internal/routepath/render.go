@@ -30,34 +30,49 @@ func (e Explanation) Text() string {
 	renderTree(line, &e.Forwarding, 1)
 	line("")
 	line("Findings:")
-	if len(e.Findings) == 0 {
-		line("  none")
-	}
-	for _, f := range e.Findings {
-		line("  %s at %s (%s): %s", f.Kind, f.Node, f.VRF, f.Detail)
-	}
+	renderFindings(line, e.Findings, "  ")
 	line("")
 	line("Failure regions (a recorded failure lies in one candidate segment; no hop is named):")
-	if len(e.Regions) == 0 {
-		line("  none")
+	renderRegions(line, e.Regions, "  ")
+	if e.Asymmetry != nil {
+		renderAsymmetry(line, e.Asymmetry)
 	}
-	for _, r := range e.Regions {
+	line("")
+	line("Limitations:")
+	renderLimitations(line, e.Limitations, "  ")
+	return b.String()
+}
+
+func renderFindings(line func(string, ...any), findings []Finding, indent string) {
+	if len(findings) == 0 {
+		line("%snone", indent)
+	}
+	for _, f := range findings {
+		line("%s%s at %s (%s): %s", indent, f.Kind, f.Node, f.VRF, f.Detail)
+	}
+}
+
+func renderRegions(line func(string, ...any), regions []FailureRegion, indent string) {
+	if len(regions) == 0 {
+		line("%snone", indent)
+	}
+	for _, r := range regions {
 		candidates := make([]string, len(r.Candidates))
 		for i, c := range r.Candidates {
 			candidates[i] = segText(c)
 		}
-		line("  failed on %s", segText(r.Fail))
-		line("  candidates: %s", strings.Join(candidates, "; "))
+		line("%sfailed on %s", indent, segText(r.Fail))
+		line("%scandidates: %s", indent, strings.Join(candidates, "; "))
 	}
-	line("")
-	line("Limitations:")
-	if len(e.Limitations) == 0 {
-		line("  none")
+}
+
+func renderLimitations(line func(string, ...any), limitations []string, indent string) {
+	if len(limitations) == 0 {
+		line("%snone", indent)
 	}
-	for _, l := range e.Limitations {
-		line("  - %s", l)
+	for _, l := range limitations {
+		line("%s- %s", indent, l)
 	}
-	return b.String()
 }
 
 // renderTree prints one walk. A child line leads with the segment that reached

@@ -181,6 +181,7 @@ func dropReusedSocket(t testing.TB, f *budgetFixture, o *netops, http1 bool) {
 				return nil, nil
 			},
 		},
+		ReadHeaderTimeout: time.Second,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			if tc, ok := c.(*tls.Conn); ok {
 				return context.WithValue(ctx, rawConnKey{}, tc.NetConn())
@@ -193,7 +194,7 @@ func dropReusedSocket(t testing.TB, f *budgetFixture, o *netops, http1 bool) {
 			doomed := raw != nil && raw == first
 			mu.Unlock()
 			if doomed && dropped.CompareAndSwap(false, true) {
-				f.targetProto.Store(int32(r.ProtoMajor))
+				f.targetProto.Store(int64(r.ProtoMajor))
 				_ = raw.Close()
 				return
 			}
@@ -216,7 +217,7 @@ type differentialRun struct {
 	diag  Diagnosis
 	res   map[ProbeID]ProbeResult
 	dials int64 // connections the probes made to the target
-	proto int32 // HTTP major version of the request the fixture dropped
+	proto int64 // HTTP major version of the request the fixture dropped
 }
 
 // runDifferential diagnoses the target rows once on a fresh fixture, shared or

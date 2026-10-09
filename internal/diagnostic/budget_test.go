@@ -370,7 +370,7 @@ type budgetFixture struct {
 	// same listener is a different name and must not count against the target.
 	targetHandshakes atomic.Int64
 	// targetProto is the protocol major version of the last HEAD the target served.
-	targetProto atomic.Int32
+	targetProto atomic.Int64
 }
 
 func newBudgetFixture(t testing.TB) *budgetFixture {
@@ -402,7 +402,7 @@ func newBudgetFixture(t testing.TB) *budgetFixture {
 				return
 			}
 			if r.Method == http.MethodHead {
-				f.targetProto.Store(int32(r.ProtoMajor))
+				f.targetProto.Store(int64(r.ProtoMajor))
 			}
 			w.WriteHeader(http.StatusOK)
 		}),

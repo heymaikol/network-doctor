@@ -54,8 +54,8 @@ type DriftFinding struct {
 // Drift compares intended routes with the FIB at each node where intent states
 // a decision. Intended is the walk that follows intent where it speaks and the
 // FIB elsewhere, and Compared counts the nodes where intent decided. Level is
-// the worst finding, and at least unknown when the intended walk or the FIB
-// walk from the source was truncated.
+// the worst finding, and at least unknown when intent decided nowhere or when
+// the intended walk or the FIB walk from the source was truncated.
 type Drift struct {
 	Level     DriftLevel     `json:"level"`
 	Compared  int            `json:"compared"`
@@ -125,6 +125,10 @@ func (w *walker) drift(e *Explanation) *Drift {
 			raise(f.Level)
 		}
 	})
+	// Intent that decides nothing here shows nothing healthy either.
+	if d.Compared == 0 {
+		raise(DriftUnknown)
+	}
 	// Intent at several nodes can deliver together where intent at any one of
 	// them does not. A finding at the source keeps that loss in the level,
 	// unless a node already accounts for it.
@@ -264,6 +268,9 @@ func renderDrift(line func(string, ...any), d *Drift) {
 	line("")
 	line("Drift (intended routes vs FIB): %s", d.Level)
 	line("  nodes where intent decides: %d", d.Compared)
+	if d.Compared == 0 {
+		line("  Intent decides nothing for this destination, so drift is unknown.")
+	}
 	if d.Truncated {
 		line("  A walk stopped at a traversal bound, so drift is at least unknown.")
 	}

@@ -494,3 +494,17 @@ func TestDriftIntentPastTheFanoutBoundIsUnknown(t *testing.T) {
 		t.Errorf("r1 = %s (%s), overall %s, truncated %v, want unknown and truncated: the leg through 10.0.200.1 is not followed", f.Level, f.Detail, d.Level, d.Truncated)
 	}
 }
+
+// A partial intended table with no route for the destination states nothing
+// here, so it cannot read as healthy.
+func TestDriftIntentThatDecidesNothingIsUnknown(t *testing.T) {
+	obs := append(threeRouters(), partialIntent("r1", route("10.30.0.0/16", "static", nh("10.0.12.2", "eth1"))))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	d := driftOf(t, e)
+	if d.Level != DriftUnknown || d.Compared != 0 || len(d.Findings) != 0 {
+		t.Errorf("drift = %s with %d compared and findings %+v, want unknown with none compared and no finding", d.Level, d.Compared, d.Findings)
+	}
+	if line := "Intent decides nothing for this destination, so drift is unknown."; !strings.Contains(e.Text(), line) {
+		t.Errorf("human text lacks %q:\n%s", line, e.Text())
+	}
+}

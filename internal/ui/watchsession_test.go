@@ -191,8 +191,8 @@ func exportedIncident(t *testing.T, m model) ndoc.Snapshot {
 }
 
 // The last healthy pass before an outage is the incident's Before state, and
-// the incident keeps it. A stable pass before the outage reuses its passing
-// rows, and a reused row reports no duration. The export must still encode.
+// the incident keeps it. The TUI session is fresh, so every row in that pass
+// was measured on it and reports a duration. The export must encode.
 func TestWatchIncidentExportKeepsAStableHealthyBefore(t *testing.T) {
 	prevEvery := WatchEvery
 	WatchEvery = time.Millisecond

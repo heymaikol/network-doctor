@@ -297,6 +297,10 @@ type model struct {
 
 	toolbox bool // --toolbox: chain deferred until 'r'
 	watch   bool
+	// routeEvents says each Watch session the model builds follows the platform's
+	// route-change notifications. It is set by WithRouteEvents, so tests that
+	// build models never open a netlink socket.
+	routeEvents bool
 	// watchSession decides which rows a Watch pass reuses, and pass is the pass
 	// the current graph belongs to, decided when it completes. Both are nil
 	// outside a Watch run.
@@ -344,6 +348,13 @@ func WithProbeTimeout(d time.Duration) Option {
 	}
 }
 
+// WithRouteEvents makes the Watch session follow route, address and link change
+// notifications where the platform has them. Without it, Watch reuses rows only
+// within their max age.
+func WithRouteEvents() Option {
+	return func(m *model) { m.routeEvents = true }
+}
+
 // WithSnapshotSelection preserves the CLI spelling in incident artifacts.
 func WithSnapshotSelection(check, skip []string) Option {
 	return func(m *model) {
@@ -384,7 +395,7 @@ func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses,
 		opt(&m)
 	}
 	if watch {
-		m.watchSession = diagnostic.NewWatchSession(m.now)
+		m.watchSession = m.newWatchSession()
 	}
 	m.buildPass()
 	// After the options, since one of them names the preference file.
@@ -941,6 +952,18 @@ func (m *model) recordRun() tea.Cmd {
 		return nil
 	}
 	return m.recordIncident(m.incidentNow())
+}
+
+// newWatchSession starts a Watch session for the current target. With route
+// events on, it follows the platform's notifications. A platform without them
+// keeps the session's max-age bound, so a failed subscription is not an error
+// the run has to show.
+func (m *model) newWatchSession() *diagnostic.WatchSession {
+	s := diagnostic.NewWatchSession(m.now)
+	if m.routeEvents {
+		_ = s.FollowRouteEvents()
+	}
+	return s
 }
 
 // buildPass builds the probe graph for the current target. In a Watch run the

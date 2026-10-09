@@ -442,7 +442,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// native text selection.
 	p := tea.NewProgram(ui.NewWithSelection(t, sources, *toolbox, *watch, historyFile(*noHistory), version, *publicDNS, publicDNSAuto, selection,
 		ui.WithKeymap(keymap), ui.WithProbeTimeout(*timeout), ui.WithThemeFile(themeFile()),
-		ui.WithSnapshotSelection(checks.strings(), skips.strings())), tea.WithAltScreen())
+		ui.WithSnapshotSelection(checks.strings(), skips.strings()), ui.WithRouteEvents()), tea.WithAltScreen())
 	final, err := p.Run()
 	// Every way out of Run lands here, including the ones that never reached
 	// the model's own quit path.

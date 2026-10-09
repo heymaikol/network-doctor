@@ -25,6 +25,13 @@ import (
 // discarded, and is nil otherwise.
 func (m *model) recordIncident(at time.Time) tea.Cmd {
 	s := diagnostic.BuildSnapshotWithDiagnosis(m.target, m.probes, m.results, m.diagnosis())
+	// A healthy pass that straddles a route change is not evidence: its rows
+	// describe two network states, so it could anchor a Before or close an
+	// incident as Recovered. A failing one still records, because an incident
+	// must not go unseen for a route change.
+	if m.pass != nil && m.pass.Straddled() && incident.Classify(s) != incident.Failing {
+		return nil
+	}
 	s.CreatedAt = at.UTC().Format(time.RFC3339)
 	s.Tool = ndoc.Tool{Version: m.version, OS: runtime.GOOS, Arch: runtime.GOARCH}
 	s.Options = ndoc.Options{

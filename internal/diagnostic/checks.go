@@ -632,9 +632,12 @@ var errFamilyLost = errors.New("connection superseded by the other address famil
 // the far end, and an IPv6-only remote must not be pinned to the caller's
 // address family.
 func BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS string, publicDNSAuto bool, explicit ...ProbeID) []Probe {
-	// A copy either way, so the per-pass route cache installed below belongs
-	// to this pass rather than to the package-level ops every pass shares.
-	o := opsFromSources(sources)
+	// Copy operations before installing component-owned route caches.
+	o := probeOps(t, opsFromSources(sources))
+	return o.timedProbes(t, publicDNS, publicDNSAuto, explicit...)
+}
+
+func probeOps(t *Target, o *netops) *netops {
 	// One cache per pass. Route intelligence is asked the same question by
 	// several probes, and a pass must not pay for the same kernel lookup more
 	// than once; a later pass must not be answered from an earlier one, since
@@ -649,6 +652,10 @@ func BuildProbesFromSources(t *Target, sources *SourceAddresses, publicDNS strin
 	}
 	o.routes = newRouteCache(o.routeFor, o.sources)
 	o.routes.scoped, o.routes.lookupZone = o.scoped, o.routeForZone
+	return o
+}
+
+func (o *netops) timedProbes(t *Target, publicDNS string, publicDNSAuto bool, explicit ...ProbeID) []Probe {
 	probes := o.buildProbes(t, publicDNS, publicDNSAuto, explicit...)
 	for i := range probes {
 		probes[i].Run = wrapRun(probes[i].Run)

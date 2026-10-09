@@ -22,6 +22,9 @@ import (
 // runAll is stubbed in tests so -json runs don't touch the network.
 var runAll = diagnostic.RunAll
 
+// buildProfileProbes lets tests verify pass ownership at the acquisition boundary.
+var buildProfileProbes = (*diagnostic.ProfilePass).BuildProbes
+
 // headless is one non-TUI run: what to probe, and what to do with the result.
 // It is a struct rather than a parameter list because -save reads most of the
 // same settings the JSON report does, and a second copy of them passed
@@ -60,6 +63,8 @@ type headless struct {
 	// today is a profile whose components overlap; an ordinary --via run has a
 	// user in front of it and leaves it false.
 	viaBatch bool
+	// profilePass belongs to one local profile refresh; remote runs ignore it.
+	profilePass *diagnostic.ProfilePass
 }
 
 // runLiveTwoSided acquires the two ordinary runs together, then hands their
@@ -208,7 +213,12 @@ func diagnoseHeadless(ctx context.Context, h headless, wantSnapshot bool) diagno
 		}
 		return diagnosisOutput{report: *resp.Report, snapshot: *resp.Snapshot, tool: resp.Tool}
 	}
-	probes := h.selection.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto)
+	var probes []diagnostic.Probe
+	if h.profilePass != nil {
+		probes = buildProfileProbes(h.profilePass, h.target, h.selection, h.publicDNS, h.publicDNSAuto)
+	} else {
+		probes = h.selection.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto)
+	}
 	results := runAll(ctx, probes, h.timeout)
 	if ctx.Err() != nil {
 		return diagnosisOutput{err: ctx.Err()}

@@ -159,6 +159,9 @@ Each one gets a sentence here and a complete contract in the reference.
 - **Service profiles.** `--profile github` composes ordinary runs into one
   service-specific check with a single aggregate verdict, and every component
   keeps its full report. Built-ins: `github`, `ssh`, `smtp`, `web`.
+  Local components sample interface/reference routes, direct Internet egress,
+  and environment proxy egress once per pass. Target checks stay independent.
+  Watch Mode collects new samples each pass; remote profiles remain independent.
   [Plans and aggregate rules](docs/reference.md#service-profiles).
 - **Watch Mode.** `--watch` re-runs continuously and keeps a bounded incident
   timeline around each intermittent failure, from the last working state to the

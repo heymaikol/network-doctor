@@ -110,6 +110,7 @@ func TestProfileSharingConcurrentCompletionKeepsComponentOrder(t *testing.T) {
 	t.Cleanup(func() { runAll = original })
 	// The deadline reports deadlocked barriers, not a latency expectation.
 	ctx, cancel := context.WithTimeout(context.Background(), viaBarrierStuck)
+	defer cancel()
 	plan := githubPlan(t)
 	base := headless{publicDNS: diagnostic.DefaultPublicDNS, timeout: time.Second, save: "fixture.ndoc"}
 	indices := make(map[string]int, len(plan.Runs))
@@ -309,6 +310,7 @@ func TestProfileSharingCancellationEndsAllComponents(t *testing.T) {
 	t.Cleanup(func() { runAll = original })
 	plan := githubPlan(t)
 	ctx, cancel := context.WithTimeout(context.Background(), viaBarrierStuck)
+	defer cancel()
 	entered := make(chan struct{}, len(plan.Runs))
 	var active atomic.Int64
 	runAll = func(ctx context.Context, _ []diagnostic.Probe, _ time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {

@@ -47,7 +47,9 @@ func (pass *ProfilePass) share(probes []Probe, o *netops) {
 	if !iface {
 		return
 	}
-	for i, p := range probes {
+	for i := range probes {
+		probe := &probes[i]
+		p := *probe
 		var observation *profileObservation
 		switch {
 		case p.ID == ProbeIface && len(p.Deps) == 0:
@@ -59,7 +61,7 @@ func (pass *ProfilePass) share(probes []Probe, o *netops) {
 		default:
 			continue
 		}
-		probes[i].Run = func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
+		probe.Run = func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
 			r := observation.run(ctx, p, deps)
 			if p.ID == ProbeIface {
 				// Target and DNS route explanations must use the same yardstick

@@ -156,11 +156,12 @@ type Decision struct {
 
 // Segment is one edge of a walk: a next hop leaving From through Interface.
 type Segment struct {
-	From      string  `json:"from"`
-	VRF       string  `json:"vrf"`
-	Interface string  `json:"interface,omitempty"`
-	NextHop   string  `json:"next_hop,omitempty"`
-	Outcome   Outcome `json:"outcome"`
+	From      string    `json:"from"`
+	VRF       string    `json:"vrf"`
+	Interface string    `json:"interface,omitempty"`
+	NextHop   string    `json:"next_hop,omitempty"`
+	Outcome   Outcome   `json:"outcome"`
+	Checks    []Support `json:"checks,omitempty"`
 }
 
 // Hop is one node of a walk tree. Via is the segment that reached it, and it is

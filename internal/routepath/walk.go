@@ -147,7 +147,8 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 		shared[n.Interface]++
 	}
 	for _, n := range hops {
-		seg := &Segment{From: at.node, VRF: at.vrf, Interface: n.Interface, NextHop: addrText(n.Addr), Outcome: w.outcome(at, n, shared[n.Interface])}
+		out, checks := w.outcome(at, n, shared[n.Interface])
+		seg := &Segment{From: at.node, VRF: at.vrf, Interface: n.Interface, NextHop: addrText(n.Addr), Outcome: out, Checks: checks}
 		h.Next = append(h.Next, w.resolve(planes, at, n, seg, branch))
 	}
 	return h
@@ -303,7 +304,7 @@ func (w *walker) complete(at state, p netmodel.Plane) bool {
 // applies to the interface only when the interface carries one next hop. When
 // several share it, the check is unattributed rather than given to one of them.
 // Silence is OutcomeNone, and it never counts as a failure.
-func (w *walker) outcome(at state, n netmodel.NextHop, shared int) Outcome {
+func (w *walker) outcome(at state, n netmodel.NextHop, shared int) (Outcome, []Support) {
 	key := func(nh string) checkKey { return checkKey{at.node, at.vrf, n.Interface, w.dest, nh} }
 	if nh := keyAddr(n.Addr); nh != "" {
 		if rs := w.checks[key(nh)]; len(rs) > 0 {
@@ -313,27 +314,46 @@ func (w *walker) outcome(at state, n netmodel.NextHop, shared int) Outcome {
 	rs := w.checks[key("")]
 	switch {
 	case len(rs) == 0:
-		return OutcomeNone
+		return OutcomeNone, nil
 	case shared > 1:
-		return OutcomeUnattributed
+		return OutcomeUnattributed, supportsOf(rs)
 	}
 	return resultOf(rs)
 }
 
-// resultOf turns the checks for one segment into its outcome.
-func resultOf(cs []Check) Outcome {
+// resultOf turns the checks for one segment into its outcome, and keeps each
+// check's provenance so a conclusion traces back to its input.
+func resultOf(cs []Check) (Outcome, []Support) {
 	pass, fail := false, false
 	for _, c := range cs {
 		pass = pass || c.Result == CheckPass
 		fail = fail || c.Result == CheckFail
 	}
+	out := supportsOf(cs)
 	switch {
 	case pass && fail:
-		return OutcomeConflicting
+		return OutcomeConflicting, out
 	case fail:
-		return OutcomeFail
+		return OutcomeFail, out
 	}
-	return OutcomePass
+	return OutcomePass, out
+}
+
+// supportsOf lists checks as provenance, in a fixed order, so the output does
+// not depend on the order the file lists them.
+func supportsOf(cs []Check) []Support {
+	out := make([]Support, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, Support{Source: c.Source, CollectedAt: utcText(c.CollectedAt)})
+	}
+	return sortSupports(out)
+}
+
+func sortSupports(out []Support) []Support {
+	slices.SortFunc(out, func(a, b Support) int {
+		return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.CollectedAt, b.CollectedAt))
+	})
+	return out
 }
 
 // keyAddr is the canonical text of a next-hop address, or empty when there is none.

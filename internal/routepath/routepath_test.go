@@ -611,3 +611,14 @@ func TestWideNextHopListIsBounded(t *testing.T) {
 		t.Errorf("decision lists %d next hops, want the first %d", got, maxFanout)
 	}
 }
+
+// A failure must say which recorded check supports it, so it traces to a source.
+func TestFailureNamesItsRecordedSource(t *testing.T) {
+	c := check("r1", "default", "eth1", dest, CheckFail)
+	c.Source = "probe:r1"
+	e := explainFrom(t, threeRouters(), []Check{c}, fromR1, dest)
+	got := findings(e, FindingForwardingFailed)
+	if len(got) != 1 || !strings.Contains(got[0].Detail, "probe:r1 at ") {
+		t.Fatalf("fib_forwarding_failed = %+v, want the detail to name probe:r1 and when it ran", got)
+	}
+}

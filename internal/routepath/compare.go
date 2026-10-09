@@ -41,7 +41,7 @@ func compareWalks(exp, fwd *Hop) []Finding {
 			}
 		}
 		if h.Via != nil && h.Via.Outcome == OutcomeFail {
-			add(Finding{Kind: FindingForwardingFailed, Node: h.Via.From, VRF: h.Via.VRF, Detail: "recorded check failed on segment " + segText(*h.Via)})
+			add(Finding{Kind: FindingForwardingFailed, Node: h.Via.From, VRF: h.Via.VRF, Detail: "recorded check failed on segment " + segText(*h.Via) + checkSourcesText(h.Via.Checks)})
 		}
 		noteConditions(h, add)
 	})
@@ -158,7 +158,7 @@ func regionOf(full []*Hop) FailureRegion {
 	region := FailureRegion{Fail: *full[last].Via, Candidates: []Segment{}}
 	for _, point := range full[start:last] {
 		for _, c := range point.Next {
-			if c.Via != nil && !slices.Contains(region.Candidates, *c.Via) {
+			if c.Via != nil && !containsSegment(region.Candidates, *c.Via) {
 				region.Candidates = append(region.Candidates, *c.Via)
 			}
 		}
@@ -206,9 +206,9 @@ func limitations(exp, fwd *Hop) []string {
 			if h.Via != nil {
 				switch h.Via.Outcome {
 				case OutcomeConflicting:
-					add(walk.label, "recorded checks disagree on segment "+segText(*h.Via))
+					add(walk.label, "recorded checks disagree on segment "+segText(*h.Via)+checkSourcesText(h.Via.Checks))
 				case OutcomeUnattributed:
-					add(walk.label, "recorded check on segment "+segText(*h.Via)+" names no next hop, and the interface carries several; it is not attributed to any of them")
+					add(walk.label, "recorded check on segment "+segText(*h.Via)+" names no next hop, and the interface carries several; it is not attributed to any of them"+checkSourcesText(h.Via.Checks))
 				}
 			}
 		})
@@ -221,6 +221,30 @@ func limitations(exp, fwd *Hop) []string {
 		out = append(out, text)
 	}
 	return out
+}
+
+// checkSourcesText names the recorded checks a segment rests on, so a failure or
+// a conflict traces back to its input. It is empty when no check applies.
+func checkSourcesText(cs []Support) string {
+	if len(cs) == 0 {
+		return ""
+	}
+	parts := make([]string, len(cs))
+	for i, c := range cs {
+		parts[i] = c.Source + " at " + c.CollectedAt
+	}
+	return " (checks: " + strings.Join(parts, "; ") + ")"
+}
+
+// containsSegment compares segments by their route identity. A segment can carry
+// its checks, which are slices, so the struct itself is not comparable.
+func containsSegment(segs []Segment, want Segment) bool {
+	for _, s := range segs {
+		if s.From == want.From && s.VRF == want.VRF && s.Interface == want.Interface && s.NextHop == want.NextHop {
+			return true
+		}
+	}
+	return false
 }
 
 func nodeLabel(h *Hop) string {

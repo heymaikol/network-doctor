@@ -35,7 +35,7 @@ func compareWalks(exp, fwd *Hop) []Finding {
 				if kind, detail, differs := disagreement(e, h); differs {
 					h.Decision.Agreement = AgreementDisagrees
 					add(Finding{Kind: kind, Node: h.Node, VRF: h.VRF, Detail: detail})
-				} else if concrete(e.Decision.Kind) && concrete(h.Decision.Kind) {
+				} else if e.Decision.Proven && concrete(e.Decision.Kind) && concrete(h.Decision.Kind) {
 					h.Decision.Agreement = AgreementAgrees
 				}
 			}
@@ -75,6 +75,10 @@ func disagreement(exp, fwd *Hop) (FindingKind, string, bool) {
 		return FindingFIBDiffers, fmt.Sprintf("control holds no route; the FIB forwards on %s", describe(fwd.Decision)), true
 	case exp.Decision.Prefix != fwd.Decision.Prefix && prefixBits(exp.Decision.Prefix) > prefixBits(fwd.Decision.Prefix):
 		return FindingControlNotInFIB, fmt.Sprintf("control expects %s; the FIB uses the less specific %s", describe(exp.Decision), describe(fwd.Decision)), true
+	case !exp.Decision.Proven:
+		// A partial control table may hold a more specific route that changes the
+		// expected answer, so it cannot show what the FIB differs from.
+		return "", "", false
 	case exp.Decision.Prefix != fwd.Decision.Prefix, ek != fk, !slices.Equal(exp.Decision.NextHops, fwd.Decision.NextHops):
 		return FindingFIBDiffers, fmt.Sprintf("control expects %s; the FIB has %s", describe(exp.Decision), describe(fwd.Decision)), true
 	}

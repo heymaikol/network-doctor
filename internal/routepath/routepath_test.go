@@ -533,3 +533,21 @@ func TestIntendedAndObservedAddressesOwnNothing(t *testing.T) {
 		t.Errorf("r1 expected = %s, want anything but local", got)
 	}
 }
+
+// A partial control table may hide a more specific route, so a complete FIB
+// that differs from it cannot be called a disagreement.
+func TestPartialControlTableCannotContradictCompleteFIB(t *testing.T) {
+	obs := without(threeRouters(), "control:r1:default", "fib:r1:default")
+	obs = append(obs,
+		table(netmodel.PlaneControl, "r1", "default", false, route("10.20.0.0/16", "ospf", nh("10.0.12.2", "eth1"))),
+		table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.20.0.0/16", "kernel", nh("10.0.12.2", "eth1")),
+			route("10.20.40.0/24", "kernel", nh("10.0.13.2", "eth2"))))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := findings(e, FindingFIBDiffers); len(got) != 0 {
+		t.Errorf("fib_differs_from_control = %+v, want none: a partial control table cannot show a difference", got)
+	}
+	if got := e.Forwarding.Decision.Agreement; got != AgreementUnknown {
+		t.Errorf("r1 agreement = %q, want unknown rather than agrees or disagrees", got)
+	}
+}

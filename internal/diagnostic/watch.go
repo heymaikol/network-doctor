@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,10 @@ type WatchSession struct {
 	cache map[ProbeID]watchObservation
 	// last is the verdict of every row in the last published pass.
 	last map[ProbeID]watchVerdict
+	// path names the routes the rows that run on every pass measured in the last
+	// published pass. A reused row describes the path it was sampled on, so a
+	// pass that measured a different path is not published with it.
+	path string
 	// force makes the next pass acquire every row fresh. It stays set until a
 	// pass that ran fresh is published, so a cancelled forced pass is retried.
 	force bool
@@ -59,9 +64,10 @@ type watchObservation struct {
 	result      ProbeResult
 	fingerprint string
 	sampled     time.Time
-	// inputs is the fingerprint of each dependency when this row was sampled.
-	// Reuse needs every dependency to match, which is what carries an
-	// interface, route, or address change down to the rows built on it.
+	// inputs is the fingerprint of every row this one reads, directly or through
+	// another row, when it was sampled. Reuse needs each of them unchanged. Only
+	// direct dependencies would miss a change that reaches a row through a
+	// dependency whose own result stayed the same.
 	inputs map[ProbeID]string
 }
 
@@ -96,6 +102,7 @@ func (s *WatchSession) Begin(base []Probe) *WatchPass {
 		force:        s.force,
 		requested:    s.requests,
 		cache:        maps.Clone(s.cache),
+		ancestors:    ancestorsOf(base),
 		ran:          map[ProbeID]watchObservation{},
 		reused:       map[ProbeID]bool{},
 		fingerprints: map[ProbeID]string{},
@@ -107,6 +114,32 @@ func (s *WatchSession) Begin(base []Probe) *WatchPass {
 	return pass
 }
 
+// ancestorsOf returns, for each row, every row it reads directly or through
+// another row. A row can change because something behind its direct dependency
+// changed, even when that dependency's own result is identical.
+func ancestorsOf(base []Probe) map[ProbeID][]ProbeID {
+	direct := make(map[ProbeID][]ProbeID, len(base))
+	for _, probe := range base {
+		direct[probe.ID] = probe.Deps
+	}
+	out := make(map[ProbeID][]ProbeID, len(base))
+	for _, probe := range base {
+		seen := map[ProbeID]bool{}
+		stack := append([]ProbeID(nil), probe.Deps...)
+		for len(stack) > 0 {
+			id := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			out[probe.ID] = append(out[probe.ID], id)
+			stack = append(stack, direct[id]...)
+		}
+	}
+	return out
+}
+
 // WatchPass is one pass of a Watch session. Its probes run concurrently, so
 // they touch only the copy of the cache taken at Begin and their own records,
 // which mu guards. The session changes only in Publish.
@@ -116,6 +149,7 @@ type WatchPass struct {
 	requested uint64
 	probes    []Probe
 	cache     map[ProbeID]watchObservation
+	ancestors map[ProbeID][]ProbeID
 
 	mu     sync.Mutex
 	ran    map[ProbeID]watchObservation
@@ -136,12 +170,12 @@ func (p *WatchPass) wrap(probe Probe) Probe {
 	if run == nil {
 		return probe
 	}
-	id, deps := probe.ID, probe.Deps
+	id := probe.ID
 	reusable := watchReusable[id]
 	probe.Run = func(ctx context.Context, in map[ProbeID]ProbeResult) ProbeResult {
 		sampled := p.session.now()
 		if reusable {
-			if r, fp, ok := p.reuse(id, deps, in, sampled); ok {
+			if r, fp, ok := p.reuse(id, sampled); ok {
 				p.setFingerprint(id, fp)
 				return r
 			}
@@ -150,17 +184,17 @@ func (p *WatchPass) wrap(probe Probe) Probe {
 		fp := fingerprint(r)
 		p.setFingerprint(id, fp)
 		if reusable && r.Status == StatusPass {
-			p.record(id, fp, deps, in, sampled, r)
+			p.record(id, fp, sampled, r)
 		}
 		return r
 	}
 	return probe
 }
 
-// reuse answers a row from its passing observation when nothing it was
-// sampled from has changed, and the observation is younger than watchMaxAge.
-// It never answers a forced pass.
-func (p *WatchPass) reuse(id ProbeID, deps []ProbeID, in map[ProbeID]ProbeResult, now time.Time) (ProbeResult, string, bool) {
+// reuse answers a row from its passing observation when nothing it was sampled
+// from has changed, and the observation is younger than watchMaxAge. It never
+// answers a forced pass.
+func (p *WatchPass) reuse(id ProbeID, now time.Time) (ProbeResult, string, bool) {
 	if p.force {
 		return ProbeResult{}, "", false
 	}
@@ -171,9 +205,9 @@ func (p *WatchPass) reuse(id ProbeID, deps []ProbeID, in map[ProbeID]ProbeResult
 	if age := now.Sub(ob.sampled); age < 0 || age >= watchMaxAge {
 		return ProbeResult{}, "", false
 	}
-	for _, d := range deps {
-		r, ok := in[d]
-		if !ok || p.fingerprintOf(d, r) != ob.inputs[d] {
+	for _, a := range p.ancestors[id] {
+		fp, ok := p.fingerprintFor(a)
+		if !ok || fp != ob.inputs[a] {
 			return ProbeResult{}, "", false
 		}
 	}
@@ -190,10 +224,17 @@ func (p *WatchPass) reuse(id ProbeID, deps []ProbeID, in map[ProbeID]ProbeResult
 	return r, ob.fingerprint, true
 }
 
-func (p *WatchPass) record(id ProbeID, fp string, deps []ProbeID, in map[ProbeID]ProbeResult, sampled time.Time, r ProbeResult) {
-	inputs := make(map[ProbeID]string, len(deps))
-	for _, d := range deps {
-		inputs[d] = p.fingerprintOf(d, in[d])
+func (p *WatchPass) record(id ProbeID, fp string, sampled time.Time, r ProbeResult) {
+	inputs := make(map[ProbeID]string, len(p.ancestors[id]))
+	for _, a := range p.ancestors[id] {
+		afp, ok := p.fingerprintFor(a)
+		if !ok {
+			// A row runs only after every row it reads has finished, because a
+			// failed or skipped one blocks it. A gap here means nothing can be
+			// checked later, so nothing is kept.
+			return
+		}
+		inputs[a] = afp
 	}
 	p.mu.Lock()
 	p.ran[id] = watchObservation{result: cloneProbeResult(r), fingerprint: fp, sampled: sampled, inputs: inputs}
@@ -206,39 +247,35 @@ func (p *WatchPass) setFingerprint(id ProbeID, fp string) {
 	p.mu.Unlock()
 }
 
-// fingerprintOf returns the fingerprint of a dependency's result. The row that
-// produced the result has usually recorded it already; a row the pass never ran
-// (a skipped prerequisite) is measured here.
-func (p *WatchPass) fingerprintOf(id ProbeID, r ProbeResult) string {
+// fingerprintFor returns the fingerprint of a row that has finished this pass.
+func (p *WatchPass) fingerprintFor(id ProbeID) (string, bool) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	fp, ok := p.fingerprints[id]
-	p.mu.Unlock()
-	if ok {
-		return fp
-	}
-	return fingerprint(r)
+	return fp, ok
 }
 
 // Publish takes the finished pass's results, after the diagnosis has been
 // finalized, and reports whether they may be recorded. A forced pass, and a
 // pass that reused no row, is always published: every row in it is fresh.
 // A pass that reused a row is published only when every row has the same
-// status and cause as in the last published pass. Such a pass may still carry
-// new addresses or routes, because a row whose inputs changed was run again.
-// A reused pass whose status or cause differs may have judged a change against
-// evidence older than this pass, so nothing from it is kept and the next pass
-// runs fresh. When Publish returns false, the caller runs the next pass straight
-// away.
+// status and cause as in the last published pass, and the routes its rows that
+// always run measured are the same. Such a pass may still carry new addresses, because a row whose
+// inputs changed was run again. A reused pass whose verdicts or routes differ
+// may have judged a change against evidence older than this pass, so nothing
+// from it is kept and the next pass runs fresh. When Publish returns false, the
+// caller runs the next pass straight away.
 func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 	s := p.session
 	verdicts := make(map[ProbeID]watchVerdict, len(results))
 	for id, r := range results {
 		verdicts[id] = watchVerdict{status: r.Status, cause: r.Cause}
 	}
+	path := p.pathOf(results)
 	p.mu.Lock()
 	reused := len(p.reused)
 	p.mu.Unlock()
-	if !p.force && reused > 0 && !maps.Equal(s.last, verdicts) {
+	if !p.force && reused > 0 && (!maps.Equal(s.last, verdicts) || path != s.path) {
 		s.force = true
 		s.requests++
 		return false
@@ -252,10 +289,33 @@ func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 	}
 	s.cache = next
 	s.last = verdicts
+	s.path = path
 	if s.requests == p.requested {
 		s.force = false
 	}
 	return true
+}
+
+// pathOf names the routes the rows that run on every pass measured. Each
+// decision contributes its row, interface, next hop, source, and tunnel state.
+// The destination is left out, because a target's chosen address can rotate
+// while its route stays the same. Reusable rows are left out, even when they
+// carry routes: whether one was reused depends on the pass before, so its
+// routes would change the key on the pass after it was run, and every other
+// pass would be discarded. The rows that always run are the path evidence each
+// pass has in common.
+func (p *WatchPass) pathOf(results map[ProbeID]ProbeResult) string {
+	var decisions []string
+	for id, r := range results {
+		if watchReusable[id] {
+			continue
+		}
+		for _, d := range r.Routes {
+			decisions = append(decisions, fmt.Sprintf("%s %s %s %s %s", id, d.Iface, d.Gateway, d.Source, d.Tunnel))
+		}
+	}
+	slices.Sort(decisions)
+	return strings.Join(decisions, "\n")
 }
 
 // fingerprint names what a row tells the rows built on it and the diagnosis: its

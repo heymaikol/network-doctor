@@ -17,10 +17,20 @@ type watchNet struct {
 	iface      string
 	addr       net.IP // the system resolver's answer, and the target's address
 	publicAddr net.IP // the public resolver's answer
-	ifaceDown  bool
-	targetDown bool
-	tlsBroken  bool
-	counts     *watchCounts
+	gateway    net.IP // the default route's next hop
+	// targetTunnel is the state of the route to the target alone, so a split
+	// tunnel can change the target's path while the interface stays the same.
+	targetTunnel TunnelState
+	ifaceDown    bool
+	targetDown   bool
+	tlsBroken    bool
+	// broken names one row that fails on every run. A path test breaks a single
+	// row, so the other rows stay as they were and the verdict gate cannot mask
+	// the result under test.
+	broken ProbeID
+	// tlsRoutes gives the reusable TLS row a route, as a row may carry one.
+	tlsRoutes bool
+	counts    *watchCounts
 }
 
 type watchCounts struct {
@@ -35,10 +45,12 @@ func newWatchCounts() *watchCounts {
 
 func newWatchNet() *watchNet {
 	return &watchNet{
-		iface:      "eth0",
-		addr:       net.ParseIP("198.51.100.7"),
-		publicAddr: net.ParseIP("198.51.100.53"),
-		counts:     newWatchCounts(),
+		iface:        "eth0",
+		addr:         net.ParseIP("198.51.100.7"),
+		publicAddr:   net.ParseIP("198.51.100.53"),
+		gateway:      net.ParseIP("192.0.2.1"),
+		targetTunnel: TunnelDirect,
+		counts:       newWatchCounts(),
 	}
 }
 
@@ -80,23 +92,30 @@ func (n *watchNet) result(id ProbeID) ProbeResult {
 		return ProbeResult{Status: StatusFail, Cause: "timeout", Dur: 5 * time.Millisecond}
 	case id == ProbeTLS && n.tlsBroken:
 		return ProbeResult{Status: StatusFail, Cause: "tls-handshake", Dur: 5 * time.Millisecond}
+	case n.broken != "" && id == n.broken:
+		return ProbeResult{Status: StatusFail, Cause: "broken-on-new-path", Dur: 5 * time.Millisecond}
 	}
 	r := ProbeResult{Status: StatusPass, Dur: 5 * time.Millisecond}
+	// The fake's routes leave out the interface name, so each path test isolates
+	// the one input it changes. Production routes carry it, and both are checked.
 	switch id {
 	case ProbeIface:
-		r.Iface, r.Routes = n.iface, n.routes()
+		r.Iface = n.iface
 	case ProbeDNS:
 		r.Addrs = []net.IP{n.addr}
 	case ProbeDNSPublic:
 		r.Addrs = []net.IP{n.publicAddr}
+	case ProbeInternet:
+		r.Routes = []RouteDecision{{Destination: n.publicAddr, Family: "ipv4", Gateway: n.gateway, Tunnel: TunnelDirect}}
 	case ProbeTargetTCP:
-		r.Iface, r.SelectedIP, r.Routes = n.iface, n.addr, n.routes()
+		r.Iface, r.SelectedIP = n.iface, n.addr
+		r.Routes = []RouteDecision{{Destination: n.addr, Family: "ipv4", Gateway: n.gateway, Tunnel: n.targetTunnel}}
+	case ProbeTLS:
+		if n.tlsRoutes {
+			r.Routes = []RouteDecision{{Destination: n.addr, Family: "ipv4", Gateway: n.gateway, Tunnel: n.targetTunnel}}
+		}
 	}
 	return r
-}
-
-func (n *watchNet) routes() []RouteDecision {
-	return []RouteDecision{{Destination: n.addr, Family: "ipv4", Iface: n.iface, Tunnel: TunnelDirect}}
 }
 
 // resetRuns starts the count for the next measurement.
@@ -255,7 +274,11 @@ func TestWatchPathMTUMeasuresEveryPass(t *testing.T) {
 // sampled through a changed row run again, and rows whose inputs did not change
 // keep their evidence. The published pass stays a lightweight one because no
 // status or cause changed.
-func TestWatchRouteChangeReachesOnlyDependentRows(t *testing.T) {
+// An interface change reaches every row that reads the interface, directly or
+// through a row whose result is identical. HTTP reads DNS and HTTPS reads TLS,
+// and both can return the same result on the new path, so neither may be reused.
+// This expectation changed on reviewer request: HTTP and HTTPS were reused here.
+func TestWatchInterfaceChangeRunsEveryPathRow(t *testing.T) {
 	clock := newWatchClock()
 	n := newWatchNet()
 	s := NewWatchSession(clock.Now)
@@ -268,12 +291,12 @@ func TestWatchRouteChangeReachesOnlyDependentRows(t *testing.T) {
 		t.Fatalf("route change took %d attempts, want 1: no status changed", passes)
 	}
 	for id, want := range map[ProbeID]int{
-		ProbeIface:     1, // fresh, and its route changed
-		ProbeTargetTCP: 1, // fresh, and its route changed
+		ProbeIface:     1, // fresh, and its interface changed
+		ProbeTargetTCP: 1, // fresh, and its interface changed
 		ProbeQUIC:      1, // reads the interface row
 		ProbeTLS:       1, // reads the target row
-		ProbeHTTPS:     0, // reads TLS, which ran but produced the same evidence
-		ProbeHTTP:      0, // reads DNS, which did not change
+		ProbeHTTPS:     1, // reads TLS, which reran; the interface changed beneath it
+		ProbeHTTP:      1, // reads DNS, which is identical; the interface changed beneath it
 		ProbeDNSPublic: 1, // reads the interface row
 	} {
 		if runs[id] != want {
@@ -284,6 +307,79 @@ func TestWatchRouteChangeReachesOnlyDependentRows(t *testing.T) {
 		t.Errorf("published interface = %q, want wlan0", got)
 	}
 	assertFreshDiagnosis(t, n, res)
+}
+
+// A path change can leave a row's direct inputs identical while the path it
+// measures has changed. Each case changes one path input and breaks one row on
+// the new path. A reused copy of that row would publish PASS, and the published
+// pass must instead agree with a fresh pass. Only the broken row changes status,
+// so the verdict gate cannot be what catches the change.
+func TestWatchPathChangeNeverPublishesAReusedRowFromTheOldPath(t *testing.T) {
+	cases := []struct {
+		name   string
+		change func(*watchNet)
+		broken ProbeID
+	}{
+		// HTTP reads DNS and HTTPS reads TLS. Both can return identical results
+		// on a new interface, which is why neither may be reused.
+		{"interface, HTTP", func(n *watchNet) { n.iface = "wlan0" }, ProbeHTTP},
+		{"interface, HTTPS", func(n *watchNet) { n.iface = "wlan0" }, ProbeHTTPS},
+		// Only the default route changed. QUIC and HTTP do not read the target's
+		// route, so the reference egress route is the change they must see.
+		{"default gateway, HTTP", func(n *watchNet) { n.gateway = net.ParseIP("192.0.2.254") }, ProbeHTTP},
+		// HTTP does not read the target's route, and the interface, DNS, and
+		// address are unchanged. Only the target row can show this change.
+		{"target route, HTTP", func(n *watchNet) { n.targetTunnel = TunnelKnown }, ProbeHTTP},
+		{"target route, HTTPS", func(n *watchNet) { n.targetTunnel = TunnelKnown }, ProbeHTTPS},
+		{"address, HTTP", func(n *watchNet) { n.addr = net.ParseIP("198.51.100.8") }, ProbeHTTP},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			clock := newWatchClock()
+			n := newWatchNet()
+			s := NewWatchSession(clock.Now)
+			watchPass(t, s, n)
+
+			c.change(n)
+			n.broken = c.broken
+			clock.Advance(5 * time.Second)
+			res, runs, _ := watchPass(t, s, n)
+			if res[c.broken].Status != StatusFail {
+				t.Errorf("published %s = %v, want fail on the new path: a reused row hid the change", c.broken, res[c.broken].Status)
+			}
+			if runs[c.broken] != 1 {
+				t.Errorf("published pass ran %s %d times, want 1", c.broken, runs[c.broken])
+			}
+			assertFreshDiagnosis(t, n, res)
+		})
+	}
+}
+
+// A reusable row that carries a route must not decide whether a stable pass is
+// published. Its route is measured on the pass that runs it, then reused, so a
+// check that read reused routes would discard every other pass.
+func TestWatchReusedRouteDoesNotDiscardStablePasses(t *testing.T) {
+	clock := newWatchClock()
+	n := newWatchNet()
+	n.tlsRoutes = true
+	s := NewWatchSession(clock.Now)
+	watchPass(t, s, n)
+
+	const steps = 30 // 150 seconds: TLS expires at least twice
+	tlsRuns := 0
+	for step := 1; step <= steps; step++ {
+		clock.Advance(5 * time.Second)
+		n.resetRuns()
+		pass := s.Begin(n.graph())
+		results := RunAll(context.Background(), pass.Probes(), time.Second)
+		if !pass.Publish(results) {
+			t.Fatalf("stable pass %d was discarded: a reused row's route changed the check", step)
+		}
+		tlsRuns += n.snapshotRuns()[ProbeTLS]
+	}
+	if tlsRuns == 0 || tlsRuns >= steps {
+		t.Errorf("TLS ran %d times in %d stable passes, want some reuse and some expiry", tlsRuns, steps)
+	}
 }
 
 // A changed status is a transition, so the lightweight pass is not published.

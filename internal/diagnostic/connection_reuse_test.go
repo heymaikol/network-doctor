@@ -400,6 +400,23 @@ func TestSharedHTTP2SocketDroppedFallsBack(t *testing.T) {
 	requireAgreement(t, shared, plain)
 }
 
+// deadSocket separates a connection that ended from an answer the server gave.
+// Only the first kind justifies a fresh connection.
+func TestDeadSocketSeparatesEndedConnectionsFromAnswers(t *testing.T) {
+	ended := []error{io.EOF, io.ErrUnexpectedEOF, net.ErrClosed, tlsHandshakeError{io.EOF}}
+	answered := []error{x509.UnknownAuthorityError{}, context.DeadlineExceeded, tlsHandshakeError{x509.UnknownAuthorityError{}}}
+	for _, err := range ended {
+		if !deadSocket(err) {
+			t.Errorf("%v not classed as a dead socket", err)
+		}
+	}
+	for _, err := range answered {
+		if deadSocket(err) {
+			t.Errorf("%v classed as a dead socket, but the server answered", err)
+		}
+	}
+}
+
 // requireSameAttempts compares the dials two runs report for one row, entry by
 // entry. Duration is timing, so it is left out.
 func requireSameAttempts(t *testing.T, id ProbeID, shared, plain []Attempt) {

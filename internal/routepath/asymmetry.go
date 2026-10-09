@@ -140,7 +140,7 @@ func (w *walker) asymmetry(f File, fwd Explanation) *Asymmetry {
 		a.Assessment, a.Reason = AssessSymmetric, "forward and return cross the same routers in the same routing domains, in reverse order."
 		return a
 	}
-	differ := "forward and return cross different routers"
+	differ := "forward and return cross different routers or routing domains"
 	if sameStates(fwdSet, retSet) {
 		differ = "forward and return cross the same routers, but the return does not retrace the forward route"
 	}

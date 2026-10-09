@@ -302,6 +302,9 @@ func TestReturnThroughAnotherVRFIsAConcern(t *testing.T) {
 	if !strings.Contains(e.Asymmetry.Concerns[0].Detail, "return route uses default, tenant") {
 		t.Errorf("detail = %q, want the return's routing domains", e.Asymmetry.Concerns[0].Detail)
 	}
+	if !strings.Contains(e.Asymmetry.Reason, "different routers or routing domains") {
+		t.Errorf("reason = %q, want it to name routing domains as well as routers", e.Asymmetry.Reason)
+	}
 }
 
 // The decoder keeps the source address and the boundaries with their provenance.

@@ -89,7 +89,7 @@ func arrowText(s Segment) string {
 		text += " on-link"
 	}
 	switch s.Outcome {
-	case OutcomePass, OutcomeFail, OutcomeConflicting:
+	case OutcomePass, OutcomeFail, OutcomeConflicting, OutcomeUnattributed:
 		text += " [check " + string(s.Outcome) + "]"
 	}
 	return text

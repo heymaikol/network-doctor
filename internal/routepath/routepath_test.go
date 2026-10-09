@@ -551,3 +551,42 @@ func TestPartialControlTableCannotContradictCompleteFIB(t *testing.T) {
 		t.Errorf("r1 agreement = %q, want unknown rather than agrees or disagrees", got)
 	}
 }
+
+// A recorded check applies to the alternative it names. Without a name, it
+// applies to an interface only when that interface carries one next hop.
+func TestSharedInterfaceCheckNamesItsNextHopOrNone(t *testing.T) {
+	ecmp := func() []netmodel.Observation {
+		obs := without(threeRouters(), "fib:r1:default")
+		return append(obs, table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.20.0.0/16", "kernel", nh("10.0.12.2", "eth1"), nh("10.0.12.9", "eth1"))))
+	}
+	t.Run("named next hop", func(t *testing.T) {
+		c := check("r1", "default", "eth1", dest, CheckFail)
+		c.NextHop = addr("10.0.12.2")
+		e := explainFrom(t, ecmp(), []Check{c}, fromR1, dest)
+		outcome := map[string]Outcome{}
+		for _, s := range e.Forwarding.Next {
+			outcome[s.Via.NextHop] = s.Via.Outcome
+		}
+		if outcome["10.0.12.2"] != OutcomeFail || outcome["10.0.12.9"] != OutcomeNone {
+			t.Errorf("segment outcomes = %v, want the named alternative failed and the other unrecorded", outcome)
+		}
+		if got := findings(e, FindingForwardingFailed); len(got) != 1 {
+			t.Errorf("fib_forwarding_failed = %+v, want one", got)
+		}
+	})
+	t.Run("unnamed check on a shared interface", func(t *testing.T) {
+		e := explainFrom(t, ecmp(), []Check{check("r1", "default", "eth1", dest, CheckFail)}, fromR1, dest)
+		for _, s := range e.Forwarding.Next {
+			if s.Via.Outcome != OutcomeUnattributed {
+				t.Errorf("segment via %s outcome = %s, want unattributed", s.Via.NextHop, s.Via.Outcome)
+			}
+		}
+		if got := findings(e, FindingForwardingFailed); len(got) != 0 {
+			t.Errorf("fib_forwarding_failed = %+v, want none: the failure cannot be placed on one alternative", got)
+		}
+		if !strings.Contains(strings.Join(e.Limitations, "\n"), "names no next hop") {
+			t.Errorf("limitations = %v, want the unattributed check named", e.Limitations)
+		}
+	})
+}

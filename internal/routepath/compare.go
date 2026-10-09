@@ -203,8 +203,13 @@ func limitations(exp, fwd *Hop) []string {
 					add(walk.label, where+": decision is not proven; a more specific route may exist")
 				}
 			}
-			if h.Via != nil && h.Via.Outcome == OutcomeConflicting {
-				add(walk.label, "recorded checks disagree on segment "+segText(*h.Via))
+			if h.Via != nil {
+				switch h.Via.Outcome {
+				case OutcomeConflicting:
+					add(walk.label, "recorded checks disagree on segment "+segText(*h.Via))
+				case OutcomeUnattributed:
+					add(walk.label, "recorded check on segment "+segText(*h.Via)+" names no next hop, and the interface carries several; it is not attributed to any of them")
+				}
 			}
 		})
 	}

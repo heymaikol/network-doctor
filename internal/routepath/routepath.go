@@ -37,7 +37,11 @@ type Check struct {
 	VRF         string
 	Interface   string
 	Destination netip.Addr
-	Result      CheckResult
+	// NextHop is the next-hop address the check exercised, when the recording
+	// names one. Without it, the check applies to its interface only when that
+	// interface carries a single next hop.
+	NextHop netip.Addr
+	Result  CheckResult
 }
 
 // CheckResult is what a recorded Check says happened.
@@ -81,6 +85,9 @@ const (
 	OutcomePass        Outcome = "pass"
 	OutcomeFail        Outcome = "fail"
 	OutcomeConflicting Outcome = "conflicting"
+	// OutcomeUnattributed is a recorded check that names no next hop on an
+	// interface that carries several. It is not assigned to any of them.
+	OutcomeUnattributed Outcome = "unattributed"
 )
 
 // Agreement says whether the forwarding decision at a hop matches the expected

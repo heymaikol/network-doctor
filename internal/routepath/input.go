@@ -79,6 +79,7 @@ type wireCheck struct {
 	VRF         string `json:"vrf"`
 	Interface   string `json:"interface"`
 	Destination string `json:"destination"`
+	NextHop     string `json:"next_hop"`
 	Result      string `json:"result"`
 }
 
@@ -191,6 +192,10 @@ func decodeCheck(w wireCheck) (Check, error) {
 	if err != nil {
 		return Check{}, fmt.Errorf("destination %q: %w", w.Destination, err)
 	}
+	nextHop, err := optionalAddr(w.NextHop)
+	if err != nil {
+		return Check{}, fmt.Errorf("next_hop %q: %w", w.NextHop, err)
+	}
 	if w.Node == "" || w.VRF == "" || w.Interface == "" || w.Source == "" {
 		return Check{}, errors.New("needs source, node, vrf, and interface")
 	}
@@ -207,6 +212,7 @@ func decodeCheck(w wireCheck) (Check, error) {
 		VRF:         w.VRF,
 		Interface:   w.Interface,
 		Destination: dest,
+		NextHop:     nextHop,
 		Result:      result,
 	}, nil
 }

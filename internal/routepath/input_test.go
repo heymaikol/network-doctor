@@ -78,6 +78,7 @@ func TestDecodeRefusesMalformedFiles(t *testing.T) {
 		{"bad plane", strings.Replace(base, `"plane": "fib", "node": "r2"`, `"plane": "rib", "node": "r2"`, 1), "unknown plane"},
 		{"bad check result", strings.Replace(base, `"result": "fail"`, `"result": "maybe"`, 1), `not "pass" or "fail"`},
 		{"hostname destination", strings.Replace(base, `"destination": "10.20.40.8"`, `"destination": "server.example"`, 1), "destination"},
+		{"bad check next hop", strings.Replace(base, `"result": "fail"`, `"next_hop": "not-an-address", "result": "fail"`, 1), "next_hop"},
 		{"oversize", strings.Repeat(" ", MaxFileBytes+1), "exceeds the maximum topology size"},
 	}
 	for _, c := range cases {
@@ -90,5 +91,16 @@ func TestDecodeRefusesMalformedFiles(t *testing.T) {
 				t.Errorf("error = %q, want it to mention %q", err, c.want)
 			}
 		})
+	}
+}
+
+func TestDecodeReadsACheckNextHop(t *testing.T) {
+	data := strings.Replace(threeRoutersFile, `"result": "fail"`, `"next_hop": "10.0.23.3", "result": "fail"`, 1)
+	f, err := Decode([]byte(data))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if len(f.Checks) != 1 || f.Checks[0].NextHop != addr("10.0.23.3") {
+		t.Errorf("checks = %+v, want the one check to name next hop 10.0.23.3", f.Checks)
 	}
 }

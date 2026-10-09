@@ -35,10 +35,12 @@ var (
 // state is one routing domain on one node: where a walk stands.
 type state struct{ node, vrf string }
 
-// checkKey names the segment a recorded Check describes.
+// checkKey names the segment a recorded Check describes. nh is the next-hop
+// address text, or empty for a check that names none.
 type checkKey struct {
 	node, vrf, iface string
 	dest             netip.Addr
+	nh               string
 }
 
 // walker holds what one Explain call reads from the file. It is built once, so
@@ -48,7 +50,7 @@ type walker struct {
 	obs       []netmodel.Observation
 	dest      netip.Addr
 	owners    map[netip.Addr][]state
-	checks    map[checkKey][]CheckResult
+	checks    map[checkKey][]Check
 	budget    int
 	truncated bool
 }
@@ -82,7 +84,7 @@ func newWalker(f File, dest netip.Addr) *walker {
 		m:      f.Model,
 		dest:   dest,
 		owners: map[netip.Addr][]state{},
-		checks: map[checkKey][]CheckResult{},
+		checks: map[checkKey][]Check{},
 	}
 	for _, o := range f.Model.Observations() {
 		if slices.Contains(readPlanes, o.Plane) {
@@ -101,8 +103,8 @@ func newWalker(f File, dest netip.Addr) *walker {
 		}
 	}
 	for _, c := range f.Checks {
-		k := checkKey{c.Node, c.VRF, c.Interface, c.Destination.WithZone("").Unmap()}
-		w.checks[k] = append(w.checks[k], c.Result)
+		k := checkKey{c.Node, c.VRF, c.Interface, c.Destination.WithZone("").Unmap(), keyAddr(c.NextHop)}
+		w.checks[k] = append(w.checks[k], c)
 	}
 	return w
 }
@@ -137,8 +139,12 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 		return h
 	}
 	branch := append(slices.Clone(path), at)
+	shared := map[string]int{}
 	for _, n := range hops {
-		seg := &Segment{From: at.node, VRF: at.vrf, Interface: n.Interface, NextHop: addrText(n.Addr), Outcome: w.outcome(at, n.Interface)}
+		shared[n.Interface]++
+	}
+	for _, n := range hops {
+		seg := &Segment{From: at.node, VRF: at.vrf, Interface: n.Interface, NextHop: addrText(n.Addr), Outcome: w.outcome(at, n, shared[n.Interface])}
 		h.Next = append(h.Next, w.resolve(planes, at, n, seg, branch))
 	}
 	return h
@@ -284,19 +290,50 @@ func (w *walker) complete(at state, p netmodel.Plane) bool {
 	return false
 }
 
-// outcome reads the recorded checks for the segment that leaves at through iface.
+// outcome reads the recorded checks for the segment that leaves at through n.
+// A check that names this next hop applies to it. A check that names none
+// applies to the interface only when the interface carries one next hop. When
+// several share it, the check is unattributed rather than given to one of them.
 // Silence is OutcomeNone, and it never counts as a failure.
-func (w *walker) outcome(at state, iface string) Outcome {
-	rs := w.checks[checkKey{at.node, at.vrf, iface, w.dest}]
+func (w *walker) outcome(at state, n netmodel.NextHop, shared int) Outcome {
+	key := func(nh string) checkKey { return checkKey{at.node, at.vrf, n.Interface, w.dest, nh} }
+	if nh := keyAddr(n.Addr); nh != "" {
+		if rs := w.checks[key(nh)]; len(rs) > 0 {
+			return resultOf(rs)
+		}
+	}
+	rs := w.checks[key("")]
 	switch {
 	case len(rs) == 0:
 		return OutcomeNone
-	case slices.Contains(rs, CheckFail) && slices.Contains(rs, CheckPass):
+	case shared > 1:
+		return OutcomeUnattributed
+	}
+	return resultOf(rs)
+}
+
+// resultOf turns the checks for one segment into its outcome.
+func resultOf(cs []Check) Outcome {
+	pass, fail := false, false
+	for _, c := range cs {
+		pass = pass || c.Result == CheckPass
+		fail = fail || c.Result == CheckFail
+	}
+	switch {
+	case pass && fail:
 		return OutcomeConflicting
-	case slices.Contains(rs, CheckFail):
+	case fail:
 		return OutcomeFail
 	}
 	return OutcomePass
+}
+
+// keyAddr is the canonical text of a next-hop address, or empty when there is none.
+func keyAddr(a netip.Addr) string {
+	if !a.IsValid() {
+		return ""
+	}
+	return a.WithZone("").Unmap().String()
 }
 
 func sameForwarding(a, b netmodel.Route) bool {

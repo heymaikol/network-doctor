@@ -1,6 +1,5 @@
-// Differential oracle: the headless diagnostic.RunAll and the TUI's
-// Update/scheduleStep path are two independent implementations of the same
-// probe-DAG semantics. This file sends identical synthetic graphs through both
+// Differential oracle: headless diagnostic.RunAll and TUI Update/scheduleStep
+// are two executors of the same probe-DAG semantics. This file sends identical synthetic graphs through both
 // and compares the finalized diagnostic results, so the two can never drift
 // apart unnoticed. It compares outcomes only, never queues, counters,
 // goroutines, launch order, or tea messages.
@@ -84,6 +83,11 @@ func runTUIScheduler(t *testing.T, probes []diagnostic.Probe, lifo bool) map[dia
 	m.results = map[diagnostic.ProbeID]diagnostic.ProbeResult{}
 	m.started = map[diagnostic.ProbeID]bool{}
 
+	return driveTUIScheduler(t, m, lifo).results
+}
+
+func driveTUIScheduler(t *testing.T, m model, lifo bool) model {
+	t.Helper()
 	var cur tea.Model = m
 	queue := []tea.Cmd{func() tea.Msg { return scheduleMsg{gen: m.generation} }}
 	for len(queue) > 0 {
@@ -106,7 +110,7 @@ func runTUIScheduler(t *testing.T, probes []diagnostic.Probe, lifo bool) map[dia
 			queue = append(queue, next)
 		}
 	}
-	return asModel(t, cur).results
+	return asModel(t, cur)
 }
 
 // TestExecutorsAgree is the regression oracle. Every case is a probe graph both
@@ -170,6 +174,34 @@ func TestExecutorsAgree(t *testing.T) {
 			diffProbe(diagnostic.ProbeTargetTCP, diagnostic.StatusPass, diagnostic.ProbeDNS),
 		}},
 
+		{"mixed successful parents", []diagnostic.Probe{
+			diffProbe("pass", diagnostic.StatusPass),
+			diffProbe("warn", diagnostic.StatusWarn),
+			diffProbe("na", diagnostic.StatusNA),
+			diffProbe("join", diagnostic.StatusPass, "pass", "warn", "na"),
+		}},
+		{"multiple parents with failure", []diagnostic.Probe{
+			diffProbe("pass", diagnostic.StatusPass),
+			diffProbe("warn", diagnostic.StatusWarn),
+			diffProbe("na", diagnostic.StatusNA),
+			diffProbe("fail", diagnostic.StatusFail),
+			diffProbe("join", diagnostic.StatusPass, "pass", "warn", "na", "fail"),
+			diffProbe("tail", diagnostic.StatusPass, "join"),
+		}},
+		{"unknown dependency", []diagnostic.Probe{
+			diffProbe("root", diagnostic.StatusPass),
+			diffProbe("pending", diagnostic.StatusPass, "missing"),
+		}},
+		{"cycle", []diagnostic.Probe{
+			diffProbe("root", diagnostic.StatusPass),
+			diffProbe("a", diagnostic.StatusPass, "b"),
+			diffProbe("b", diagnostic.StatusPass, "a"),
+		}},
+		{"duplicate ID and edge", []diagnostic.Probe{
+			diffProbe("a", diagnostic.StatusFail, "missing"),
+			diffProbe("a", diagnostic.StatusWarn),
+			diffProbe("b", diagnostic.StatusPass, "a", "a"),
+		}},
 		// Nothing selected: both executors must finalize an empty run without
 		// hanging or inventing a result.
 		{"empty selection", nil},
@@ -177,8 +209,8 @@ func TestExecutorsAgree(t *testing.T) {
 		// Each graph runs in two probe orders and two completion orders.
 		//
 		// Reversed probe order is what makes both executors' scheduling
-		// fixpoints load-bearing: in topological order a single pass already
-		// cascades, so a broken fixpoint would go unnoticed. Slice order is not
+		// readiness propagation load-bearing: topological order already cascades
+		// in one pass, so broken propagation would go unnoticed. Slice order is not
 		// itself a result contract; it is an input both executors receive
 		// identically.
 		//

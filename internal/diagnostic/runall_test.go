@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -151,5 +152,81 @@ func TestRunAllTimeoutIsPerRun(t *testing.T) {
 	}
 	if got := <-longBudget; got <= time.Minute {
 		t.Errorf("long run's probe budget = %v, want well over a minute", got)
+	}
+}
+
+// Malformed graphs previously finish only the reachable probes. Preserve that
+// behavior without inventing results or waiting for dependencies that never run.
+func TestRunAllMalformedGraphs(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		probes []Probe
+		want   map[ProbeID]Status
+	}{
+		{"unknown dependency", []Probe{staticProbe("root", nil, StatusPass), staticProbe("unknown", []ProbeID{"missing"}, StatusPass)}, map[ProbeID]Status{"root": StatusPass}},
+		{"cycle", []Probe{staticProbe("root", nil, StatusPass), staticProbe("a", []ProbeID{"b"}, StatusPass), staticProbe("b", []ProbeID{"a"}, StatusPass)}, map[ProbeID]Status{"root": StatusPass}},
+		{"duplicate ID", []Probe{staticProbe("a", []ProbeID{"missing"}, StatusFail), staticProbe("a", nil, StatusWarn), staticProbe("b", []ProbeID{"a", "a"}, StatusPass)}, map[ProbeID]Status{"a": StatusWarn, "b": StatusPass}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RunAll(t.Context(), tc.probes, DefaultProbeTimeout)
+			if len(got) != len(tc.want) {
+				t.Fatalf("results=%v, want %v", got, tc.want)
+			}
+			for id, status := range tc.want {
+				if got[id].ID != id || got[id].Status != status {
+					t.Errorf("%s=%+v, want %v", id, got[id], status)
+				}
+			}
+		})
+	}
+}
+
+// Reuse the same graph in repeated and concurrent calls. Probe IDs and map
+// snapshots belong to each execution, regardless of the probe's returned ID.
+func TestRunAllSchedulerPassIsolation(t *testing.T) {
+	const runs = 8
+	var calls [3]atomic.Int64
+	probes := []Probe{
+		{ID: "root", Run: func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+			calls[0].Add(1)
+			return ProbeResult{ID: "wrong", Status: StatusWarn}
+		}},
+	}
+	for i, id := range []ProbeID{"left", "right"} {
+		probes = append(probes, Probe{ID: id, Deps: []ProbeID{"root"}, Run: func(_ context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
+			calls[i+1].Add(1)
+			if len(deps) != 1 || deps["root"].ID != "root" || deps["root"].Status != StatusWarn {
+				return ProbeResult{Status: StatusFail, Detail: "wrong dependency snapshot"}
+			}
+			deps["root"] = ProbeResult{Status: StatusFail}
+			return ProbeResult{ID: "wrong", Status: StatusPass}
+		}})
+	}
+	run := func() {
+		res := RunAll(t.Context(), probes, DefaultProbeTimeout)
+		if len(res) != len(probes) {
+			t.Errorf("results=%d, want %d", len(res), len(probes))
+		}
+		for _, p := range probes {
+			want := StatusPass
+			if p.ID == "root" {
+				want = StatusWarn
+			}
+			if res[p.ID].ID != p.ID || res[p.ID].Status != want {
+				t.Errorf("%s=%+v", p.ID, res[p.ID])
+			}
+		}
+	}
+	run()
+	run()
+	var group sync.WaitGroup
+	for range runs - 2 {
+		group.Go(run)
+	}
+	group.Wait()
+	for i := range calls {
+		if got := calls[i].Load(); got != runs {
+			t.Errorf("probe %d ran %d times, want %d", i, got, runs)
+		}
 	}
 }

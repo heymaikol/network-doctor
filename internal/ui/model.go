@@ -156,6 +156,9 @@ type model struct {
 	sources *diagnostic.SourceAddresses
 	// selection is reapplied whenever a target switch rebuilds the probe DAG.
 	selection diagnostic.ProbeSelection
+	// graph builds the probe DAG for a target: every target switch and every
+	// Watch pass goes through it, so a test can count the graphs a pass builds.
+	graph func(*diagnostic.Target) []diagnostic.Probe
 	// publicDNS is the second-opinion resolver IP the run was started with, or
 	// "" when it is disabled; every probe rebuild reuses it. publicDNSAuto
 	// travels with it because a rebuilt DAG has to ask the same question the
@@ -292,10 +295,15 @@ type model struct {
 	// causal evidence. It changes no result, diagnosis, or report.
 	explaining bool
 
-	toolbox    bool // --toolbox: chain deferred until 'r'
-	watch      bool
-	runHistory map[diagnostic.ProbeID][]diagnostic.Status
-	incidents  incident.Timeline
+	toolbox bool // --toolbox: chain deferred until 'r'
+	watch   bool
+	// watchSession runs every row on every Watch pass, and pass is the pass the
+	// current graph belongs to, decided when it completes. Both are nil outside
+	// a Watch run.
+	watchSession *diagnostic.WatchSession
+	pass         *diagnostic.WatchPass
+	runHistory   map[diagnostic.ProbeID][]diagnostic.Status
+	incidents    incident.Timeline
 	// Incident inspection is a small read-only viewer alongside the existing
 	// job-output viewer. The timeline itself remains owned by Update.
 	incidentViewing  bool
@@ -347,14 +355,16 @@ func WithSnapshotSelection(check, skip []string) Option {
 // NewWithSelection applies a validated CLI probe policy to this run and every
 // target switch made from it.
 func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses, toolbox, watch bool, histFile, version, publicDNS string, publicDNSAuto bool, selection diagnostic.ProbeSelection, opts ...Option) tea.Model {
-	probes := selection.BuildProbesFromSources(t, sources, publicDNS, publicDNSAuto)
+	graph := func(t *diagnostic.Target) []diagnostic.Probe {
+		return selection.BuildProbesFromSources(t, sources, publicDNS, publicDNSAuto)
+	}
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
 	m := model{
 		target:        t,
-		probes:        probes,
 		sources:       sources,
 		selection:     selection,
+		graph:         graph,
 		publicDNS:     publicDNS,
 		publicDNSAuto: publicDNSAuto,
 		results:       map[diagnostic.ProbeID]diagnostic.ProbeResult{},
@@ -373,6 +383,10 @@ func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses,
 	for _, opt := range opts {
 		opt(&m)
 	}
+	if watch {
+		m.watchSession = newWatchSession(m.now)
+	}
+	m.buildPass()
 	// After the options, since one of them names the preference file.
 	m.setTheme(loadTheme(m.themePath))
 	m.history = loadHistory(histFile)
@@ -731,6 +745,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// copy of the evidence it showed, so it redraws from this pass's
 		// diagnosis, and the panel falls back to Details by itself once the
 		// cursor is no longer on the row the new diagnosis blames.
+		// The graph is rebuilt, not reused: its route and interface caches
+		// belong to the graph, so a reused one would answer this pass from the
+		// last one. Headless Watch rebuilds on every pass for the same reason.
+		m.applyTarget(m.target, false)
 		cmd := m.restartRun()
 		if m.viewing {
 			m.refreshViewport()
@@ -760,6 +778,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			diagnostic.Finalize(m.results)
 		}
 		m.refreshAnalysis()
+		if m.allDone() && m.pass != nil && !m.pass.Publish(m.results) {
+			// The pass reused a row and changed a status or cause, so it is
+			// evidence to confirm, not a result: it is not recorded. The next
+			// pass runs fresh at once.
+			m.applyTarget(m.target, false)
+			return m, tea.Batch(append(cmds, m.restartRun())...)
+		}
 		if m.allDone() {
 			// recordRun comes before the focus decision, not after it: a watch
 			// pass moves the cursor for what changed since the previous pass,
@@ -908,6 +933,26 @@ func (m *model) recordRun() tea.Cmd {
 		m.runHistory[p.ID] = history
 	}
 	return m.recordIncident(m.incidentNow())
+}
+
+// newWatchSession starts the Watch session for a TUI run. Every published pass
+// is recorded into the incident timeline, which can keep a pass as Before,
+// During, or Recovered. A row reused from an earlier pass would appear in that
+// evidence as if this pass had measured it, so the TUI never reuses a row.
+func newWatchSession(now func() time.Time) *diagnostic.WatchSession {
+	return diagnostic.NewFreshWatchSession(now)
+}
+
+// buildPass builds the probe graph for the current target. In a Watch run the
+// graph is wrapped by a new pass, which decides when its results are shown.
+func (m *model) buildPass() {
+	probes := m.graph(m.target)
+	m.pass = nil
+	if m.watchSession != nil {
+		m.pass = m.watchSession.Begin(probes)
+		probes = m.pass.Probes()
+	}
+	m.probes = probes
 }
 
 func (m model) watchCmd() tea.Cmd {

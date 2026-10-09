@@ -1200,7 +1200,9 @@ func resolveNetdoc(ctx context.Context, want, self string) (netdocIdentity, erro
 func netdocVersion(ctx context.Context, path string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, netdocVersionTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "-version").Output()
+	cmd := exec.CommandContext(ctx, path, "-version")
+	cmd.Env = simulation.ChildEnv()
+	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("%s -version: %w", path, err)
 	}

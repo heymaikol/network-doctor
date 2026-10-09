@@ -743,6 +743,99 @@ func TestTargetLinkHoldsOneSocketAndReleasesIt(t *testing.T) {
 	}
 }
 
+// httpsWatchPass runs one Watch pass of the healthy HTTPS graph and returns the pass,
+// its results, and the graph it ran, whose socket RunAll has released.
+func httpsWatchPass(t *testing.T, f *budgetFixture, session *WatchSession) (*WatchPass, map[ProbeID]ProbeResult, []Probe) {
+	t.Helper()
+	probes := ProbeSelection{Check: healthyHTTPSRows}.Apply(timedProbes(f.ops().buildProbes(mustTarget(t, budgetTargetHost+":443"), DefaultPublicDNS, true)))
+	pass := session.Begin(probes)
+	graph := pass.Probes()
+	res := RunAll(context.Background(), graph, DefaultProbeTimeout)
+	requireRows(t, res, ProbeTargetTCP, ProbeTLS, ProbeHTTPS, ProbePMTU)
+	return pass, res, graph
+}
+
+// A Watch pass that answers TLS and HTTPS from the pass before touches no
+// socket for them. Target TCP and PMTU still dial, and no socket outlives the
+// pass that opened it.
+func TestWatchPassReusesRowsOverSharedSocket(t *testing.T) {
+	f := newBudgetFixture(t)
+	session := NewWatchSession(time.Now)
+
+	first, res, graph := httpsWatchPass(t, f, session)
+	if !first.Publish(res) {
+		t.Fatal("the first pass was not published")
+	}
+	if TargetSocketOpen(graph) {
+		t.Error("the first pass left its target socket open")
+	}
+
+	second, res, graph := httpsWatchPass(t, f, session)
+	if !second.reused[ProbeTLS] || !second.reused[ProbeHTTPS] {
+		t.Fatalf("second pass reused TLS=%v HTTPS=%v, want both", second.reused[ProbeTLS], second.reused[ProbeHTTPS])
+	}
+	if second.reused[ProbeTargetTCP] || second.reused[ProbePMTU] {
+		t.Error("Target TCP and PMTU are never reused, but the second pass answered one of them from the first")
+	}
+	if res[ProbeHTTPS].Status != StatusPass {
+		t.Fatalf("reused HTTPS = %v: %s", res[ProbeHTTPS].Status, res[ProbeHTTPS].Detail)
+	}
+	if TargetSocketOpen(graph) {
+		t.Error("the second pass left its target socket open")
+	}
+	if got, want := targetDials(f), 4; got != want {
+		t.Errorf("connections to the target = %d, want %d (Target TCP and PMTU in each pass)", got, want)
+	}
+	if got, want := f.targetHandshakes.Load(), int64(1); got != want {
+		t.Errorf("TLS handshakes with the target = %d, want %d (the reused pass handshakes nothing)", got, want)
+	}
+}
+
+// Reuse of TLS with HTTPS run fresh is the case where Target TCP's socket reaches
+// HTTPS still plain. HTTPS must close it and dial its own connection, which
+// carries no provenance.
+func TestWatchFreshHTTPSAfterReusedTLSDialsItsOwnSocket(t *testing.T) {
+	f := newBudgetFixture(t)
+	session := NewWatchSession(time.Now)
+
+	first, res, _ := httpsWatchPass(t, f, session)
+	if !first.Publish(res) {
+		t.Fatal("the first pass was not published")
+	}
+	delete(session.cache, ProbeHTTPS)
+
+	second, res, graph := httpsWatchPass(t, f, session)
+	if !second.reused[ProbeTLS] || second.reused[ProbeHTTPS] {
+		t.Fatalf("second pass reused TLS=%v HTTPS=%v, want TLS only", second.reused[ProbeTLS], second.reused[ProbeHTTPS])
+	}
+	if res[ProbeHTTPS].Status != StatusPass {
+		t.Fatalf("fresh HTTPS = %v: %s", res[ProbeHTTPS].Status, res[ProbeHTTPS].Detail)
+	}
+	if got := res[ProbeHTTPS].acquisition; got != 0 {
+		t.Errorf("fresh HTTPS carries acquisition %d, want none", got)
+	}
+	if TargetSocketOpen(graph) {
+		t.Error("the second pass left its target socket open")
+	}
+	if got, want := targetDials(f), 5; got != want {
+		t.Errorf("connections to the target = %d, want %d (Target TCP and PMTU in both passes, then HTTPS's own dial)", got, want)
+	}
+	if got, want := f.targetHandshakes.Load(), int64(2); got != want {
+		t.Errorf("TLS handshakes with the target = %d, want %d (the first pass, then HTTPS's own)", got, want)
+	}
+}
+
+// Watch fingerprints decide reuse, so a row's fingerprint must not change with
+// the socket it happened to use: a new run's socket would otherwise invalidate
+// every row built on a shared one.
+func TestFingerprintIgnoresSocketProvenance(t *testing.T) {
+	a := ProbeResult{Status: StatusPass, acquisition: 1}
+	b := ProbeResult{Status: StatusPass, acquisition: 2}
+	if fingerprint(a) != fingerprint(b) {
+		t.Error("the fingerprint changes with the socket a row used")
+	}
+}
+
 // trustingDialTLS dials through dial and trusts roots, which the TLS probes
 // do not put in their config themselves.
 func trustingDialTLS(dial func(context.Context, string, string) (net.Conn, error), roots *x509.CertPool) func(context.Context, string, string, *tls.Config) (net.Conn, error) {

@@ -83,3 +83,55 @@ func TestQuitClosesTargetSocket(t *testing.T) {
 		t.Error("quit left the target socket open for an abandoned run")
 	}
 }
+
+// countBuilds counts the probe graphs m builds from here on.
+func countBuilds(m *model) *int {
+	n := new(int)
+	build := m.graph
+	m.graph = func(t *diagnostic.Target) []diagnostic.Probe {
+		*n++
+		return build(t)
+	}
+	return n
+}
+
+// A Watch session wraps every pass in a pass that owns the graph's rows. Each
+// restart still builds exactly one graph, and that graph gets a socket of its
+// own. A retest keeps the session, and a target switch starts it over.
+func TestWatchSessionRestartsBuildOneFreshGraph(t *testing.T) {
+	m := NewWithSelection(mustTarget(t, "example.com:443"), nil, false, true, "", "test",
+		diagnostic.DefaultPublicDNS, true, diagnostic.ProbeSelection{}).(model)
+	if m.pass == nil || m.watchSession == nil {
+		t.Fatal("a Watch run has no pass or no session")
+	}
+	builds := countBuilds(&m)
+
+	doneResults(&m, "")
+	replaced := m.probes
+	watched := asModel(t, must(m.Update(watchMsg{gen: m.generation})))
+	requireFreshTargetSocket(t, replaced, watched.probes, "watch pass")
+	if *builds != 1 {
+		t.Fatalf("watch pass built %d graphs, want 1", *builds)
+	}
+
+	*builds = 0
+	session := watched.watchSession
+	retested := asModel(t, must(watched.retest()))
+	requireFreshTargetSocket(t, watched.probes, retested.probes, "retest")
+	if retested.watchSession != session {
+		t.Error("retest replaced the Watch session, so its forced pass starts without the session's history")
+	}
+	if *builds != 1 {
+		t.Fatalf("retest built %d graphs, want 1", *builds)
+	}
+
+	*builds = 0
+	switched := asModel(t, must(retested.restartWithTarget(mustTarget(t, "example.org:443"), true)))
+	requireFreshTargetSocket(t, retested.probes, switched.probes, "target switch")
+	if switched.watchSession == session {
+		t.Error("target switch kept the Watch session from the previous question")
+	}
+	if *builds != 1 {
+		t.Fatalf("target switch built %d graphs, want 1", *builds)
+	}
+}

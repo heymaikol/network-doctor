@@ -1554,3 +1554,19 @@ func TestJobSwitchingNeverRevivesStaleMap(t *testing.T) {
 		}
 	}
 }
+
+// A watch pass must build a fresh probe graph. The probes own the route and
+// interface caches for the graph they were built in, so reusing the graph
+// answers every later pass from the first one and a route change never shows.
+func TestWatchPassRebuildsProbes(t *testing.T) {
+	m := asModel(t, NewWithSelection(mustTarget(t, "example.com:443"), nil, false, true, "", "test", "", false, diagnostic.ProbeSelection{}))
+	for _, probe := range m.probes {
+		m.results[probe.ID] = diagnostic.ProbeResult{Status: diagnostic.StatusPass}
+	}
+	before := &m.probes[0]
+	u, _ := m.Update(watchMsg{gen: m.generation})
+	after := &asModel(t, u).probes[0]
+	if after == before {
+		t.Error("watch pass reused the probe graph of the previous pass, so its route caches would answer from that pass")
+	}
+}

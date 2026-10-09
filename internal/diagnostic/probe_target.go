@@ -218,7 +218,12 @@ func (o *netops) tlsProbe(host string, port int, link *targetLink) func(context.
 			if tc, err = handshakeOn(ctx, shared, host, o.tlsRootCAs, link.toHTTPS); err == nil {
 				conn = tc
 			}
-		} else {
+		}
+		// Nothing was shared, or the shared socket died before TLS could use it. The
+		// row then asks for a fresh connection, which carries no provenance and is
+		// not offered on.
+		if shared == nil || (err != nil && deadSocket(err) && ctx.Err() == nil) {
+			id, shared = 0, nil
 			conn, err = o.dialTLS(ctx, "tcp", o.hostPort(ip, port), &tls.Config{ServerName: host})
 		}
 		if err != nil {
@@ -459,12 +464,27 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 			TLSHandshakeStart:    begin,
 			GotFirstResponseByte: func() { answered.Store(true) },
 		}
-		req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodHead, url, nil)
+		newReq := func() (*http.Request, error) {
+			return http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodHead, url, nil)
+		}
+		req, err := newReq()
 		if err != nil {
 			r.Status, r.Detail = StatusFail, "cannot build request: "+err.Error()
 			return r
 		}
 		resp, err := client.Do(req)
+		dialMu.Lock()
+		retry := reused && !answered.Load() && err != nil && deadSocket(err) && ctx.Err() == nil
+		dialMu.Unlock()
+		if retry {
+			// The reused socket died before any response byte. The link is empty now,
+			// so the transport dials fresh. The exchange clock restarts, so a timeout
+			// describes the fresh attempt and not the dead socket.
+			started.Store(false)
+			if req, err = newReq(); err == nil {
+				resp, err = client.Do(req)
+			}
+		}
 		dialMu.Lock()
 		r.SelectedIP, r.Attempts = dialIP, dialAttempts
 		if reused {

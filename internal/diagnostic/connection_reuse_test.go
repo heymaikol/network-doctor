@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -133,19 +135,94 @@ func TestUnlinkedRowsDialAsBefore(t *testing.T) {
 // which dial reaches the fixture first.
 var differentialRows = map[ProbeID]struct{}{ProbeTargetTCP: {}, ProbeTLS: {}, ProbeHTTPS: {}}
 
+// dropFirstDial makes the first connection to the target a socket the server
+// closes after reading the ClientHello. Target TCP connects to it and sees no
+// failure; a TLS handshake on it reads end of file.
+func dropFirstDial(_ testing.TB, f *budgetFixture, o *netops) {
+	var first atomic.Bool
+	dial := o.dialContext
+	o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if !strings.HasSuffix(addr, ":443") || !first.CompareAndSwap(false, true) {
+			return dial(ctx, network, addr)
+		}
+		client, server := net.Pipe()
+		go func() {
+			_, _ = server.Read(make([]byte, 4096))
+			_ = server.Close()
+		}()
+		return client, nil
+	}
+}
+
+// rawConnKey carries the raw connection of an accepted TLS connection to its
+// request handler.
+type rawConnKey struct{}
+
+// dropReusedSocket serves HTTP/1.1 and closes the first connection that
+// completes a handshake as soon as its first request arrives. The TLS row
+// hands that connection to HTTPS when sharing is on, so only the shared HTTPS
+// request meets the closure. A fresh HTTPS connection is never the first.
+func dropReusedSocket(t testing.TB, f *budgetFixture, o *netops) {
+	cert, roots := selfSignedCert(t, budgetTargetHost)
+	p := newPipeNet(t)
+	var mu sync.Mutex
+	var first net.Conn
+	var dropped atomic.Bool
+	srv := &http.Server{
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+				mu.Lock()
+				if first == nil {
+					first = hello.Conn
+				}
+				mu.Unlock()
+				return nil, nil
+			},
+		},
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if tc, ok := c.(*tls.Conn); ok {
+				return context.WithValue(ctx, rawConnKey{}, tc.NetConn())
+			}
+			return ctx
+		},
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			raw, _ := r.Context().Value(rawConnKey{}).(net.Conn)
+			mu.Lock()
+			doomed := raw != nil && raw == first
+			mu.Unlock()
+			if doomed && dropped.CompareAndSwap(false, true) {
+				_ = raw.Close()
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}),
+		// An empty map turns HTTP/2 off, so the closure lands between the request
+		// and any response bytes, with nothing in flight to fail on.
+		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
+	}
+	p.serve(t, srv, func() error { return srv.ServeTLS(p, "", "") })
+	f.tlsPipe = p
+	o.tlsRootCAs = roots
+	o.dialTLS = trustingDialTLS(f.dial, roots)
+}
+
 // Sharing changes how many sockets the rows use, not what they conclude. Each
 // case runs once shared and once disarmed on fresh fixtures. Both runs must
 // agree on every row's status, its report-visible fields, and the diagnosis.
+// fresh names the rows that fell back to a fresh connection in the shared run,
+// which must carry no provenance.
 func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 	cases := []struct {
 		name  string
 		setup func(t testing.TB, f *budgetFixture, o *netops)
 		// wantTLS and wantHTTPS prove the case reaches the outcome it is named for.
 		wantTLS, wantHTTPS Status
+		fresh              []ProbeID
 		// dials is how many connections the shared run makes to the target.
 		dials int
 	}{
-		{"healthy", func(testing.TB, *budgetFixture, *netops) {}, StatusPass, StatusPass, 1},
+		{"healthy", func(testing.TB, *budgetFixture, *netops) {}, StatusPass, StatusPass, nil, 1},
 		{"server closes after accept", func(t testing.TB, f *budgetFixture, _ *netops) {
 			closing := newPipeNet(t)
 			go func() {
@@ -158,7 +235,7 @@ func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 				}
 			}()
 			f.tlsPipe = closing
-		}, StatusFail, StatusSkip, 1},
+		}, StatusFail, StatusSkip, nil, 1},
 		{"invalid HTTP response", func(t testing.TB, f *budgetFixture, o *netops) {
 			cert, roots := selfSignedCert(t, budgetTargetHost)
 			garbage := newPipeNet(t)
@@ -174,11 +251,13 @@ func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 			f.tlsPipe = garbage
 			o.tlsRootCAs = roots
 			o.dialTLS = trustingDialTLS(f.dial, roots)
-		}, StatusPass, StatusFail, 1},
+		}, StatusPass, StatusFail, nil, 1},
 		{"certificate not trusted", func(_ testing.TB, f *budgetFixture, o *netops) {
 			o.tlsRootCAs = nil
 			o.dialTLS = dialTLSWith(f.dial)
-		}, StatusFail, StatusSkip, 1},
+		}, StatusFail, StatusSkip, nil, 1},
+		{"first dial dropped", dropFirstDial, StatusPass, StatusPass, []ProbeID{ProbeTLS, ProbeHTTPS}, 3},
+		{"reused socket dropped", dropReusedSocket, StatusPass, StatusPass, []ProbeID{ProbeHTTPS}, 2},
 	}
 	tg := mustTarget(t, budgetTargetHost+":443")
 	for _, c := range cases {
@@ -229,7 +308,11 @@ func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 				t.Fatalf("HTTPS = %v shared, want %v: %s", got, c.wantHTTPS, sharedRes[ProbeHTTPS].Cause)
 			}
 			for _, id := range []ProbeID{ProbeTLS, ProbeHTTPS} {
-				if sharedRes[id].Status != StatusSkip && sharedRes[id].acquisition == 0 {
+				fresh := slices.Contains(c.fresh, id)
+				switch {
+				case fresh && sharedRes[id].acquisition != 0:
+					t.Errorf("%s fell back to a fresh connection but still claims socket %d", id, sharedRes[id].acquisition)
+				case !fresh && sharedRes[id].Status != StatusSkip && sharedRes[id].acquisition == 0:
 					t.Errorf("%s dialed on its own in the shared run, so sharing was not exercised", id)
 				}
 			}

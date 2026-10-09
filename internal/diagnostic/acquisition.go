@@ -4,10 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
+	"io"
 	"net"
 	"slices"
 	"sync"
 	"sync/atomic"
+	"syscall"
 )
 
 // targetLink carries the one live socket to a target through the TCP, TLS and
@@ -71,6 +74,14 @@ func (l *targetLink) attemptsOf() []Attempt {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return slices.Clone(l.attempts)
+}
+
+// deadSocket reports whether err says the peer or the path ended a connection
+// that was already open, as opposed to an answer from the server: a certificate
+// problem, a TLS alert, or a deadline. Only these justify a fresh connection.
+func deadSocket(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, net.ErrClosed)
 }
 
 // take removes the stored connection, or returns nil when there is none.

@@ -1789,19 +1789,21 @@ The destination must be an IP address. A name is refused rather than resolved, b
 The file is one JSON object. Unknown fields are refused, so a misspelled key cannot drop evidence without a word, and the file is capped at 1 MiB.
 
 - `version` must be `1`.
-- `source` gives the `node` and `vrf` the path starts from.
+- `source` gives the `node` and `vrf` the path starts from. Its optional `address` is the source address the destination replies to. When it is set, the explanation also walks the return route and compares it with the forward route. See Asymmetry below.
 - `observations` are recorded tables. Each names its `source`, `collected_at` (RFC 3339), `plane`, `node`, and `vrf`, and may carry `interfaces`, `neighbors`, and `routes`. The planes are `intended`, `configured`, `control`, `fib`, and `observed`. The expected path reads the `control` plane, then `configured`. The forwarding path reads only `fib`. Rows in `intended` and `observed` are validated, then not read by this explanation. Observed data-plane results are recorded as `checks`, not as an `observed` plane.
 - `routes_complete` says whether the observation lists every route its table holds. Only a complete table proves that no route exists. A partial table leaves a missing route unknown, and nothing is invented to fill the gap.
 - `checks` are results already recorded for one segment: `node`, `vrf`, `interface`, `destination`, and `result`, which is `pass` or `fail`, with the same `source` and `collected_at` as an observation. An optional `next_hop` names the next-hop address the check exercised, and a named check applies to that segment only. A check without `next_hop` applies to its interface when the interface carries one next hop, and the named and unnamed checks on that segment combine: a pass beside a failure is `conflicting`. When the interface carries several next hops, an unnamed check is attributed to none of them: each segment on the interface is `unattributed`, and a limitation says so. A named failure or conflict on such a segment still reports as itself.
+- `boundaries` are optional. Each names a policy boundary recorded on a node in one routing domain: `node`, `vrf`, `kind` (`stateful_firewall`, `nat`, or `tunnel`), `source`, and `collected_at`. A boundary covers the whole node within its routing domain. It changes only the asymmetry assessment, never the forward or return walk. Builds before this change refuse a file that uses `source.address` or `boundaries`, because they do not know those keys.
 
 ### Explanation output
 
-The explanation has four parts:
+The explanation has these parts:
 
 - The expected path, from the control plane and the configured routes.
 - The forwarding path, from the FIB.
 - Findings where the two disagree, and where a recorded check failed. A failure names the recorded check it rests on, with that check's `source` and `collected_at`.
 - Failure regions. A failed check names one segment, but the tool does not pick one hop as the cause. It lists every candidate segment the failure could lie in.
+- Asymmetry, when the file names `source.address`: whether the return route crosses different routers, and what, if anything, makes that difference relevant.
 
 Limitations list each decision the file could not make, and the walk it came from.
 
@@ -1809,9 +1811,20 @@ Ownership decides a local hop. The walk stops at that node, and the limitation n
 
 A walk stops at the destination, at a node the file does not describe, at a loop, or at 32 hops or 512 node visits, whichever comes first. A route can list more than 64 next hops. Its decision and comparison read all of them, but the walk follows only the first 64 at that node, and the explanation is marked `truncated`. A walk stopped by a bound is marked the same way.
 
+### Asymmetry
+
+When the file names `source.address`, the explanation also walks the return route. It starts at the one routing domain that owns the destination, follows that domain's FIB toward the source address, and compares the routers it crosses with the forward route. Order does not count: a return that crosses the same routers backward is symmetric. The return must end at the source node in its routing domain. A return that ends anywhere else is not this flow's reply, so it is unknown. Both routes end at the node that owns their target. That ownership is the file's claim, and the limitations name any FIB route that contradicts it. The assessment is one of:
+
+- `symmetric`: both directions cross the same routers in the same routing domains.
+- `asymmetric_benign`: the directions cross different routers, and no concern holds. Asymmetry alone is not a fault, and the text says so.
+- `asymmetric_risk`: at least one concern holds. A boundary that exactly one direction crosses is a concern, as is a `vrf_crossing` where the directions use different routing domains, and a `recorded_failure` on a segment of either direction. A concern says what to check. It does not name a cause.
+- `unknown`: one direction is not proven. The reason names the hop that stopped it, for example an unresolved or ambiguous next hop, a partial FIB, a loop, a discard, a missing route, an ECMP branch, several owners of the destination, or a return that ends somewhere other than the source. Missing return evidence is always reported as unknown, never as asymmetry.
+
+A return route needs the FIB of the destination's node and of each router after it, so a destination with no recorded FIB leaves the return unknown. ECMP on either direction is also unknown, because the file cannot say which alternative a flow takes. When the destination is owned by several nodes, the return has no single start, so it is unknown. Without `source.address`, the explanation has no asymmetry section and its output is unchanged.
+
 ### Machine-readable explanation
 
-`--json` prints one object with `source`, `destination`, `expected` and `forwarding` (each a hop), `findings`, `failure_regions`, `limitations`, and `truncated`. A hop carries `node`, `vrf`, and `decision`, and carries `via` (the segment the walk crossed) and `next` (the hops after it) when the walk goes on. A segment carries `outcome`: `none` when no check applies, `pass`, `fail`, `conflicting` when recorded checks disagree, or `unattributed` as described under Topology file. Its `checks` lists the recorded checks behind the outcome, each with `source` and `collected_at`. For an `unattributed` segment, they are the checks that could not be placed on it. A decision carries `kind` and `proven` and `reason`, and carries `basis`, `prefix`, `next_hops`, `evidence`, and `agreement` where they apply. A local decision, where the destination is an address on the node, names in `basis` and `evidence` the plane and rows that list that address, and `proven` is always false, since interface lists are partial and no complete table backs ownership. A `no_route` decision lists in `evidence` the complete tables that prove the absence, each with `absent` set to true. A hop that stops at a node the file does not describe, such as an unresolved or on-link next hop, has an empty `node` and `vrf`, and its `via` names the segment that led there.
+`--json` prints one object with `source`, `destination`, `expected` and `forwarding` (each a hop), `findings`, `failure_regions`, `limitations`, and `truncated`. When the file names `source.address`, it also carries `asymmetry`, with `assessment`, `reason`, `return_to`, `forward_route` and `return_route` (each a list of steps, present only when that direction is proven), `concerns` (each with `kind`, `direction` as `forward`, `return`, or `both`, `node`, `vrf`, `detail`, and `evidence`), and `return`, the complete return walk as an explanation in its own right. `return` is present only when the destination has one owning routing domain to start from. A step names `node`, `vrf`, `interface`, `next_hop`, and `outcome`. The last step is the node that owns the destination, and it has no `interface`. A hop carries `node`, `vrf`, and `decision`, and carries `via` (the segment the walk crossed) and `next` (the hops after it) when the walk goes on. A segment carries `outcome`: `none` when no check applies, `pass`, `fail`, `conflicting` when recorded checks disagree, or `unattributed` as described under Topology file. Its `checks` lists the recorded checks behind the outcome, each with `source` and `collected_at`. For an `unattributed` segment, they are the checks that could not be placed on it. A decision carries `kind` and `proven` and `reason`, and carries `basis`, `prefix`, `next_hops`, `evidence`, and `agreement` where they apply. A local decision, where the destination is an address on the node, names in `basis` and `evidence` the plane and rows that list that address, and `proven` is always false, since interface lists are partial and no complete table backs ownership. A `no_route` decision lists in `evidence` the complete tables that prove the absence, each with `absent` set to true. A hop that stops at a node the file does not describe, such as an unresolved or on-link next hop, has an empty `node` and `vrf`, and its `via` names the segment that led there.
 
 Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `conflicting`, `loop`, `truncated`, `unresolved`, `ambiguous`, and `on_link`. Finding kinds are `control_route_not_in_fib`, `fib_differs_from_control`, `fib_forwarding_failed`, `conflicting_evidence`, and `loop`.
 
@@ -1821,6 +1834,8 @@ Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `confli
 - It runs no traceroute and no probe, so it cannot confirm a route beyond what the file records.
 - It explains one destination per run.
 - A recorded check whose `next_hop` matches no next hop of the route is not used, and the explanation does not say so.
+- It does not model NAT translations, firewall rules, or connection state. A `boundaries` entry records where such a device sits, not what it does to a packet.
+- Two-sided diagnosis does not read the asymmetry. Its snapshots record only the outbound decision on each side, so they carry no return route.
 
 ## Remote diagnosis over SSH
 

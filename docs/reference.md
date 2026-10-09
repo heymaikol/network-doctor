@@ -1792,7 +1792,7 @@ The file is one JSON object. Unknown fields are refused, so a misspelled key can
 - `source` gives the `node` and `vrf` the path starts from.
 - `observations` are recorded tables. Each names its `source`, `collected_at` (RFC 3339), `plane`, `node`, and `vrf`, and may carry `interfaces`, `neighbors`, and `routes`. The planes are `intended`, `configured`, `control`, `fib`, and `observed`. The expected path reads the `control` plane, then `configured`. The forwarding path reads only `fib`. Rows in `intended` and `observed` are validated, then not read by this explanation. Observed data-plane results are recorded as `checks`, not as an `observed` plane.
 - `routes_complete` says whether the observation lists every route its table holds. Only a complete table proves that no route exists. A partial table leaves a missing route unknown, and nothing is invented to fill the gap.
-- `checks` are results already recorded for one segment: `node`, `vrf`, `interface`, `destination`, and `result`, which is `pass` or `fail`, with the same `source` and `collected_at` as an observation.
+- `checks` are results already recorded for one segment: `node`, `vrf`, `interface`, `destination`, and `result`, which is `pass` or `fail`, with the same `source` and `collected_at` as an observation. An optional `next_hop` names the next-hop address the check exercised, and it applies to that segment alone. A check without `next_hop` applies to its interface only when the interface carries one next hop. When the interface carries several, that check is attributed to none of them: each segment on the interface without a named check is `unattributed`, and a limitation says so.
 
 ### Explanation output
 
@@ -1800,16 +1800,16 @@ The explanation has four parts:
 
 - The expected path, from the control plane and the configured routes.
 - The forwarding path, from the FIB.
-- Findings where the two disagree, and where a recorded check failed.
+- Findings where the two disagree, and where a recorded check failed. A failure names the recorded check it rests on, with that check's `source` and `collected_at`.
 - Failure regions. A failed check names one segment, but the tool does not pick one hop as the cause. It lists every candidate segment the failure could lie in.
 
 Limitations list each decision the file could not make, and the walk it came from.
 
-A walk stops at the destination, at a node the file does not describe, at a loop, or at 32 hops or 512 node visits, whichever comes first. A walk stopped by the bound is reported as `truncated`.
+A walk stops at the destination, at a node the file does not describe, at a loop, or at 32 hops or 512 node visits, whichever comes first. A node with more than 64 next hops is followed only as far as the first 64. A walk stopped by a bound, or a route cut at 64 next hops, marks the explanation `truncated`.
 
 ### Machine-readable explanation
 
-`--json` prints one object with `source`, `destination`, `expected` and `forwarding` (each a hop), `findings`, `failure_regions`, `limitations`, and `truncated`. A hop carries `node`, `vrf`, and `decision`, and carries `via` (the segment the walk crossed) and `next` (the hops after it) when the walk goes on. A decision carries `kind` and `proven` and `reason`, and carries `basis`, `prefix`, `next_hops`, `evidence`, and `agreement` where they apply. A hop that stops at a node the file does not describe, such as an unresolved or on-link next hop, has an empty `node` and `vrf`, and its `via` names the segment that led there.
+`--json` prints one object with `source`, `destination`, `expected` and `forwarding` (each a hop), `findings`, `failure_regions`, `limitations`, and `truncated`. A hop carries `node`, `vrf`, and `decision`, and carries `via` (the segment the walk crossed) and `next` (the hops after it) when the walk goes on. A segment carries `outcome`: `none` when no check applies, `pass`, `fail`, `conflicting` when recorded checks disagree, or `unattributed` as described under Topology file. Its `checks` lists the recorded checks behind the outcome, each with `source` and `collected_at`. For an `unattributed` segment, they are the checks that could not be placed on it. A decision carries `kind` and `proven` and `reason`, and carries `basis`, `prefix`, `next_hops`, `evidence`, and `agreement` where they apply. A `no_route` decision lists in `evidence` the complete tables that prove the absence, each with `absent` set to true. A hop that stops at a node the file does not describe, such as an unresolved or on-link next hop, has an empty `node` and `vrf`, and its `via` names the segment that led there.
 
 Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `conflicting`, `loop`, `truncated`, `unresolved`, `ambiguous`, and `on_link`. Finding kinds are `control_route_not_in_fib`, `fib_differs_from_control`, `fib_forwarding_failed`, `conflicting_evidence`, and `loop`.
 

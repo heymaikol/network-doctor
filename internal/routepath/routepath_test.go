@@ -698,3 +698,19 @@ func TestNamedPassDoesNotHideAnUnnamedFailure(t *testing.T) {
 		t.Errorf("fib_forwarding_failed = %+v, want none: the recorded checks conflict, so no failure is claimed", got)
 	}
 }
+
+// Next hops are a set. netmodel sorts them when it validates a model, so the
+// order a file lists them in does not change what the walks agree on.
+func TestNextHopOrderDoesNotChangeAgreement(t *testing.T) {
+	obs := without(threeRouters(), "control:r1:default", "fib:r1:default")
+	obs = append(obs,
+		table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", "ospf", nh("10.0.12.2", "eth1"), nh("10.0.12.9", "eth1"))),
+		table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", nh("10.0.12.9", "eth1"), nh("10.0.12.2", "eth1"))))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := findings(e, FindingFIBDiffers); len(got) != 0 {
+		t.Errorf("fib_differs_from_control = %+v, want none: the same next hops listed in another order", got)
+	}
+	if got := e.Forwarding.Decision.Agreement; got != AgreementAgrees {
+		t.Errorf("r1 agreement = %q, want agrees", got)
+	}
+}

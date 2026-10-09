@@ -509,6 +509,30 @@ func TestNextHopAddressesAreCanonical(t *testing.T) {
 	}
 }
 
+// CoversHops is a subset test, so it reads one way. An unreported interface on
+// either side matches any interface on the same gateway.
+func TestCoversHopsIsOneDirectional(t *testing.T) {
+	two := []NextHop{hop("10.0.0.2", "eth0"), hop("10.0.0.3", "eth1")}
+	one := []NextHop{hop("10.0.0.2", "eth0")}
+	bare := []NextHop{hop("10.0.0.2", "")}
+	cases := []struct {
+		name       string
+		have, want []NextHop
+		covers     bool
+	}{
+		{"superset covers subset", two, one, true},
+		{"subset does not cover superset", one, two, false},
+		{"unreported interface wanted", one, bare, true},
+		{"unreported interface held", bare, one, true},
+		{"same gateway on another interface", []NextHop{hop("10.0.0.2", "eth1")}, one, false},
+	}
+	for _, c := range cases {
+		if got := CoversHops(c.have, c.want); got != c.covers {
+			t.Errorf("%s: CoversHops = %v, want %v", c.name, got, c.covers)
+		}
+	}
+}
+
 func TestDiscardRouteIsPresentWithoutNextHops(t *testing.T) {
 	m, err := New(ctl("frr", true, Route{Prefix: pfx("192.0.2.0/24"), Origin: OriginStatic, Discard: true}))
 	if err != nil {

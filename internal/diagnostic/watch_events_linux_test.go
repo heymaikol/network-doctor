@@ -1,6 +1,7 @@
 package diagnostic
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -12,11 +13,11 @@ import (
 // on anything else.
 func TestRouteReadErrorMapsOnlyENOBUFSToOverflow(t *testing.T) {
 	dropped := &os.PathError{Op: "read", Path: "netlink route events", Err: unix.ENOBUFS}
-	if got := routeReadError(dropped); got != errRouteEventsOverflow {
+	if got := routeReadError(dropped); !errors.Is(got, errRouteEventsOverflow) {
 		t.Errorf("ENOBUFS read = %v, want the overflow error", got)
 	}
 	ended := &os.PathError{Op: "read", Path: "netlink route events", Err: unix.EINVAL}
-	if got := routeReadError(ended); got != error(ended) {
+	if got := routeReadError(ended); !errors.Is(got, ended) {
 		t.Errorf("EINVAL read = %v, want it passed through", got)
 	}
 	if got := routeReadError(nil); got != nil {

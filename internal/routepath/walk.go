@@ -46,6 +46,18 @@ type checkKey struct {
 	nh               string
 }
 
+// ownerKey is one address on one routing domain, the unit a local decision names.
+type ownerKey struct {
+	addr netip.Addr
+	at   state
+}
+
+// owning is one observation that lists an address on a read plane.
+type owning struct {
+	plane netmodel.Plane
+	sup   Support
+}
+
 // walker holds what one Explain call reads from the file. It is built once, so
 // every walk sees the same canonical rows in the same order.
 type walker struct {
@@ -53,6 +65,7 @@ type walker struct {
 	obs       []netmodel.Observation
 	dest      netip.Addr
 	owners    map[netip.Addr][]state
+	owned     map[ownerKey][]owning
 	checks    map[checkKey][]Check
 	budget    int
 	truncated bool
@@ -87,6 +100,7 @@ func newWalker(f File, dest netip.Addr) *walker {
 		m:      f.Model,
 		dest:   dest,
 		owners: map[netip.Addr][]state{},
+		owned:  map[ownerKey][]owning{},
 		checks: map[checkKey][]Check{},
 	}
 	for _, o := range f.Model.Observations() {
@@ -99,6 +113,11 @@ func newWalker(f File, dest netip.Addr) *walker {
 			for _, a := range i.Addresses {
 				k := a.Addr().WithZone("").Unmap()
 				s := state{o.Node, o.VRF}
+				ok := ownerKey{k, s}
+				row := owning{o.Plane, Support{Source: o.Source, CollectedAt: utcText(o.CollectedAt)}}
+				if !slices.Contains(w.owned[ok], row) {
+					w.owned[ok] = append(w.owned[ok], row)
+				}
 				if !slices.Contains(w.owners[k], s) {
 					w.owners[k] = append(w.owners[k], s)
 				}
@@ -132,8 +151,8 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 		return h
 	}
 	w.budget--
-	if slices.Contains(w.owners[w.dest], at) {
-		h.Decision = Decision{Kind: KindLocal, Proven: true, Reason: "destination is an address on this node"}
+	if owned := w.owned[ownerKey{w.dest, at}]; len(owned) > 0 {
+		h.Decision = w.localDecision(planes, at, owned)
 		return h
 	}
 	d, hops := w.decide(planes, at)
@@ -156,6 +175,28 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 		h.Next = append(h.Next, w.resolve(planes, at, n, seg, branch))
 	}
 	return h
+}
+
+// localDecision says the destination is an address on this node. Ownership
+// decides the hop, as the kernel's local table does, but the decision names only
+// the plane whose rows list the address, and it claims no proof: interface lists
+// are partial, so no complete table backs ownership.
+func (w *walker) localDecision(planes []netmodel.Plane, at state, owned []owning) Decision {
+	var p netmodel.Plane
+	for _, q := range slices.Concat(planes, readPlanes) {
+		if slices.ContainsFunc(owned, func(o owning) bool { return o.plane == q }) {
+			p = q
+			break
+		}
+	}
+	var ev []Support
+	for _, o := range owned {
+		if o.plane == p {
+			ev = append(ev, o.sup)
+		}
+	}
+	ev = sortSupports(ev)
+	return Decision{Kind: KindLocal, Basis: p, Evidence: ev, Reason: "destination is an address on this node"}
 }
 
 // resolve follows one next hop to the node that owns its address. The owner's

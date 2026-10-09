@@ -109,7 +109,7 @@ func decisionText(d Decision) string {
 	default:
 		parts = append(parts, string(d.Kind)+": "+d.Reason)
 	}
-	if d.Basis != "" && (d.Kind == KindForward || d.Kind == KindDiscard) {
+	if d.Basis != "" && (d.Kind == KindForward || d.Kind == KindDiscard || d.Kind == KindLocal) {
 		parts = append(parts, "basis "+string(d.Basis))
 		if d.Proven {
 			parts = append(parts, "proven")

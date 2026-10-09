@@ -714,3 +714,52 @@ func TestNextHopOrderDoesNotChangeAgreement(t *testing.T) {
 		t.Errorf("r1 agreement = %q, want agrees", got)
 	}
 }
+
+// Local ownership decides the hop, as the kernel's local table does. The
+// decision must still name the rows that own the address, and it must not claim
+// a proof that no complete table backs.
+func TestLocalDecisionNamesTheRowsThatOwnTheAddress(t *testing.T) {
+	e := explainFrom(t, threeRouters(), nil, fromR1, dest)
+	for _, walk := range []struct {
+		name string
+		h    Hop
+	}{{"expected", spine(e.Expected)[2]}, {"forwarding", spine(e.Forwarding)[2]}} {
+		d := walk.h.Decision
+		if d.Kind != KindLocal {
+			t.Fatalf("%s r3 = %+v, want local", walk.name, d)
+		}
+		if d.Basis != netmodel.PlaneConfigured {
+			t.Errorf("%s r3 basis = %q, want configured: the address is listed in config:r3:default", walk.name, d.Basis)
+		}
+		if len(d.Evidence) != 1 || d.Evidence[0].Source != "config:r3:default" {
+			t.Errorf("%s r3 evidence = %+v, want config:r3:default", walk.name, d.Evidence)
+		}
+		if d.Proven {
+			t.Errorf("%s r3 proven = true: interface lists are partial, so no complete table backs ownership", walk.name)
+		}
+	}
+}
+
+// A FIB that agrees with ownership, or says nothing about the address, adds
+// no limitation. A connected on-link route is the normal case, not a conflict.
+func TestLocalOwnershipAddsNoLimitationWhenTheFIBAgreesOrIsSilent(t *testing.T) {
+	cases := []struct {
+		name string
+		obs  []netmodel.Observation
+	}{
+		{"connected on-link route", threeRouters()},
+		{"complete table without a route", append(without(threeRouters(), "fib:r3:default"), table(netmodel.PlaneFIB, "r3", "default", true))},
+		{"partial table without a route", append(without(threeRouters(), "fib:r3:default"), table(netmodel.PlaneFIB, "r3", "default", false))},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := explainFrom(t, c.obs, nil, fromR1, dest)
+			if got := spine(e.Forwarding)[2].Decision.Kind; got != KindLocal {
+				t.Fatalf("forwarding r3 = %v, want local", got)
+			}
+			if len(e.Limitations) != 0 {
+				t.Errorf("limitations = %q, want none", e.Limitations)
+			}
+		})
+	}
+}

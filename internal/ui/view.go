@@ -827,6 +827,10 @@ func (m model) consequenceLine(id diagnostic.ProbeID, status diagnostic.Status) 
 // for one, and the full-screen viewer needs nothing extra to be complete.
 func observedLines(r diagnostic.ProbeResult, width int) []string {
 	var out []string
+	sampled, reused := r.ReusedFrom()
+	if reused {
+		out = append(out, "  reused, measured "+sampled.UTC().Format("15:04:05")+" UTC")
+	}
 	if r.Portal != nil && r.Portal.RedirectURL != "" {
 		out = append(out, "  portal "+r.Portal.RedirectURL)
 	}
@@ -834,7 +838,7 @@ func observedLines(r diagnostic.ProbeResult, width int) []string {
 		out = append(out, "  src "+r.Source.String()+" "+r.Iface)
 	}
 	out = append(out, observedRunLines(routeRuns(r.Routes), "destinations", width)...)
-	out = append(out, observedRunLines(attemptRuns(r.Attempts), "addresses", width)...)
+	out = append(out, observedRunLines(attemptRuns(r.Attempts, !reused), "addresses", width)...)
 	if len(out) == 0 {
 		return nil
 	}
@@ -879,12 +883,17 @@ func routeRuns(routes []diagnostic.RouteDecision) []observedRun {
 	return runs
 }
 
-// attemptRuns are the connection attempts, grouped by what came back.
-func attemptRuns(attempts []diagnostic.Attempt) []observedRun {
+// attemptRuns are the connection attempts, grouped by what came back. timed says
+// whether the attempts were measured by the pass on screen. A reused row's
+// attempts carry no time, so they are listed by address alone rather than as 0ms.
+func attemptRuns(attempts []diagnostic.Attempt, timed bool) []observedRun {
 	var runs []observedRun
 	for _, a := range attempts {
 		outcome := attemptOutcome(a)
-		member := fmt.Sprintf("%s %dms", a.IP, diagnostic.Ms(a.Dur))
+		member := a.IP.String()
+		if timed {
+			member = fmt.Sprintf("%s %dms", a.IP, diagnostic.Ms(a.Dur))
+		}
 		runs = appendRun(runs, outcome, member+" "+outcome, member)
 	}
 	return runs

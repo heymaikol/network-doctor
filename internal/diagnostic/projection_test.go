@@ -92,6 +92,10 @@ var evidenceProjection = map[string]decision{
 	"diagnostic.ProbeResult.acquisition": {category: transient, why: "which socket a row used, shared with its neighbors " +
 		"in the same run. The artifact format has no field for it and no diagnosis rule reads it, so a snapshot cannot claim " +
 		"that two rows shared a socket. Independence is decided by the rows that ran, not by this value."},
+	"diagnostic.ProbeResult.reusedFrom": {category: transient, why: "when the Watch pass that measured this row sampled " +
+		"it, set only for a row a stable pass answered from an earlier one. A snapshot is never built from such a pass: " +
+		"the incident timeline records only passes that measured every row, and headless runs that save have no " +
+		"session. The artifact would otherwise need a sampled-at field, which the format does not have."},
 	"diagnostic.ProbeResult.Dur": {category: persisted, why: "wall time. It is written as duration_ms and as ran, " +
 		"which is how a reader tells a probe that finished in under a millisecond from one that never executed. No " +
 		"diagnosis rule reads it, and restoring it would let a snapshot rebuilt from a replay claim a probe body ran."},
@@ -323,6 +327,7 @@ func maximalResult() ProbeResult {
 		}},
 		Dur:              7 * time.Millisecond,
 		acquisition:      7,
+		reusedFrom:       time.Date(2026, 10, 9, 11, 59, 0, 0, time.UTC),
 		Detail:           "the second opinion disagreed",
 		Fix:              "check the configured resolver",
 		ConnectCleartext: true,

@@ -137,6 +137,10 @@ func (m model) report() string {
 	for _, p := range m.probes {
 		r := m.results[p.ID]
 		fmt.Fprintf(&b, "  [%s] %s: %s\n", r.Status, p.Name, r.Detail)
+		sampled, reused := r.ReusedFrom()
+		if reused {
+			fmt.Fprintf(&b, "        reused: measured %s on an earlier pass\n", sampled.UTC().Format(time.RFC3339))
+		}
 		// A working http:// proxy row keeps its earned status, so its advice
 		// would otherwise never be shown: the cleartext observation is the one
 		// non-failing result that carries a line worth reading.
@@ -156,6 +160,11 @@ func (m model) report() string {
 			st := "ok"
 			if a.Err != nil {
 				st = a.Err.Error()
+			}
+			if reused {
+				// A reused attempt was not timed by this pass, so it has no duration to print.
+				fmt.Fprintf(&b, "        attempt: %s %s\n", a.IP, st)
+				continue
 			}
 			fmt.Fprintf(&b, "        attempt: %s %dms %s\n", a.IP, diagnostic.Ms(a.Dur), st)
 		}

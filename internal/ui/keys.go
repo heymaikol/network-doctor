@@ -737,7 +737,7 @@ func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
 	if newQuestion && m.watchSession != nil {
 		// Nothing measured for the last target may answer for this one.
-		m.watchSession = newWatchSession(m.now)
+		m.watchSession = diagnostic.NewWatchSession(m.now)
 	}
 	// Each run builds a graph of its own, so its target link is new. The graph
 	// it replaces is released first: its rows may still be in flight.

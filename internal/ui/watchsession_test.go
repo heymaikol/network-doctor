@@ -14,9 +14,11 @@ import (
 )
 
 // tuiLink is the network under a TUI Watch test. While down, the target's TCP
-// connect fails and the rows behind it are skipped.
+// connect fails and the rows behind it are skipped. While tlsDown, the TLS row
+// fails and nothing else does, which is a fault only a reused row can hide.
 type tuiLink struct {
-	down atomic.Bool
+	down    atomic.Bool
+	tlsDown atomic.Bool
 	// targets counts the target connects that ran, so a test can tell how many
 	// passes ran, not only how many were recorded.
 	targets atomic.Int32
@@ -40,6 +42,9 @@ func tuiFakeProbes(target *diagnostic.Target, link *tuiLink) []diagnostic.Probe 
 				if link.down.Load() {
 					return diagnostic.ProbeResult{Status: diagnostic.StatusFail, Cause: "timeout", Dur: time.Millisecond}
 				}
+			}
+			if id == diagnostic.ProbeTLS && link.tlsDown.Load() {
+				return diagnostic.ProbeResult{Status: diagnostic.StatusFail, Cause: "tls-handshake", Dur: time.Millisecond}
 			}
 			return diagnostic.ProbeResult{Status: diagnostic.StatusPass, Dur: time.Millisecond}
 		}
@@ -102,10 +107,10 @@ func startWatchPass(t *testing.T, m model) model {
 	return settleWatch(t, asModel(t, u), cmd)
 }
 
-// The TUI runs the real probe commands through the Watch session. Every row runs
-// on every pass, so each published pass is recorded once and a status change
-// shows on the pass that observes it. Each recorded pass is incident evidence,
-// so the history has one entry per pass and nothing a pass did not measure.
+// The TUI runs the real probe commands through the Watch session. A stable pass
+// answers its passing rows from the last pass, so it runs fewer rows than the
+// graph. A status change is confirmed before it is published, so the history
+// holds one entry per published pass and nothing a discarded pass measured.
 func TestWatchSessionRecordsOnlyPublishedPassesThroughTheTUI(t *testing.T) {
 	prevEvery := WatchEvery
 	WatchEvery = time.Millisecond
@@ -127,8 +132,11 @@ func TestWatchSessionRecordsOnlyPublishedPassesThroughTheTUI(t *testing.T) {
 
 	before := link.runs.Load()
 	m = startWatchPass(t, m)
-	if ran := link.runs.Load() - before; ran != int64(len(m.probes)) {
-		t.Errorf("stable pass ran %d of %d rows, want all: the TUI never reuses a row", ran, len(m.probes))
+	if ran := link.runs.Load() - before; ran >= int64(len(m.probes)) {
+		t.Errorf("stable pass ran %d of %d rows, want fewer: passing rows are reused", ran, len(m.probes))
+	}
+	if !anyReused(m) {
+		t.Error("stable pass reused no row")
 	}
 	if got := m.runHistory[diagnostic.ProbeTargetTCP]; len(got) != 2 {
 		t.Fatalf("after a stable pass, target history = %v, want two entries", got)
@@ -137,8 +145,10 @@ func TestWatchSessionRecordsOnlyPublishedPassesThroughTheTUI(t *testing.T) {
 	link.down.Store(true)
 	beforeTargets := link.targets.Load()
 	m = startWatchPass(t, m)
-	if ran := link.targets.Load() - beforeTargets; ran != 1 {
-		t.Errorf("fault took %d target connects, want 1: the pass that sees the fault publishes it", ran)
+	// The reused rows still pass, so the pass that sees the fault is discarded,
+	// and the confirming pass runs every row before anything is published.
+	if ran := link.targets.Load() - beforeTargets; ran != 2 {
+		t.Errorf("fault took %d target connects, want 2: the first pass is discarded and the confirmation is fresh", ran)
 	}
 	wantFault := []diagnostic.Status{diagnostic.StatusPass, diagnostic.StatusPass, diagnostic.StatusFail}
 	if got := m.runHistory[diagnostic.ProbeTargetTCP]; !reflect.DeepEqual(got, wantFault) {
@@ -191,8 +201,8 @@ func exportedIncident(t *testing.T, m model) ndoc.Snapshot {
 }
 
 // The last healthy pass before an outage is the incident's Before state, and
-// the incident keeps it. The TUI session is fresh, so every row in that pass
-// was measured on it and reports a duration. The export must encode.
+// the incident keeps it. A healthy pass that reused a row is not kept, so the
+// Before state is a pass that measured every row. The export must encode.
 func TestWatchIncidentExportKeepsAStableHealthyBefore(t *testing.T) {
 	prevEvery := WatchEvery
 	WatchEvery = time.Millisecond
@@ -261,8 +271,8 @@ func TestWatchIncidentExportBeginningInTheFirstPass(t *testing.T) {
 	}
 }
 
-// A new target starts a new session, and that session is fresh as well. Its
-// stable pass before the outage is the Before state of the incident it opens.
+// A new target starts a new session, and it reuses nothing from the last one.
+// Its stable pass before the outage is the Before state of the incident it opens.
 func TestWatchIncidentExportAfterATargetSwitch(t *testing.T) {
 	prevEvery := WatchEvery
 	WatchEvery = time.Millisecond
@@ -306,4 +316,15 @@ func TestWatchRetestRunsEveryRowThroughTheTUI(t *testing.T) {
 	if ran := link.runs.Load() - before; ran != int64(len(m.probes)) {
 		t.Errorf("retest ran %d rows, want all %d", ran, len(m.probes))
 	}
+}
+
+// anyReused reports whether the shown results include a row answered from an
+// earlier pass.
+func anyReused(m model) bool {
+	for _, r := range m.results {
+		if _, reused := r.ReusedFrom(); reused {
+			return true
+		}
+	}
+	return false
 }

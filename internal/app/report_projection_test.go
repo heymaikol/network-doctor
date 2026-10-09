@@ -133,6 +133,9 @@ var reportProjection = map[string]decision{
 	"diagnostic.ProbeResult.acquisition": {category: absent, why: "which socket a row used, so two rows that report the " +
 		"same connection can be told apart from two that dialed. Sharing changes no row's observation, and no published " +
 		"field carries provenance. Publishing it would be a schema change this report does not make."},
+	"diagnostic.ProbeResult.reusedFrom": {category: absent, why: "when a Watch pass answered this row from an " +
+		"earlier one. The report keeps the zero duration a reused row has always carried. Its consumers are the TUI " +
+		"and the incident timeline, which read ReusedFrom directly, and the timeline never records a reused row."},
 	"diagnostic.ProbeResult.Detail":           {category: published},
 	"diagnostic.ProbeResult.Fix":              {category: published},
 	"diagnostic.ProbeResult.ConnectCleartext": {category: published},

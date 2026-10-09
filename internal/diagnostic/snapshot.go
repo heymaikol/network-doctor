@@ -43,6 +43,14 @@ func ProbeOrder(probes []Probe) []ProbeID {
 	return order
 }
 
+// okResult is the one rule a run's ok is read off: a row that reported and did
+// not fail. A row missing from results is not clean, because its absence is not
+// a pass. Watch reads the same rule to decide whether a session may reuse rows,
+// so the two cannot disagree about what a healthy run is.
+func okResult(r ProbeResult, reported bool) bool {
+	return reported && r.Status != StatusFail
+}
+
 // BuildSnapshotWithDiagnosis projects a diagnosis already computed for these inputs.
 func BuildSnapshotWithDiagnosis(t *Target, probes []Probe, results map[ProbeID]ProbeResult, d Diagnosis) snapshot.Snapshot {
 	s := snapshot.Snapshot{Schema: snapshot.Schema, Checks: []snapshot.Check{}, OK: true}
@@ -68,7 +76,7 @@ func BuildSnapshotWithDiagnosis(t *Target, probes []Probe, results map[ProbeID]P
 		// An unreported check is not a clean one. The run answered the question
 		// for one fewer probe than it was asked, and ok is the field a script
 		// reads first.
-		s.OK = s.OK && reported && r.Status != StatusFail
+		s.OK = s.OK && okResult(r, reported)
 		if reported && r.Status == StatusFail && s.Diagnosis.FailedStage == "" {
 			s.Diagnosis.FailedStage = string(p.ID)
 		}

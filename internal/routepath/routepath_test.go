@@ -826,3 +826,20 @@ func TestRepeatedOwnerNamesTheContradictingRouteOnce(t *testing.T) {
 		t.Errorf("limitations naming fib:r2:default = %d, want 1: %q", n, e.Limitations)
 	}
 }
+
+// The control plane lists the destination on r2, while configured says r3 owns
+// it. The walk stops at its first owner, so the other claim must be named, not
+// dropped from both walks.
+func TestConflictingOwnersAcrossPlanesAreNamed(t *testing.T) {
+	obs := append(threeRouters(), netmodel.Observation{
+		Provenance: netmodel.Provenance{Source: "ospf:r2:default", CollectedAt: t0},
+		Plane:      netmodel.PlaneControl,
+		Node:       "r2",
+		VRF:        "default",
+		Interfaces: []netmodel.Interface{ifc("lan", "10.20.40.8/24")},
+	})
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if !hasLimitation(e, "r2 (default)", "ospf:r2:default", "r3 (default)", "config:r3:default") {
+		t.Errorf("limitations = %q, want one naming both owners of %s and their sources", e.Limitations, dest)
+	}
+}

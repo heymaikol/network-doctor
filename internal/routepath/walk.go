@@ -154,6 +154,7 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 	w.budget--
 	if owned := w.owned[ownerKey{w.dest, at}]; len(owned) > 0 {
 		h.Decision = w.localDecision(planes, at, owned)
+		w.noteOtherOwners(at, owned)
 		return h
 	}
 	d, hops := w.decide(planes, at)
@@ -214,11 +215,38 @@ func (w *walker) noteUnchecked(planes []netmodel.Plane, at state, ev []Support) 
 	if d.Kind == KindNoRoute || d.Kind == KindUnknown || onLinkOnly(d, hops) {
 		return
 	}
-	// Several branches can reach the same owner, so the same note can come up twice.
-	note := fmt.Sprintf("%s (%s): destination is an address in %s, which this walk does not read. The walk's planes decide %s. The local decision keeps ownership without checking that decision.", at.node, at.vrf, evidenceText(ev), decisionText(d))
+	w.addNote(fmt.Sprintf("%s (%s): destination is an address in %s, outside the planes this walk decides from. The walk's planes decide %s. The local decision keeps ownership without checking that decision.", at.node, at.vrf, evidenceText(ev), decisionText(d)))
+}
+
+// noteOtherOwners names every other routing domain that also lists the
+// destination. The walk stops at its own owner, so without this note the other
+// claim would reach neither walk's output.
+func (w *walker) noteOtherOwners(at state, own []owning) {
+	here := evidenceText(ownSupports(own))
+	for _, s := range w.owners[w.dest] {
+		if s == at {
+			continue
+		}
+		there := evidenceText(ownSupports(w.owned[ownerKey{w.dest, s}]))
+		w.addNote(fmt.Sprintf("%s (%s) and %s (%s) both list %s, in %s and in %s. The walk stops at %s (%s) and does not follow the other claim.", at.node, at.vrf, s.node, s.vrf, w.dest, here, there, at.node, at.vrf))
+	}
+}
+
+// addNote appends a limitation once. Equal-cost branches can reach the same
+// node, so one note can come up more than once.
+func (w *walker) addNote(note string) {
 	if !slices.Contains(w.notes, note) {
 		w.notes = append(w.notes, note)
 	}
+}
+
+// ownSupports returns the rows of owned as sorted evidence.
+func ownSupports(owned []owning) []Support {
+	out := make([]Support, 0, len(owned))
+	for _, o := range owned {
+		out = append(out, o.sup)
+	}
+	return sortSupports(out)
 }
 
 // onLinkOnly reports a forward decision whose next hops name no address, so the

@@ -34,8 +34,8 @@ _netdoc_snapshots() {
 # Positional arguments are normally targets -- hostnames, URLs and IP literals,
 # none of them enumerable -- so completion offers nothing rather than local
 # filenames. The exceptions are the two arguments of --compare, of --two-sided
-# when it is offline (those are local snapshots), and the arguments of
-# --explain, whose topology file is local too.
+# when it is offline (those are local snapshots), and the first argument of
+# --explain, which is a local topology file. Its destination is a target.
 #
 # `--two-sided --via` is the case worth stating, because it inverts: side B is
 # then a live target, not a file, so file completion has to stay off. That is
@@ -58,7 +58,7 @@ _netdoc_wants_snapshots() {
 # always been, and the flags keep coming back.
 local -a _netdoc_rest
 if (( ${words[(I)(--explain|-explain)]} )); then
-  _netdoc_rest=( '*:file:_files' )
+  _netdoc_rest=( ':topology file:_files' ':destination:' )
 elif _netdoc_wants_snapshots; then
   _netdoc_rest=( '*:snapshot:_netdoc_snapshots' )
 else

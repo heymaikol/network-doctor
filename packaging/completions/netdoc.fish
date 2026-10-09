@@ -25,7 +25,10 @@ complete -c netdoc -o explain -l explain -d 'Explain how traffic to a destinatio
 # file completion comes back only while --via is absent.
 complete -c netdoc -n '__fish_seen_argument -o compare -l compare' -F
 complete -c netdoc -n '__fish_seen_argument -o two-sided -l two-sided; and not __fish_seen_argument -o via -l via' -F
-complete -c netdoc -n '__fish_seen_argument -o explain -l explain' -F
+# --explain takes a topology file first and a destination after it, so file
+# completion comes back only while no positional word has been typed. The
+# helper counts the command name as well, hence the 1.
+complete -c netdoc -n '__fish_seen_argument -o explain -l explain; and test (__fish_number_of_cmd_args_wo_opts) -le 1' -F
 complete -c netdoc -o peer-listen -l peer-listen -r -f -d 'Listen for an authenticated peer on an exact IP:port (repeatable)'
 complete -c netdoc -o peer-connect -l peer-connect -d 'Read a temporary pairing string and run a two-ended diagnosis'
 complete -c netdoc -o via -l via -r -f \

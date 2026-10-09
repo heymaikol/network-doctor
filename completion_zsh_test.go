@@ -157,6 +157,15 @@ func TestZshCompletionOffersSnapshotsOnlyWhereTheyAreRead(t *testing.T) {
 			files: true,
 		},
 		{
+			// The first positional is the topology file, so the second is the
+			// destination, a target. Files must stop after one word. The
+			// destination is still pending, so the flag list waits for it, as
+			// it does for an ordinary target.
+			name:  "explain takes no file for its destination",
+			line:  "netdoc --explain beta.txt ",
+			files: false,
+		},
+		{
 			name:  "offline two-sided takes snapshots",
 			line:  "netdoc --two-sided ",
 			files: true,

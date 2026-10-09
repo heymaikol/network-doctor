@@ -182,8 +182,8 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 // localDecision says the destination is an address on this node. Ownership
 // decides the hop, as the kernel's local table does, but the decision names only
 // the plane whose rows list the address, and it claims no proof: interface lists
-// are partial, so no complete table backs ownership. When the walk does not read
-// that plane, noteUnchecked says what the walk's own planes decide there.
+// are partial, so no complete table backs ownership. noteUnchecked names any
+// decision the walk's planes make at the node that contradicts that ownership.
 func (w *walker) localDecision(planes []netmodel.Plane, at state, owned []owning) Decision {
 	var p netmodel.Plane
 	for _, q := range slices.Concat(planes, readPlanes) {
@@ -199,23 +199,23 @@ func (w *walker) localDecision(planes []netmodel.Plane, at state, owned []owning
 		}
 	}
 	ev = sortSupports(ev)
-	if !slices.Contains(planes, p) {
-		w.noteUnchecked(planes, at, ev)
-	}
+	w.noteUnchecked(planes, at, ev)
 	return Decision{Kind: KindLocal, Basis: p, Evidence: ev, Reason: "destination is an address on this node"}
 }
 
-// noteUnchecked records what the walk's planes decide at the node when local
-// ownership came from planes outside them. A missing route or an on-link route
-// is consistent with ownership: main tables normally omit local addresses, and
-// a connected route covers them. Any other decision contradicts ownership, so
-// the explanation names it rather than dropping it.
+// noteUnchecked records the decision the walk's planes make at the node when
+// that decision contradicts local ownership. A missing route, an on-link route,
+// and a complete table's route without next hops are consistent with ownership:
+// main tables normally omit local addresses, and a connected route covers them.
+// An unknown decision with no matching prefix says nothing either. Any other
+// decision, including an unproven partial-FIB candidate, is named rather than
+// dropped.
 func (w *walker) noteUnchecked(planes []netmodel.Plane, at state, ev []Support) {
 	d, hops := w.decide(planes, at)
-	if d.Kind == KindNoRoute || d.Kind == KindUnknown || onLinkOnly(d, hops) {
+	if d.Kind == KindNoRoute || (d.Kind == KindUnknown && d.Prefix == "") || onLinkOnly(d, hops) {
 		return
 	}
-	w.addNote(fmt.Sprintf("%s (%s): destination is an address in %s, outside the planes this walk decides from. The walk's planes decide %s. The local decision keeps ownership without checking that decision.", at.node, at.vrf, evidenceText(ev), decisionText(d)))
+	w.addNote(fmt.Sprintf("%s (%s): destination is an address in %s. The walk's planes decide %s. The local decision keeps ownership without checking that decision.", at.node, at.vrf, evidenceText(ev), decisionText(d)))
 }
 
 // noteOtherOwners names every other routing domain that also lists the

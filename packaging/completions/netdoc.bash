@@ -74,9 +74,20 @@ _netdoc() {
     # Targets are hostnames, URLs, and IP literals, none of them enumerable, so
     # a non-flag word completes to nothing rather than to local filenames. The
     # exceptions are --compare and offline --two-sided, whose two arguments
-    # are local snapshot files. With --via, two-sided takes a target instead.
+    # are local snapshot files, and the topology file of --explain, which
+    # comes first. Its destination is a target, so files stop after one word.
+    # With --via, two-sided takes a target instead.
     if [[ $cur != -* ]]; then
+        # Words before the cursor that are not flags. It is an approximation:
+        # a value after a flag such as --timeout counts too.
+        local word args=0 i
+        for ((i = 1; i < COMP_CWORD; i++)); do
+            word=${COMP_WORDS[i]}
+            [[ $word == -* ]] || args=$((args + 1))
+        done
         if [[ " ${COMP_WORDS[*]} " == *" -compare "* || " ${COMP_WORDS[*]} " == *" --compare "* ]]; then
+            COMPREPLY=($(compgen -f -- "$cur"))
+        elif [[ " ${COMP_WORDS[*]} " == *" -explain "* || " ${COMP_WORDS[*]} " == *" --explain "* ]] && (( args == 0 )); then
             COMPREPLY=($(compgen -f -- "$cur"))
         elif [[ ( " ${COMP_WORDS[*]} " == *" -two-sided "* || " ${COMP_WORDS[*]} " == *" --two-sided "* ) &&
                 " ${COMP_WORDS[*]} " != *" -via "* && " ${COMP_WORDS[*]} " != *" --via "* ]]; then
@@ -94,6 +105,7 @@ _netdoc() {
         -support --support
         -compare --compare
         -two-sided --two-sided
+        -explain --explain
         -peer-listen --peer-listen
         -peer-connect --peer-connect
         -via --via

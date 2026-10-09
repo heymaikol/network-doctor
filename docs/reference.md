@@ -227,6 +227,8 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--two-sided`, saved or live: the two snapshots observed different targets | `2` |
 | `--two-sided`: the two snapshots do not establish one target, because a support pseudonym is on either side and the rest of the target agrees | `2` |
 | Live `--two-sided --via`: SSH or remote protocol acquisition failed | `2` |
+| `--explain`: an explanation was printed, whether or not the path is broken | `0` |
+| `--explain`: a destination that is not an IP address, an unreadable or invalid topology file, or a flag that cannot be combined with it | `2` |
 | Quit before the chain finished | `1` |
 | Bad arguments, pairing-input reject, validation reject, or no terminal for the TUI | `2` |
 | `--via`: SSH failed, no usable `netdoc` on the SSH host, a remote protocol mismatch, or an acquisition that outlasted its overall bound | `2` |
@@ -1770,6 +1772,55 @@ Offline `--two-sided A.ndoc B.ndoc` needs no reachability and opens no connectio
 `checks` is every check in either snapshot, in the order side A executed them, followed by the ones only side B had. `comparable` is what says whether the placement was allowed to read the row. Field names, the `side` and ID vocabularies, and the meaning of the exit code are stable for this schema. `caveats` and `summary` are derived sentences and are never parsed back; branch on `diagnosis.id`, `diagnosis.side`, and `diagnosis.evidence`. `same_target` is always `true` in a document that exists at all, since the other case is refused, and it is carried so the document is self-describing.
 
 Live acquisition emits this exact schema. It does not add ordinary diagnosis confidence: two-sided epistemic limits remain represented by `diagnosis.ambiguous`, `alternatives`, and `caveats`, so this orchestration feature requires no schema version change.
+
+## Route path explanation
+
+`--explain` says how traffic to one destination should leave the network that a topology file describes, and where the forwarding table and the control plane disagree about it. It is headless and runs no probe: the file is the only evidence, and nothing on this machine or on the network is read or contacted.
+
+```sh
+netdoc --explain topology.json 10.20.40.8
+netdoc --explain --json topology.json 10.20.40.8
+```
+
+The destination must be an IP address. A name is refused rather than resolved, because the resolver that answered would decide which route is under test.
+
+### Topology file
+
+The file is one JSON object. Unknown fields are refused, so a misspelled key cannot drop evidence without a word, and the file is capped at 1 MiB.
+
+- `version` must be `1`.
+- `source` gives the `node` and `vrf` the path starts from.
+- `observations` are recorded tables. Each names its `source`, `collected_at` (RFC 3339), `plane`, `node`, and `vrf`, and may carry `interfaces`, `neighbors`, and `routes`. The planes are `intended`, `configured`, `control`, `fib`, and `observed`. The expected path reads the `control` plane, then `configured`. The forwarding path reads only `fib`. Rows in `intended` and `observed` are validated, then not read by this explanation. Observed data-plane results are recorded as `checks`, not as an `observed` plane.
+- `routes_complete` says whether the observation lists every route its table holds. Only a complete table proves that no route exists. A partial table leaves a missing route unknown, and nothing is invented to fill the gap.
+- `checks` are results already recorded for one segment: `node`, `vrf`, `interface`, `destination`, and `result`, which is `pass` or `fail`, with the same `source` and `collected_at` as an observation. An optional `next_hop` names the next-hop address the check exercised, and a named check applies to that segment only. A check without `next_hop` applies to its interface when the interface carries one next hop, and the named and unnamed checks on that segment combine: a pass beside a failure is `conflicting`. When the interface carries several next hops, an unnamed check is attributed to none of them: each segment on the interface is `unattributed`, and a limitation says so. A named failure or conflict on such a segment still reports as itself.
+
+### Explanation output
+
+The explanation has four parts:
+
+- The expected path, from the control plane and the configured routes.
+- The forwarding path, from the FIB.
+- Findings where the two disagree, and where a recorded check failed. A failure names the recorded check it rests on, with that check's `source` and `collected_at`.
+- Failure regions. A failed check names one segment, but the tool does not pick one hop as the cause. It lists every candidate segment the failure could lie in.
+
+Limitations list each decision the file could not make, and the walk it came from.
+
+Ownership decides a local hop. The walk stops at that node, and the limitation names any route that the walk's planes give there and that contradicts ownership, including an unproven partial-FIB route. A missing route and an on-link route are not named, since a main table normally omits local addresses and a connected route covers them. A route with no next hops is named as forwarding unknown, because it does not show where traffic goes. When another node also lists the destination, the limitation names both claims and their sources. The walk stops at its own owner and does not follow the other, so without that note the conflict would appear in neither walk.
+
+A walk stops at the destination, at a node the file does not describe, at a loop, or at 32 hops or 512 node visits, whichever comes first. A route can list more than 64 next hops. Its decision and comparison read all of them, but the walk follows only the first 64 at that node, and the explanation is marked `truncated`. A walk stopped by a bound is marked the same way.
+
+### Machine-readable explanation
+
+`--json` prints one object with `source`, `destination`, `expected` and `forwarding` (each a hop), `findings`, `failure_regions`, `limitations`, and `truncated`. A hop carries `node`, `vrf`, and `decision`, and carries `via` (the segment the walk crossed) and `next` (the hops after it) when the walk goes on. A segment carries `outcome`: `none` when no check applies, `pass`, `fail`, `conflicting` when recorded checks disagree, or `unattributed` as described under Topology file. Its `checks` lists the recorded checks behind the outcome, each with `source` and `collected_at`. For an `unattributed` segment, they are the checks that could not be placed on it. A decision carries `kind` and `proven` and `reason`, and carries `basis`, `prefix`, `next_hops`, `evidence`, and `agreement` where they apply. A local decision, where the destination is an address on the node, names in `basis` and `evidence` the plane and rows that list that address, and `proven` is always false, since interface lists are partial and no complete table backs ownership. A `no_route` decision lists in `evidence` the complete tables that prove the absence, each with `absent` set to true. A hop that stops at a node the file does not describe, such as an unresolved or on-link next hop, has an empty `node` and `vrf`, and its `via` names the segment that led there.
+
+Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `conflicting`, `loop`, `truncated`, `unresolved`, `ambiguous`, and `on_link`. Finding kinds are `control_route_not_in_fib`, `fib_differs_from_control`, `fib_forwarding_failed`, `conflicting_evidence`, and `loop`.
+
+### What it cannot show
+
+- It collects nothing. Control-plane and FIB tables, interface addresses, and check results come only from the file, so the explanation is as current as the file.
+- It runs no traceroute and no probe, so it cannot confirm a route beyond what the file records.
+- It explains one destination per run.
+- A recorded check whose `next_hop` matches no next hop of the route is not used, and the explanation does not say so.
 
 ## Remote diagnosis over SSH
 

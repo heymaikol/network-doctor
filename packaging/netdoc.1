@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-09-22" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-10-09" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the
  connection breaks
@@ -25,6 +25,11 @@ netdoc \- diagnose network connectivity and name the layer where the
 .B netdoc
 .B \-compare
 .I before.ndoc after.ndoc
+.RI [ \-json ]
+.br
+.B netdoc
+.B \-explain
+.I topology.json destination
 .RI [ \-json ]
 .br
 .B netdoc
@@ -291,6 +296,22 @@ which prints the separate
 .B netdoc.comparison.v1
 schema instead of the table. Cannot be combined with any flag that describes a
 run netdoc would perform.
+.TP
+.B \-explain
+Say how traffic to one destination should leave the network a topology file
+describes, and where the forwarding table disagrees with the control plane.
+The arguments are the topology file and the destination, which must be an IP
+address: a name is refused rather than resolved, because the resolver that
+answered would decide which route is under test. Runs no probes and opens no
+socket. The file is the only evidence. The output names the expected path, the
+forwarding path, the findings where they differ, the segments a recorded failure
+could lie in, and what the file cannot decide. The file format is described
+under Route path explanation in the reference.
+.IP
+Cannot be combined with flags that describe a probe run, with
+.BR \-compare ,
+or with
+.BR \-two\-sided .
 .TP
 .B \-two\-sided
 Say which of two vantage points a same-target failure is specific to. With two
@@ -642,6 +663,9 @@ directions. Skipped rows are allowed. Under
 it means the two snapshots describe the same diagnostic state. Under
 .B \-two\-sided
 it means no comparable check failed on either side.
+Under
+.B \-explain
+it means an explanation was printed, whether or not it found a broken path.
 .TP
 .B 1
 A row failed, the terminal UI was quit before the chain finished, or the run
@@ -673,6 +697,11 @@ remote run that did happen and found a broken network exits
 Under live
 .BR \-two\-sided ,
 different effective targets and remote acquisition failures also exit
+.BR 2 .
+Under
+.B \-explain
+a destination that is not an IP address, an unreadable or invalid topology
+file, and flags that cannot be combined with it also exit
 .BR 2 .
 .SH ENVIRONMENT
 .TP

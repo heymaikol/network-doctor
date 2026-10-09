@@ -23,6 +23,9 @@ func Cleanup(final tea.Model) {
 	}
 	m.cancelJobs()
 	m.clearCancel()
+	if m.watchSession != nil {
+		m.watchSession.Close()
+	}
 	// One deadline for all of them: a job that somehow won't die must not be
 	// able to hold the exit open job by job. It has to be a closed channel, not
 	// a timer channel, since the latter fires exactly once, so the first stuck job

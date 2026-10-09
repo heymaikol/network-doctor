@@ -7,13 +7,15 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // watchMaxAge bounds how long a passing protocol observation may stand in for
 // a fresh run. It is also the safety refresh: a change that no fresh row can
 // see is found by the next run of the observation, at most this long after it
-// was sampled.
+// was sampled. A route, address or link change reported by Invalidate ends the
+// stand-in sooner. Without a route event source, watchMaxAge is the only bound.
 const watchMaxAge = 60 * time.Second
 
 // watchReusable lists the rows a Watch pass may answer from its last passing
@@ -65,6 +67,14 @@ type WatchSession struct {
 	// force only if no request came after that, so a retest that arrives while a
 	// pass runs still gets its fresh pass.
 	requests uint64
+	// generation counts the route, address and link changes reported to this
+	// session by Invalidate. An observation records the generation its pass began
+	// with, and is reused only while the session still has that generation. It is
+	// atomic because a route event source calls Invalidate from its own goroutine.
+	generation atomic.Uint64
+	// feed is the running route-event subscription, if FollowRouteEvents started
+	// one. Only the owner that publishes passes touches it.
+	feed *routeFeed
 }
 
 // watchObservation is one passing, reusable row and the evidence it was
@@ -73,6 +83,10 @@ type watchObservation struct {
 	result      ProbeResult
 	fingerprint string
 	sampled     time.Time
+	// generation is the session generation when the pass that sampled this row
+	// began. It is taken at Begin, not when the row finishes, so a change that
+	// lands while the row runs still makes the observation stale.
+	generation uint64
 	// inputs is the fingerprint of every row this one reads, directly or through
 	// another row, when it was sampled. Reuse needs each of them unchanged. Only
 	// direct dependencies would miss a change that reaches a row through a
@@ -103,6 +117,20 @@ func (s *WatchSession) Force() {
 	s.requests++
 }
 
+// Invalidate reports a route, address or link change. Every reusable observation
+// sampled before the call is refused from now on, so the next pass runs those
+// rows fresh instead of waiting out watchMaxAge. The rows that always run are
+// untouched, and the pass is not forced: a pass that reuses nothing is published
+// as fresh.
+//
+// It is safe from any goroutine, and repeated calls only move the generation
+// on, so a burst of events costs one fresh pass, not one per event. A change
+// reported while a pass runs refuses reuse from the next row that asks, and
+// the rows that already answered are kept until the next pass.
+func (s *WatchSession) Invalidate() {
+	s.generation.Add(1)
+}
+
 // Begin starts one pass over base, the probe graph of this session's target.
 // Run the probes Begin returns, then give the results to Publish.
 //
@@ -119,6 +147,7 @@ func (s *WatchSession) Begin(base []Probe) *WatchPass {
 		force:        s.force || !s.settled || !within(at.Sub(s.lastFull)),
 		requested:    s.requests,
 		cache:        maps.Clone(s.cache),
+		generation:   s.generation.Load(),
 		ancestors:    ancestorsOf(base),
 		ran:          map[ProbeID]watchObservation{},
 		reused:       map[ProbeID]bool{},
@@ -161,13 +190,14 @@ func ancestorsOf(base []Probe) map[ProbeID][]ProbeID {
 // they touch only the copy of the cache taken at Begin and their own records,
 // which mu guards. The session changes only in Publish.
 type WatchPass struct {
-	session   *WatchSession
-	at        time.Time
-	force     bool
-	requested uint64
-	probes    []Probe
-	cache     map[ProbeID]watchObservation
-	ancestors map[ProbeID][]ProbeID
+	session    *WatchSession
+	at         time.Time
+	force      bool
+	requested  uint64
+	generation uint64
+	probes     []Probe
+	cache      map[ProbeID]watchObservation
+	ancestors  map[ProbeID][]ProbeID
 
 	mu     sync.Mutex
 	ran    map[ProbeID]watchObservation
@@ -226,6 +256,11 @@ func (p *WatchPass) reuse(id ProbeID, now time.Time) (ProbeResult, string, bool)
 	if !ok {
 		return ProbeResult{}, "", false
 	}
+	// Read live, not from the pass: a change reported while this pass runs
+	// refuses every observation sampled before it, from here on.
+	if ob.generation != p.session.generation.Load() {
+		return ProbeResult{}, "", false
+	}
 	if !within(now.Sub(ob.sampled)) {
 		return ProbeResult{}, "", false
 	}
@@ -262,6 +297,15 @@ func (p *WatchPass) Fresh() bool {
 	return len(p.reused) == 0
 }
 
+// Straddled reports whether the session's generation moved while this pass was
+// in flight. A pass that straddles a route change can hold rows from before the
+// change and rows from after it, so it describes no single network state. It is
+// still published and, when fresh, still counts as a run; a caller that keeps
+// baselines must not take a healthy straddled pass as one.
+func (p *WatchPass) Straddled() bool {
+	return p.session.generation.Load() != p.generation
+}
+
 func (p *WatchPass) record(id ProbeID, fp string, sampled time.Time, r ProbeResult) {
 	inputs := make(map[ProbeID]string, len(p.ancestors[id]))
 	for _, a := range p.ancestors[id] {
@@ -275,7 +319,7 @@ func (p *WatchPass) record(id ProbeID, fp string, sampled time.Time, r ProbeResu
 		inputs[a] = afp
 	}
 	p.mu.Lock()
-	p.ran[id] = watchObservation{result: cloneProbeResult(r), fingerprint: fp, sampled: sampled, inputs: inputs}
+	p.ran[id] = watchObservation{result: cloneProbeResult(r), fingerprint: fp, sampled: sampled, generation: p.generation, inputs: inputs}
 	p.mu.Unlock()
 }
 

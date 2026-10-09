@@ -24,6 +24,9 @@ type watchNet struct {
 	ifaceDown    bool
 	targetDown   bool
 	tlsBroken    bool
+	// quicBroken fails the QUIC row alone. Its route footprint is one no fresh row
+	// reads, so turning it on changes no path key and no interface fingerprint.
+	quicBroken bool
 	// broken names one row that fails on every run. A path test breaks a single
 	// row, so the other rows stay as they were and the verdict gate cannot mask
 	// the result under test.
@@ -92,6 +95,8 @@ func (n *watchNet) result(id ProbeID) ProbeResult {
 		return ProbeResult{Status: StatusFail, Cause: "timeout", Dur: 5 * time.Millisecond}
 	case id == ProbeTLS && n.tlsBroken:
 		return ProbeResult{Status: StatusFail, Cause: "tls-handshake", Dur: 5 * time.Millisecond}
+	case id == ProbeQUIC && n.quicBroken:
+		return ProbeResult{Status: StatusFail, Cause: "timeout", Dur: 5 * time.Millisecond}
 	case n.broken != "" && id == n.broken:
 		return ProbeResult{Status: StatusFail, Cause: "broken-on-new-path", Dur: 5 * time.Millisecond}
 	}
@@ -677,14 +682,34 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 	graphRows := len(watchIDs())
 
 	const passes = 720 // one hour at the five-second cadence
-	total, full, discarded, masked := 0, 0, 0, 0
+	total, full, discarded, masked, quicMasked := 0, 0, 0, 0, 0
 	quietRows, quietPasses := 0, 0
 	lastEvent := -passes
+	quicDetected := -1
+	const quicChangePass = 121
 	perRow := map[ProbeID]int{}
 	for pass := 0; pass < passes; pass++ {
+		if pass > 0 && pass%60 == 0 {
+			// Route churn with no effect on any row: a notification that costs
+			// one fresh pass and changes no status.
+			s.Invalidate()
+			lastEvent = pass
+		}
 		switch pass {
 		case 60:
 			n.iface = "wlan0" // interface and route change
+			s.Invalidate()
+			lastEvent = pass
+		case quicChangePass:
+			// A route change only QUIC reads. No fresh row moves, so only the
+			// notification tells the session to measure QUIC again. It lands one
+			// pass after a QUIC sample, the worst case for a row reused to max age.
+			n.quicBroken = true
+			s.Invalidate()
+			lastEvent = pass
+		case 331:
+			n.quicBroken = false
+			s.Invalidate()
 			lastEvent = pass
 		case 180:
 			n.targetDown = true
@@ -724,7 +749,7 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 			total += c - before[id]
 			executed += c - before[id]
 		}
-		faulted := n.targetDown || n.tlsBroken || n.ifaceDown
+		faulted := n.targetDown || n.tlsBroken || n.ifaceDown || n.quicBroken
 		if !faulted && pass-lastEvent > int(watchMaxAge/(5*time.Second)) {
 			quietRows += executed
 			quietPasses++
@@ -736,6 +761,13 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 		if published == graphRows {
 			full++
 		}
+		if n.quicBroken && quicDetected < 0 && res[ProbeQUIC].Status == StatusFail {
+			quicDetected = pass - quicChangePass
+		}
+		if n.quicBroken && res[ProbeQUIC].Status == StatusPass {
+			quicMasked++
+			continue
+		}
 		if n.tlsBroken && res[ProbeTLS].Status == StatusPass {
 			masked++
 			continue
@@ -745,15 +777,26 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 	baseline := passes * graphRows
 	t.Logf("passes=%d rows per pass=%d executions=%d baseline=%d (%.0f%%) full-graph passes=%d discarded=%d masked=%d",
 		passes, graphRows, total, baseline, 100*float64(total)/float64(baseline), full, discarded, masked)
+	t.Logf("QUIC route-footprint change at pass %d: first FAIL on pass +%d (0 is the first pass after the change); masked passes=%d",
+		quicChangePass, quicDetected, quicMasked)
 	for _, id := range watchIDs() {
 		t.Logf("  %-16s executed %4d of %d", id, perRow[id], passes)
 	}
 	// The bound is per quiet pass: the rows that always run, plus each reusable
 	// row once per watchMaxAge, with slack for a refresh that lands on the window
-	// edge. It is a count, not a time: the fakes cost nothing to run.
+	// edge. It is a count, not a time: the fakes cost nothing to run. The reusable
+	// set is spelled out here rather than read from watchReusable, so changing
+	// that set fails this test instead of quietly loosening its bound.
+	wantReusable := map[ProbeID]bool{
+		ProbeTLS: true, ProbeHTTP: true, ProbeHTTPS: true, ProbeSSH: true,
+		ProbeSMTP: true, ProbeQUIC: true, ProbeDNSEncrypted: true, ProbeProxy: true,
+	}
 	always, reusable := 0, 0
 	for _, id := range watchIDs() {
-		if watchReusable[id] {
+		if watchReusable[id] != wantReusable[id] {
+			t.Fatalf("watchReusable[%s] = %v, the quiet-pass bound assumes %v", id, watchReusable[id], wantReusable[id])
+		}
+		if wantReusable[id] {
 			reusable++
 		} else {
 			always++
@@ -770,6 +813,14 @@ func TestWatchHourOfStablePassesRunsFarFewerRows(t *testing.T) {
 	}
 	if masked > int(watchMaxAge/(5*time.Second)) {
 		t.Errorf("silent TLS fault masked for %d passes, past max age", masked)
+	}
+	if quicMasked > int(watchMaxAge/(5*time.Second)) {
+		t.Errorf("QUIC route-footprint change masked for %d passes, past max age", quicMasked)
+	}
+	// With the event in place the change is seen on its first pass. Waiting out
+	// max age instead is the fallback, and this test must not accept it.
+	if quicDetected < 0 || quicDetected > 1 {
+		t.Errorf("QUIC route-footprint change first seen on pass +%d, want +0 or +1: the route event did not refuse the reused row", quicDetected)
 	}
 }
 

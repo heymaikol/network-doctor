@@ -88,11 +88,13 @@ func Explain(f File, dest netip.Addr) Explanation {
 	}
 	var expTrunc, fwdTrunc bool
 	e.Expected, expTrunc = w.run(expectedPlanes, start)
+	expNotes := w.notes
 	e.Forwarding, fwdTrunc = w.run(forwardingPlanes, start)
+	fwdNotes := w.notes
 	e.Truncated = expTrunc || fwdTrunc
 	e.Findings = compareWalks(&e.Expected, &e.Forwarding)
 	e.Regions = failureRegions(&e.Forwarding)
-	e.Limitations = append(limitations(&e.Expected, &e.Forwarding), w.notes...)
+	e.Limitations = limitations(&e.Expected, &e.Forwarding, expNotes, fwdNotes)
 	return e
 }
 
@@ -133,7 +135,7 @@ func newWalker(f File, dest netip.Addr) *walker {
 }
 
 func (w *walker) run(planes []netmodel.Plane, start state) (Hop, bool) {
-	w.budget, w.truncated = maxStates, false
+	w.budget, w.truncated, w.notes = maxStates, false, nil
 	h := w.walk(planes, start, nil, nil)
 	return h, w.truncated
 }
@@ -215,7 +217,7 @@ func (w *walker) noteUnchecked(planes []netmodel.Plane, at state, ev []Support) 
 	if d.Kind == KindNoRoute || (d.Kind == KindUnknown && d.Prefix == "") || onLinkOnly(d, hops) {
 		return
 	}
-	w.addNote(fmt.Sprintf("%s (%s): destination is an address in %s. The walk's planes decide %s. The local decision keeps ownership without checking that decision.", at.node, at.vrf, evidenceText(ev), decisionText(d)))
+	w.notes = append(w.notes, fmt.Sprintf("%s (%s): destination is an address in %s. The walk's planes decide %s. The local decision keeps ownership without checking that decision.", at.node, at.vrf, evidenceText(ev), decisionText(d)))
 }
 
 // noteOtherOwners names every other routing domain that also lists the
@@ -228,15 +230,7 @@ func (w *walker) noteOtherOwners(at state, own []owning) {
 			continue
 		}
 		there := evidenceText(ownSupports(w.owned[ownerKey{w.dest, s}]))
-		w.addNote(fmt.Sprintf("%s (%s) and %s (%s) both list %s, in %s and in %s. The walk stops at %s (%s) and does not follow the other claim.", at.node, at.vrf, s.node, s.vrf, w.dest, here, there, at.node, at.vrf))
-	}
-}
-
-// addNote appends a limitation once. Equal-cost branches can reach the same
-// node, so one note can come up more than once.
-func (w *walker) addNote(note string) {
-	if !slices.Contains(w.notes, note) {
-		w.notes = append(w.notes, note)
+		w.notes = append(w.notes, fmt.Sprintf("%s (%s) and %s (%s) both list %s, in %s and in %s. The walk stops at %s (%s) and does not follow the other claim.", at.node, at.vrf, s.node, s.vrf, w.dest, here, there, at.node, at.vrf))
 	}
 }
 

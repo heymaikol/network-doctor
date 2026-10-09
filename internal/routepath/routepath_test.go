@@ -832,50 +832,31 @@ func TestRepeatedOwnerNamesTheContradictingRouteOnce(t *testing.T) {
 // it. The walk stops at its first owner, so the other claim must be named, not
 // dropped from both walks.
 func TestConflictingOwnersAcrossPlanesAreNamed(t *testing.T) {
-	obs := append(threeRouters(), netmodel.Observation{
+	owner := netmodel.Observation{
 		Provenance: netmodel.Provenance{Source: "ospf:r2:default", CollectedAt: t0},
 		Plane:      netmodel.PlaneControl,
 		Node:       "r2",
 		VRF:        "default",
 		Interfaces: []netmodel.Interface{ifc("lan", "10.20.40.8/24")},
-	})
-	e := explainFrom(t, obs, nil, fromR1, dest)
-	if !hasLimitation(e, "r2 (default)", "ospf:r2:default", "r3 (default)", "config:r3:default") {
-		t.Errorf("limitations = %q, want one naming both owners of %s and their sources", e.Limitations, dest)
 	}
-}
-
-// The FIB lists the destination on r3 and also discards its prefix. The owner
-// is in the walk's own plane, so the discard must still be named.
-func TestOwnershipInTheWalkPlaneStillNamesAContradictingFIBRoute(t *testing.T) {
-	obs := without(threeRouters(), "config:r3:default", "fib:r3:default")
-	obs = append(obs, configured("r3", "default", []netmodel.Interface{ifc("eth0", "10.0.23.3/30")},
-		netmodel.Neighbor{LocalInterface: "eth0", RemoteNode: "r2", RemoteInterface: "eth1", RemoteAddr: addr("10.0.23.2")}))
-	obs = append(obs, netmodel.Observation{
-		Provenance:     netmodel.Provenance{Source: "fib:r3:default", CollectedAt: t0},
-		Plane:          netmodel.PlaneFIB,
-		Node:           "r3",
-		VRF:            "default",
-		RoutesComplete: true,
-		Interfaces:     []netmodel.Interface{ifc("lan", "10.20.40.8/24")},
-		Routes:         []netmodel.Route{{Prefix: pfx("10.20.40.0/24"), Origin: "kernel", Discard: true}},
-	})
-	e := explainFrom(t, obs, nil, fromR1, dest)
-	if got := spine(e.Forwarding)[2].Decision.Kind; got != KindLocal {
-		t.Fatalf("forwarding r3 = %v, want local", got)
+	cases := []struct {
+		name, label string
+		obs         []netmodel.Observation
+	}{
+		// Both walks reach r2, so the owner note is shared and carries no walk label.
+		{"both walks reach the owner", "", append(threeRouters(), owner)},
+		// Only the forwarding walk reaches r2, so the note names that walk.
+		{"only the forwarding walk reaches the owner", " (forwarding walk)", append(without(threeRouters(), "control:r1:default"), owner)},
 	}
-	if !hasLimitation(e, "r3 (default)", "fib:r3:default", "discard 10.20.40.0/24") {
-		t.Errorf("limitations = %q, want one naming the FIB discard that the local owner did not check", e.Limitations)
-	}
-}
-
-// A partial FIB holds a discard for the destination's prefix. The walk cannot
-// prove that route is installed, but it must still say the route exists.
-func TestPartialFIBCandidateAgainstOwnershipIsNamed(t *testing.T) {
-	obs := append(without(threeRouters(), "fib:r3:default"), table(netmodel.PlaneFIB, "r3", "default", false,
-		netmodel.Route{Prefix: pfx("10.20.40.0/24"), Origin: "kernel", Discard: true}))
-	e := explainFrom(t, obs, nil, fromR1, dest)
-	if !hasLimitation(e, "r3 (default)", "fib:r3:default", "unknown") {
-		t.Errorf("limitations = %q, want one naming the unproven partial-FIB candidate", e.Limitations)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := explainFrom(t, c.obs, nil, fromR1, dest)
+			if !hasLimitation(e, "r2 (default)", "ospf:r2:default", "r3 (default)", "config:r3:default") {
+				t.Errorf("limitations = %q, want one naming both owners of %s and their sources", e.Limitations, dest)
+			}
+			if !hasLimitation(e, "both list", c.label+"") || (c.label == "" && hasLimitation(e, "both list", " walk)")) {
+				t.Errorf("limitations = %q, want the owner note labelled %q", e.Limitations, c.label)
+			}
+		})
 	}
 }

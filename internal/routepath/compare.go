@@ -168,7 +168,7 @@ func regionOf(full []*Hop) FailureRegion {
 
 // limitations says where reconstruction stopped or rests on an unproven
 // decision, in both walks. Each line names the node or the segment it is about.
-func limitations(exp, fwd *Hop) []string {
+func limitations(exp, fwd *Hop, expNotes, fwdNotes []string) []string {
 	var texts []string
 	walksOf := map[string][]string{}
 	add := func(walk, text string) {
@@ -182,7 +182,8 @@ func limitations(exp, fwd *Hop) []string {
 	for _, walk := range []struct {
 		label, unknown string
 		root           *Hop
-	}{{"expected", "expected route unknown", exp}, {"forwarding", "forwarding unknown", fwd}} {
+		notes          []string
+	}{{"expected", "expected route unknown", exp, expNotes}, {"forwarding", "forwarding unknown", fwd, fwdNotes}} {
 		walkHops(walk.root, func(h *Hop) {
 			where := nodeLabel(h)
 			switch h.Decision.Kind {
@@ -212,6 +213,9 @@ func limitations(exp, fwd *Hop) []string {
 				}
 			}
 		})
+		for _, n := range walk.notes {
+			add(walk.label, n)
+		}
 	}
 	out := []string{}
 	for _, text := range texts {

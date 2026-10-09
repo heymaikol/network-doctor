@@ -54,6 +54,7 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 		return m, m.setNotice("stopping jobs, then quitting", true)
 	}
 	m.clearCancel()
+	diagnostic.ReleaseProbes(m.probes)
 	return m, tea.Quit
 }
 
@@ -738,6 +739,9 @@ func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 		// Nothing measured for the last target may answer for this one.
 		m.watchSession = newWatchSession(m.now)
 	}
+	// Each run builds a graph of its own, so its target link is new. The graph
+	// it replaces is released first: its rows may still be in flight.
+	diagnostic.ReleaseProbes(m.probes)
 	m.buildPass()
 	m.analysisReady = false
 	if !newQuestion {
@@ -759,6 +763,7 @@ func (m model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 	switch p.kind {
 	case pendQuit:
 		m.clearCancel()
+		diagnostic.ReleaseProbes(m.probes)
 		return m, tea.Quit
 	case pendRestart:
 		m.applyTarget(p.target, p.newQuestion)

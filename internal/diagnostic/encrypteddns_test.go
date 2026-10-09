@@ -158,7 +158,7 @@ func serveDoH(w http.ResponseWriter, r *http.Request, reply dohReply) {
 }
 
 // serveDoT is the RFC 7858 side of the fixture: TLS, then length-prefixed DNS.
-func serveDoT(t *testing.T, p *pipeNet, cert tls.Certificate, reply dotReply) {
+func serveDoT(t testing.TB, p *pipeNet, cert tls.Certificate, reply dotReply) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {

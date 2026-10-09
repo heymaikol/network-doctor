@@ -89,6 +89,9 @@ var evidenceProjection = map[string]decision{
 		"reconcilePreferredPath consumes it inside Finalize, which runs before any snapshot is built, and what it " +
 		"concluded is persisted as the direct-egress row's cause. Restoring it would mean storing the routing table " +
 		"netdoc read rather than the answer it reached from it."},
+	"diagnostic.ProbeResult.acquisition": {category: transient, why: "which socket a row used, shared with its neighbors " +
+		"in the same run. The artifact format has no field for it and no diagnosis rule reads it, so a snapshot cannot claim " +
+		"that two rows shared a socket. Independence is decided by the rows that ran, not by this value."},
 	"diagnostic.ProbeResult.Dur": {category: persisted, why: "wall time. It is written as duration_ms and as ran, " +
 		"which is how a reader tells a probe that finished in under a millisecond from one that never executed. No " +
 		"diagnosis rule reads it, and restoring it would let a snapshot rebuilt from a replay claim a probe body ran."},
@@ -319,6 +322,7 @@ func maximalResult() ProbeResult {
 			Err: errors.New("connection refused"), Cause: ConnectionCauseRefused, Aborted: true,
 		}},
 		Dur:              7 * time.Millisecond,
+		acquisition:      7,
 		Detail:           "the second opinion disagreed",
 		Fix:              "check the configured resolver",
 		ConnectCleartext: true,

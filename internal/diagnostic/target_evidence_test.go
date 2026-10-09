@@ -30,7 +30,7 @@ func TestTargetEvidenceVerifiesCanceledSibling(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
 			defer cancel()
-			r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
+			r := o.targetTCPProbe(80, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
 			res := map[ProbeID]ProbeResult{ProbeDNS: {Status: StatusPass, Addrs: ips}, ProbeTargetTCP: r}
 			Finalize(res)
 			d := Interpret(&Target{Host: "failover.test", Port: 80}, []ProbeID{ProbeDNS, ProbeTargetTCP}, res)
@@ -166,7 +166,7 @@ func TestTargetEvidenceOrdinaryOutcomes(t *testing.T) {
 					}
 					return fakeConn{local: &net.TCPAddr{IP: b}}, nil
 				}
-				r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{a, b}}})
+				r := o.targetTCPProbe(80, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{a, b}}})
 				res := map[ProbeID]ProbeResult{ProbeDNS: {Status: StatusPass, Addrs: []net.IP{a, b}}, ProbeTargetTCP: cleanResult(r)}
 				Finalize(res)
 				_, found := addressCounterfactual(&Target{Host: "example.test", Port: 80}, res)
@@ -222,7 +222,7 @@ func TestTargetAttemptLimitLeavesResolvedAddressesUnknown(t *testing.T) {
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
 	defer cancel()
-	r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
+	r := o.targetTCPProbe(80, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
 	if calls.Load() != maxAttempts || len(r.Attempts) != maxAttempts {
 		t.Fatalf("calls=%d attempts=%d", calls.Load(), len(r.Attempts))
 	}
@@ -283,7 +283,7 @@ func TestTargetAttemptCoverageDiagnosis(t *testing.T) {
 			}}
 			ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
 			defer cancel()
-			r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
+			r := o.targetTCPProbe(80, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
 			if r.Families.IPv4 != tc.want4 || r.Families.IPv6 != tc.want6 {
 				t.Fatalf("families=%+v, want IPv4=%q IPv6=%q", r.Families, tc.want4, tc.want6)
 			}
@@ -350,7 +350,7 @@ func TestTargetProbeDeadlineIsNotAddressFailure(t *testing.T) {
 		}}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
-		r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{ip}}})
+		r := o.targetTCPProbe(80, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{ip}}})
 		if len(r.Attempts) != 1 || !r.Attempts[0].Aborted || r.Attempts[0].Cause != ConnectionCauseTimeout {
 			t.Fatalf("deadline evidence=%+v", r.Attempts)
 		}
@@ -376,7 +376,7 @@ func TestTargetProbeDeadlineOverridesInternalCancellation(t *testing.T) {
 		}}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
-		r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{refused, blocked}}})
+		r := o.targetTCPProbe(80, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{refused, blocked}}})
 		if len(r.Attempts) != 2 {
 			t.Fatalf("evidence=%+v", r.Attempts)
 		}
@@ -402,7 +402,7 @@ func TestTargetProbeCallerCancellationStaysCanceled(t *testing.T) {
 		<-dctx.Done()
 		return nil, context.Canceled
 	}}
-	r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{net.ParseIP("192.0.2.1")}}})
+	r := o.targetTCPProbe(80, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{net.ParseIP("192.0.2.1")}}})
 	if len(r.Attempts) != 1 || !r.Attempts[0].Aborted || r.Attempts[0].Cause != ConnectionCauseCanceled {
 		t.Fatalf("cancellation evidence=%+v", r.Attempts)
 	}
@@ -424,7 +424,7 @@ func TestTargetSuccessfulRaceLoserIsClosedWithoutFailure(t *testing.T) {
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
 	defer cancel()
-	r := o.targetTCPProbe(80)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{a, b}}})
+	r := o.targetTCPProbe(80, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{a, b}}})
 	if calls.Load() != 2 || r.Status != StatusPass || len(r.Attempts) != 1 || r.Attempts[0].Err != nil {
 		t.Fatalf("result=%+v calls=%d", r, calls.Load())
 	}

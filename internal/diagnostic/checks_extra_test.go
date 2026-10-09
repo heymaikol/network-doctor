@@ -1761,7 +1761,7 @@ func TestTargetTCPProbeIgnoresTheAbsentFamily(t *testing.T) {
 					return []net.Addr{&net.IPNet{IP: net.ParseIP("192.0.2.7"), Mask: net.CIDRMask(24, 32)}}, nil
 				},
 			}
-			r := ops.targetTCPProbe(443)(context.Background(), map[ProbeID]ProbeResult{ProbeDNS: {Addrs: c.addrs}})
+			r := ops.targetTCPProbe(443, nil)(context.Background(), map[ProbeID]ProbeResult{ProbeDNS: {Addrs: c.addrs}})
 			if r.Status != c.want {
 				t.Errorf("status = %v, want %v (detail %q)", r.Status, c.want, r.Detail)
 			}
@@ -1882,7 +1882,7 @@ func TestTargetTCPProbe(t *testing.T) {
 	dst := net.ParseIP("192.0.2.1")
 	deps := map[ProbeID]ProbeResult{ProbeDNS: {Addrs: []net.IP{dst}}}
 
-	r := (&netops{}).targetTCPProbe(443)(context.Background(), map[ProbeID]ProbeResult{})
+	r := (&netops{}).targetTCPProbe(443, nil)(context.Background(), map[ProbeID]ProbeResult{})
 	if r.Status != StatusFail || r.Detail != "no resolved addresses" {
 		t.Errorf("no addrs = %+v, want FAIL no resolved addresses", r)
 	}
@@ -1901,7 +1901,7 @@ func TestTargetTCPProbe(t *testing.T) {
 			return []net.Addr{&net.IPNet{IP: net.ParseIP("192.0.2.7"), Mask: net.CIDRMask(24, 32)}}, nil
 		},
 	}
-	r = ops.targetTCPProbe(443)(context.Background(), deps)
+	r = ops.targetTCPProbe(443, nil)(context.Background(), deps)
 	if r.Status != StatusPass || !r.SelectedIP.Equal(dst) || r.Iface != "fake0" {
 		t.Errorf("connect = %+v, want PASS pinned to 192.0.2.1 via fake0", r)
 	}
@@ -1915,7 +1915,7 @@ func TestTargetTCPProbe(t *testing.T) {
 	ops = &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
 		return nil, errors.New("refused")
 	}}
-	r = ops.targetTCPProbe(443)(context.Background(), deps)
+	r = ops.targetTCPProbe(443, nil)(context.Background(), deps)
 	if r.Status != StatusFail || !strings.Contains(r.Detail, "port 443 unreachable on all 1 address(es)") {
 		t.Errorf("all refused = %+v, want FAIL port unreachable", r)
 	}

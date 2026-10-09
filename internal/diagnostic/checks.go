@@ -203,9 +203,13 @@ type ProbeResult struct {
 	// answer, which is never the same as "there is no route".
 	Routes   []RouteDecision
 	Attempts []Attempt
-	Dur      time.Duration // wall time the probe took; zero for probes that never ran
-	Detail   string
-	Fix      string
+	// acquisition names the socket this observation used when that socket was
+	// shared with another row, so the rows can be told apart from independent
+	// connections. Zero means the row dialed its own socket.
+	acquisition uint64
+	Dur         time.Duration // wall time the probe took; zero for probes that never ran
+	Detail      string
+	Fix         string
 	// ConnectCleartext records that this row reached a working result over a
 	// plaintext HTTP CONNECT: the destination hostname was sent to the proxy
 	// without TLS on the client-to-proxy hop. It is a property of the proxy
@@ -274,6 +278,9 @@ type Probe struct {
 	// the shape of the run the graph was built for, and ProbeSelection drops
 	// the marked nodes when the run asked for no reference egress.
 	Reference bool
+	// link is the socket chain shared by the TCP, TLS and HTTPS rows of one target,
+	// nil everywhere else. armLinks decides which handoffs this graph will use.
+	link *targetLink
 }
 
 // DefaultProbeTimeout bounds a single probe when the caller names no other
@@ -660,6 +667,7 @@ func (o *netops) timedProbes(t *Target, publicDNS string, publicDNSAuto bool, ex
 	for i := range probes {
 		probes[i].Run = wrapRun(probes[i].Run)
 	}
+	armLinks(probes)
 	return probes
 }
 
@@ -670,6 +678,7 @@ func ProbePlan(t *Target, publicDNS string, publicDNSAuto bool) []Probe {
 	probes := new(netops).buildProbes(t, publicDNS, publicDNSAuto)
 	for i := range probes {
 		probes[i].Run = nil
+		probes[i].link = nil
 	}
 	return probes
 }
@@ -758,7 +767,13 @@ func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool
 	host, port := t.Host, t.Port
 	hp := net.JoinHostPort(host, strconv.Itoa(port)) // brackets IPv6 literals
 	dns := Probe{ID: ProbeDNS, Name: "DNS " + host, Deps: []ProbeID{ProbeIface}, Run: o.dnsProbe(host, t.IP)}
-	ttcp := Probe{ID: ProbeTargetTCP, Name: "TCP " + hp, Deps: []ProbeID{ProbeDNS}, Run: o.targetTCPProbe(port)}
+	// Only a target with a TLS and HTTPS chain shares its socket. Every other
+	// shape keeps each row dialing for itself.
+	var link *targetLink
+	if t.Proto == ProtoTLSHTTP {
+		link = newTargetLink()
+	}
+	ttcp := Probe{ID: ProbeTargetTCP, Name: "TCP " + hp, Deps: []ProbeID{ProbeDNS}, Run: o.targetTCPProbe(port, link), link: link}
 	// Path MTU hangs off the TCP connect rather than off any protocol row: a
 	// black hole breaks SSH and SMTP exactly as thoroughly as it breaks TLS.
 	pmtu := Probe{ID: ProbePMTU, Name: "Path MTU " + hp, Deps: []ProbeID{ProbeTargetTCP}, Run: o.pmtuProbe(port, t.Proto)}
@@ -777,13 +792,13 @@ func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool
 	switch t.Proto {
 	case ProtoTLSHTTP:
 		probes = append(probes,
-			Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.tlsProbe(host, port)},
-			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeDNS}, Run: o.httpProbe(host, 80, "http", ProbeDNS)},
-			Probe{ID: ProbeHTTPS, Name: "HTTPS " + host, Deps: []ProbeID{ProbeTLS}, Run: o.httpProbe(host, port, "https", ProbeTLS)},
+			Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.tlsProbe(host, port, link), link: link},
+			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeDNS}, Run: o.httpProbe(host, 80, "http", ProbeDNS, nil)},
+			Probe{ID: ProbeHTTPS, Name: "HTTPS " + host, Deps: []ProbeID{ProbeTLS}, Run: o.httpProbe(host, port, "https", ProbeTLS, link), link: link},
 		)
 	case ProtoHTTP:
 		probes = append(probes,
-			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.httpProbe(host, port, "http", ProbeTargetTCP)},
+			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.httpProbe(host, port, "http", ProbeTargetTCP, nil)},
 		)
 	case ProtoSSH:
 		probes = append(probes, o.bannerProbe(ProbeSSH, "SSH banner "+hp, "", port))
@@ -793,7 +808,7 @@ func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool
 		tlsHost := ""
 		if port == 465 {
 			tlsHost = host
-			probes = append(probes, Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.tlsProbe(host, port)})
+			probes = append(probes, Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.tlsProbe(host, port, nil)})
 		}
 		probes = append(probes, o.bannerProbe(ProbeSMTP, "SMTP banner "+hp, tlsHost, port))
 	}

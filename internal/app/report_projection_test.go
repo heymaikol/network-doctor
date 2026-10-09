@@ -92,6 +92,9 @@ var reportProjection = map[string]decision{
 		"order, which is the part a consumer reads, and has never published the edges."},
 	"diagnostic.Probe.Run": {category: transient, why: "the probe body, a function value. It produced the " +
 		"ProbeResult every row below is built from and has nothing left to say once the run is over."},
+	"diagnostic.Probe.link": {category: transient, why: "the handoff slot the TCP, TLS and HTTPS rows of one target " +
+		"share during a run. It holds a live socket, which a report cannot carry, and every run releases it before the " +
+		"report is built."},
 	"diagnostic.Probe.Reference": {category: absent, why: "whether this node dials Network Doctor's own reference " +
 		"infrastructure. It decides which probes the graph builds, so what it concluded is already visible as the " +
 		"set of rows the document carries."},
@@ -114,19 +117,22 @@ var reportProjection = map[string]decision{
 
 	// The live result. Everything here either reaches the document or says why
 	// a consumer is not given it.
-	"diagnostic.ProbeResult.Status":           {category: published},
-	"diagnostic.ProbeResult.Cause":            {category: published},
-	"diagnostic.ProbeResult.Families":         {category: published},
-	"diagnostic.ProbeResult.Portal":           {category: published},
-	"diagnostic.ProbeResult.Addrs":            {category: published},
-	"diagnostic.ProbeResult.ResolverTargets":  {category: published},
-	"diagnostic.ProbeResult.SelectedIP":       {category: published},
-	"diagnostic.ProbeResult.Source":           {category: published},
-	"diagnostic.ProbeResult.Iface":            {category: published},
-	"diagnostic.ProbeResult.Network":          {category: published},
-	"diagnostic.ProbeResult.Routes":           {category: published},
-	"diagnostic.ProbeResult.Attempts":         {category: published},
-	"diagnostic.ProbeResult.Dur":              {category: published},
+	"diagnostic.ProbeResult.Status":          {category: published},
+	"diagnostic.ProbeResult.Cause":           {category: published},
+	"diagnostic.ProbeResult.Families":        {category: published},
+	"diagnostic.ProbeResult.Portal":          {category: published},
+	"diagnostic.ProbeResult.Addrs":           {category: published},
+	"diagnostic.ProbeResult.ResolverTargets": {category: published},
+	"diagnostic.ProbeResult.SelectedIP":      {category: published},
+	"diagnostic.ProbeResult.Source":          {category: published},
+	"diagnostic.ProbeResult.Iface":           {category: published},
+	"diagnostic.ProbeResult.Network":         {category: published},
+	"diagnostic.ProbeResult.Routes":          {category: published},
+	"diagnostic.ProbeResult.Attempts":        {category: published},
+	"diagnostic.ProbeResult.Dur":             {category: published},
+	"diagnostic.ProbeResult.acquisition": {category: absent, why: "which socket a row used, so two rows that report the " +
+		"same connection can be told apart from two that dialed. Sharing changes no row's observation, and no published " +
+		"field carries provenance. Publishing it would be a schema change this report does not make."},
 	"diagnostic.ProbeResult.Detail":           {category: published},
 	"diagnostic.ProbeResult.Fix":              {category: published},
 	"diagnostic.ProbeResult.ConnectCleartext": {category: published},

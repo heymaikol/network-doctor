@@ -164,7 +164,7 @@ func TestTargetTCPProbeObservesBothFamiliesIndependently(t *testing.T) {
 		},
 		interfaces: func() ([]net.Interface, error) { return nil, nil },
 	}
-	r := ops.targetTCPProbe(443)(context.Background(), map[ProbeID]ProbeResult{
+	r := ops.targetTCPProbe(443, nil)(context.Background(), map[ProbeID]ProbeResult{
 		ProbeDNS: {Addrs: []net.IP{v4, v6}},
 	})
 	if r.Status != StatusPass || r.Families == nil || r.Families.IPv4 != FamilyReachable || r.Families.IPv6 != FamilyUnreachable {
@@ -187,7 +187,7 @@ func TestTargetTCPProbeSelectsTheFasterWorkingFamily(t *testing.T) {
 		},
 		interfaces: func() ([]net.Interface, error) { return nil, nil },
 	}
-	r := ops.targetTCPProbe(443)(context.Background(), map[ProbeID]ProbeResult{
+	r := ops.targetTCPProbe(443, nil)(context.Background(), map[ProbeID]ProbeResult{
 		ProbeDNS: {Addrs: []net.IP{v4, v6}},
 	})
 	if r.Status != StatusPass || !r.SelectedIP.Equal(v4) || r.Families == nil ||

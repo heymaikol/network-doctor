@@ -228,10 +228,13 @@ func (p *WatchPass) reuse(id ProbeID, now time.Time) (ProbeResult, string, bool)
 	p.mu.Lock()
 	p.reused[id] = true
 	p.mu.Unlock()
-	// The reused copy did not run this pass, so it reports no duration. Its
-	// attempts keep their addresses and outcomes, which are the evidence.
+	// The reused copy did not run this pass, so it reports no duration and no
+	// socket: the socket it names belonged to the graph of the pass that sampled
+	// it, and that graph has been released. Its attempts keep their addresses and
+	// outcomes, which are the evidence.
 	r := cloneProbeResult(ob.result)
 	r.Dur = 0
+	r.acquisition = 0
 	for i := range r.Attempts {
 		r.Attempts[i].Dur = 0
 	}

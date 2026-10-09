@@ -366,9 +366,14 @@ type budgetFixture struct {
 	dotPipe   *pipeNet
 	roots     *x509.CertPool
 	loopbacks []net.IP
+	// targetHandshakes counts ClientHellos for the target name only. DoH on the
+	// same listener is a different name and must not count against the target.
+	targetHandshakes atomic.Int64
+	// targetProto is the protocol major version of the last HEAD the target served.
+	targetProto atomic.Int64
 }
 
-func newBudgetFixture(t *testing.T) *budgetFixture {
+func newBudgetFixture(t testing.TB) *budgetFixture {
 	t.Helper()
 	cert, roots := selfSignedCert(t, EncryptedDNSHost, budgetTargetHost)
 	f := &budgetFixture{
@@ -380,7 +385,15 @@ func newBudgetFixture(t *testing.T) *budgetFixture {
 	}
 	quiet := log.New(io.Discard, "", 0)
 	tlsSrv := &http.Server{
-		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}},
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+				if hello.ServerName == budgetTargetHost {
+					f.targetHandshakes.Add(1)
+				}
+				return nil, nil
+			},
+		},
 		ReadHeaderTimeout: time.Second,
 		ErrorLog:          quiet,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -388,10 +401,15 @@ func newBudgetFixture(t *testing.T) *budgetFixture {
 				serveDoH(w, r, dohReply{})
 				return
 			}
+			if r.Method == http.MethodHead {
+				f.targetProto.Store(int64(r.ProtoMajor))
+			}
 			w.WriteHeader(http.StatusOK)
 		}),
 	}
-	f.tlsPipe.serve(t, tlsSrv, func() error { return tlsSrv.ServeTLS(f.tlsPipe, "", "") })
+	// The server keeps its own pipe: a case may swap f.tlsPipe before it dials.
+	tlsPipe := f.tlsPipe
+	tlsPipe.serve(t, tlsSrv, func() error { return tlsSrv.ServeTLS(tlsPipe, "", "") })
 	httpSrv := &http.Server{
 		ReadHeaderTimeout: time.Second,
 		ErrorLog:          quiet,

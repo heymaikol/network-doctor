@@ -493,7 +493,7 @@ func TestPMTUSelectionSurvivesTargetChanges(t *testing.T) {
 			if raw != "" {
 				target = mustTarget(t, raw)
 			}
-			m.applyTarget(target, true)
+			m = asModel(t, must(m.restartWithTarget(target, true)))
 			check(target != nil && (target.Proto != diagnostic.ProtoNone || explicit))
 		}
 	}

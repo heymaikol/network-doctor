@@ -54,6 +54,7 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 		return m, m.setNotice("stopping jobs, then quitting", true)
 	}
 	m.clearCancel()
+	diagnostic.ReleaseProbes(m.probes)
 	return m, tea.Quit
 }
 
@@ -712,8 +713,9 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 	return diagnostic.ParseTarget(fields[0])
 }
 
-// applyTarget swaps the run target and rebuilds its probes. newQuestion is the
-// watch session's lifecycle boundary, and it is the caller's to state.
+// applyTarget swaps the run target. restartRun builds the probes for it.
+// newQuestion is the watch session's lifecycle boundary, and it is the caller's
+// to state.
 //
 // Everything below the target swap is the session: the per-probe pass history
 // the sparklines are drawn from and the incidents recorded against it. All of
@@ -730,9 +732,6 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // underneath the preserved history.
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
-	// Rows of the graph being replaced may still hold the target socket.
-	diagnostic.ReleaseProbes(m.probes)
-	m.probes = m.selection.BuildProbesFromSources(t, m.sources, m.publicDNS, m.publicDNSAuto)
 	m.analysisReady = false
 	if !newQuestion {
 		return
@@ -753,6 +752,7 @@ func (m model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 	switch p.kind {
 	case pendQuit:
 		m.clearCancel()
+		diagnostic.ReleaseProbes(m.probes)
 		return m, tea.Quit
 	case pendRestart:
 		m.applyTarget(p.target, p.newQuestion)
@@ -782,9 +782,9 @@ func (m *model) doRestart() tea.Cmd {
 }
 
 // restartRun bumps the generation (invalidating outstanding probe/job
-// messages), clears the previous run's results, resets the context, and
-// reschedules from the root. Everything it touches belongs to the run being
-// replaced and to nothing else.
+// messages), builds the probe graph for the new run, clears the previous run's
+// results, resets the context, and reschedules from the root. Everything it
+// touches belongs to the run being replaced and to nothing else.
 //
 // namesPending is part of that: it tracks lookups issued under the old
 // generation, whose replies this restart drops, so those rows fall back to
@@ -796,12 +796,14 @@ func (m *model) restartRun() tea.Cmd {
 	m.ctx = nil
 	m.tools = toolsFor(m.target, runtime.GOOS, bindFor(m.sources))
 	m.generation++
+	// Each run builds a graph of its own, so its target link is new. The graph
+	// it replaces is released first: its rows may still be in flight. The build
+	// comes before the analysis, which reads the rows of the graph.
+	diagnostic.ReleaseProbes(m.probes)
+	m.probes = m.selection.BuildProbesFromSources(m.target, m.sources, m.publicDNS, m.publicDNSAuto)
 	m.results = map[diagnostic.ProbeID]diagnostic.ProbeResult{}
 	m.refreshAnalysis()
 	m.started = map[diagnostic.ProbeID]bool{}
-	// The restarted run reuses this graph, so its target socket is released first:
-	// a row of the abandoned run may still be in flight.
-	diagnostic.ReleaseProbes(m.probes)
 	m.scheduler = nil
 	m.namesPending = nil
 	gen := m.generation

@@ -178,7 +178,7 @@ func TestWatchAndTargetRestartPreserveProbeSelection(t *testing.T) {
 	if got := ids(m.probes); !reflect.DeepEqual(got, want) {
 		t.Errorf("watch restart probes = %v, want %v", got, want)
 	}
-	m.applyTarget(mustTarget(t, "example.org"), true)
+	m = asModel(t, must(m.restartWithTarget(mustTarget(t, "example.org"), true)))
 	if got := ids(m.probes); !reflect.DeepEqual(got, want) {
 		t.Errorf("target restart probes = %v, want %v", got, want)
 	}
@@ -188,7 +188,7 @@ func TestWatchAndTargetRestartPreserveProbeSelection(t *testing.T) {
 	if len(m.probes) != 0 {
 		t.Fatalf("generic SSH selection = %v, want empty", ids(m.probes))
 	}
-	m.applyTarget(mustTarget(t, "ssh://example.org"), true)
+	m = asModel(t, must(m.restartWithTarget(mustTarget(t, "ssh://example.org"), true)))
 	want = []diagnostic.ProbeID{diagnostic.ProbeIface, diagnostic.ProbeDNS, diagnostic.ProbeTargetTCP, diagnostic.ProbeSSH}
 	if got := ids(m.probes); !reflect.DeepEqual(got, want) {
 		t.Errorf("conditional selection after target change = %v, want %v", got, want)
@@ -491,21 +491,27 @@ func TestScheduleStepDispatchesEveryReadyProbeConcurrently(t *testing.T) {
 func TestSchedulerGenerationReset(t *testing.T) {
 	m := newModel(nil, false)
 	var calls [4]int
-	m.probes = []diagnostic.Probe{
-		diffProbe("root", diagnostic.StatusWarn),
-		diffProbe("na", diagnostic.StatusNA),
-		diffProbe("join", diagnostic.StatusPass, "root", "na"),
-		diffProbe("tail", diagnostic.StatusPass, "join"),
-	}
-	for i := range m.probes {
-		run := m.probes[i].Run
-		m.probes[i].Run = func(ctx context.Context, deps map[diagnostic.ProbeID]diagnostic.ProbeResult) diagnostic.ProbeResult {
-			calls[i]++
-			res := run(ctx, deps)
-			res.ID = "wrong"
-			return res
+	// A restart rebuilds the graph from the selection, which this fixture is not
+	// part of, so the fixture is installed again after each rebuild.
+	graph := func() []diagnostic.Probe {
+		probes := []diagnostic.Probe{
+			diffProbe("root", diagnostic.StatusWarn),
+			diffProbe("na", diagnostic.StatusNA),
+			diffProbe("join", diagnostic.StatusPass, "root", "na"),
+			diffProbe("tail", diagnostic.StatusPass, "join"),
 		}
+		for i := range probes {
+			run := probes[i].Run
+			probes[i].Run = func(ctx context.Context, deps map[diagnostic.ProbeID]diagnostic.ProbeResult) diagnostic.ProbeResult {
+				calls[i]++
+				res := run(ctx, deps)
+				res.ID = "wrong"
+				return res
+			}
+		}
+		return probes
 	}
+	m.probes = graph()
 	m = asModel(t, must(m.Update(scheduleMsg{gen: m.generation})))
 	if m.scheduler == nil || len(m.started) != 2 {
 		t.Fatal("roots were not dispatched")
@@ -514,6 +520,7 @@ func TestSchedulerGenerationReset(t *testing.T) {
 	stale := probeDoneMsg{id: "root", gen: m.generation, res: diagnostic.ProbeResult{Status: diagnostic.StatusFail}}
 	oldGeneration := m.generation
 	_ = m.restartRun()
+	m.probes = graph()
 	if m.scheduler != nil || len(m.results) != 0 || len(m.started) != 0 {
 		t.Fatal("restart retained scheduling state")
 	}
@@ -536,6 +543,7 @@ func TestSchedulerGenerationReset(t *testing.T) {
 	if m.scheduler != nil || len(m.results) != 0 {
 		t.Fatal("watch retained scheduling state")
 	}
+	m.probes = graph()
 	// Drive this pass without watch timers. Existing watch tests pin history.
 	m.watch = false
 	m = driveTUIScheduler(t, m, true)

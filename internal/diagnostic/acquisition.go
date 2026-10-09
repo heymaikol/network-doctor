@@ -107,6 +107,13 @@ func (l *targetLink) take() net.Conn {
 	return c
 }
 
+// open reports whether the link still accepts a connection.
+func (l *targetLink) open() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return !l.closed
+}
+
 // release closes any stored connection and refuses later offers.
 func (l *targetLink) release() {
 	if l == nil {
@@ -128,6 +135,18 @@ func ReleaseProbes(probes []Probe) {
 	for _, p := range probes {
 		p.link.release()
 	}
+}
+
+// TargetSocketOpen reports whether the graph's target link still accepts a
+// connection. It is false once the graph is released, and for a graph with no
+// target link at all.
+func TargetSocketOpen(probes []Probe) bool {
+	for _, p := range probes {
+		if p.link != nil {
+			return p.link.open()
+		}
+	}
+	return false
 }
 
 // armLinks lets the rows that survived selection hand the socket along. A row

@@ -300,24 +300,32 @@ func (w *walker) complete(at state, p netmodel.Plane) bool {
 
 // outcome reads the recorded checks for the segment that leaves at through n.
 // A check that names this next hop applies to it. A check that names none
-// applies to the interface only when the interface carries one next hop. When
-// several share it, the check is unattributed rather than given to one of them.
+// applies to the interface when the interface carries one next hop. When
+// several share it, an unnamed check cannot be placed on any of them, so the
+// segment is unattributed unless a named failure or conflict says more.
 // Silence is OutcomeNone, and it never counts as a failure.
 func (w *walker) outcome(at state, n netmodel.NextHop, shared int) (Outcome, []Support) {
 	key := func(nh string) checkKey { return checkKey{at.node, at.vrf, n.Interface, w.dest, nh} }
+	var named []Check
 	if nh := keyAddr(n.Addr); nh != "" {
-		if rs := w.checks[key(nh)]; len(rs) > 0 {
-			return resultOf(rs)
+		named = w.checks[key(nh)]
+	}
+	unnamed := w.checks[key("")]
+	if shared > 1 && len(unnamed) > 0 {
+		if len(named) > 0 {
+			if out, sup := resultOf(named); out == OutcomeFail || out == OutcomeConflicting {
+				return out, sup
+			}
 		}
+		return OutcomeUnattributed, supportsOf(unnamed)
 	}
-	rs := w.checks[key("")]
-	switch {
-	case len(rs) == 0:
+	// Named and unnamed checks both apply to a single-hop interface, so they
+	// combine. A pass beside an unnamed failure is a conflict, not a pass.
+	all := append(slices.Clone(named), unnamed...)
+	if len(all) == 0 {
 		return OutcomeNone, nil
-	case shared > 1:
-		return OutcomeUnattributed, supportsOf(rs)
 	}
-	return resultOf(rs)
+	return resultOf(all)
 }
 
 // resultOf turns the checks for one segment into its outcome, and keeps each

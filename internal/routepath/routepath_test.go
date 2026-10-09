@@ -684,3 +684,17 @@ func TestUnnamedCheckIsNotPlacedPastTheFanOutCap(t *testing.T) {
 		t.Errorf("fib_forwarding_failed = %+v, want none", got)
 	}
 }
+
+// A named pass does not hide an unnamed failure on a single-hop interface. Both
+// apply to the one segment, so the recorded results conflict.
+func TestNamedPassDoesNotHideAnUnnamedFailure(t *testing.T) {
+	pass := check("r1", "default", "eth1", dest, CheckPass)
+	pass.NextHop = addr("10.0.12.2")
+	e := explainFrom(t, threeRouters(), []Check{pass, check("r1", "default", "eth1", dest, CheckFail)}, fromR1, dest)
+	if got := e.Forwarding.Next[0].Via.Outcome; got != OutcomeConflicting {
+		t.Errorf("segment outcome = %s, want conflicting: a pass and an unnamed fail both apply", got)
+	}
+	if got := findings(e, FindingForwardingFailed); len(got) != 0 {
+		t.Errorf("fib_forwarding_failed = %+v, want none: the recorded checks conflict, so no failure is claimed", got)
+	}
+}

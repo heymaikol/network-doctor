@@ -534,6 +534,25 @@ func TestIntendedAndObservedAddressesOwnNothing(t *testing.T) {
 	}
 }
 
+// A planned neighbor is not evidence of a node either, so it must not explain
+// an unresolved next hop.
+func TestIntendedNeighborNamesNoNextHop(t *testing.T) {
+	obs := without(threeRouters(), "fib:r1:default")
+	obs = append(obs,
+		table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", nh("10.77.0.9", "eth1"))),
+		netmodel.Observation{
+			Provenance: netmodel.Provenance{Source: "intent:r1", CollectedAt: t0},
+			Plane:      netmodel.PlaneIntended,
+			Node:       "r1",
+			VRF:        "default",
+			Neighbors:  []netmodel.Neighbor{{LocalInterface: "eth1", RemoteNode: "r9", RemoteAddr: addr("10.77.0.9")}},
+		})
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := e.Forwarding.Next[0].Decision.Reason; strings.Contains(got, "r9") {
+		t.Errorf("unresolved reason = %q, want no claim from the intended neighbor", got)
+	}
+}
+
 // A partial control table may hide a more specific route, so a complete FIB
 // that differs from it cannot be called a disagreement.
 func TestPartialControlTableCannotContradictCompleteFIB(t *testing.T) {

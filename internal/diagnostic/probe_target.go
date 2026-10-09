@@ -38,7 +38,7 @@ func ConnectionFailureCause(err error) string {
 	return ConnectionCauseUnreachable
 }
 
-func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+func (o *netops) targetTCPProbe(port int, link *targetLink) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
 	return func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
 		var r ProbeResult
 		addrs := interleaveFamilies(deps[ProbeDNS].Addrs)
@@ -85,7 +85,12 @@ func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]Prob
 		conn, sel, rtt := primary.conn, primary.sel, primary.rtt
 		r.Attempts = append(append([]Attempt{}, primary.attempts...), secondary.attempts...)
 		if conn != nil {
-			defer conn.Close()
+			// A socket handed to the TLS row is not closed here. Offering it on
+			// below is the only way it leaves this probe.
+			handoff := link != nil && link.toTLS
+			if !handoff {
+				defer conn.Close()
+			}
 			if secondary.conn != nil {
 				defer secondary.conn.Close()
 			}
@@ -109,6 +114,13 @@ func (o *netops) targetTCPProbe(port int) func(context.Context, map[ProbeID]Prob
 			r.Attempts = warningAttempts
 			applyDialWarnings(&r, rtt)
 			r.Attempts = allAttempts
+			if handoff {
+				if link.offer(conn) {
+					r.acquisition = link.id
+				} else {
+					_ = conn.Close()
+				}
+			}
 			return r
 		}
 		refused := len(r.Attempts) > 0 && ctx.Err() == nil
@@ -185,7 +197,7 @@ func (o *netops) verifyTargetSibling(ctx context.Context, resolved []net.IP, win
 	return Attempt{}, false
 }
 
-func (o *netops) tlsProbe(host string, port int) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+func (o *netops) tlsProbe(host string, port int, link *targetLink) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
 	return func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
 		var r ProbeResult
 		ip := deps[ProbeTargetTCP].SelectedIP
@@ -193,9 +205,24 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 			r.Status, r.Detail = StatusSkip, "no pinned IP from Target TCP"
 			return r
 		}
-		conn, err := o.dialTLS(ctx, "tcp", o.hostPort(ip, port), &tls.Config{ServerName: host})
+		// With a socket from Target TCP, handshake on it rather than dialing.
+		// A nil link yields nil here, and the row dials as it always has.
+		shared := link.take()
+		var id uint64
+		var conn net.Conn
+		var err error
+		if shared != nil {
+			id = link.id
+			var tc *tls.Conn
+			if tc, err = handshakeOn(ctx, shared, host, o.tlsRootCAs, link.toHTTPS); err == nil {
+				conn = tc
+			}
+		} else {
+			conn, err = o.dialTLS(ctx, "tcp", o.hostPort(ip, port), &tls.Config{ServerName: host})
+		}
 		if err != nil {
 			r = tlsFailed(ip, err)
+			r.acquisition = id
 			if iface := deps[ProbeTargetTCP].Iface; timeoutError(err) {
 				if mtu := o.mtuFor(iface); mtu > 0 {
 					r.Detail += fmt.Sprintf(" (%s MTU is %d)", iface, mtu)
@@ -203,8 +230,13 @@ func (o *netops) tlsProbe(host string, port int) func(context.Context, map[Probe
 			}
 			return r
 		}
-		_ = conn.Close()
 		r.Status, r.SelectedIP, r.Detail = StatusPass, ip, "TLS handshake OK (SNI "+host+")"
+		r.acquisition = id
+		// The session goes on to HTTPS only when HTTPS is in this graph. Otherwise
+		// it closes here, as it always did.
+		if shared == nil || !link.toHTTPS || !link.offer(conn) {
+			_ = conn.Close()
+		}
 		return r
 	}
 }
@@ -333,9 +365,11 @@ func tlsFailureCause(err error, now time.Time) string {
 	}
 }
 
-func (o *netops) httpProbe(host string, port int, scheme string, addressDep ProbeID) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
+func (o *netops) httpProbe(host string, port int, scheme string, addressDep ProbeID, link *targetLink) func(context.Context, map[ProbeID]ProbeResult) ProbeResult {
 	return func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
 		var r ProbeResult
+		// Whatever socket the transport did not take is closed when this row ends.
+		defer link.release()
 		protocol := strings.ToUpper(scheme)
 		var addrs []net.IP
 		if addressDep == ProbeDNS {
@@ -353,12 +387,13 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		// on ctx timeout, so the closure must not write to r directly.
 		var dialMu sync.Mutex
 		var dialIP net.IP
+		var reused bool // the transport used the Target TCP and TLS socket
 		var dialAttempts []Attempt
 		var answered, started atomic.Bool
 		dial := func(ctx context.Context, _, _ string) (net.Conn, error) {
 			conn, selected, attempts, _ := o.dialIPs(ctx, addrs, port)
 			dialMu.Lock()
-			dialIP, dialAttempts = selected, attempts
+			dialIP, dialAttempts, reused = selected, attempts, false
 			dialMu.Unlock()
 			if conn == nil {
 				if len(attempts) > 0 && attempts[len(attempts)-1].Err != nil {
@@ -380,6 +415,17 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		// with its own traces, and has already added h2 to the ALPN list of the
 		// config cloned here, as it does for the connections it wraps itself.
 		tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// The socket the TLS row handed over is used by the first dial that asks
+			// for one. A nil link, or an empty slot, dials as before.
+			if c := link.take(); c != nil {
+				if tc, ok := c.(*tls.Conn); ok {
+					dialMu.Lock()
+					dialIP, dialAttempts, reused = addrs[0], nil, true
+					dialMu.Unlock()
+					return &h2ResponseConn{Conn: tc, answered: &answered}, nil
+				}
+				_ = c.Close()
+			}
 			conn, err := dial(ctx, network, addr)
 			if err != nil {
 				return nil, err
@@ -420,6 +466,9 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		resp, err := client.Do(req)
 		dialMu.Lock()
 		r.SelectedIP, r.Attempts = dialIP, dialAttempts
+		if reused {
+			r.acquisition = link.id
+		}
 		dialMu.Unlock()
 		if err != nil {
 			r.Status = StatusFail

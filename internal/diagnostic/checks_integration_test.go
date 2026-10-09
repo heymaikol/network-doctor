@@ -82,7 +82,7 @@ func TestTargetTCPProbeRefusedLoopback(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	r := defaultOps.targetTCPProbe(port)(ctx, map[ProbeID]ProbeResult{
+	r := defaultOps.targetTCPProbe(port, nil)(ctx, map[ProbeID]ProbeResult{
 		ProbeDNS: {Addrs: []net.IP{net.ParseIP("127.0.0.1")}},
 	})
 	if r.Status != StatusFail || r.Cause != ConnectionCauseRefused {

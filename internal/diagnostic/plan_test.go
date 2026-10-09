@@ -27,6 +27,7 @@ func TestProbePlanHasProductionMetadataAndNoExecutableBodies(t *testing.T) {
 				defaultOps = saved
 				for i := range production {
 					production[i].Run = nil
+					production[i].link = nil
 				}
 				if !reflect.DeepEqual(plan, production) {
 					t.Fatalf("graph metadata differs for %q, public=%q, auto=%t", raw, public, auto)

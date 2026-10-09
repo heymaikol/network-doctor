@@ -730,6 +730,8 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // underneath the preserved history.
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
+	// Rows of the graph being replaced may still hold the target socket.
+	diagnostic.ReleaseProbes(m.probes)
 	m.probes = m.selection.BuildProbesFromSources(t, m.sources, m.publicDNS, m.publicDNSAuto)
 	m.analysisReady = false
 	if !newQuestion {
@@ -797,6 +799,9 @@ func (m *model) restartRun() tea.Cmd {
 	m.results = map[diagnostic.ProbeID]diagnostic.ProbeResult{}
 	m.refreshAnalysis()
 	m.started = map[diagnostic.ProbeID]bool{}
+	// The restarted run reuses this graph, so its target socket is released first:
+	// a row of the abandoned run may still be in flight.
+	diagnostic.ReleaseProbes(m.probes)
 	m.scheduler = nil
 	m.namesPending = nil
 	gen := m.generation

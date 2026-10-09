@@ -204,5 +204,6 @@ func (s ProbeSelection) Apply(probes []Probe) []Probe {
 			selected = append(selected, p)
 		}
 	}
+	armLinks(selected)
 	return selected
 }

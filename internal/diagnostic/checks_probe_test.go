@@ -190,7 +190,7 @@ func TestBannerProbeClassifiesWrappedReset(t *testing.T) {
 func TestHTTPProbeClassifiesWrappedReset(t *testing.T) {
 	ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) { return resetConn{}, nil }}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
-	r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP)(context.Background(), deps)
+	r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP, nil)(context.Background(), deps)
 	if r.Status != StatusFail || r.Cause != ConnectionCauseReset {
 		t.Fatalf("HTTP reset result = %+v", r)
 	}
@@ -238,7 +238,7 @@ func TestTargetTCPProbeAttemptCap(t *testing.T) {
 		ips[i] = net.ParseIP(fmt.Sprintf("192.0.2.%d", i+1))
 	}
 
-	r := ops.targetTCPProbe(80)(context.Background(), map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
+	r := ops.targetTCPProbe(80, nil)(context.Background(), map[ProbeID]ProbeResult{ProbeDNS: {Addrs: ips}})
 	if calls != maxAttempts || len(r.Attempts) != maxAttempts {
 		t.Errorf("calls = %d, attempts = %d, want %d each", calls, len(r.Attempts), maxAttempts)
 	}
@@ -274,7 +274,7 @@ func TestTargetTCPProbeClassifiesOnlyWrappedSocketRefusal(t *testing.T) {
 			ops := &netops{dialContext: func(context.Context, string, string) (net.Conn, error) {
 				return nil, tt.err
 			}}
-			r := ops.targetTCPProbe(443)(context.Background(), deps)
+			r := ops.targetTCPProbe(443, nil)(context.Background(), deps)
 			if r.Status != StatusFail || r.Cause != tt.wantCause {
 				t.Fatalf("result = %+v, want FAIL cause %q", r, tt.wantCause)
 			}
@@ -302,7 +302,7 @@ func TestTargetTCPProbeDoesNotClassifyMixedFailuresAsRefusal(t *testing.T) {
 		return nil, os.ErrDeadlineExceeded
 	}}
 	addrs := []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")}
-	r := ops.targetTCPProbe(443)(context.Background(), map[ProbeID]ProbeResult{ProbeDNS: {Addrs: addrs}})
+	r := ops.targetTCPProbe(443, nil)(context.Background(), map[ProbeID]ProbeResult{ProbeDNS: {Addrs: addrs}})
 	if r.Status != StatusFail || r.Cause != "" || len(r.Attempts) != 2 || !strings.Contains(r.Detail, "unreachable") {
 		t.Fatalf("mixed refusal and timeout = %+v, want the broader failure", r)
 	}
@@ -1392,7 +1392,7 @@ func TestTLSProbeHandshakeFailure(t *testing.T) {
 	}}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
 
-	r := ops.tlsProbe("example.com", 443)(context.Background(), deps)
+	r := ops.tlsProbe("example.com", 443, nil)(context.Background(), deps)
 	if r.Status != StatusFail || !strings.Contains(r.Detail, "TLS check to 192.0.2.1 failed") ||
 		!strings.Contains(r.Detail, "certificate has expired") || r.Fix == "" {
 		t.Errorf("handshake failure = %+v, want FAIL with error detail and a fix", r)
@@ -1441,7 +1441,7 @@ func TestTLSProbeIncludesBackwardCompatibleCause(t *testing.T) {
 		return nil, fmt.Errorf("verify peer: %w", errExpired)
 	}}
 	deps := map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}}
-	r := ops.tlsProbe("secure-target.test", 443)(context.Background(), deps)
+	r := ops.tlsProbe("secure-target.test", 443, nil)(context.Background(), deps)
 	if r.Status != StatusFail || r.Cause != TLSCauseCertificateExpired ||
 		!strings.HasPrefix(r.Detail, "TLS check to 192.0.2.1 failed:") || r.Fix == "" {
 		t.Fatalf("TLS result = %+v", r)
@@ -1462,7 +1462,7 @@ func TestTLSProbeTimeoutReportsMTU(t *testing.T) {
 		Iface:      "fake0",
 	}}
 
-	r := ops.tlsProbe("example.com", 443)(context.Background(), deps)
+	r := ops.tlsProbe("example.com", 443, nil)(context.Background(), deps)
 	if !strings.Contains(r.Detail, "fake0 MTU is 1420") ||
 		!strings.Contains(r.Fix, "Path MTU row") || r.Cause != TLSCauseTimeout {
 		t.Errorf("TLS timeout = %+v, want MTU detail and a pointer at the PMTU row", r)
@@ -2421,16 +2421,16 @@ func TestProbesMalformedDeps(t *testing.T) {
 	empty := map[ProbeID]ProbeResult{}
 	ctx := context.Background()
 
-	if r := ops.targetTCPProbe(443)(ctx, empty); r.Status != StatusFail || !strings.Contains(r.Detail, "no resolved addresses") {
+	if r := ops.targetTCPProbe(443, nil)(ctx, empty); r.Status != StatusFail || !strings.Contains(r.Detail, "no resolved addresses") {
 		t.Errorf("targetTCP without DNS result = %+v, want FAIL 'no resolved addresses'", r)
 	}
-	if r := ops.tlsProbe("example.com", 443)(ctx, empty); r.Status != StatusSkip {
+	if r := ops.tlsProbe("example.com", 443, nil)(ctx, empty); r.Status != StatusSkip {
 		t.Errorf("tls without pinned IP = %+v, want SKIP", r)
 	}
-	if r := ops.httpProbe("example.com", 80, "http", ProbeDNS)(ctx, empty); r.Status != StatusSkip {
+	if r := ops.httpProbe("example.com", 80, "http", ProbeDNS, nil)(ctx, empty); r.Status != StatusSkip {
 		t.Errorf("http without DNS addrs = %+v, want SKIP", r)
 	}
-	if r := ops.httpProbe("example.com", 443, "https", ProbeTLS)(ctx, empty); r.Status != StatusSkip {
+	if r := ops.httpProbe("example.com", 443, "https", ProbeTLS, nil)(ctx, empty); r.Status != StatusSkip {
 		t.Errorf("https without TLS pinned IP = %+v, want SKIP", r)
 	}
 	if r := ops.bannerProbe(ProbeSSH, "SSH banner", "", 22).Run(ctx, empty); r.Status != StatusSkip {
@@ -2461,7 +2461,7 @@ func TestHTTPProbeHeaderLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP)(ctx, deps)
+	r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP, nil)(ctx, deps)
 	if r.Status != StatusFail || r.Cause != HTTPCauseInvalidResponse || !strings.Contains(r.Detail, "HTTP response from 192.0.2.1 could not be read") || !strings.Contains(r.Detail, "exceeded") {
 		t.Errorf("oversized headers = %+v, want FAIL naming the address and the exceeded header limit", r)
 	}
@@ -2477,7 +2477,7 @@ func TestHTTPProbeFailureNamesAddresses(t *testing.T) {
 	addrs := []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")}
 	deps := map[ProbeID]ProbeResult{ProbeDNS: {Addrs: addrs}}
 
-	r := ops.httpProbe("example.com", 80, "http", ProbeDNS)(context.Background(), deps)
+	r := ops.httpProbe("example.com", 80, "http", ProbeDNS, nil)(context.Background(), deps)
 	if r.Status != StatusFail || !strings.Contains(r.Detail, "192.0.2.1, 192.0.2.2") {
 		t.Errorf("total dial failure = %+v, want FAIL listing every attempted address", r)
 	}
@@ -2498,7 +2498,7 @@ func TestHTTPProbeDialOutlivesRequest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	r := ops.httpProbe("example.com", 80, "http", ProbeDNS)(ctx, deps)
+	r := ops.httpProbe("example.com", 80, "http", ProbeDNS, nil)(ctx, deps)
 	time.Sleep(100 * time.Millisecond) // stay alive for the dial's write, the racing access
 
 	if r.Status != StatusFail || !strings.Contains(r.Detail, "192.0.2.1") {
@@ -2532,7 +2532,7 @@ func TestHTTPSProbeSupportsHTTP2OnlyServer(t *testing.T) {
 
 	ops := &netops{dialContext: p.dial, tlsRootCAs: roots}
 	deps := map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}}
-	r := ops.httpProbe(host, 443, "https", ProbeTLS)(context.Background(), deps)
+	r := ops.httpProbe(host, 443, "https", ProbeTLS, nil)(context.Background(), deps)
 	if r.Status != StatusPass {
 		t.Fatalf("HTTP/2-only HTTPS probe = %+v, want PASS", r)
 	}
@@ -2564,7 +2564,7 @@ func TestHTTPSProbeStillVerifiesTheCertificate(t *testing.T) {
 			p.serve(t, srv, func() error { return srv.ServeTLS(p, "", "") })
 			ops := &netops{dialContext: p.dial, tlsRootCAs: tc.roots}
 			deps := map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}}
-			r := ops.httpProbe(tc.host, 443, "https", ProbeTLS)(context.Background(), deps)
+			r := ops.httpProbe(tc.host, 443, "https", ProbeTLS, nil)(context.Background(), deps)
 			if r.Status != StatusFail || r.Cause != "" || !strings.Contains(r.Detail, "x509") || reached.Load() {
 				t.Fatalf("result = %+v, handler reached %v; want a certificate failure before any request", r, reached.Load())
 			}
@@ -2839,7 +2839,7 @@ type pipeNet struct {
 	dialed []string
 }
 
-func newPipeNet(t *testing.T) *pipeNet {
+func newPipeNet(t testing.TB) *pipeNet {
 	p := &pipeNet{conns: make(chan net.Conn), closed: make(chan struct{})}
 	t.Cleanup(func() { _ = p.Close() })
 	return p
@@ -2885,7 +2885,7 @@ func (p *pipeNet) dial(ctx context.Context, _, addr string) (net.Conn, error) {
 // serve runs srv on this listener until the test ends. Callers pass run so a
 // TLS server can go through http.Server.ServeTLS, which is what installs the
 // h2 next-proto handler that a hand-rolled tls.Server would miss.
-func (p *pipeNet) serve(t *testing.T, srv *http.Server, run func() error) {
+func (p *pipeNet) serve(t testing.TB, srv *http.Server, run func() error) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
@@ -2908,7 +2908,7 @@ func (p *pipeNet) serve(t *testing.T, srv *http.Server, run func() error) {
 // so a TLS round trip needs neither fixture files nor the host's trust store.
 // More than one name is for a fixture that has to answer as several endpoints
 // on one listener; the first is the subject.
-func selfSignedCert(t *testing.T, hosts ...string) (tls.Certificate, *x509.CertPool) {
+func selfSignedCert(t testing.TB, hosts ...string) (tls.Certificate, *x509.CertPool) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -3529,7 +3529,7 @@ func TestHTTPProbeDistinguishesFailuresBeforeAResponse(t *testing.T) {
 			timeout := cmp.Or(tc.timeout, 5*time.Second)
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP)(ctx, deps)
+			r := ops.httpProbe("example.com", 80, "http", ProbeTargetTCP, nil)(ctx, deps)
 			if r.Status != tc.status || r.Cause != tc.cause || r.timedOut != tc.timedOut {
 				t.Fatalf("result = %+v (timedOut %v), want status %v cause %q timedOut %v", r, r.timedOut, tc.status, tc.cause, tc.timedOut)
 			}
@@ -3597,7 +3597,7 @@ func TestHTTPSProbeDistinguishesFailuresBeforeAResponse(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			r := ops.httpProbe(host, 443, "https", ProbeTLS)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
+			r := ops.httpProbe(host, 443, "https", ProbeTLS, nil)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
 			if r.Status != StatusFail || r.Cause != tc.cause || r.timedOut != tc.stall {
 				t.Fatalf("HTTPS %s = %+v, want FAIL with %q", tc.name, r, tc.cause)
 			}
@@ -3640,7 +3640,7 @@ func TestHTTP2ProbeCloseBeforeHeadersIsAClose(t *testing.T) {
 	}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	r := ops.httpProbe(host, 443, "https", ProbeTLS)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
+	r := ops.httpProbe(host, 443, "https", ProbeTLS, nil)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
 	if proto := <-negotiated; proto != "h2" {
 		t.Fatalf("negotiated %q, want h2", proto)
 	}
@@ -3779,7 +3779,7 @@ func TestHTTP2ProbeSeparatesResponseFramesFromSilence(t *testing.T) {
 			trace := &httptrace.ClientTrace{GotFirstResponseByte: func() { firstByte.Store(true) }}
 			ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(context.Background(), trace), timeout)
 			defer cancel()
-			r := ops.httpProbe(host, 443, "https", ProbeTLS)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
+			r := ops.httpProbe(host, 443, "https", ProbeTLS, nil)(ctx, map[ProbeID]ProbeResult{ProbeTLS: {SelectedIP: net.ParseIP("192.0.2.10")}})
 			if proto := <-negotiated; proto != "h2" {
 				t.Fatalf("negotiated %q, want h2", proto)
 			}
@@ -3801,7 +3801,7 @@ func TestTLSDialTimeoutSummaryIsStageNeutral(t *testing.T) {
 	}}
 	res := maps.Clone(c.res)
 	res[ProbeTargetTCP] = ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.1")}
-	res[ProbeTLS] = ops.tlsProbe("example.com", 443)(context.Background(), res)
+	res[ProbeTLS] = ops.tlsProbe("example.com", 443, nil)(context.Background(), res)
 	if res[ProbeTLS].Cause != TLSCauseTimeout {
 		t.Fatalf("dial timeout cause = %q, want %q", res[ProbeTLS].Cause, TLSCauseTimeout)
 	}
@@ -3880,7 +3880,7 @@ func TestTLSTimeoutJoinsPathMTUCorrelationOnlyAfterConnecting(t *testing.T) {
 			res[ProbeTargetTCP] = ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("192.0.2.1")}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
-			r := ops.tlsProbe("example.com", 443)(ctx, res)
+			r := ops.tlsProbe("example.com", 443, nil)(ctx, res)
 			if r.Status != StatusFail || r.Cause != tc.cause || r.timedOut != tc.stalled {
 				t.Fatalf("TLS result = %+v (timedOut %v), want FAIL with %q and timedOut %v", r, r.timedOut, tc.cause, tc.stalled)
 			}
@@ -3930,7 +3930,7 @@ func TestTLSTimeoutJoinsPathMTUCorrelationOnlyAfterConnecting(t *testing.T) {
 	}
 	// A completed handshake records no stall.
 	ops := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) { return fakeConn{}, nil }}
-	r := ops.tlsProbe("example.com", 443)(context.Background(), map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}})
+	r := ops.tlsProbe("example.com", 443, nil)(context.Background(), map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: net.ParseIP("192.0.2.1")}})
 	if r.Status != StatusPass || r.timedOut {
 		t.Errorf("successful TLS = %+v (timedOut %v), want PASS with no stall", r, r.timedOut)
 	}
@@ -4001,7 +4001,7 @@ func TestHTTPTimeoutJoinsPathMTUCorrelationOnlyAfterConnecting(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(context.Background(), trace), 500*time.Millisecond)
 			defer cancel()
-			r := ops.httpProbe(host, port, tc.scheme, dep)(ctx, res)
+			r := ops.httpProbe(host, port, tc.scheme, dep, nil)(ctx, res)
 			if gotConn.Load() != tc.gotConn || handshake.Load() != tc.handshake {
 				t.Fatalf("GotConn %v, TLSHandshakeStart %v, want %v, %v", gotConn.Load(), handshake.Load(), tc.gotConn, tc.handshake)
 			}

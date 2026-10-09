@@ -74,11 +74,11 @@ func TestTwoSidedProductionEvidence(t *testing.T) {
 		o.routes = newRouteCache(o.routeFor, nil)
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultProbeTimeout)
 		defer cancel()
-		return o.targetTCPProbe(443)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: addresses}})
+		return o.targetTCPProbe(443, nil)(ctx, map[ProbeID]ProbeResult{ProbeDNS: {Addrs: addresses}})
 	}
 	tlsResult := func(err error) ProbeResult {
 		o := &netops{dialTLS: func(context.Context, string, string, *tls.Config) (net.Conn, error) { return nil, err }}
-		return o.tlsProbe(target.Host, target.Port)(context.Background(), map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: ips[0]}})
+		return o.tlsProbe(target.Host, target.Port, nil)(context.Background(), map[ProbeID]ProbeResult{ProbeTargetTCP: {SelectedIP: ips[0]}})
 	}
 	dns := func(err error) ProbeResult {
 		o := &netops{lookupIP: func(context.Context, string) ([]net.IP, []string, error) { return nil, nil, err }}

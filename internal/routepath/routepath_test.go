@@ -607,8 +607,8 @@ func TestWideNextHopListIsBounded(t *testing.T) {
 	if got := len(e.Forwarding.Next); got != maxFanout {
 		t.Errorf("r1 followed %d next hops, want the first %d", got, maxFanout)
 	}
-	if got := len(e.Forwarding.Decision.NextHops); got != maxFanout {
-		t.Errorf("decision lists %d next hops, want the first %d", got, maxFanout)
+	if got := len(e.Forwarding.Decision.NextHops); got != len(hops) {
+		t.Errorf("decision lists %d next hops, want all of them: %d", got, len(hops))
 	}
 }
 
@@ -634,5 +634,53 @@ func TestMissingRouteNamesItsAbsenceEvidence(t *testing.T) {
 	}
 	if len(d.Evidence) != 1 || !d.Evidence[0].Absent || d.Evidence[0].Source != "fib:r1:default" {
 		t.Errorf("no_route evidence = %+v, want the complete fib:r1:default table named as absent", d.Evidence)
+	}
+}
+
+// Routes that agree on the first maxFanout next hops and differ after them do
+// not agree. The comparison reads every next hop, not only the followed ones.
+func TestRoutesDifferingPastTheFanOutCapDisagree(t *testing.T) {
+	wide := func(last string) []netmodel.NextHop {
+		hops := make([]netmodel.NextHop, maxFanout+1)
+		for i := range maxFanout {
+			hops[i] = netmodel.NextHop{Addr: netip.AddrFrom4([4]byte{10, 9, 0, byte(i + 1)}), Interface: "eth1"}
+		}
+		hops[maxFanout] = netmodel.NextHop{Addr: addr(last), Interface: "eth1"}
+		return hops
+	}
+	obs := without(threeRouters(), "control:r1:default", "fib:r1:default")
+	obs = append(obs,
+		table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", "ospf", wide("10.9.0.200")...)),
+		table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", wide("10.9.0.201")...)))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := findings(e, FindingFIBDiffers); len(got) != 1 {
+		t.Errorf("fib_differs_from_control = %+v, want one: the routes differ at next hop %d", got, maxFanout+1)
+	}
+	if got := e.Forwarding.Decision.Agreement; got != AgreementDisagrees {
+		t.Errorf("r1 agreement = %q, want disagrees", got)
+	}
+}
+
+// An unnamed check on a shared interface cannot be placed on the hops that are
+// followed. The shared count reads every next hop, so the omitted hop on eth1
+// still makes the followed hop unattributed rather than failed.
+func TestUnnamedCheckIsNotPlacedPastTheFanOutCap(t *testing.T) {
+	hops := make([]netmodel.NextHop, maxFanout+1)
+	for i := range maxFanout {
+		hops[i] = netmodel.NextHop{Addr: netip.AddrFrom4([4]byte{10, 9, 0, byte(i + 1)}), Interface: "eth2"}
+	}
+	hops[0].Interface = "eth1"
+	hops[maxFanout] = netmodel.NextHop{Addr: addr("10.9.0.200"), Interface: "eth1"}
+	obs := without(threeRouters(), "fib:r1:default")
+	obs = append(obs, table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", hops...)))
+	e := explainFrom(t, obs, []Check{check("r1", "default", "eth1", dest, CheckFail)}, fromR1, dest)
+	if len(e.Forwarding.Next) != maxFanout {
+		t.Fatalf("followed %d next hops, want %d", len(e.Forwarding.Next), maxFanout)
+	}
+	if got := e.Forwarding.Next[0].Via.Outcome; got != OutcomeUnattributed {
+		t.Errorf("followed hop on eth1 outcome = %s, want unattributed: a next hop on eth1 is omitted from the walk", got)
+	}
+	if got := findings(e, FindingForwardingFailed); len(got) != 0 {
+		t.Errorf("fib_forwarding_failed = %+v, want none", got)
 	}
 }

@@ -146,6 +146,10 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 	for _, n := range hops {
 		shared[n.Interface]++
 	}
+	if len(hops) > maxFanout {
+		hops = hops[:maxFanout]
+		w.truncated = true
+	}
 	for _, n := range hops {
 		out, checks := w.outcome(at, n, shared[n.Interface])
 		seg := &Segment{From: at.node, VRF: at.vrf, Interface: n.Interface, NextHop: addrText(n.Addr), Outcome: out, Checks: checks}
@@ -249,14 +253,9 @@ func (w *walker) choose(at state, p netmodel.Plane, cands []netip.Prefix) (Decis
 			d.Reason = "route names no next hop and is not a discard, so forwarding is unknown"
 			return d, nil
 		default:
-			hops := first.NextHops
-			if len(hops) > maxFanout {
-				hops = hops[:maxFanout]
-				w.truncated = true
-			}
 			d.Kind = KindForward
-			d.NextHops = nextHopTexts(hops)
-			return d, hops
+			d.NextHops = nextHopTexts(first.NextHops)
+			return d, first.NextHops
 		}
 		return d, nil
 	case netmodel.Conflicting:

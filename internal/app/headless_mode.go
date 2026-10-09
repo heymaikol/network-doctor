@@ -22,6 +22,12 @@ import (
 // runAll is stubbed in tests so -json runs don't touch the network.
 var runAll = diagnostic.RunAll
 
+// buildHeadlessProbes is a seam for the Watch loop: tests replace the rows with
+// fakes. The pause between passes is ui.WatchEvery, which tests shorten.
+var buildHeadlessProbes = func(h headless) []diagnostic.Probe {
+	return h.selection.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto)
+}
+
 // buildProfileProbes lets tests verify pass ownership at the acquisition boundary.
 var buildProfileProbes = (*diagnostic.ProfilePass).BuildProbes
 
@@ -141,16 +147,36 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 		ctx, stop = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer stop()
 	}
+	// A watch run reuses passing observations between passes. A one-shot run
+	// has no next pass to reuse anything for. A saved run acquires every row on
+	// every pass: a snapshot records each check's duration, and a reused check
+	// has none, so the file cannot say when its evidence was acquired. This also
+	// covers -support, which writes through the same path.
+	var session *diagnostic.WatchSession
+	if h.watch && h.save == "" {
+		session = diagnostic.NewWatchSession(time.Now)
+	}
 	// code starts at 1: until a pass completes, there's no report to call a
 	// success, so an interrupt before the first line lands has to fail closed.
 	code := 1
 	for {
-		probes := h.selection.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto)
+		probes := buildHeadlessProbes(h)
+		var pass *diagnostic.WatchPass
+		if session != nil {
+			pass = session.Begin(probes)
+			probes = pass.Probes()
+		}
 		results := runAll(ctx, probes, h.timeout)
 		if ctx.Err() != nil {
 			// Interrupted mid-pass: every probe failed because we cancelled it,
 			// so reporting that pass would be a lie.
 			return code
+		}
+		if pass != nil && !pass.Publish(results) {
+			// The pass reused a row and changed a status or cause, so it is not
+			// printed. The next pass runs fresh at once, without waiting out
+			// the interval.
+			continue
 		}
 		d := diagnostic.Interpret(h.target, diagnostic.ProbeOrder(probes), results)
 		rep := buildReportWithDiagnosis(h.target, probes, results, d)

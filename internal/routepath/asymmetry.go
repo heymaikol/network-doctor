@@ -12,9 +12,10 @@ import (
 type AsymmetryAssessment string
 
 const (
-	// AssessSymmetric: both directions cross the same routers in the same routing domains.
+	// AssessSymmetric: the return retraces the forward route in reverse, router by
+	// router and routing domain by routing domain.
 	AssessSymmetric AsymmetryAssessment = "symmetric"
-	// AssessBenign: the directions cross different routers, and no concern holds.
+	// AssessBenign: the return differs from the forward route, and no concern holds.
 	// Asymmetry alone is not a fault, so this is not a failure.
 	AssessBenign AsymmetryAssessment = "asymmetric_benign"
 	// AssessRisk: the directions differ, and a concern ties the difference to a
@@ -135,17 +136,21 @@ func (w *walker) asymmetry(f File, fwd Explanation) *Asymmetry {
 	}
 	a.ReturnRoute = rSteps
 	fwdSet, retSet := statesOf(fSteps), statesOf(rSteps)
-	if sameStates(fwdSet, retSet) {
-		a.Assessment, a.Reason = AssessSymmetric, "forward and return cross the same routers in the same routing domains."
+	if isReverse(fwdSet, retSet) {
+		a.Assessment, a.Reason = AssessSymmetric, "forward and return cross the same routers in the same routing domains, in reverse order."
 		return a
+	}
+	differ := "forward and return cross different routers"
+	if sameStates(fwdSet, retSet) {
+		differ = "forward and return cross the same routers, but the return does not retrace the forward route"
 	}
 	a.Concerns = concernsOf(f.Boundaries, fwdSet, retSet, fwd.Regions, a.Return.Regions)
 	if len(a.Concerns) > 0 {
 		a.Assessment = AssessRisk
-		a.Reason = "forward and return cross different routers, and a concern below ties the difference to a policy boundary, a routing-domain change, or a recorded failure."
+		a.Reason = differ + ", and a concern below ties the difference to a policy boundary, a routing-domain change, or a recorded failure."
 	} else {
 		a.Assessment = AssessBenign
-		a.Reason = "forward and return cross different routers. No policy boundary, routing-domain change, or recorded failure sits on one direction only, so this asymmetry is not a fault by itself."
+		a.Reason = differ + ". No policy boundary, routing-domain change, or recorded failure sits on one direction only, so this asymmetry is not a fault by itself."
 	}
 	return a
 }
@@ -186,9 +191,26 @@ func statesOf(steps []Step) []state {
 	return out
 }
 
+// isReverse reports whether ret is fwd traversed backward, router by router and
+// routing domain by routing domain. Only this is symmetric. A set match is not
+// enough, because the same routers can be visited in another order.
+// ponytail: parallel links between the same two routers are not distinguished,
+// so a return over another link between them still reads as symmetric.
+func isReverse(fwd, ret []state) bool {
+	if len(fwd) != len(ret) {
+		return false
+	}
+	for i := range ret {
+		if ret[i] != fwd[len(fwd)-1-i] {
+			return false
+		}
+	}
+	return true
+}
+
 // sameStates reports whether a and b hold the same routers in the same routing
-// domains. Order does not matter, because the return walks the same routers
-// backward.
+// domains, in any order. It only words the reason for an asymmetry, so the two
+// routes are described correctly.
 func sameStates(a, b []state) bool {
 	return subsetStates(a, b) && subsetStates(b, a)
 }

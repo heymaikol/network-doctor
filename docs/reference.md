@@ -1813,10 +1813,10 @@ A walk stops at the destination, at a node the file does not describe, at a loop
 
 ### Asymmetry
 
-When the file names `source.address`, the explanation also walks the return route. It starts at the one routing domain that owns the destination, follows that domain's FIB toward the source address, and compares the routers it crosses with the forward route. Order does not count: a return that crosses the same routers backward is symmetric. The return must end at the source node in its routing domain. A return that ends anywhere else is not this flow's reply, so it is unknown. Both routes end at the node that owns their target. That ownership is the file's claim, and the limitations name any FIB route that contradicts it. The assessment is one of:
+When the file names `source.address`, the explanation also walks the return route. It starts at the one routing domain that owns the destination, follows that domain's FIB toward the source address, and compares the routers it crosses with the forward route. Symmetric means the return retraces the forward route in reverse, router by router. The same routers visited in another order are asymmetric, not symmetric. The return must end at the source node in its routing domain. A return that ends anywhere else is not this flow's reply, so it is unknown. Both routes end at the node that owns their target. That ownership is the file's claim, and the limitations name any FIB route that contradicts it. The assessment is one of:
 
-- `symmetric`: both directions cross the same routers in the same routing domains.
-- `asymmetric_benign`: the directions cross different routers, and no concern holds. Asymmetry alone is not a fault, and the text says so.
+- `symmetric`: the return is the forward route reversed, with the same routers in the same routing domains.
+- `asymmetric_benign`: the return differs from the forward route, whether through different routers or the same routers in another order, and no concern holds. Asymmetry alone is not a fault, and the text says so.
 - `asymmetric_risk`: at least one concern holds. A boundary that exactly one direction crosses is a concern, as is a `vrf_crossing` where the directions use different routing domains, and a `recorded_failure` on a segment of either direction. A concern says what to check. It does not name a cause.
 - `unknown`: one direction is not proven. The reason names the hop that stopped it, for example an unresolved or ambiguous next hop, a partial FIB, a loop, a discard, a missing route, an ECMP branch, several owners of the destination, or a return that ends somewhere other than the source. Missing return evidence is always reported as unknown, never as asymmetry.
 

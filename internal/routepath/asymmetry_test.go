@@ -427,3 +427,51 @@ func TestBoundaryOrderIsTotal(t *testing.T) {
 		}
 	}
 }
+
+// crossedNet is one flow from h1 (10.0.1.10) to srv (10.20.40.8). The flow runs
+// h1 r1 r2 r3 srv. The reply runs srv r3 r1 r2 h1: it visits the same four
+// routers, but r1 sends traffic for the source subnet toward r2 instead of
+// straight to h1, so the reply does not retrace the flow. Every FIB table is
+// complete, and each router decides from its own table.
+func crossedNet() []netmodel.Observation {
+	return []netmodel.Observation{
+		configured("h1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.10/24"), ifc("eth1", "10.0.3.10/24")}),
+		configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.1/24"), ifc("eth1", "10.0.2.1/30"), ifc("eth2", "10.0.4.1/30")}),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", "10.0.2.2/30"), ifc("eth1", "10.0.5.1/30"), ifc("eth2", "10.0.3.1/24")}),
+		configured("r3", "default", []netmodel.Interface{ifc("eth0", "10.0.4.2/30"), ifc("eth1", "10.0.5.2/30"), ifc("eth2", "10.0.6.1/30")}),
+		configured("srv", "default", []netmodel.Interface{ifc("eth0", "10.0.6.2/30"), ifc("eth1", "10.20.40.8/24")}),
+		table(netmodel.PlaneFIB, "h1", "default", true, route("0.0.0.0/0", "kernel", nh("10.0.1.1", "eth0"))),
+		table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.20.0.0/16", "kernel", nh("10.0.2.2", "eth1")),
+			route("10.0.1.0/24", "kernel", nh("10.0.2.2", "eth1"))),
+		table(netmodel.PlaneFIB, "r2", "default", true,
+			route("10.20.0.0/16", "kernel", nh("10.0.5.2", "eth1")),
+			route("10.0.1.0/24", "kernel", nh("10.0.3.10", "eth2"))),
+		table(netmodel.PlaneFIB, "r3", "default", true,
+			route("10.20.0.0/16", "kernel", nh("10.0.6.2", "eth2")),
+			route("10.0.1.0/24", "kernel", nh("10.0.4.1", "eth0"))),
+		table(netmodel.PlaneFIB, "srv", "default", true, route("10.0.1.0/24", "kernel", nh("10.0.6.1", "eth0"))),
+	}
+}
+
+// Regression: the same routers in another order were reported symmetric. The
+// comparison must see that the reply does not retrace the flow, so it is not
+// symmetric. No concern holds, so it is benign.
+func TestSameRoutersInAnotherOrderIsNotSymmetric(t *testing.T) {
+	a := explainTwoPath(t, crossedNet(), nil, nil, "10.0.1.10").Asymmetry
+	if a == nil {
+		t.Fatal("Asymmetry = nil, want a comparison because the topology names the source address")
+	}
+	if got, want := stepNodes(a.ForwardRoute), []string{"h1", "r1", "r2", "r3", "srv"}; !slices.Equal(got, want) {
+		t.Fatalf("forward route = %v, want %v", got, want)
+	}
+	if got, want := stepNodes(a.ReturnRoute), []string{"srv", "r3", "r1", "r2", "h1"}; !slices.Equal(got, want) {
+		t.Fatalf("return route = %v, want %v", got, want)
+	}
+	if a.Assessment != AssessBenign {
+		t.Errorf("Assessment = %q, want %q: a different order is asymmetry, and no concern holds", a.Assessment, AssessBenign)
+	}
+	if !strings.Contains(a.Reason, "same routers, but the return does not retrace the forward route") {
+		t.Errorf("reason = %q, want it to say the routers match but the order does not", a.Reason)
+	}
+}

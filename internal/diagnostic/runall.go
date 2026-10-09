@@ -34,6 +34,9 @@ func SkipPrereq(id ProbeID) ProbeResult {
 // timeout bounds one probe and belongs to this call alone, so a concurrent
 // RunAll with a different budget cannot shorten or stretch this one. Anything
 // non-positive means DefaultProbeTimeout.
+//
+// When RunAll returns it releases the probes' target links (see ReleaseProbes).
+// A rerun of the same slice still runs, but every row dials its own socket.
 func RunAll(ctx context.Context, probes []Probe, timeout time.Duration) map[ProbeID]ProbeResult {
 	if timeout <= 0 {
 		timeout = DefaultProbeTimeout
@@ -42,6 +45,9 @@ func RunAll(ctx context.Context, probes []Probe, timeout time.Duration) map[Prob
 	scheduler := NewProbeScheduler(probes, nil, nil)
 	done := make(chan ProbeResult)
 	running := 0
+	// Runs on every return, after the loop below has received every worker's
+	// result, so no row is still holding the target socket.
+	defer ReleaseProbes(probes)
 
 	// Drain ready probes and synchronous skips. Completing a skip enqueues its
 	// dependents without spawning a worker or scanning unrelated probes.

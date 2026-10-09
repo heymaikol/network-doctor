@@ -130,7 +130,8 @@ func (l *targetLink) release() {
 
 // ReleaseProbes ends the target links of a graph that is being discarded.
 // Callers must invoke it before dropping the graph, or a socket held by a
-// row that is still in flight is never closed.
+// row that is still in flight is never closed. RunAll calls it on return,
+// once every row has finished.
 func ReleaseProbes(probes []Probe) {
 	for _, p := range probes {
 		p.link.release()

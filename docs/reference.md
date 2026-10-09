@@ -1792,7 +1792,7 @@ The file is one JSON object. Unknown fields are refused, so a misspelled key can
 - `source` gives the `node` and `vrf` the path starts from.
 - `observations` are recorded tables. Each names its `source`, `collected_at` (RFC 3339), `plane`, `node`, and `vrf`, and may carry `interfaces`, `neighbors`, and `routes`. The planes are `intended`, `configured`, `control`, `fib`, and `observed`. The expected path reads the `control` plane, then `configured`. The forwarding path reads only `fib`. Rows in `intended` and `observed` are validated, then not read by this explanation. Observed data-plane results are recorded as `checks`, not as an `observed` plane.
 - `routes_complete` says whether the observation lists every route its table holds. Only a complete table proves that no route exists. A partial table leaves a missing route unknown, and nothing is invented to fill the gap.
-- `checks` are results already recorded for one segment: `node`, `vrf`, `interface`, `destination`, and `result`, which is `pass` or `fail`, with the same `source` and `collected_at` as an observation. An optional `next_hop` names the next-hop address the check exercised, and it applies to that segment alone. A check without `next_hop` applies to its interface only when the interface carries one next hop. When the interface carries several, that check is attributed to none of them: each segment on the interface without a named check is `unattributed`, and a limitation says so.
+- `checks` are results already recorded for one segment: `node`, `vrf`, `interface`, `destination`, and `result`, which is `pass` or `fail`, with the same `source` and `collected_at` as an observation. An optional `next_hop` names the next-hop address the check exercised, and a named check applies to that segment only. A check without `next_hop` applies to its interface when the interface carries one next hop, and the named and unnamed checks on that segment combine: a pass beside a failure is `conflicting`. When the interface carries several next hops, an unnamed check is attributed to none of them: each segment on the interface is `unattributed`, and a limitation says so. A named failure or conflict on such a segment still reports as itself.
 
 ### Explanation output
 
@@ -1805,7 +1805,7 @@ The explanation has four parts:
 
 Limitations list each decision the file could not make, and the walk it came from.
 
-A walk stops at the destination, at a node the file does not describe, at a loop, or at 32 hops or 512 node visits, whichever comes first. A node with more than 64 next hops is followed only as far as the first 64. A walk stopped by a bound, or a route cut at 64 next hops, marks the explanation `truncated`.
+A walk stops at the destination, at a node the file does not describe, at a loop, or at 32 hops or 512 node visits, whichever comes first. A route can list more than 64 next hops. Its decision and comparison read all of them, but the walk follows only the first 64 at that node, and the explanation is marked `truncated`. A walk stopped by a bound is marked the same way.
 
 ### Machine-readable explanation
 

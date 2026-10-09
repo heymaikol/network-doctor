@@ -115,7 +115,7 @@ func (o *netops) targetTCPProbe(port int, link *targetLink) func(context.Context
 			applyDialWarnings(&r, rtt)
 			r.Attempts = allAttempts
 			if handoff {
-				link.setAttempts(r.Attempts)
+				link.setAttempts(winningAttempt(r.Attempts, sel))
 				if link.offer(conn) {
 					r.acquisition = link.id
 				} else {

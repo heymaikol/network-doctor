@@ -327,9 +327,7 @@ func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 				if id != ProbeTargetTCP && got.Detail != want.Detail {
 					t.Errorf("%s detail %q shared, %q disarmed", id, got.Detail, want.Detail)
 				}
-				if len(got.Attempts) != len(want.Attempts) {
-					t.Errorf("%s has %d attempts shared, %d disarmed", id, len(got.Attempts), len(want.Attempts))
-				}
+				requireSameAttempts(t, id, got.Attempts, want.Attempts)
 			}
 			if shared.Verdict != plain.Verdict || shared.Blamed != plain.Blamed {
 				t.Errorf("diagnosis = %s blaming %q shared, %s blaming %q disarmed",
@@ -346,6 +344,25 @@ func TestSharedSocketLeavesDiagnosisUnchanged(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// requireSameAttempts compares the dials two runs report for one row, entry by
+// entry. Duration is timing, so it is left out.
+func requireSameAttempts(t *testing.T, id ProbeID, shared, plain []Attempt) {
+	t.Helper()
+	key := func(a Attempt) string {
+		return fmt.Sprintf("%v err=%t cause=%q aborted=%t", a.IP, a.Err != nil, a.Cause, a.Aborted)
+	}
+	var got, want []string
+	for _, a := range shared {
+		got = append(got, key(a))
+	}
+	for _, a := range plain {
+		want = append(want, key(a))
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("%s attempts = %q shared, %q disarmed", id, got, want)
 	}
 }
 
@@ -442,19 +459,27 @@ func TestSharedSocketFollowsTheWinningFamily(t *testing.T) {
 		{"IPv6 wins", "[::1]", "127.0.0.1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newBudgetFixture(t)
-			f.loopbacks = []net.IP{net.ParseIP("::1"), net.ParseIP("127.0.0.1")}
-			o := f.ops()
-			dial := o.dialContext
-			o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				if strings.HasPrefix(addr, tc.loser+":") {
-					return nil, syscall.ECONNREFUSED
+			run := func(shared bool) map[ProbeID]ProbeResult {
+				f := newBudgetFixture(t)
+				f.loopbacks = []net.IP{net.ParseIP("::1"), net.ParseIP("127.0.0.1")}
+				o := f.ops()
+				dial := o.dialContext
+				o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+					if strings.HasPrefix(addr, tc.loser+":") {
+						return nil, syscall.ECONNREFUSED
+					}
+					return dial(ctx, network, addr)
 				}
-				return dial(ctx, network, addr)
+				probes := ProbeSelection{Check: healthyHTTPSRows}.Apply(o.timedProbes(mustTarget(t, budgetTargetHost+":443"), DefaultPublicDNS, true))
+				if !shared {
+					disarm(probes)
+				}
+				res := RunAll(context.Background(), probes, DefaultProbeTimeout)
+				requireRows(t, res, ProbeTargetTCP, ProbeTLS, ProbeHTTPS)
+				return res
 			}
-			probes := ProbeSelection{Check: healthyHTTPSRows}.Apply(o.timedProbes(mustTarget(t, budgetTargetHost+":443"), DefaultPublicDNS, true))
-			res := RunAll(context.Background(), probes, DefaultProbeTimeout)
-			requireRows(t, res, ProbeTargetTCP, ProbeTLS, ProbeHTTPS)
+			res := run(true)
+			plain := run(false)
 
 			winner := net.ParseIP(strings.Trim(tc.winner, "[]"))
 			// One family failed, so Target TCP is a warning. The TLS and HTTPS rows
@@ -474,6 +499,9 @@ func TestSharedSocketFollowsTheWinningFamily(t *testing.T) {
 				t.Errorf("rows do not share one socket: TCP %d TLS %d HTTPS %d",
 					res[ProbeTargetTCP].acquisition, res[ProbeTLS].acquisition, res[ProbeHTTPS].acquisition)
 			}
+			// The disarmed HTTPS row dials only the pinned address, so it reports one
+			// attempt. The shared row must report the same, not the dead family too.
+			requireSameAttempts(t, ProbeHTTPS, res[ProbeHTTPS].Attempts, plain[ProbeHTTPS].Attempts)
 			fam := res[ProbeTargetTCP].Families
 			if fam == nil {
 				t.Fatal("Target TCP reports no family evidence")

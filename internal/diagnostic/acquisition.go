@@ -31,10 +31,10 @@ type targetLink struct {
 	// toTLS and toHTTPS are set by armLinks from the rows that survived
 	// selection. A handoff happens only when its consumer is in the graph.
 	toTLS, toHTTPS bool
-	// attempts are the dials that produced the socket, recorded by Target TCP.
-	// The HTTPS row that reuses the socket reports them, so its row reads as it
-	// did when it dialed for itself.
-	attempts []Attempt
+	// attempt is the dial that produced the socket, as Target TCP recorded it. A
+	// row that reuses the socket reports it, so the row reads as it did when it
+	// dialed that address itself.
+	attempt []Attempt
 }
 
 var linkIDs atomic.Uint64
@@ -55,7 +55,7 @@ func (l *targetLink) offer(c net.Conn) bool {
 	return true
 }
 
-// setAttempts records the dials behind the socket. It is copied, and it stays
+// setAttempts records the dial behind the socket. It is copied, and it stays
 // after the socket is taken.
 func (l *targetLink) setAttempts(a []Attempt) {
 	if l == nil {
@@ -63,17 +63,29 @@ func (l *targetLink) setAttempts(a []Attempt) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.attempts = slices.Clone(a)
+	l.attempt = slices.Clone(a)
 }
 
-// attemptsOf returns the recorded dials, or nil when there are none.
+// attemptsOf returns the recorded dial, or nil when there is none.
 func (l *targetLink) attemptsOf() []Attempt {
 	if l == nil {
 		return nil
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return slices.Clone(l.attempts)
+	return slices.Clone(l.attempt)
+}
+
+// winningAttempt returns the dial that produced the socket to ip. A row that
+// dialed ip itself records only that dial, so the row that reuses the socket
+// must not carry the failed dials of other addresses.
+func winningAttempt(attempts []Attempt, ip net.IP) []Attempt {
+	for _, a := range attempts {
+		if a.Err == nil && a.IP.Equal(ip) {
+			return []Attempt{a}
+		}
+	}
+	return nil
 }
 
 // deadSocket reports whether err says the peer or the path ended a connection

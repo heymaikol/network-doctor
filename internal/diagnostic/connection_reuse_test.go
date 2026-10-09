@@ -780,6 +780,9 @@ func TestWatchPassReusesRowsOverSharedSocket(t *testing.T) {
 	if res[ProbeHTTPS].Status != StatusPass {
 		t.Fatalf("reused HTTPS = %v: %s", res[ProbeHTTPS].Status, res[ProbeHTTPS].Detail)
 	}
+	if got := res[ProbeTLS].acquisition; got != 0 {
+		t.Errorf("reused TLS names socket %d from the first pass's graph, want none", got)
+	}
 	if TargetSocketOpen(graph) {
 		t.Error("the second pass left its target socket open")
 	}

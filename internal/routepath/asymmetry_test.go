@@ -457,6 +457,30 @@ func crossedNet() []netmodel.Observation {
 	}
 }
 
+// A destination on the source node has no path to compare, so the source address
+// adds no asymmetry section and no asymmetry key. The docs say this.
+func TestLocalDestinationHasNoAsymmetry(t *testing.T) {
+	m, err := netmodel.New(twoPathNet("r4")...)
+	if err != nil {
+		t.Fatalf("netmodel.New: %v", err)
+	}
+	f := File{Source: Start{Node: "h1", VRF: "default"}, Model: m, SourceAddr: addr("10.0.1.10")}
+	e := Explain(f, addr("10.0.1.10"))
+	if e.Forwarding.Decision.Kind != KindLocal {
+		t.Fatalf("forward decision = %v, want local: h1 owns the destination", e.Forwarding.Decision.Kind)
+	}
+	if e.Asymmetry != nil {
+		t.Errorf("Asymmetry = %+v, want nil for a local destination", e.Asymmetry)
+	}
+	data, err := e.JSON()
+	if err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if strings.Contains(string(data), `"asymmetry"`) {
+		t.Errorf("JSON carries an asymmetry key for a local destination:\n%s", data)
+	}
+}
+
 // Regression: the same routers in another order were reported symmetric. The
 // comparison must see that the reply does not retrace the flow, so it is not
 // symmetric. No concern holds, so it is benign.

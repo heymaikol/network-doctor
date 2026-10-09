@@ -37,6 +37,9 @@ func (e Explanation) Text() string {
 	if e.Asymmetry != nil {
 		renderAsymmetry(line, e.Asymmetry)
 	}
+	if e.Drift != nil {
+		renderDrift(line, e.Drift)
+	}
 	line("")
 	line("Limitations:")
 	renderLimitations(line, e.Limitations, "  ")

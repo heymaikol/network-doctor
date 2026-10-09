@@ -78,6 +78,22 @@ func TestExplainJSONIsTheStableEncoding(t *testing.T) {
 	}
 }
 
+// Drift that loses reachability is part of the explanation, not a failed run,
+// so the exit code stays 0.
+func TestExplainDriftKeepsExitZero(t *testing.T) {
+	topology := strings.Replace(explainTopology, `"next_hops": [{"addr": "10.0.12.2", "interface": "eth1"}]}]}`, `"discard": true}]},
+    {"source": "intent:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "intended", "node": "r1", "vrf": "default", "routes_complete": true,
+     "routes": [{"prefix": "10.20.0.0/16", "origin": "static", "next_hops": [{"addr": "10.0.12.2", "interface": "eth1"}]}]}`, 1)
+	topology = strings.Replace(topology, `"result": "fail"`, `"result": "pass"`, 1)
+	code, out, errOut := runNetdoc(t, "--explain", writeTopology(t, topology), "10.20.40.8")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, errOut)
+	}
+	if !strings.Contains(out, "reachability_lost at r1 (default)") {
+		t.Errorf("output lacks the reachability_lost drift at r1:\n%s", out)
+	}
+}
+
 func TestExplainRefusesBadUsageWithExitTwo(t *testing.T) {
 	path := writeTopology(t, explainTopology)
 	cases := []struct {

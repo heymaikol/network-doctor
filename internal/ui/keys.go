@@ -730,7 +730,7 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // underneath the preserved history.
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
-	m.probes = m.selection.BuildProbesFromSources(t, m.sources, m.publicDNS, m.publicDNSAuto)
+	m.probes = m.graph(t)
 	m.analysisReady = false
 	if !newQuestion {
 		return

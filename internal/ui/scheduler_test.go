@@ -491,21 +491,27 @@ func TestScheduleStepDispatchesEveryReadyProbeConcurrently(t *testing.T) {
 func TestSchedulerGenerationReset(t *testing.T) {
 	m := newModel(nil, false)
 	var calls [4]int
-	m.probes = []diagnostic.Probe{
-		diffProbe("root", diagnostic.StatusWarn),
-		diffProbe("na", diagnostic.StatusNA),
-		diffProbe("join", diagnostic.StatusPass, "root", "na"),
-		diffProbe("tail", diagnostic.StatusPass, "join"),
-	}
-	for i := range m.probes {
-		run := m.probes[i].Run
-		m.probes[i].Run = func(ctx context.Context, deps map[diagnostic.ProbeID]diagnostic.ProbeResult) diagnostic.ProbeResult {
-			calls[i]++
-			res := run(ctx, deps)
-			res.ID = "wrong"
-			return res
+	// Every graph this model builds counts its calls, so a Watch pass that
+	// rebuilds the graph still lands in calls.
+	m.graph = func(*diagnostic.Target) []diagnostic.Probe {
+		probes := []diagnostic.Probe{
+			diffProbe("root", diagnostic.StatusWarn),
+			diffProbe("na", diagnostic.StatusNA),
+			diffProbe("join", diagnostic.StatusPass, "root", "na"),
+			diffProbe("tail", diagnostic.StatusPass, "join"),
 		}
+		for i := range probes {
+			run := probes[i].Run
+			probes[i].Run = func(ctx context.Context, deps map[diagnostic.ProbeID]diagnostic.ProbeResult) diagnostic.ProbeResult {
+				calls[i]++
+				res := run(ctx, deps)
+				res.ID = "wrong"
+				return res
+			}
+		}
+		return probes
 	}
+	m.probes = m.graph(nil)
 	m = asModel(t, must(m.Update(scheduleMsg{gen: m.generation})))
 	if m.scheduler == nil || len(m.started) != 2 {
 		t.Fatal("roots were not dispatched")

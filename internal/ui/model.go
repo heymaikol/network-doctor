@@ -156,6 +156,9 @@ type model struct {
 	sources *diagnostic.SourceAddresses
 	// selection is reapplied whenever a target switch rebuilds the probe DAG.
 	selection diagnostic.ProbeSelection
+	// graph builds the probe DAG for a target: every target switch and every
+	// Watch pass goes through it, so a test can count the graphs a pass builds.
+	graph func(*diagnostic.Target) []diagnostic.Probe
 	// publicDNS is the second-opinion resolver IP the run was started with, or
 	// "" when it is disabled; every probe rebuild reuses it. publicDNSAuto
 	// travels with it because a rebuilt DAG has to ask the same question the
@@ -347,14 +350,17 @@ func WithSnapshotSelection(check, skip []string) Option {
 // NewWithSelection applies a validated CLI probe policy to this run and every
 // target switch made from it.
 func NewWithSelection(t *diagnostic.Target, sources *diagnostic.SourceAddresses, toolbox, watch bool, histFile, version, publicDNS string, publicDNSAuto bool, selection diagnostic.ProbeSelection, opts ...Option) tea.Model {
-	probes := selection.BuildProbesFromSources(t, sources, publicDNS, publicDNSAuto)
+	graph := func(t *diagnostic.Target) []diagnostic.Probe {
+		return selection.BuildProbesFromSources(t, sources, publicDNS, publicDNSAuto)
+	}
 	sp := spinner.New()
 	sp.Spinner = spinner.MiniDot
 	m := model{
 		target:        t,
-		probes:        probes,
+		probes:        graph(t),
 		sources:       sources,
 		selection:     selection,
+		graph:         graph,
 		publicDNS:     publicDNS,
 		publicDNSAuto: publicDNSAuto,
 		results:       map[diagnostic.ProbeID]diagnostic.ProbeResult{},
@@ -731,6 +737,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// copy of the evidence it showed, so it redraws from this pass's
 		// diagnosis, and the panel falls back to Details by itself once the
 		// cursor is no longer on the row the new diagnosis blames.
+		// The graph is rebuilt, not reused: its route and interface caches
+		// belong to the graph, so a reused one would answer this pass from the
+		// last one. Headless Watch rebuilds on every pass for the same reason.
+		m.applyTarget(m.target, false)
 		cmd := m.restartRun()
 		if m.viewing {
 			m.refreshViewport()

@@ -134,6 +134,22 @@ func TestLookupStates(t *testing.T) {
 			},
 			Present, 2,
 		},
+		{
+			"a next hop with no reported interface matches the same gateway",
+			[]Observation{
+				ctl("frr", false, route(prefix, OriginOSPF, hop("10.0.0.2", ""))),
+				ctl("cisco", false, route(prefix, OriginOSPF, hop("10.0.0.2", "eth0"))),
+			},
+			Present, 2,
+		},
+		{
+			"same gateway on different reported interfaces is conflicting",
+			[]Observation{
+				ctl("frr", false, route(prefix, OriginOSPF, hop("10.0.0.2", "eth0"))),
+				ctl("cisco", false, route(prefix, OriginOSPF, hop("10.0.0.2", "eth1"))),
+			},
+			Conflicting, 2,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -190,6 +190,9 @@ func (m Model) Observations() []Observation {
 //     Evidence and AbsentIn keep both sides. Time never picks a winner.
 func (m Model) Lookup(node, vrf string, plane Plane, prefix netip.Prefix) Answer {
 	prefix = prefix.Masked()
+	if !prefix.IsValid() {
+		return Answer{State: Unknown}
+	}
 	// ponytail: linear scan over every observation. Index by (node, vrf, plane)
 	// when the model grows.
 	var rows []Evidence

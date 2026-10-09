@@ -559,6 +559,17 @@ func TestNeighborZoneNamesTheObserversLink(t *testing.T) {
 	}
 }
 
+// A zero prefix matches no stored route. It must not look like proof of absence.
+func TestInvalidQueryIsUnknown(t *testing.T) {
+	m, err := New(ctl("frr", true))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := m.Lookup("r1", "default", PlaneControl, netip.Prefix{}); got.State != Unknown {
+		t.Fatalf("zero prefix Lookup = %s, want unknown", got.State)
+	}
+}
+
 // TestTieBreakIsInputIndependent covers observations whose main sort keys all
 // match and whose only difference is nil versus empty Attributes. fmt prints
 // both as [], so the order must come from a tie-break that tells them apart.

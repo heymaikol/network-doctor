@@ -401,7 +401,7 @@ jobs:
           go-version: "1.27.2"
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.13.1
+          version: v2.14.0
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
       # GoReleaser shells out to syft for the `sboms` block; the GoReleaser
       # action does not bring it along. Pinned action, pinned tool version.

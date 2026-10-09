@@ -115,6 +115,7 @@ func (o *netops) targetTCPProbe(port int, link *targetLink) func(context.Context
 			applyDialWarnings(&r, rtt)
 			r.Attempts = allAttempts
 			if handoff {
+				link.setAttempts(r.Attempts)
 				if link.offer(conn) {
 					r.acquisition = link.id
 				} else {
@@ -420,7 +421,7 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 			if c := link.take(); c != nil {
 				if tc, ok := c.(*tls.Conn); ok {
 					dialMu.Lock()
-					dialIP, dialAttempts, reused = addrs[0], nil, true
+					dialIP, dialAttempts, reused = addrs[0], link.attemptsOf(), true
 					dialMu.Unlock()
 					return &h2ResponseConn{Conn: tc, answered: &answered}, nil
 				}

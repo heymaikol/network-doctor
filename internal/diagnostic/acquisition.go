@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -27,6 +28,10 @@ type targetLink struct {
 	// toTLS and toHTTPS are set by armLinks from the rows that survived
 	// selection. A handoff happens only when its consumer is in the graph.
 	toTLS, toHTTPS bool
+	// attempts are the dials that produced the socket, recorded by Target TCP.
+	// The HTTPS row that reuses the socket reports them, so its row reads as it
+	// did when it dialed for itself.
+	attempts []Attempt
 }
 
 var linkIDs atomic.Uint64
@@ -45,6 +50,27 @@ func (l *targetLink) offer(c net.Conn) bool {
 	}
 	l.conn = c
 	return true
+}
+
+// setAttempts records the dials behind the socket. It is copied, and it stays
+// after the socket is taken.
+func (l *targetLink) setAttempts(a []Attempt) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.attempts = slices.Clone(a)
+}
+
+// attemptsOf returns the recorded dials, or nil when there are none.
+func (l *targetLink) attemptsOf() []Attempt {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.attempts)
 }
 
 // take removes the stored connection, or returns nil when there is none.

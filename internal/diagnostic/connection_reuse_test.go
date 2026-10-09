@@ -5,10 +5,13 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -398,6 +401,121 @@ func TestSharedHTTP2SocketDroppedFallsBack(t *testing.T) {
 		t.Errorf("shared run made %d target connections, want 2: the shared socket and one fresh", shared.dials)
 	}
 	requireAgreement(t, shared, plain)
+}
+
+// answerThenCut completes an HTTP/2 handshake, answers the client's SETTINGS
+// with its own, and reads the request. It then answers with the header of a
+// HEADERS frame on stream 1 that declares five bytes of header block and sends
+// none. The response has begun, and then the connection ends.
+func answerThenCut(c net.Conn, cert tls.Certificate) {
+	defer c.Close()
+	tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2"}})
+	if tc.Handshake() != nil {
+		return
+	}
+	// The client writes its preface and SETTINGS, and more frames, before its
+	// read loop starts. Each write blocks until this side reads it, so the
+	// server keeps reading, and its own SETTINGS goes out from a goroutine.
+	if _, err := io.ReadFull(tc, make([]byte, 24)); err != nil {
+		return
+	}
+	settled := make(chan error, 1)
+	for seen := 0; ; seen++ {
+		var hdr [9]byte
+		if _, err := io.ReadFull(tc, hdr[:]); err != nil {
+			return
+		}
+		n := int64(hdr[0])<<16 | int64(hdr[1])<<8 | int64(hdr[2])
+		if _, err := io.CopyN(io.Discard, tc, n); err != nil {
+			return
+		}
+		if seen == 0 {
+			go func() { _, err := tc.Write([]byte{0, 0, 0, 4, 0, 0, 0, 0, 0}); settled <- err }()
+		}
+		// HEADERS on stream 1 is the request.
+		if hdr[3] == 1 && binary.BigEndian.Uint32(hdr[5:]) == 1 {
+			break
+		}
+	}
+	// The client writes while it reads, so the cut goes out from its own goroutine
+	// once the client has seen SETTINGS. This side keeps draining the client's
+	// frames until the connection ends, so none of its writes block.
+	go func() {
+		if <-settled == nil {
+			_, _ = tc.Write([]byte{0, 0, 5, 1, 4, 0, 0, 0, 1})
+		}
+		_ = c.Close()
+	}()
+	_, _ = io.Copy(io.Discard, tc)
+}
+
+// resetInsteadOfClose reports the end of a connection as a reset, as a peer
+// does when it drops a socket with unread data.
+type resetInsteadOfClose struct{ net.Conn }
+
+func (c resetInsteadOfClose) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if errors.Is(err, io.EOF) {
+		err = &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", connectionResetErrno)}
+	}
+	return n, err
+}
+
+// A response that begins and then breaks is a server failure, not a dead socket.
+// The HTTPS row keeps the invalid-response cause, and it must not dial again.
+func TestSharedHTTP2ResponseBreaksAfterHeadersStaysInvalid(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reset bool
+	}{
+		{"closed", false},
+		{"reset", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setup := func(t testing.TB, f *budgetFixture, o *netops) {
+				cert, roots := selfSignedCert(t, budgetTargetHost)
+				cut := newPipeNet(t)
+				go func() {
+					for {
+						c, err := cut.Accept()
+						if err != nil {
+							return
+						}
+						go answerThenCut(c, cert)
+					}
+				}()
+				f.tlsPipe = cut
+				o.tlsRootCAs = roots
+				if tc.reset {
+					dial := o.dialContext
+					o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+						c, err := dial(ctx, network, addr)
+						if err != nil || !strings.HasSuffix(addr, ":443") {
+							return c, err
+						}
+						return resetInsteadOfClose{c}, nil
+					}
+				}
+				o.dialTLS = trustingDialTLS(o.dialContext, roots)
+			}
+			shared := runDifferential(t, setup, true)
+			plain := runDifferential(t, setup, false)
+			if got := shared.res[ProbeTLS].Status; got != StatusPass {
+				t.Fatalf("TLS = %v, want pass: the handshake completes before the response begins: %s", got, shared.res[ProbeTLS].Detail)
+			}
+			https := shared.res[ProbeHTTPS]
+			if https.Status != StatusFail || https.Cause != HTTPCauseInvalidResponse {
+				t.Fatalf("HTTPS = %v cause %q, want fail with %q: %s", https.Status, https.Cause, HTTPCauseInvalidResponse, https.Detail)
+			}
+			if shared.dials != 1 {
+				t.Errorf("shared run made %d target connections, want 1: a response that began must not dial again", shared.dials)
+			}
+			if got, want := https.acquisition, shared.res[ProbeTargetTCP].acquisition; got == 0 || got != want {
+				t.Errorf("HTTPS acquisition %d, want the shared socket %d", got, want)
+			}
+			requireAgreement(t, shared, plain)
+		})
+	}
 }
 
 // deadSocket separates a connection that ended from an answer the server gave.

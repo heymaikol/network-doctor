@@ -9,6 +9,9 @@ import (
 	"testing"
 )
 
+// connectionResetErrno is this platform's reset errno, for tests that simulate one.
+var connectionResetErrno error = syscall.ECONNRESET
+
 func TestConnectionResetMatchesUnixErrnos(t *testing.T) {
 	for _, errno := range []syscall.Errno{syscall.ECONNRESET, syscall.EPIPE} {
 		err := &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", errno)}

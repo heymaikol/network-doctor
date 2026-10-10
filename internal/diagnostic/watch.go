@@ -127,6 +127,12 @@ func (s *WatchSession) Force() {
 // on, so a burst of events costs one fresh pass, not one per event. A change
 // reported while a pass runs refuses reuse from the next row that asks, and
 // the rows that already answered are kept until the next pass.
+//
+// Every change refuses every reusable row, whatever address family it names.
+// An IPv4 path can leave through an IPv6 underlay: an XFRM policy adds no device
+// that a route lookup names, and a tunnel kind missing from encapsulatingKinds
+// reads as direct. An IPv6 message therefore does not prove that an IPv4 row is
+// unaffected, so no event is scoped to a family.
 func (s *WatchSession) Invalidate() {
 	s.generation.Add(1)
 }

@@ -1,0 +1,3 @@
+show ip ospf neighbor detail json
+{}
+r2> 

@@ -210,6 +210,9 @@ func TestImportInterfaceWithoutAddressBlocksOwnership(t *testing.T) {
 		note   string // substring of the interface capture's note
 	}{
 		{"ipAddress absent", map[string]any{"ipAddressPrefixlen": 24}, "has no ipAddress", "ipAddress is missing"},
+		// FRR 10.7 omits ipAddress for an unnumbered interface and for an OSPF interface that is down.
+		{"unnumbered, no ipAddress", map[string]any{"ifUnnumbered": true, "ospfEnabled": true}, "has no ipAddress", "ipAddress is missing"},
+		{"OSPF down, no ipAddress", map[string]any{"ospfEnabled": true, "ospfRunning": false}, "has no ipAddress", "ipAddress is missing"},
 		{"ipAddress null", map[string]any{"ipAddress": nil, "ipAddressPrefixlen": 24}, "has no ipAddress", "ipAddress is missing"},
 		{"ipAddress empty", map[string]any{"ipAddress": "", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
 		{"ipAddress IPv6", map[string]any{"ipAddress": "fe80::1", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},

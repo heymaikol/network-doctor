@@ -8,8 +8,9 @@
 // neighbors and routes are not complete: the command omits Down neighbors and
 // covers one VRF at a time, so an absent neighbor proves nothing.
 //
-// This is a library stage. It has no command-line entry point and changes no
-// output a user sees.
+// The package has no command-line entry point of its own. The import mode in
+// internal/app loads a manifest, calls Import, and writes the report and any
+// topology file. This package decides only what the captures establish.
 package frrospf
 
 import (
@@ -105,9 +106,11 @@ type Record struct {
 
 // Import validates each capture, decodes the accepted ones, maps neighbor
 // records to the captured peer interface that owns their address, and returns
-// one observation per accepted capture. Captures are never merged, and nothing
-// is chosen between conflicting ones. The error is a netmodel refusal, which
-// means a bug in this package.
+// one observation per accepted capture. A record maps only when the address has
+// exactly one captured owner, every node in the default VRF is accounted for,
+// and the peer confirms the record's router ID. Captures are never merged, and
+// nothing is chosen between conflicting ones. The error is a netmodel refusal,
+// which means a bug in this package.
 func Import(captures []Capture) (Result, error) {
 	ordered := slices.Clone(captures)
 	slices.SortStableFunc(ordered, compareCaptures)
@@ -147,13 +150,14 @@ func Import(captures []Capture) (Result, error) {
 		local[scope{o.capture.Node, o.capture.VRF}] = table
 	}
 
+	gate := ownershipGate(outcomes, local)
 	for i := range outcomes {
 		o := &outcomes[i]
 		if o.reason != "" || o.capture.Command != CommandNeighborDetail {
 			continue
 		}
 		s := scope{o.capture.Node, o.capture.VRF}
-		o.mapped = mapNeighbors(o.capture, o.entries, local[s], owners[o.capture.VRF])
+		o.mapped = mapNeighbors(o.capture, o.entries, local[s], owners[o.capture.VRF], gate)
 	}
 
 	var res Result
@@ -200,6 +204,31 @@ func Import(captures []Capture) (Result, error) {
 	return res, nil
 }
 
+// ownershipGate returns why no neighbor may map, or "" when mapping may proceed.
+// Every node that any capture names, under any VRF label and whether or not that
+// capture was accepted, must have an accepted default-VRF interface capture with
+// no unusable ipAddress. Only then is every address in the default VRF accounted
+// for. A node without a capture has subnets nobody can see, so no narrower rule
+// is safe: an address in one of them could belong to it.
+func ownershipGate(outcomes []outcome, local map[scope]map[string]ifaceInfo) string {
+	named := map[string]bool{}
+	for i := range outcomes {
+		named[outcomes[i].capture.Node] = true
+	}
+	for _, node := range slices.Sorted(maps.Keys(named)) {
+		ifaces, ok := local[scope{node, "default"}]
+		if !ok {
+			return fmt.Sprintf("node %s has no accepted interface capture in VRF \"default\"; address ownership incomplete", quote(node))
+		}
+		for _, name := range slices.Sorted(maps.Keys(ifaces)) {
+			if ifaces[name].unusable {
+				return fmt.Sprintf("node %s interface %s has an ipAddress that is not IPv4; address ownership incomplete", quote(node), quote(name))
+			}
+		}
+	}
+	return ""
+}
+
 // scope names one reporter's view: one node in one VRF.
 type scope struct{ node, vrf string }
 
@@ -213,13 +242,16 @@ type owner struct {
 
 // ifaceInfo is one interface from an accepted interface capture. hasAddr says
 // the address parsed, so the interface owns it. hasPrefix says the prefix
-// length is usable too, which the subnet checks need.
+// length is usable too, which the subnet checks need. unusable says the capture
+// gave an ipAddress that is not IPv4, so the interface may hold an address this
+// package cannot read.
 type ifaceInfo struct {
 	name      string
 	addr      netip.Addr
 	prefix    netip.Prefix
 	hasAddr   bool
 	hasPrefix bool
+	unusable  bool
 	routerID  string
 }
 
@@ -352,6 +384,7 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 			addr, ok := parseIPv4(*rec.IPAddress)
 			switch {
 			case !ok:
+				info.unusable = true
 				notes = append(notes, fmt.Sprintf("interface %s: ipAddress %s is not IPv4; not matchable", quote(name), quote(*rec.IPAddress)))
 			case rec.IPAddressPrefixlen == nil || *rec.IPAddressPrefixlen < 0 || *rec.IPAddressPrefixlen > 32:
 				info.addr, info.hasAddr = addr, true

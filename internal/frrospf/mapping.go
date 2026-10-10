@@ -33,8 +33,9 @@ type candidate struct {
 // mapNeighbors parses every neighbor record of one detail capture and maps each
 // valid one to the captured peer interface that owns its address. local is the
 // node's own interface table, or nil when its interface capture is absent.
-// owners lists the captured interfaces that hold each address in the VRF.
-func mapNeighbors(c Capture, entries map[string][]detailRecord, local map[string]ifaceInfo, owners map[netip.Addr][]owner) mappedNeighbors {
+// owners lists the captured interfaces that hold each address in the VRF. gate
+// is the ownership gate's reason, or "" when every address is accounted for.
+func mapNeighbors(c Capture, entries map[string][]detailRecord, local map[string]ifaceInfo, owners map[netip.Addr][]owner, gate string) mappedNeighbors {
 	var cands []candidate
 	for _, key := range slices.Sorted(maps.Keys(entries)) {
 		for _, rec := range entries[key] {
@@ -47,7 +48,7 @@ func mapNeighbors(c Capture, entries map[string][]detailRecord, local map[string
 	for i := range cands {
 		cd := &cands[i]
 		if cd.reason == "" {
-			resolve(cd, c.Node, local, owners[cd.addr])
+			resolve(cd, c.Node, local, owners[cd.addr], gate)
 		}
 		if !cd.rec.Mapped {
 			cd.rec.Reason = textsafe.Clean(cd.reason)
@@ -160,14 +161,23 @@ func markRecordDuplicates(cands []candidate) {
 	}
 }
 
-// resolve maps a valid record to a peer. It refuses when the node has no
-// accepted interface capture, when the local interface is missing from it or has
-// no usable address and prefix, when the neighbor address is outside the local
+// resolve maps a valid record to a peer. It refuses when the ownership gate is
+// closed, when the record carries no router ID, when the node has no accepted
+// interface capture, when the local interface is missing from it or has no
+// usable address and prefix, when the neighbor address is outside the local
 // subnet, when the address is the node's own, when no captured peer owns it,
 // when several interfaces own it, when the one owner has no usable prefix, or
-// when the router ID contradicts the peer's own report. Router ID is only a
-// cross-check. It never chooses the peer.
-func resolve(cd *candidate, node string, local map[string]ifaceInfo, owners []owner) {
+// when the owner does not report the same usable router ID. The router ID is a
+// required match, never a tie-breaker, so it cannot choose the peer.
+func resolve(cd *candidate, node string, local map[string]ifaceInfo, owners []owner, gate string) {
+	if gate != "" {
+		cd.reason = gate
+		return
+	}
+	if cd.rid == "" {
+		cd.reason = fmt.Sprintf("record has no router ID (%s); its address alone does not identify a peer", noNbrID)
+		return
+	}
 	if local == nil {
 		cd.reason = "node has no accepted interface capture in this VRF; local interface unverified"
 		return
@@ -207,7 +217,11 @@ func resolve(cd *candidate, node string, local map[string]ifaceInfo, owners []ow
 		cd.reason = fmt.Sprintf("%s is owned by node %s interface %s, whose prefix length is unusable; not matched", quote(cd.rec.NeighborAddr), quote(peer.node), quote(peer.iface))
 		return
 	}
-	if cd.rid != "" && peer.routerID != "" && cd.rid != peer.routerID {
+	if !usableRouterID(peer.routerID) {
+		cd.reason = fmt.Sprintf("router ID %s is unconfirmed: node %s interface %s reports no usable router ID", quote(cd.rid), quote(peer.node), quote(peer.iface))
+		return
+	}
+	if cd.rid != peer.routerID {
 		cd.reason = fmt.Sprintf("router ID %s disagrees with node %s interface %s, which reports %s", quote(cd.rid), quote(peer.node), quote(peer.iface), quote(peer.routerID))
 		return
 	}
@@ -216,15 +230,20 @@ func resolve(cd *candidate, node string, local map[string]ifaceInfo, owners []ow
 	cd.rec.RemoteInterface = peer.iface
 }
 
+// usableRouterID reports whether a peer's reported router ID can confirm a
+// neighbor record. It must be dotted IPv4, and 0.0.0.0 is FRR's no-ID value.
+// An empty string is no ID at all.
+func usableRouterID(s string) bool {
+	addr, ok := parseIPv4(s)
+	return ok && !addr.IsUnspecified()
+}
+
 // neighborOf writes a mapped record as a netmodel neighbor. The state is the
-// left half of nbrState, which the analyzer reads. The router ID is written only
-// when FRR reported one. The role half is not written, because the analyzer does
-// not read it.
+// left half of nbrState, which the analyzer reads. The router ID is always
+// present, because a record maps only with one. The role half is not written,
+// because the analyzer does not read it.
 func neighborOf(cd *candidate) netmodel.Neighbor {
-	attrs := []netmodel.Attribute{{Key: keyState, Value: cd.state}}
-	if cd.rid != "" {
-		attrs = append(attrs, netmodel.Attribute{Key: keyRouterID, Value: cd.rid})
-	}
+	attrs := []netmodel.Attribute{{Key: keyState, Value: cd.state}, {Key: keyRouterID, Value: cd.rid}}
 	return netmodel.Neighbor{
 		LocalInterface:  cd.rec.LocalInterface,
 		RemoteNode:      cd.rec.RemoteNode,

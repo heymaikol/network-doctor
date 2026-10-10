@@ -276,7 +276,7 @@ row below names the test that pins it. The fake-clock tests count passes at the
 | Route change, real sockets | `TestRealWatchRouteChangeRerunsReusedRows` | change pass, attempt 1, every row fresh | first pass after the change |
 | Outage and recovery, real sockets | `TestRealWatchOutageAndRecoveryMatchFreshPasses` | onset on attempt 2, recovery on attempt 1 | first pass after the change |
 | TLS refusal, real sockets | `TestRealWatchTLSRefusalIsMaskedOnlyWithinMaxAge` | masked for at most 12 passes in a row; some masked passes changed the diagnosis | up to `watchMaxAge` |
-| Path MTU black hole, real sockets | `TestRealWatchPathMTUFaultAndRecovery` | first pass after injection, on attempt 2 | 0 passes masked; about 6 s wall time from injection to publish, one run |
+| Injected path-MTU fault signature, real sockets | `TestRealWatchPathMTUFaultAndRecovery` | first pass after injection, on attempt 2 | 0 passes masked; about 6 s wall time from injection to publish, one run |
 | Kernel route event, netns | `TestRouteEventsReachTheSessionFromTheKernel` | session receives the kernel's change | not timed; the test checks delivery |
 
 The path-MTU row is the only one with a wall-time figure. It is one run, on

@@ -1,0 +1,29 @@
+show ip ospf neighbor detail json
+{
+  "neighbors":{
+    "noNbrId":[
+      {
+        "ifaceAddress":"10.0.1.2",
+        "areaId":"0.0.0.0",
+        "ifaceName":"e1",
+        "localIfaceAddress":"10.0.1.1",
+        "nbrPriority":0,
+        "nbrState":"Attempt/DROther",
+        "role":"DROther",
+        "stateChangeCounter":1,
+        "lsaRetransmissions":0,
+        "lastPrgrsvChangeMsec":17134,
+        "optionsCounter":0,
+        "optionsList":"*|-|-|-|-|-|-|-",
+        "routerDeadIntervalTimerDueMsec":22865,
+        "nonHelloDeadTimerResets":0,
+        "databaseSummaryListCounter":0,
+        "linkStateRequestListCounter":0,
+        "linkStateRetransmissionListCounter":0,
+        "threadInactivityTimer":"on",
+        "grHelperStatus":"None"
+      }
+    ]
+  }
+}
+r1> 

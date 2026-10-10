@@ -1,0 +1,32 @@
+show ip ospf neighbor detail json
+{
+  "neighbors":{
+    "2.2.2.2":[
+      {
+        "ifaceAddress":"10.0.1.2",
+        "areaId":"0.0.0.0",
+        "ifaceName":"e1",
+        "localIfaceAddress":"10.0.1.1",
+        "nbrPriority":1,
+        "nbrState":"Exchange/DR",
+        "role":"DR",
+        "stateChangeCounter":4,
+        "lsaRetransmissions":7,
+        "lastPrgrsvChangeMsec":37145,
+        "routerDesignatedId":"2.2.2.2",
+        "routerDesignatedBackupId":"1.1.1.1",
+        "optionsCounter":2,
+        "optionsList":"*|-|-|-|-|-|E|-",
+        "routerDeadIntervalTimerDueMsec":32860,
+        "nonHelloDeadTimerResets":0,
+        "databaseSummaryListCounter":0,
+        "linkStateRequestListCounter":0,
+        "linkStateRetransmissionListCounter":1,
+        "threadInactivityTimer":"on",
+        "threadLinkStateUpdateRetransmission":"on",
+        "grHelperStatus":"None"
+      }
+    ]
+  }
+}
+r1> 

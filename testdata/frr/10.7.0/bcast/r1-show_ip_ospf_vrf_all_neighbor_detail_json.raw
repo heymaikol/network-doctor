@@ -1,0 +1,36 @@
+show ip ospf vrf all neighbor detail json
+{
+  "default":{
+    "vrfName":"default",
+    "vrfId":0,
+    "neighbors":{
+      "2.2.2.2":[
+        {
+          "ifaceAddress":"10.0.1.2",
+          "areaId":"0.0.0.0",
+          "ifaceName":"e1",
+          "localIfaceAddress":"10.0.1.1",
+          "nbrPriority":1,
+          "nbrState":"Full/DR",
+          "role":"DR",
+          "stateChangeCounter":6,
+          "lsaRetransmissions":1,
+          "lastPrgrsvChangeMsec":43455,
+          "routerDesignatedId":"2.2.2.2",
+          "routerDesignatedBackupId":"1.1.1.1",
+          "optionsCounter":2,
+          "optionsList":"*|-|-|-|-|-|E|-",
+          "routerDeadIntervalTimerDueMsec":36549,
+          "nonHelloDeadTimerResets":0,
+          "databaseSummaryListCounter":0,
+          "linkStateRequestListCounter":0,
+          "linkStateRetransmissionListCounter":0,
+          "threadInactivityTimer":"on",
+          "threadLinkStateRequestRetransmission":"on",
+          "grHelperStatus":"None"
+        }
+      ]
+    }
+  }
+}
+r1> 

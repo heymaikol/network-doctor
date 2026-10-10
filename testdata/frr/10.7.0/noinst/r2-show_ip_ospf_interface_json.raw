@@ -1,0 +1,3 @@
+show ip ospf interface json
+{}
+r2> 

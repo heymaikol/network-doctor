@@ -35,6 +35,7 @@ func TestPackageLayering(t *testing.T) {
 		"internal/compare":    1,
 		"internal/diagnostic": 1,
 		"internal/fieldcase":  1,
+		"internal/frrospf":    1,
 		"internal/ospf":       1,
 		"internal/routepath":  1,
 		"internal/remote":     1,

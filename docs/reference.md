@@ -1888,11 +1888,11 @@ When the file carries `ospf.*` attributes on neighbors or interfaces, the explan
 
 - `ospf.state` on a `control` neighbor: the state a reporter gives for its side of one adjacency. The vocabulary is `down`, `attempt`, `init`, `2-way`, `exstart`, `exchange`, `loading`, and `full`, compared without regard to case. Any other value is reported as unreadable and is never read as FULL.
 - `ospf.area` on a `configured` interface gives its configured area. On a `control` neighbor, every source must agree on one area. `0` and `0.0.0.0` name the same area. A value that is neither a number nor a dotted address is unreadable.
-- `ospf.router_id` on a `control` neighbor is the peer's router ID as the reporter gives it. On a `control` interface it is the router ID the node reports for itself.
+- `ospf.router_id` on a `control` neighbor is the peer's router ID as the reporter gives it. On a `control` interface it is the router ID the node reports for itself. The protocol writes a router ID as a 32-bit identifier in dotted IPv4 form, so an IPv6 address is unreadable and confirms nothing.
 
-An adjacency is identified by node, VRF, local interface, and remote node. A source may leave the remote interface empty, and that record names the same adjacency as any remote interface. Two different remote interfaces on one adjacency are a conflict, and no state is reported for it. A link is two records that name each other on the same VRF and interfaces, with the same remote interfaces. A router ID never names a node. It can only confirm or contradict the peer's own records.
+An adjacency is identified by node, VRF, local interface, and remote node. A source may leave the remote interface empty, and that record names the same adjacency as any remote interface. Two different remote interfaces on one adjacency are a conflict, and no state is reported for it. A state is reported only when every record for the adjacency reads one state. A readable state beside a missing or unreadable state is incomplete, so no state is reported. Two readable, different states are a conflict. A link is two records that name each other on the same VRF and interfaces, with the same remote interfaces. A router ID never names a node. It can only confirm or contradict the peer's own records.
 
-An expected neighbor is an `ospf.*` neighbor record in the `configured` or `intended` plane. Its absence is checked only against the `control` inventory of the node that names it.
+An expected neighbor is an `ospf.*` neighbor record in the `configured` or `intended` plane. Its absence is checked only against the `control` inventory of the node that names it, and only an OSPF record in that inventory shows presence. A generic record, such as LLDP, names a link. It never satisfies an expected OSPF neighbor. The completeness flag says the neighbor list is complete. It does not say that every OSPF source was collected.
 
 Each finding has one of these strengths and kinds:
 
@@ -1901,11 +1901,11 @@ Each finding has one of these strengths and kinds:
 | `neighbor_state` | `reported` | One state for one neighbor, from its reporter. `full` does not prove that traffic flows. A state before FULL names no cause. `2-way` is normal between non-designated routers on a broadcast network. |
 | `neighbor_state` | `conflicting` | Two states for one neighbor, from one reporter or several. Neither is chosen, and the newest timestamp does not decide. |
 | `attribute_conflict` | `conflicting` | Two area values or two router IDs for one identity or interface, two remote interfaces for one adjacency, or a peer that reports a router ID other than the one named. |
-| `incomplete_attributes` | `unknown` | A record has no state, or a state, area, or router ID that cannot be read. |
+| `incomplete_attributes` | `unknown` | A record has no state, or a state, area, or router ID that cannot be read. A router ID must be dotted IPv4. A readable state beside a missing or unreadable one is incomplete, and no state is reported for that neighbor. |
 | `router_id_unconfirmed` | `unknown` | A neighbor reports a router ID that the peer's own interfaces do not report. |
-| `missing_neighbor` | `consistent_with` | The node's control-plane inventory is complete for OSPF and holds no record for an expected neighbor. The adjacency is not called down. |
-| `missing_neighbor` | `unknown` | The absence cannot be checked: there is no control-plane inventory, the inventory is partial, a complete inventory holds no OSPF record, the inventory names another remote interface for the expected neighbor, or the expected neighbor names no remote interface. |
-| `missing_neighbor` | `conflicting` | One source expects a neighbor that a complete OSPF inventory lacks. |
+| `missing_neighbor` | `consistent_with` | The node's neighbor list is marked complete and holds OSPF records, but none for an expected neighbor. The flag does not show that every OSPF source was collected. The adjacency is not called down. |
+| `missing_neighbor` | `unknown` | The absence cannot be checked: there is no control-plane inventory, the inventory is partial, a complete neighbor list holds no OSPF record, the inventory names another remote interface for the expected neighbor, or the expected neighbor names no remote interface. |
+| `missing_neighbor` | `conflicting` | One source expects a neighbor that a complete neighbor list with OSPF records lacks. |
 | `area_mismatch` | `consistent_with` | The configured areas on the two ends of a link that both sides report as control-plane records differ. This fits a failed adjacency. It names no cause. |
 
 Each text block gives the finding, the source and collection time of every evidence row, and the limit of the conclusion. In JSON, each finding has `kind`, `strength`, `node`, `vrf`, `interface`, `peer`, and `peer_interface` where they apply, plus `detail`, `limit`, and `evidence`. Each evidence row names its `source`, `collected_at`, and `plane`, the state, area, or router ID it recorded, and a `note` where the row shows an absence or a link.

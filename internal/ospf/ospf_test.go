@@ -540,3 +540,139 @@ func TestAreaMismatchNeedsExactRemoteInterfaces(t *testing.T) {
 		t.Errorf("unpaired link produced %v", summary(r))
 	}
 }
+
+// A generic neighbor record, such as LLDP, names the same link as an expected
+// OSPF neighbor. It carries no OSPF key, so it is not OSPF presence.
+func TestGenericNeighborDoesNotSatisfyExpectedOSPFNeighbor(t *testing.T) {
+	m := model(t,
+		view("config:r1", t0, netmodel.PlaneConfigured, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyArea, "0")...)}, nil),
+		view("lldp:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0")}, nil),
+	)
+	if f := only(t, Analyze(m), KindMissingNeighbor); f.Strength != Unknown {
+		t.Errorf("strength = %s, want unknown: a generic record is not OSPF presence", f.Strength)
+	}
+}
+
+// A complete OSPF list lacks the expected neighbor, and a generic record for the
+// same link sits in another list. The generic record must not become a conflict.
+func TestGenericNeighborBesideCompleteOSPFListIsNotOSPFPresence(t *testing.T) {
+	m := model(t,
+		view("config:r1", t0, netmodel.PlaneConfigured, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyArea, "0")...)}, nil),
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", true, []netmodel.Neighbor{nb("eth1", "r3", "eth0", attrs(KeyState, "full")...)}, nil),
+		view("lldp:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0")}, nil),
+	)
+	wantSummary(t, Analyze(m), "missing_neighbor/consistent_with", "neighbor_state/reported")
+}
+
+// A generic record with an unreported remote interface is not OSPF presence either.
+func TestGenericUnreportedRemoteInterfaceIsNotOSPFPresence(t *testing.T) {
+	m := model(t,
+		view("config:r1", t0, netmodel.PlaneConfigured, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyArea, "0")...)}, nil),
+		view("lldp:r1", t0, netmodel.PlaneControl, "r1", true, []netmodel.Neighbor{nb("eth0", "r2", "")}, nil),
+	)
+	if f := only(t, Analyze(m), KindMissingNeighbor); f.Strength != Unknown {
+		t.Errorf("strength = %s, want unknown", f.Strength)
+	}
+}
+
+// An OSPF-attributed record with the same identity still satisfies the expectation.
+func TestOSPFRecordSatisfiesExpectedNeighbor(t *testing.T) {
+	m := model(t,
+		view("config:r1", t0, netmodel.PlaneConfigured, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyArea, "0")...)}, nil),
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", true, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "full")...)}, nil),
+	)
+	wantSummary(t, Analyze(m), "neighbor_state/reported")
+}
+
+// One reporter's readable state beside another's unreadable one is not agreement.
+// The aggregate stays unknown, and both rows stay as evidence.
+func TestReadableStateBesideUnreadableStateIsNotAgreement(t *testing.T) {
+	m := model(t,
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "full")...)}, nil),
+		view("cisco:r1", t1, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "Full/DR")...)}, nil),
+	)
+	r := Analyze(m)
+	wantSummary(t, r, "incomplete_attributes/unknown")
+	if f := only(t, r, KindIncompleteAttributes); len(f.Evidence) != 2 {
+		t.Errorf("evidence rows = %d, want both reporters", len(f.Evidence))
+	}
+}
+
+// A reporter that omits the state, beside one that reports it, is incomplete too.
+func TestReadableStateBesideMissingStateIsNotAgreement(t *testing.T) {
+	m := model(t,
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "full")...)}, nil),
+		view("cisco:r1", t1, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyArea, "0")...)}, nil),
+	)
+	r := Analyze(m)
+	wantSummary(t, r, "incomplete_attributes/unknown")
+	if f := only(t, r, KindIncompleteAttributes); !strings.Contains(f.Detail, "carry no ospf.state") {
+		t.Errorf("detail = %q, want the missing state named", f.Detail)
+	}
+}
+
+// Two sources that agree on a readable state still report it.
+func TestAgreeingReadableStatesAreReported(t *testing.T) {
+	m := model(t,
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "full")...)}, nil),
+		view("cisco:r1", t1, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "FULL")...)}, nil),
+	)
+	f := only(t, Analyze(m), KindNeighborState)
+	if f.Strength != Reported || len(f.Evidence) != 2 {
+		t.Errorf("finding = %+v, want reported with both rows", f)
+	}
+}
+
+// Two readable states still conflict when a third source is unreadable, and the
+// unreadable value is reported too.
+func TestConflictingStatesStayConflictingBesideUnreadable(t *testing.T) {
+	m := model(t,
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "full")...)}, nil),
+		view("cisco:r1", t1, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "init")...)}, nil),
+		view("juniper:r1", t1, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "Full/DR")...)}, nil),
+	)
+	wantSummary(t, Analyze(m), "incomplete_attributes/unknown", "neighbor_state/conflicting")
+}
+
+// An OSPF router ID is a 32-bit identifier written as dotted IPv4. An IPv6 address
+// or an IPv4-mapped IPv6 address is not one, so it cannot confirm an identity.
+func TestIPv6RouterIDIsNotOSPFIdentity(t *testing.T) {
+	for _, id := range []string{"2001:db8::2", "::ffff:2.2.2.2"} {
+		m := model(t,
+			view("frr:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "full", KeyRouterID, id)...)}, nil),
+			view("frr:r2", t0, netmodel.PlaneControl, "r2", false, nil, []netmodel.Interface{iface("eth0", attrs(KeyRouterID, id)...)}),
+		)
+		r := Analyze(m)
+		wantSummary(t, r, "incomplete_attributes/unknown", "neighbor_state/reported")
+		f := only(t, r, KindIncompleteAttributes)
+		if !strings.Contains(f.Detail, KeyRouterID+` "`+id+`" is not a dotted IPv4 router ID`) {
+			t.Errorf("%s: detail = %q, want the router ID rejected by name", id, f.Detail)
+		}
+	}
+}
+
+// The completeness flag says the neighbor list is complete. It does not say every
+// OSPF source was collected, so the wording must not claim that it does.
+func TestMissingNeighborWordingDoesNotClaimFullCollection(t *testing.T) {
+	m := model(t,
+		view("config:r1", t0, netmodel.PlaneConfigured, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyArea, "0")...)}, nil),
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", true, []netmodel.Neighbor{nb("eth1", "r3", "eth0", attrs(KeyState, "full")...)}, nil),
+	)
+	f := only(t, Analyze(m), KindMissingNeighbor)
+	if !strings.Contains(f.Limit, "does not show that every OSPF source was collected") {
+		t.Errorf("limit = %q, want the no-full-collection limit", f.Limit)
+	}
+	if strings.Contains(f.Detail, "complete OSPF inventory") {
+		t.Errorf("detail = %q, want no claim of a complete OSPF inventory", f.Detail)
+	}
+}
+
+// A peer's IPv6 router ID is unreadable, so it cannot contradict an IPv4 identity.
+// The unreadable value is skipped, and the IPv4 ID is left unconfirmed.
+func TestIPv6PeerRouterIDDoesNotContradictIPv4Identity(t *testing.T) {
+	m := model(t,
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs(KeyState, "full", KeyRouterID, "2.2.2.2")...)}, nil),
+		view("frr:r2", t0, netmodel.PlaneControl, "r2", false, nil, []netmodel.Interface{iface("eth0", attrs(KeyRouterID, "2001:db8::2")...)}),
+	)
+	wantSummary(t, Analyze(m), "neighbor_state/reported", "router_id_unconfirmed/unknown")
+}

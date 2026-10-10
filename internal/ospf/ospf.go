@@ -73,9 +73,9 @@ const (
 	limitTwoWay            = "2-way is the normal stable state between two non-designated routers on a broadcast network. Alone it shows no fault."
 	limitBeforeFull        = "A state before FULL is what the reporter says. It names no root cause and does not prove the far side is down."
 	limitStatesConflict    = "Sources disagree about this neighbor state. No state is chosen, and the newest timestamp does not decide."
-	limitMissingConsistent = "The complete inventory that carries OSPF records has no record for this neighbor. That omission does not prove the adjacency is down."
+	limitMissingConsistent = "The reporter marks its neighbor list complete, and that list holds OSPF records but none for this neighbor. The flag does not show that every OSPF source was collected. The omission does not prove the adjacency is down."
 	limitMissingUnknown    = "The evidence cannot show whether the neighbor is absent. Nothing is concluded about the adjacency."
-	limitMissingConflict   = "One complete inventory lacks a record that another source reports. Neither source is chosen."
+	limitMissingConflict   = "One complete neighbor list lacks a record that another source reports. Neither source is chosen."
 	limitAreaMismatch      = "The configured areas differ on the two ends of a link that both sides report. That is consistent with a failed adjacency. It does not name a cause."
 	limitAttributeConflict = "Sources or values disagree about one OSPF attribute. No value is chosen."
 	limitIncomplete        = "The attribute is missing or cannot be read, so no conclusion rests on it."
@@ -176,15 +176,16 @@ type inventory struct {
 	node, vrf string
 	// complete is the reporter's NeighborsComplete flag. It names no protocol.
 	complete bool
-	// ospf says the list holds at least one OSPF record. A complete list with no
-	// OSPF record does not show that the reporter covers OSPF.
+	// ospf says the list holds at least one OSPF record. A list with no OSPF record
+	// says nothing about OSPF.
 	ospf      bool
 	neighbors []record
 }
 
-// covered says the list is complete for OSPF, so an absent OSPF record in it is
-// evidence of an omission.
-func (i inventory) covered() bool { return i.complete && i.ospf }
+// absenceCounts says an absent OSPF record in this list is evidence of an
+// omission. The list must be marked complete and must hold OSPF records. The flag
+// says the list is complete. It does not say every OSPF source was collected.
+func (i inventory) absenceCounts() bool { return i.complete && i.ospf }
 
 // ifaceRow is one OSPF-attributed interface and the observation that holds it.
 type ifaceRow struct {
@@ -296,7 +297,7 @@ func (a *analysis) neighborGroup(p pair, recs []record) {
 			}
 		}
 		for _, v := range values(r.attrs, KeyRouterID) {
-			if ip, err := netip.ParseAddr(strings.TrimSpace(v)); err == nil {
+			if ip, ok := parseRouterID(v); ok {
 				ids = appendUnique(ids, ip.String())
 			} else {
 				badID = appendUnique(badID, v)
@@ -313,11 +314,17 @@ func (a *analysis) neighborGroup(p pair, recs []record) {
 		reasons = append(reasons, fmt.Sprintf("%s %s is not an OSPF area", KeyArea, quoted(badArea)))
 	}
 	if len(badID) > 0 {
-		reasons = append(reasons, fmt.Sprintf("%s %s is not an IP address", KeyRouterID, quoted(badID)))
+		reasons = append(reasons, fmt.Sprintf("%s %s is not a dotted IPv4 router ID", KeyRouterID, quoted(badID)))
 	}
 	l := link{node: p.node, vrf: p.vrf, iface: p.iface, peer: p.peer}
 	if len(remote) == 1 {
 		l.peerIface = remote[0]
+	}
+	// A state is agreement only when every record for this neighbor reads one
+	// state. A record with no readable state leaves the aggregate unknown.
+	stateGap := missing > 0 || len(unreadable) > 0
+	if stateGap && len(known) == 1 {
+		reasons = append(reasons, "no state is reported for this neighbor")
 	}
 	if len(reasons) > 0 {
 		a.add(KindIncompleteAttributes, Unknown, l, strings.Join(reasons, "; "), limitIncomplete, ev)
@@ -326,10 +333,10 @@ func (a *analysis) neighborGroup(p pair, recs []record) {
 	switch {
 	case len(remote) > 1:
 		a.add(KindAttributeConflict, Conflicting, l, "remote interface values disagree: "+strings.Join(remote, " and "), limitAttributeConflict, ev)
-	case len(known) == 1:
-		a.add(KindNeighborState, Reported, l, "reports state "+known[0], limitForState(known[0]), ev)
 	case len(known) > 1:
 		a.add(KindNeighborState, Conflicting, l, "reports states "+strings.Join(known, " and "), limitStatesConflict, ev)
+	case len(known) == 1 && !stateGap:
+		a.add(KindNeighborState, Reported, l, "reports state "+known[0], limitForState(known[0]), ev)
 	}
 	if len(areas) > 1 {
 		a.add(KindAttributeConflict, Conflicting, l, KeyArea+" values disagree: "+strings.Join(areas, " and "), limitAttributeConflict, ev)
@@ -354,9 +361,9 @@ func (a *analysis) confirmRouterID(l link, id string, ev []Evidence) {
 			continue
 		}
 		for _, v := range values(r.attrs, KeyRouterID) {
-			ip, err := netip.ParseAddr(strings.TrimSpace(v))
+			ip, ok := parseRouterID(v)
 			switch {
-			case err != nil:
+			case !ok:
 			case ip.String() == id:
 				confirmed = true
 			default:
@@ -416,8 +423,8 @@ type expKey struct {
 }
 
 // expectedNeighbors checks each configured or intended OSPF neighbor against the
-// operational inventory of the node that names it. Its absence is a finding only
-// when that inventory is complete for OSPF.
+// operational inventory of the node that names it. Its absence is evidence only
+// when a complete neighbor list holds OSPF records.
 func (a *analysis) expectedNeighbors() {
 	groups := map[expKey][]record{}
 	for _, inv := range a.inv {
@@ -442,7 +449,7 @@ func (a *analysis) expected(l link, recs []record) {
 		a.add(KindMissingNeighbor, Unknown, l, "expected neighbor names no remote interface, so the far end cannot be matched", limitMissingUnknown, ev)
 		return
 	}
-	var present, named, coveredMiss, otherMiss []Evidence
+	var present, named, omitted, otherMiss []Evidence
 	var others []string
 	consulted := 0
 	for _, inv := range a.inv {
@@ -453,7 +460,9 @@ func (a *analysis) expected(l link, recs []record) {
 		hit := false
 		var here []Evidence
 		for _, r := range inv.neighbors {
-			if r.link.pair() != l.pair() {
+			// Only an OSPF record can show OSPF presence. A generic record names a
+			// link, not an OSPF adjacency.
+			if r.link.pair() != l.pair() || !ospfRecord(r.attrs) {
 				continue
 			}
 			// A record that leaves the remote interface empty is the same neighbor.
@@ -469,20 +478,20 @@ func (a *analysis) expected(l link, recs []record) {
 		case hit:
 		case len(here) > 0:
 			named = append(named, here...)
-		case inv.covered():
-			coveredMiss = append(coveredMiss, invEvidence(inv, "complete OSPF inventory, no such record"))
+		case inv.absenceCounts():
+			omitted = append(omitted, invEvidence(inv, "complete neighbor list with OSPF records; no OSPF record for this neighbor"))
 		default:
-			otherMiss = append(otherMiss, invEvidence(inv, "inventory is partial or holds no OSPF records, no such record"))
+			otherMiss = append(otherMiss, invEvidence(inv, "list is partial or holds no OSPF records; no OSPF record for this neighbor"))
 		}
 	}
 	switch {
-	case len(present) > 0 && len(coveredMiss) > 0:
-		a.add(KindMissingNeighbor, Conflicting, l, fmt.Sprintf("%s reports the neighbor, and its complete OSPF inventory does not", l.node), limitMissingConflict, append(append(slices.Clone(ev), present...), coveredMiss...))
+	case len(present) > 0 && len(omitted) > 0:
+		a.add(KindMissingNeighbor, Conflicting, l, fmt.Sprintf("%s reports the neighbor, and its complete neighbor list with OSPF records does not", l.node), limitMissingConflict, append(append(slices.Clone(ev), present...), omitted...))
 	case len(present) > 0:
 	case len(named) > 0:
 		a.add(KindMissingNeighbor, Unknown, l, fmt.Sprintf("the operational inventory of %s names remote interface %s for %s, not the expected %s, so the expected neighbor is not shown", l.node, strings.Join(others, " and "), l.peer, l.peerIface), limitMissingUnknown, append(slices.Clone(ev), named...))
-	case len(coveredMiss) > 0:
-		a.add(KindMissingNeighbor, ConsistentWith, l, fmt.Sprintf("the complete OSPF inventory of %s has no record of %s on %s", l.node, l.peer, l.iface), limitMissingConsistent, append(slices.Clone(ev), coveredMiss...))
+	case len(omitted) > 0:
+		a.add(KindMissingNeighbor, ConsistentWith, l, fmt.Sprintf("the complete neighbor list of %s, which holds OSPF records, has no OSPF record of %s on %s", l.node, l.peer, l.iface), limitMissingConsistent, append(slices.Clone(ev), omitted...))
 	case consulted == 0:
 		a.add(KindMissingNeighbor, Unknown, l, fmt.Sprintf("no operational inventory from %s to check the expected neighbor", l.node), limitMissingUnknown, ev)
 	default:
@@ -631,6 +640,13 @@ func parseArea(s string) (uint32, bool) {
 		return binary.BigEndian.Uint32(b[:]), true
 	}
 	return 0, false
+}
+
+// parseRouterID reads an OSPF router ID. The protocol writes it as a 32-bit
+// identifier in dotted IPv4 form, so an IPv6 or IPv4-mapped address is unusable.
+func parseRouterID(s string) (netip.Addr, bool) {
+	ip, err := netip.ParseAddr(strings.TrimSpace(s))
+	return ip, err == nil && ip.Is4()
 }
 
 func appendUnique(xs []string, x string) []string {

@@ -325,12 +325,22 @@ or with
 .BR \-two\-sided .
 .TP
 .BI \-import\-frr\-ospf " manifest.json"
-Import the FRR OSPF captures that the manifest names, and report every capture and every neighbor record. The manifest is JSON with "version": 1. It names each capture's file, source label, node, VRF, FRR version, command, and collection time. The import is headless: it runs no probe and contacts no router. Exit 0 means every capture was accepted and every neighbor record was mapped. It does not mean the network is healthy. Exit 1 means a capture was refused or a neighbor record was left unmapped. Exit 2 means the input or the output cannot be used. The manifest format and the report are described in the reference.
+Import the FRR OSPF captures that the manifest names, and report every capture
+and every neighbor record. The manifest is JSON with "version": 1. It names each
+capture's file, source label, node, VRF, FRR version, command, and collection
+time. The import is headless: it runs no probe and contacts no router. Exit 0
+means every capture was accepted and every neighbor record was mapped. It does
+not mean the network is healthy. Exit 1 means a capture was refused or a
+neighbor record was left unmapped. Exit 2 means the input or the output cannot
+be used. The manifest format and the report are described in the reference.
 .TP
 .BI \-write\-topology " file"
 Used with \-import\-frr\-ospf, write the imported topology to
 .I file
-in the \-explain format. The file is written only when every capture was accepted and every neighbor record was mapped; an incomplete import writes nothing. The file is published by hard link, so an existing file is never replaced, and a filesystem without hard links refuses the write.
+in the \-explain format. The file is written only when every capture was
+accepted and every neighbor record was mapped; an incomplete import writes
+nothing. The file is published by hard link, so an existing file is never
+replaced, and a filesystem without hard links refuses the write.
 .TP
 .B \-two\-sided
 Say which of two vantage points a same-target failure is specific to. With two
@@ -756,7 +766,8 @@ file, and flags that cannot be combined with it also exit
 .BR 2 .
 Under
 .BR \-import\-frr\-ospf ,
-an invalid manifest, an unsafe or unreadable capture, a flag that cannot be combined
+an invalid manifest, an unsafe or unreadable capture, a flag that cannot be
+combined
 with the import, and a topology that cannot be written also exit
 .BR 2 .
 Under offline

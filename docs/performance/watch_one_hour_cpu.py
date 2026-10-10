@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Run each one-hour Watch arm in its own test process and summarize the runs.
 
-Usage: python3 docs/performance/watch_one_hour_cpu.py OUTDIR REPS
+Usage, from the repository root: python3 docs/performance/watch_one_hour_cpu.py REPS
+
+The only argument is the repetition count. Output goes to a fresh temporary
+directory, which is printed first, so no argument can name a path.
 
 The test binary is built once, so compile time stays outside every measured
 region. Each repetition runs all five arms, and the starting arm moves by one
@@ -9,10 +12,12 @@ each repetition so no arm always runs first or last. The summary gives the
 median, minimum, maximum and coefficient of variation of each reported metric.
 """
 
+import argparse
 import os
 import statistics
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 
 PACKAGE = "./internal/diagnostic"
@@ -24,6 +29,7 @@ ARMS = [
     ("events", "incremental"),
     ("events", "fresh"),
 ]
+MAX_REPS = 100
 
 
 def build(outdir):
@@ -81,8 +87,12 @@ def summarize(samples):
 
 
 def main():
-    outdir, reps = sys.argv[1], int(sys.argv[2])
-    os.makedirs(outdir, exist_ok=True)
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("reps", type=int, choices=range(1, MAX_REPS + 1), metavar="REPS")
+    reps = parser.parse_args().reps
+
+    outdir = tempfile.mkdtemp(prefix="watch-one-hour-")
+    print(f"output: {outdir}", flush=True)
     binary = build(outdir)
 
     samples = defaultdict(lambda: defaultdict(list))

@@ -48,12 +48,14 @@ a warm cache or a GC state with another. Each repetition starts with a
 different arm, so no arm always runs first or last:
 
 ```sh
-python3 docs/performance/watch_one_hour_cpu.py OUTDIR 10
+python3 docs/performance/watch_one_hour_cpu.py 10
 ```
 
-`OUTDIR/summary.tsv` holds the median, minimum, maximum and coefficient of
-variation of each metric per arm. The per-process Go benchmark output is kept
-beside it.
+The only argument is the repetition count, from 1 to 100. The driver prints
+its output directory first. That directory is a new temporary one, and it holds
+the per-process Go benchmark output and `summary.tsv`. `summary.tsv` has the
+median, minimum, maximum and coefficient of variation of each metric per arm.
+The same table is printed to stdout.
 
 The driver runs five arms: stable incremental, stable forced, stable fresh,
 events incremental and events fresh. It omits events forced, so this report

@@ -58,9 +58,19 @@ func (s *WatchSession) FollowRouteEvents() error {
 }
 
 // FollowsRouteEvents reports whether a route-event subscription is running. It
-// lets the owner check that a session it replaced or closed holds none.
+// lets the owner check that a session it replaced or closed holds none. A reader
+// that stopped on a failed subscription is not running, so it reports false.
 func (s *WatchSession) FollowsRouteEvents() bool {
-	return s.feed != nil
+	f := s.feed
+	if f == nil {
+		return false
+	}
+	select {
+	case <-f.done:
+		return false
+	default:
+		return true
+	}
 }
 
 // followRoutes starts the reader for src. It is the seam tests use to replay a

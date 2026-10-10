@@ -1745,7 +1745,7 @@ Binding is consistency, not identity. Node and VRF names are local to the file a
 
 A bound side prints its source and destination, then an explanation with labeled parts. The expected path is the control plane's prediction. The forwarding path is the recorded FIB. The return path is derived from the recorded FIB rows, and no reply was observed. A symmetric result means the two directions cross the same routers in reverse order, not that a reply arrives. Asymmetry is classified as in the [route-path explanation](#route-path-explanation). Checks recorded in the file are labeled as recorded elsewhere, since this reading measured none of them. Drift is not part of the context.
 
-Route context never changes the placement, the diagnosis, or the exit code, which still comes from the placement alone. An unreadable or invalid file, or one file named for both sides, exits `2`. The route files are refused with `--via`, with live mode, and with every other mode. `--help` exits while flags are parsed, before any flag is checked, as it does for every other flag.
+Route context never changes the placement, the diagnosis, or the exit code, which still comes from the placement alone. An unreadable or invalid file, or one file named for both sides, exits `2`. The route files are refused with `--via`, with live mode, and with every other mode, including `--version`, `--list-checks`, and `--profile list`. Only `--help` exits earlier, while flags are parsed.
 
 Topology output prints the file's node and VRF names and its addresses unredacted. Review a reading before attaching it to a bug report.
 

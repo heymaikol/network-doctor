@@ -57,7 +57,9 @@ _netdoc_wants_snapshots() {
 # spec up front keeps the ordinary case exactly the single `:target:` it has
 # always been, and the flags keep coming back.
 local -a _netdoc_rest
-if (( ${words[(I)(--explain|-explain)]} )); then
+if (( ${words[(I)(--import-frr-ospf|-import-frr-ospf)]} )); then
+  _netdoc_rest=()
+elif (( ${words[(I)(--explain|-explain)]} )); then
   _netdoc_rest=( ':topology file:_files' ':destination:' )
 elif _netdoc_wants_snapshots; then
   _netdoc_rest=( '*:snapshot:_netdoc_snapshots' )
@@ -76,9 +78,11 @@ _arguments \
   '(--profile -profile)'{--profile,-profile}='[run a built-in service profile]:profile:(github ssh smtp web list)' \
   '(--save -save --support -support)'{--save,-save}='[write a diagnostic snapshot (.ndoc) to a file]:file:_files' \
   '(--support -support --save -save)'{--support,-support}='[write a sanitized support snapshot (.ndoc) to a file]:file:_files' \
-  '(--compare -compare --two-sided -two-sided --explain -explain)'{--compare,-compare}'[compare two saved snapshots (.ndoc); runs no probes]' \
-  '(--two-sided -two-sided --compare -compare --explain -explain)'{--two-sided,-two-sided}'[localize two saved snapshots, or local and --via live runs]' \
-  '(--explain -explain --compare -compare --two-sided -two-sided)'{--explain,-explain}'[explain how traffic to a destination should leave a topology file; runs no probes]' \
+  '(--compare -compare --two-sided -two-sided --explain -explain --import-frr-ospf -import-frr-ospf)'{--compare,-compare}'[compare two saved snapshots (.ndoc); runs no probes]' \
+  '(--two-sided -two-sided --compare -compare --explain -explain --import-frr-ospf -import-frr-ospf)'{--two-sided,-two-sided}'[localize two saved snapshots, or local and --via live runs]' \
+  '(--explain -explain --compare -compare --two-sided -two-sided --import-frr-ospf -import-frr-ospf)'{--explain,-explain}'[explain how traffic to a destination should leave a topology file; runs no probes]' \
+  '(--import-frr-ospf -import-frr-ospf --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-ospf,-import-frr-ospf}'=[import the FRR OSPF captures a manifest names; runs no probes]:manifest:_files' \
+  '(--write-topology -write-topology)'{--write-topology,-write-topology}'=[with --import-frr-ospf, write the topology of a complete import to a file]:file:_files' \
   '(--route-a -route-a)'{--route-a,-route-a}'=[add the routing context of a topology file to side A of offline --two-sided]:topology file:_files' \
   '(--route-b -route-b)'{--route-b,-route-b}'=[add the routing context of a topology file to side B of offline --two-sided]:topology file:_files' \
   '*'{--peer-listen,-peer-listen}='[listen for an authenticated peer on an exact IP\:port]:address:' \

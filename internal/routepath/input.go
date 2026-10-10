@@ -36,7 +36,7 @@ type wireFile struct {
 type wireStart struct {
 	Node    string `json:"node"`
 	VRF     string `json:"vrf"`
-	Address string `json:"address"`
+	Address string `json:"address,omitempty"`
 }
 
 type wireBoundary struct {
@@ -70,15 +70,15 @@ type wireNeighbor struct {
 	LocalInterface  string          `json:"local_interface"`
 	RemoteNode      string          `json:"remote_node"`
 	RemoteInterface string          `json:"remote_interface"`
-	RemoteAddr      string          `json:"remote_addr"`
+	RemoteAddr      string          `json:"remote_addr,omitempty"`
 	Attributes      []wireAttribute `json:"attributes"`
 }
 
 type wireRoute struct {
 	Prefix     string          `json:"prefix"`
 	Origin     string          `json:"origin"`
-	Metric     *uint32         `json:"metric"`
-	Discard    bool            `json:"discard"`
+	Metric     *uint32         `json:"metric,omitempty"`
+	Discard    bool            `json:"discard,omitempty"`
 	NextHops   []wireNextHop   `json:"next_hops"`
 	Attributes []wireAttribute `json:"attributes"`
 }
@@ -89,7 +89,7 @@ type wireAttribute struct {
 }
 
 type wireNextHop struct {
-	Addr      string `json:"addr"`
+	Addr      string `json:"addr,omitempty"`
 	Interface string `json:"interface"`
 }
 
@@ -100,7 +100,7 @@ type wireCheck struct {
 	VRF         string `json:"vrf"`
 	Interface   string `json:"interface"`
 	Destination string `json:"destination"`
-	NextHop     string `json:"next_hop"`
+	NextHop     string `json:"next_hop,omitempty"`
 	Result      string `json:"result"`
 }
 

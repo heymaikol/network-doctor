@@ -538,7 +538,7 @@ func TestImportIdentityByAddress(t *testing.T) {
 				})
 				return caps
 			},
-			want:  []recordWant{{false, "no captured interface in this VRF owns"}},
+			want:  []recordWant{{false, "has no ipAddress; address ownership incomplete"}},
 			notes: "ipAddress is missing",
 		},
 		{
@@ -614,7 +614,7 @@ func TestImportIdentityByAddress(t *testing.T) {
 				caps[i].VRF = "blue"
 				return caps
 			},
-			want: []recordWant{{false, "no captured interface in this VRF owns"}},
+			want: []recordWant{{false, "address ownership incomplete"}},
 		},
 		{
 			name: "router ID contradicts the peer's report",
@@ -683,33 +683,23 @@ func TestImportIdentityByAddress(t *testing.T) {
 	}
 }
 
-// TestImportNoNbrIDKeepsIdentityWhenAddressResolves checks the placeholder FRR
-// uses for a neighbor with no router ID yet. The record is kept, and its
-// address still names the peer. No router ID is recorded.
-func TestImportNoNbrIDKeepsIdentityWhenAddressResolves(t *testing.T) {
+// TestImportNoNbrIDNeverIdentifiesAPeer checks the placeholder FRR uses for a
+// neighbor with no router ID yet. Its address resolves to r2 here, but the
+// record has no router ID to confirm the peer, so it stays unmapped and writes
+// no neighbor. The state and address are kept in the report.
+func TestImportNoNbrIDNeverIdentifiesAPeer(t *testing.T) {
 	caps := broadcastCaptures(t)
-	i := find(t, caps, "r1", CommandNeighborDetail)
-	caps[i].Data = mutateJSON(t, caps[i].Data, func(top map[string]any) {
-		nbrs := top["neighbors"].(map[string]any)
-		recs := nbrs["2.2.2.2"].([]any)
-		recs[0].(map[string]any)["nbrState"] = "Attempt/DROther"
-		nbrs["noNbrId"] = recs
-		delete(nbrs, "2.2.2.2")
-	})
+	renameNeighborKey(t, caps, "noNbrId")
 	res, err := Import(caps)
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkRecords(t, res.Report.Records, "r1", []recordWant{{mapped: true}})
-	recs := neighborsOf(res, "r1")
-	if len(recs) != 1 {
-		t.Fatalf("r1 has %d neighbors, want 1", len(recs))
+	checkRecords(t, res.Report.Records, "r1", []recordWant{{mapped: false, reason: "has no router ID"}})
+	if rec := res.Report.Records[0]; rec.State != "Attempt/DROther" || rec.NeighborAddr != "10.0.1.2" {
+		t.Errorf("placeholder record lost its state or address: state %q, address %q", rec.State, rec.NeighborAddr)
 	}
-	if recs[0].RemoteNode != "r2" || recs[0].RemoteInterface != "e2" {
-		t.Errorf("placeholder record maps to %s %s, want r2 e2", recs[0].RemoteNode, recs[0].RemoteInterface)
-	}
-	if _, ok := attr(recs[0].Attributes, keyRouterID); ok {
-		t.Errorf("placeholder record wrote a router ID: %+v", recs[0].Attributes)
+	if recs := neighborsOf(res, "r1"); len(recs) != 0 {
+		t.Errorf("placeholder record wrote %d neighbors, want 0", len(recs))
 	}
 }
 
@@ -1018,7 +1008,7 @@ func TestImportNoNbrIDFromLabStaysUnmapped(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkRecords(t, res.Report.Records, "r1", []recordWant{
-		{mapped: false, reason: `no captured interface in this VRF owns "10.0.1.2"`},
+		{mapped: false, reason: "has no router ID"},
 	})
 	if recs := neighborsOf(res, "r1"); len(recs) != 0 {
 		t.Errorf("unmapped placeholder wrote %d neighbors, want 0", len(recs))

@@ -33,6 +33,10 @@ complete -c netdoc -n '__fish_seen_argument -o two-sided -l two-sided; and not _
 # completion comes back only while no positional word has been typed. The
 # helper counts the command name as well, hence the 1.
 complete -c netdoc -n '__fish_seen_argument -o explain -l explain; and test (__fish_number_of_cmd_args_wo_opts) -le 1' -F
+# --import-frr-ospf takes a manifest and --write-topology the file to write,
+# so both are paths, and neither takes a target.
+complete -c netdoc -o import-frr-ospf -l import-frr-ospf -r -F -d 'Import the FRR OSPF captures a manifest names; runs no probes'
+complete -c netdoc -o write-topology -l write-topology -r -F -d 'With --import-frr-ospf, write the topology of a complete import to a file'
 complete -c netdoc -o peer-listen -l peer-listen -r -f -d 'Listen for an authenticated peer on an exact IP:port (repeatable)'
 complete -c netdoc -o peer-connect -l peer-connect -d 'Read a temporary pairing string and run a two-ended diagnosis'
 complete -c netdoc -o via -l via -r -f \

@@ -91,6 +91,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	routeA := fs.String("route-a", "", "with offline -two-sided, add the routing context of topology `file` to side A; runs no probes")
 	routeB := fs.String("route-b", "", "with offline -two-sided, add the routing context of topology `file` to side B; runs no probes")
 	explain := fs.Bool("explain", false, "explain how traffic to a destination should leave a topology file; runs no probes")
+	importFRR := fs.String("import-frr-ospf", "", "import the FRR OSPF captures named by manifest `file`; runs no probes")
+	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf, write the topology to `file` only when every capture and record is accepted")
 	watch := fs.Bool("watch", false, "continuously re-run checks (with -json, stream one report per line)")
 	profileName := fs.String("profile", "", "run a service `profile` ("+strings.Join(profiles.Names(), ", ")+"; use list to describe them)")
 	var peerListen peerListenList
@@ -156,11 +158,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *compareMode || *explain || *twoSided && !liveTwoSided {
 		allowed = 2
 	}
+	// An import reads a manifest flag and writes an optional topology flag. It
+	// takes no positional argument, since the manifest names every capture.
+	importSet := setFlagNames(fs)["import-frr-ospf"] || setFlagNames(fs)["write-topology"]
+	if importSet {
+		allowed = 0
+	}
 	if len(positional) > allowed {
 		// %q, not %v: argv is untrusted enough to matter, and quoting escapes
 		// control bytes so an OSC 52 in an argument prints instead of running.
 		fmt.Fprintf(stderr, "netdoc: unexpected arguments: %q\n", positional[allowed:])
 		return 2
+	}
+	// Before -version and -list-checks, so a combination with them is refused
+	// rather than answered by whichever flag is checked first.
+	if importSet {
+		return runFRRImport(setFlagNames(fs), *importFRR, *writeTopology, *jsonOut, stdout, stderr)
 	}
 	if *showVersion {
 		fmt.Fprintln(stdout, "netdoc", version)

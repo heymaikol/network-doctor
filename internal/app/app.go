@@ -88,6 +88,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	support := fs.String("support", "", "run the checks headless and write a sanitized support snapshot to `file` (.ndoc)")
 	compareMode := fs.Bool("compare", false, "compare two saved snapshots given as arguments; runs no probes")
 	twoSided := fs.Bool("two-sided", false, "localize a failure from two saved snapshots, or from local and -via live runs")
+	routeA := fs.String("route-a", "", "with offline -two-sided, add the routing context of topology `file` to side A; runs no probes")
+	routeB := fs.String("route-b", "", "with offline -two-sided, add the routing context of topology `file` to side B; runs no probes")
 	explain := fs.Bool("explain", false, "explain how traffic to a destination should leave a topology file; runs no probes")
 	watch := fs.Bool("watch", false, "continuously re-run checks (with -json, stream one report per line)")
 	profileName := fs.String("profile", "", "run a service `profile` ("+strings.Join(profiles.Names(), ", ")+"; use list to describe them)")
@@ -132,6 +134,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// One argument everywhere except the two artifact readings. With -via,
 	// -two-sided is a live target run again and accepts at most one target.
 	liveTwoSided := *twoSided && *viaDest != ""
+	// Route files only add context to an offline two-sided reading. Anywhere else
+	// they would be silently ignored, so they are refused in every other run mode,
+	// including -version, -list-checks, and -profile list, which exit below. Only
+	// -help is earlier: flag parsing prints it and exits before any flag is checked.
+	if setFlagNames(fs)["route-a"] || setFlagNames(fs)["route-b"] {
+		if !*twoSided || liveTwoSided {
+			fmt.Fprintln(stderr, "netdoc: -route-a and -route-b need offline -two-sided with two snapshot files")
+			return 2
+		}
+		if (setFlagNames(fs)["route-a"] && *routeA == "") || (setFlagNames(fs)["route-b"] && *routeB == "") {
+			fmt.Fprintln(stderr, "netdoc: -route-a and -route-b need a topology file name")
+			return 2
+		}
+	}
 	if liveTwoSided && len(positional) > 1 {
 		fmt.Fprintln(stderr, "netdoc: live -two-sided accepts at most one target; remove -via to read two snapshot files")
 		return 2
@@ -201,7 +217,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// the same reason: it asks where a failure is rather than what changed, and
 	// everything it answers with comes out of the artifacts.
 	if *twoSided && !liveTwoSided {
-		return runTwoSided(positional, setFlagNames(fs), *jsonOut, stdout, stderr)
+		return runTwoSided(positional, setFlagNames(fs), routeFiles{a: *routeA, b: *routeB}, *jsonOut, stdout, stderr)
 	}
 	if liveTwoSided && rejectLiveTwoSidedFlags(setFlagNames(fs), stderr) {
 		return 2

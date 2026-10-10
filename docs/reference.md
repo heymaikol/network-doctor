@@ -227,6 +227,7 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--two-sided`, saved or live: the two snapshots observed different targets | `2` |
 | `--two-sided`: the two snapshots do not establish one target, because a support pseudonym is on either side and the rest of the target agrees | `2` |
 | Live `--two-sided --via`: SSH or remote protocol acquisition failed | `2` |
+| `--two-sided --route-a` or `--route-b`: an unreadable or invalid topology file, or one file named for both sides | `2` |
 | `--explain`: an explanation was printed, whether or not the path is broken | `0` |
 | `--explain`: a destination that is not an IP address, an unreadable or invalid topology file, or a flag that cannot be combined with it | `2` |
 | Quit before the chain finished | `1` |
@@ -1644,7 +1645,7 @@ Exit `0` means no comparable check failed on either machine, `1` means a failure
 
 ### Flags in live two-sided mode
 
-The artifact form accepts only `--json` because every other run setting is already recorded in its two files. The live compatibility decisions below are enforced before either diagnosis starts:
+The artifact form accepts only `--json` and the optional `--route-a` and `--route-b` topology files, because every other run setting is already recorded in its two files. The route files are described under [Route context from topology files](#route-context-from-topology-files). The live compatibility decisions below are enforced before either diagnosis starts:
 
 | Flag | Live behavior |
 |---|---|
@@ -1660,6 +1661,7 @@ The artifact form accepts only `--json` because every other run setting is alrea
 | `--watch` | Rejected. Watch is a repeated session, not one matched pair of completed runs. |
 | `--compare` | Rejected. Comparison asks what changed between saved states; two-sided diagnosis asks where a same-target differential appears. |
 | `--peer-listen`, `--peer-connect` | Rejected. Peer mode measures direct authenticated traffic between Network Doctor endpoints, not their independent paths to an external target. |
+| `--route-a`, `--route-b` | Rejected. Route context binds to the two saved snapshots of the offline form, and the live form has no topology input. |
 | `--toolbox`, `--no-history`, `--keys` | Rejected. They belong to the interactive TUI and have no meaning in this headless orchestration path. |
 
 `--help` and `--version` retain their normal immediate behavior. A user interrupt cancels both acquisitions and exits `1`. A remote SSH, worker, or protocol error cancels the local run, emits no two-sided result, and exits `2`; cancelling the SSH process also closes the worker channel so remote probes do not continue unnecessarily.
@@ -1718,6 +1720,33 @@ Conditions that weaken the reading are reported as caveats rather than left for 
 
 Two machines is the premise, so a different operating system, architecture, or netdoc build on the other side is the expected case and is never a caveat.
 
+### Route context from topology files
+
+`--route-a FILE` and `--route-b FILE` add the routing context of one side to the offline form. FILE is a topology in the [route-path explanation](#route-path-explanation) format, and it is explained only against the side it names:
+
+```sh
+netdoc --two-sided here.ndoc there.ndoc --route-a here-topology.json
+```
+
+A file binds to its side only when its own records agree with that side's run. The reading checks each condition below and reports the first one that fails, so an unbound file says why and explains nothing:
+
+- The side has a target, and it is an IP literal with no interface zone. A name resolves on each machine, so no single destination is bound, and a zoned target cannot be tied to an interface.
+- The side is not a generic run, which has no target to explain a route to.
+- The side is not a [support artifact](#support-snapshots). Sanitization renames its addresses, so they cannot be matched to a topology.
+- The side recorded exactly one source address for the target, in its route decision or in the probe that reached it, and that address equals the file's `source.address`. Several recorded sources, or none, do not bind.
+- The side does not record a named, non-main routing domain for the target. The snapshot cannot tie that name to the file's `vrf`.
+- `source.address` belongs to exactly one node and VRF in the file, and it is the node and VRF the file's `source` declares. Zero or several owners do not bind.
+- The file has a `source.address` with no interface zone, in the same address family as the target. A missing address, or one that differs in family or carries a zone, does not bind.
+- Every row in the file, its observations, checks, and boundaries, was collected within 24 hours of that side's capture. Outside that window the rows may describe a different network.
+
+Binding is consistency, not identity. Node and VRF names are local to the file and cannot be checked against either machine, and a reused private address or a NAT translation can match a topology that describes another network. The flag is the assertion that the file belongs to that side.
+
+A bound side prints its source and destination, then an explanation with labeled parts. The expected path is the control plane's prediction. The forwarding path is the recorded FIB. The return path is derived from the recorded FIB rows, and no reply was observed. A symmetric result means the two directions cross the same routers in reverse order, not that a reply arrives. Asymmetry is classified as in the [route-path explanation](#route-path-explanation). Checks recorded in the file are labeled as recorded elsewhere, since this reading measured none of them. Drift is not part of the context.
+
+Route context never changes the placement, the diagnosis, or the exit code, which still comes from the placement alone. An unreadable or invalid file, or one file named for both sides, exits `2`. The route files are refused with `--via`, with live mode, and with every other mode. `--help` exits while flags are parsed, before any flag is checked, as it does for every other flag.
+
+Topology output prints the file's node and VRF names and its addresses unredacted. Review a reading before attaching it to a bug report.
+
 ### How it relates to peer mode and `--via`
 
 Two machines produce six kinds of observation. netdoc gathers them with commands that do not overlap, and then reads two of the groups together:
@@ -1770,6 +1799,8 @@ Offline `--two-sided A.ndoc B.ndoc` needs no reachability and opens no connectio
 ```
 
 `checks` is every check in either snapshot, in the order side A executed them, followed by the ones only side B had. `comparable` is what says whether the placement was allowed to read the row. Field names, the `side` and ID vocabularies, and the meaning of the exit code are stable for this schema. `caveats` and `summary` are derived sentences and are never parsed back; branch on `diagnosis.id`, `diagnosis.side`, and `diagnosis.evidence`. `same_target` is always `true` in a document that exists at all, since the other case is refused, and it is carried so the document is self-describing.
+
+`route_paths` appears only when `--route-a` or `--route-b` was given. It holds one entry per named file, `a` before `b`, with `side`, `status` (`bound` or `unbound`), and `reason` when unbound. A bound entry also has `destination`, `source`, `basis`, and `explanation`. `basis` names the kind of evidence each part rests on, from a closed set: `expected` is `control_plane_prediction`, `forwarding` is `recorded_fib`, `return` is `recorded_fib_prediction`, and `checks` is `recorded_elsewhere`. `explanation` is the object `--explain --json` prints for that flow, without `drift`. `reason` is prose, so branch on `status`. Without route files the document is unchanged.
 
 Live acquisition emits this exact schema. It does not add ordinary diagnosis confidence: two-sided epistemic limits remain represented by `diagnosis.ambiguous`, `alternatives`, and `caveats`, so this orchestration feature requires no schema version change.
 
@@ -1856,7 +1887,7 @@ Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `confli
 - It explains one destination per run.
 - A recorded check whose `next_hop` matches no next hop of the route is not used, and the explanation does not say so.
 - It does not model NAT translations, firewall rules, or connection state. A `boundaries` entry records where such a device sits, not what it does to a packet.
-- Two-sided diagnosis does not read the asymmetry. Its snapshots record only the outbound decision on each side, so they carry no return route.
+- Two-sided diagnosis reads the asymmetry only as route context from a bound `--route-a` or `--route-b` file, and never as a placement. Its snapshots record only the outbound decision on each side, so they carry no return route of their own.
 
 ## Remote diagnosis over SSH
 

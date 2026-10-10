@@ -29,9 +29,10 @@ func TestTwoSidedNoEvidenceOutputIsByteStable(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if got := runTwoSided(c.paths, map[string]bool{}, c.json, &stdout, &stderr); got != c.exit {
+			if got := runTwoSided(c.paths, map[string]bool{}, routeFiles{}, c.json, &stdout, &stderr); got != c.exit {
 				t.Fatalf("exit = %d, want %d; stderr %q", got, c.exit, stderr.String())
 			}
+			// #nosec G304 -- golden is a literal name from this test's own table.
 			want, err := os.ReadFile(filepath.Join(dir, "golden", c.golden))
 			if err != nil {
 				t.Fatal(err)

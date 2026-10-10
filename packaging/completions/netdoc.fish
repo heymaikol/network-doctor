@@ -21,6 +21,10 @@ complete -c netdoc -o support -l support -r -F -d 'Write a sanitized support sna
 complete -c netdoc -o compare -l compare -d 'Compare two saved snapshots (.ndoc); runs no probes'
 complete -c netdoc -o two-sided -l two-sided -d 'Localize two saved snapshots, or local and --via live runs'
 complete -c netdoc -o explain -l explain -d 'Explain how traffic to a destination should leave a topology file; runs no probes'
+# The two route files are topology JSON for side A and side B of offline
+# --two-sided, so they take file completion and are refused with --via.
+complete -c netdoc -o route-a -l route-a -r -F -d 'Add the routing context of a topology file to side A of offline --two-sided'
+complete -c netdoc -o route-b -l route-b -r -F -d 'Add the routing context of a topology file to side B of offline --two-sided'
 # The two arguments of --compare and offline --two-sided are local files, so
 # file completion comes back only while --via is absent.
 complete -c netdoc -n '__fish_seen_argument -o compare -l compare' -F

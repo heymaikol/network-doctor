@@ -99,7 +99,7 @@ func readSnapshotPair(mode string, paths []string, usage string, stderr io.Write
 // unlike a comparison, a localization across two endpoints is not a question
 // with an answer, since a row that failed against one host and passed against
 // another says nothing about which machine is at fault.
-func runTwoSided(paths []string, setFlags map[string]bool, jsonOut bool, stdout, stderr io.Writer) int {
+func runTwoSided(paths []string, setFlags map[string]bool, files routeFiles, jsonOut bool, stdout, stderr io.Writer) int {
 	if rejectRunFlags("two-sided", setFlags, stderr) {
 		return 2
 	}
@@ -109,6 +109,10 @@ func runTwoSided(paths []string, setFlags map[string]bool, jsonOut bool, stdout,
 	}
 	result, err := compare.TwoSidedSnapshots(snapshots[0], snapshots[1])
 	if err != nil {
+		fmt.Fprintln(stderr, "netdoc: -two-sided:", textsafe.Clean(err.Error()))
+		return 2
+	}
+	if result.RoutePaths, err = routePaths(files, snapshots); err != nil {
 		fmt.Fprintln(stderr, "netdoc: -two-sided:", textsafe.Clean(err.Error()))
 		return 2
 	}

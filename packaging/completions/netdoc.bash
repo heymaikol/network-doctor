@@ -64,6 +64,11 @@ _netdoc() {
             COMPREPLY=($(compgen -A hostname -- "$cur"))
             return
             ;;
+        -route-a | --route-a | -route-b | --route-b)
+            # A topology file, so local filenames.
+            COMPREPLY=($(compgen -f -- "$cur"))
+            return
+            ;;
         -public-dns | --public-dns)
             # An IP address, or the empty string to skip the check. Neither is
             # enumerable, so offer nothing rather than local filenames.
@@ -106,6 +111,8 @@ _netdoc() {
         -compare --compare
         -two-sided --two-sided
         -explain --explain
+        -route-a --route-a
+        -route-b --route-b
         -peer-listen --peer-listen
         -peer-connect --peer-connect
         -via --via

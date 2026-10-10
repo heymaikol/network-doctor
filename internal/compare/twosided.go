@@ -83,6 +83,10 @@ type TwoSided struct {
 	// for a person and are not parsed back.
 	Caveats   []string     `json:"caveats"`
 	Diagnosis Localization `json:"diagnosis"`
+	// RoutePaths is the routing context from topology files, one entry per side
+	// given a file. Absent when none was given, and it is never read by
+	// Checks, Diagnosis, or Placed.
+	RoutePaths []RoutePath `json:"route_paths,omitempty"`
 }
 
 // SideRow is one probe's outcome on both machines.
@@ -521,6 +525,9 @@ func (t TwoSided) text(aHeading, bHeading string) string {
 		for _, caveat := range t.Caveats {
 			b.WriteString("  " + clean(caveat) + "\n")
 		}
+	}
+	if len(t.RoutePaths) > 0 {
+		b.WriteString(t.routeText(aHeading, bHeading))
 	}
 	return b.String()
 }

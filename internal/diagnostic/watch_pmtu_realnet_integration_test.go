@@ -23,11 +23,6 @@ import (
 )
 
 func TestRealWatchPathMTUFaultAndRecovery(t *testing.T) {
-	// The path MTU row reads the send queue, and only Linux and macOS report it.
-	// Elsewhere the row is N/A on every pass, so there is no fault to watch.
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		t.Skipf("path MTU is not measured on %s: the send queue is not reported", runtime.GOOS)
-	}
 	n := newRealNet(t)
 	clock := newWatchClock()
 	s := NewWatchSession(clock.Now)
@@ -37,6 +32,14 @@ func TestRealWatchPathMTUFaultAndRecovery(t *testing.T) {
 	// and the bulk write does not.
 	const onset, sustained, degraded, recovered, steps = 3, 4, 5, 6, 9
 	var injectedAt time.Time
+	// Only Linux and macOS read the send queue. Elsewhere a healthy pass has no
+	// reading, so the row is N/A. The fault still reads WARN there, because the
+	// injected queue reports it. On those platforms the black hole is seen only
+	// through that seam, not through the kernel.
+	healthyPMTU := StatusPass
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		healthyPMTU = StatusNA
+	}
 	for i := 0; i < steps; i++ {
 		if i > 0 {
 			clock.Advance(5 * time.Second)
@@ -61,7 +64,7 @@ func TestRealWatchPathMTUFaultAndRecovery(t *testing.T) {
 		}
 
 		faulted := i >= onset && i < recovered
-		wantPMTU := StatusPass
+		wantPMTU := healthyPMTU
 		if faulted {
 			wantPMTU = StatusWarn
 		}

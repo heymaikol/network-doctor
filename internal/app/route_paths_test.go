@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -119,7 +120,9 @@ func routeSide(t *testing.T, base, src string, edit func(*snapshot.Snapshot)) sn
 		}
 		o := s.Checks[i].Observed
 		o.SelectedIP, o.SourceIP = routeTarget, src
-		o.Routes = []snapshot.Route{{Destination: routeTarget, Family: "ipv4", Interface: "en0", Gateway: "192.0.2.1", Source: src, Prefix: "0.0.0.0/0"}}
+		// The gateway and prefix are what r1 forwards with in both topologies. The
+		// interface name is a machine-local spelling, so it differs on purpose.
+		o.Routes = []snapshot.Route{{Destination: routeTarget, Family: "ipv4", Interface: "en0", Gateway: "198.51.100.2", Source: src, Prefix: "93.184.216.0/24"}}
 	}
 	if edit != nil {
 		edit(&s)
@@ -196,6 +199,9 @@ type routeReport struct {
 			Return     string `json:"return"`
 			Checks     string `json:"checks"`
 		} `json:"basis"`
+		FirstHop    string   `json:"first_hop"`
+		Compared    []string `json:"compared"`
+		NotCompared []string `json:"not_compared"`
 		Explanation struct {
 			Asymmetry *struct {
 				Assessment string `json:"assessment"`
@@ -214,6 +220,29 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			}
 		}
 	})
+	ecmp := editTopology(t, symmetricTopology, func(doc map[string]any) {
+		for _, o := range observationsOf(doc) {
+			if o["node"] == "r1" && o["plane"] == "fib" {
+				route := o["routes"].([]any)[0].(map[string]any)
+				route["next_hops"] = append(route["next_hops"].([]any), map[string]any{"addr": "198.51.100.3", "interface": "eth1"})
+			}
+		}
+	})
+	partialSource := editTopology(t, symmetricTopology, func(doc map[string]any) {
+		for _, o := range observationsOf(doc) {
+			if o["node"] == "r1" && o["plane"] == "fib" {
+				o["routes_complete"] = false
+			}
+		}
+	})
+	interfaceOnly := editTopology(t, symmetricTopology, func(doc map[string]any) {
+		for _, o := range observationsOf(doc) {
+			if o["node"] == "r1" && o["plane"] == "fib" {
+				route := o["routes"].([]any)[0].(map[string]any)
+				route["next_hops"] = []any{map[string]any{"interface": "eth1"}}
+			}
+		}
+	})
 	stale := editTopology(t, symmetricTopology, func(doc map[string]any) {
 		for _, o := range observationsOf(doc) {
 			o["collected_at"] = "2025-12-30T00:00:00Z"
@@ -226,16 +255,19 @@ func TestRouteBindingOutcomes(t *testing.T) {
 		})
 	})
 	cases := []struct {
-		name   string
-		topo   string
-		side   string
-		editA  func(*snapshot.Snapshot)
-		editB  func(*snapshot.Snapshot)
-		status string
-		reason string
-		assess string
+		name        string
+		topo        string
+		side        string
+		editA       func(*snapshot.Snapshot)
+		editB       func(*snapshot.Snapshot)
+		status      string
+		reason      string
+		assess      string
+		hop         string
+		compared    string
+		notCompared string
 	}{
-		{name: "symmetric return binds", topo: symmetric, side: "a", status: compare.RouteBound, assess: "symmetric"},
+		{name: "symmetric return binds", topo: symmetric, side: "a", status: compare.RouteBound, assess: "symmetric", notCompared: "routing_table"},
 		{name: "asymmetric return is context", topo: asymmetric, side: "a", status: compare.RouteBound, assess: "asymmetric_benign"},
 		{name: "partial return stays unknown", topo: partial, side: "a", status: compare.RouteBound, assess: "unknown"},
 		{name: "source owned by two nodes", topo: twoOwners, side: "a", status: compare.RouteUnbound, reason: "several nodes"},
@@ -262,6 +294,31 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			editA: setTargetParsed(t, "[fe80::1%eth1]:443"), editB: setTargetParsed(t, "[fe80::1%eth1]:443")},
 		{name: "percent in a URL path is not a zone", topo: symmetric, side: "a", status: compare.RouteBound, assess: "symmetric",
 			editA: setTargetParsed(t, "https://93.184.216.34/a%20b"), editB: setTargetParsed(t, "https://93.184.216.34/a%20b")},
+		{name: "next hop contradicts the topology FIB", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "next hop", hop: compare.FirstHopConflicts,
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Gateway = "192.0.2.1" }},
+		{name: "matched prefix contradicts the topology FIB", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "matches", hop: compare.FirstHopConflicts,
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Prefix = "0.0.0.0/0" }},
+		{name: "known main table binds on the default VRF", topo: symmetric, side: "a", status: compare.RouteBound, assess: "symmetric", compared: "routing_table",
+			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Table, r.TableKnown = "", true }},
+		{name: "absent prefix is not compared", topo: symmetric, side: "a", status: compare.RouteBound, assess: "symmetric", notCompared: "prefix",
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Prefix = "" }},
+		{name: "next hop is one ECMP member", topo: ecmp, side: "a", status: compare.RouteBound, assess: "unknown",
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Gateway = "198.51.100.3" }},
+		{name: "link-local next hop is not comparable", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "link-local", hop: compare.FirstHopNotComparable,
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Gateway = "fe80::1" }},
+		{name: "no recorded next hop is not comparable", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "no next hop", hop: compare.FirstHopNotComparable,
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Gateway = "" }},
+		{name: "on-link record against a forwarded route conflicts", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "on link", hop: compare.FirstHopConflicts,
+			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Gateway, r.Reason = "", "on_link" }},
+		{name: "kernel no-route against a forwarded route conflicts", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "no route for the target", hop: compare.FirstHopConflicts,
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Unreachable = true }},
+		{name: "several recorded routes are not comparable", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "several routes", hop: compare.FirstHopNotComparable,
+			editA: func(s *snapshot.Snapshot) {
+				o := targetCheck(s)
+				o.Routes = append(o.Routes, snapshot.Route{Destination: routeTarget, Family: "ipv4", Interface: "en1", Gateway: "198.51.100.2", Source: routeSourceA, Prefix: "93.184.216.0/25"})
+			}},
+		{name: "partial source FIB is not comparable", topo: partialSource, side: "a", status: compare.RouteUnbound, reason: "no next hop to compare", hop: compare.FirstHopNotComparable},
+		{name: "interface-only topology hop is not comparable", topo: interfaceOnly, side: "a", status: compare.RouteUnbound, reason: "no address to compare", hop: compare.FirstHopNotComparable},
 		{name: "other side's file is refused", topo: symmetric, side: "b", status: compare.RouteUnbound, reason: "not the source this side recorded",
 			editB: func(s *snapshot.Snapshot) {
 				targetCheck(s).SourceIP = routeSourceB
@@ -291,6 +348,23 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			p := got.RoutePaths[0]
 			if p.Status != c.status {
 				t.Fatalf("status = %q, want %q (reason %q)", p.Status, c.status, p.Reason)
+			}
+			if c.status == compare.RouteBound {
+				if p.FirstHop != compare.FirstHopAgrees || !slices.Contains(p.Compared, "next_hop") || !slices.Contains(p.NotCompared, "interface") {
+					t.Fatalf("first_hop = %q compared %v not_compared %v, want agreement on the next hop, interface names unchecked", p.FirstHop, p.Compared, p.NotCompared)
+				}
+				if c.compared != "" && !slices.Contains(p.Compared, c.compared) {
+					t.Fatalf("compared = %v, want %q", p.Compared, c.compared)
+				}
+				if c.notCompared != "" && !slices.Contains(p.NotCompared, c.notCompared) {
+					t.Fatalf("not_compared = %v, want %q", p.NotCompared, c.notCompared)
+				}
+			}
+			if c.hop != "" && p.FirstHop != c.hop {
+				t.Fatalf("first_hop = %q, want %q (reason %q)", p.FirstHop, c.hop, p.Reason)
+			}
+			if c.status == compare.RouteUnbound && c.hop == "" && p.FirstHop != "" {
+				t.Fatalf("first_hop = %q on a refusal before the forwarding comparison, want none", p.FirstHop)
 			}
 			if c.status == compare.RouteUnbound {
 				if !strings.Contains(p.Reason, c.reason) {

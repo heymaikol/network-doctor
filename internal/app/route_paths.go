@@ -6,9 +6,11 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/heymaikol/network-doctor/internal/compare"
+	"github.com/heymaikol/network-doctor/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/internal/routepath"
 	"github.com/heymaikol/network-doctor/internal/snapshot"
 )
@@ -73,14 +75,156 @@ func bindRoute(side string, s snapshot.Snapshot, f routepath.File) (compare.Rout
 	// about the network's configuration, not about this flow, so the two-sided
 	// context leaves it out.
 	e.Drift = nil
+	hop := firstHopCheck(s, dest, e.Forwarding.Decision)
+	if hop.verdict != compare.FirstHopAgrees {
+		return compare.RoutePath{Side: side, Status: compare.RouteUnbound, Reason: hop.reason, FirstHop: hop.verdict}, nil
+	}
 	raw, err := e.JSON()
 	if err != nil {
 		return compare.RoutePath{}, err
 	}
 	return compare.RoutePath{
 		Side: side, Status: compare.RouteBound, Destination: dest.String(), Source: src.String(),
-		Basis: compare.BoundRouteBasis(), Explanation: raw, Text: e.Text(),
+		Basis: compare.BoundRouteBasis(), FirstHop: hop.verdict, Compared: hop.compared,
+		NotCompared: hop.notCompared, Explanation: raw, Text: e.Text(),
 	}, nil
+}
+
+// firstHop is the forwarding comparison between one side and the topology.
+type firstHop struct {
+	verdict     string
+	reason      string
+	compared    []string
+	notCompared []string
+}
+
+// firstHopCheck compares what this side recorded for dest with the topology's
+// forwarding decision at its source. A field is compared only when both sides
+// record it, and a recorded field that disagrees is a conflict. Agreement needs
+// the next hop, because a matching prefix alone does not show where traffic goes.
+// Missing or ambiguous evidence is not comparable, and it is never agreement.
+func firstHopCheck(s snapshot.Snapshot, dest netip.Addr, d routepath.Decision) firstHop {
+	conflict := func(format string, args ...any) firstHop {
+		return firstHop{verdict: compare.FirstHopConflicts, reason: fmt.Sprintf(format, args...)}
+	}
+	unknown := func(reason string) firstHop {
+		return firstHop{verdict: compare.FirstHopNotComparable, reason: reason}
+	}
+	rt, n := recordedRoute(s, dest)
+	switch {
+	case n == 0:
+		return unknown("This side recorded no route for the target, so its next hop cannot be compared.")
+	case n > 1:
+		return unknown("This side recorded several routes for the target, so no single next hop was selected.")
+	case d.Kind != routepath.KindForward:
+		return unknown("The topology's forwarding decision for the target is " + string(d.Kind) + ", so it names no next hop to compare.")
+	case rt.Unreachable:
+		return conflict("This side's kernel recorded no route for the target, but the topology forwards it.")
+	case rt.Gateway == "":
+		if rt.Reason == string(diagnostic.RouteReasonOnLink) && anyAddressedHop(d) {
+			return conflict("This side's route is on link, but the topology forwards the target through a next hop.")
+		}
+		return unknown("This side recorded no next hop for the target's route, so its next hop cannot be compared.")
+	}
+	got, err := netip.ParseAddr(rt.Gateway)
+	if err != nil {
+		return unknown("This side's next hop is not readable.")
+	}
+	got = normalAddr(got)
+	if got.Is6() && got.IsLinkLocalUnicast() {
+		return unknown("This side's next hop is an IPv6 link-local address, which names no neighbor without its interface.")
+	}
+	var want []netip.Addr
+	interfaceOnly := false
+	for _, nh := range d.NextHops {
+		if nh.Addr == "" {
+			interfaceOnly = true
+			continue
+		}
+		a, err := netip.ParseAddr(nh.Addr)
+		if err != nil {
+			return unknown("The topology's next hop is not readable.")
+		}
+		want = append(want, normalAddr(a))
+	}
+	if !slices.Contains(want, got) {
+		if interfaceOnly || len(want) == 0 {
+			return unknown("The topology's next hop has no address to compare with this side's next hop.")
+		}
+		return conflict("This side's next hop %s is not among the topology's next hops for the target (%s).", got, joinAddrs(want))
+	}
+	compared := []string{"source", "next_hop"}
+	var notCompared []string
+	if rt.Prefix == "" {
+		notCompared = append(notCompared, "prefix")
+	} else {
+		gotP, err := netip.ParsePrefix(rt.Prefix)
+		if err != nil {
+			return unknown("This side's matched prefix is not readable.")
+		}
+		wantP, err := netip.ParsePrefix(d.Prefix)
+		if err != nil {
+			return unknown("The topology's matched prefix is not readable.")
+		}
+		if gotP.Masked() != wantP.Masked() {
+			return conflict("This side matched %s, but the topology's forwarding table matches %s for the target.", gotP.Masked(), wantP.Masked())
+		}
+		compared = append(compared, "prefix")
+	}
+	if rt.TableKnown {
+		compared = append(compared, "routing_table")
+	} else {
+		notCompared = append(notCompared, "routing_table")
+	}
+	return firstHop{
+		verdict: compare.FirstHopAgrees, compared: compared,
+		notCompared: append([]string{"interface"}, notCompared...),
+	}
+}
+
+// recordedRoute returns the one route this side recorded for dest, and how many
+// distinct routes it recorded. A route that several checks repeat counts once.
+func recordedRoute(s snapshot.Snapshot, dest netip.Addr) (snapshot.Route, int) {
+	var out []snapshot.Route
+	seen := map[string]bool{}
+	for _, c := range s.Checks {
+		if c.Observed == nil {
+			continue
+		}
+		for _, r := range c.Observed.Routes {
+			if !sameAddr(r.Destination, dest) {
+				continue
+			}
+			key := strings.Join([]string{r.Gateway, r.Prefix, strconv.FormatBool(r.Unreachable), r.Reason}, "|")
+			if !seen[key] {
+				seen[key] = true
+				out = append(out, r)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return snapshot.Route{}, 0
+	}
+	return out[0], len(out)
+}
+
+// anyAddressedHop reports whether the decision names at least one next hop by address.
+func anyAddressedHop(d routepath.Decision) bool {
+	for _, nh := range d.NextHops {
+		if nh.Addr != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// joinAddrs spells addresses for a reason, in the order the topology gave them.
+func joinAddrs(addrs []netip.Addr) string {
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, a.String())
+	}
+	return strings.Join(out, ", ")
 }
 
 // bindingOf reads the destination this side targeted and checks the file

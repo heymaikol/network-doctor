@@ -260,8 +260,9 @@ jobs:
         run: go test -covermode=set -coverprofile=coverage/netns-stress.out -tags netns_integration -count=1 -run '^TestGeneratedStressHuntPMTUBlackholeCaseReachesThePathMTUProbe$' ./internal/simulation
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
-      # The Watch route-event test makes link, address and route changes inside
-      # its own user and network namespace, and must run here rather than skip.
+      # The Watch route-event test makes link, address, route, policy-rule and
+      # nexthop changes inside its own user and network namespace, and must run
+      # here rather than skip.
       - if: matrix.shard == 'coverage'
         name: Run route-event namespace test
         run: go test -count=1 -tags netns_integration -run '^TestRouteEvents' ./internal/diagnostic

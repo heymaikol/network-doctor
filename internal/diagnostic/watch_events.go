@@ -7,7 +7,8 @@ import "errors"
 // reader treats it as a change of unknown extent and invalidates.
 var errRouteEventsOverflow = errors.New("route change notifications were dropped")
 
-// routeEvents is one platform subscription to route, address and link changes.
+// routeEvents is one platform subscription to route, address, link, rule and
+// nexthop changes.
 // next blocks until a notification arrives, returns errRouteEventsOverflow when
 // notifications were dropped, and returns any other error once the subscription
 // has ended. close unblocks a pending next and may be called more than once.
@@ -25,14 +26,16 @@ type routeFeed struct {
 	done chan struct{}
 }
 
-// FollowRouteEvents subscribes the session to the platform's route, address and
-// link change notifications, where the platform has them. Each notification
-// calls Invalidate, so a reusable row measured before a change is measured again
-// on the next pass. The subscription is bound before this returns, so a change
-// made after it returns is seen. Binding also invalidates once: a change made
-// while no subscription ran was not seen, so nothing cached may be reused. It
-// returns an error, and changes nothing, when the platform has no source or the
-// subscription cannot be made. The session then keeps watchMaxAge as its only
+// FollowRouteEvents subscribes the session to the platform's route, address,
+// link, policy-rule and nexthop change notifications, where the platform has
+// them. The bind guarantees the link, address and route groups. The policy-rule
+// and nexthop groups are joined after it, one at a time, and a refused join
+// leaves that group out: its changes then reach the session only at watchMaxAge. Each notification calls Invalidate, so a reusable row measured before a
+// change is measured again on the next pass. The subscription is bound before
+// this returns, so a change made after it returns is seen. Binding also
+// invalidates once: a change made while no subscription ran was not seen, so
+// nothing cached may be reused. It returns an error, and changes nothing, when
+// the platform has no source or the subscription cannot be made. The session then keeps watchMaxAge as its only
 // bound.
 //
 // A subscription that fails later is not restarted. The reader invalidates once

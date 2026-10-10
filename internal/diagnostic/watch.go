@@ -14,8 +14,9 @@ import (
 // watchMaxAge bounds how long a passing protocol observation may stand in for
 // a fresh run. It is also the safety refresh: a change that no fresh row can
 // see is found by the next run of the observation, at most this long after it
-// was sampled. A route, address or link change reported by Invalidate ends the
-// stand-in sooner. Without a route event source, watchMaxAge is the only bound.
+// was sampled. A route, address, link, rule or nexthop change reported by
+// Invalidate ends the stand-in sooner. Without a route event source, watchMaxAge
+// is the only bound.
 const watchMaxAge = 60 * time.Second
 
 // watchReusable lists the rows a Watch pass may answer from its last passing
@@ -67,10 +68,10 @@ type WatchSession struct {
 	// force only if no request came after that, so a retest that arrives while a
 	// pass runs still gets its fresh pass.
 	requests uint64
-	// generation counts the route, address and link changes reported to this
-	// session by Invalidate. An observation records the generation its pass began
-	// with, and is reused only while the session still has that generation. It is
-	// atomic because a route event source calls Invalidate from its own goroutine.
+	// generation counts the route, address, link, rule and nexthop changes reported
+	// to this session by Invalidate. An observation records the generation its pass
+	// began with, and is reused only while the session still has that generation.
+	// It is atomic because a route event source calls Invalidate from its own goroutine.
 	generation atomic.Uint64
 	// feed is the running route-event subscription, if FollowRouteEvents started
 	// one. Only the owner that publishes passes touches it.
@@ -117,11 +118,11 @@ func (s *WatchSession) Force() {
 	s.requests++
 }
 
-// Invalidate reports a route, address or link change. Every reusable observation
-// sampled before the call is refused from now on, so the next pass runs those
-// rows fresh instead of waiting out watchMaxAge. The rows that always run are
-// untouched, and the pass is not forced: a pass that reuses nothing is published
-// as fresh.
+// Invalidate reports a route, address, link, rule or nexthop change. Every
+// reusable observation sampled before the call is refused from now on, so the
+// next pass runs those rows fresh instead of waiting out watchMaxAge. The rows that
+// always run are untouched, and the pass is not forced: a pass that reuses nothing
+// is published as fresh.
 //
 // It is safe from any goroutine, and repeated calls only move the generation
 // on, so a burst of events costs one fresh pass, not one per event. A change

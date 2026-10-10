@@ -229,7 +229,7 @@ func TestDecodeRefusesMalformedAttributes(t *testing.T) {
 		}, "invalid topology file"},
 		{"empty neighbor key", func(o map[string]any) {
 			o["neighbors"].([]any)[0].(map[string]any)["attributes"] = []any{map[string]any{"key": "", "value": "0"}}
-		}, "neighbor r2 has an attribute with an empty key"},
+		}, "neighbor r2 on eth1 has an attribute with an empty key"},
 		{"empty interface value", func(o map[string]any) {
 			o["interfaces"].([]any)[0].(map[string]any)["attributes"] = []any{map[string]any{"key": "ospf.area", "value": ""}}
 		}, `interface "eth1" attribute "ospf.area" has an empty value`},

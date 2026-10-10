@@ -341,7 +341,7 @@ func canonical(o Observation) (Observation, error) {
 		n.RemoteAddr = addr
 		// Attributes are canonical before the list is sorted, because the sort
 		// reads them to order neighbors that share an identity.
-		attrs, err := canonicalAttributes(fmt.Sprintf("neighbor %s", n.RemoteNode), n.Attributes)
+		attrs, err := canonicalAttributes(fmt.Sprintf("neighbor %s on %s", n.RemoteNode, n.LocalInterface), n.Attributes)
 		if err != nil {
 			return Observation{}, err
 		}

@@ -138,7 +138,7 @@ func TestDecodeManifestRefusesMalformedManifests(t *testing.T) {
 		{name: "file climbs out of the directory", edit: func(m map[string]any) { firstCapture(m)["file"] = "../r1.json" }, want: "must be a relative path"},
 		{name: "file is the directory itself", edit: func(m map[string]any) { firstCapture(m)["file"] = "." }, want: "must be a relative path"},
 		{name: "source has a control character", edit: func(m map[string]any) { firstCapture(m)["source"] = "r1\x1b[31m" }, want: `captures[0] "source" has control or invisible characters`},
-		{name: "source has a zero-width character", edit: func(m map[string]any) { firstCapture(m)["source"] = "r1​" }, want: "control or invisible characters"},
+		{name: "source has a zero-width character", edit: func(m map[string]any) { firstCapture(m)["source"] = "r1\u200b" }, want: "control or invisible characters"},
 		{name: "collected_at has no offset", edit: func(m map[string]any) { firstCapture(m)["collected_at"] = "2026-10-10T17:41:19" }, want: "is not an RFC 3339 time with an offset"},
 		{name: "collected_at is not a time", edit: func(m map[string]any) { firstCapture(m)["collected_at"] = "yesterday" }, want: "is not an RFC 3339 time with an offset"},
 		{name: "two captures share a source label", edit: func(m map[string]any) {

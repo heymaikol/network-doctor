@@ -93,7 +93,7 @@ func runFRRImport(setFlags map[string]bool, manifestPath, topologyPath string, j
 		fmt.Fprintf(stderr, "netdoc: -import-frr-ospf: %s\n", textsafe.Clean(err.Error()))
 		return 2
 	}
-	defer root.Close() // #nosec G104 -- read-only root; a close error cannot affect data already read
+	defer func() { _ = root.Close() }() // read-only root; a close error cannot affect data already read
 
 	data, _, err := readRegularFile(root, filepath.Base(manifestPath), frrospf.MaxManifestBytes)
 	if err != nil {
@@ -298,7 +298,7 @@ func publishFRRTopology(path string, data []byte) error {
 		return err
 	}
 	name := tmp.Name()
-	defer os.Remove(name) // #nosec G104 -- removing the temporary name is cleanup; the link is the result
+	defer func() { _ = os.Remove(name) }() // removing the temporary name is cleanup; the link is the result
 	_, werr := tmp.Write(data)
 	cerr := tmp.Close()
 	if err := errors.Join(werr, cerr); err != nil {

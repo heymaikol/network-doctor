@@ -42,6 +42,7 @@ func stageFRRBcast(t *testing.T) (dir, manifest string) {
 			t.Fatalf("%s: echoed command is not %q", s.stem, s.command)
 		}
 		payload := strings.Join(lines[1:len(lines)-1], "\n") + "\n"
+		// #nosec G703 -- s.file is a literal name from this test's own table.
 		if err := os.WriteFile(filepath.Join(dir, s.file), []byte(payload), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -75,6 +76,7 @@ func writeFRRJSON(t *testing.T, path string, v any) {
 // and each capture are edited this way.
 func editFRRJSON(t *testing.T, path string, edit func(m map[string]any)) {
 	t.Helper()
+	// #nosec G304 -- path is a file this test staged in its own temporary directory.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +117,7 @@ func TestFRRImportCompleteWritesATopologyThatReadsBack(t *testing.T) {
 			t.Errorf("report lacks %q:\n%s", want, stdout)
 		}
 	}
+	// #nosec G304 -- target is this test's temporary output path.
 	data, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatal(err)
@@ -323,6 +326,7 @@ func TestFRRImportRefusesToOverwriteOutput(t *testing.T) {
 	if code != 2 || !strings.Contains(stderr, "already exists") {
 		t.Fatalf("exit %d, stderr %q; want 2 and an already-exists refusal", code, stderr)
 	}
+	// #nosec G304 -- target is this test's temporary output path.
 	if data, _ := os.ReadFile(target); string(data) != "keep me\n" {
 		t.Errorf("existing output changed to %q", data)
 	}
@@ -391,6 +395,7 @@ func TestFRRImportPublishFailuresLeaveTheTargetAlone(t *testing.T) {
 				t.Errorf("topology section = %v; want not written, with the reason", topo)
 			}
 			if tc.racing {
+				// #nosec G304 -- target is this test's temporary output path.
 				if data, _ := os.ReadFile(target); string(data) != "racing writer\n" {
 					t.Errorf("the racing file was replaced: %q", data)
 				}
@@ -452,7 +457,7 @@ func TestFRRImportRefusesUnsafeAndUnreadableCaptures(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: "no such file",
+			want: "captures[0] r1-interface.json:",
 		},
 		{
 			name: "capture path is a directory",
@@ -516,6 +521,7 @@ func TestFRRImportRefusesUnsafeAndUnreadableCaptures(t *testing.T) {
 // read as if the prompt were not there.
 func TestFRRImportRefusesATrailingPrompt(t *testing.T) {
 	dir, manifest := stageFRRBcast(t)
+	// #nosec G304 -- r1-interface.json is staged in this test's temporary directory.
 	f, err := os.OpenFile(filepath.Join(dir, "r1-interface.json"), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)

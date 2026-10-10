@@ -292,6 +292,58 @@ func TestCertificatePinAuthenticatesTheExpectedPeerOnly(t *testing.T) {
 	}
 }
 
+// The pin is not secret: anyone can connect to a listener and read its
+// certificate. An impostor holding those bytes passes the pin, so this shows
+// CertificateVerify still refuses it. clientTLSConfig relies on that check
+// because it sets InsecureSkipVerify.
+func TestPinnedHandshakeRejectsImpostorHoldingPinnedCertificate(t *testing.T) {
+	genuine, err := newCredential(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := newCredential(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	impostor := tls.Certificate{Certificate: genuine.certificate.Certificate, PrivateKey: other.certificate.PrivateKey}
+	if pinned, err := handshakeWithPin(t, genuine.certificate, genuine.pin); !pinned || err != nil {
+		t.Fatalf("genuine peer: pinned=%v err=%v", pinned, err)
+	}
+	if pinned, err := handshakeWithPin(t, impostor, genuine.pin); !pinned || err == nil {
+		t.Fatalf("impostor: pinned=%v err=%v, want pin passed and handshake refused", pinned, err)
+	}
+	if pinned, err := handshakeWithPin(t, other.certificate, genuine.pin); pinned || err == nil {
+		t.Fatalf("other certificate: pinned=%v err=%v, want pin refused", pinned, err)
+	}
+}
+
+// handshakeWithPin runs one TLS 1.3 handshake over an in-memory pipe and
+// reports whether the pin check passed, so a failure can be placed after it.
+func handshakeWithPin(t *testing.T, server tls.Certificate, pin [sha256.Size]byte) (pinned bool, err error) {
+	t.Helper()
+	clientConn, serverConn := net.Pipe()
+	deadline := time.Now().Add(5 * time.Second)
+	_ = clientConn.SetDeadline(deadline)
+	_ = serverConn.SetDeadline(deadline)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer serverConn.Close()
+		_ = tls.Server(serverConn, &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{server}}).Handshake()
+	}()
+	config := clientTLSConfig(pin)
+	verify := config.VerifyConnection
+	config.VerifyConnection = func(state tls.ConnectionState) error {
+		pinErr := verify(state)
+		pinned = pinErr == nil
+		return pinErr
+	}
+	err = tls.Client(clientConn, config).Handshake()
+	_ = clientConn.Close()
+	<-done
+	return pinned, err
+}
+
 func TestSessionCredentialsAreFreshAndRequireTLS13(t *testing.T) {
 	first, err := newCredential(time.Now())
 	if err != nil {

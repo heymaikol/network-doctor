@@ -392,7 +392,7 @@ func (n *realNet) checkEquivalent(step int, now time.Time, inc, oracle passRun) 
 		}
 		when, reused := got.ReusedFrom()
 		if !reused || now.Sub(when) >= watchMaxAge {
-			n.t.Errorf("step %d: %s differs from the fresh pass and is not a masked reuse:\n got  %s\n want %s", step, id, fingerprint(got), fingerprint(want))
+			n.t.Errorf("step %d: %s differs from the fresh pass and is not a masked reuse:\n got  %s\n want %s\n got detail:  %s\n want detail: %s", step, id, fingerprint(got), fingerprint(want), got.Detail, want.Detail)
 			continue
 		}
 		masked = append(masked, id)
@@ -491,10 +491,12 @@ func TestRealWatchOutageAndRecoveryMatchFreshPasses(t *testing.T) {
 	s := NewWatchSession(clock.Now)
 	var sessionTL, oracleTL incident.Timeline
 	const outageStart, outageEnd, steps = 3, 6, 10
+	at := make([]time.Time, steps)
 	for i := 0; i < steps; i++ {
 		if i > 0 {
 			clock.Advance(5 * time.Second)
 		}
+		at[i] = clock.Now()
 		switch i {
 		case outageStart:
 			n.stop()
@@ -513,10 +515,16 @@ func TestRealWatchOutageAndRecoveryMatchFreshPasses(t *testing.T) {
 		if down && !inc.fresh {
 			t.Errorf("step %d: a failing pass was not fresh; an incident needs whole measurement", i)
 		}
-		var got, wantT incident.Transition
+		// The oracle is a fresh pass at every step, so its timeline is fed at every
+		// step, whatever the session published. The session's timeline is fed only by
+		// fresh passes, as the TUI feeds it.
+		wantT := n.observe(&oracleTL, clock.Now(), want)
+		if expected := expectedOutageTransition(i, outageStart, outageEnd); wantT != expected {
+			t.Errorf("step %d: oracle transition %q, want %q", i, wantT, expected)
+		}
+		var got incident.Transition
 		if inc.fresh {
 			got = n.observe(&sessionTL, clock.Now(), inc)
-			wantT = n.observe(&oracleTL, clock.Now(), want)
 			if got != wantT {
 				t.Errorf("step %d: incident transition %q, fresh oracle %q", i, got, wantT)
 			}
@@ -534,12 +542,37 @@ func TestRealWatchOutageAndRecoveryMatchFreshPasses(t *testing.T) {
 	if len(sessionIncidents) != 1 || len(oracleIncidents) != 1 {
 		t.Fatalf("incidents: session %d, oracle %d, want one outage each", len(sessionIncidents), len(oracleIncidents))
 	}
+	// The outage opens at its first down step and closes at the first step back up.
+	// Both timelines must say so, and count the failing passes between them.
+	for name, inc := range map[string]incident.Incident{"session": sessionIncidents[0], "oracle": oracleIncidents[0]} {
+		if !inc.Started.Equal(at[outageStart]) || !inc.Ended.Equal(at[outageEnd]) {
+			t.Errorf("%s incident spans %s to %s, want %s to %s", name, inc.Started, inc.Ended, at[outageStart], at[outageEnd])
+		}
+		if inc.Passes != outageEnd-outageStart {
+			t.Errorf("%s incident counts %d failing passes, want %d", name, inc.Passes, outageEnd-outageStart)
+		}
+	}
 	// Whole records are not compared: each pass carries its own per-check
 	// durations, which differ between any two runs. What the user reads is the
 	// window, the coincidence, and the changes, so those are compared.
 	if got, want := incidentFacts(sessionIncidents[0]), incidentFacts(oracleIncidents[0]); !reflect.DeepEqual(got, want) {
 		t.Errorf("incident differs from the fresh oracle:\n session %q\n oracle  %q", got, want)
 	}
+}
+
+// expectedOutageTransition is what a fresh observation at step i must record: the
+// outage begins at its first down step, stays failing while down, and recovers at
+// the first step back up. Every other step records nothing.
+func expectedOutageTransition(i, down, up int) incident.Transition {
+	switch {
+	case i == down:
+		return incident.TransitionBegan
+	case i > down && i < up:
+		return incident.TransitionFailing
+	case i == up:
+		return incident.TransitionRecovered
+	}
+	return incident.TransitionNone
 }
 
 // incidentFacts is what an incident tells the user: when it began and ended, how

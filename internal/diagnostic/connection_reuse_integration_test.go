@@ -130,6 +130,15 @@ func (l *handshakingListener) handshake(c net.Conn) {
 	if err == nil {
 		l.live.handshakes.Add(1)
 		_ = c.SetDeadline(time.Time{})
+	} else {
+		// Read out what the client still sends before the socket closes. A close
+		// with unread bytes resets the connection, and a reset can cut the client's
+		// bulk write short at a point set by timing. The path-MTU probe sends such a
+		// write after a handshake that fails, so its verdict then flips between PASS
+		// and N/A from one pass to the next. A peer that reads what it is sent does
+		// not reset. The socket stays in raw until the drain ends, so Close still
+		// sweeps it, and the handshake deadline bounds the drain.
+		_, _ = io.Copy(io.Discard, c)
 	}
 	l.mu.Lock()
 	delete(l.raw, c)

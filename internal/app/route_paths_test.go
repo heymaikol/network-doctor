@@ -220,6 +220,12 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			}
 		}
 	})
+	named := editTopology(t, symmetricTopology, func(doc map[string]any) {
+		doc["source"].(map[string]any)["vrf"] = "blue"
+		for _, o := range observationsOf(doc) {
+			o["vrf"] = "blue"
+		}
+	})
 	ecmp := editTopology(t, symmetricTopology, func(doc map[string]any) {
 		for _, o := range observationsOf(doc) {
 			if o["node"] == "r1" && o["plane"] == "fib" {
@@ -298,6 +304,9 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Gateway = "192.0.2.1" }},
 		{name: "matched prefix contradicts the topology FIB", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "matches", hop: compare.FirstHopConflicts,
 			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Prefix = "0.0.0.0/0" }},
+		{name: "main table against a named VRF", topo: named, side: "a", status: compare.RouteUnbound, reason: "VRF",
+			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Table, r.TableKnown = "", true }},
+		{name: "unreported table against a named VRF", topo: named, side: "a", status: compare.RouteUnbound, reason: "VRF"},
 		{name: "known main table binds on the default VRF", topo: symmetric, side: "a", status: compare.RouteBound, assess: "symmetric", compared: "routing_table",
 			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Table, r.TableKnown = "", true }},
 		{name: "absent prefix is not compared", topo: symmetric, side: "a", status: compare.RouteBound, assess: "symmetric", notCompared: "prefix",

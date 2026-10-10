@@ -24,6 +24,10 @@ type routeFiles struct{ a, b string }
 // file does not bind to that side.
 const routeWindow = 24 * time.Hour
 
+// routeMainVRF is the topology's name for the main routing table. A snapshot never
+// reports a VRF, so only the main table can be tied to a source in this name.
+const routeMainVRF = "default"
+
 // routePaths binds each named topology file to its side and explains that
 // side's target. It returns nil when no file was named, so the reading is
 // unchanged. Every error here is unusable input, not a finding.
@@ -270,6 +274,9 @@ func bindingOf(s snapshot.Snapshot, f routepath.File) (netip.Addr, netip.Addr, s
 	}
 	if domain, ok := routingDomainFor(s, dest); ok {
 		return netip.Addr{}, netip.Addr{}, fmt.Sprintf("This side's route for the target is in routing domain %q, which the snapshot cannot tie to the topology's vrf", domain)
+	}
+	if f.Source.VRF != routeMainVRF {
+		return netip.Addr{}, netip.Addr{}, fmt.Sprintf("The topology places the source in VRF %q, which the snapshot cannot tie to a routing table", f.Source.VRF)
 	}
 	switch owners := routepath.OwnersOf(f, src); {
 	case len(owners) == 0:

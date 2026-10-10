@@ -504,10 +504,10 @@ func canonicalAttributes(owner string, attrs []Attribute) ([]Attribute, error) {
 	}
 	out := slices.Clone(attrs)
 	for _, a := range out {
-		if a.Key == "" {
+		if strings.TrimSpace(a.Key) == "" {
 			return nil, fmt.Errorf("%s has an attribute with an empty key", owner)
 		}
-		if a.Value == "" {
+		if strings.TrimSpace(a.Value) == "" {
 			return nil, fmt.Errorf("%s attribute %q has an empty value", owner, a.Key)
 		}
 	}

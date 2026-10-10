@@ -1078,3 +1078,106 @@ func TestWatchFreshNeedsBothClocks(t *testing.T) {
 		}
 	}
 }
+
+// reusedAny reports whether a pass answered at least one reusable row from the
+// session. The in-flight tests need that, or they do not exercise expiry.
+func reusedAny(results map[ProbeID]ProbeResult) bool {
+	for _, id := range watchIDs() {
+		if _, reused := results[id].ReusedFrom(); reused && watchReusable[id] {
+			return true
+		}
+	}
+	return false
+}
+
+// A pass publishes what it measured, so Publish must refuse evidence that has
+// aged out while the pass was in flight. Each case moves the clock between Begin
+// and Publish, as a suspend or a clock step does. The refused pass is discarded,
+// and the pass that follows must run every reusable row fresh.
+func TestWatchPublishRefusesReusedEvidenceExpiredInFlight(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		step time.Duration
+	}{
+		{"forward two hours, as after a suspend", 2 * time.Hour},
+		{"backward ten seconds, as after a clock step", -10 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := newWatchClock()
+			n := newWatchNet()
+			s := NewWatchSession(clock.Now)
+			watchPass(t, s, n)
+
+			clock.Advance(5 * time.Second)
+			inFlight := s.Begin(n.graph())
+			results := RunAll(context.Background(), inFlight.Probes(), time.Second)
+			if !reusedAny(results) {
+				t.Fatal("no reusable row was reused, so expiry in flight is not exercised")
+			}
+
+			clock.Advance(tc.step)
+			if inFlight.Publish(results) {
+				t.Fatalf("published reused evidence after a %v clock step, want it discarded", tc.step)
+			}
+
+			_, runs, _ := watchPass(t, s, n)
+			for _, id := range watchIDs() {
+				if watchReusable[id] && runs[id] != 1 {
+					t.Errorf("pass after the discard ran %s %d times, want 1 fresh run", id, runs[id])
+				}
+			}
+		})
+	}
+}
+
+// A fully fresh pass that began before a long suspend holds rows measured before
+// the suspend. Publishing it would present them as current, so it is discarded.
+func TestWatchPublishRefusesFreshPassStartedBeforeLongGap(t *testing.T) {
+	clock := newWatchClock()
+	n := newWatchNet()
+	s := NewWatchSession(clock.Now)
+
+	inFlight := s.Begin(n.graph())
+	results := RunAll(context.Background(), inFlight.Probes(), time.Second)
+	if reusedAny(results) {
+		t.Fatal("the first pass reused a row, so it is not a fully fresh pass")
+	}
+
+	clock.Advance(2 * time.Hour)
+	if inFlight.Publish(results) {
+		t.Fatal("published a fresh pass that began two hours ago, want it discarded")
+	}
+}
+
+// Reused evidence is current for watchMaxAge after it was sampled, and no longer.
+// A pass that reused a row at 55 seconds may publish 4 seconds later, and may not
+// publish at 60 seconds.
+func TestWatchPublishWindowBoundaryInFlight(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		more time.Duration
+		want bool
+	}{
+		{"one nanosecond inside the window", 5*time.Second - time.Nanosecond, true},
+		{"exactly at the window", 5 * time.Second, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := newWatchClock()
+			n := newWatchNet()
+			s := NewWatchSession(clock.Now)
+			watchPass(t, s, n)
+
+			clock.Advance(watchMaxAge - 5*time.Second)
+			inFlight := s.Begin(n.graph())
+			results := RunAll(context.Background(), inFlight.Probes(), time.Second)
+			if !reusedAny(results) {
+				t.Fatal("no reusable row was reused, so the boundary is not exercised")
+			}
+
+			clock.Advance(tc.more)
+			if got := inFlight.Publish(results); got != tc.want {
+				t.Errorf("Publish = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}

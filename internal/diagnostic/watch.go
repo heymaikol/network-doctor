@@ -360,15 +360,18 @@ func (p *WatchPass) fingerprintFor(id ProbeID) (string, bool) {
 }
 
 // Publish takes the finished pass's results, after the diagnosis has been
-// finalized, and reports whether they may be recorded. A forced pass, and a
-// pass that reused no row, is always published: every row in it is fresh.
-// A pass that reused a row is published only when every row has the same
-// status and cause as in the last published pass, and the routes its rows that
-// always run measured are the same. Such a pass may still carry new addresses,
-// because a row whose inputs changed was run again. A reused pass whose
-// verdicts or routes differ may have judged a change against evidence older
-// than this pass, so nothing from it is kept and the next pass runs fresh. When
-// Publish returns false, the caller runs the next pass straight away.
+// finalized, and reports whether they may be recorded. A pass is refused first
+// when it is no longer current: it began more than watchMaxAge ago, or a row it
+// reused has aged out. Such a pass is discarded and the next one runs fresh.
+// Otherwise a forced pass, and a pass that reused no row, is published: every
+// row in it is fresh. A pass that reused a row is published only when every row
+// has the same status and cause as in the last published pass, and the routes
+// its rows that always run measured are the same. Such a pass may still carry
+// new addresses, because a row whose inputs changed was run again. A reused
+// pass whose verdicts or routes differ may have judged a change against
+// evidence older than this pass, so nothing from it is kept and the next pass
+// runs fresh. When Publish returns false, the caller runs the next pass straight
+// away.
 //
 // Publish also records whether the session may reuse at all. Only a pass whose
 // results are OK settles it, and only a pass that reused no row moves lastFull.
@@ -383,7 +386,7 @@ func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 	p.mu.Lock()
 	reused := len(p.reused)
 	p.mu.Unlock()
-	if !p.force && reused > 0 && (!maps.Equal(s.last, verdicts) || path != s.path) {
+	if !p.current(s.now()) || (!p.force && reused > 0 && (!maps.Equal(s.last, verdicts) || path != s.path)) {
 		s.force = true
 		s.requests++
 		return false
@@ -404,6 +407,25 @@ func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 	}
 	if s.requests == p.requested {
 		s.force = false
+	}
+	return true
+}
+
+// current reports whether everything this pass publishes is still inside its
+// window at now. The pass must have begun within watchMaxAge, which covers the
+// rows it ran. Every reused observation must have been sampled within it. A
+// suspend or clock step during the pass fails one of these, and the evidence it
+// would publish has aged out.
+func (p *WatchPass) current(now time.Time) bool {
+	if !within(now, p.at) {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for id := range p.reused {
+		if !within(now, p.cache[id].sampled) {
+			return false
+		}
 	}
 	return true
 }

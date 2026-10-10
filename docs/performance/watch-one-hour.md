@@ -97,8 +97,11 @@ those full and incremental counts, and the published total of 721.
 The graph is the one the real-socket tests use. It has the target TCP connect,
 path MTU, TLS, HTTPS, the plain HTTP row, and the system DNS and interface rows.
 Of the rows in this graph, TLS, HTTPS and HTTP are in `watchReusable`. The
-target runs on a loopback HTTPS server and the plain row on a loopback HTTP
-server on port 80. Name resolution and route lookups are stubbed. In the stable
+target runs on a loopback HTTPS server. The plain row runs on a loopback HTTP
+server that listens on an OS-assigned port (`127.0.0.1:0`). The HTTP row asks
+for port 80, and the fixture's dial rewrites that to the plain server's port,
+so the fixture never binds port 80 and needs no extra privilege. Name
+resolution and route lookups are stubbed. In the stable
 hour the target and path MTU rows run on every pass in both arms, so they cost
 a TCP connect per pass in both.
 

@@ -214,9 +214,9 @@ func TestImportInterfaceWithoutAddressBlocksOwnership(t *testing.T) {
 		{"ipAddress empty", map[string]any{"ipAddress": "", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
 		{"ipAddress IPv6", map[string]any{"ipAddress": "fe80::1", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
 		{"ipAddress malformed", map[string]any{"ipAddress": "10.0.1", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
-		{"ipAddress unspecified", map[string]any{"ipAddress": "0.0.0.0", "ipAddressPrefixlen": 24}, "has an ipAddress that is not a unicast address", "is not unicast"},
-		{"ipAddress broadcast", map[string]any{"ipAddress": "255.255.255.255", "ipAddressPrefixlen": 24}, "has an ipAddress that is not a unicast address", "is not unicast"},
-		{"ipAddress multicast", map[string]any{"ipAddress": "224.0.0.5", "ipAddressPrefixlen": 24}, "has an ipAddress that is not a unicast address", "is not unicast"},
+		{"ipAddress unspecified", map[string]any{"ipAddress": "0.0.0.0", "ipAddressPrefixlen": 24}, "has an ipAddress that is unspecified, multicast, or broadcast", "is unspecified, multicast, or broadcast"},
+		{"ipAddress broadcast", map[string]any{"ipAddress": "255.255.255.255", "ipAddressPrefixlen": 24}, "has an ipAddress that is unspecified, multicast, or broadcast", "is unspecified, multicast, or broadcast"},
+		{"ipAddress multicast", map[string]any{"ipAddress": "224.0.0.5", "ipAddressPrefixlen": 24}, "has an ipAddress that is unspecified, multicast, or broadcast", "is unspecified, multicast, or broadcast"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -274,6 +274,40 @@ func TestImportPrefixlessClaimantOfPeerAddressLeavesNeighborUnmapped(t *testing.
 	checkRecords(t, res.Report.Records, "r1", []recordWant{{false, "owned by 2 captured interfaces"}})
 	if recs := neighborsOf(res, "r1"); len(recs) != 0 {
 		t.Errorf("r1 wrote %d neighbors, want 0", len(recs))
+	}
+}
+
+// FRR can report a loopback or link-local address on an interface. Both are
+// valid unicast, so the interface owns its address and closes no gate: r1 still
+// maps to r2, the only owner of r1's neighbor address.
+func TestImportLoopbackAndLinkLocalAddressesKeepTheGateOpen(t *testing.T) {
+	cases := []struct {
+		name string
+		ip   string
+		plen int
+	}{
+		{"loopback", "127.0.0.1", 8},
+		{"link-local", "169.254.8.7", 16},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			caps := append(broadcastCaptures(t), rawInterfaceCapture(t, "r3", map[string]any{"ipAddress": tc.ip, "ipAddressPrefixlen": tc.plen}))
+			res, err := Import(caps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkRecords(t, res.Report.Records, "r1", []recordWant{{mapped: true}})
+			for _, r := range res.Report.Records {
+				if r.Node == "r1" && (r.RemoteNode != "r2" || r.RemoteInterface != "e2") {
+					t.Errorf("r1 record maps to %s %s, want r2 e2", r.RemoteNode, r.RemoteInterface)
+				}
+			}
+			for _, n := range capNotes(t, res, "r3", CommandInterface) {
+				if strings.Contains(n, "unicast") {
+					t.Errorf("r3 note %q marks a valid address unusable", n)
+				}
+			}
+		})
 	}
 }
 

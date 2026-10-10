@@ -29,9 +29,12 @@ const (
 var (
 	expectedPlanes   = []netmodel.Plane{netmodel.PlaneControl, netmodel.PlaneConfigured}
 	forwardingPlanes = []netmodel.Plane{netmodel.PlaneFIB}
-	// readPlanes are the only planes the explanation reads. The decoder validates
-	// intended and observed rows and then leaves them unread, so they cannot own
-	// an address or name a neighbor.
+	// The intended walk overlays intent on the FIB. Where intent is silent, the
+	// FIB decides, so the walk goes on past nodes that intent does not describe.
+	intendedPlanes = []netmodel.Plane{netmodel.PlaneIntended, netmodel.PlaneFIB}
+	// readPlanes are the only planes that can own an address or name a neighbor.
+	// The walker keeps intended rows for their routes alone, and drops observed
+	// rows after the decoder validates them.
 	readPlanes = []netmodel.Plane{netmodel.PlaneControl, netmodel.PlaneConfigured, netmodel.PlaneFIB}
 )
 
@@ -79,6 +82,7 @@ type walker struct {
 func Explain(f File, dest netip.Addr) Explanation {
 	e, w := explainWalks(f, dest)
 	e.Asymmetry = w.asymmetry(f, e)
+	e.Drift = w.drift(&e)
 	return e
 }
 
@@ -116,11 +120,14 @@ func newWalker(f File, dest netip.Addr) *walker {
 		checks: map[checkKey][]Check{},
 	}
 	for _, o := range f.Model.Observations() {
-		if slices.Contains(readPlanes, o.Plane) {
+		if slices.Contains(readPlanes, o.Plane) || o.Plane == netmodel.PlaneIntended {
 			w.obs = append(w.obs, o)
 		}
 	}
 	for _, o := range w.obs {
+		if !slices.Contains(readPlanes, o.Plane) {
+			continue
+		}
 		for _, i := range o.Interfaces {
 			for _, a := range i.Addresses {
 				k := a.Addr().WithZone("").Unmap()
@@ -297,7 +304,7 @@ func (w *walker) resolve(planes []netmodel.Plane, from state, n netmodel.NextHop
 // evidence of a node, but it names no routing domain, so the walk stops there.
 func (w *walker) neighborClaim(from state, n netmodel.NextHop) string {
 	for _, o := range w.obs {
-		if o.Node != from.node || o.VRF != from.vrf {
+		if o.Node != from.node || o.VRF != from.vrf || !slices.Contains(readPlanes, o.Plane) {
 			continue
 		}
 		for _, nb := range o.Neighbors {

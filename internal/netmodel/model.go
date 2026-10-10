@@ -249,20 +249,21 @@ func disagree(a, b Route) bool {
 }
 
 // sameHops reports whether every next hop in each list has a counterpart in the
-// other. An empty interface is unreported, so it matches any interface on the
-// same gateway.
-func sameHops(a, b []NextHop) bool {
-	covered := func(xs, ys []NextHop) bool {
-		for _, x := range xs {
-			if !slices.ContainsFunc(ys, func(y NextHop) bool {
-				return x.Addr == y.Addr && (x.Interface == "" || y.Interface == "" || x.Interface == y.Interface)
-			}) {
-				return false
-			}
+// other.
+func sameHops(a, b []NextHop) bool { return CoversHops(a, b) && CoversHops(b, a) }
+
+// CoversHops reports whether every next hop in want has a counterpart in have.
+// An empty Interface is unreported, so it matches any interface on the same
+// gateway.
+func CoversHops(have, want []NextHop) bool {
+	for _, w := range want {
+		if !slices.ContainsFunc(have, func(h NextHop) bool {
+			return w.Addr == h.Addr && (w.Interface == "" || h.Interface == "" || w.Interface == h.Interface)
+		}) {
+			return false
 		}
-		return true
 	}
-	return covered(a, b) && covered(b, a)
+	return true
 }
 
 func forwards(r Route) bool { return r.Discard || len(r.NextHops) > 0 }

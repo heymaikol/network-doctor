@@ -19,6 +19,11 @@
 // the forward route as an Asymmetry. An asymmetric pair raises a concern only
 // with a policy boundary, a routing-domain change, or a recorded failure on one
 // direction. Asymmetry alone is never a failure.
+//
+// When the file holds intended routes, one more walk follows intent where it
+// states a route and the FIB elsewhere. At each node where intent decides, the
+// intended decision is compared with the FIB as Drift, rated by what the
+// difference does to delivery. What the evidence cannot prove is unknown.
 package routepath
 
 import (
@@ -216,4 +221,7 @@ type Explanation struct {
 	// Asymmetry compares this forward route with the return route. It is nil
 	// unless the topology names the source address.
 	Asymmetry *Asymmetry `json:"asymmetry,omitempty"`
+	// Drift compares intended routes with the FIB. It is nil unless the
+	// topology holds intended routes.
+	Drift *Drift `json:"drift,omitempty"`
 }

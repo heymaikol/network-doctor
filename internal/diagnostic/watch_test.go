@@ -151,7 +151,11 @@ func (n *watchNet) snapshotRuns() map[ProbeID]int {
 	return out
 }
 
-type watchClock struct{ now time.Time }
+type watchClock struct {
+	now time.Time
+	// awake is the time the system spent awake: what the unbiased count reads.
+	awake time.Duration
+}
 
 func newWatchClock() *watchClock {
 	return &watchClock{now: time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)}
@@ -159,7 +163,18 @@ func newWatchClock() *watchClock {
 
 func (c *watchClock) Now() time.Time { return c.now }
 
-func (c *watchClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
+// Advance moves awake time: the session clock and the unbiased count together.
+func (c *watchClock) Advance(d time.Duration) {
+	c.now = c.now.Add(d)
+	c.awake += d
+}
+
+// Suspend moves the session clock alone. A suspend advances wall and monotonic
+// time but not the unbiased count, which is the gap the check looks for.
+func (c *watchClock) Suspend(d time.Duration) { c.now = c.now.Add(d) }
+
+// Unbiased reads awake time in 100 ns units, as the Windows counter does.
+func (c *watchClock) Unbiased() (uint64, bool) { return unbiasedTicks(c.awake), true }
 
 // watchPass runs one Watch pass the way both front ends do: a pass that is not
 // published is followed at once by the next one, which runs fresh. It returns

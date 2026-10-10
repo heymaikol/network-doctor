@@ -44,8 +44,12 @@ var watchReusable = map[ProbeID]bool{
 // that publishes passes may touch it: the Update loop in the TUI, or the loop
 // in headless Watch.
 type WatchSession struct {
-	now   func() time.Time
-	cache map[ProbeID]watchObservation
+	now func() time.Time
+	// unbiased reads the unbiased interrupt-time count, which a suspend does not
+	// advance. It is nil where the monotonic clock already stops in a suspend;
+	// see SystemUnbiasedClock.
+	unbiased func() (uint64, bool)
+	cache    map[ProbeID]watchObservation
 	// last is the verdict of every row in the last published pass.
 	last map[ProbeID]watchVerdict
 	// path names the routes the rows that run on every pass measured in the last
@@ -109,7 +113,7 @@ func NewWatchSession(now func() time.Time) *WatchSession {
 	if now == nil {
 		now = time.Now
 	}
-	return &WatchSession{now: now, cache: map[ProbeID]watchObservation{}, force: true}
+	return &WatchSession{now: now, unbiased: SystemUnbiasedClock, cache: map[ProbeID]watchObservation{}, force: true}
 }
 
 // Force makes the next pass acquire every row fresh. A user-requested retest
@@ -162,6 +166,15 @@ func (s *WatchSession) Begin(base []Probe, timeout time.Duration) *WatchPass {
 		ran:          map[ProbeID]watchObservation{},
 		reused:       map[ProbeID]bool{},
 		fingerprints: map[ProbeID]string{},
+	}
+	if s.unbiased != nil {
+		if ticks, ok := s.unbiased(); ok {
+			pass.unbiased, pass.start, pass.hasUnbiased = s.unbiased, ticks, true
+		} else {
+			// The platform has the count but cannot read it now. The pass keeps
+			// watchMaxAge, so it claims no more protection than that bound gives.
+			pass.window = watchMaxAge
+		}
 	}
 	pass.probes = make([]Probe, len(base))
 	for i, probe := range base {
@@ -256,9 +269,14 @@ type WatchPass struct {
 	requested  uint64
 	generation uint64
 	window     time.Duration // how long after at the pass may publish; see passWindow
-	probes     []Probe
-	cache      map[ProbeID]watchObservation
-	ancestors  map[ProbeID][]ProbeID
+	// unbiased and start hold the unbiased count when the pass began.
+	// hasUnbiased says that count was readable, so publication checks it too.
+	unbiased    func() (uint64, bool)
+	start       uint64
+	hasUnbiased bool
+	probes      []Probe
+	cache       map[ProbeID]watchObservation
+	ancestors   map[ProbeID][]ProbeID
 
 	mu     sync.Mutex
 	ran    map[ProbeID]watchObservation
@@ -362,6 +380,39 @@ func passCurrent(mono, wall, window time.Duration) bool {
 		return false
 	}
 	drift := wall - mono
+	if drift < 0 {
+		drift = -drift
+	}
+	return drift <= driftAllowance(mono)
+}
+
+// unbiasedTick is one unit of the unbiased count, which Windows reports in 100 ns.
+const unbiasedTick = 100 * time.Nanosecond
+
+// ticksElapsed returns the time from start to end on the unbiased count. A count
+// that moved backward is not a measurement, so it returns -1, which refuses the
+// pass. A difference too large for a Duration saturates.
+func ticksElapsed(start, end uint64) time.Duration {
+	if end < start {
+		return -1
+	}
+	ticks := end - start
+	if ticks > math.MaxInt64/uint64(unbiasedTick) {
+		return math.MaxInt64
+	}
+	return time.Duration(ticks) * unbiasedTick
+}
+
+// unbiasedCurrent reports whether the unbiased count agrees with the monotonic
+// clock over a pass. Where the monotonic clock counts a suspend and the count does
+// not, the gap between the two is the suspend. The allowance is the one passCurrent
+// gives the monotonic age, so the two checks share one bound. Both ages lie in
+// [0, window) before the difference is taken, so the subtraction cannot overflow.
+func unbiasedCurrent(mono, working, window time.Duration) bool {
+	if !inWindow(mono, window) || !inWindow(working, window) {
+		return false
+	}
+	drift := mono - working
 	if drift < 0 {
 		drift = -drift
 	}
@@ -517,11 +568,18 @@ func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 // window at now. The pass must have begun within its window, which covers the
 // rows it ran. Every reused observation must have been sampled within
 // watchMaxAge. A suspend or clock step during the pass fails one of these, and
-// the evidence it would publish has aged out.
+// the evidence it would publish has aged out. Where the platform has an unbiased
+// count, the pass also checks it, and a count that cannot be read now refuses.
 func (p *WatchPass) current(now time.Time) bool {
 	mono, wall := elapsed(now, p.at)
 	if !passCurrent(mono, wall, p.window) {
 		return false
+	}
+	if p.hasUnbiased {
+		ticks, ok := p.unbiased()
+		if !ok || !unbiasedCurrent(mono, ticksElapsed(p.start, ticks), p.window) {
+			return false
+		}
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()

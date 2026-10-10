@@ -289,11 +289,13 @@ func TestFRRImportIncompleteWritesNothing(t *testing.T) {
 // and no topology is written.
 func TestFRRImportInterfaceWithoutAddressIsIncomplete(t *testing.T) {
 	dir, manifest := stageFRRBcast(t)
+	// #nosec G304 -- r2-interface.json is staged in this test's temporary directory.
 	src, err := os.ReadFile(filepath.Join(dir, "r2-interface.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r3 := filepath.Join(dir, "r3-interface.json")
+	// #nosec G703 -- r3 is this test's own staged path, not external input.
 	if err := os.WriteFile(r3, src, 0o600); err != nil {
 		t.Fatal(err)
 	}

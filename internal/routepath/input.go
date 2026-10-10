@@ -48,35 +48,44 @@ type wireBoundary struct {
 }
 
 type wireObservation struct {
-	Source         string          `json:"source"`
-	CollectedAt    string          `json:"collected_at"`
-	Plane          string          `json:"plane"`
-	Node           string          `json:"node"`
-	VRF            string          `json:"vrf"`
-	RoutesComplete bool            `json:"routes_complete"`
-	Interfaces     []wireInterface `json:"interfaces"`
-	Neighbors      []wireNeighbor  `json:"neighbors"`
-	Routes         []wireRoute     `json:"routes"`
+	Source            string          `json:"source"`
+	CollectedAt       string          `json:"collected_at"`
+	Plane             string          `json:"plane"`
+	Node              string          `json:"node"`
+	VRF               string          `json:"vrf"`
+	RoutesComplete    bool            `json:"routes_complete"`
+	NeighborsComplete bool            `json:"neighbors_complete"`
+	Interfaces        []wireInterface `json:"interfaces"`
+	Neighbors         []wireNeighbor  `json:"neighbors"`
+	Routes            []wireRoute     `json:"routes"`
 }
 
 type wireInterface struct {
-	Name      string   `json:"name"`
-	Addresses []string `json:"addresses"`
+	Name       string          `json:"name"`
+	Addresses  []string        `json:"addresses"`
+	Attributes []wireAttribute `json:"attributes"`
 }
 
 type wireNeighbor struct {
-	LocalInterface  string `json:"local_interface"`
-	RemoteNode      string `json:"remote_node"`
-	RemoteInterface string `json:"remote_interface"`
-	RemoteAddr      string `json:"remote_addr"`
+	LocalInterface  string          `json:"local_interface"`
+	RemoteNode      string          `json:"remote_node"`
+	RemoteInterface string          `json:"remote_interface"`
+	RemoteAddr      string          `json:"remote_addr"`
+	Attributes      []wireAttribute `json:"attributes"`
 }
 
 type wireRoute struct {
-	Prefix   string        `json:"prefix"`
-	Origin   string        `json:"origin"`
-	Metric   *uint32       `json:"metric"`
-	Discard  bool          `json:"discard"`
-	NextHops []wireNextHop `json:"next_hops"`
+	Prefix     string          `json:"prefix"`
+	Origin     string          `json:"origin"`
+	Metric     *uint32         `json:"metric"`
+	Discard    bool            `json:"discard"`
+	NextHops   []wireNextHop   `json:"next_hops"`
+	Attributes []wireAttribute `json:"attributes"`
+}
+
+type wireAttribute struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type wireNextHop struct {
@@ -203,14 +212,15 @@ func observation(w wireObservation) (netmodel.Observation, error) {
 		return netmodel.Observation{}, err
 	}
 	o := netmodel.Observation{
-		Provenance:     netmodel.Provenance{Source: w.Source, CollectedAt: at},
-		Plane:          netmodel.Plane(w.Plane),
-		Node:           w.Node,
-		VRF:            w.VRF,
-		RoutesComplete: w.RoutesComplete,
+		Provenance:        netmodel.Provenance{Source: w.Source, CollectedAt: at},
+		Plane:             netmodel.Plane(w.Plane),
+		Node:              w.Node,
+		VRF:               w.VRF,
+		RoutesComplete:    w.RoutesComplete,
+		NeighborsComplete: w.NeighborsComplete,
 	}
 	for _, wi := range w.Interfaces {
-		i := netmodel.Interface{Name: wi.Name}
+		i := netmodel.Interface{Name: wi.Name, Attributes: attributes(wi.Attributes)}
 		for _, a := range wi.Addresses {
 			p, err := netip.ParsePrefix(a)
 			if err != nil {
@@ -221,7 +231,7 @@ func observation(w wireObservation) (netmodel.Observation, error) {
 		o.Interfaces = append(o.Interfaces, i)
 	}
 	for _, wn := range w.Neighbors {
-		n := netmodel.Neighbor{LocalInterface: wn.LocalInterface, RemoteNode: wn.RemoteNode, RemoteInterface: wn.RemoteInterface}
+		n := netmodel.Neighbor{LocalInterface: wn.LocalInterface, RemoteNode: wn.RemoteNode, RemoteInterface: wn.RemoteInterface, Attributes: attributes(wn.Attributes)}
 		if n.RemoteAddr, err = optionalAddr(wn.RemoteAddr); err != nil {
 			return netmodel.Observation{}, fmt.Errorf("neighbor %q remote_addr: %w", wn.RemoteNode, err)
 		}
@@ -232,7 +242,7 @@ func observation(w wireObservation) (netmodel.Observation, error) {
 		if err != nil {
 			return netmodel.Observation{}, fmt.Errorf("route prefix %q: %w", wr.Prefix, err)
 		}
-		r := netmodel.Route{Prefix: p, Origin: wr.Origin, Discard: wr.Discard}
+		r := netmodel.Route{Prefix: p, Origin: wr.Origin, Discard: wr.Discard, Attributes: attributes(wr.Attributes)}
 		if wr.Metric != nil {
 			r.Metric, r.MetricKnown = *wr.Metric, true
 		}
@@ -280,6 +290,16 @@ func decodeCheck(w wireCheck) (Check, error) {
 		NextHop:     nextHop,
 		Result:      result,
 	}, nil
+}
+
+// attributes copies one wire attribute list. netmodel validates it, so this only
+// reshapes it.
+func attributes(ws []wireAttribute) []netmodel.Attribute {
+	var out []netmodel.Attribute
+	for _, a := range ws {
+		out = append(out, netmodel.Attribute{Key: a.Key, Value: a.Value})
+	}
+	return out
 }
 
 // optionalAddr parses an address that may be absent. An absent next hop address

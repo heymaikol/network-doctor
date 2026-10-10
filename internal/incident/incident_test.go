@@ -81,6 +81,44 @@ func TestTimelineLifecycleAndRepeatedIncidents(t *testing.T) {
 	}
 }
 
+// The reference says the first later working or degraded pass closes an open
+// incident as a recovery. A degraded pass is a working network with a warning,
+// so a failure that ends in one is recovered there, and the next failure opens
+// a new incident whose baseline is that degraded pass.
+func TestTimelineFailingToDegradedRecoversTheIncident(t *testing.T) {
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	at := func(s int) time.Time { return start.Add(time.Duration(s) * 5 * time.Second) }
+	var timeline Timeline
+	steps := []struct {
+		health Health
+		want   Transition
+	}{
+		{Healthy, TransitionNone},
+		{Failing, TransitionBegan},
+		{Degraded, TransitionRecovered},
+		{Failing, TransitionBegan},
+	}
+	for i, step := range steps {
+		if got := timeline.Observe(at(i), observed(at(i), step.health, "wg0")); got != step.want {
+			t.Fatalf("step %d: Observe(%s) = %q, want %q", i, step.health, got, step.want)
+		}
+	}
+	incidents := timeline.Incidents()
+	if len(incidents) != 2 {
+		t.Fatalf("incidents = %d, want 2", len(incidents))
+	}
+	closed := incidents[0]
+	if closed.Active() || closed.Ended != at(2) || closed.Passes != 1 {
+		t.Errorf("closed incident = active:%v ended:%s passes:%d, want ended at %s with one failing pass", closed.Active(), closed.Ended, closed.Passes, at(2))
+	}
+	if closed.Recovered == nil || closed.Recovered.At != at(2) || closed.Recovered.Snap.Diagnosis.Summary != string(Degraded) {
+		t.Errorf("recovery = %+v, want the degraded pass", closed.Recovered)
+	}
+	if opened := incidents[1]; !opened.Active() || opened.Before == nil || opened.Before.At != at(2) {
+		t.Errorf("reopened incident baseline = %+v, want the degraded pass", opened.Before)
+	}
+}
+
 func TestTimelineSeparatesEnvironmentalChangesFromOutcomes(t *testing.T) {
 	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
 	var changed Timeline

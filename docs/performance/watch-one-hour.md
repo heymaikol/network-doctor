@@ -13,8 +13,10 @@ comes from the commands in [Reproducing](#reproducing) on the host in
   ClientHellos, handshakes, target HTTP requests and plain-endpoint dials each
   fall by about 92%. Target TCP dials do not fall, because the target and path
   MTU rows run on every pass in both arms.
-- Per hour, incremental uses about 69% less CPU (user plus system) and about 62%
+- Per hour, incremental uses about 69% less CPU (user plus system) and about 61%
   fewer allocations than fresh. Wall time per scheduled pass falls about 44%.
+  That wall time includes the fixture's settle polling, so it is a benchmark
+  cost, not user latency ([Measurement boundaries](#measurement-boundaries)).
   Ranges and repeat-run spread are in [Repeated runs and variability](#repeated-runs-and-variability).
 - Session bookkeeping allocates more than fresh. With reuse disabled (the forced
   arm), the session makes about 12% more allocations than fresh. The network
@@ -245,13 +247,38 @@ Medians of 10 processes, range in brackets. Allocation totals are medians.
 Derived, incremental against fresh:
 
 - Stable: wall per pass 44% lower. CPU user 73% lower, CPU system 58% lower,
-  total CPU 69% lower. Allocations 62% lower.
+  total CPU 69% lower. Allocations 61% lower.
 - Events: wall per pass 44% lower. CPU user 72% lower, CPU system 57% lower,
   total CPU 68% lower. Allocations 61% lower.
 - Forced against fresh (stable): wall per pass 9% higher, total CPU 8% higher,
   allocations 12% higher, allocated bytes 8% higher. Allocation counts vary by
   under 0.1% across processes, so the 12% is a stable difference. The CPU
   difference is inside the run-to-run spread for the forced arm.
+
+## Detection latency
+
+A change stays hidden only as long as reuse keeps the row that reads it. Each
+row below names the test that pins it. The fake-clock tests count passes at the
+5 s cadence. `watchMaxAge` is 60 s, which is 12 passes.
+
+| Change | Test | First published on | Latency |
+| --- | --- | --- | --- |
+| QUIC path change, route event delivered | `TestWatchRouteEventSeesQUICChangeOnTheNextPass` | next pass, attempt 1 | one cadence, 5 s |
+| QUIC path change, no route event | `TestWatchQUICPathChangeSeenOnlyAtMaxAge` | first pass that does not reuse QUIC | `watchMaxAge`, 60 s |
+| Encrypted DNS failure, no route event | `TestWatchEncryptedDNSFailureSurfacesAtMaxAge` | first pass that does not reuse it | `watchMaxAge`, 60 s |
+| Silent TLS failure, no route event | `TestWatchSilentTLSFailureSurfacesAtMaxAge` | first pass after the reused PASS ages out | up to `watchMaxAge`, 60 s |
+| System or public resolver failure | `TestWatchResolverFlipPublishesNoReusedRow` | next pass; attempt 2 when a reused row beside it is refused | one cadence, 5 s |
+| Interface down | `TestWatchInterfaceDownConfirms` | next pass, published at once | one cadence, 5 s |
+| 10,000 invalidations in one interval | `TestWatchInvalidateBurstCostsOneFreshPass` | next pass, attempt 1, each reusable row measured once | one cadence, 5 s |
+| Route change, real sockets | `TestRealWatchRouteChangeRerunsReusedRows` | change pass, attempt 1, every row fresh | first pass after the change |
+| Outage and recovery, real sockets | `TestRealWatchOutageAndRecoveryMatchFreshPasses` | onset on attempt 2, recovery on attempt 1 | first pass after the change |
+| TLS refusal, real sockets | `TestRealWatchTLSRefusalIsMaskedOnlyWithinMaxAge` | masked for at most 12 passes in a row; some masked passes changed the diagnosis | up to `watchMaxAge` |
+| Path MTU black hole, real sockets | `TestRealWatchPathMTUFaultAndRecovery` | first pass after injection, on attempt 2 | 0 passes masked; about 6 s wall time in one run |
+| Kernel route event, netns | `TestRouteEventsReachTheSessionFromTheKernel` | session receives the kernel's change | not timed; the test checks delivery |
+
+The path-MTU row is the only one with a wall-time figure. It is one run, on this
+host, and it includes the path MTU write wait. The fake clock counts no masked
+passes for it.
 
 ## Repeated runs and variability
 
@@ -322,12 +349,21 @@ cumulative, and its caller was not traced.
   host with unprivileged user namespaces and passed, with the helper reporting
   `ROUTE EVENT SEEN`. The helper's own SKIP line in that run is expected, because
   the helper only runs inside its namespace.
-- Windows suspend: not exercised on this host. `SystemUnbiasedClock` is a no-op
-  on Linux. The logic is covered only by fake-clock unit tests:
+- Windows suspend: a physical S3 suspend was run on Windows 11 (build
+  26200.9457) against PR #314's head, 53e686d. The suspend-related files are
+  identical at 53e686d and at this head. On this Linux host `SystemUnbiasedClock`
+  is a no-op, so the logic is covered here only by fake-clock unit tests:
   `TestWatchPassCurrentNeedsBothClocksAndNoSuspend` and
   `TestWatchUnbiasedCountRefusesSuspendThatMonotonicCounts`. The Windows
-  real-clock test `TestWindowsWatchPassStaysCurrentOnRealClocks` runs only on
-  Windows and was compiled here, not run.
+  real-clock test `TestWindowsWatchPassStaysCurrentOnRealClocks` was compiled
+  here, not run. The Windows run is recorded in a
+  [PR #314 comment](https://github.com/heymaikol/network-doctor/pull/314#issuecomment-6100046126).
+  Its awake control published and passed. In the S3 suspend, the monotonic
+  clock advanced 209.434 s, the wall clock 209.435 s and the unbiased count
+  74.140 s. The detected gap was 135.294 s, and the spanning pass was not
+  published. The sleep was started by hand, and the probe was synthetic, run
+  through the production `WatchSession` Begin and Publish path. The run does not
+  establish hibernation, Modern Standby or any macOS behavior.
 - Slow-pass liveness: a pass longer than 60 s still publishes. Covered by
   `TestHeadlessSlowWatchPassesPrint`, `TestWatchAbsurdTimeoutDoesNotRefuseASlowPass`,
   `TestWatchSlowPassesUpToTheWindowPublishFirst` and `TestWatchTUISlowPassesPublish`,
@@ -368,18 +404,25 @@ Two mutations were applied to a clean `watch.go`, each run, then reverted with
 
 ## Validation at head
 
-Each command ran at the commit that adds this report. Results:
+The commands below ran at `c8870cd9fbbab593260d6f6e2d5c764f1b5f2d1b`, the last
+code commit before this report. This report changes only this file, and
+`./scripts/check` was also rerun at the commit that adds it. Results:
 
 - `./scripts/check`: passed.
 - `./scripts/check --race`: passed.
-- `go test -tags integration -count=1 ./internal/diagnostic`: passed.
-- Netns route-event test, `go test -tags 'linux netns_integration' -run TestRouteEvents ./internal/diagnostic`: passed.
+- `go test -tags integration -count=1 ./internal/diagnostic ./internal/incident`: passed.
+- `go test -race -tags integration -count=1 -run 'TestWatch|TestRealWatch|TestRouteEvents|TestWindowsWatch' ./internal/diagnostic`: passed.
+- Netns route-event test, `NETDOC_SIM_REQUIRE_NETNS=1 go test -tags 'linux netns_integration' -run TestRouteEvents ./internal/diagnostic`: passed. The helper's own SKIP line in that run is expected, because the helper only runs inside its namespace.
+- Netns simulation package, `NETDOC_SIM_REQUIRE_NETNS=1 go test -tags 'linux netns_integration' ./internal/simulation`: passed.
 - golangci-lint v2.14.0 (`go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...`): 0 issues.
-- golangci-lint v2.14.0 with `--build-tags integration` on `./internal/diagnostic/...`: 8 issues, all in pre-existing integration test files (`checks_integration_test.go`, `localservices_integration_test.go`, `quic_integration_test.go`). The base commit gives the same 8. None are in files this change adds or edits.
+- golangci-lint v2.14.0 with `--build-tags integration` on `./internal/diagnostic/...`: 8 issues, all in pre-existing integration test files (`checks_integration_test.go`, `localservices_integration_test.go`, `quic_integration_test.go`). None are in files this branch changes.
 - `GOOS=windows`, `GOOS=darwin` and `GOOS=freebsd` `go vet -tags integration ./internal/diagnostic`: clean.
-- Tracked-text em dash test (`TestNoEmDashInTrackedTextFiles`) and the docs link test: passed after the new files were staged.
-- The 14 correctness tests named above: all PASS with `-v`.
-- `TestRealWatchOneHourMatchesFreshPasses`: 10 runs with `-count=10`, one `-race` run.
+- The correctness tests named in this report: passed in the integration run above.
+
+The branch also changes `internal/diagnostic/watch_events.go`, so that
+`FollowsRouteEvents` reports false once the route-event reader has stopped on its
+own. The hour benchmark and the lockstep test never call `FollowRouteEvents` or
+`FollowsRouteEvents`, so the figures above still apply to this head.
 
 Netns and integration runs used unprivileged user namespaces on this host. No
 run changed the host's routes, firewall or interfaces.
@@ -404,7 +447,7 @@ run changed the host's routes, firewall or interfaces.
   route events. That is the best case for savings. Without events, `watchMaxAge`
   is the only bound on staleness.
 - `SystemUnbiasedClock` is a no-op on Linux, so the Windows suspend protection
-  is not exercised here.
+  is not exercised on this host. See Correctness checks for the Windows run.
 - The `lastFull` guard is not exercised by the real-socket hour (see M2).
 - DNS and route lookups are stubbed. The stub call counts are not DNS queries or
   kernel route lookups.

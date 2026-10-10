@@ -125,8 +125,13 @@ func firstHopCheck(s snapshot.Snapshot, dest netip.Addr, d routepath.Decision) f
 	case rt.Unreachable:
 		return conflict("This side's kernel recorded no route for the target, but the topology forwards it.")
 	case rt.Gateway == "":
-		if rt.Reason == string(diagnostic.RouteReasonOnLink) && anyAddressedHop(d) {
-			return conflict("This side's route is on link, but the topology forwards the target through a next hop.")
+		if rt.Reason == string(diagnostic.RouteReasonOnLink) {
+			// An on-link record fits an interface-only member, so only a file that
+			// names every next hop by address contradicts it.
+			if everyHopNamed(d) {
+				return conflict("This side's route is on link, but the topology forwards the target through a next hop.")
+			}
+			return unknown("This side's route is on link, and the topology's next hop names no address to compare with it.")
 		}
 		return unknown("This side recorded no next hop for the target's route, so its next hop cannot be compared.")
 	}
@@ -139,21 +144,21 @@ func firstHopCheck(s snapshot.Snapshot, dest netip.Addr, d routepath.Decision) f
 		return unknown("This side's next hop is an IPv6 link-local address, which names no neighbor without its interface.")
 	}
 	var want []netip.Addr
-	interfaceOnly := false
+	unnamed := false
 	for _, nh := range d.NextHops {
-		if nh.Addr == "" {
-			interfaceOnly = true
+		a, ok := hopAddr(nh)
+		if !ok {
+			unnamed = true
 			continue
 		}
-		a, err := netip.ParseAddr(nh.Addr)
-		if err != nil {
-			return unknown("The topology's next hop is not readable.")
-		}
-		want = append(want, normalAddr(a))
+		want = append(want, a)
 	}
 	if !slices.Contains(want, got) {
-		if interfaceOnly || len(want) == 0 {
-			return unknown("The topology's next hop has no address to compare with this side's next hop.")
+		switch {
+		case len(want) == 0:
+			return unknown("The topology's next hop names no address to compare with this side's next hop.")
+		case unnamed:
+			return unknown("The topology has a next hop that names no comparable address, so this side's next hop " + got.String() + " cannot be ruled in or out.")
 		}
 		return conflict("This side's next hop %s is not among the topology's next hops for the target (%s).", got, joinAddrs(want))
 	}
@@ -212,14 +217,32 @@ func recordedRoute(s snapshot.Snapshot, dest netip.Addr) (snapshot.Route, int) {
 	return out[0], len(out)
 }
 
-// anyAddressedHop reports whether the decision names at least one next hop by address.
-func anyAddressedHop(d routepath.Decision) bool {
+// hopAddr is the address a topology next hop can be matched by. An interface-only
+// hop names no neighbor, and an IPv6 link-local address names one only together
+// with its interface, so neither is matched.
+func hopAddr(nh routepath.NextHop) (netip.Addr, bool) {
+	if nh.Addr == "" {
+		return netip.Addr{}, false
+	}
+	a, err := netip.ParseAddr(nh.Addr)
+	if err != nil || (a.Is6() && a.IsLinkLocalUnicast()) {
+		return netip.Addr{}, false
+	}
+	return normalAddr(a), true
+}
+
+// everyHopNamed reports whether the decision has next hops and each one names an
+// address that hopAddr can match.
+func everyHopNamed(d routepath.Decision) bool {
+	if len(d.NextHops) == 0 {
+		return false
+	}
 	for _, nh := range d.NextHops {
-		if nh.Addr != "" {
-			return true
+		if _, ok := hopAddr(nh); !ok {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // joinAddrs spells addresses for a reason, in the order the topology gave them.

@@ -210,6 +210,23 @@ type routeReport struct {
 	} `json:"route_paths"`
 }
 
+// withR1Hops returns symmetricTopology with r1's FIB next hops replaced by hops.
+func withR1Hops(t *testing.T, hops ...map[string]any) string {
+	t.Helper()
+	return editTopology(t, symmetricTopology, func(doc map[string]any) {
+		for _, o := range observationsOf(doc) {
+			if o["node"] == "r1" && o["plane"] == "fib" {
+				route := o["routes"].([]any)[0].(map[string]any)
+				list := make([]any, 0, len(hops))
+				for _, h := range hops {
+					list = append(list, h)
+				}
+				route["next_hops"] = list
+			}
+		}
+	})
+}
+
 func TestRouteBindingOutcomes(t *testing.T) {
 	symmetric := symmetricTopology
 	asymmetric := asymmetricTopology
@@ -249,6 +266,11 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			}
 		}
 	})
+	linkLocal := withR1Hops(t, map[string]any{"addr": "fe80::2", "interface": "eth1"})
+	linkLocalZoned := withR1Hops(t, map[string]any{"addr": "fe80::2%eth1", "interface": "eth1"})
+	linkLocalMember := withR1Hops(t, map[string]any{"addr": "198.51.100.2", "interface": "eth1"}, map[string]any{"addr": "fe80::2", "interface": "eth1"})
+	onLinkBeside := withR1Hops(t, map[string]any{"interface": "eth1"}, map[string]any{"addr": "198.51.100.2", "interface": "eth1"})
+	otherBeside := withR1Hops(t, map[string]any{"addr": "198.51.100.3", "interface": "eth1"}, map[string]any{"interface": "eth1"})
 	stale := editTopology(t, symmetricTopology, func(doc map[string]any) {
 		for _, o := range observationsOf(doc) {
 			o["collected_at"] = "2025-12-30T00:00:00Z"
@@ -328,6 +350,15 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			}},
 		{name: "partial source FIB is not comparable", topo: partialSource, side: "a", status: compare.RouteUnbound, reason: "no next hop to compare", hop: compare.FirstHopNotComparable},
 		{name: "interface-only topology hop is not comparable", topo: interfaceOnly, side: "a", status: compare.RouteUnbound, reason: "no address to compare", hop: compare.FirstHopNotComparable},
+		{name: "link-local topology next hop is not comparable", topo: linkLocal, side: "a", status: compare.RouteUnbound, reason: "no address to compare", hop: compare.FirstHopNotComparable},
+		{name: "zoned link-local topology next hop is not comparable", topo: linkLocalZoned, side: "a", status: compare.RouteUnbound, reason: "no address to compare", hop: compare.FirstHopNotComparable},
+		{name: "matching next hop beside a link-local member binds", topo: linkLocalMember, side: "a", status: compare.RouteBound, assess: "unknown"},
+		{name: "on-link record beside an interface-only member is not comparable", topo: onLinkBeside, side: "a", status: compare.RouteUnbound, reason: "on link", hop: compare.FirstHopNotComparable,
+			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Gateway, r.Reason = "", "on_link" }},
+		{name: "on-link record against an interface-only topology hop is not comparable", topo: interfaceOnly, side: "a", status: compare.RouteUnbound, reason: "on link", hop: compare.FirstHopNotComparable,
+			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Gateway, r.Reason = "", "on_link" }},
+		{name: "mixed hop set with a non-matching address is not comparable", topo: otherBeside, side: "a", status: compare.RouteUnbound, reason: "cannot be ruled in or out", hop: compare.FirstHopNotComparable,
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Gateway = "192.0.2.1" }},
 		{name: "other side's file is refused", topo: symmetric, side: "b", status: compare.RouteUnbound, reason: "not the source this side recorded",
 			editB: func(s *snapshot.Snapshot) {
 				targetCheck(s).SourceIP = routeSourceB

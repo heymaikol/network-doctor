@@ -1,0 +1,42 @@
+Network Doctor two-sided diagnosis
+
+          SIDE A                    SIDE B
+Target    example.com:443 tls+http  example.com:443 tls+http
+Captured  2026-01-02T03:20:00Z      2026-01-02T03:20:00Z
+Tool      1.2.3 linux/amd64         1.2.3 linux/amd64
+Verdict   ok                        ok
+Overall   ok                        ok
+
+Checks        SIDE A  SIDE B
+iface         PASS    PASS
+ssid          PASS    PASS
+internet_tcp  WARN    WARN
+dns           PASS    PASS
+dns_public    PASS    PASS
+target_tcp    PASS    PASS
+tls           SKIP    SKIP    not comparable
+
+Recorded evidence                       SIDE A                                                                                      SIDE B
+internet_tcp/address_families.ipv4      reachable                                                                                   reachable                                                                                   equivalent
+internet_tcp/address_families.ipv6      unreachable                                                                                 unreachable                                                                                 equivalent
+internet_tcp/selected_ip                1.1.1.1                                                                                     1.1.1.1                                                                                     equivalent
+internet_tcp/clock_offset_seconds       3                                                                                           3                                                                                           equivalent
+internet_tcp/derived.status_downgraded  observed                                                                                    observed                                                                                    equivalent
+dns/dns_outcome                         addresses_returned                                                                          addresses_returned                                                                          equivalent
+dns/addresses                           2606:2800:220:1:248:1893:25c8:1946; 93.184.216.34                                           2606:2800:220:1:248:1893:25c8:1946; 93.184.216.34                                           equivalent
+dns/resolver_targets                    192.0.2.53:53; [2001:db8::53]:53                                                            192.0.2.53:53; [2001:db8::53]:53                                                            equivalent
+dns_public/dns_outcome                  addresses_returned                                                                          addresses_returned                                                                          equivalent
+dns_public/addresses                    93.184.216.34                                                                               93.184.216.34                                                                               equivalent
+dns_public/resolver                     8.8.8.8                                                                                     8.8.8.8                                                                                     equivalent
+dns_public/resolver_targets             8.8.8.8:53                                                                                  8.8.8.8:53                                                                                  equivalent
+target_tcp/attempt_outcomes             ipv4 connection_refused; ipv6 unreachable                                                   ipv4 connection_refused; ipv6 unreachable                                                   equivalent
+target_tcp/attempts                     2606:2800:220:1:248:1893:25c8:1946 ipv6 unreachable; 93.184.216.34 ipv4 connection_refused  2606:2800:220:1:248:1893:25c8:1946 ipv6 unreachable; 93.184.216.34 ipv4 connection_refused  equivalent
+
+Equivalence applies only to the named dimension. Missing evidence is unknown. Differences describe observations, not different root causes or a localized cause.
+
+Failure placed on: neither side
+No check that both machines measured failed on either of them.
+Evidence: iface, ssid, internet_tcp, dns, dns_public, target_tcp
+
+Caveats:
+  1 check did not produce a measured outcome on both machines and was not read.

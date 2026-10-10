@@ -1,0 +1,160 @@
+{
+  "schema": "netdoc.snapshot.v1",
+  "created_at": "2026-01-02T03:20:00Z",
+  "tool": {
+    "version": "1.2.3",
+    "os": "linux",
+    "arch": "amd64"
+  },
+  "target": {
+    "raw": "example.com",
+    "host": "example.com",
+    "port": 443,
+    "protocol": "tls+http",
+    "port_explicit": false
+  },
+  "options": {
+    "probe_timeout_ms": 4000,
+    "public_dns": "8.8.8.8"
+  },
+  "checks": [
+    {
+      "id": "iface",
+      "name": "Interface",
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 2,
+      "detail": "using eth0 source 192.0.2.10",
+      "observed": {
+        "source_ip": "192.0.2.10",
+        "interface": "eth0"
+      }
+    },
+    {
+      "id": "ssid",
+      "name": "Wi-Fi network",
+      "deps": [
+        "iface"
+      ],
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 5,
+      "detail": "connected to Example Cafe Wi-Fi",
+      "observed": {
+        "ssid": "Example Cafe Wi-Fi"
+      }
+    },
+    {
+      "id": "internet_tcp",
+      "name": "Internet (TCP egress)",
+      "deps": [
+        "iface"
+      ],
+      "status": "WARN",
+      "ran": true,
+      "duration_ms": 41,
+      "detail": "IPv4 egress via 1.1.1.1 in 41ms (src 192.0.2.10 eth0)",
+      "observed": {
+        "selected_ip": "1.1.1.1",
+        "source_ip": "192.0.2.10",
+        "interface": "eth0",
+        "address_families": {
+          "ipv4": "reachable",
+          "ipv6": "unreachable"
+        },
+        "clock_offset_ms": 3000
+      },
+      "derived": {
+        "status_downgraded": true
+      }
+    },
+    {
+      "id": "dns",
+      "name": "DNS example.com",
+      "deps": [
+        "iface"
+      ],
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 12,
+      "detail": "example.com resolved to 2 addresses",
+      "observed": {
+        "addresses": [
+          "93.184.216.34",
+          "2606:2800:220:1:248:1893:25c8:1946"
+        ],
+        "resolver_targets": [
+          "192.0.2.53:53",
+          "[2001:db8::53]:53"
+        ]
+      }
+    },
+    {
+      "id": "dns_public",
+      "name": "DNS (public 8.8.8.8)",
+      "deps": [
+        "iface"
+      ],
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 19,
+      "detail": "8.8.8.8 agrees on 93.184.216.34",
+      "observed": {
+        "addresses": [
+          "93.184.216.34"
+        ],
+        "resolver": "8.8.8.8",
+        "resolver_targets": [
+          "8.8.8.8:53"
+        ]
+      }
+    },
+    {
+      "id": "target_tcp",
+      "name": "TCP example.com:443",
+      "deps": [
+        "dns"
+      ],
+      "status": "PASS",
+      "ran": true,
+      "duration_ms": 33,
+      "detail": "",
+      "fix": "check that the service is listening on port 443",
+      "observed": {
+        "source_ip": "192.0.2.10",
+        "interface": "eth0",
+        "attempts": [
+          {
+            "ip": "93.184.216.34",
+            "duration_ms": 21,
+            "error": "connect: connection refused",
+            "cause": "connection_refused"
+          },
+          {
+            "ip": "2606:2800:220:1:248:1893:25c8:1946",
+            "duration_ms": 12,
+            "error": "connect: network is unreachable",
+            "cause": "unreachable"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tls",
+      "name": "TLS example.com",
+      "deps": [
+        "target_tcp"
+      ],
+      "status": "SKIP",
+      "ran": false,
+      "duration_ms": 0,
+      "detail": "skipped: a prerequisite failed"
+    }
+  ],
+  "diagnosis": {
+    "verdict": "ok",
+    "summary": "example.com answered from this run.",
+    "findings": []
+  },
+  "ok": true
+}

@@ -69,15 +69,12 @@ func TestRouteEventsReachTheSessionFromTheKernel(t *testing.T) {
 
 // TestRouteEventsNamespaceHelper runs only inside the namespace started above.
 // It subscribes, then makes each kind of change the subscription covers, one
-// command at a time. Each command must move the generation before the next one
-// starts, so no step can be satisfied by an earlier step's notification.
+// command at a time. Each command is settled before the next starts: the session
+// has read every notification the command caused, so no step can be satisfied by
+// an earlier step's notification.
 func TestRouteEventsNamespaceHelper(t *testing.T) {
 	if os.Getenv(routeHelperEnv) != "1" {
 		t.Skip("runs only as the namespace helper")
-	}
-	ip, err := exec.LookPath("ip")
-	if err != nil {
-		t.Fatalf("ip(8): %v", err)
 	}
 	s := NewWatchSession(nil)
 	if err := s.FollowRouteEvents(); err != nil {
@@ -89,6 +86,7 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	if got := s.generation.Load(); got != 1 {
 		t.Fatalf("generation after binding = %d, want exactly 1 (the bind's invalidation)", got)
 	}
+	tap := openRouteTap(t, s)
 	// Nexthop objects need Linux 5.3. Without that group this kernel cannot show
 	// nexthop delivery, so the run says so and the parent decides skip or failure.
 	if kernelRouteGroups(t, s)&(1<<(unix.RTNLGRP_NEXTHOP-1)) == 0 {
@@ -122,20 +120,7 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 		{"nexthop", "del", "id", "42"},
 	}
 	for _, args := range steps {
-		before := s.generation.Load()
-		if out, err := exec.Command(ip, args...).CombinedOutput(); err != nil {
-			t.Fatalf("ip %v: %v\n%s", args, err, out)
-		}
-		deadline := time.Now().Add(10 * time.Second)
-		for s.generation.Load() == before {
-			if time.Now().After(deadline) {
-				t.Fatalf("ip %v: no route change reached the session", args)
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		// Let the rest of this step's notifications land before the next step
-		// reads its baseline.
-		time.Sleep(100 * time.Millisecond)
+		tap.run(t, args...)
 	}
 
 	// Once the namespace is quiet, a stop is not a change: Close must leave the
@@ -152,28 +137,18 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	// cadence after the change. Only the change is real here: the QUIC fault is
 	// simulated by quicFaultGraph.
 	const cadence = 5 * time.Second
-	run := func(args ...string) {
-		t.Helper()
-		if out, err := exec.Command(ip, args...).CombinedOutput(); err != nil {
-			t.Fatalf("ip %v: %v\n%s", args, err, out)
-		}
-	}
-	run("nexthop", "add", "id", "43", "dev", "lo")
-	run("route", "add", "10.6.6.0/24", "nhid", "43")
-	time.Sleep(100 * time.Millisecond)
-
 	clock := newWatchClock()
 	w := NewWatchSession(clock.Now)
 	if err := w.FollowRouteEvents(); err != nil {
 		t.Fatalf("subscribe for the Watch check: %v", err)
 	}
 	defer w.Close()
+	wt := openRouteTap(t, w)
+	wt.run(t, "nexthop", "add", "id", "43", "dev", "lo")
+	wt.run(t, "route", "add", "10.6.6.0/24", "nhid", "43")
 	n := newWatchNet()
 	fault := false
 	faultPass(t, w, n, &fault)
-	// The kernel may still be sending messages for the changes made above. A late
-	// one would refuse the QUIC row this check expects to reuse.
-	time.Sleep(200 * time.Millisecond)
 	clock.Advance(cadence)
 	if _, runs, _ := faultPass(t, w, n, &fault); runs[ProbeQUIC] != 0 {
 		t.Fatalf("QUIC ran %d times before any change, want it reused", runs[ProbeQUIC])
@@ -181,9 +156,7 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 
 	fault = true
 	changedAt := clock.now
-	before = w.generation.Load()
-	run("nexthop", "del", "id", "43")
-	awaitRouteChange(t, w, before)
+	wt.run(t, "nexthop", "del", "id", "43")
 	clock.Advance(cadence)
 	results, runs, attempts := faultPass(t, w, n, &fault)
 	if q := results[ProbeQUIC]; q.Status != StatusFail || q.Cause != "timeout" {
@@ -202,14 +175,12 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	oracle, _, _ := faultPass(t, NewWatchSession(clock.Now), n, &fault)
 	assertSameRowsAndDiagnosis(t, order, results, oracle)
 
-	// Recovery: the route returns through a new nexthop. A failed row is never kept,
-	// so QUIC is measured on this pass whether or not the event arrives in time. The
-	// event decides only when the row is measured.
+	// Recovery: the route returns through a new nexthop. Both changes are settled
+	// before the pass, so the pass sees the recovered route. A failed row is never
+	// kept, so QUIC is measured on this pass whatever the notifications did.
 	fault = false
-	before = w.generation.Load()
-	run("nexthop", "add", "id", "43", "dev", "lo")
-	run("route", "add", "10.6.6.0/24", "nhid", "43")
-	awaitRouteChange(t, w, before)
+	wt.run(t, "nexthop", "add", "id", "43", "dev", "lo")
+	wt.run(t, "route", "add", "10.6.6.0/24", "nhid", "43")
 	clock.Advance(cadence)
 	results, runs, _ = faultPass(t, w, n, &fault)
 	if q := results[ProbeQUIC]; q.Status != StatusPass || runs[ProbeQUIC] != 1 {
@@ -218,16 +189,14 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	oracle, _, _ = faultPass(t, NewWatchSession(clock.Now), n, &fault)
 	assertSameRowsAndDiagnosis(t, order, results, oracle)
 
-	// An IPv6-only change. QUIC passed on the last pass, so a quiet pass reuses it.
-	// Then an IPv6 route change must refuse it on the next pass: no event is scoped to
-	// one address family.
+	// An IPv6-only change. Every earlier notification has been read, so the quiet
+	// pass reuses QUIC because nothing changed. Then one IPv6 route change, settled
+	// before the next pass, must refuse it: no event is scoped to one address family.
 	clock.Advance(cadence)
 	if _, runs, _ = faultPass(t, w, n, &fault); runs[ProbeQUIC] != 0 {
 		t.Fatalf("QUIC ran %d times on a quiet pass, want it reused", runs[ProbeQUIC])
 	}
-	before = w.generation.Load()
-	run("-6", "route", "add", "2001:db8:6::/48", "dev", "lo")
-	awaitRouteChange(t, w, before)
+	wt.run(t, "-6", "route", "add", "2001:db8:6::/48", "dev", "lo")
 	clock.Advance(cadence)
 	results, runs, _ = faultPass(t, w, n, &fault)
 	if _, reused := results[ProbeQUIC].ReusedFrom(); reused || runs[ProbeQUIC] != 1 {
@@ -239,19 +208,95 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	os.Stdout.WriteString("ROUTE EVENT SEEN\n")
 }
 
-// awaitRouteChange waits until the session has seen a change after before, then
-// for the kernel to send the rest of that change's messages. A check that expects a
-// row to be reused must start after this, or a late message refuses the row.
-func awaitRouteChange(t *testing.T, s *WatchSession, before uint64) {
+// routeTap is a second subscriber to the groups a session follows. For the
+// commands these tests run, the kernel queues each notification on every
+// subscriber before the command returns, so once a command has returned, the tap
+// holds every notification it made. The session invalidates once per datagram it
+// reads, so the tap's count is the generation the session must reach. The count is
+// measured for each command, not assumed. A notification the kernel queued later
+// would be counted by the next drain, but it could land between a settle and the
+// pass after it.
+type routeTap struct {
+	s      *WatchSession
+	ip     string
+	fd     int
+	buf    []byte
+	base   uint64 // session generation when the tap opened
+	queued uint64 // notifications the tap has counted so far
+}
+
+// openRouteTap subscribes to the session's groups with the session's own join
+// code, so the tap and the session hear the same notifications. Open it right
+// after the session binds, with no change in between: the session counts every
+// change from its bind, and the tap counts from its own bind.
+func openRouteTap(t *testing.T, s *WatchSession) *routeTap {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for s.generation.Load() == before {
-		if time.Now().After(deadline) {
-			t.Fatal("no route change reached the Watch session")
-		}
-		time.Sleep(10 * time.Millisecond)
+	ip, err := exec.LookPath("ip")
+	if err != nil {
+		t.Fatalf("ip(8): %v", err)
 	}
-	time.Sleep(200 * time.Millisecond)
+	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW|unix.SOCK_CLOEXEC|unix.SOCK_NONBLOCK, unix.NETLINK_ROUTE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	if err := unix.Bind(fd, &unix.SockaddrNetlink{Family: unix.AF_NETLINK, Groups: routeGroups}); err != nil {
+		t.Fatal(err)
+	}
+	joinOptionalRouteGroups(fd, optionalRouteGroups)
+	return &routeTap{s: s, ip: ip, fd: fd, buf: make([]byte, 32<<10), base: s.generation.Load()}
+}
+
+// run makes one change with ip, settles it, and fails if the change caused no
+// notification. A step that does nothing would otherwise pass on the state the
+// previous step left behind.
+func (r *routeTap) run(t *testing.T, args ...string) {
+	t.Helper()
+	before := r.queued
+	if out, err := exec.Command(r.ip, args...).CombinedOutput(); err != nil {
+		t.Fatalf("ip %v: %v\n%s", args, err, out)
+	}
+	r.settle(t)
+	if r.queued == before {
+		t.Fatalf("ip %v: no notification reached the subscription", args)
+	}
+}
+
+// settle waits until the session has invalidated once for every notification the
+// tap has counted. It fails on an invalidation with no notification behind it, and
+// on a session that never catches up within ten seconds.
+func (r *routeTap) settle(t *testing.T) {
+	t.Helper()
+	r.queued += r.drain(t)
+	want := r.base + r.queued
+	deadline := time.Now().Add(10 * time.Second)
+	for got := r.s.generation.Load(); got != want; got = r.s.generation.Load() {
+		if got > want {
+			t.Fatalf("generation %d, want %d: the session invalidated for a notification the kernel did not queue", got, want)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("generation %d, want %d after 10s: the session has not read every notification", got, want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// drain reads every datagram queued on the tap and returns how many. The socket is
+// non-blocking, so EAGAIN marks the end of the queue. A tap that dropped a
+// datagram returns an error here, because a short count would be wrong.
+func (r *routeTap) drain(t *testing.T) uint64 {
+	t.Helper()
+	var n uint64
+	for {
+		_, _, err := unix.Recvfrom(r.fd, r.buf, 0)
+		if errors.Is(err, unix.EAGAIN) {
+			return n
+		}
+		if err != nil {
+			t.Fatalf("route tap read: %v (a dropped notification makes the count unreliable)", err)
+		}
+		n++
+	}
 }
 
 // assertSameRowsAndDiagnosis compares a Watch pass with a fresh oracle. Each row must

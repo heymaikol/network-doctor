@@ -348,9 +348,9 @@ func WithProbeTimeout(d time.Duration) Option {
 	}
 }
 
-// WithRouteEvents makes the Watch session follow route, address and link change
-// notifications where the platform has them. Without it, Watch reuses rows only
-// within their max age.
+// WithRouteEvents makes the Watch session follow route, address, link, rule and
+// nexthop change notifications where the platform has them. Without it, Watch
+// reuses rows only within their max age.
 func WithRouteEvents() Option {
 	return func(m *model) { m.routeEvents = true }
 }

@@ -155,8 +155,9 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 	var session *diagnostic.WatchSession
 	if h.watch && h.save == "" {
 		session = diagnostic.NewWatchSession(time.Now)
-		// A route, address or link change makes the reusable rows measure again
-		// on the next pass. A platform without that source keeps the max-age bound.
+		// A route, address, link, rule or nexthop change makes the reusable rows
+		// measure again on the next pass. A platform without that source keeps the
+		// max-age bound.
 		_ = session.FollowRouteEvents()
 		defer session.Close()
 	}

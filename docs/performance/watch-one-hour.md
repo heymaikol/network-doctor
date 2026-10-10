@@ -75,8 +75,11 @@ reuse, and only the stable schedule uses it.
   Turbo state was not recorded.
 - Load: 1-minute load average 1.7 to 2.4 while the runs were in progress.
   Other activity on the host was not stopped.
-- Base commit: `a0af7ee1618055ae49c407bba25c801c91ed482f`. The head commit is
-  the one that adds this report; see the pull request.
+- Base commit: `a0af7ee1618055ae49c407bba25c801c91ed482f`. The figures were
+  measured on the #327 branch, which landed as `b8348c7`. Later commits on this
+  branch add tests, two fixture seams that behave as before unless a test sets
+  them, and a change to `watch_events.go` that the hour benchmark never calls. A
+  re-run at `c8870cd` is in [Validation at head](#validation-at-head).
 
 ## Workload
 
@@ -273,12 +276,19 @@ row below names the test that pins it. The fake-clock tests count passes at the
 | Route change, real sockets | `TestRealWatchRouteChangeRerunsReusedRows` | change pass, attempt 1, every row fresh | first pass after the change |
 | Outage and recovery, real sockets | `TestRealWatchOutageAndRecoveryMatchFreshPasses` | onset on attempt 2, recovery on attempt 1 | first pass after the change |
 | TLS refusal, real sockets | `TestRealWatchTLSRefusalIsMaskedOnlyWithinMaxAge` | masked for at most 12 passes in a row; some masked passes changed the diagnosis | up to `watchMaxAge` |
-| Path MTU black hole, real sockets | `TestRealWatchPathMTUFaultAndRecovery` | first pass after injection, on attempt 2 | 0 passes masked; about 6 s wall time in one run |
+| Path MTU black hole, real sockets | `TestRealWatchPathMTUFaultAndRecovery` | first pass after injection, on attempt 2 | 0 passes masked; about 6 s wall time from injection to publish, one run |
 | Kernel route event, netns | `TestRouteEventsReachTheSessionFromTheKernel` | session receives the kernel's change | not timed; the test checks delivery |
 
-The path-MTU row is the only one with a wall-time figure. It is one run, on this
-host, and it includes the path MTU write wait. The fake clock counts no masked
-passes for it.
+The path-MTU row is the only one with a wall-time figure. It is one run, on
+this host. The 6 s runs from injection to the published onset pass, which ran two
+attempts. The probes' own waits and timeouts set it, including the path MTU write
+wait and the stalled handshake. It is not a cadence latency, and the fake clock
+counts no masked passes for it.
+
+One gap is outside this table. QUIC resolves its endpoint through the system
+resolver, but it reuses on the interface alone. A resolver change that alters
+only the QUIC answer, while system DNS keeps passing, is seen at `watchMaxAge`.
+That is untested here and was not changed.
 
 ## Repeated runs and variability
 
@@ -350,8 +360,9 @@ cumulative, and its caller was not traced.
   `ROUTE EVENT SEEN`. The helper's own SKIP line in that run is expected, because
   the helper only runs inside its namespace.
 - Windows suspend: a physical S3 suspend was run on Windows 11 (build
-  26200.9457) against PR #314's head, 53e686d. The suspend-related files are
-  identical at 53e686d and at this head. On this Linux host `SystemUnbiasedClock`
+  26200.9457) against PR #314's head, 53e686d. The suspend-related files,
+  including `watch.go`, which defines the pass window helpers, are identical at
+  53e686d and at this head. On this Linux host `SystemUnbiasedClock`
   is a no-op, so the logic is covered here only by fake-clock unit tests:
   `TestWatchPassCurrentNeedsBothClocksAndNoSuspend` and
   `TestWatchUnbiasedCountRefusesSuspendThatMonotonicCounts`. The Windows
@@ -417,7 +428,15 @@ code commit before this report. This report changes only this file, and
 - golangci-lint v2.14.0 (`go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...`): 0 issues.
 - golangci-lint v2.14.0 with `--build-tags integration` on `./internal/diagnostic/...`: 8 issues, all in pre-existing integration test files (`checks_integration_test.go`, `localservices_integration_test.go`, `quic_integration_test.go`). None are in files this branch changes.
 - `GOOS=windows`, `GOOS=darwin` and `GOOS=freebsd` `go vet -tags integration ./internal/diagnostic`: clean.
-- The correctness tests named in this report: passed in the integration run above.
+- The correctness tests named in this report ran in the integration run above,
+  except two. `TestRouteEventsReachTheSessionFromTheKernel` ran in the netns run.
+  `TestWindowsWatchPassStaysCurrentOnRealClocks` is Windows-only, so it was
+  compiled by the cross vet and not run.
+- `go test -tags integration -run '^$' -bench '^BenchmarkRealWatchPasses$' -benchtime=720x -count=1 -benchmem ./internal/diagnostic` at `c8870cd`:
+  every count in the tables matched. Allocations were 0.2% to 0.3% above the
+  table medians (493,774 and 1,283,589 per hour, stable incremental and fresh).
+  The reduction still comes to 61%. The cause of the small allocation difference
+  was not isolated. The fixture seams are one candidate.
 
 The branch also changes `internal/diagnostic/watch_events.go`, so that
 `FollowsRouteEvents` reports false once the route-event reader has stopped on its

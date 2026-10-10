@@ -82,6 +82,14 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	if got := s.generation.Load(); got != 1 {
 		t.Fatalf("generation after binding = %d, want exactly 1 (the bind's invalidation)", got)
 	}
+	// Each group the subscription must hold, by its rtnetlink number. The kernel's
+	// own list is checked, not the code's list, so a join that did not take fails.
+	joined := kernelRouteGroups(t, s)
+	for _, g := range []int{1, 5, 7, 9, 11, 8, 19, 32} {
+		if joined&(1<<(g-1)) == 0 {
+			t.Errorf("kernel membership lacks route group %d", g)
+		}
+	}
 
 	steps := [][]string{
 		{"link", "set", "lo", "up"},
@@ -91,6 +99,13 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 		{"addr", "change", "10.9.9.9/32", "dev", "lo", "label", "lo:t"},
 		{"-6", "addr", "change", "fd00::9/128", "dev", "lo", "preferred_lft", "1000"},
 		{"-6", "route", "add", "2001:db8:8::/48", "dev", "lo"},
+		// Policy rules and nexthop objects raise no link, address or route
+		// notification, so each of these steps is silent without the rule and
+		// nexthop groups.
+		{"rule", "add", "pref", "1000", "from", "10.7.7.0/24", "table", "100"},
+		{"-6", "rule", "add", "pref", "1000", "from", "fd00:7::/64", "table", "100"},
+		{"nexthop", "add", "id", "42", "blackhole"},
+		{"nexthop", "del", "id", "42"},
 	}
 	for _, args := range steps {
 		before := s.generation.Load()
@@ -116,5 +131,88 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	if got := s.generation.Load(); got != before {
 		t.Fatalf("Close moved the generation from %d to %d: a stop is not a change", before, got)
 	}
+
+	// The Watch effect. A nexthop that a route uses is deleted. That removes the
+	// route, and on kernel 7.2 it is announced only as a nexthop change, not a route
+	// change. The reused QUIC row must still be measured again on the next pass, one
+	// cadence after the change. Only the change is real here: the QUIC fault is
+	// simulated by quicFaultGraph.
+	const cadence = 5 * time.Second
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command(ip, args...).CombinedOutput(); err != nil {
+			t.Fatalf("ip %v: %v\n%s", args, err, out)
+		}
+	}
+	run("nexthop", "add", "id", "43", "dev", "lo")
+	run("route", "add", "10.6.6.0/24", "nhid", "43")
+	time.Sleep(100 * time.Millisecond)
+
+	clock := newWatchClock()
+	w := NewWatchSession(clock.Now)
+	if err := w.FollowRouteEvents(); err != nil {
+		t.Fatalf("subscribe for the Watch check: %v", err)
+	}
+	defer w.Close()
+	n := newWatchNet()
+	fault := false
+	faultPass(t, w, n, &fault)
+	clock.Advance(cadence)
+	if _, runs, _ := faultPass(t, w, n, &fault); runs[ProbeQUIC] != 0 {
+		t.Fatalf("QUIC ran %d times before any change, want it reused", runs[ProbeQUIC])
+	}
+
+	fault = true
+	changedAt := clock.now
+	before = w.generation.Load()
+	run("nexthop", "del", "id", "43")
+	deadline := time.Now().Add(10 * time.Second)
+	for w.generation.Load() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("nexthop del: no route change reached the Watch session")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	clock.Advance(cadence)
+	results, runs, attempts := faultPass(t, w, n, &fault)
+	if q := results[ProbeQUIC]; q.Status != StatusFail || q.Cause != "timeout" {
+		t.Fatalf("next pass: QUIC %v cause %q, want fail timeout", q.Status, q.Cause)
+	}
+	if runs[ProbeQUIC] != 1 || attempts != 1 {
+		t.Errorf("next pass: QUIC runs=%d attempts=%d, want 1 run, 1 attempt", runs[ProbeQUIC], attempts)
+	}
+	if latency := clock.now.Sub(changedAt); latency != cadence {
+		t.Errorf("detection latency %v, want one cadence %v, not watchMaxAge %v", latency, cadence, watchMaxAge)
+	}
+	// A fresh session over the same graph is the oracle: the verdicts must match.
+	oracle, _, _ := faultPass(t, NewWatchSession(clock.Now), n, &fault)
+	for id, r := range results {
+		if o := oracle[id]; r.Status != o.Status || r.Cause != o.Cause {
+			t.Errorf("row %s: Watch %v %q, fresh oracle %v %q", id, r.Status, r.Cause, o.Status, o.Cause)
+		}
+	}
+
 	os.Stdout.WriteString("ROUTE EVENT SEEN\n")
+}
+
+// kernelRouteGroups returns the group membership the kernel reports for the
+// subscription's socket, with bit g-1 set for group g.
+func kernelRouteGroups(t *testing.T, s *WatchSession) uint32 {
+	t.Helper()
+	f := s.feed.src.(*netlinkRouteEvents).f
+	rc, err := f.SyscallConn()
+	if err != nil {
+		t.Fatalf("socket: %v", err)
+	}
+	var bits uint32
+	var sockErr error
+	if err := rc.Control(func(fd uintptr) {
+		bits, sockErr = membershipBits(int(fd))
+	}); err != nil {
+		t.Fatalf("socket: %v", err)
+	}
+	if sockErr != nil {
+		t.Fatalf("NETLINK_LIST_MEMBERSHIPS: %v", sockErr)
+	}
+	return bits
 }

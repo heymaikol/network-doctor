@@ -385,6 +385,44 @@ func TestDriftPartialIntentIsUnknown(t *testing.T) {
 	}
 }
 
+// A partial intended table may hide a route more specific than any it lists,
+// so it is unknown whatever its prefix length against the FIB's. A complete
+// intended table is judged as before.
+func TestDriftPartialIntentIsUnknownAtEveryPrefixLength(t *testing.T) {
+	elsewhere := nh("10.0.13.2", "eth2")
+	cases := []struct {
+		name    string
+		obs     []netmodel.Observation
+		twoPath bool
+		want    DriftLevel
+	}{
+		{"more specific, same next hop", append(threeRouters(), partialIntent("r1", route("10.20.40.0/24", "static", viaR2))), false, DriftUnknown},
+		{"more specific, other next hop", append(threeRouters(), partialIntent("r1", route("10.20.40.0/24", "static", elsewhere))), false, DriftUnknown},
+		{"more specific discard", append(threeRouters(), partialIntent("r1", netmodel.Route{Prefix: pfx("10.20.40.0/24"), Origin: "static", Discard: true})), false, DriftUnknown},
+		{"same prefix, same next hop", append(threeRouters(), partialIntent("r1", route("10.20.0.0/16", "static", viaR2))), false, DriftUnknown},
+		{"less specific, same next hop", append(threeRouters(), partialIntent("r1", route("10.0.0.0/8", "static", viaR2))), false, DriftUnknown},
+		{"more specific, extra ECMP next hop", append(r4ToR3(twoPathNet("r2")), partialIntent("r1", route("10.20.40.0/24", "static", viaR2, viaR4))), true, DriftUnknown},
+		{"complete, more specific, same next hop", append(threeRouters(), intent("r1", route("10.20.40.0/24", "static", viaR2))), false, DriftBenign},
+		{"complete, more specific, other next hop", append(threeRouters(), intent("r1", route("10.20.40.0/24", "static", elsewhere))), false, DriftBenign},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var e Explanation
+			if c.twoPath {
+				e = explainTwoPath(t, c.obs, nil, nil, "")
+			} else {
+				e = explainFrom(t, c.obs, nil, fromR1, dest)
+			}
+			d := driftOf(t, e)
+			f := driftAt(t, d, "r1")
+			partial := c.want == DriftUnknown
+			if f.Level != c.want || d.Level != c.want || strings.Contains(f.Detail, "intended table is partial") != partial {
+				t.Errorf("r1 = %s (%s), overall %s, want %s, naming the partial intended table: %v", f.Level, f.Detail, d.Level, c.want, partial)
+			}
+		})
+	}
+}
+
 // offPathR4 is twoPathNet with r4 off the FIB path: r1 forwards through r2,
 // intent at r1 names r4, and r4 also links to r5, whose complete FIB is empty.
 // r4Hop is r4's FIB next hop toward srv, and r4Intent its intended one.

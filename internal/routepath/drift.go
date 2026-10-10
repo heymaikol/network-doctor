@@ -167,10 +167,10 @@ func (w *walker) classify(s state, on bool, sub, want, root reach) (DriftFinding
 		if !slices.ContainsFunc(f.Facts, func(x Fact) bool { return x.Plane == netmodel.PlaneFIB }) {
 			why = fmt.Sprintf("no FIB observation for %s (%s)", s.node, s.vrf)
 		}
-	case !in.Proven && (drops(fib) || prefixBits(in.Prefix) <= prefixBits(fib.Prefix)):
+	case !in.Proven:
 		// As with control, a partial intended table may hide a more specific
 		// route, so it cannot show what the FIB differs from, even where the FIB
-		// drops.
+		// drops, and whatever the two prefix lengths.
 		f.Level, why = DriftUnknown, "the intended table is partial, so a more specific intended route may exist"
 	case same && in.Prefix == fib.Prefix:
 		return f, false

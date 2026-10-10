@@ -215,6 +215,8 @@ func TestDNSFailureCauseUsesStructuredErrors(t *testing.T) {
 		{"timeout", fmt.Errorf("wrapped: %w", &net.DNSError{IsTimeout: true}), DNSCauseTimeout},
 		{"temporary", fmt.Errorf("wrapped: %w", &net.DNSError{IsTemporary: true}), DNSCauseTemporaryFailure},
 		{"not found", &net.DNSError{IsNotFound: true}, ""},
+		{"unflagged server failure", &net.DNSError{Err: "server misbehaving"}, DNSCauseTemporaryFailure},
+		{"non DNS error", errors.New("boom"), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := dnsFailureCause(tc.err); got != tc.want {

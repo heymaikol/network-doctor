@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -170,6 +171,9 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	n := newWatchNet()
 	fault := false
 	faultPass(t, w, n, &fault)
+	// The kernel may still be sending messages for the changes made above. A late
+	// one would refuse the QUIC row this check expects to reuse.
+	time.Sleep(200 * time.Millisecond)
 	clock.Advance(cadence)
 	if _, runs, _ := faultPass(t, w, n, &fault); runs[ProbeQUIC] != 0 {
 		t.Fatalf("QUIC ran %d times before any change, want it reused", runs[ProbeQUIC])
@@ -179,13 +183,7 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	changedAt := clock.now
 	before = w.generation.Load()
 	run("nexthop", "del", "id", "43")
-	deadline := time.Now().Add(10 * time.Second)
-	for w.generation.Load() == before {
-		if time.Now().After(deadline) {
-			t.Fatal("nexthop del: no route change reached the Watch session")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	awaitRouteChange(t, w, before)
 	clock.Advance(cadence)
 	results, runs, attempts := faultPass(t, w, n, &fault)
 	if q := results[ProbeQUIC]; q.Status != StatusFail || q.Cause != "timeout" {
@@ -197,15 +195,80 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	if latency := clock.now.Sub(changedAt); latency != cadence {
 		t.Errorf("detection latency %v, want one cadence %v, not watchMaxAge %v", latency, cadence, watchMaxAge)
 	}
-	// A fresh session over the same graph is the oracle: the verdicts must match.
+	// A fresh session over the same graph is the oracle. Its rows and its diagnosis
+	// must both match, so a difference in routes or families that status and cause
+	// would not show still fails here.
+	order := ProbeOrder(quicFaultGraph(n, &fault))
 	oracle, _, _ := faultPass(t, NewWatchSession(clock.Now), n, &fault)
-	for id, r := range results {
-		if o := oracle[id]; r.Status != o.Status || r.Cause != o.Cause {
-			t.Errorf("row %s: Watch %v %q, fresh oracle %v %q", id, r.Status, r.Cause, o.Status, o.Cause)
-		}
+	assertSameRowsAndDiagnosis(t, order, results, oracle)
+
+	// Recovery: the route returns through a new nexthop. A failed row is never kept,
+	// so QUIC is measured on this pass whether or not the event arrives in time. The
+	// event decides only when the row is measured.
+	fault = false
+	before = w.generation.Load()
+	run("nexthop", "add", "id", "43", "dev", "lo")
+	run("route", "add", "10.6.6.0/24", "nhid", "43")
+	awaitRouteChange(t, w, before)
+	clock.Advance(cadence)
+	results, runs, _ = faultPass(t, w, n, &fault)
+	if q := results[ProbeQUIC]; q.Status != StatusPass || runs[ProbeQUIC] != 1 {
+		t.Errorf("recovery: QUIC %v, measured %d times, want pass measured once", q.Status, runs[ProbeQUIC])
 	}
+	oracle, _, _ = faultPass(t, NewWatchSession(clock.Now), n, &fault)
+	assertSameRowsAndDiagnosis(t, order, results, oracle)
+
+	// An IPv6-only change. QUIC passed on the last pass, so a quiet pass reuses it.
+	// Then an IPv6 route change must refuse it on the next pass: no event is scoped to
+	// one address family.
+	clock.Advance(cadence)
+	if _, runs, _ = faultPass(t, w, n, &fault); runs[ProbeQUIC] != 0 {
+		t.Fatalf("QUIC ran %d times on a quiet pass, want it reused", runs[ProbeQUIC])
+	}
+	before = w.generation.Load()
+	run("-6", "route", "add", "2001:db8:6::/48", "dev", "lo")
+	awaitRouteChange(t, w, before)
+	clock.Advance(cadence)
+	results, runs, _ = faultPass(t, w, n, &fault)
+	if _, reused := results[ProbeQUIC].ReusedFrom(); reused || runs[ProbeQUIC] != 1 {
+		t.Errorf("IPv6 route change: QUIC reused=%v measured %d times, want measured again once", reused, runs[ProbeQUIC])
+	}
+	oracle, _, _ = faultPass(t, NewWatchSession(clock.Now), n, &fault)
+	assertSameRowsAndDiagnosis(t, order, results, oracle)
 
 	os.Stdout.WriteString("ROUTE EVENT SEEN\n")
+}
+
+// awaitRouteChange waits until the session has seen a change after before, then
+// for the kernel to send the rest of that change's messages. A check that expects a
+// row to be reused must start after this, or a late message refuses the row.
+func awaitRouteChange(t *testing.T, s *WatchSession, before uint64) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for s.generation.Load() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("no route change reached the Watch session")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+}
+
+// assertSameRowsAndDiagnosis compares a Watch pass with a fresh oracle. Each row must
+// carry the same fingerprint, which covers its routes, families, addresses and cause,
+// not only its status. The diagnosis, which Interpret derives from those rows, must
+// also be equal.
+func assertSameRowsAndDiagnosis(t *testing.T, order []ProbeID, watch, oracle map[ProbeID]ProbeResult) {
+	t.Helper()
+	for _, id := range order {
+		if got, want := fingerprint(watch[id]), fingerprint(oracle[id]); got != want {
+			t.Errorf("row %s: Watch %s, fresh oracle %s", id, got, want)
+		}
+	}
+	got, want := Interpret(watchTarget(), order, watch), Interpret(watchTarget(), order, oracle)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("diagnosis differs from the fresh oracle:\n got  %+v\n want %+v", got, want)
+	}
 }
 
 // kernelRouteGroups returns the group membership the kernel reports for the

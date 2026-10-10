@@ -56,6 +56,7 @@ func loadCapture(tb testing.TB, scenario, stem, node, command, source string) Ca
 
 func readFile(tb testing.TB, path string) []byte {
 	tb.Helper()
+	//nolint:gosec // G304: the path is joined from fixtureRoot and test-owned names.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		tb.Fatal(err)

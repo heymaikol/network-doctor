@@ -89,23 +89,19 @@ func parseEntry(c Capture, key string, rec detailRecord) candidate {
 		cd.rec.LocalInterface = *rec.IfaceName
 	}
 
-	switch {
-	case rec.IfaceAddress == nil:
+	if rec.IfaceAddress == nil {
 		fail("ifaceAddress is missing")
-	default:
-		if addr, ok := parseIPv4(*rec.IfaceAddress); ok {
-			cd.addr = addr
-			cd.rec.NeighborAddr = addr.String()
-		} else {
-			cd.rec.NeighborAddr = textsafe.Clean(*rec.IfaceAddress)
-			fail("ifaceAddress %s is not IPv4", quote(*rec.IfaceAddress))
-		}
+	} else if addr, ok := parseIPv4(*rec.IfaceAddress); ok {
+		cd.addr = addr
+		cd.rec.NeighborAddr = addr.String()
+	} else {
+		cd.rec.NeighborAddr = textsafe.Clean(*rec.IfaceAddress)
+		fail("ifaceAddress %s is not IPv4", quote(*rec.IfaceAddress))
 	}
 
-	switch {
-	case rec.NbrState == nil:
+	if rec.NbrState == nil {
 		fail("nbrState is missing")
-	default:
+	} else {
 		cd.rec.State = textsafe.Clean(*rec.NbrState)
 		left, err := parseState(*rec.NbrState)
 		switch {
@@ -120,10 +116,9 @@ func parseEntry(c Capture, key string, rec detailRecord) candidate {
 		}
 	}
 
-	switch {
-	case rec.AreaID == nil:
+	if rec.AreaID == nil {
 		fail("areaId is missing")
-	default:
+	} else {
 		cd.rec.Area = textsafe.Clean(*rec.AreaID)
 		if err := checkArea(*rec.AreaID); err != nil {
 			fail("%v", err)

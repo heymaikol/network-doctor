@@ -357,15 +357,12 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 		} else {
 			notes = append(notes, fmt.Sprintf("interface %s: ipAddress is missing; not matchable", quote(name)))
 		}
-		switch {
-		case rec.RouterID == nil:
+		if rec.RouterID == nil {
 			notes = append(notes, fmt.Sprintf("interface %s: routerId is missing", quote(name)))
-		default:
-			if rid, ok := parseIPv4(*rec.RouterID); ok {
-				info.routerID = rid.String()
-			} else {
-				notes = append(notes, fmt.Sprintf("interface %s: routerId %s is not IPv4", quote(name), quote(*rec.RouterID)))
-			}
+		} else if rid, ok := parseIPv4(*rec.RouterID); ok {
+			info.routerID = rid.String()
+		} else {
+			notes = append(notes, fmt.Sprintf("interface %s: routerId %s is not IPv4", quote(name), quote(*rec.RouterID)))
 		}
 		out = append(out, info)
 	}

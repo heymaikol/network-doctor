@@ -191,7 +191,7 @@ func TestImportBroadcastCapturesMapBothWays(t *testing.T) {
 			t.Errorf("%s observation claims completeness: neighbors=%v routes=%v", o.Node, o.NeighborsComplete, o.RoutesComplete)
 		}
 		if o.Node == "r1" && len(o.Neighbors) > 0 {
-			if o.Provenance.Source != detail.Source || !o.Provenance.CollectedAt.Equal(detail.CollectedAt) {
+			if o.Source != detail.Source || !o.CollectedAt.Equal(detail.CollectedAt) {
 				t.Errorf("provenance = %+v, want source %q at %s", o.Provenance, detail.Source, detail.CollectedAt)
 			}
 		}
@@ -752,7 +752,7 @@ func TestImportDuplicateBlocksEvenWhenTwinHasBadMetadata(t *testing.T) {
 // declared facts of a refused capture only after sanitizing them.
 func TestRefusedCaptureReportHoldsNoControlText(t *testing.T) {
 	c := fixture(t, "bcast", "r1", CommandNeighborDetail)
-	c.Source, c.Node, c.VRF, c.Command = "frr\x1b[31m", "r1\x07", "blue‮", "show\n"
+	c.Source, c.Node, c.VRF, c.Command = "frr\x1b[31m", "r1\x07", "blue\u202e", "show\n"
 	res, err := Import([]Capture{c})
 	if err != nil {
 		t.Fatal(err)
@@ -786,7 +786,7 @@ func TestRefusedTextStaysValidUTF8(t *testing.T) {
 func TestImportDuplicateSeesSanitizedNode(t *testing.T) {
 	caps := broadcastCaptures(t)
 	twin := caps[find(t, caps, "r2", CommandNeighborDetail)]
-	twin.Source, twin.Node = "copy of r2 neighbor detail", "r2​"
+	twin.Source, twin.Node = "copy of r2 neighbor detail", "r2\u200b"
 	res, err := Import(append(caps, twin))
 	if err != nil {
 		t.Fatal(err)
@@ -803,7 +803,7 @@ func TestImportDuplicateSeesSanitizedNode(t *testing.T) {
 // crafted key reaches the reason unless the report cleans it.
 func TestRefusedReasonHoldsNoControlText(t *testing.T) {
 	neighbors := fixture(t, "bcast", "r1", CommandNeighborDetail)
-	neighbors.Data = []byte(`{"neighbors":{"\u001b[2J‮EVIL":[{"ifaceAddress":10}]}}`)
+	neighbors.Data = []byte(`{"neighbors":{"\u001b[2J\u202eEVIL":[{"ifaceAddress":10}]}}`)
 	ifaces := fixture(t, "bcast", "r1", CommandInterface)
 	ifaces.Data = []byte(`{"interfaces":{"\u001b]0;pwn\u0007x":{"ipAddress":10}}}`)
 	for _, c := range []Capture{neighbors, ifaces} {

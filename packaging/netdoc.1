@@ -35,6 +35,8 @@ netdoc \- diagnose network connectivity and name the layer where the
 .B netdoc
 .B \-two\-sided
 .I here.ndoc there.ndoc
+.RB [ \-route\-a " file" ]
+.RB [ \-route\-b " file" ]
 .RI [ \-json ]
 .br
 .B netdoc
@@ -372,7 +374,28 @@ peer mode,
 .BR \-no\-history ,
 and
 .BR \-keys .
-The artifact form continues to reject every run setting.
+The artifact form continues to reject every run setting except the two route
+files below.
+.TP
+.BI \-route\-a " file"
+With the offline form, add the routing context of a topology file to side A.
+The file uses the format described under Route path explanation in the
+reference.
+It is used only when it ties to side A's own run, under the conditions the
+reference lists in full.
+Otherwise the reading says why.
+The context describes predicted and recorded routing tables, not measured
+replies, and it never changes the placement.
+An unreadable or invalid file exits
+.BR 2 .
+Refused with
+.BR \-via ,
+with live mode, and with every other mode. The two route files must differ.
+.TP
+.BI \-route\-b " file"
+As
+.BR \-route\-a ,
+for side B.
 .TP
 .BI \-peer\-listen " IP:port"
 Open one temporary authenticated peer session on an exact local unicast IP and
@@ -682,6 +705,8 @@ it means a failure was placed or the evidence could not place one.
 .B 2
 Bad arguments, a target or pairing input the parser rejected, a snapshot
 .B \-compare
+or offline
+.B \-two\-sided
 could not read, or no terminal on standard output to run the terminal UI on.
 Under
 .B \-via
@@ -702,6 +727,14 @@ Under
 .B \-explain
 a destination that is not an IP address, an unreadable or invalid topology
 file, and flags that cannot be combined with it also exit
+.BR 2 .
+Under offline
+.BR \-two\-sided ,
+an unreadable or invalid
+.B \-route\-a
+or
+.B \-route\-b
+file, or one file named for both sides, also exits
 .BR 2 .
 .SH ENVIRONMENT
 .TP

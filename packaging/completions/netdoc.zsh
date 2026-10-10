@@ -79,6 +79,8 @@ _arguments \
   '(--compare -compare --two-sided -two-sided --explain -explain)'{--compare,-compare}'[compare two saved snapshots (.ndoc); runs no probes]' \
   '(--two-sided -two-sided --compare -compare --explain -explain)'{--two-sided,-two-sided}'[localize two saved snapshots, or local and --via live runs]' \
   '(--explain -explain --compare -compare --two-sided -two-sided)'{--explain,-explain}'[explain how traffic to a destination should leave a topology file; runs no probes]' \
+  '(--route-a -route-a)'{--route-a,-route-a}'=[add the routing context of a topology file to side A of offline --two-sided]:topology file:_files' \
+  '(--route-b -route-b)'{--route-b,-route-b}'=[add the routing context of a topology file to side B of offline --two-sided]:topology file:_files' \
   '*'{--peer-listen,-peer-listen}='[listen for an authenticated peer on an exact IP\:port]:address:' \
   '(--peer-connect -peer-connect)'{--peer-connect,-peer-connect}'[read a temporary pairing string and run a two-ended diagnosis]' \
   '(--via -via)'{--via,-via}='[run remotely, or provide side B for live two-sided diagnosis]:destination:_hosts' \

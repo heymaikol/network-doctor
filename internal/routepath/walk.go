@@ -111,6 +111,18 @@ func explainWalks(f File, dest netip.Addr) (Explanation, *walker) {
 	return e, w
 }
 
+// OwnersOf lists the nodes and routing domains whose recorded interface lists on
+// the read planes hold addr. A caller that ties an address to one node needs
+// exactly one owner, the same condition a walk treats as ambiguous.
+func OwnersOf(f File, addr netip.Addr) []Start {
+	addr = addr.WithZone("").Unmap()
+	var out []Start
+	for _, s := range newWalker(f, addr).owners[addr] {
+		out = append(out, Start{Node: s.node, VRF: s.vrf})
+	}
+	return out
+}
+
 func newWalker(f File, dest netip.Addr) *walker {
 	w := &walker{
 		m:      f.Model,

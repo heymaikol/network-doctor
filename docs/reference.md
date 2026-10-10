@@ -227,6 +227,9 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--two-sided`, saved or live: the two snapshots observed different targets | `2` |
 | `--two-sided`: the two snapshots do not establish one target, because a support pseudonym is on either side and the rest of the target agrees | `2` |
 | Live `--two-sided --via`: SSH or remote protocol acquisition failed | `2` |
+| Live `--two-sided --via`: the local run errored | `1` |
+| Live `--two-sided --via`: a user interrupt cancels both acquisitions | `1` |
+| `--two-sided --route-a` or `--route-b`: an unreadable or invalid topology file, or one file named for both sides | `2` |
 | `--explain`: an explanation was printed, whether or not the path is broken | `0` |
 | `--explain`: a destination that is not an IP address, an unreadable or invalid topology file, or a flag that cannot be combined with it | `2` |
 | Quit before the chain finished | `1` |
@@ -1644,7 +1647,7 @@ Exit `0` means no comparable check failed on either machine, `1` means a failure
 
 ### Flags in live two-sided mode
 
-The artifact form accepts only `--json` because every other run setting is already recorded in its two files. The live compatibility decisions below are enforced before either diagnosis starts:
+The artifact form accepts only `--json` and the optional `--route-a` and `--route-b` topology files, because every other run setting is already recorded in its two files. The route files are described under [Route context from topology files](#route-context-from-topology-files). The live compatibility decisions below are enforced before either diagnosis starts:
 
 | Flag | Live behavior |
 |---|---|
@@ -1660,6 +1663,7 @@ The artifact form accepts only `--json` because every other run setting is alrea
 | `--watch` | Rejected. Watch is a repeated session, not one matched pair of completed runs. |
 | `--compare` | Rejected. Comparison asks what changed between saved states; two-sided diagnosis asks where a same-target differential appears. |
 | `--peer-listen`, `--peer-connect` | Rejected. Peer mode measures direct authenticated traffic between Network Doctor endpoints, not their independent paths to an external target. |
+| `--route-a`, `--route-b` | Rejected. Route context binds to the two saved snapshots of the offline form, and the live form has no topology input. |
 | `--toolbox`, `--no-history`, `--keys` | Rejected. They belong to the interactive TUI and have no meaning in this headless orchestration path. |
 
 `--help` and `--version` retain their normal immediate behavior. A user interrupt cancels both acquisitions and exits `1`. A remote SSH, worker, or protocol error cancels the local run, emits no two-sided result, and exits `2`; cancelling the SSH process also closes the worker channel so remote probes do not continue unnecessarily.
@@ -1718,6 +1722,36 @@ Conditions that weaken the reading are reported as caveats rather than left for 
 
 Two machines is the premise, so a different operating system, architecture, or netdoc build on the other side is the expected case and is never a caveat.
 
+### Route context from topology files
+
+`--route-a FILE` and `--route-b FILE` add the routing context of one side to the offline form. FILE is a topology in the [route-path explanation](#route-path-explanation) format, and it is explained only against the side it names:
+
+```sh
+netdoc --two-sided here.ndoc there.ndoc --route-a here-topology.json
+```
+
+A file binds to its side only when its own records agree with that side's run. The reading checks each condition below in order and reports the first one that fails, so an unbound file says why and explains nothing:
+
+- The side is not a [support artifact](#support-snapshots). Sanitization renames its addresses, so they cannot be matched to a topology.
+- The side is not a generic run, which has no target to explain a route to.
+- The side has a target, and it is an IP literal with no interface zone. A name resolves on each machine, so no single destination is bound, and a zoned target cannot be tied to an interface. An IPv6 link-local target needs an interface the file cannot name.
+- The file has a `source.address` with no interface zone, in the same address family as the target. A missing address, or one that differs in family or carries a zone, does not bind.
+- The side recorded exactly one source address for the target, in its route decision or in the probe that reached it, and that address equals the file's `source.address`. Several recorded sources, or none, do not bind.
+- The side's route for the target is in the main routing table. A table name is never main: Linux spells main as an empty name, so a named table such as `table 100`, the kernel's table 253 spelled `default`, and `local` do not bind. A legacy artifact's table name is refused even though it lacks the knowledge bit.
+- The file's `source` is in the `default` VRF, which names the main routing table. A snapshot never reports a VRF, so a source in any other VRF cannot be tied to the side's routing table and does not bind. A side that recorded no routing table binds only to a `default` source, and its routing table is then listed as not compared.
+- `source.address` belongs to exactly one node and VRF in the file, and it is the node and VRF the file's `source` declares. Zero or several owners do not bind.
+- Every row in the file, its observations, checks, and boundaries, was collected within 24 hours of that side's capture. Outside that window the rows may describe a different network.
+- The side recorded one route for the target, and that route agrees with the file's forwarding decision at its source. Only agreement binds. The side's next hop must be one of the file's addressed next hops, so an equal-cost alternative binds. A recorded prefix must match the file's matched prefix, when the side records one. Interface names are never compared, because they are local to each machine.
+- A disagreement or missing evidence does not bind. A route the side marks unreachable conflicts with a forwarded route in the file. A different next hop conflicts only when every next hop in the file names an address that can be matched, and a different prefix conflicts once the next hops agree. An on-link route conflicts under the same condition as a different next hop. Otherwise the comparison is not comparable: the side recorded no next hop, or a link-local one, several routes for the target, a file decision that is not a forward, or a file next hop with no matchable address (interface-only or IPv6 link-local) that the side's next hop could belong to.
+
+Binding is consistency, not identity. Node and VRF names are local to the file and cannot be checked against either machine, and a reused private address or a NAT translation can match a topology that describes another network. The flag is the assertion that the file belongs to that side.
+
+A bound side prints its source and destination, the fields it compared with the file and the fields it did not, then an explanation with labeled parts. The expected path is the control plane's prediction. The forwarding path is the recorded FIB. The return path is derived from the recorded FIB rows, and no reply was observed. A symmetric result means the two directions cross the same routers in reverse order, not that a reply arrives. Asymmetry is classified as in the [route-path explanation](#route-path-explanation). Checks recorded in the file are labeled as recorded elsewhere, since this reading measured none of them. Drift is not part of the context.
+
+Route context never changes the placement, the diagnosis, or the exit code, which still comes from the placement alone. An unreadable or invalid file, or one file named for both sides, exits `2`. The route files are refused with `--via`, with live mode, and with every other mode, including `--version`, `--list-checks`, and `--profile list`. Only `--help` exits earlier, while flags are parsed.
+
+Topology output prints the file's node and VRF names and its addresses unredacted. Review a reading before attaching it to a bug report.
+
 ### How it relates to peer mode and `--via`
 
 Two machines produce six kinds of observation. netdoc gathers them with commands that do not overlap, and then reads two of the groups together:
@@ -1771,6 +1805,8 @@ Offline `--two-sided A.ndoc B.ndoc` needs no reachability and opens no connectio
 
 `checks` is every check in either snapshot, in the order side A executed them, followed by the ones only side B had. `comparable` is what says whether the placement was allowed to read the row. Field names, the `side` and ID vocabularies, and the meaning of the exit code are stable for this schema. `caveats` and `summary` are derived sentences and are never parsed back; branch on `diagnosis.id`, `diagnosis.side`, and `diagnosis.evidence`. `same_target` is always `true` in a document that exists at all, since the other case is refused, and it is carried so the document is self-describing.
 
+`route_paths` appears only when `--route-a` or `--route-b` was given. It holds one entry per named file, `a` before `b`, with `side`, `status` (`bound` or `unbound`), and `reason` when unbound. A bound entry also has `destination`, `source`, `basis`, and `explanation`. `basis` names the kind of evidence each part rests on, from a closed set: `expected` is `control_plane_prediction`, `forwarding` is `recorded_fib`, `return` is `recorded_fib_prediction`, and `checks` is `recorded_elsewhere`. `explanation` is the object `--explain --json` prints for that flow, without `drift`. `reason` is prose, so branch on `status`. A bound entry also has `first_hop` (always `agrees`), `compared`, and `not_compared`, which name the fields checked against the file and the fields left unchecked, from the closed set `source`, `next_hop`, `prefix`, `routing_table`, and `interface`. `interface` is always unchecked, `prefix` is unchecked when the side recorded none, and `routing_table` is unchecked when the side recorded no routing table. An unbound entry has `first_hop` only when the forwarding comparison ran, with `conflicts` or `not_comparable`. Without route files the document is unchanged.
+
 Live acquisition emits this exact schema. It does not add ordinary diagnosis confidence: two-sided epistemic limits remain represented by `diagnosis.ambiguous`, `alternatives`, and `caveats`, so this orchestration feature requires no schema version change.
 
 ## Route path explanation
@@ -1789,7 +1825,7 @@ The destination must be an IP address. A name is refused rather than resolved, b
 The file is one JSON object. Unknown fields are refused, so a misspelled key cannot drop evidence without a word, and the file is capped at 1 MiB.
 
 - `version` must be `1`.
-- `source` gives the `node` and `vrf` the path starts from. Its optional `address` is the source address the destination replies to. When it is set, the explanation also walks the return route and compares it with the forward route. See Asymmetry below.
+- `source` gives the `node` and `vrf` the path starts from. `default` names the main routing table, and it is the only VRF a snapshot can be bound to. Its optional `address` is the source address the destination replies to. When it is set, the explanation also walks the return route and compares it with the forward route. See Asymmetry below.
 - `observations` are recorded tables. Each names its `source`, `collected_at` (RFC 3339), `plane`, `node`, and `vrf`, and may carry `interfaces`, `neighbors`, and `routes`. The planes are `intended`, `configured`, `control`, `fib`, and `observed`. The expected path reads the `control` plane, then `configured`. The forwarding path reads only `fib`. Routes in `intended` are compared with the FIB, as described under Drift below. Intended interfaces and neighbors own no address and name no neighbor. Rows in `observed` are validated, then not read by this explanation. Observed data-plane results are recorded as `checks`, not as an `observed` plane. Builds before this change accept intended rows and ignore them, so they print no drift.
 - `routes_complete` says whether the observation lists every route its table holds. Only a complete table proves that no route exists. A partial table leaves a missing route unknown, and nothing is invented to fill the gap.
 - `checks` are results already recorded for one segment: `node`, `vrf`, `interface`, `destination`, and `result`, which is `pass` or `fail`, with the same `source` and `collected_at` as an observation. An optional `next_hop` names the next-hop address the check exercised, and a named check applies to that segment only. A check without `next_hop` applies to its interface when the interface carries one next hop, and the named and unnamed checks on that segment combine: a pass beside a failure is `conflicting`. When the interface carries several next hops, an unnamed check is attributed to none of them: each segment on the interface is `unattributed`, and a limitation says so. A named failure or conflict on such a segment still reports as itself.
@@ -1845,7 +1881,7 @@ Drift appears only in `--explain` output and never changes the exit code, which 
 
 ### Machine-readable explanation
 
-`--json` prints one object with `source`, `destination`, `expected` and `forwarding` (each a hop), `findings`, `failure_regions`, `limitations`, and `truncated`. When the file names `source.address`, it also carries `asymmetry`, with `assessment`, `reason`, `return_to`, `forward_route` and `return_route` (each a list of steps, present only when that direction is proven), `concerns` (each with `kind`, `direction` as `forward`, `return`, or `both`, `node`, `vrf`, `detail`, and `evidence`), and `return`, the complete return walk as an explanation in its own right. `return` is present only when the destination has one owning routing domain to start from. When the file holds intended routes, it also carries `drift`, with `level`, `compared` (the nodes where intent decides), `truncated`, `intended` (the intended walk, as a hop), and `findings`. Each finding has `level`, `node`, `vrf`, `detail`, the `intended` and `forwarding` decisions, and `facts`. A fact names `source`, `collected_at`, `plane`, and `complete`, plus `origin`, `prefix`, `next_hops`, and `discard` when the row lists a route. A step names `node`, `vrf`, `interface`, `next_hop`, and `outcome`. The last step is the node that owns the destination, and it has no `interface`. A hop carries `node`, `vrf`, and `decision`, and carries `via` (the segment the walk crossed) and `next` (the hops after it) when the walk goes on. A segment carries `outcome`: `none` when no check applies, `pass`, `fail`, `conflicting` when recorded checks disagree, or `unattributed` as described under Topology file. Its `checks` lists the recorded checks behind the outcome, each with `source` and `collected_at`. For an `unattributed` segment, they are the checks that could not be placed on it. A decision carries `kind` and `proven` and `reason`, and carries `basis`, `prefix`, `next_hops`, `evidence`, and `agreement` where they apply. A local decision, where the destination is an address on the node, names in `basis` and `evidence` the plane and rows that list that address, and `proven` is always false, since interface lists are partial and no complete table backs ownership. A `no_route` decision lists in `evidence` the complete tables that prove the absence, each with `absent` set to true. A hop that stops at a node the file does not describe, such as an unresolved or on-link next hop, has an empty `node` and `vrf`, and its `via` names the segment that led there.
+`--json` prints one object with `source`, `destination`, `expected` and `forwarding` (each a hop), `findings`, `failure_regions`, `limitations`, and `truncated`. When the file names `source.address`, it also carries `asymmetry`, with `assessment`, `reason`, `return_to`, `forward_route` and `return_route` (each a list of steps, present only when that direction is proven), `concerns` (each with `kind`, `direction` as `forward`, `return`, or `both`, `node`, `vrf`, `detail`, and `evidence`), and `return`, the complete return walk as an explanation in its own right. `return` is present only when the destination has one owning routing domain to start from. When the file holds intended routes, it also carries `drift`, with `level`, `compared` (the nodes where intent decides), `truncated`, `intended` (the intended walk, as a hop), and `findings`. Each finding has `level`, `node`, `vrf`, `detail`, the `intended` and `forwarding` decisions, and `facts`. A fact names `source`, `collected_at`, `plane`, and `complete`, plus `origin`, `prefix`, `next_hops`, and `discard` when the row lists a route. A step names `node`, `vrf`, `interface`, `next_hop`, and `outcome`. The last step is the node that owns the destination, and it has no `interface`. A hop carries `node`, `vrf`, and `decision`, and carries `via` (the segment the walk crossed) and `next` (the hops after it) when the walk goes on. A segment names `from` and `vrf`, and `interface` where it has one, and carries `outcome`: `none` when no check applies, `pass`, `fail`, `conflicting` when recorded checks disagree, or `unattributed` as described under Topology file. Its `checks` lists the recorded checks behind the outcome, each with `source` and `collected_at`. For an `unattributed` segment, they are the checks that could not be placed on it. A decision carries `kind` and `proven` and `reason`, and carries `basis`, `prefix`, `shadowed` (the less specific prefixes that matched and lost), `next_hops`, `evidence`, and `agreement` where they apply. A local decision, where the destination is an address on the node, names in `basis` and `evidence` the plane and rows that list that address, and `proven` is always false, since interface lists are partial and no complete table backs ownership. A `no_route` decision lists in `evidence` the complete tables that prove the absence, each with `absent` set to true. A hop that stops at a node the file does not describe, such as an unresolved or on-link next hop, has an empty `node` and `vrf`, and its `via` names the segment that led there.
 
 Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `conflicting`, `loop`, `truncated`, `unresolved`, `ambiguous`, and `on_link`. Finding kinds are `control_route_not_in_fib`, `fib_differs_from_control`, `fib_forwarding_failed`, `conflicting_evidence`, and `loop`. Drift levels are `none`, `benign`, `unknown`, `redundancy_lost`, and `reachability_lost`.
 
@@ -1856,7 +1892,8 @@ Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `confli
 - It explains one destination per run.
 - A recorded check whose `next_hop` matches no next hop of the route is not used, and the explanation does not say so.
 - It does not model NAT translations, firewall rules, or connection state. A `boundaries` entry records where such a device sits, not what it does to a packet.
-- Two-sided diagnosis does not read the asymmetry. Its snapshots record only the outbound decision on each side, so they carry no return route.
+- Two-sided diagnosis reads the asymmetry only as route context from a bound `--route-a` or `--route-b` file, and never as a placement. Its snapshots record only the outbound decision on each side, so they carry no return route of their own.
+- A bound two-sided reading cannot see a source-based policy rule that the kernel refuses. When the kernel rejects a route lookup that names the source, the probe repeats it without the source and records that answer, which is usually the main table's. The snapshot does not mark the fallback, so a bound reading compares that answer as the flow's own route. Where the platform records a routing table, that table is compared too, and where it records none, the table is listed as not compared.
 
 ## Remote diagnosis over SSH
 

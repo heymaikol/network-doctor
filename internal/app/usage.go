@@ -20,7 +20,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --peer-connect [--json]
        netdoc --compare before.ndoc after.ndoc [--json]
        netdoc --explain topology.json DEST [--json]
-       netdoc --two-sided here.ndoc there.ndoc [--json]
+       netdoc --two-sided here.ndoc there.ndoc [--route-a topology.json] [--route-b topology.json] [--json]
        netdoc --two-sided --via ssh-destination [target] [--json]
 
 Diagnoses network connectivity layer by layer. With no target it runs the
@@ -56,6 +56,14 @@ whether the evidence places a failure on side A, side B, something shared, or
 nowhere. With two file arguments it stays offline. With --via it concurrently
 acquires side A locally and side B on the SSH host, then applies the same
 snapshot localization. Both forms refuse different effective targets.
+
+--route-a FILE and --route-b FILE add the routing context of one side to the
+offline form. FILE is a topology in the --explain format, for the side it
+describes. It is used only when the file ties to that side's own run: the
+target must be an IP address, the file's source.address must be the source
+that side recorded, and the file's rows must be within 24 hours of that run.
+Otherwise the reading says why. The context never changes the placement. An
+unreadable or invalid file exits 2.
 
 Target forms:
 `+diagnostic.TargetForms+"\n\nFlags:\n")

@@ -1,0 +1,341 @@
+{
+  "schema": "netdoc.twosided.v1",
+  "a": {
+    "created_at": "2026-01-02T03:04:05Z",
+    "tool": {
+      "version": "1.2.3",
+      "os": "linux",
+      "arch": "amd64"
+    },
+    "target": "example.com:443 tls+http",
+    "verdict": "network",
+    "summary": "example.com resolves but neither it nor the egress check's reference endpoints answered, and nothing this run observed says where the path breaks.",
+    "ok": false
+  },
+  "b": {
+    "created_at": "2026-01-02T03:20:00Z",
+    "tool": {
+      "version": "1.2.3",
+      "os": "linux",
+      "arch": "amd64"
+    },
+    "target": "example.com:443 tls+http",
+    "verdict": "ok",
+    "summary": "example.com answered from this run.",
+    "ok": true
+  },
+  "same_target": true,
+  "checks": [
+    {
+      "id": "iface",
+      "a": "PASS",
+      "b": "PASS",
+      "comparable": true
+    },
+    {
+      "id": "ssid",
+      "a": "PASS",
+      "b": "PASS",
+      "comparable": true
+    },
+    {
+      "id": "internet_tcp",
+      "a": "WARN",
+      "b": "WARN",
+      "comparable": true,
+      "evidence": [
+        {
+          "dimension": "address_families.ipv4",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "reachable"
+            }
+          ],
+          "b": [
+            {
+              "value": "reachable"
+            }
+          ]
+        },
+        {
+          "dimension": "address_families.ipv6",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "unreachable"
+            }
+          ],
+          "b": [
+            {
+              "value": "unreachable"
+            }
+          ]
+        },
+        {
+          "dimension": "selected_ip",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "1.1.1.1"
+            }
+          ],
+          "b": [
+            {
+              "value": "1.1.1.1"
+            }
+          ]
+        },
+        {
+          "dimension": "clock_offset_seconds",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "3"
+            }
+          ],
+          "b": [
+            {
+              "value": "3"
+            }
+          ]
+        },
+        {
+          "dimension": "derived.status_downgraded",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "observed"
+            }
+          ],
+          "b": [
+            {
+              "value": "observed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dns",
+      "a": "PASS",
+      "b": "PASS",
+      "comparable": true,
+      "evidence": [
+        {
+          "dimension": "dns_outcome",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "addresses_returned"
+            }
+          ],
+          "b": [
+            {
+              "value": "addresses_returned"
+            }
+          ]
+        },
+        {
+          "dimension": "addresses",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "2606:2800:220:1:248:1893:25c8:1946"
+            },
+            {
+              "value": "93.184.216.34"
+            }
+          ],
+          "b": [
+            {
+              "value": "2606:2800:220:1:248:1893:25c8:1946"
+            },
+            {
+              "value": "93.184.216.34"
+            }
+          ]
+        },
+        {
+          "dimension": "resolver_targets",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "192.0.2.53:53"
+            },
+            {
+              "value": "[2001:db8::53]:53"
+            }
+          ],
+          "b": [
+            {
+              "value": "192.0.2.53:53"
+            },
+            {
+              "value": "[2001:db8::53]:53"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dns_public",
+      "a": "PASS",
+      "b": "PASS",
+      "comparable": true,
+      "evidence": [
+        {
+          "dimension": "dns_outcome",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "addresses_returned"
+            }
+          ],
+          "b": [
+            {
+              "value": "addresses_returned"
+            }
+          ]
+        },
+        {
+          "dimension": "addresses",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "93.184.216.34"
+            }
+          ],
+          "b": [
+            {
+              "value": "93.184.216.34"
+            }
+          ]
+        },
+        {
+          "dimension": "resolver",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "8.8.8.8"
+            }
+          ],
+          "b": [
+            {
+              "value": "8.8.8.8"
+            }
+          ]
+        },
+        {
+          "dimension": "resolver_targets",
+          "relation": "equivalent",
+          "a": [
+            {
+              "value": "8.8.8.8:53"
+            }
+          ],
+          "b": [
+            {
+              "value": "8.8.8.8:53"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "target_tcp",
+      "a": "FAIL",
+      "b": "PASS",
+      "comparable": true,
+      "evidence": [
+        {
+          "dimension": "cause",
+          "relation": "unknown",
+          "a": [
+            {
+              "value": "connection_refused"
+            }
+          ],
+          "reason": "missing_evidence"
+        },
+        {
+          "dimension": "attempt_outcomes",
+          "relation": "equivalent",
+          "a": [
+            {
+              "family": "ipv4",
+              "value": "connection_refused"
+            },
+            {
+              "family": "ipv6",
+              "value": "unreachable"
+            }
+          ],
+          "b": [
+            {
+              "family": "ipv4",
+              "value": "connection_refused"
+            },
+            {
+              "family": "ipv6",
+              "value": "unreachable"
+            }
+          ]
+        },
+        {
+          "dimension": "attempts",
+          "relation": "equivalent",
+          "a": [
+            {
+              "address": "2606:2800:220:1:248:1893:25c8:1946",
+              "family": "ipv6",
+              "value": "unreachable"
+            },
+            {
+              "address": "93.184.216.34",
+              "family": "ipv4",
+              "value": "connection_refused"
+            }
+          ],
+          "b": [
+            {
+              "address": "2606:2800:220:1:248:1893:25c8:1946",
+              "family": "ipv6",
+              "value": "unreachable"
+            },
+            {
+              "address": "93.184.216.34",
+              "family": "ipv4",
+              "value": "connection_refused"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tls",
+      "a": "SKIP",
+      "b": "SKIP",
+      "comparable": false
+    }
+  ],
+  "caveats": [
+    "The two runs were captured 15 minutes apart, so anything that changed in between is inside the evidence.",
+    "1 check did not produce a measured outcome on both machines and was not read."
+  ],
+  "diagnosis": {
+    "id": "two_sided_one_side_fails",
+    "side": "a",
+    "summary": "Every check with a final FAIL has a non-FAIL outcome on side B, so final FAIL outcomes occur only on side A. This does not locate the cause on that side or exclude an endpoint-specific cause.",
+    "evidence": [
+      "target_tcp"
+    ],
+    "ambiguous": true,
+    "alternatives": [
+      "side A's own network state",
+      "side A's path to the endpoint",
+      "endpoint-specific failure, including different servers behind the same name or different treatment by address or policy",
+      "the endpoint or the path changing between the two runs"
+    ]
+  }
+}

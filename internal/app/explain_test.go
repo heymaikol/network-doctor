@@ -160,6 +160,7 @@ const ospfObservation = `,
 // from the same file through routepath alone.
 func legacyExplain(t *testing.T, path string) routepath.Explanation {
 	t.Helper()
+	// #nosec G304 -- path is a topology file this test wrote itself.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -250,6 +251,7 @@ func TestExplainPrintsTheOSPFSectionWhenEvidenceApplies(t *testing.T) {
 // legacyModel reads the topology's model the way runExplain does.
 func legacyModel(t *testing.T, path string) netmodel.Model {
 	t.Helper()
+	// #nosec G304 -- path is a topology file this test wrote itself.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

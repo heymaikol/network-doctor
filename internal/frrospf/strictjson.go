@@ -21,7 +21,8 @@ var errNotJSON = errors.New("output is not a JSON object")
 
 // checkStrictJSON accepts exactly one JSON object and refuses what
 // encoding/json would otherwise take silently: a repeated key, which Unmarshal
-// keeps the last of, and any byte after the object. It does not decode values.
+// keeps the last of, any byte after the object, and an ospfInstance field, which
+// marks a numbered OSPF instance. It does not decode values.
 func checkStrictJSON(data []byte) error {
 	type frame struct {
 		object  bool
@@ -88,6 +89,11 @@ func checkStrictJSON(data []byte) error {
 			}
 			if _, dup := f.keys[key]; dup {
 				return fmt.Errorf("duplicate key %s", quote(key))
+			}
+			// Presence alone refuses, whatever the value. Map keys are interface
+			// or router-ID names, so they are exempt.
+			if !f.mapKeys && strings.EqualFold(key, "ospfInstance") {
+				return fmt.Errorf("key %s marks a numbered OSPF instance; only the default instance is read", quote(key))
 			}
 			if name, near := nearKnownKey(key); near && !f.mapKeys {
 				return fmt.Errorf("key %s differs from %s only in case or folding", quote(key), quote(name))

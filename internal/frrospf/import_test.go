@@ -598,16 +598,17 @@ func TestImportIdentityByAddress(t *testing.T) {
 			want: []recordWant{{false, "no accepted interface capture"}},
 		},
 		{
-			name: "node in a different VRF than the peer",
+			// Refused before mapping, so the node yields no records at all.
+			name: "node in a non-default VRF is refused, not mapped",
 			edit: func(caps []Capture) []Capture {
 				i := detail(caps)
 				caps[i].VRF = "blue"
 				return caps
 			},
-			want: []recordWant{{false, "no accepted interface capture in this VRF"}},
+			want: nil,
 		},
 		{
-			name: "peer interface in a different VRF",
+			name: "peer interface in a non-default VRF is refused",
 			edit: func(caps []Capture) []Capture {
 				i := iface(caps)
 				caps[i].VRF = "blue"
@@ -780,6 +781,113 @@ func TestRefusedTextStaysValidUTF8(t *testing.T) {
 	}
 }
 
+// TestImportRefusesNonDefaultVRF checks that default-VRF output cannot be relabeled.
+// Both supported commands read the default VRF when none is named, so any other
+// VRF label is refused, and nothing maps into that VRF.
+func TestImportRefusesNonDefaultVRF(t *testing.T) {
+	caps := broadcastCaptures(t)
+	for i := range caps {
+		caps[i].VRF = "blue"
+	}
+	res, err := Import(caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cr := range res.Report.Captures {
+		if cr.Accepted {
+			t.Errorf("default-VRF output accepted under VRF blue: %+v", cr)
+		}
+		if !strings.Contains(cr.Reason, "only the default VRF") {
+			t.Errorf("reason %q does not name the VRF rule", cr.Reason)
+		}
+	}
+	if len(res.Observations) != 0 {
+		t.Errorf("%d observations written for VRF blue", len(res.Observations))
+	}
+}
+
+// TestImportVRFLabelIsExact checks that only the exact label default is read. A
+// label that differs in case, spacing, or script is a different VRF name, so it is
+// refused rather than folded onto the default VRF.
+func TestImportVRFLabelIsExact(t *testing.T) {
+	for _, label := range []string{"Default", "DEFAULT", "default ", " default", "dеfault"} {
+		c := fixture(t, "bcast", "r1", CommandInterface)
+		c.VRF = label
+		res, err := Import([]Capture{c})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cr := res.Report.Captures[0]; cr.Accepted {
+			t.Errorf("VRF label %q accepted as the default VRF", label)
+		}
+	}
+}
+
+// TestImportRefusesNumberedInstance checks that an ospfInstance field refuses the
+// capture whatever its value and spelling. FRR prints the field only for a
+// numbered instance, so a capture that carries it is never read as instance zero.
+func TestImportRefusesNumberedInstance(t *testing.T) {
+	commands := []struct {
+		name    string
+		capture Capture
+	}{
+		{CommandNeighborDetail, fixture(t, "bcast", "r1", CommandNeighborDetail)},
+		{CommandInterface, fixture(t, "bcast", "r1", CommandInterface)},
+	}
+	spellings := []string{"ospfInstance", "OSPFINSTANCE", "ospfInſtance"}
+	values := []any{1, 0, nil}
+	for _, cmd := range commands {
+		for _, key := range spellings {
+			for _, value := range values {
+				t.Run(fmt.Sprintf("%s %s=%v", cmd.name, key, value), func(t *testing.T) {
+					c := cmd.capture
+					c.Data = mutateJSON(t, c.Data, func(top map[string]any) { top[key] = value })
+					res, err := Import([]Capture{c})
+					if err != nil {
+						t.Fatal(err)
+					}
+					cr := res.Report.Captures[0]
+					if cr.Accepted {
+						t.Fatalf("capture with %s=%v accepted", key, value)
+					}
+					if !strings.Contains(cr.Reason, "numbered OSPF instance") {
+						t.Errorf("reason %q does not name the instance rule", cr.Reason)
+					}
+				})
+			}
+		}
+	}
+}
+
+// TestImportDuplicateIgnoresVRFLabel checks that a copy labeled with another VRF
+// still conflicts with the default-VRF capture for the same node and command. The
+// label on a refused capture cannot be trusted, so it must not split the pair.
+func TestImportDuplicateIgnoresVRFLabel(t *testing.T) {
+	for _, command := range []string{CommandNeighborDetail, CommandInterface} {
+		t.Run(command, func(t *testing.T) {
+			caps := broadcastCaptures(t)
+			orig := caps[find(t, caps, "r2", command)]
+			twin := orig
+			twin.Source, twin.VRF = "copy labeled blue", "blue"
+			res, err := Import(append(caps, twin))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, cr := range res.Report.Captures {
+				if cr.Node != "r2" || cr.Command != command || cr.VRF != "default" {
+					continue
+				}
+				if cr.Accepted {
+					t.Errorf("r2 capture accepted beside its blue twin: %+v", cr)
+				}
+				if !strings.Contains(cr.Reason, "captures give") {
+					t.Errorf("reason %q does not name the duplicate rule", cr.Reason)
+				}
+			}
+		})
+	}
+}
+
 // TestImportDuplicateSeesSanitizedNode checks that a twin whose node name differs
 // only by an invisible character still blocks the valid capture. The report shows
 // the sanitized name, so the two must count as one.
@@ -873,6 +981,9 @@ func TestInterfaceNamesAreNotFieldNames(t *testing.T) {
 	}
 	if err := checkStrictJSON([]byte(`{"interfaces":{"e1":{"routerid":"1.1.1.1"}}}`)); err == nil {
 		t.Error(`field spelled "routerid" accepted`)
+	}
+	if err := checkStrictJSON([]byte(`{"interfaces":{"ospfInstance":{}}}`)); err != nil {
+		t.Errorf("interface named ospfInstance refused: %v", err)
 	}
 }
 

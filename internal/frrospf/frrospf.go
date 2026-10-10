@@ -279,9 +279,13 @@ func checkMetadata(c Capture) string {
 	case !plain(c.Node):
 		return "node has control or invisible characters"
 	case c.VRF == "":
-		return `vrf is empty; name the routing domain, "default" for the default one`
+		return `vrf is empty; use "default", the only VRF these commands read`
 	case !plain(c.VRF):
 		return "vrf has control or invisible characters"
+	case c.VRF != "default":
+		// Both commands read the default VRF when no VRF is named, so the label
+		// must be default. The importer issues no VRF-qualified commands.
+		return fmt.Sprintf("vrf %s is not supported; these commands read only the default VRF", quote(c.VRF))
 	case c.CollectedAt.IsZero():
 		return "collected_at is zero"
 	case c.FRRVersion != Version:
@@ -295,20 +299,22 @@ func checkMetadata(c Capture) string {
 }
 
 // markDuplicates refuses every capture that shares its source label with
-// another, and every capture that repeats a node, VRF, and command. Neither
-// case has a right answer to pick, so both sides are refused. The groups include
-// captures already refused for their own metadata, so a broken capture cannot
-// leave its twin standing. A capture keeps its own reason when it has one.
+// another, and every capture that repeats a node and command under any VRF
+// label. Only the default VRF is read, so a conflicting label is a mislabel and
+// must not split the pair. Neither case has a right answer to pick, so both
+// sides are refused. The groups include captures already refused for their own
+// metadata, so a broken capture cannot leave its twin standing. A capture keeps
+// its own reason when it has one.
 func markDuplicates(outcomes []outcome) {
 	// Identity is compared after sanitizing, because the report shows sanitized
 	// text. Two declared names that read the same must count as one.
 	bySource := map[string][]int{}
-	byKey := map[[3]string][]int{}
+	byKey := map[[2]string][]int{}
 	for i := range outcomes {
 		c := outcomes[i].capture
 		src := textsafe.Clean(c.Source)
 		bySource[src] = append(bySource[src], i)
-		k := [3]string{textsafe.Clean(c.Node), textsafe.Clean(c.VRF), textsafe.Clean(c.Command)}
+		k := [2]string{textsafe.Clean(c.Node), textsafe.Clean(c.Command)}
 		byKey[k] = append(byKey[k], i)
 	}
 	mark := func(idx []int, reason string) {
@@ -325,7 +331,7 @@ func markDuplicates(outcomes []outcome) {
 	}
 	for k, idx := range byKey {
 		if len(idx) > 1 {
-			mark(idx, fmt.Sprintf("%d captures give %s for node %s in vrf %s", len(idx), quote(k[2]), quote(k[0]), quote(k[1])))
+			mark(idx, fmt.Sprintf("%d captures give %s for node %s", len(idx), quote(k[1]), quote(k[0])))
 		}
 	}
 }

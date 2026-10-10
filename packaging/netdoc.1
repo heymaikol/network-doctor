@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-10-09" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-10-10" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the
  connection breaks
@@ -306,9 +306,12 @@ The arguments are the topology file and the destination, which must be an IP
 address: a name is refused rather than resolved, because the resolver that
 answered would decide which route is under test. Runs no probes and opens no
 socket. The file is the only evidence. The output names the expected path, the
-forwarding path, the findings where they differ, the segments a recorded failure
-could lie in, and what the file cannot decide. The file format is described
-under Route path explanation in the reference.
+forwarding path, the findings where they differ, the segments a recorded
+failure could lie in, and what the file cannot decide. When the file carries
+OSPF attributes that yield a finding, it also says, for every node in the
+file, what the recorded OSPF neighbor states, areas, and router IDs show, and
+how strongly each reading holds. The file format is described under Route path
+explanation in the reference.
 .IP
 Cannot be combined with flags that describe a probe run, with
 .BR \-compare ,

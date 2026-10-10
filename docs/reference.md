@@ -227,6 +227,8 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--two-sided`, saved or live: the two snapshots observed different targets | `2` |
 | `--two-sided`: the two snapshots do not establish one target, because a support pseudonym is on either side and the rest of the target agrees | `2` |
 | Live `--two-sided --via`: SSH or remote protocol acquisition failed | `2` |
+| Live `--two-sided --via`: the local run errored | `1` |
+| Live `--two-sided --via`: a user interrupt cancels both acquisitions | `1` |
 | `--two-sided --route-a` or `--route-b`: an unreadable or invalid topology file, or one file named for both sides | `2` |
 | `--explain`: an explanation was printed, whether or not the path is broken | `0` |
 | `--explain`: a destination that is not an IP address, an unreadable or invalid topology file, or a flag that cannot be combined with it | `2` |

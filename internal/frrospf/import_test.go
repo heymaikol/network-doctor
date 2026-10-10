@@ -538,7 +538,7 @@ func TestImportIdentityByAddress(t *testing.T) {
 				})
 				return caps
 			},
-			want:  []recordWant{{false, "no captured interface in this VRF owns"}},
+			want:  []recordWant{{false, "has no ipAddress; address ownership incomplete"}},
 			notes: "ipAddress is missing",
 		},
 		{

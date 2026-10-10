@@ -221,8 +221,8 @@ func ownershipGate(outcomes []outcome, local map[scope]map[string]ifaceInfo) str
 			return fmt.Sprintf("node %s has no accepted interface capture in VRF \"default\"; address ownership incomplete", quote(node))
 		}
 		for _, name := range slices.Sorted(maps.Keys(ifaces)) {
-			if ifaces[name].unusable {
-				return fmt.Sprintf("node %s interface %s has an ipAddress that is not IPv4; address ownership incomplete", quote(node), quote(name))
+			if why := ifaces[name].unusable; why != "" {
+				return fmt.Sprintf("node %s interface %s has %s; address ownership incomplete", quote(node), quote(name), why)
 			}
 		}
 	}
@@ -242,16 +242,17 @@ type owner struct {
 
 // ifaceInfo is one interface from an accepted interface capture. hasAddr says
 // the address parsed, so the interface owns it. hasPrefix says the prefix
-// length is usable too, which the subnet checks need. unusable says the capture
-// gave an ipAddress that is not IPv4, so the interface may hold an address this
-// package cannot read.
+// length is usable too, which the subnet checks need. unusable says why the
+// interface's address is unknown: its ipAddress is absent or null, or not IPv4.
+// The interface may then hold an address this package cannot read, so it closes
+// the ownership gate. It is empty when the address is known.
 type ifaceInfo struct {
 	name      string
 	addr      netip.Addr
 	prefix    netip.Prefix
 	hasAddr   bool
 	hasPrefix bool
-	unusable  bool
+	unusable  string
 	routerID  string
 }
 
@@ -384,7 +385,7 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 			addr, ok := parseIPv4(*rec.IPAddress)
 			switch {
 			case !ok:
-				info.unusable = true
+				info.unusable = "an ipAddress that is not IPv4"
 				notes = append(notes, fmt.Sprintf("interface %s: ipAddress %s is not IPv4; not matchable", quote(name), quote(*rec.IPAddress)))
 			case rec.IPAddressPrefixlen == nil || *rec.IPAddressPrefixlen < 0 || *rec.IPAddressPrefixlen > 32:
 				info.addr, info.hasAddr = addr, true
@@ -394,6 +395,7 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 				info.prefix, info.hasPrefix = netip.PrefixFrom(addr, *rec.IPAddressPrefixlen), true
 			}
 		} else {
+			info.unusable = "no ipAddress"
 			notes = append(notes, fmt.Sprintf("interface %s: ipAddress is missing; not matchable", quote(name)))
 		}
 		if rec.RouterID == nil {

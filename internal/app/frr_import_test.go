@@ -284,6 +284,54 @@ func TestFRRImportIncompleteWritesNothing(t *testing.T) {
 	}
 }
 
+// A third node whose interface has no ipAddress makes the address ownership
+// unknown. The import is incomplete, the r1 record is unmapped with that reason,
+// and no topology is written.
+func TestFRRImportInterfaceWithoutAddressIsIncomplete(t *testing.T) {
+	dir, manifest := stageFRRBcast(t)
+	src, err := os.ReadFile(filepath.Join(dir, "r2-interface.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r3 := filepath.Join(dir, "r3-interface.json")
+	if err := os.WriteFile(r3, src, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	editFRRJSON(t, r3, func(m map[string]any) {
+		delete(m["interfaces"].(map[string]any)["e2"].(map[string]any), "ipAddress")
+	})
+	editFRRJSON(t, manifest, func(m map[string]any) {
+		m["captures"] = append(m["captures"].([]any), map[string]any{
+			"file": "r3-interface.json", "source": "r3 interface", "node": "r3", "vrf": "default",
+			"frr_version": frrospf.Version, "command": frrospf.CommandInterface, "collected_at": "2026-10-10T17:41:35Z",
+		})
+	})
+	target := filepath.Join(dir, "topology.json")
+	code, stdout, stderr := runNetdoc(t, "--import-frr-ospf", manifest, "--write-topology", target, "--json")
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	var records []map[string]any
+	if err := json.Unmarshal(frrReportFields(t, stdout)["records"], &records); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range records {
+		if r["node"] == "r1" && (r["mapped"] != false || !strings.Contains(fmt.Sprint(r["reason"]), `node "r3" interface "e2" has no ipAddress`)) {
+			t.Errorf("r1 record = %v; want unmapped, naming r3 e2 with no ipAddress", r)
+		}
+	}
+	var topo map[string]any
+	if err := json.Unmarshal(frrReportFields(t, stdout)["topology"], &topo); err != nil {
+		t.Fatal(err)
+	}
+	if topo["written"] != false {
+		t.Errorf("topology section = %v; want not written", topo)
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("an incomplete import wrote %s: %v", target, err)
+	}
+}
+
 // The unmapped record keeps its state, address, and reason in the report, so
 // the reader sees what FRR said and why it was not used.
 func TestFRRImportReportKeepsAnUnmappedRecord(t *testing.T) {

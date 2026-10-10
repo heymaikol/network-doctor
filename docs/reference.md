@@ -2015,6 +2015,7 @@ The report lists these, so a reader does not take the topology for the whole net
 ### What the result does not establish
 
 - A neighbor record with no router ID (`noNbrID`) is never mapped, even when its address is unique.
+- A captured interface with no usable `ipAddress`, either absent, `null`, or not IPv4, leaves address ownership unknown for the whole import. No neighbor record maps while that holds, even one whose address is unique.
 - Neighbors and routes are never claimed complete.
 - A record that is not mapped keeps its state, address, and reason in the report, so the reader sees what FRR reported and why it was not used.
 

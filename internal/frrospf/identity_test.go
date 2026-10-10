@@ -2,6 +2,8 @@ package frrospf
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -174,6 +176,102 @@ func TestImportUnusablePeerAddressBlocksOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkRecords(t, res.Report.Records, "r1", []recordWant{{false, "address ownership incomplete"}})
+}
+
+// rawInterfaceCapture is an interface capture for node whose only interface,
+// e3, holds iface exactly as given. A test uses it to write an address field
+// absent, null, or malformed.
+func rawInterfaceCapture(t *testing.T, node string, iface map[string]any) Capture {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"interfaces": map[string]any{"e3": iface}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Capture{
+		Node:        node,
+		VRF:         "default",
+		Source:      node + " interface",
+		CollectedAt: time.Date(2026, 10, 10, 17, 41, 19, 0, time.UTC),
+		FRRVersion:  Version,
+		Command:     CommandInterface,
+		Data:        data,
+	}
+}
+
+// A third captured node whose interface has no usable address may hold the
+// address r2 owns, so the ownership of that address is unknown and no record
+// maps on it. The interface stays in the report with its note, and nothing is
+// written for it as a negative fact.
+func TestImportInterfaceWithoutAddressBlocksOwnership(t *testing.T) {
+	cases := []struct {
+		name   string
+		iface  map[string]any
+		reason string // substring of the record's reason
+		note   string // substring of the interface capture's note
+	}{
+		{"ipAddress absent", map[string]any{"ipAddressPrefixlen": 24}, "has no ipAddress", "ipAddress is missing"},
+		{"ipAddress null", map[string]any{"ipAddress": nil, "ipAddressPrefixlen": 24}, "has no ipAddress", "ipAddress is missing"},
+		{"ipAddress empty", map[string]any{"ipAddress": "", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
+		{"ipAddress IPv6", map[string]any{"ipAddress": "fe80::1", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
+		{"ipAddress malformed", map[string]any{"ipAddress": "10.0.1", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			caps := append(broadcastCaptures(t), rawInterfaceCapture(t, "r3", tc.iface))
+			res, err := Import(caps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkRecords(t, res.Report.Records, "r1", []recordWant{{false, tc.reason}})
+			if recs := neighborsOf(res, "r1"); len(recs) != 0 {
+				t.Errorf("r1 wrote %d neighbors, want 0", len(recs))
+			}
+			if notes := capNotes(t, res, "r3", CommandInterface); !slices.ContainsFunc(notes, func(n string) bool { return strings.Contains(n, tc.note) }) {
+				t.Errorf("r3 interface notes %q lack %q", notes, tc.note)
+			}
+			var ifaces int
+			for _, o := range res.Observations {
+				if o.Node == "r3" {
+					ifaces += len(o.Interfaces)
+				}
+			}
+			if ifaces != 1 {
+				t.Errorf("r3 observation holds %d interfaces, want 1", ifaces)
+			}
+		})
+	}
+}
+
+// An interface whose prefix length is missing still holds a known address, so
+// the ownership of every address is complete. The gate stays open and r1 keeps
+// its mapping to r2.
+func TestImportPrefixlessInterfaceKeepsUnrelatedMapping(t *testing.T) {
+	caps := append(broadcastCaptures(t), rawInterfaceCapture(t, "r3", map[string]any{"ipAddress": "10.0.9.1"}))
+	res, err := Import(caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkRecords(t, res.Report.Records, "r1", []recordWant{{mapped: true}})
+	for _, r := range res.Report.Records {
+		if r.Node == "r1" && (r.RemoteNode != "r2" || r.RemoteInterface != "e2") {
+			t.Errorf("r1 record maps to %s %s, want r2 e2", r.RemoteNode, r.RemoteInterface)
+		}
+	}
+}
+
+// An interface that holds r2's address but reports no prefix length still owns
+// that address, so the record stays unmapped. Its subnet is unverified, so it
+// cannot be told apart from r2's interface on the address alone.
+func TestImportPrefixlessClaimantOfPeerAddressLeavesNeighborUnmapped(t *testing.T) {
+	caps := append(broadcastCaptures(t), rawInterfaceCapture(t, "r3", map[string]any{"ipAddress": "10.0.1.2"}))
+	res, err := Import(caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkRecords(t, res.Report.Records, "r1", []recordWant{{false, "owned by 2 captured interfaces"}})
+	if recs := neighborsOf(res, "r1"); len(recs) != 0 {
+		t.Errorf("r1 wrote %d neighbors, want 0", len(recs))
+	}
 }
 
 // slicesDropNode returns caps without the captures for node.

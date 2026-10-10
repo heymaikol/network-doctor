@@ -19,7 +19,7 @@ func TestWatchStraddledHealthyPassIsNotTheBaseline(t *testing.T) {
 
 	recordWatchPass(&m, start, false, "wlan0")
 
-	m.pass = session.Begin(m.probes)
+	m.pass = session.Begin(m.probes, m.probeTimeout)
 	session.Invalidate()
 	recordWatchPass(&m, start.Add(5*time.Second), false, "wg0")
 	m.pass = nil
@@ -45,7 +45,7 @@ func TestWatchStraddledFailingPassStillOpensAnIncident(t *testing.T) {
 
 	recordWatchPass(&m, start, false, "wlan0")
 
-	m.pass = session.Begin(m.probes)
+	m.pass = session.Begin(m.probes, m.probeTimeout)
 	session.Invalidate()
 	recordWatchPass(&m, start.Add(5*time.Second), true, "wg0")
 	m.pass = nil

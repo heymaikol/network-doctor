@@ -169,7 +169,7 @@ func watchPass(t *testing.T, s *WatchSession, n *watchNet) (map[ProbeID]ProbeRes
 	t.Helper()
 	for attempt := 1; attempt <= 2; attempt++ {
 		n.resetRuns()
-		pass := s.Begin(n.graph())
+		pass := s.Begin(n.graph(), time.Second)
 		results := RunAll(context.Background(), pass.Probes(), time.Second)
 		if pass.Publish(results) {
 			return results, n.snapshotRuns(), attempt
@@ -421,7 +421,7 @@ func TestWatchReusedRouteDoesNotDiscardStablePasses(t *testing.T) {
 	for step := 1; step <= steps; step++ {
 		clock.Advance(5 * time.Second)
 		n.resetRuns()
-		pass := s.Begin(n.graph())
+		pass := s.Begin(n.graph(), time.Second)
 		results := RunAll(context.Background(), pass.Probes(), time.Second)
 		if !pass.Publish(results) {
 			t.Fatalf("stable pass %d was discarded: a reused row's route changed the check", step)
@@ -519,7 +519,7 @@ func TestWatchInterfaceDownConfirms(t *testing.T) {
 	n.ifaceDown = true
 	clock.Advance(5 * time.Second)
 	n.resetRuns()
-	pass := s.Begin(n.graph())
+	pass := s.Begin(n.graph(), time.Second)
 	res := RunAll(context.Background(), pass.Probes(), time.Second)
 	if len(pass.reused) != 0 {
 		t.Errorf("interface down reused %v, want nothing: every reusable row sits behind the interface", pass.reused)
@@ -588,13 +588,13 @@ func TestWatchCancelledConfirmationStaysForced(t *testing.T) {
 
 	n.targetDown = true
 	clock.Advance(5 * time.Second)
-	outage := s.Begin(n.graph())
+	outage := s.Begin(n.graph(), time.Second)
 	if outage.Publish(RunAll(context.Background(), outage.Probes(), time.Second)) {
 		t.Fatal("outage pass that reused rows was published, want discarded")
 	}
 
 	clock.Advance(5 * time.Second)
-	cancelled := s.Begin(n.graph())
+	cancelled := s.Begin(n.graph(), time.Second)
 	RunAll(context.Background(), cancelled.Probes(), time.Second) // never published
 
 	n.targetDown = false
@@ -614,7 +614,7 @@ func TestWatchRequestDuringPassSurvivesPublish(t *testing.T) {
 	watchPass(t, s, n)
 
 	clock.Advance(5 * time.Second)
-	inFlight := s.Begin(n.graph())
+	inFlight := s.Begin(n.graph(), time.Second)
 	s.Force() // retest requested while the pass runs
 	if !inFlight.Publish(RunAll(context.Background(), inFlight.Probes(), time.Second)) {
 		t.Fatal("stable in-flight pass was not published")
@@ -873,7 +873,7 @@ func BenchmarkWatchFullPass(b *testing.B) {
 
 func benchPass(b *testing.B, s *WatchSession, n *watchNet) {
 	b.Helper()
-	pass := s.Begin(n.graph())
+	pass := s.Begin(n.graph(), time.Second)
 	results := RunAll(context.Background(), pass.Probes(), time.Second)
 	if !pass.Publish(results) {
 		b.Fatal("stable pass was not published")
@@ -885,7 +885,7 @@ func benchPass(b *testing.B, s *WatchSession, n *watchNet) {
 func publishedFresh(t *testing.T, s *WatchSession, n *watchNet) bool {
 	t.Helper()
 	for attempt := 1; attempt <= 2; attempt++ {
-		pass := s.Begin(n.graph())
+		pass := s.Begin(n.graph(), time.Second)
 		results := RunAll(context.Background(), pass.Probes(), time.Second)
 		if pass.Publish(results) {
 			return pass.Fresh()
@@ -951,7 +951,7 @@ func TestWatchReusedRowNamesTheSamplingPass(t *testing.T) {
 	s := NewWatchSession(clock.Now)
 	sampledAt := clock.Now()
 
-	pass := s.Begin(n.graph())
+	pass := s.Begin(n.graph(), time.Second)
 	results := RunAll(context.Background(), pass.Probes(), time.Second)
 	if !pass.Publish(results) || !pass.Fresh() {
 		t.Fatal("first pass was not published as a fresh measurement")
@@ -963,7 +963,7 @@ func TestWatchReusedRowNamesTheSamplingPass(t *testing.T) {
 	}
 
 	clock.Advance(5 * time.Second)
-	pass = s.Begin(n.graph())
+	pass = s.Begin(n.graph(), time.Second)
 	results = RunAll(context.Background(), pass.Probes(), time.Second)
 	if !pass.Publish(results) {
 		t.Fatal("stable pass was not published")
@@ -1109,7 +1109,7 @@ func TestWatchPublishRefusesReusedEvidenceExpiredInFlight(t *testing.T) {
 			watchPass(t, s, n)
 
 			clock.Advance(5 * time.Second)
-			inFlight := s.Begin(n.graph())
+			inFlight := s.Begin(n.graph(), time.Second)
 			results := RunAll(context.Background(), inFlight.Probes(), time.Second)
 			if !reusedAny(results) {
 				t.Fatal("no reusable row was reused, so expiry in flight is not exercised")
@@ -1132,12 +1132,15 @@ func TestWatchPublishRefusesReusedEvidenceExpiredInFlight(t *testing.T) {
 
 // A fully fresh pass that began before a long suspend holds rows measured before
 // the suspend. Publishing it would present them as current, so it is discarded.
+// The timeout here is one second, so the pass's window is watchMaxAge. passWindow
+// widens it for longer timeouts, and TestWatchWideWindowStillRefusesALongGap holds
+// the same case there.
 func TestWatchPublishRefusesFreshPassStartedBeforeLongGap(t *testing.T) {
 	clock := newWatchClock()
 	n := newWatchNet()
 	s := NewWatchSession(clock.Now)
 
-	inFlight := s.Begin(n.graph())
+	inFlight := s.Begin(n.graph(), time.Second)
 	results := RunAll(context.Background(), inFlight.Probes(), time.Second)
 	if reusedAny(results) {
 		t.Fatal("the first pass reused a row, so it is not a fully fresh pass")
@@ -1146,6 +1149,34 @@ func TestWatchPublishRefusesFreshPassStartedBeforeLongGap(t *testing.T) {
 	clock.Advance(2 * time.Hour)
 	if inFlight.Publish(results) {
 		t.Fatal("published a fresh pass that began two hours ago, want it discarded")
+	}
+}
+
+// A complete pass that takes 61 seconds is a healthy measurement on a slow
+// network, not a stale one. With a 20 second timeout the five rungs of the graph
+// may each spend their whole budget, so 61 seconds is well within what the pass
+// may take. Both front ends retry a refused pass at once, so refusing this one
+// refuses every retry too: the loop below never publishes.
+func TestWatchSlowCompletePassPublishes(t *testing.T) {
+	const timeout = 20 * time.Second
+	clock := newWatchClock()
+	n := newWatchNet()
+	s := NewWatchSession(clock.Now)
+	refused := 0
+	for {
+		pass := s.Begin(n.graph(), timeout)
+		results := RunAll(context.Background(), pass.Probes(), timeout)
+		clock.Advance(watchMaxAge + time.Second)
+		if pass.Publish(results) {
+			break
+		}
+		refused++
+		if refused == 5 {
+			t.Fatalf("%d consecutive complete 61s passes refused: the session never publishes", refused)
+		}
+	}
+	if refused != 0 {
+		t.Errorf("slow pass refused %d times before publishing, want 0", refused)
 	}
 }
 
@@ -1168,7 +1199,7 @@ func TestWatchPublishWindowBoundaryInFlight(t *testing.T) {
 			watchPass(t, s, n)
 
 			clock.Advance(watchMaxAge - 5*time.Second)
-			inFlight := s.Begin(n.graph())
+			inFlight := s.Begin(n.graph(), time.Second)
 			results := RunAll(context.Background(), inFlight.Probes(), time.Second)
 			if !reusedAny(results) {
 				t.Fatal("no reusable row was reused, so the boundary is not exercised")

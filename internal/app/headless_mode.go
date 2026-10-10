@@ -22,6 +22,10 @@ import (
 // runAll is stubbed in tests so -json runs don't touch the network.
 var runAll = diagnostic.RunAll
 
+// watchClock is the clock of the Watch session. Tests replace it to run passes
+// that take longer than the clock they would otherwise see.
+var watchClock = time.Now
+
 // buildHeadlessProbes is a seam for the Watch loop: tests replace the rows with
 // fakes. The pause between passes is ui.WatchEvery, which tests shorten.
 var buildHeadlessProbes = func(h headless) []diagnostic.Probe {
@@ -154,7 +158,7 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 	// covers -support, which writes through the same path.
 	var session *diagnostic.WatchSession
 	if h.watch && h.save == "" {
-		session = diagnostic.NewWatchSession(time.Now)
+		session = diagnostic.NewWatchSession(watchClock)
 		// A route, address, link, rule or nexthop change makes the reusable rows
 		// measure again on the next pass. A platform without that source keeps the
 		// max-age bound.
@@ -168,7 +172,7 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 		probes := buildHeadlessProbes(h)
 		var pass *diagnostic.WatchPass
 		if session != nil {
-			pass = session.Begin(probes)
+			pass = session.Begin(probes, h.timeout)
 			probes = pass.Probes()
 		}
 		results := runAll(ctx, probes, h.timeout)

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -218,5 +219,53 @@ func TestHeadlessWatchSaveAcquiresEveryRowFresh(t *testing.T) {
 		if c.Ran && c.DurationMs == 0 {
 			t.Errorf("snapshot row %s has no duration: it was reused, so it reports old evidence as acquired now", c.ID)
 		}
+	}
+}
+
+// A complete pass that takes 61 seconds on the session clock is printed on every
+// pass, and the first one is not discarded. The clock advances between a pass's
+// RunAll and its Publish, so each pass has been running 61 seconds when it
+// publishes. The timeout is 20 seconds, so 61 seconds is within what a pass may
+// take. The loop is cancelled before the fourth pass prints.
+func TestHeadlessSlowWatchPassesPrint(t *testing.T) {
+	stubWatchSeams(t)
+	prevClock := watchClock
+	t.Cleanup(func() { watchClock = prevClock })
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	watchClock = func() time.Time { return now }
+
+	target, err := diagnostic.ParseTarget("example.com:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := &fakeLink{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	passes := 0
+	buildHeadlessProbes = func(h headless) []diagnostic.Probe {
+		return fakeWatchProbes(h.target, link)
+	}
+	runAll = func(ctx context.Context, probes []diagnostic.Probe, timeout time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {
+		passes++
+		if passes == 4 {
+			cancel()
+		}
+		results := diagnostic.RunAll(ctx, probes, timeout)
+		now = now.Add(61 * time.Second)
+		return results
+	}
+
+	var stdout, stderr bytes.Buffer
+	h := headless{
+		target: target, selection: diagnostic.ProbeSelection{}, timeout: 20 * time.Second,
+		publicDNS: diagnostic.DefaultPublicDNS, publicDNSAuto: true, watch: true, json: true,
+	}
+	runHeadless(ctx, h, &stdout, &stderr)
+
+	if got := strings.Count(stdout.String(), "\n"); got != 3 {
+		t.Errorf("printed %d passes of %d, want 3: every slow pass publishes on its first attempt", got, passes)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
 	}
 }

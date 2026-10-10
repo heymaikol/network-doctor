@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -139,18 +140,20 @@ func (s *WatchSession) Invalidate() {
 }
 
 // Begin starts one pass over base, the probe graph of this session's target.
-// Run the probes Begin returns, then give the results to Publish.
+// timeout is the per-probe timeout the pass runs under, the same value given to
+// RunAll. Run the probes Begin returns, then give the results to Publish.
 //
 // A pass acquires every row when the session is forced, when the last
 // published pass was not settled, or when the last whole measurement is no
 // longer within watchMaxAge. The last rule is what bounds the age of a whole
 // measurement. Rows that reach their maximum age at different times, after an
 // input changed, could otherwise leave no pass in which every row was measured.
-func (s *WatchSession) Begin(base []Probe) *WatchPass {
+func (s *WatchSession) Begin(base []Probe, timeout time.Duration) *WatchPass {
 	at := s.now()
 	pass := &WatchPass{
 		session:      s,
 		at:           at,
+		window:       passWindow(base, timeout),
 		force:        s.force || !s.settled || !within(at, s.lastFull),
 		requested:    s.requests,
 		cache:        maps.Clone(s.cache),
@@ -165,6 +168,56 @@ func (s *WatchSession) Begin(base []Probe) *WatchPass {
 		pass.probes[i] = pass.wrap(probe)
 	}
 	return pass
+}
+
+// passWindow is how long after Begin a pass may still publish. The window is
+// watchMaxAge unless the probes may legitimately run longer. Each rung of the
+// deepest dependency chain spends at most one timeout, and the factor of two
+// leaves room for a probe that returns just past its deadline. So a pass that
+// honors its deadlines finishes inside the window, whatever the timeout is.
+func passWindow(base []Probe, timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		timeout = DefaultProbeTimeout
+	}
+	limit := time.Duration(2 * chainDepth(base))
+	if limit == 0 {
+		return watchMaxAge
+	}
+	// --timeout has no upper bound outside peer mode, so the product saturates
+	// rather than wrapping negative, which would refuse every pass.
+	if timeout > math.MaxInt64/limit {
+		return math.MaxInt64
+	}
+	return max(watchMaxAge, timeout*limit)
+}
+
+// chainDepth returns how many rows lie on the longest dependency chain in base,
+// the row itself included. A cycle is a graph bug that the budget test rejects;
+// here it only has to terminate.
+func chainDepth(base []Probe) int {
+	deps := make(map[ProbeID][]ProbeID, len(base))
+	for _, p := range base {
+		deps[p.ID] = p.Deps
+	}
+	memo := make(map[ProbeID]int, len(base))
+	var depth func(ProbeID) int
+	depth = func(id ProbeID) int {
+		if d, ok := memo[id]; ok {
+			return d
+		}
+		memo[id] = 1
+		longest := 0
+		for _, dep := range deps[id] {
+			longest = max(longest, depth(dep))
+		}
+		memo[id] = longest + 1
+		return memo[id]
+	}
+	deepest := 0
+	for _, p := range base {
+		deepest = max(deepest, depth(p.ID))
+	}
+	return deepest
 }
 
 // ancestorsOf returns, for each row, every row it reads directly or through
@@ -202,6 +255,7 @@ type WatchPass struct {
 	force      bool
 	requested  uint64
 	generation uint64
+	window     time.Duration // how long after at the pass may publish; see passWindow
 	probes     []Probe
 	cache      map[ProbeID]watchObservation
 	ancestors  map[ProbeID][]ProbeID
@@ -246,16 +300,23 @@ func (p *WatchPass) wrap(probe Probe) Probe {
 	return probe
 }
 
-// inWindow reports whether an age is inside the window a measurement stands for.
-// A negative age means the clock went back, and nothing is trusted from it.
-func inWindow(age time.Duration) bool {
-	return age >= 0 && age < watchMaxAge
+// inWindow reports whether an age is inside a window. A negative age means the
+// clock went back, and nothing is trusted from it.
+func inWindow(age, window time.Duration) bool {
+	return age >= 0 && age < window
 }
 
 // within reports whether a measurement taken at then is still inside its window
 // at now. Times without a monotonic reading compare on the wall clock alone.
 func within(now, then time.Time) bool {
-	return fresh(now.Sub(then), now.Round(0).Sub(then.Round(0)))
+	mono, wall := elapsed(now, then)
+	return fresh(mono, wall)
+}
+
+// elapsed returns the time from then to now on the monotonic clock and on the
+// wall clock. Round(0) strips the monotonic reading, so the second value is wall.
+func elapsed(now, then time.Time) (mono, wall time.Duration) {
+	return now.Sub(then), now.Round(0).Sub(then.Round(0))
 }
 
 // fresh reports whether a measurement is inside its window on both clocks. The
@@ -265,7 +326,24 @@ func within(now, then time.Time) bool {
 // bounds a wall clock that steps back, which the wall age alone would extend
 // without limit.
 func fresh(mono, wall time.Duration) bool {
-	return inWindow(mono) && inWindow(wall)
+	return inWindow(mono, watchMaxAge) && inWindow(wall, watchMaxAge)
+}
+
+// passCurrent reports whether a pass that began mono ago on the monotonic clock
+// and wall ago on the wall clock may publish, inside window. The wall clock runs
+// through a suspend, so the window refuses a pass that a suspend carried past it.
+// A suspend that stops the monotonic clock shows as wall minus monotonic, and that
+// drift is refused even inside the window, once it exceeds the allowance: 1% of
+// the time the pass ran plus a second, so clock slew does not refuse a slow pass.
+// The allowance follows the pass's own length, not the window, so a long timeout
+// does not loosen it. A system whose monotonic clock runs through a suspend shows
+// no drift, so there the window alone stands.
+func passCurrent(mono, wall, window time.Duration) bool {
+	drift := wall - mono
+	if drift < 0 {
+		drift = -drift
+	}
+	return inWindow(mono, window) && inWindow(wall, window) && drift <= mono/100+time.Second
 }
 
 // reuse answers a row from its passing observation when nothing it was sampled
@@ -362,8 +440,9 @@ func (p *WatchPass) fingerprintFor(id ProbeID) (string, bool) {
 
 // Publish takes the finished pass's results, after the diagnosis has been
 // finalized, and reports whether they may be recorded. A pass is refused first
-// when it is no longer current: it began more than watchMaxAge ago, or a row it
-// reused has aged out. Such a pass is discarded and the next one runs fresh.
+// when it is no longer current: it began more than its window ago (see
+// passWindow), or a row it reused has aged out. Such a pass is discarded and the
+// next one runs fresh.
 // Otherwise a forced pass, and a pass that reused no row, is published: every
 // row in it is fresh. A pass that reused a row is published only when every row
 // has the same status and cause as in the last published pass, and the routes
@@ -413,12 +492,13 @@ func (p *WatchPass) Publish(results map[ProbeID]ProbeResult) bool {
 }
 
 // current reports whether everything this pass publishes is still inside its
-// window at now. The pass must have begun within watchMaxAge, which covers the
-// rows it ran. Every reused observation must have been sampled within it. A
-// suspend or clock step during the pass fails one of these, and the evidence it
-// would publish has aged out.
+// window at now. The pass must have begun within its window, which covers the
+// rows it ran. Every reused observation must have been sampled within
+// watchMaxAge. A suspend or clock step during the pass fails one of these, and
+// the evidence it would publish has aged out.
 func (p *WatchPass) current(now time.Time) bool {
-	if !within(now, p.at) {
+	mono, wall := elapsed(now, p.at)
+	if !passCurrent(mono, wall, p.window) {
 		return false
 	}
 	p.mu.Lock()

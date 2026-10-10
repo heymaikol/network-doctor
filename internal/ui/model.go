@@ -972,7 +972,7 @@ func (m *model) buildPass() {
 	probes := m.graph(m.target)
 	m.pass = nil
 	if m.watchSession != nil {
-		m.pass = m.watchSession.Begin(probes)
+		m.pass = m.watchSession.Begin(probes, m.probeTimeout)
 		probes = m.pass.Probes()
 	}
 	m.probes = probes

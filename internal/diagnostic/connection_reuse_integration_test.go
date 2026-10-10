@@ -49,6 +49,11 @@ type liveServer struct {
 	// dropFirst closes the first socket accepted before any byte is read, as a
 	// middlebox or a restarting backend does right after accept.
 	dropFirst bool
+	// stall makes every new socket read what the client sends and never answer
+	// the handshake, so the client's TLS wait runs to its own timeout. From the
+	// client that is the signature of a path that delivers small packets and drops
+	// the larger server flight.
+	stall atomic.Bool
 }
 
 // errRefusedHandshake is what GetConfigForClient returns when refuse is set.
@@ -125,6 +130,16 @@ func (c *countingConn) Read(p []byte) (int, error) {
 func (l *handshakingListener) handshake(c net.Conn) {
 	defer l.live.pending.Add(-1)
 	_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
+	if l.live.stall.Load() {
+		// Read until the client gives up, then close. Nothing reaches the server
+		// handler, so the stall is not counted as a handshake.
+		_, _ = io.Copy(io.Discard, c)
+		l.mu.Lock()
+		delete(l.raw, c)
+		l.mu.Unlock()
+		_ = c.Close()
+		return
+	}
 	tc := tls.Server(c, l.cfg)
 	err := tc.Handshake()
 	if err == nil {

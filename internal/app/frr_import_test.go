@@ -298,7 +298,9 @@ func TestFRRImportInterfaceWithoutAddressIsIncomplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	editFRRJSON(t, r3, func(m map[string]any) {
-		delete(m["interfaces"].(map[string]any)["e2"].(map[string]any), "ipAddress")
+		iface := m["interfaces"].(map[string]any)["e2"].(map[string]any)
+		delete(iface, "ipAddress")
+		iface["routerId"] = "3.3.3.3"
 	})
 	editFRRJSON(t, manifest, func(m map[string]any) {
 		m["captures"] = append(m["captures"].([]any), map[string]any{

@@ -214,6 +214,9 @@ func TestImportInterfaceWithoutAddressBlocksOwnership(t *testing.T) {
 		{"ipAddress empty", map[string]any{"ipAddress": "", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
 		{"ipAddress IPv6", map[string]any{"ipAddress": "fe80::1", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
 		{"ipAddress malformed", map[string]any{"ipAddress": "10.0.1", "ipAddressPrefixlen": 24}, "has an ipAddress that is not IPv4", "is not IPv4"},
+		{"ipAddress unspecified", map[string]any{"ipAddress": "0.0.0.0", "ipAddressPrefixlen": 24}, "has an ipAddress that is not a unicast address", "is not unicast"},
+		{"ipAddress broadcast", map[string]any{"ipAddress": "255.255.255.255", "ipAddressPrefixlen": 24}, "has an ipAddress that is not a unicast address", "is not unicast"},
+		{"ipAddress multicast", map[string]any{"ipAddress": "224.0.0.5", "ipAddressPrefixlen": 24}, "has an ipAddress that is not a unicast address", "is not unicast"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

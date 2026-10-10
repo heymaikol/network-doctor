@@ -243,7 +243,8 @@ type owner struct {
 // ifaceInfo is one interface from an accepted interface capture. hasAddr says
 // the address parsed, so the interface owns it. hasPrefix says the prefix
 // length is usable too, which the subnet checks need. unusable says why the
-// interface's address is unknown: its ipAddress is absent or null, or not IPv4.
+// interface's address is unknown: its ipAddress is absent or null, not IPv4, or
+// not a unicast address.
 // The interface may then hold an address this package cannot read, so it closes
 // the ownership gate. It is empty when the address is known.
 type ifaceInfo struct {
@@ -387,6 +388,11 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 			case !ok:
 				info.unusable = "an ipAddress that is not IPv4"
 				notes = append(notes, fmt.Sprintf("interface %s: ipAddress %s is not IPv4; not matchable", quote(name), quote(*rec.IPAddress)))
+			case !addr.IsGlobalUnicast():
+				// The reported address is not a usable unicast address, so the interface's
+				// real address is unknown.
+				info.unusable = "an ipAddress that is not a unicast address"
+				notes = append(notes, fmt.Sprintf("interface %s: ipAddress %s is not unicast; not matchable", quote(name), quote(*rec.IPAddress)))
 			case rec.IPAddressPrefixlen == nil || *rec.IPAddressPrefixlen < 0 || *rec.IPAddressPrefixlen > 32:
 				info.addr, info.hasAddr = addr, true
 				notes = append(notes, fmt.Sprintf("interface %s: ipAddress has no valid ipAddressPrefixlen; subnet unverified", quote(name)))

@@ -20,6 +20,9 @@ import (
 // to a namespace that only the child owns.
 const routeHelperEnv = "NETDOC_ROUTE_EVENTS_HELPER"
 
+// unsupportedMarker opens the helper's line for a kernel that cannot run this test.
+const unsupportedMarker = "ROUTE EVENT UNSUPPORTED:"
+
 // requireNetnsEnv is the simulation tests' switch (internal/simulation
 // RequireNetnsEnv): a CI job that must exercise namespaces fails when they are
 // unavailable, instead of going green with a skip. Developers leave it unset.
@@ -33,8 +36,8 @@ func skipOrRequireNetns(t *testing.T, reason string) {
 	t.Skip(reason)
 }
 
-// A link, address and route change made inside a fresh network namespace reach
-// a session that follows route events. The helper runs in that namespace, so
+// A link, address, route, policy-rule and nexthop change made inside a fresh
+// network namespace reach a session that follows route events. The helper runs in that namespace, so
 // the changes are local to it and touch no host state.
 func TestRouteEventsReachTheSessionFromTheKernel(t *testing.T) {
 	if _, err := exec.LookPath("ip"); err != nil {
@@ -54,6 +57,9 @@ func TestRouteEventsReachTheSessionFromTheKernel(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatalf("namespace helper failed: %v\n%s", err, out)
+	}
+	if _, reason, ok := strings.Cut(string(out), unsupportedMarker); ok {
+		skipOrRequireNetns(t, strings.TrimSpace(reason))
 	}
 	if !strings.Contains(string(out), "ROUTE EVENT SEEN") {
 		t.Fatalf("namespace helper did not report an event:\n%s", out)
@@ -82,6 +88,12 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 	if got := s.generation.Load(); got != 1 {
 		t.Fatalf("generation after binding = %d, want exactly 1 (the bind's invalidation)", got)
 	}
+	// Nexthop objects need Linux 5.3. Without that group this kernel cannot show
+	// nexthop delivery, so the run says so and the parent decides skip or failure.
+	if kernelRouteGroups(t, s)&(1<<(unix.RTNLGRP_NEXTHOP-1)) == 0 {
+		os.Stdout.WriteString(unsupportedMarker + " kernel has no nexthop group: nexthop objects need Linux 5.3\n")
+		return
+	}
 	// Each group the subscription must hold, by its rtnetlink number. The kernel's
 	// own list is checked, not the code's list, so a join that did not take fails.
 	joined := kernelRouteGroups(t, s)
@@ -90,6 +102,7 @@ func TestRouteEventsNamespaceHelper(t *testing.T) {
 			t.Errorf("kernel membership lacks route group %d", g)
 		}
 	}
+	checkRefusedJoin(t)
 
 	steps := [][]string{
 		{"link", "set", "lo", "up"},
@@ -215,4 +228,40 @@ func kernelRouteGroups(t *testing.T, s *WatchSession) uint32 {
 		t.Fatalf("NETLINK_LIST_MEMBERSHIPS: %v", sockErr)
 	}
 	return bits
+}
+
+// membershipBits returns the groups the kernel reports for fd, with bit g-1 set
+// for group g. It reads the kernel's list, so a join is checked where it took effect.
+func membershipBits(fd int) (uint32, error) {
+	bits, err := unix.GetsockoptInt(fd, unix.SOL_NETLINK, unix.NETLINK_LIST_MEMBERSHIPS)
+	// #nosec G115 -- the kernel's 32-bit membership word, read into an int
+	return uint32(bits), err
+}
+
+// checkRefusedJoin joins group 99, which the kernel does not have, and then the
+// optional groups after it. The refusal must not cost the bound groups or the
+// joins after it. The socket is the namespace's own, so no host subscription is made.
+func checkRefusedJoin(t *testing.T) {
+	t.Helper()
+	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW|unix.SOCK_CLOEXEC, unix.NETLINK_ROUTE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(fd) }()
+	if err := unix.Bind(fd, &unix.SockaddrNetlink{Family: unix.AF_NETLINK, Groups: routeGroups}); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.SetsockoptInt(fd, unix.SOL_NETLINK, unix.NETLINK_ADD_MEMBERSHIP, 99); !errors.Is(err, unix.EINVAL) {
+		t.Fatalf("join of group 99 = %v, want EINVAL", err)
+	}
+	joinOptionalRouteGroups(fd, []int{99, unix.RTNLGRP_IPV4_RULE, unix.RTNLGRP_NEXTHOP})
+	bits, err := membershipBits(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []int{1, 5, 7, 9, 11, 8, 32} {
+		if bits&(1<<(g-1)) == 0 {
+			t.Errorf("group %d missing after the refused join of group 99", g)
+		}
+	}
 }

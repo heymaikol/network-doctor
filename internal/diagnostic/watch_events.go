@@ -28,7 +28,9 @@ type routeFeed struct {
 
 // FollowRouteEvents subscribes the session to the platform's route, address,
 // link, policy-rule and nexthop change notifications, where the platform has
-// them. Each notification calls Invalidate, so a reusable row measured before a
+// them. The bind guarantees the link, address and route groups. The policy-rule
+// and nexthop groups are joined after it, one at a time, and a refused join
+// leaves that group out: its changes then reach the session only at watchMaxAge. Each notification calls Invalidate, so a reusable row measured before a
 // change is measured again on the next pass. The subscription is bound before
 // this returns, so a change made after it returns is seen. Binding also
 // invalidates once: a change made while no subscription ran was not seen, so

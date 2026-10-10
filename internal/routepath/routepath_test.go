@@ -879,3 +879,20 @@ func TestConflictingOwnersAcrossPlanesAreNamed(t *testing.T) {
 		})
 	}
 }
+
+// Control may report a gateway without naming the interface it leaves by, while
+// the FIB names it. An omitted field is unreported, not different, so the pair
+// must not be reported as fib_differs_from_control.
+func TestOmittedInterfaceIsNotADisagreement(t *testing.T) {
+	obs := without(threeRouters(), "control:r1:default", "fib:r1:default")
+	obs = append(obs,
+		table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", "ospf", nh("10.0.12.2", ""))),
+		table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", nh("10.0.12.2", "eth1"))))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := findings(e, FindingFIBDiffers); len(got) != 0 {
+		t.Errorf("fib_differs_from_control = %+v, want none: the FIB only names the interface control omitted", got)
+	}
+	if got := e.Forwarding.Decision.Agreement; got != AgreementAgrees {
+		t.Errorf("r1 agreement = %q, want agrees", got)
+	}
+}

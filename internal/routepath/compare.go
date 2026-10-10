@@ -79,10 +79,28 @@ func disagreement(exp, fwd *Hop) (FindingKind, string, bool) {
 		// A partial control table may hold a more specific route that changes the
 		// expected answer, so it cannot show what the FIB differs from.
 		return "", "", false
-	case exp.Decision.Prefix != fwd.Decision.Prefix, ek != fk, !slices.Equal(exp.Decision.NextHops, fwd.Decision.NextHops):
+	case exp.Decision.Prefix != fwd.Decision.Prefix, ek != fk, !sameHops(exp.Decision.NextHops, fwd.Decision.NextHops):
 		return FindingFIBDiffers, fmt.Sprintf("control expects %s; the FIB has %s", describe(exp.Decision), describe(fwd.Decision)), true
 	}
 	return "", "", false
+}
+
+// sameHops reports whether two next-hop lists name the same forwarding. An
+// empty Interface is an unreported field, so it matches any interface on the
+// same gateway, exactly as netmodel.CoversHops reads a Route's next hops. A
+// list that merely omits an interface is therefore not a disagreement.
+func sameHops(a, b []NextHop) bool { return coversHops(a, b) && coversHops(b, a) }
+
+// coversHops reports whether every hop in want has a counterpart in have.
+func coversHops(have, want []NextHop) bool {
+	for _, w := range want {
+		if !slices.ContainsFunc(have, func(h NextHop) bool {
+			return w.Addr == h.Addr && (w.Interface == "" || h.Interface == "" || w.Interface == h.Interface)
+		}) {
+			return false
+		}
+	}
+	return true
 }
 
 // concrete is a decision that names what happens to the destination, as

@@ -15,16 +15,22 @@
 //     control plane holds, fib is what forwards traffic, and observed is what
 //     live measurement saw. Planes never merge. A difference between planes is
 //     a finding for the caller, not a conflict.
-//   - Interfaces and Neighbors are always partial. A missing neighbor proves
-//     nothing.
+//   - Interfaces are always partial. Neighbors are partial unless
+//     NeighborsComplete is set. A complete neighbor list proves only that the
+//     reporter's inventory omits a record. It proves no adjacency or link is
+//     down. The flag names no protocol, so a complete control-plane inventory
+//     that carries BGP or LLDP records is not complete OSPF state.
 //   - Routes are complete only when RoutesComplete is set. Only a complete
 //     observation can prove a prefix absent.
 //   - A Route is one candidate from one Origin for one prefix. ECMP is several
 //     NextHops on that one Route. Several origins for one prefix are separate
 //     candidates, and the model never picks a best path. A Route with no
 //     NextHops and no Discard means the source did not report its forwarding.
-//   - Attributes carry protocol or vendor detail under namespaced keys such as
-//     "bgp.as_path". Lookup never reads them, and they never decide a conflict.
+//   - Attributes on Routes, Interfaces, and Neighbors carry protocol or vendor
+//     detail under namespaced keys such as "bgp.as_path". Lookup never reads
+//     them. They never decide a conflict, create a node, or change a walk. Two
+//     values under one key are both kept, in sorted order, so a reader that
+//     expects one value must treat them as conflicting, never pick one.
 //   - Every Evidence row keeps the Source and CollectedAt of its Observation.
 //
 // Lookup answers present, absent, unknown, or conflicting. See Lookup.
@@ -103,33 +109,40 @@ type Route struct {
 
 // Interface is a node's port. VLAN is meaningful only with VLANKnown. Then 0
 // means untagged and 1 to 4094 are 802.1Q tags. Trunk membership is not modeled.
+// Attributes hold protocol detail for the port, such as an OSPF area.
 type Interface struct {
-	Name      string
-	VLANKnown bool
-	VLAN      uint16
-	Addresses []netip.Prefix
+	Name       string
+	VLANKnown  bool
+	VLAN       uint16
+	Addresses  []netip.Prefix
+	Attributes []Attribute
 }
 
 // Neighbor is one directed view from LocalInterface toward a remote node. A
 // link is two Neighbor records, one from each side, when both sides report.
+// Attributes hold protocol detail for the adjacency, such as an OSPF state.
 type Neighbor struct {
 	LocalInterface  string
 	RemoteNode      string
 	RemoteInterface string
 	RemoteAddr      netip.Addr
+	Attributes      []Attribute
 }
 
 // Observation is one reporter's view of one node in one VRF on one plane.
 // RoutesComplete says Routes lists every route the reporter saw.
+// NeighborsComplete says Neighbors lists every neighbor record the reporter
+// holds for this node, VRF, and plane. It names no protocol.
 type Observation struct {
 	Provenance
-	Plane          Plane
-	Node           string
-	VRF            string
-	RoutesComplete bool
-	Interfaces     []Interface
-	Neighbors      []Neighbor
-	Routes         []Route
+	Plane             Plane
+	Node              string
+	VRF               string
+	RoutesComplete    bool
+	NeighborsComplete bool
+	Interfaces        []Interface
+	Neighbors         []Neighbor
+	Routes            []Route
 }
 
 // Evidence is one route and the observation that reported it.
@@ -282,7 +295,7 @@ func canonical(o Observation) (Observation, error) {
 	case o.VRF == "":
 		return Observation{}, errors.New(`vrf is empty; name the routing domain, "default" for the default one`)
 	}
-	out := Observation{Provenance: o.Provenance, Plane: o.Plane, Node: o.Node, VRF: o.VRF, RoutesComplete: o.RoutesComplete}
+	out := Observation{Provenance: o.Provenance, Plane: o.Plane, Node: o.Node, VRF: o.VRF, RoutesComplete: o.RoutesComplete, NeighborsComplete: o.NeighborsComplete}
 
 	names := map[string]bool{}
 	for _, i := range o.Interfaces {
@@ -306,6 +319,11 @@ func canonical(o Observation) (Observation, error) {
 		}
 		i.Addresses = slices.Clone(i.Addresses)
 		slices.SortFunc(i.Addresses, comparePrefix)
+		attrs, err := canonicalAttributes(fmt.Sprintf("interface %q", i.Name), i.Attributes)
+		if err != nil {
+			return Observation{}, err
+		}
+		i.Attributes = attrs
 		out.Interfaces = append(out.Interfaces, i)
 	}
 	slices.SortFunc(out.Interfaces, func(a, b Interface) int { return strings.Compare(a.Name, b.Name) })
@@ -321,6 +339,13 @@ func canonical(o Observation) (Observation, error) {
 			return Observation{}, fmt.Errorf("neighbor %s: %w", n.RemoteNode, err)
 		}
 		n.RemoteAddr = addr
+		// Attributes are canonical before the list is sorted, because the sort
+		// reads them to order neighbors that share an identity.
+		attrs, err := canonicalAttributes(fmt.Sprintf("neighbor %s", n.RemoteNode), n.Attributes)
+		if err != nil {
+			return Observation{}, err
+		}
+		n.Attributes = attrs
 		out.Neighbors = append(out.Neighbors, n)
 	}
 	slices.SortFunc(out.Neighbors, compareNeighbors)
@@ -362,13 +387,10 @@ func canonical(o Observation) (Observation, error) {
 		}
 		slices.SortFunc(hops, compareNextHops)
 		hops = slices.Compact(hops)
-		attrs := slices.Clone(r.Attributes)
-		for _, a := range attrs {
-			if a.Key == "" {
-				return Observation{}, fmt.Errorf("route %v has an attribute with an empty key", r.Prefix)
-			}
+		attrs, err := canonicalAttributes(fmt.Sprintf("route %v", r.Prefix), r.Attributes)
+		if err != nil {
+			return Observation{}, err
 		}
-		slices.SortFunc(attrs, compareAttributes)
 		r.NextHops, r.Attributes = hops, attrs
 		if !r.MetricKnown {
 			r.Metric = 0
@@ -410,8 +432,12 @@ func cloneObservation(o Observation) Observation {
 	o.Interfaces = slices.Clone(o.Interfaces)
 	for i := range o.Interfaces {
 		o.Interfaces[i].Addresses = slices.Clone(o.Interfaces[i].Addresses)
+		o.Interfaces[i].Attributes = slices.Clone(o.Interfaces[i].Attributes)
 	}
 	o.Neighbors = slices.Clone(o.Neighbors)
+	for i := range o.Neighbors {
+		o.Neighbors[i].Attributes = slices.Clone(o.Neighbors[i].Attributes)
+	}
 	o.Routes = slices.Clone(o.Routes)
 	for i := range o.Routes {
 		o.Routes[i] = cloneRoute(o.Routes[i])
@@ -438,12 +464,16 @@ func compareObservations(a, b Observation) int {
 	return bytes.Compare(ja, jb)
 }
 
+// compareNeighbors orders by identity, then by attributes. Two records with one
+// identity and different attributes are both kept, so the attributes decide
+// their order and input order never does.
 func compareNeighbors(a, b Neighbor) int {
 	return cmp.Or(
 		strings.Compare(a.LocalInterface, b.LocalInterface),
 		strings.Compare(a.RemoteNode, b.RemoteNode),
 		strings.Compare(a.RemoteInterface, b.RemoteInterface),
 		a.RemoteAddr.Compare(b.RemoteAddr),
+		slices.CompareFunc(a.Attributes, b.Attributes, compareAttributes),
 	)
 }
 
@@ -460,6 +490,29 @@ func compareNextHops(a, b NextHop) int {
 
 func compareAttributes(a, b Attribute) int {
 	return cmp.Or(strings.Compare(a.Key, b.Key), strings.Compare(a.Value, b.Value))
+}
+
+// canonicalAttributes returns a sorted copy of one owner's attributes. owner
+// names the row in errors, such as `route 10.1.0.0/16`. An empty key or an
+// empty value is refused, because a blank value is not a reported fact. Exact
+// duplicates collapse. One key with two values keeps both, since netmodel cannot
+// know which keys are single-valued. An empty list returns nil, so absent and
+// empty mean the same thing.
+func canonicalAttributes(owner string, attrs []Attribute) ([]Attribute, error) {
+	if len(attrs) == 0 {
+		return nil, nil
+	}
+	out := slices.Clone(attrs)
+	for _, a := range out {
+		if a.Key == "" {
+			return nil, fmt.Errorf("%s has an attribute with an empty key", owner)
+		}
+		if a.Value == "" {
+			return nil, fmt.Errorf("%s attribute %q has an empty value", owner, a.Key)
+		}
+	}
+	slices.SortFunc(out, compareAttributes)
+	return slices.Compact(out), nil
 }
 
 func comparePrefix(a, b netip.Prefix) int {

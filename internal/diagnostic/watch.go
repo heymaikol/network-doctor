@@ -329,21 +329,43 @@ func fresh(mono, wall time.Duration) bool {
 	return inWindow(mono, watchMaxAge) && inWindow(wall, watchMaxAge)
 }
 
+// Clock drift allowance bounds. The floor covers reads of the two clocks landing
+// at different moments. The slew term is 500 ppm, the Linux kernel's NTP frequency
+// limit (MAXFREQ in timex.h), taken as the bound for a clock whose monotonic source
+// is not slewed. Linux CLOCK_MONOTONIC follows frequency adjustments (clock_gettime(2)),
+// so there the term does no work. The cap keeps a suspend of a minute or more
+// visible however long the pass runs, on a system whose monotonic clock stops in a
+// suspend.
+const (
+	driftFloor = time.Second
+	driftCap   = 10 * time.Second
+)
+
+// driftAllowance returns how far the wall clock may move away from the monotonic
+// clock over a pass that ran mono long. The cap is what stops a long timeout from
+// hiding a suspend on a system whose monotonic clock stops in one: the suspend
+// shows as drift, so the allowance may not reach the freshness limit.
+func driftAllowance(mono time.Duration) time.Duration {
+	return min(driftFloor+mono/2000, driftCap)
+}
+
 // passCurrent reports whether a pass that began mono ago on the monotonic clock
 // and wall ago on the wall clock may publish, inside window. The wall clock runs
 // through a suspend, so the window refuses a pass that a suspend carried past it.
 // A suspend that stops the monotonic clock shows as wall minus monotonic, and that
-// drift is refused even inside the window, once it exceeds the allowance: 1% of
-// the time the pass ran plus a second, so clock slew does not refuse a slow pass.
-// The allowance follows the pass's own length, not the window, so a long timeout
-// does not loosen it. A system whose monotonic clock runs through a suspend shows
-// no drift, so there the window alone stands.
+// drift is refused even inside the window once it exceeds driftAllowance. A system
+// whose monotonic clock runs through a suspend shows no drift, so there the window
+// alone stands. Both ages lie in [0, window) before the difference is taken, so
+// the subtraction cannot overflow.
 func passCurrent(mono, wall, window time.Duration) bool {
+	if !inWindow(mono, window) || !inWindow(wall, window) {
+		return false
+	}
 	drift := wall - mono
 	if drift < 0 {
 		drift = -drift
 	}
-	return inWindow(mono, window) && inWindow(wall, window) && drift <= mono/100+time.Second
+	return drift <= driftAllowance(mono)
 }
 
 // reuse answers a row from its passing observation when nothing it was sampled

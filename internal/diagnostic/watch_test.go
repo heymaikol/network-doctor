@@ -1009,3 +1009,72 @@ func TestWatchReuseRefusesAnObservationOlderThanMaxAge(t *testing.T) {
 		}
 	}
 }
+
+// A measurement must not outlive its window because of how the wall clock moves.
+// Across a suspend the wall clock advances by the time the machine slept, so the
+// large forward advance stands in for that. A backward step must refuse too. The
+// fake clock has no monotonic reading, so both checks read the same wall clock.
+// These tests guard the wall-clock check. They cannot show that a real suspend
+// is caught. Each step runs twice: once where Begin's whole-measurement check
+// forces the pass, and once where lastFull is moved to now, so only the row
+// observations decide.
+func TestWatchWallClockStepRefusesStaleEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		step     time.Duration
+		rowsOnly bool
+	}{
+		{"forward, as after a suspend", 2 * time.Hour, false},
+		{"forward, rows alone", 2 * time.Hour, true},
+		{"backward, inside the window", -5 * time.Second, false},
+		{"backward, rows alone", -5 * time.Second, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := newWatchClock()
+			n := newWatchNet()
+			s := NewWatchSession(clock.Now)
+			watchPass(t, s, n)
+
+			clock.Advance(tc.step)
+			if tc.rowsOnly {
+				s.lastFull = clock.Now()
+			}
+			results, runs, _ := watchPass(t, s, n)
+			for _, id := range watchIDs() {
+				if !watchReusable[id] {
+					continue
+				}
+				if _, reused := results[id].ReusedFrom(); reused {
+					t.Errorf("%s was reused across a %v wall-clock step, want it run", id, tc.step)
+				}
+				if runs[id] != 1 {
+					t.Errorf("%s ran %d times across a %v wall-clock step, want 1", id, runs[id], tc.step)
+				}
+			}
+		})
+	}
+}
+
+// The window rule on its own. A measurement is fresh only while both clocks place
+// it inside the window. Each row names what a rule that drops one clock would
+// accept wrongly: the monotonic age alone reuses the suspend row, and the wall
+// age alone reuses the row whose monotonic age is past the window.
+func TestWatchFreshNeedsBothClocks(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		mono, wall time.Duration
+		want       bool
+	}{
+		{"inside on both", 59 * time.Second, 59 * time.Second, true},
+		{"suspend: wall past the window", time.Second, 2 * time.Hour, false},
+		{"wall stepped back past the sample", 2 * time.Second, -time.Second, false},
+		{"monotonic past the window", 61 * time.Second, 2 * time.Second, false},
+		{"monotonic exactly at the window", watchMaxAge, 59 * time.Second, false},
+		{"wall exactly at the window", 59 * time.Second, watchMaxAge, false},
+		{"both exactly at the window", watchMaxAge, watchMaxAge, false},
+	} {
+		if got := fresh(tc.mono, tc.wall); got != tc.want {
+			t.Errorf("%s: fresh(%v, %v) = %t, want %t", tc.name, tc.mono, tc.wall, got, tc.want)
+		}
+	}
+}

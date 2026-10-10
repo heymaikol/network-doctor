@@ -150,7 +150,7 @@ func (s *WatchSession) Begin(base []Probe) *WatchPass {
 	pass := &WatchPass{
 		session:      s,
 		at:           at,
-		force:        s.force || !s.settled || !within(at.Sub(s.lastFull)),
+		force:        s.force || !s.settled || !within(at, s.lastFull),
 		requested:    s.requests,
 		cache:        maps.Clone(s.cache),
 		generation:   s.generation.Load(),
@@ -245,10 +245,26 @@ func (p *WatchPass) wrap(probe Probe) Probe {
 	return probe
 }
 
-// within reports whether an age is inside the window a measurement stands for.
+// inWindow reports whether an age is inside the window a measurement stands for.
 // A negative age means the clock went back, and nothing is trusted from it.
-func within(age time.Duration) bool {
+func inWindow(age time.Duration) bool {
 	return age >= 0 && age < watchMaxAge
+}
+
+// within reports whether a measurement taken at then is still inside its window
+// at now. Times without a monotonic reading compare on the wall clock alone.
+func within(now, then time.Time) bool {
+	return fresh(now.Sub(then), now.Round(0).Sub(then.Round(0)))
+}
+
+// fresh reports whether a measurement is inside its window on both clocks. The
+// monotonic age does not count a suspend on some systems, as the time package
+// documents, so alone it would let a measurement from before a suspend stand.
+// The wall age advances through a suspend and refuses it. The monotonic age
+// bounds a wall clock that steps back, which the wall age alone would extend
+// without limit.
+func fresh(mono, wall time.Duration) bool {
+	return inWindow(mono) && inWindow(wall)
 }
 
 // reuse answers a row from its passing observation when nothing it was sampled
@@ -267,7 +283,7 @@ func (p *WatchPass) reuse(id ProbeID, now time.Time) (ProbeResult, string, bool)
 	if ob.generation != p.session.generation.Load() {
 		return ProbeResult{}, "", false
 	}
-	if !within(now.Sub(ob.sampled)) {
+	if !within(now, ob.sampled) {
 		return ProbeResult{}, "", false
 	}
 	for _, a := range p.ancestors[id] {

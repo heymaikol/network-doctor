@@ -22,7 +22,8 @@ func TestPackageLayering(t *testing.T) {
 	// never live probe state. The netmodel schema imports nothing internal, so
 	// it sits at the bottom beside report, snapshot and textsafe. Route path
 	// explanation reads a netmodel and recorded checks and never probes, so it
-	// sits beside diagnostic at layer one.
+	// sits beside diagnostic at layer one. OSPF reasoning reads a netmodel the
+	// same way, and it never imports routepath, so it sits there too.
 	// Checking every direct edge also rules out a transitive path to the same or
 	// a higher layer.
 	layers := map[string]int{
@@ -34,6 +35,7 @@ func TestPackageLayering(t *testing.T) {
 		"internal/compare":    1,
 		"internal/diagnostic": 1,
 		"internal/fieldcase":  1,
+		"internal/ospf":       1,
 		"internal/routepath":  1,
 		"internal/remote":     1,
 		"internal/incident":   2,

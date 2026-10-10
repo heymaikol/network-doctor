@@ -1893,7 +1893,7 @@ Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `confli
 - A recorded check whose `next_hop` matches no next hop of the route is not used, and the explanation does not say so.
 - It does not model NAT translations, firewall rules, or connection state. A `boundaries` entry records where such a device sits, not what it does to a packet.
 - Two-sided diagnosis reads the asymmetry only as route context from a bound `--route-a` or `--route-b` file, and never as a placement. Its snapshots record only the outbound decision on each side, so they carry no return route of their own.
-- A bound two-sided reading cannot see a source-based policy rule that the kernel refuses. When the kernel rejects a route lookup that names the source, the probe repeats it without the source and records that answer, which is usually the main table's. The snapshot does not mark the fallback, so a bound reading compares that answer, its routing table included, as the flow's own route.
+- A bound two-sided reading cannot see a source-based policy rule that the kernel refuses. When the kernel rejects a route lookup that names the source, the probe repeats it without the source and records that answer, which is usually the main table's. The snapshot does not mark the fallback, so a bound reading compares that answer as the flow's own route. Where the platform records a routing table, that table is compared too, and where it records none, the table is listed as not compared.
 
 ## Remote diagnosis over SSH
 

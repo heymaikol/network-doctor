@@ -1,6 +1,8 @@
 package routepath
 
 import (
+	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -105,5 +107,150 @@ func TestDecodeReadsACheckNextHop(t *testing.T) {
 	}
 	if len(f.Checks) != 1 || f.Checks[0].NextHop != addr("10.0.23.3") {
 		t.Errorf("checks = %+v, want the one check to name next hop 10.0.23.3", f.Checks)
+	}
+}
+
+// rewriteFile re-encodes threeRoutersFile after mutate adds or changes keys in
+// each observation. Only the keys mutate touches differ from the legacy file.
+func rewriteFile(t *testing.T, mutate func(obs map[string]any)) []byte {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(threeRoutersFile), &doc); err != nil {
+		t.Fatalf("legacy file: %v", err)
+	}
+	for _, o := range doc["observations"].([]any) {
+		mutate(o.(map[string]any))
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("re-encode: %v", err)
+	}
+	return out
+}
+
+// setAttributes gives every row of the named list in one observation the same
+// attribute list, so a variant differs from the legacy file only in that key.
+func setAttributes(obs map[string]any, attrs []any) {
+	for _, list := range []string{"interfaces", "neighbors", "routes"} {
+		rows, _ := obs[list].([]any)
+		for _, r := range rows {
+			r.(map[string]any)["attributes"] = attrs
+		}
+	}
+}
+
+// explainOutput returns the human and JSON explanation for one topology file.
+func explainOutput(t *testing.T, data []byte) (string, string, File) {
+	t.Helper()
+	f, err := Decode(data)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	e := Explain(f, addr(dest))
+	js, err := e.JSON()
+	if err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	return e.Text(), string(js), f
+}
+
+// Empty attribute lists and the new completeness flag must leave the model and
+// both outputs exactly as the legacy file leaves them.
+func TestEmptyNewKeysLeaveTheExplanationUnchanged(t *testing.T) {
+	legacyText, legacyJSON, legacy := explainOutput(t, []byte(threeRoutersFile))
+	variant := rewriteFile(t, func(o map[string]any) {
+		o["neighbors_complete"] = false
+		setAttributes(o, []any{})
+	})
+	text, js, f := explainOutput(t, variant)
+	if text != legacyText || js != legacyJSON {
+		t.Fatalf("empty attribute lists changed the explanation\ntext:\n%s\nwant:\n%s", text, legacyText)
+	}
+	if !reflect.DeepEqual(f.Model.Observations(), legacy.Model.Observations()) {
+		t.Fatal("empty attribute lists built a different model than absent ones")
+	}
+}
+
+// Real protocol attributes and a complete neighbor inventory are recorded, but
+// Lookup, the walks, and the output still read the same answer.
+func TestRealAttributesNeverMoveAWalk(t *testing.T) {
+	legacyText, legacyJSON, _ := explainOutput(t, []byte(threeRoutersFile))
+	variant := rewriteFile(t, func(o map[string]any) {
+		o["neighbors_complete"] = true
+		setAttributes(o, []any{
+			map[string]any{"key": "ospf.area", "value": "0"},
+			map[string]any{"key": "ospf.state", "value": "full"},
+		})
+	})
+	text, js, _ := explainOutput(t, variant)
+	if text != legacyText || js != legacyJSON {
+		t.Fatalf("protocol attributes changed the explanation\ntext:\n%s\nwant:\n%s", text, legacyText)
+	}
+}
+
+// Neighbor records that share one identity keep their attributes in one
+// canonical order, whatever order the file lists them in.
+func TestSameIdentityNeighborsDecodeInFileOrder(t *testing.T) {
+	first := map[string]any{"local_interface": "eth1", "remote_node": "r2", "remote_interface": "eth0", "remote_addr": "10.0.12.2",
+		"attributes": []any{map[string]any{"key": "ospf.state", "value": "full"}}}
+	second := map[string]any{"local_interface": "eth1", "remote_node": "r2", "remote_interface": "eth0", "remote_addr": "10.0.12.2",
+		"attributes": []any{map[string]any{"key": "ospf.state", "value": "init"}}}
+	models := make([]any, 0, 2)
+	for _, order := range [][]any{{first, second}, {second, first}} {
+		data := rewriteFile(t, func(o map[string]any) {
+			if o["plane"] == "configured" && o["node"] == "r1" {
+				o["neighbors"] = order
+			}
+		})
+		_, _, f := explainOutput(t, data)
+		models = append(models, f.Model.Observations())
+	}
+	if !reflect.DeepEqual(models[0], models[1]) {
+		t.Fatal("file order changed the neighbor order of one identity")
+	}
+}
+
+// A malformed attribute or flag is refused with a reason, never read as an
+// empty value.
+func TestDecodeRefusesMalformedAttributes(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(o map[string]any)
+		want   string
+	}{
+		{"unknown field in an attribute", func(o map[string]any) {
+			o["neighbors"].([]any)[0].(map[string]any)["attributes"] = []any{map[string]any{"key": "a", "value": "b", "extra": 1}}
+		}, "unknown field"},
+		{"attributes as an object", func(o map[string]any) {
+			o["neighbors"].([]any)[0].(map[string]any)["attributes"] = map[string]any{"key": "a", "value": "b"}
+		}, "invalid topology file"},
+		{"numeric value", func(o map[string]any) {
+			o["neighbors"].([]any)[0].(map[string]any)["attributes"] = []any{map[string]any{"key": "ospf.area", "value": 0}}
+		}, "invalid topology file"},
+		{"empty neighbor key", func(o map[string]any) {
+			o["neighbors"].([]any)[0].(map[string]any)["attributes"] = []any{map[string]any{"key": "", "value": "0"}}
+		}, "neighbor r2 on eth1 has an attribute with an empty key"},
+		{"empty interface value", func(o map[string]any) {
+			o["interfaces"].([]any)[0].(map[string]any)["attributes"] = []any{map[string]any{"key": "ospf.area", "value": ""}}
+		}, `interface "eth1" attribute "ospf.area" has an empty value`},
+		{"string for neighbors_complete", func(o map[string]any) {
+			o["neighbors_complete"] = "true"
+		}, "invalid topology file"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			data := rewriteFile(t, func(o map[string]any) {
+				if o["plane"] == "configured" && o["node"] == "r1" {
+					c.mutate(o)
+				}
+			})
+			_, err := Decode(data)
+			if err == nil {
+				t.Fatalf("Decode accepted the file; want an error mentioning %q", c.want)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error = %q, want it to mention %q", err, c.want)
+			}
+		})
 	}
 }

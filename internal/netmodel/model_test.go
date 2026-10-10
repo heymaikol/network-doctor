@@ -650,14 +650,23 @@ func TestRejectsInvalidObservations(t *testing.T) {
 		"neighbor zone conflict": func(o *Observation) {
 			o.Neighbors[0].LocalInterface, o.Neighbors[0].RemoteAddr = "eth0", ip("fe80::2%eth1")
 		},
-		"unmasked route prefix":    func(o *Observation) { o.Routes[0].Prefix = pfx("10.1.0.1/16") },
-		"empty origin":             func(o *Observation) { o.Routes[0].Origin = "" },
-		"duplicate route origin":   func(o *Observation) { o.Routes = append(o.Routes, o.Routes[0]) },
-		"discard with next hop":    func(o *Observation) { o.Routes[0].Discard = true },
-		"next hop with no target":  func(o *Observation) { o.Routes[0].NextHops = []NextHop{{}} },
-		"next hop zone conflict":   func(o *Observation) { o.Routes[0].NextHops = []NextHop{hop("fe80::1%eth1", "eth0")} },
-		"link-local without iface": func(o *Observation) { o.Routes[0].NextHops = []NextHop{{Addr: ip("fe80::1")}} },
-		"empty attribute key":      func(o *Observation) { o.Routes[0].Attributes[0].Key = "" },
+		"unmasked route prefix":     func(o *Observation) { o.Routes[0].Prefix = pfx("10.1.0.1/16") },
+		"empty origin":              func(o *Observation) { o.Routes[0].Origin = "" },
+		"duplicate route origin":    func(o *Observation) { o.Routes = append(o.Routes, o.Routes[0]) },
+		"discard with next hop":     func(o *Observation) { o.Routes[0].Discard = true },
+		"next hop with no target":   func(o *Observation) { o.Routes[0].NextHops = []NextHop{{}} },
+		"next hop zone conflict":    func(o *Observation) { o.Routes[0].NextHops = []NextHop{hop("fe80::1%eth1", "eth0")} },
+		"link-local without iface":  func(o *Observation) { o.Routes[0].NextHops = []NextHop{{Addr: ip("fe80::1")}} },
+		"empty attribute key":       func(o *Observation) { o.Routes[0].Attributes[0].Key = "" },
+		"empty route value":         func(o *Observation) { o.Routes[0].Attributes[0].Value = "" },
+		"empty interface key":       func(o *Observation) { o.Interfaces[0].Attributes = []Attribute{{Value: "0"}} },
+		"empty interface value":     func(o *Observation) { o.Interfaces[0].Attributes = []Attribute{{Key: "ospf.area"}} },
+		"empty neighbor key":        func(o *Observation) { o.Neighbors[0].Attributes = []Attribute{{Value: "full"}} },
+		"empty neighbor value":      func(o *Observation) { o.Neighbors[0].Attributes = []Attribute{{Key: "ospf.state"}} },
+		"whitespace route key":      func(o *Observation) { o.Routes[0].Attributes = []Attribute{{Key: " \t", Value: "0"}} },
+		"whitespace route value":    func(o *Observation) { o.Routes[0].Attributes = []Attribute{{Key: "static.tag", Value: "  "}} },
+		"whitespace interface key":  func(o *Observation) { o.Interfaces[0].Attributes = []Attribute{{Key: " ", Value: "0"}} },
+		"whitespace neighbor value": func(o *Observation) { o.Neighbors[0].Attributes = []Attribute{{Key: "ospf.state", Value: "\n"}} },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -670,5 +679,173 @@ func TestRejectsInvalidObservations(t *testing.T) {
 	}
 	if _, err := New(valid()); err != nil {
 		t.Fatalf("New rejected a valid observation: %v", err)
+	}
+}
+
+// attributed is a control-plane observation of r1 with one interface, one
+// neighbor, and one route, each carrying attributes in the order given.
+func attributed(source string, complete bool, nbAttrs, ifAttrs, routeAttrs []Attribute) Observation {
+	return Observation{
+		Provenance:        Provenance{Source: source, CollectedAt: t0},
+		Plane:             PlaneControl,
+		Node:              "r1",
+		VRF:               "default",
+		RoutesComplete:    true,
+		NeighborsComplete: complete,
+		Interfaces:        []Interface{{Name: "eth0", Attributes: ifAttrs}},
+		Neighbors:         []Neighbor{{LocalInterface: "eth0", RemoteNode: "r2", RemoteInterface: "eth0", RemoteAddr: ip("10.0.0.2"), Attributes: nbAttrs}},
+		Routes:            []Route{{Prefix: pfx("10.2.0.0/16"), Origin: OriginOSPF, NextHops: []NextHop{hop("10.0.0.2", "eth0")}, Attributes: routeAttrs}},
+	}
+}
+
+func TestNeighborsCompleteIsKeptWithoutNeighbors(t *testing.T) {
+	complete := ctl("frr", true)
+	complete.NeighborsComplete = true
+	partial := ctl("frr", true)
+	m, err := New(complete, partial)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// The two rows tie on every key field and differ only in the flag, so this
+	// also runs the JSON tie-break path.
+	var sawComplete, sawPartial bool
+	for _, o := range m.Observations() {
+		if len(o.Neighbors) != 0 {
+			t.Fatalf("empty inventory gained neighbors: %+v", o)
+		}
+		if o.NeighborsComplete {
+			sawComplete = true
+		} else {
+			sawPartial = true
+		}
+	}
+	if !sawComplete || !sawPartial {
+		t.Fatalf("NeighborsComplete true and false must both survive New: complete=%v partial=%v", sawComplete, sawPartial)
+	}
+	// Lookup never reads neighbors, so the flag cannot change a route answer.
+	if a := m.Lookup("r1", "default", PlaneControl, pfx("10.9.0.0/16")); a.State != Absent {
+		t.Fatalf("Lookup with a complete neighbor inventory = %v, want absent", a.State)
+	}
+}
+
+func TestAttributesAreSortedAndExactDuplicatesCollapse(t *testing.T) {
+	m, err := New(attributed("frr", false,
+		[]Attribute{{Key: "ospf.state", Value: "full"}, {Key: "ospf.area", Value: "0"}, {Key: "ospf.area", Value: "0"}},
+		[]Attribute{{Key: "ospf.network_type", Value: "point-to-point"}, {Key: "ospf.passive", Value: "false"}},
+		[]Attribute{{Key: "ospf.route_type", Value: "intra"}, {Key: "ospf.area", Value: "0"}, {Key: "ospf.area", Value: "0"}},
+	))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	o := m.Observations()[0]
+	wantNb := []Attribute{{Key: "ospf.area", Value: "0"}, {Key: "ospf.state", Value: "full"}}
+	if !reflect.DeepEqual(o.Neighbors[0].Attributes, wantNb) {
+		t.Fatalf("neighbor attributes = %+v, want %+v", o.Neighbors[0].Attributes, wantNb)
+	}
+	wantIf := []Attribute{{Key: "ospf.network_type", Value: "point-to-point"}, {Key: "ospf.passive", Value: "false"}}
+	if !reflect.DeepEqual(o.Interfaces[0].Attributes, wantIf) {
+		t.Fatalf("interface attributes = %+v, want %+v", o.Interfaces[0].Attributes, wantIf)
+	}
+	wantRt := []Attribute{{Key: "ospf.area", Value: "0"}, {Key: "ospf.route_type", Value: "intra"}}
+	if !reflect.DeepEqual(o.Routes[0].Attributes, wantRt) {
+		t.Fatalf("route attributes = %+v, want %+v", o.Routes[0].Attributes, wantRt)
+	}
+}
+
+// One key with two values is kept as both, sorted. Neither value is picked.
+func TestTwoValuesUnderOneKeyAreBothKept(t *testing.T) {
+	m, err := New(attributed("frr", false, []Attribute{{Key: "ospf.state", Value: "full"}, {Key: "ospf.state", Value: "init"}}, nil, nil))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	want := []Attribute{{Key: "ospf.state", Value: "full"}, {Key: "ospf.state", Value: "init"}}
+	if got := m.Observations()[0].Neighbors[0].Attributes; !reflect.DeepEqual(got, want) {
+		t.Fatalf("neighbor attributes = %+v, want both values %+v", got, want)
+	}
+}
+
+// Absent and empty attribute lists must build the same model, because the
+// canonical JSON tie-break would otherwise tell them apart.
+func TestAbsentAndEmptyAttributesAreOneModel(t *testing.T) {
+	absent, err := New(attributed("frr", false, nil, nil, nil))
+	if err != nil {
+		t.Fatalf("New(absent): %v", err)
+	}
+	empty, err := New(attributed("frr", false, []Attribute{}, []Attribute{}, []Attribute{}))
+	if err != nil {
+		t.Fatalf("New(empty): %v", err)
+	}
+	if !reflect.DeepEqual(absent, empty) {
+		t.Fatalf("absent and empty attributes built different models:\n%+v\n%+v", absent.Observations(), empty.Observations())
+	}
+}
+
+// Neighbors sharing one identity but carrying different attributes are both
+// kept, and the attributes order them whatever the input order.
+func TestSameIdentityNeighborsOrderByAttributes(t *testing.T) {
+	up := attributed("frr", false, []Attribute{{Key: "ospf.state", Value: "full"}}, nil, nil)
+	down := attributed("frr-2", false, []Attribute{{Key: "ospf.state", Value: "init"}}, nil, nil)
+	// Two neighbor records with one identity in one observation.
+	both := up
+	both.Neighbors = append(slices.Clone(up.Neighbors), down.Neighbors[0])
+	reversed := up
+	reversed.Neighbors = []Neighbor{down.Neighbors[0], up.Neighbors[0]}
+
+	ab, err := New(both)
+	if err != nil {
+		t.Fatalf("New(both): %v", err)
+	}
+	ba, err := New(reversed)
+	if err != nil {
+		t.Fatalf("New(reversed): %v", err)
+	}
+	if !reflect.DeepEqual(ab.Observations(), ba.Observations()) {
+		t.Fatalf("input order changed neighbor order:\n%+v\n%+v", ab.Observations(), ba.Observations())
+	}
+	got := ab.Observations()[0].Neighbors
+	if len(got) != 2 || got[0].Attributes[0].Value != "full" || got[1].Attributes[0].Value != "init" {
+		t.Fatalf("neighbors = %+v, want full then init", got)
+	}
+}
+
+// Two sources can report different states for one neighbor. The model keeps
+// both rows with their provenance and never chooses between them.
+func TestContradictoryNeighborAttributesKeepBothSources(t *testing.T) {
+	a := attributed("frr", false, []Attribute{{Key: "ospf.state", Value: "full"}}, nil, nil)
+	b := attributed("cisco", false, []Attribute{{Key: "ospf.state", Value: "init"}}, nil, nil)
+	b.CollectedAt = t1
+	m, err := New(a, b)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	seen := map[string]string{}
+	for _, o := range m.Observations() {
+		seen[o.Source] = o.Neighbors[0].Attributes[0].Value
+	}
+	if seen["frr"] != "full" || seen["cisco"] != "init" {
+		t.Fatalf("contradictory states not both kept with provenance: %+v", seen)
+	}
+}
+
+func TestAttributesAreDeepCopiedOnBothSides(t *testing.T) {
+	in := attributed("frr", false,
+		[]Attribute{{Key: "ospf.state", Value: "full"}},
+		[]Attribute{{Key: "ospf.area", Value: "0"}},
+		[]Attribute{{Key: "ospf.area", Value: "0"}})
+	m, err := New(in)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	in.Neighbors[0].Attributes[0].Value = "changed"
+	in.Interfaces[0].Attributes[0].Value = "changed"
+	in.Routes[0].Attributes[0].Value = "changed"
+
+	view := m.Observations()
+	view[0].Neighbors[0].Attributes[0].Value = "changed"
+	view[0].Interfaces[0].Attributes[0].Value = "changed"
+
+	fresh := m.Observations()[0]
+	if fresh.Neighbors[0].Attributes[0].Value != "full" || fresh.Interfaces[0].Attributes[0].Value != "0" || fresh.Routes[0].Attributes[0].Value != "0" {
+		t.Fatalf("attributes aliased input or output: %+v", fresh)
 	}
 }

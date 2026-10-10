@@ -160,6 +160,20 @@ type realNet struct {
 	// runs, when set, counts the probes that actually ran, by ID. A row a session
 	// reuses never reaches it.
 	runs *runCounts
+	// blackHole, when set, makes the path MTU row see no acknowledgement for its
+	// payload. The row then sees what a path-MTU black hole shows a process: the
+	// TCP connect works, and the bulk write never drains.
+	blackHole atomic.Bool
+}
+
+// queuedBytes is the send-queue reading the path MTU probe takes. Under the black
+// hole the whole payload stays queued, and otherwise the kernel's own reading
+// stands.
+func (n *realNet) queuedBytes(c net.Conn) (int, error) {
+	if n.blackHole.Load() {
+		return pmtuPayloadSize, nil
+	}
+	return socketQueued(c)
 }
 
 func newRealNet(t testing.TB) *realNet {
@@ -255,6 +269,7 @@ func (n *realNet) probes() []Probe {
 		return nil, nil, errors.New("the Watch fixture resolves no public names")
 	}
 	o.dialContext = n.dial
+	o.queued = n.queuedBytes
 	o.dialTLS = trustingDialTLS(n.dial, n.target.roots)
 	o.tlsRootCAs = n.target.roots
 	o.ssid = func(context.Context, string) string { return "" }

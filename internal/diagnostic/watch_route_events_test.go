@@ -194,8 +194,14 @@ func TestWatchRouteEventsCloseStopsTheReaderSilently(t *testing.T) {
 	src := newScriptedRouteEvents()
 	s.followRoutes(src)
 	done := s.feed.done
+	if !s.FollowsRouteEvents() {
+		t.Fatal("FollowsRouteEvents = false while the reader is blocked in its source")
+	}
 
 	s.Close()
+	if s.FollowsRouteEvents() {
+		t.Error("FollowsRouteEvents = true after Close")
+	}
 	select {
 	case <-done:
 	default:
@@ -207,6 +213,38 @@ func TestWatchRouteEventsCloseStopsTheReaderSilently(t *testing.T) {
 	s.Close()
 	if s.feed != nil {
 		t.Error("feed still set after Close")
+	}
+}
+
+// A source that fails ends the subscription, and nothing restarts it. The owner
+// asks FollowsRouteEvents whether route changes still reach the session, so it
+// must say no once the reader has stopped on its own.
+func TestWatchRouteEventsEndedBySourceIsNotFollowed(t *testing.T) {
+	s := NewWatchSession(nil)
+	s.followRoutes(newScriptedRouteEvents(errors.New("netlink socket failed")))
+	select {
+	case <-s.feed.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reader did not stop after its source failed")
+	}
+	if s.FollowsRouteEvents() {
+		t.Error("FollowsRouteEvents = true after the reader stopped on its own")
+	}
+	if got := s.generation.Load(); got != 1 {
+		t.Errorf("generation after the failure = %d, want 1", got)
+	}
+	closed := make(chan struct{})
+	go func() {
+		s.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close hung after the reader had stopped")
+	}
+	if got := s.generation.Load(); got != 1 {
+		t.Errorf("generation after Close = %d, want 1: a stop is not a change", got)
 	}
 }
 

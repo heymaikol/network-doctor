@@ -27,6 +27,13 @@ type watchNet struct {
 	// quicBroken fails the QUIC row alone. Its route footprint is one no fresh row
 	// reads, so turning it on changes no path key and no interface fingerprint.
 	quicBroken bool
+	// dnsBroken fails the system resolver's row alone, as a resolver that stops
+	// answering does. publicBroken does the same for the public resolver's row.
+	// encryptedBroken fails the encrypted DNS row alone, as a resolver change that
+	// blocks DoH does while plain lookups still work.
+	dnsBroken       bool
+	publicBroken    bool
+	encryptedBroken bool
 	// egressIPv6Down fails IPv6 egress alone, as a black-holed IPv6 default route
 	// does: the egress row warns and names the IPv6 cause. targetIPv6Down fails the
 	// target's IPv6 family alone; its IPv4 address and the egress row are unchanged.
@@ -101,6 +108,12 @@ func (n *watchNet) result(id ProbeID) ProbeResult {
 	case id == ProbeTLS && n.tlsBroken:
 		return ProbeResult{Status: StatusFail, Cause: "tls-handshake", Dur: 5 * time.Millisecond}
 	case id == ProbeQUIC && n.quicBroken:
+		return ProbeResult{Status: StatusFail, Cause: "timeout", Dur: 5 * time.Millisecond}
+	case id == ProbeDNS && n.dnsBroken:
+		return ProbeResult{Status: StatusFail, Cause: "timeout", Dur: 5 * time.Millisecond}
+	case id == ProbeDNSPublic && n.publicBroken:
+		return ProbeResult{Status: StatusFail, Cause: "timeout", Dur: 5 * time.Millisecond}
+	case id == ProbeDNSEncrypted && n.encryptedBroken:
 		return ProbeResult{Status: StatusFail, Cause: "timeout", Dur: 5 * time.Millisecond}
 	case n.broken != "" && id == n.broken:
 		return ProbeResult{Status: StatusFail, Cause: "broken-on-new-path", Dur: 5 * time.Millisecond}

@@ -15,6 +15,7 @@ package diagnostic
 
 import (
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -22,6 +23,11 @@ import (
 )
 
 func TestRealWatchPathMTUFaultAndRecovery(t *testing.T) {
+	// The path MTU row reads the send queue, and only Linux and macOS report it.
+	// Elsewhere the row is N/A on every pass, so there is no fault to watch.
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skipf("path MTU is not measured on %s: the send queue is not reported", runtime.GOOS)
+	}
 	n := newRealNet(t)
 	clock := newWatchClock()
 	s := NewWatchSession(clock.Now)

@@ -309,7 +309,7 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			editA: func(s *snapshot.Snapshot) { o := targetCheck(s); o.Routes, o.SourceIP = nil, "" }},
 		{name: "several recorded sources", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "several source addresses",
 			editA: func(s *snapshot.Snapshot) { targetCheck(s).SourceIP = "192.0.2.11" }},
-		{name: "non-main routing domain", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "routing domain",
+		{name: "non-main routing domain", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "routing table",
 			editA: func(s *snapshot.Snapshot) {
 				r := &targetCheck(s).Routes[0]
 				r.Table, r.TableKnown = "table 100", true
@@ -359,6 +359,12 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Gateway, r.Reason = "", "on_link" }},
 		{name: "mixed hop set with a non-matching address is not comparable", topo: otherBeside, side: "a", status: compare.RouteUnbound, reason: "cannot be ruled in or out", hop: compare.FirstHopNotComparable,
 			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Gateway = "192.0.2.1" }},
+		{name: "default table 253 is refused", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "routing table",
+			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Table, r.TableKnown = "default", true }},
+		{name: "local table is refused", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "routing table",
+			editA: func(s *snapshot.Snapshot) { r := &targetCheck(s).Routes[0]; r.Table, r.TableKnown = "local", true }},
+		{name: "legacy named table is refused without its knowledge bit", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "routing table",
+			editA: func(s *snapshot.Snapshot) { targetCheck(s).Routes[0].Table = "table 100" }},
 		{name: "other side's file is refused", topo: symmetric, side: "b", status: compare.RouteUnbound, reason: "not the source this side recorded",
 			editB: func(s *snapshot.Snapshot) {
 				targetCheck(s).SourceIP = routeSourceB

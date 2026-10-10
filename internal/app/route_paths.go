@@ -204,7 +204,7 @@ func recordedRoute(s snapshot.Snapshot, dest netip.Addr) (snapshot.Route, int) {
 			if !sameAddr(r.Destination, dest) {
 				continue
 			}
-			key := strings.Join([]string{r.Gateway, r.Prefix, strconv.FormatBool(r.Unreachable), r.Reason}, "|")
+			key := strings.Join([]string{r.Gateway, r.Prefix, strconv.FormatBool(r.Unreachable), r.Reason, r.Table, strconv.FormatBool(r.TableKnown)}, "|")
 			if !seen[key] {
 				seen[key] = true
 				out = append(out, r)
@@ -296,7 +296,7 @@ func bindingOf(s snapshot.Snapshot, f routepath.File) (netip.Addr, netip.Addr, s
 		return netip.Addr{}, netip.Addr{}, "The topology's source.address is not the source this side recorded for the target"
 	}
 	if domain, ok := routingDomainFor(s, dest); ok {
-		return netip.Addr{}, netip.Addr{}, fmt.Sprintf("This side's route for the target is in routing domain %q, which the snapshot cannot tie to the topology's vrf", domain)
+		return netip.Addr{}, netip.Addr{}, fmt.Sprintf("This side's route for the target is in routing table %q, which the snapshot cannot tie to the topology's default VRF (the main table)", domain)
 	}
 	if f.Source.VRF != routeMainVRF {
 		return netip.Addr{}, netip.Addr{}, fmt.Sprintf("The topology places the source in VRF %q, which the snapshot cannot tie to a routing table", f.Source.VRF)
@@ -350,7 +350,7 @@ func recordedSources(s snapshot.Snapshot, dest netip.Addr) []netip.Addr {
 	return out
 }
 
-// routingDomainFor names a non-main routing domain this side recorded for dest.
+// routingDomainFor names a routing table other than main that this side recorded for dest.
 // The snapshot cannot tie such a name to a topology vrf, so the file does not bind.
 func routingDomainFor(s snapshot.Snapshot, dest netip.Addr) (string, bool) {
 	for _, c := range s.Checks {
@@ -361,8 +361,11 @@ func routingDomainFor(s snapshot.Snapshot, dest netip.Addr) (string, bool) {
 			if !sameAddr(r.Destination, dest) {
 				continue
 			}
-			if name, known := r.RoutingDomain(); known && name != "" {
-				return name, true
+			// Linux writes a table name only for a table other than main, and main as
+			// "". A name is refused even when the knowledge bit is missing, which is
+			// how a legacy artifact spells a table it could not confirm.
+			if r.Table != "" {
+				return r.Table, true
 			}
 		}
 	}

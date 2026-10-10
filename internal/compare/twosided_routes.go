@@ -31,7 +31,7 @@ var (
 	routeNotComparedNames = map[string]string{
 		"interface":     "interface names (names are not established across machines)",
 		"prefix":        "matched prefix (this side recorded none)",
-		"routing_table": "routing table (this platform reported none)",
+		"routing_table": "routing table (this side recorded none)",
 	}
 )
 

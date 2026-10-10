@@ -36,7 +36,7 @@ func faultPass(t *testing.T, s *WatchSession, n *watchNet, fault *bool) (map[Pro
 	t.Helper()
 	for attempt := 1; attempt <= 2; attempt++ {
 		n.resetRuns()
-		pass := s.Begin(quicFaultGraph(n, fault))
+		pass := s.Begin(quicFaultGraph(n, fault), time.Second)
 		results := RunAll(context.Background(), pass.Probes(), time.Second)
 		if pass.Publish(results) {
 			return results, n.snapshotRuns(), attempt

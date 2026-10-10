@@ -748,7 +748,7 @@ func TestTargetLinkHoldsOneSocketAndReleasesIt(t *testing.T) {
 func httpsWatchPass(t *testing.T, f *budgetFixture, session *WatchSession) (*WatchPass, map[ProbeID]ProbeResult, []Probe) {
 	t.Helper()
 	probes := ProbeSelection{Check: healthyHTTPSRows}.Apply(timedProbes(f.ops().buildProbes(mustTarget(t, budgetTargetHost+":443"), DefaultPublicDNS, true)))
-	pass := session.Begin(probes)
+	pass := session.Begin(probes, DefaultProbeTimeout)
 	graph := pass.Probes()
 	res := RunAll(context.Background(), graph, DefaultProbeTimeout)
 	requireRows(t, res, ProbeTargetTCP, ProbeTLS, ProbeHTTPS, ProbePMTU)

@@ -349,7 +349,7 @@ func (n *realNet) watchStep(s *WatchSession) passRun {
 	var total traffic
 	for attempt := 1; attempt <= 3; attempt++ {
 		before := n.traffic()
-		pass := s.Begin(n.probes())
+		pass := s.Begin(n.probes(), DefaultProbeTimeout)
 		res := RunAll(context.Background(), pass.Probes(), DefaultProbeTimeout)
 		n.settle()
 		total = total.add(n.traffic().sub(before))

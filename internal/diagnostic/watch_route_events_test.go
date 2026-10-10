@@ -49,7 +49,7 @@ func TestWatchInvalidateMidPassRefusesEveryReusableRow(t *testing.T) {
 
 	clock.Advance(5 * time.Second)
 	n.resetRuns()
-	pass := s.Begin(eventGraph(n, ProbeIface, func() { s.Invalidate() }))
+	pass := s.Begin(eventGraph(n, ProbeIface, func() { s.Invalidate() }), time.Second)
 	results := RunAll(context.Background(), pass.Probes(), time.Second)
 	if !pass.Publish(results) {
 		t.Fatal("pass was not published")
@@ -75,7 +75,7 @@ func TestWatchObservationKeepsTheGenerationItWasSampledUnder(t *testing.T) {
 	s.Force()
 	clock.Advance(5 * time.Second)
 	n.resetRuns()
-	pass := s.Begin(eventGraph(n, ProbeQUIC, func() { s.Invalidate() }))
+	pass := s.Begin(eventGraph(n, ProbeQUIC, func() { s.Invalidate() }), time.Second)
 	if !pass.Publish(RunAll(context.Background(), pass.Probes(), time.Second)) {
 		t.Fatal("pass was not published")
 	}
@@ -98,7 +98,7 @@ func TestWatchPublishKeepsReusedObservationsOnTheirGeneration(t *testing.T) {
 
 	clock.Advance(5 * time.Second)
 	n.resetRuns()
-	pass := s.Begin(n.graph())
+	pass := s.Begin(n.graph(), time.Second)
 	results := runInOrder(t, pass.Probes())
 	if _, reused := results[ProbeQUIC].ReusedFrom(); !reused {
 		t.Fatal("QUIC was not reused before the event")

@@ -27,6 +27,11 @@ type watchNet struct {
 	// quicBroken fails the QUIC row alone. Its route footprint is one no fresh row
 	// reads, so turning it on changes no path key and no interface fingerprint.
 	quicBroken bool
+	// egressIPv6Down fails IPv6 egress alone, as a black-holed IPv6 default route
+	// does: the egress row warns and names the IPv6 cause. targetIPv6Down fails the
+	// target's IPv6 family alone; its IPv4 address and the egress row are unchanged.
+	egressIPv6Down bool
+	targetIPv6Down bool
 	// broken names one row that fails on every run. A path test breaks a single
 	// row, so the other rows stay as they were and the verdict gate cannot mask
 	// the result under test.
@@ -112,9 +117,23 @@ func (n *watchNet) result(id ProbeID) ProbeResult {
 		r.Addrs = []net.IP{n.publicAddr}
 	case ProbeInternet:
 		r.Routes = []RouteDecision{{Destination: n.publicAddr, Family: "ipv4", Gateway: n.gateway, Tunnel: TunnelDirect}}
+		r.Families = &FamilyConnectivity{IPv4: FamilyReachable, IPv6: FamilyReachable}
+		if n.egressIPv6Down {
+			// The cause and warning probe_connectivity.go sets for a black-holed IPv6
+			// egress with a global IPv6 address.
+			r.Status, r.Cause, r.causeFamily = StatusWarn, FamilyCauseIPv6Unreachable, counterfactualIPv6
+			r.Families.IPv6 = FamilyUnreachable
+		}
 	case ProbeTargetTCP:
 		r.Iface, r.SelectedIP = n.iface, n.addr
 		r.Routes = []RouteDecision{{Destination: n.addr, Family: "ipv4", Gateway: n.gateway, Tunnel: n.targetTunnel}}
+		r.Families = &FamilyConnectivity{IPv4: FamilyReachable, IPv6: FamilyReachable}
+		if n.targetIPv6Down {
+			// The row warns once a family is effectively unreachable, as
+			// reconcileCounterfactuals makes it after finalization.
+			r.Status = StatusWarn
+			r.Families.IPv6 = FamilyUnreachable
+		}
 	case ProbeTLS:
 		if n.tlsRoutes {
 			r.Routes = []RouteDecision{{Destination: n.addr, Family: "ipv4", Gateway: n.gateway, Tunnel: n.targetTunnel}}

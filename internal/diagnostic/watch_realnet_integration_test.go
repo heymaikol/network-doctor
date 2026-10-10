@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,23 +55,27 @@ const (
 )
 
 // plainEndpoint is the HTTP server on port 80 that the HTTP row reaches. Its
-// accepts are counted so its connections appear in the totals beside the target's.
+// accepts and the bytes it reads are counted so its connections appear in the
+// totals beside the target's.
 type plainEndpoint struct {
 	port     string
 	accepts  atomic.Int64
 	requests atomic.Int64
+	bytesIn  atomic.Int64
 }
 
-// countedListener counts each socket Accept returns.
+// countedListener counts each socket Accept returns, and the bytes read from it.
 type countedListener struct {
 	net.Listener
-	n *atomic.Int64
+	n     *atomic.Int64
+	bytes *atomic.Int64
 }
 
 func (l countedListener) Accept() (net.Conn, error) {
 	c, err := l.Listener.Accept()
 	if err == nil {
 		l.n.Add(1)
+		c = &countingConn{Conn: c, bytes: l.bytes}
 	}
 	return c, err
 }
@@ -97,7 +102,7 @@ func startPlainEndpoint(t testing.TB) *plainEndpoint {
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
-		_ = srv.Serve(countedListener{Listener: ln, n: &p.accepts})
+		_ = srv.Serve(countedListener{Listener: ln, n: &p.accepts, bytes: &p.bytesIn})
 	}()
 	t.Cleanup(func() {
 		_ = srv.Close()
@@ -147,6 +152,14 @@ type realNet struct {
 	attempts  map[string]int64 // client TCP dials per endpoint, failed or not
 	connected map[string]int64 // client TCP dials that connected, per endpoint
 	udp       map[string]int64 // client UDP connects per endpoint, which send nothing
+
+	// routeCalls and dnsCalls count calls to the route and system DNS stubs. They
+	// are the probes' calls into this fixture, not packets or kernel lookups.
+	routeCalls atomic.Int64
+	dnsCalls   atomic.Int64
+	// runs, when set, counts the probes that actually ran, by ID. A row a session
+	// reuses never reaches it.
+	runs *runCounts
 }
 
 func newRealNet(t testing.TB) *realNet {
@@ -235,6 +248,7 @@ func (n *realNet) probes() []Probe {
 	}
 	o.interfaceAddrs = func(*net.Interface) ([]net.Addr, error) { return nil, nil }
 	o.lookupIP = func(context.Context, string) ([]net.IP, []string, error) {
+		n.dnsCalls.Add(1)
 		return []net.IP{net.ParseIP("127.0.0.1")}, []string{"loopback"}, nil
 	}
 	o.lookupPublicIP = func(context.Context, string, string) ([]net.IP, []string, error) {
@@ -252,14 +266,22 @@ func (n *realNet) probes() []Probe {
 	// route answer this test gives, instead of the host's own table.
 	o.passRoutes = nil
 	o.routeFor = func(dst, _ net.IP) (RouteDecision, bool) {
+		n.routeCalls.Add(1)
 		return RouteDecision{Destination: dst, Family: "ipv4", Iface: n.currentIface(), Source: net.ParseIP("127.0.0.1"), Tunnel: TunnelDirect}, true
 	}
 	o.defaultRoutes = nil
 	o = probeOps(n.tg, o)
 	selected := ProbeSelection{Check: realRows}.Apply(o.timedProbes(n.tg, "", false))
-	for _, p := range selected {
+	for i, p := range selected {
 		if p.Reference {
 			n.t.Fatalf("probe %s is a reference row; the fixture must not reach the public network", p.ID)
+		}
+		if n.runs != nil && p.Run != nil {
+			id, run := p.ID, p.Run
+			selected[i].Run = func(ctx context.Context, deps map[ProbeID]ProbeResult) ProbeResult {
+				n.runs.inc(id)
+				return run(ctx, deps)
+			}
 		}
 	}
 	return selected
@@ -268,7 +290,7 @@ func (n *realNet) probes() []Probe {
 // traffic is what one pass put on the wire, counted at the servers and the client.
 type traffic struct {
 	accepts, clientHellos, handshakes, requests, bytesIn int64
-	plainAccepts, plainRequests                          int64
+	plainAccepts, plainRequests, plainBytesIn            int64
 	dials, plainDials                                    int64
 	udp                                                  int64
 }
@@ -278,8 +300,8 @@ func (a traffic) add(b traffic) traffic {
 		accepts: a.accepts + b.accepts, clientHellos: a.clientHellos + b.clientHellos,
 		handshakes: a.handshakes + b.handshakes, requests: a.requests + b.requests,
 		bytesIn: a.bytesIn + b.bytesIn, plainAccepts: a.plainAccepts + b.plainAccepts,
-		plainRequests: a.plainRequests + b.plainRequests, dials: a.dials + b.dials,
-		plainDials: a.plainDials + b.plainDials, udp: a.udp + b.udp,
+		plainRequests: a.plainRequests + b.plainRequests, plainBytesIn: a.plainBytesIn + b.plainBytesIn,
+		dials: a.dials + b.dials, plainDials: a.plainDials + b.plainDials, udp: a.udp + b.udp,
 	}
 }
 
@@ -288,8 +310,8 @@ func (a traffic) sub(b traffic) traffic {
 		accepts: a.accepts - b.accepts, clientHellos: a.clientHellos - b.clientHellos,
 		handshakes: a.handshakes - b.handshakes, requests: a.requests - b.requests,
 		bytesIn: a.bytesIn - b.bytesIn, plainAccepts: a.plainAccepts - b.plainAccepts,
-		plainRequests: a.plainRequests - b.plainRequests, dials: a.dials - b.dials,
-		plainDials: a.plainDials - b.plainDials, udp: a.udp - b.udp,
+		plainRequests: a.plainRequests - b.plainRequests, plainBytesIn: a.plainBytesIn - b.plainBytesIn,
+		dials: a.dials - b.dials, plainDials: a.plainDials - b.plainDials, udp: a.udp - b.udp,
 	}
 }
 
@@ -307,6 +329,7 @@ func (n *realNet) traffic() traffic {
 		bytesIn:       n.target.bytesIn.Load(),
 		plainAccepts:  n.plain.accepts.Load(),
 		plainRequests: n.plain.requests.Load(),
+		plainBytesIn:  n.plain.bytesIn.Load(),
 		dials:         dials,
 		plainDials:    plainDials,
 		udp:           udp,
@@ -687,38 +710,66 @@ func TestRealWatchRouteChangeRerunsReusedRows(t *testing.T) {
 	}
 }
 
-// BenchmarkRealWatchPasses measures one pass per op over real loopback sockets, for
-// the session and for the fresh oracle, each advancing the fake clock 5 seconds.
-// Run a virtual hour with -benchtime 720x. ns/op is wall time on the host it runs
-// on, so read the per-op counters for the network cost and the allocations for CPU.
+// BenchmarkRealWatchPasses runs one Watch hour per benchmark run over real loopback
+// sockets: an initial pass at t=0, then 720 scheduled passes five seconds apart.
+// Run it with -benchtime=720x, one process per arm, so the CPU figures belong to a
+// single arm. ns/op and the -benchmem figures divide the whole run by the 720
+// scheduled passes. Every metric with a /hour suffix is a total for the run, the
+// initial pass included. The schedules and arms are described in
+// watch_hour_realnet_integration_test.go.
 func BenchmarkRealWatchPasses(b *testing.B) {
-	for _, arm := range []string{"incremental", "fresh"} {
-		b.Run(arm, func(b *testing.B) {
-			n := newRealNet(b)
-			clock := newWatchClock()
-			s := NewWatchSession(clock.Now)
-			if arm == "incremental" {
-				n.watchStep(s)
+	for _, sched := range []hourSchedule{scheduleStable, scheduleEvents} {
+		b.Run(string(sched), func(b *testing.B) {
+			for _, arm := range []hourArm{armIncremental, armForced, armFresh} {
+				b.Run(string(arm), func(b *testing.B) {
+					benchmarkHour(b, sched, arm)
+				})
 			}
-			var total traffic
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				clock.Advance(5 * time.Second)
-				if arm == "incremental" {
-					total = total.add(n.watchStep(s).traffic)
-				} else {
-					total = total.add(n.freshStep().traffic)
-				}
-			}
-			b.StopTimer()
-			per := func(v int64) float64 { return float64(v) / float64(b.N) }
-			b.ReportMetric(per(total.accepts), "accepts/op")
-			b.ReportMetric(per(total.clientHellos), "clienthellos/op")
-			b.ReportMetric(per(total.requests), "requests/op")
-			b.ReportMetric(per(total.bytesIn), "bytesin/op")
-			b.ReportMetric(per(total.dials+total.plainDials), "dials/op")
-			b.ReportMetric(per(total.udp), "udpconnects/op")
 		})
+	}
+}
+
+func benchmarkHour(b *testing.B, sched hourSchedule, arm hourArm) {
+	h := newHourRun(b, sched)
+	b.ReportAllocs()
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	user0, sys0, cpuOK := processCPU()
+	b.ResetTimer()
+	for i := 0; i <= b.N; i++ {
+		h.advance(i)
+		h.pass(arm)
+	}
+	b.StopTimer()
+	user1, sys1, _ := processCPU()
+	runtime.ReadMemStats(&after)
+
+	tot := h.result()
+	b.ReportMetric(float64(tot.published), "published/hour")
+	b.ReportMetric(float64(tot.full), "full/hour")
+	b.ReportMetric(float64(tot.incremental), "incremental/hour")
+	b.ReportMetric(float64(tot.discarded), "discarded/hour")
+	b.ReportMetric(float64(tot.traffic.dials), "dials/hour")
+	b.ReportMetric(float64(tot.traffic.accepts), "accepts/hour")
+	b.ReportMetric(float64(tot.traffic.clientHellos), "clienthellos/hour")
+	b.ReportMetric(float64(tot.traffic.handshakes), "handshakes/hour")
+	b.ReportMetric(float64(tot.traffic.requests), "requests/hour")
+	b.ReportMetric(float64(tot.traffic.plainDials), "plaindials/hour")
+	b.ReportMetric(float64(tot.traffic.plainAccepts), "plainaccepts/hour")
+	b.ReportMetric(float64(tot.traffic.plainRequests), "plainrequests/hour")
+	b.ReportMetric(float64(tot.traffic.udp), "udpconnects/hour")
+	b.ReportMetric(float64(tot.traffic.bytesIn), "bytesin/hour")
+	b.ReportMetric(float64(tot.traffic.plainBytesIn), "plainbytesin/hour")
+	b.ReportMetric(float64(tot.routeCalls), "routecalls/hour")
+	b.ReportMetric(float64(tot.dnsCalls), "dnscalls/hour")
+	for _, id := range orderedRunIDs(tot.runs) {
+		b.ReportMetric(float64(tot.runs[id]), "runs-"+string(id)+"/hour")
+	}
+	b.ReportMetric(float64(after.TotalAlloc-before.TotalAlloc), "alloc-bytes/hour")
+	b.ReportMetric(float64(after.Mallocs-before.Mallocs), "allocs/hour")
+	if cpuOK {
+		b.ReportMetric(float64(user1-user0), "cpu-user-ns/hour")
+		b.ReportMetric(float64(sys1-sys0), "cpu-sys-ns/hour")
 	}
 }

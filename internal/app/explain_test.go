@@ -3,11 +3,14 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/internal/ospf"
 	"github.com/heymaikol/network-doctor/internal/routepath"
 )
 
@@ -145,5 +148,141 @@ func TestExplainAdvertisesTheFlagInUsage(t *testing.T) {
 	code, out, _ := runNetdoc(t, "--help")
 	if code != 0 || !strings.Contains(out, "netdoc --explain topology.json DEST") || !strings.Contains(out, "-explain") {
 		t.Errorf("--help exit %d lacks the explain usage line or flag:\n%s", code, out)
+	}
+}
+
+// ospfObservation adds one control-plane OSPF neighbor record to explainTopology.
+const ospfObservation = `,
+    {"source": "frr:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "control", "node": "r1", "vrf": "default",
+     "neighbors": [{"local_interface": "eth1", "remote_node": "r2", "remote_interface": "eth0", "attributes": [{"key": "ospf.state", "value": "init"}]}]}`
+
+// legacyExplain is what --explain printed before the OSPF section existed, built
+// from the same file through routepath alone.
+func legacyExplain(t *testing.T, path string) routepath.Explanation {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := routepath.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return routepath.Explain(f, netip.MustParseAddr("10.20.40.8"))
+}
+
+// A file with no OSPF evidence must print the same bytes it always printed, in
+// both forms, including a file that sets neighbors_complete and an OSPF route.
+func TestExplainWithoutOSPFIsByteIdentical(t *testing.T) {
+	quiet := strings.Replace(explainTopology, "\n  ],\n  \"checks\"", ",\n    {\"source\": \"frr:r1\", \"collected_at\": \"2026-10-09T12:00:00Z\", \"plane\": \"control\", \"node\": \"r1\", \"vrf\": \"default\", \"neighbors_complete\": true,\n     \"neighbors\": [{\"local_interface\": \"eth1\", \"remote_node\": \"r2\", \"remote_interface\": \"eth0\"}],\n     \"routes\": [{\"prefix\": \"10.20.0.0/16\", \"origin\": \"ospf\", \"attributes\": [{\"key\": \"ospf.route_type\", \"value\": \"intra\"}]}]}\n  ],\n  \"checks\"", 1)
+	for name, topology := range map[string]string{"plain": explainTopology, "neighbors complete and ospf origin": quiet} {
+		t.Run(name, func(t *testing.T) {
+			path := writeTopology(t, topology)
+			result := legacyExplain(t, path)
+			encoded, err := result.JSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, out, errOut := runNetdoc(t, "--explain", path, "10.20.40.8")
+			if code != 0 || out != result.Text() {
+				t.Fatalf("text exit %d (stderr %q) differs from routepath output:\n%s", code, errOut, out)
+			}
+			code, out, errOut = runNetdoc(t, "--explain", path, "10.20.40.8", "--json")
+			if code != 0 || out != string(encoded)+"\n" {
+				t.Fatalf("json exit %d (stderr %q) differs from routepath output:\n%s", code, errOut, out)
+			}
+		})
+	}
+}
+
+// OSPF evidence adds its section after the route-path text, and an additive ospf
+// JSON field. The route-path part of both forms keeps its own bytes.
+func TestExplainPrintsTheOSPFSectionWhenEvidenceApplies(t *testing.T) {
+	path := writeTopology(t, strings.Replace(explainTopology, "\n  ],\n  \"checks\"", ospfObservation+"\n  ],\n  \"checks\"", 1))
+	result := legacyExplain(t, path)
+	report := ospf.Analyze(legacyModel(t, path))
+	if len(report.Findings) == 0 {
+		t.Fatal("fixture has no OSPF finding")
+	}
+
+	code, out, errOut := runNetdoc(t, "--explain", path, "10.20.40.8")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, errOut)
+	}
+	if want := result.Text() + report.Text(); out != want {
+		t.Errorf("text output is not the route-path text followed by the OSPF section:\n%s", out)
+	}
+	for _, want := range []string{"neighbor_state [reported] r1 eth1 to r2 eth0", "limit: A state before FULL"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+
+	code, out, errOut = runNetdoc(t, "--explain", path, "10.20.40.8", "--json")
+	if code != 0 {
+		t.Fatalf("json exit = %d, want 0; stderr: %s", code, errOut)
+	}
+	var decoded struct {
+		Destination string `json:"destination"`
+		OSPF        *struct {
+			Findings []struct {
+				Kind     string `json:"kind"`
+				Strength string `json:"strength"`
+				Evidence []struct {
+					Source string `json:"source"`
+					State  string `json:"state"`
+				} `json:"evidence"`
+			} `json:"findings"`
+		} `json:"ospf"`
+	}
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if decoded.Destination != "10.20.40.8" || decoded.OSPF == nil || len(decoded.OSPF.Findings) != 1 {
+		t.Fatalf("decoded = %+v, want the destination and one ospf finding", decoded)
+	}
+	f := decoded.OSPF.Findings[0]
+	if f.Kind != string(ospf.KindNeighborState) || f.Strength != string(ospf.Reported) || f.Evidence[0].Source != "frr:r1" || f.Evidence[0].State != "init" {
+		t.Errorf("ospf finding = %+v, want reported init from frr:r1", f)
+	}
+}
+
+// legacyModel reads the topology's model the way runExplain does.
+func legacyModel(t *testing.T, path string) netmodel.Model {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := routepath.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f.Model
+}
+
+// The OSPF attributes on a neighbor are the only difference between these two
+// files. The route-path reading of both must be the same bytes, so OSPF evidence
+// never changes a route-path finding.
+func TestOSPFAttributesLeaveRoutePathFindingsUnchanged(t *testing.T) {
+	plain := strings.Replace(ospfObservation, `, "attributes": [{"key": "ospf.state", "value": "init"}]`, "", 1)
+	if plain == ospfObservation {
+		t.Fatal("fixture did not strip the ospf attribute")
+	}
+	withOSPF := legacyExplain(t, writeTopology(t, strings.Replace(explainTopology, "\n  ],\n  \"checks\"", ospfObservation+"\n  ],\n  \"checks\"", 1)))
+	without := legacyExplain(t, writeTopology(t, strings.Replace(explainTopology, "\n  ],\n  \"checks\"", plain+"\n  ],\n  \"checks\"", 1)))
+	a, err := withOSPF.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := without.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(a, b) {
+		t.Errorf("ospf attributes changed the route-path JSON:\n%s\n%s", a, b)
+	}
+	if withOSPF.Text() != without.Text() {
+		t.Errorf("ospf attributes changed the route-path text")
 	}
 }

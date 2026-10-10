@@ -1,12 +1,14 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/netip"
 	"os"
 
+	"github.com/heymaikol/network-doctor/internal/ospf"
 	"github.com/heymaikol/network-doctor/internal/routepath"
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
@@ -40,8 +42,13 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, stdout, 
 		return 2
 	}
 	result := routepath.Explain(file, dest)
+	report := ospf.Analyze(file.Model)
 	if jsonOut {
-		encoded, err := result.JSON()
+		out := explainOutput{Explanation: result}
+		if len(report.Findings) > 0 {
+			out.OSPF = &report
+		}
+		encoded, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
 			fmt.Fprintln(stderr, "netdoc:", err)
 			return 1
@@ -49,8 +56,16 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, stdout, 
 		fmt.Fprintln(stdout, string(encoded))
 		return 0
 	}
-	fmt.Fprint(stdout, result.Text())
+	fmt.Fprint(stdout, result.Text()+report.Text())
 	return 0
+}
+
+// explainOutput is the --explain JSON object. Its ospf field is present only
+// when the topology holds OSPF evidence that yields a finding, so any other file
+// encodes the same bytes as routepath.Explanation.JSON.
+type explainOutput struct {
+	routepath.Explanation
+	OSPF *ospf.Report `json:"ospf,omitempty"`
 }
 
 // explainDestination takes an address literal only. A name would need a

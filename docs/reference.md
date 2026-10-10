@@ -232,6 +232,9 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--two-sided --route-a` or `--route-b`: an unreadable or invalid topology file, or one file named for both sides | `2` |
 | `--explain`: an explanation was printed, whether or not the path is broken | `0` |
 | `--explain`: a destination that is not an IP address, an unreadable or invalid topology file, or a flag that cannot be combined with it | `2` |
+| `--import-frr-ospf`: every capture accepted and every neighbor record mapped; this is not a health result | `0` |
+| `--import-frr-ospf`: a capture refused or a neighbor record left unmapped; with `--write-topology`, nothing is written | `1` |
+| `--import-frr-ospf`: an invalid manifest, an unsafe or unreadable capture, a flag that cannot be combined with it, or a topology that cannot be written | `2` |
 | Quit before the chain finished | `1` |
 | Bad arguments, pairing-input reject, validation reject, or no terminal for the TUI | `2` |
 | `--via`: SSH failed, no usable `netdoc` on the SSH host, a remote protocol mismatch, or an acquisition that outlasted its overall bound | `2` |
@@ -1930,6 +1933,90 @@ Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `confli
 - It does not model NAT translations, firewall rules, or connection state. A `boundaries` entry records where such a device sits, not what it does to a packet.
 - Two-sided diagnosis reads the asymmetry only as route context from a bound `--route-a` or `--route-b` file, and never as a placement. Its snapshots record only the outbound decision on each side, so they carry no return route of their own.
 - A bound two-sided reading cannot see a source-based policy rule that the kernel refuses. When the kernel rejects a route lookup that names the source, the probe repeats it without the source and records that answer, which is usually the main table's. The snapshot does not mark the fallback, so a bound reading compares that answer as the flow's own route. Where the platform records a routing table, that table is compared too, and where it records none, the table is listed as not compared.
+
+## FRR OSPF import
+
+`--import-frr-ospf` reads FRR OSPF output that was captured earlier and reports what it holds. It is offline. It runs no probe, opens no socket, and contacts no router. It does not run `vtysh` or collect anything itself, so the captures are the only evidence, and the result is as current as they are.
+
+```sh
+netdoc --import-frr-ospf manifest.json
+netdoc --import-frr-ospf manifest.json --json
+netdoc --import-frr-ospf manifest.json --write-topology topology.json
+```
+
+### Manifest
+
+The manifest is one JSON object. The import refuses duplicate keys at any depth, keys it does not know, keys that differ from a known key only in case, values of the wrong type, `null` where a value is required, and data after the object. The manifest is read whole and may be at most 1 MiB.
+
+- `version` must be `1`.
+- `source_node` is optional. It names the node the topology is written from, and it must match the `node` of a capture. A report alone needs no `source_node`.
+- `captures` is an array of at most 256 objects. Each object has all seven keys below.
+
+| Key | Meaning |
+| --- | --- |
+| `file` | The capture, as a path relative to the manifest's directory. An absolute path, or one that leaves that directory, is refused. It must name a regular file, not a symbolic link. |
+| `source` | A label for the capture in the report. Unique within the manifest. |
+| `node` | The router the capture came from. |
+| `vrf` | Must be `default`, the only VRF these commands read. |
+| `frr_version` | Must be `10.7.0`. |
+| `command` | `show ip ospf interface json` or `show ip ospf neighbor detail json`. |
+| `collected_at` | An RFC 3339 time with an offset, such as `2026-10-09T12:00:00Z`. |
+
+Two captures may not name the same file, directly or through a hard link.
+
+Each capture is the JSON output of its command, unframed: the echoed command line and the vty prompt are removed. A capture that still holds either is refused. A leading echoed line is reported as `not JSON output`, and a trailing prompt as a JSON syntax error. Each capture is at most 1 MiB, and all captures together are at most 32 MiB.
+
+The declared fields are the manifest's claim. netdoc checks the FRR version, the command, and the VRF. It does not check which router produced a capture, and the report labels every declared field as declared, not verified.
+
+### Import exit codes
+
+| Situation | Exit |
+|---|---|
+| Every capture accepted and every neighbor record mapped | `0` |
+| A capture refused, or a neighbor record left unmapped. With `--write-topology`, nothing is written. | `1` |
+| Invalid manifest, unsafe or unreadable capture, a flag that cannot be combined with the import, or a topology that cannot be written | `2` |
+
+Exit `0` is not a health result. It means the captures were read and each neighbor record was mapped. It does not mean the network is healthy, that OSPF is complete on every router, or that every router was captured.
+
+### Report
+
+The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish.
+
+`--json` prints one object. Its `version` is `1`.
+
+- `version`, `manifest`, `complete`, and `source_node` (when the manifest names one).
+- `neighbors_complete` and `routes_complete`, which are always `false`.
+- `counts`: `captures`, `accepted`, `refused`, `records`, `mapped`, and `unmapped`.
+- `captures`: each with `file`, `declared` (`source`, `node`, `vrf`, `frr_version`, `command`, and `collected_at`), `accepted`, `reason` when refused, `empty` (accepted with no neighbor or interface records), `interfaces`, `neighbors`, and `notes` when present.
+- `records`: each neighbor record with `source`, `node`, `vrf`, `local_interface`, `neighbor_address`, `router_id` when present, `state`, `area`, `mapped`, `remote_node` and `remote_interface` when mapped, and `reason` when present.
+- `not_imported` and `limitations`: the same lines the text report prints.
+- `topology`: `requested`, `written`, `path` when `--write-topology` was given, and `reason` when the topology was not written.
+
+### Topology output
+
+`--write-topology FILE` writes the imported topology in the [`--explain` format](#route-path-explanation). It is written only when every capture was accepted and every neighbor record was mapped, so an incomplete import leaves no file. The file holds the `source_node` in the default VRF, the OSPF neighbors and interfaces from the captures, and `neighbors_complete` and `routes_complete` both `false`. `--explain` reads it and reports the route as unknown, because the topology carries no routes. It still shows the OSPF findings.
+
+`--write-topology` needs `source_node` in the manifest, and the manifest must hold a default-VRF `show ip ospf interface json` capture for that node.
+
+The file is written to a temporary name in the target's directory and published by hard link, so an existing file is never replaced. A filesystem without hard links, such as some FAT, SMB, and network filesystems, refuses the write with exit `2`. There is no fallback to a rename or a copy. The temporary file is removed after each write attempt, including a failed one. A crash or a kill can still leave it behind. The file is not synced to disk before it is published.
+
+### What the import does not read
+
+The report lists these, so a reader does not take the topology for the whole network.
+
+- Routes: the RIB and FIB are not read, so the topology has no routes.
+- The OSPF link-state database is not read.
+- Areas are read per neighbor record and reported, but not written to the topology.
+- Only the primary interface address is used. Secondary addresses are not read.
+- No other FRR output field is read.
+- The source address is not set, so the topology claims no address for the source node.
+- No checks or boundaries are written.
+
+### What the result does not establish
+
+- A neighbor record with no router ID (`noNbrID`) is never mapped, even when its address is unique.
+- Neighbors and routes are never claimed complete.
+- A record that is not mapped keeps its state, address, and reason in the report, so the reader sees what FRR reported and why it was not used.
 
 ## Remote diagnosis over SSH
 

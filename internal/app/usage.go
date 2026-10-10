@@ -20,6 +20,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --peer-connect [--json]
        netdoc --compare before.ndoc after.ndoc [--json]
        netdoc --explain topology.json DEST [--json]
+       netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
        netdoc --two-sided here.ndoc there.ndoc [--route-a topology.json] [--route-b topology.json] [--json]
        netdoc --two-sided --via ssh-destination [target] [--json]
 
@@ -50,6 +51,19 @@ control plane disagree, and which segments a recorded failure could lie in. It
 is headless and runs no probe: the file is the only evidence, and the
 destination must be an IP address, because a name would need a resolver. The
 file's format is documented under Route path explanation in the reference.
+
+--import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each
+one, and reports every capture and every neighbor record. It is headless and
+runs no probe and contacts no router: the captures are the only evidence. The
+manifest is JSON with "version": 1 and names each capture's file, source label,
+node, VRF, FRR version, command, and collection time. Exit 0 means every
+capture was accepted and every neighbor record was mapped; it does not mean the
+network is healthy. Exit 1 means something was refused or left unmapped. With
+--write-topology FILE, a complete import is written as a topology in the
+--explain format, and an incomplete one writes nothing. The file is published
+by hard link, so it never replaces an existing file, and a filesystem without
+hard links refuses the write. The format is documented under FRR OSPF import in
+the reference.
 
 --two-sided reads two snapshots as two machines looking at one target and says
 whether the evidence places a failure on side A, side B, something shared, or

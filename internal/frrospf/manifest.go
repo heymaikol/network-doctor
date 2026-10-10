@@ -263,6 +263,12 @@ func checkUniqueKeys(data []byte) error {
 		if errors.Is(err, io.EOF) {
 			return errors.New("manifest is empty")
 		}
+		// The syntax error quotes the offending byte, which may be invalid UTF-8
+		// or a control character. Report the offset instead.
+		var syntax *json.SyntaxError
+		if errors.As(err, &syntax) {
+			return fmt.Errorf("not valid JSON at byte %d", syntax.Offset)
+		}
 		return err
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {

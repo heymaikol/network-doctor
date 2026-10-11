@@ -914,3 +914,130 @@ func TestConflictingOwnersAcrossPlanesAreNamed(t *testing.T) {
 		})
 	}
 }
+
+// Control may report a gateway without naming the interface it leaves by, while
+// the FIB names it. An omitted field is unreported, not different, so the pair
+// must not be reported as fib_differs_from_control.
+func TestOmittedInterfaceIsNotADisagreement(t *testing.T) {
+	obs := without(threeRouters(), "control:r1:default", "fib:r1:default")
+	obs = append(obs,
+		table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", "ospf", nh("10.0.12.2", ""))),
+		table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", nh("10.0.12.2", "eth1"))))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := findings(e, FindingFIBDiffers); len(got) != 0 {
+		t.Errorf("fib_differs_from_control = %+v, want none: the FIB only names the interface control omitted", got)
+	}
+	if got := e.Forwarding.Decision.Agreement; got != AgreementAgrees {
+		t.Errorf("r1 agreement = %q, want agrees", got)
+	}
+}
+
+// An unreported interface is unreported, not licence to match more than one
+// alternative. If a single hop with an unstated interface compared equal to two
+// ECMP legs through the same gateway, a FIB that dropped one leg would read as
+// agreement and the difference would be lost.
+func TestSameHopsMatchesOneToOne(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b []NextHop
+		want bool
+	}{
+		{
+			"an omitted interface matches a single named one",
+			[]NextHop{{Addr: "192.0.2.1"}},
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}},
+			true,
+		},
+		{
+			"one unreported hop cannot stand in for two ECMP alternatives",
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}, {Addr: "192.0.2.1", Interface: "eth1"}},
+			[]NextHop{{Addr: "192.0.2.1"}},
+			false,
+		},
+		{
+			"the reverse ECMP width difference is a difference too",
+			[]NextHop{{Addr: "192.0.2.1"}},
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}, {Addr: "192.0.2.1", Interface: "eth1"}},
+			false,
+		},
+		{
+			"genuinely different gateways differ",
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}},
+			[]NextHop{{Addr: "192.0.2.2", Interface: "eth0"}},
+			false,
+		},
+		{
+			"conflicting interface names differ",
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}},
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth1"}},
+			false,
+		},
+		{
+			"identical named alternatives agree regardless of order",
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}, {Addr: "192.0.2.2", Interface: "eth1"}},
+			[]NextHop{{Addr: "192.0.2.2", Interface: "eth1"}, {Addr: "192.0.2.1", Interface: "eth0"}},
+			true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := sameHops(c.a, c.b); got != c.want {
+				t.Errorf("sameHops(%v, %v) = %v, want %v", c.a, c.b, got, c.want)
+			}
+			if got := sameHops(c.b, c.a); got != c.want {
+				t.Errorf("sameHops(%v, %v) = %v, want %v (must be symmetric)", c.b, c.a, got, c.want)
+			}
+		})
+	}
+}
+
+// A control plane that programs two ECMP legs through one gateway but a FIB
+// that holds one hop, interface unstated, is still a fib_differs_from_control:
+// the missing leg is the difference, and an unreported interface must not hide
+// it by matching both alternatives at once.
+func TestECMPLegMissingFromTheFIBIsADifference(t *testing.T) {
+	obs := without(threeRouters(), "control:r1:default", "fib:r1:default")
+	obs = append(obs,
+		table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", "ospf", nh("10.0.12.2", "eth1"), nh("10.0.12.2", "eth2"))),
+		table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", nh("10.0.12.2", ""))))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := findings(e, FindingFIBDiffers); len(got) != 1 {
+		t.Errorf("fib_differs_from_control = %+v, want one at r1: the FIB holds one of the two ECMP legs", got)
+	}
+	if got := e.Forwarding.Decision.Agreement; got != AgreementDisagrees {
+		t.Errorf("r1 agreement = %q, want disagrees", got)
+	}
+}
+
+// A route with many shared gateways, each naming an unreported hop beside a
+// named one, offers the matcher two valid pairings per gateway. A recursive
+// search retried every combination before it could report that a later gateway
+// differs, so a legitimate 50-hop --explain input could stall. The match is now
+// polynomial, so this returns at once; the guard fails the test rather than
+// hanging if a future change reintroduces the blow-up.
+func TestWideECMPMatchDoesNotBlowUp(t *testing.T) {
+	const gateways = 25
+	var a, b []NextHop
+	for i := 0; i < gateways; i++ {
+		g := "10.200.0." + strconv.Itoa(i+1)
+		// Both lists invite two pairings: the unreported hop fits either side.
+		a = append(a, NextHop{Addr: g}, NextHop{Addr: g, Interface: "eth0"})
+		if i == gateways-1 {
+			// The last gateway names interfaces that cannot absorb the named
+			// hop, so no perfect matching exists and the answer is false.
+			b = append(b, NextHop{Addr: g, Interface: "eth1"}, NextHop{Addr: g, Interface: "eth2"})
+			continue
+		}
+		b = append(b, NextHop{Addr: g}, NextHop{Addr: g, Interface: "eth0"})
+	}
+	done := make(chan bool, 1)
+	go func() { done <- sameHops(a, b) }()
+	select {
+	case got := <-done:
+		if got {
+			t.Errorf("sameHops over %d gateways with a mismatched last one = true, want false", gateways)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("sameHops took over 10s on 50 hops: the match is exponential again")
+	}
+}

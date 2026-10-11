@@ -81,10 +81,73 @@ func disagreement(exp, fwd *Hop) (FindingKind, string, bool) {
 		// A partial control table may hold a more specific route that changes the
 		// expected answer, so it cannot show what the FIB differs from.
 		return "", "", false
-	case exp.Decision.Prefix != fwd.Decision.Prefix, ek != fk, !slices.Equal(exp.Decision.NextHops, fwd.Decision.NextHops):
+	case exp.Decision.Prefix != fwd.Decision.Prefix, ek != fk, !sameHops(exp.Decision.NextHops, fwd.Decision.NextHops):
 		return FindingFIBDiffers, fmt.Sprintf("control expects %s; the FIB has %s", describe(exp.Decision), describe(fwd.Decision)), true
 	}
 	return "", "", false
+}
+
+// sameHops reports whether two next-hop lists name the same forwarding. An
+// empty Interface is an unreported field, so it matches any interface on the
+// same gateway, exactly as netmodel.CoversHops reads a Route's next hops. The
+// match is one-to-one, though: an unreported interface stands in for at most
+// one counterpart, so a single hop never swallows two ECMP alternatives and a
+// difference in ECMP width stays a difference. A list that merely omits an
+// interface is not a disagreement; one that disagrees on gateway, a named
+// interface, or the number of alternatives is.
+func sameHops(a, b []NextHop) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return matchHops(a, b)
+}
+
+// matchHops reports whether every hop in want can be paired with a distinct hop
+// in have. It finds a perfect matching in the bipartite graph whose edges join
+// hops that hopCompatible accepts. Distinctness makes the pairing a bijection,
+// so two lists of equal length pair every hop exactly once.
+//
+// The search is Kuhn's augmenting-path algorithm, which is polynomial. The
+// recursion it replaces re-explored every combination when a hop had several
+// compatible counterparts, so n shared gateways with two partners each took
+// O(2^n) time; Kuhn's method reaches the same answer in O(n^3) here, and a wide
+// ECMP set can no longer make --explain stall.
+func matchHops(want, have []NextHop) bool {
+	// owner[i] is the index in want paired with have[i], or -1 while free.
+	owner := make([]int, len(have))
+	for i := range owner {
+		owner[i] = -1
+	}
+	for w := range want {
+		seen := make([]bool, len(have))
+		if !augmentHop(want, have, w, seen, owner) {
+			return false
+		}
+	}
+	return true
+}
+
+// augmentHop tries to pair want[w] with a free compatible hop in have, asking
+// the hop that currently owns a partner to look for another one, which is an
+// augmenting path. It reports whether the matching grew by one.
+func augmentHop(want, have []NextHop, w int, seen []bool, owner []int) bool {
+	for i := range have {
+		if seen[i] || !hopCompatible(want[w], have[i]) {
+			continue
+		}
+		seen[i] = true
+		if owner[i] == -1 || augmentHop(want, have, owner[i], seen, owner) {
+			owner[i] = w
+			return true
+		}
+	}
+	return false
+}
+
+// hopCompatible reports whether two next hops can describe the same forwarding:
+// the gateways must match, and the interfaces agree unless one is unreported.
+func hopCompatible(a, b NextHop) bool {
+	return a.Addr == b.Addr && (a.Interface == "" || b.Interface == "" || a.Interface == b.Interface)
 }
 
 // concrete is a decision that names what happens to the destination, as

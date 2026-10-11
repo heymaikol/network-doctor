@@ -101,6 +101,7 @@ const (
 	limitDeclaredOneSided   = "Only one end declares this link, so the declaration does not confirm that the link exists. The effective areas of the two interfaces differ. No area is chosen and no cause is shown."
 	limitDeclaredIncomplete = "An end of this declared link has no effective area, or one that cannot be read, so the areas are not compared. Nothing is concluded about the link."
 	limitMissingPassive     = "A passive OSPF interface sends no hellos, which is consistent with the expected adjacency not forming. The reading rests on the passive value one end reports, a link both ends declare, and no OSPF record for the pair. It does not show that the neighbor is down, and it does not say why the interface is passive." //nolint:gosec // G101 matches "pass" in the name; this is prose, not a credential.
+	limitMissingPassiveBoth = "Both ends report passive OSPF, which is consistent with the expected adjacency not forming. The reading rests on the passive values the two ends report, a link both ends declare, and no OSPF record for the pair. It does not show that the neighbor is down, and it does not say why either interface is passive."    //nolint:gosec // G101 matches "pass" in the name; this is prose, not a credential.
 )
 
 // Report is the OSPF reading of one model. It has no findings when no OSPF
@@ -692,12 +693,13 @@ func (a *analysis) declaredAreas(declared map[link][]record) {
 
 // declaredPassive reads a passive OSPF interface on a link that the intended plane
 // declares from both ends. The reading says only that passive OSPF is consistent
-// with the expected adjacency not forming. It needs one end whose own control-plane
-// rows report ospf.passive true, with no unreadable or conflicting value, while the
-// other end does not also read true. It needs no OSPF record for the pair on either
-// end, whatever its remote interface. Completeness flags are not read, so no
-// absence is claimed. The finding is anchored at the smaller direction of the link,
-// as declaredAreas anchors its findings.
+// with the expected adjacency not forming. It needs at least one end whose own
+// control-plane rows report ospf.passive true, with no unreadable or conflicting
+// value at that end. When both ends read true, both are named, and the reading
+// still holds. A conflicting or unreadable end is never named. It needs no OSPF
+// record for the pair on either end, whatever its remote interface. Completeness
+// flags are not read, so no absence is claimed. The finding is anchored at the
+// smaller direction of the link, as declaredAreas anchors its findings.
 func (a *analysis) declaredPassive(declared map[link][]record) {
 	for l, recs := range declared {
 		m := l.mirror()
@@ -707,12 +709,17 @@ func (a *analysis) declaredPassive(declared map[link][]record) {
 		}
 		lp, lev := a.passiveAt(l.node, l.vrf, l.iface)
 		mp, mev := a.passiveAt(m.node, m.vrf, m.iface)
-		passive, other := l, m
+		var detail, limit string
 		switch {
-		case lp == "true" && mp != "true":
-		case mp == "true" && lp != "true":
-			passive, other = m, l
-			lev, mev = mev, lev
+		case lp == "true" && mp == "true":
+			detail = fmt.Sprintf("%s %s and %s %s both report OSPF passive, which is consistent with the expected adjacency between them not forming", l.node, l.iface, m.node, m.iface)
+			limit = limitMissingPassiveBoth
+		case lp == "true":
+			detail = fmt.Sprintf("%s %s reports OSPF passive, which is consistent with the expected adjacency with %s %s not forming", l.node, l.iface, m.node, m.iface)
+			limit = limitMissingPassive
+		case mp == "true":
+			detail = fmt.Sprintf("%s %s reports OSPF passive, which is consistent with the expected adjacency with %s %s not forming", m.node, m.iface, l.node, l.iface)
+			limit = limitMissingPassive
 		default:
 			continue
 		}
@@ -720,7 +727,7 @@ func (a *analysis) declaredPassive(declared map[link][]record) {
 			continue
 		}
 		ev := slices.Concat(lev, mev, evidenceOf(recs, "declared link, this end"), evidenceOf(mrecs, "declared link, far end"))
-		a.add(KindMissingNeighbor, ConsistentWith, l, fmt.Sprintf("%s %s reports OSPF passive, which is consistent with the expected adjacency with %s %s not forming", passive.node, passive.iface, other.node, other.iface), limitMissingPassive, ev)
+		a.add(KindMissingNeighbor, ConsistentWith, l, detail, limit, ev)
 	}
 }
 

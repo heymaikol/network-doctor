@@ -460,6 +460,77 @@ func TestPassiveBothKeysIsConflicting(t *testing.T) {
 	checkAbsent(t, "both keys", ifaceFacts(t, res, "r3", "e3"), "ospf.passive")
 }
 
+// helloCases are the timerHelloInMsecs values a record may carry, as the wire
+// writes them. FRR writes an integer count of milliseconds from 0 to 65535000,
+// the largest hello interval the router accepts. want is the passive value an
+// active record without timerPassiveIface then reads, or "" when the value is
+// unreadable and no passive value is written.
+var helloCases = []struct {
+	name, raw, want string
+}{
+	{"zero", `0`, "false"},
+	{"typical", `9000`, "false"},
+	{"largest FRR writes", `65535000`, "false"},
+	{"fractional", `1.5`, ""},
+	{"negative", `-1`, ""},
+	{"exponent", `1e300`, ""},
+	{"just above the bound", `65535001`, ""},
+	{"beyond int64", `99999999999999999999`, ""},
+	{"string", `"9000"`, ""},
+	{"boolean", `true`, ""},
+	{"null", `null`, ""},
+}
+
+// TestHelloTimerMustBeAnInteger puts each helloCases value on a synthetic active
+// record. Only an integer in range establishes the active state. The others write
+// no passive value and get a note that names the timer.
+func TestHelloTimerMustBeAnInteger(t *testing.T) {
+	for _, c := range helloCases {
+		t.Run(c.name, func(t *testing.T) {
+			res := importSynth(t, synthIface(map[string]any{"timerHelloInMsecs": json.RawMessage(c.raw)}))
+			if got := ifaceFacts(t, res, "r3", "e3")["ospf.passive"]; got != c.want {
+				t.Errorf("timerHelloInMsecs %s: ospf.passive = %q, want %q", c.raw, got, c.want)
+			}
+			if c.want == "" && noteWith(capNotes(t, res, "r3", CommandInterface), "timerHelloInMsecs") == "" {
+				t.Errorf("timerHelloInMsecs %s: no note names the timer", c.raw)
+			}
+		})
+	}
+}
+
+// TestHelloTimerMissingWritesNoPassive drops the hello timer from an otherwise
+// active-looking record. Neither key is present, so no passive value is written.
+func TestHelloTimerMissingWritesNoPassive(t *testing.T) {
+	res := importSynth(t, synthIface(nil, "timerHelloInMsecs"))
+	checkAbsent(t, "hello timer missing", ifaceFacts(t, res, "r3", "e3"), "ospf.passive")
+}
+
+// TestHelloTimerMixedWithPassiveStillWithholds sets timerPassiveIface true beside
+// each helloCases value. The record holds both keys, so the D1 withholding applies
+// whatever the hello value is: no passive value and no other fact of the name.
+func TestHelloTimerMixedWithPassiveStillWithholds(t *testing.T) {
+	for _, c := range helloCases {
+		t.Run(c.name, func(t *testing.T) {
+			res := importSynth(t, synthIface(map[string]any{"timerPassiveIface": true, "timerHelloInMsecs": json.RawMessage(c.raw)}))
+			checkAbsent(t, "mixed "+c.raw, ifaceFacts(t, res, "r3", "e3"), "ospf.passive", "ospf.cost", "ospf.network_type", "ospf.interface_state")
+		})
+	}
+}
+
+// TestHelloTimerBadValueKeepsTheCapture puts a fractional hello timer on a synthetic
+// record beside the broadcast labs. The import succeeds and the neighbors of r1 stay
+// mapped, so the bad value does not refuse the capture or close the ownership gate.
+func TestHelloTimerBadValueKeepsTheCapture(t *testing.T) {
+	caps := append(broadcastCaptures(t), rawInterfaceCapture(t, "r3", synthIface(map[string]any{"timerHelloInMsecs": json.RawMessage(`1.5`)})))
+	res, err := Import(caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(neighborsOf(res, "r1")) == 0 {
+		t.Errorf("r1 lost its neighbors to a malformed hello timer")
+	}
+}
+
 // TestNewFieldValuesAreSanitized uses a synthetic state with a terminal escape.
 // The note quotes the value without the escape character.
 func TestNewFieldValuesAreSanitized(t *testing.T) {

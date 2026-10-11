@@ -32,6 +32,11 @@ const (
 // cost 0 for a loopback, which is a valid value.
 const maxCost = 65535
 
+// maxHelloMsecs bounds timerHelloInMsecs. FRR writes the time left until the next
+// hello, in milliseconds, and that is at most the largest hello interval the router
+// accepts, 65535 seconds.
+const maxHelloMsecs = 65535 * 1000
+
 // networkTypes is the closed map from the networkType FRR prints to the name the
 // topology uses. It reads only networkType. ospfIfType is a different field with
 // a different meaning, and it is never read. Any other value, including "Null",
@@ -136,6 +141,20 @@ type passiveResult struct {
 	mixed bool
 }
 
+// helloFact reads timerHelloInMsecs as an integer count of milliseconds. A
+// fractional or exponent number, a string, or a value outside 0 to maxHelloMsecs is
+// malformed. A negative value is also refused. FRR computes the time left before
+// the next hello, so an overdue timer could read below zero. Refusing it only
+// withholds the passive value, and it never asserts an active state.
+func helloFact(raw json.RawMessage) fact {
+	var n int64
+	k := classify(raw, &n)
+	if k == factValue && (n < 0 || n > maxHelloMsecs) {
+		return factMalformed
+	}
+	return k
+}
+
 // passiveFact applies the tri-state rule to one record. timerPassiveIface true
 // with no hello timer is passive. A hello timer with no timerPassiveIface is
 // active. Both keys together conflict, and a null or malformed key establishes
@@ -144,7 +163,7 @@ type passiveResult struct {
 func passiveFact(name string, passive, hello json.RawMessage, numbered bool) passiveResult {
 	var on bool
 	pk := classify(passive, &on)
-	hk := classify(hello, new(float64))
+	hk := helloFact(hello)
 	res := passiveResult{mixed: pk == factValue && on && hk != factAbsent}
 	switch {
 	case pk == factValue && !on:

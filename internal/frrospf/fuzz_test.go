@@ -1,6 +1,7 @@
 package frrospf
 
 import (
+	"encoding/json"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -98,6 +99,10 @@ func FuzzImportInterfaceFacts(f *testing.F) {
 	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"cost":65536,"networkType":"Null","state":null,"timerPassiveIface":false,"timerHelloInMsecs":"9000"}}}`))
 	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerPassiveIface":true,"timerHelloInMsecs":9000,"drAddress":"10.99.9.9","bdrAddress":"10.1.1.1"}}}`))
 	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"drAddress":"0.0.0.0","bdrAddress":"not-an-address"}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":1.5}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":-1}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":1e300}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":65535001}}}`))
 	f.Add([]byte(`{}`))
 
 	ifaces := []Capture{
@@ -140,10 +145,30 @@ func FuzzImportInterfaceFacts(f *testing.F) {
 					if !inVocabulary(a) {
 						t.Fatalf("%s %s writes %s = %q, outside its vocabulary", o.Node, i.Name, a.Key, a.Value)
 					}
+					if o.Node == "r3" && i.Name == "e3" && a.Key == keyPassive && a.Value == "false" && !activeRecord(data) {
+						t.Fatalf("r3 e3 writes ospf.passive false without an in-range integer hello timer: %q", data)
+					}
 				}
 			}
 		}
 	})
+}
+
+// activeRecord reports whether the e3 record in data is the only shape that writes
+// ospf.passive false: an integer hello timer in range and no timerPassiveIface.
+func activeRecord(data []byte) bool {
+	var doc struct {
+		Interfaces map[string]map[string]json.RawMessage `json:"interfaces"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return false
+	}
+	rec := doc.Interfaces["e3"]
+	if _, ok := rec["timerPassiveIface"]; ok {
+		return false
+	}
+	var n int64
+	return json.Unmarshal(rec["timerHelloInMsecs"], &n) == nil && n >= 0 && n <= maxHelloMsecs
 }
 
 // inVocabulary reports whether an interface attribute holds a value its key may

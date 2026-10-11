@@ -406,6 +406,14 @@ func TestTierOneScenarios(t *testing.T) {
 			}
 			rep := runScenario(t, tc.name, tc.extra...)
 			if rep.Result != ResultPass || len(rep.Tests) != tc.testCount {
+				if tc.name == "packet-loss" {
+					// When the verdict or test count is wrong, print what the lossy path
+					// did with it. Nothing else bounds the DNS query list, so cap it.
+					queries := rep.Evidence.DNSQueries
+					shown := queries[:min(len(queries), 32)]
+					t.Logf("DNS queries, first %d of %d: %+v", len(shown), len(queries), shown)
+					t.Logf("packet conditions: %+v", rep.Evidence.PacketConditions)
+				}
 				t.Fatalf("result = %s (error %q); tests=%+v suggestions=%+v", rep.Result, rep.Error, rep.Tests, rep.Suggestions)
 			}
 			out := rep.Tests[0]

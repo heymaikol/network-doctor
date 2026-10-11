@@ -1083,10 +1083,7 @@ func TestProxyProbeParseErrorIsRedacted(t *testing.T) {
 		proxyFromEnv: func(*http.Request) (*url.URL, error) {
 			return nil, errors.New("parse " + sentinel + ": invalid control character in URL")
 		},
-		dialContext: func(context.Context, string, string) (net.Conn, error) {
-			t.Fatal("a proxy parse error must not be dialed")
-			return nil, nil
-		},
+		dialContext: noProxyDial(t),
 	}
 	r := ops.proxyProbe(context.Background(), nil)
 	if r.Status != StatusFail {
@@ -1651,103 +1648,69 @@ func goProxyEnv(cfg httpproxy.Config) func(*http.Request) (*url.URL, error) {
 	return func(req *http.Request) (*url.URL, error) { return proxyFunc(req.URL) }
 }
 
-// HTTP_PROXY applies only to plain http:// requests, which an HTTPS client never
-// sends, so an HTTP_PROXY-only host has no HTTPS proxy. The probe must not
-// tunnel through it and report HTTPS egress as working.
-func TestProxyProbeHTTPProxyOnlyIsNotHTTPSEgress(t *testing.T) {
-	ops := &netops{proxyFromEnv: goProxyEnv(httpproxy.Config{HTTPProxy: "http://user:secret@proxy.corp:8080"}), dialContext: func(context.Context, string, string) (net.Conn, error) {
-		t.Fatal("HTTP_PROXY must not carry the HTTPS probe")
+// noProxyDial fails the test if the probe dials a proxy it must not reach.
+func noProxyDial(t *testing.T) func(context.Context, string, string) (net.Conn, error) {
+	return func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("proxy must not be dialed")
 		return nil, nil
-	}}
-	r := ops.proxyProbe(context.Background(), nil)
-	if r.Status != StatusNA || !strings.Contains(r.Detail, "plain HTTP") {
-		t.Errorf("HTTP_PROXY-only = %+v, want N/A saying the proxy covers plain HTTP", r)
-	}
-	if strings.Contains(r.Detail+r.Fix, "secret") {
-		t.Errorf("proxy credentials reached the report: %+v", r)
 	}
 }
 
-// Under CGI (REQUEST_METHOD set), net/http refuses HTTP_PROXY and errors on the
-// plain-HTTP lookup. That lookup only explains an N/A, so the refusal must not
-// turn an HTTPS N/A into FAIL, and the detail must report the failed lookup
-// without claiming HTTP_PROXY is set or unset.
-func TestProxyProbeCGIHTTPProxyRefusalIsNotAFailure(t *testing.T) {
-	ops := &netops{proxyFromEnv: goProxyEnv(httpproxy.Config{HTTPProxy: "http://user:secret@proxy.corp:8080", CGI: true}), dialContext: func(context.Context, string, string) (net.Conn, error) {
-		t.Fatal("a refused HTTP_PROXY must not be dialed")
+// HTTP_PROXY applies only to plain http:// requests, which an HTTPS client never
+// sends, so an HTTP_PROXY-only host has no HTTPS proxy. When the HTTPS lookup
+// finds no proxy, the probe answers N/A without dialing the plain-HTTP proxy, and
+// the report carries neither its credentials nor the raw lookup error.
+func TestProxyProbeNADoesNotDialPlainHTTPProxy(t *testing.T) {
+	const plainHTTP = "no proxy applies to HTTPS requests, but one applies to plain HTTP"
+	const lookupFailed = "no proxy applies to HTTPS requests; the plain-HTTP proxy lookup failed, so plain HTTP could not be assessed"
+	// Built at run time, so the fixture holds no literal credential URL.
+	httpOnly := (&url.URL{Scheme: "http", User: url.UserPassword("user", "secret"), Host: "proxy.corp:8080"}).String()
+	failedLookup := func(req *http.Request) (*url.URL, error) {
+		if req.URL.Scheme == "http" {
+			return nil, errors.New("parse SENSITIVE_PROXY_VALUE: invalid character")
+		}
 		return nil, nil
-	}}
-	r := ops.proxyProbe(context.Background(), nil)
-	if r.Status != StatusNA || r.Cause != "" || r.Fix != "" {
-		t.Errorf("CGI with HTTP_PROXY only = %+v, want N/A with no cause or fix", r)
 	}
-	if want := "no proxy applies to HTTPS requests; the plain-HTTP proxy lookup failed, so plain HTTP could not be assessed"; r.Detail != want {
-		t.Errorf("CGI detail = %q, want %q", r.Detail, want)
-	}
-	if strings.Contains(r.Detail, "HTTP_PROXY") {
-		t.Errorf("detail %q makes a claim about HTTP_PROXY", r.Detail)
-	}
-	if strings.Contains(r.Detail+r.Fix, "secret") {
-		t.Errorf("proxy credentials reached the report: %+v", r)
+	for _, tc := range []struct {
+		name         string
+		proxyFromEnv func(*http.Request) (*url.URL, error)
+		detail       string
+		absent       []string
+	}{
+		{"HTTP_PROXY only", goProxyEnv(httpproxy.Config{HTTPProxy: httpOnly}), plainHTTP, []string{"secret"}},
+		// Scoped to :443, so the HTTPS probe is exempt but plain HTTP on port 80 is not.
+		{"NO_PROXY 443 exempts HTTPS", goProxyEnv(httpproxy.Config{HTTPProxy: httpOnly, HTTPSProxy: "http://proxy.corp:3128", NoProxy: ConnectivityProbeHost + ":443"}), "", []string{"secret"}},
+		// Under CGI net/http refuses HTTP_PROXY. The refusal only explains an N/A, so the
+		// detail reports the failed lookup without claiming HTTP_PROXY is set or unset.
+		{"CGI refuses HTTP_PROXY", goProxyEnv(httpproxy.Config{HTTPProxy: httpOnly, CGI: true}), lookupFailed, []string{"secret", "HTTP_PROXY"}},
+		// The error does not name its variable (HTTP_PROXY or ALL_PROXY), so neither does the detail.
+		{"plain-HTTP lookup error", failedLookup, lookupFailed, []string{"SENSITIVE_PROXY_VALUE", "HTTP_PROXY"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := &netops{proxyFromEnv: tc.proxyFromEnv, dialContext: noProxyDial(t)}
+			r := ops.proxyProbe(context.Background(), nil)
+			if r.Status != StatusNA || r.Cause != "" || r.Fix != "" {
+				t.Errorf("result = %+v, want N/A with no cause or fix", r)
+			}
+			if tc.detail != "" && r.Detail != tc.detail {
+				t.Errorf("detail = %q, want %q", r.Detail, tc.detail)
+			}
+			for _, s := range tc.absent {
+				if strings.Contains(r.Detail+r.Fix, s) {
+					t.Errorf("report contains %q: %+v", s, r)
+				}
+			}
+		})
 	}
 }
 
 // Under CGI with no HTTP_PROXY there is nothing for the plain-HTTP lookup to
 // refuse, so the detail keeps the genuine no-proxy wording.
 func TestProxyProbeCGINoHTTPProxyKeepsNoProxyDetail(t *testing.T) {
-	ops := &netops{proxyFromEnv: goProxyEnv(httpproxy.Config{CGI: true}), dialContext: func(context.Context, string, string) (net.Conn, error) {
-		t.Fatal("no proxy configured, so nothing may be dialed")
-		return nil, nil
-	}}
+	ops := &netops{proxyFromEnv: goProxyEnv(httpproxy.Config{CGI: true}), dialContext: noProxyDial(t)}
 	r := ops.proxyProbe(context.Background(), nil)
 	if r.Status != StatusNA || r.Detail != "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)" {
 		t.Errorf("CGI with no proxy = %+v, want the genuine no-proxy N/A", r)
-	}
-}
-
-// A plain-HTTP lookup can fail with no HTTP_PROXY set, for instance when NO_PROXY
-// exempts the HTTPS request and ALL_PROXY does not parse. The error does not name
-// its variable, so the detail must report the failed lookup without claiming
-// HTTP_PROXY is set or unset.
-func TestProxyProbePlainHTTPLookupErrorWithoutHTTPProxyClaimsNoVariable(t *testing.T) {
-	ops := &netops{proxyFromEnv: func(req *http.Request) (*url.URL, error) {
-		if req.URL.Scheme == "http" {
-			return nil, errors.New("parse SENSITIVE_PROXY_VALUE: invalid character")
-		}
-		return nil, nil
-	}, dialContext: func(context.Context, string, string) (net.Conn, error) {
-		t.Fatal("a failed plain-HTTP lookup must not be dialed")
-		return nil, nil
-	}}
-	r := ops.proxyProbe(context.Background(), nil)
-	if r.Status != StatusNA || r.Cause != "" || r.Fix != "" {
-		t.Errorf("plain-HTTP lookup error = %+v, want N/A with no cause or fix", r)
-	}
-	if want := "no proxy applies to HTTPS requests; the plain-HTTP proxy lookup failed, so plain HTTP could not be assessed"; r.Detail != want {
-		t.Errorf("detail = %q, want %q", r.Detail, want)
-	}
-	if strings.Contains(r.Detail, "HTTP_PROXY") {
-		t.Errorf("detail %q makes a claim about HTTP_PROXY", r.Detail)
-	}
-	if strings.Contains(r.Detail+r.Fix, "SENSITIVE_PROXY_VALUE") {
-		t.Errorf("lookup error text reached the report: %+v", r)
-	}
-}
-
-// A NO_PROXY entry scoped to :443 exempts the HTTPS probe but not a plain-HTTP
-// request on port 80. The exemption must hold, so HTTP_PROXY cannot stand in.
-func TestProxyProbeNoProxy443DoesNotFallBackToHTTPProxy(t *testing.T) {
-	proxyEnv := goProxyEnv(httpproxy.Config{
-		HTTPProxy:  "http://proxy.corp:8080",
-		HTTPSProxy: "http://proxy.corp:3128",
-		NoProxy:    ConnectivityProbeHost + ":443",
-	})
-	ops := &netops{proxyFromEnv: proxyEnv, dialContext: func(context.Context, string, string) (net.Conn, error) {
-		t.Fatal("an exempt HTTPS probe must not be dialed through HTTP_PROXY")
-		return nil, nil
-	}}
-	if r := ops.proxyProbe(context.Background(), nil); r.Status != StatusNA {
-		t.Errorf("NO_PROXY=host:443 with HTTP_PROXY = %+v, want N/A", r)
 	}
 }
 

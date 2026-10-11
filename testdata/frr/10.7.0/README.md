@@ -33,7 +33,8 @@ command fails the test.
 ## Scenarios
 
 Each scenario was run serially with `lab/run5.sh`, one scenario per
-`unshare` invocation.
+`unshare` invocation. The `lsdb/` scenarios were run with `lab/lsdb.sh`
+instead, and they are described in `lsdb/README.md`.
 
 | Directory | What it shows |
 | --- | --- |
@@ -44,6 +45,7 @@ Each scenario was run serially with `lab/run5.sh`, one scenario per
 | `nbma/` | r1 e1 set to `ip ospf network non-broadcast` with a static `neighbor 10.0.1.2`. The peer is absent. `r1-early-*` is a detail dump taken 15 seconds after start and holds the `noNbrId` record. The later dump, at the end of the settle window, is an empty neighbor list. |
 | `noinst/` | r2 runs ospfd with no `router ospf` stanza. Its commands return `{}`. |
 | `area/` | r2 puts e2 in area 0.0.0.1 while r1 keeps e1 in 0.0.0.0, on one subnet. No adjacency forms, so both neighbor lists are empty. Each interface capture reports the area its side is in. |
+| `lsdb/` | Two routers with an OSPF LSDB bracket. Scenarios `steady`, `flap`, and `kill9`. See `lsdb/README.md`. |
 | `secondary/` | r1 adds 10.0.2.1/24 to e1 in area 0.0.0.1, beside the primary 10.0.1.1/24 in area 0.0.0.0. The adjacency with r2 is Full in area 0.0.0.0. The interface record for e1 shows only the secondary: `ipAddress` 10.0.2.1, `area` 0.0.0.1, `nbrCount` 0. See the section below. |
 
 ## Area and secondary-address captures

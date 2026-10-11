@@ -15,11 +15,16 @@ network.
   Type 5 external LSA.
 - One area, 0.0.0.0. The adjacency is broadcast on e1.
 - The lab driver is `../lab/lsdb.sh`. It runs one scenario per `unshare`
-  invocation and writes the files here in this layout. `steady/` was rerun with
-  the committed driver: it gave the same file set, and its bracket passes the
-  guard with no finding. `flap/` and `kill9/` came from an earlier run of the
-  same driver, before its paths were made relative and before the max-age
-  command was removed from it. Their captures are unchanged.
+  invocation.
+- The captures here came from an earlier run of the same driver, from before
+  two changes. Its paths were made relative to the script, and it wrote
+  `<tag>-<name>.raw` files with `meta/<tag>-<name>.at` timestamps. The files
+  were renamed to `<node>-<role>-<command>.raw` and `.collected_at`, with the
+  contents unchanged. The earlier run also captured the max-age command between
+  B and E, and that capture was not kept.
+- The committed driver was rerun for `steady`. It gave the same file set, and
+  its bracket passes the guard with no finding. That rerun is not committed,
+  and it is not the source of the `steady/` files here.
 
 ## Files
 
@@ -53,14 +58,14 @@ counts toward the per-area reconciliation, which matches the counters.
 
 ## Not included
 
-- The max-age command (`show ip ospf database max-age json`). The driver can
-  run it, but max-age LSAs are not part of the comparison, so the capture is
-  not committed.
+- The max-age command (`show ip ospf database max-age json`). The earlier run
+  captured it, but max-age LSAs are not part of the comparison, so the capture
+  is not kept, and the driver no longer runs it.
 - Topo-ecmp and topo-area runs. They are not committed, so no test reads them.
-- NSSA (Type 7) LSAs. No lab run produced one, so the NSSA decode is tested
-  only on synthetic input.
-- Point-to-point and virtual links in the LSDB. The comparison keeps those as
-  facts and unsupported entries, and no capture here exercises them.
+- NSSA (Type 7) LSAs. No lab run produced one, and no test reads one, so that
+  decode path is unverified against FRR output.
+- Point-to-point and virtual links in a router LSA. Their entries carry no
+  prefix, and no capture here exercises them.
 
 ## Limits
 

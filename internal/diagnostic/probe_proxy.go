@@ -79,13 +79,17 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 	var err error
 	// Only https:// decides this probe, since it stands in for an HTTPS
 	// client, and net/http reads HTTP_PROXY only for plain http:// requests.
-	// The http:// lookup below explains an N/A; that proxy is never dialed.
+	// The http:// lookup below only explains an N/A; that proxy is never dialed.
+	// Its error never fails this probe and only changes the N/A detail. HTTP_PROXY
+	// (refused under CGI, or unparseable) or ALL_PROXY can each produce it, and this
+	// probe does not tell them apart, so the detail names no variable.
 	proxyURL, err = o.proxyFromEnv(&http.Request{URL: &url.URL{Scheme: "https", Host: ConnectivityProbeHost}})
 	plainHTTPProxy := false
+	plainHTTPUnknown := false
 	if err == nil && proxyURL == nil {
-		var httpURL *url.URL
-		httpURL, err = o.proxyFromEnv(&http.Request{URL: &url.URL{Scheme: "http", Host: ConnectivityProbeHost}})
-		plainHTTPProxy = httpURL != nil
+		httpURL, httpErr := o.proxyFromEnv(&http.Request{URL: &url.URL{Scheme: "http", Host: ConnectivityProbeHost}})
+		plainHTTPProxy = httpErr == nil && httpURL != nil
+		plainHTTPUnknown = httpErr != nil
 	}
 	if err != nil {
 		r.Status = StatusFail
@@ -99,6 +103,8 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 		r.Detail = "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)"
 		if plainHTTPProxy {
 			r.Detail = "no proxy applies to HTTPS requests, but one applies to plain HTTP"
+		} else if plainHTTPUnknown {
+			r.Detail = "no proxy applies to HTTPS requests; the plain-HTTP proxy lookup failed, so plain HTTP could not be assessed"
 		}
 		return r
 	}

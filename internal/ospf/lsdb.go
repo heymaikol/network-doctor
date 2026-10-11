@@ -402,9 +402,16 @@ func checkGuard(n NodeInput, procs []Process) (*Process, []string) {
 }
 
 // compareStates lists how A and D differ. It names an SPF counter only when that
-// counter moved.
+// counter moved. A timer change is named as a configuration change. It does not
+// show that SPF ran.
 func compareStates(a, d *Process) []string {
 	var reasons []string
+	if a.HoldtimeMaxMs != d.HoldtimeMaxMs {
+		reasons = append(reasons, fmt.Sprintf("the holdtime maximum changed from %d ms to %d ms between A and D", a.HoldtimeMaxMs, d.HoldtimeMaxMs))
+	}
+	if a.SPFDelayMs != d.SPFDelayMs {
+		reasons = append(reasons, fmt.Sprintf("the SPF delay changed from %d ms to %d ms between A and D", a.SPFDelayMs, d.SPFDelayMs))
+	}
 	ka, kd := slices.Sorted(maps.Keys(a.Areas)), slices.Sorted(maps.Keys(d.Areas))
 	if !slices.Equal(ka, kd) {
 		return append(reasons, fmt.Sprintf("the area inventory changed from %s to %s", strings.Join(ka, ","), strings.Join(kd, ",")))

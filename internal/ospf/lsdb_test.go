@@ -311,15 +311,52 @@ func TestGuardWindowMustExceedTheLargerTimerBound(t *testing.T) {
 		t.Fatalf("guard = %+v; want a window failure", rep.Guard)
 	}
 
-	// The bound is the larger of A's and D's timers, so a longer hold time in D
-	// raises it.
+	// A and D hold the same timers, so the bound is their 20000 ms holdtime. The
+	// timers are equal, so only the bound is in question.
 	m := healthy()
+	m.Processes[0].HoldtimeMaxMs = 20000
 	m.Processes[1].HoldtimeMaxMs = 20000
 	m.Processes[1].CollectedAt = at(15)
 	m.Processes[0].Areas = m.Processes[1].Areas
 	rep = findingsOf(t, m)
 	if rep.Guard.Passed || !strings.Contains(strings.Join(rep.Guard.Reasons, ";"), "20000ms timer bound") {
 		t.Fatalf("guard = %+v; want D's larger timer used", rep.Guard)
+	}
+}
+
+// TestGuardWithholdsOnChangedTimers changes one timer between A and D. The window
+// is longer than both bounds, and the counters and checksums match, so the timer
+// change is the only reason to withhold. The reason names the timer. It does not
+// say that SPF ran, because a configuration change alone does not show that.
+func TestGuardWithholdsOnChangedTimers(t *testing.T) {
+	cases := map[string]struct {
+		edit   func(*Process)
+		reason string
+	}{
+		"holdtime maximum": {
+			func(d *Process) { d.HoldtimeMaxMs = 10000 },
+			"the holdtime maximum changed from 5000 ms to 10000 ms between A and D",
+		},
+		"SPF delay": {
+			func(d *Process) { d.SPFDelayMs = 200 },
+			"the SPF delay changed from 0 ms to 200 ms between A and D",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			n := healthy()
+			c.edit(&n.Processes[1])
+			rep := findingsOf(t, n)
+			if rep.Guard.Passed {
+				t.Fatal("guard passed with a changed timer")
+			}
+			if got := strings.Join(rep.Guard.Reasons, "; "); !strings.Contains(got, c.reason) {
+				t.Fatalf("reasons = %q; want %q", got, c.reason)
+			}
+			if got := kinds(rep.Findings); len(got) != 1 || !strings.HasPrefix(got[0], "ospf_comparison_unverified") {
+				t.Fatalf("findings = %q; want only ospf_comparison_unverified", got)
+			}
+		})
 	}
 }
 

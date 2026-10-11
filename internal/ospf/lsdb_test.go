@@ -91,8 +91,8 @@ func killed() NodeInput {
 
 // TestHugeTimersCannotWrapTheWindowBound checks a capture whose timers would
 // wrap the window bound. Both holdtimes at MaxUint64 plus a 2ms SPF delay sum to
-// 1ms in uint64. An unclamped bound would fall to the one-second floor, and the
-// 15-second window would pass the guard.
+// 1ms in uint64. The guard must not add them. It names each timer above the
+// source limit and gives no bound, so the 15-second window cannot pass on them.
 func TestHugeTimersCannotWrapTheWindowBound(t *testing.T) {
 	n := killed()
 	for i := range n.Processes {
@@ -103,8 +103,46 @@ func TestHugeTimersCannotWrapTheWindowBound(t *testing.T) {
 	if rep.Guard.Passed {
 		t.Fatal("guard passed with timers that wrap the window bound")
 	}
-	if got := strings.Join(rep.Guard.Reasons, "; "); !strings.Contains(got, "does not exceed") {
-		t.Fatalf("reasons = %q; want the window bound named", got)
+	if got := strings.Join(rep.Guard.Reasons, "; "); !strings.Contains(got, "above the 600000 ms limit of timers throttle spf") {
+		t.Fatalf("reasons = %q; want the timer above the source limit named", got)
+	}
+}
+
+// TestGuardRejectsTimersAboveTheSourceLimit gives both processes a holdtime of
+// three days and a window of four days. A one-day cap would let that window
+// pass. FRR accepts no SPF timer above 600000 ms, so the guard withholds the
+// comparison and names the timer.
+func TestGuardRejectsTimersAboveTheSourceLimit(t *testing.T) {
+	n := healthy()
+	for i := range n.Processes {
+		n.Processes[i].HoldtimeMaxMs = 3 * 24 * 60 * 60 * 1000
+	}
+	n.Processes[1].CollectedAt = at(4 * 24 * 60 * 60)
+	rep := findingsOf(t, n)
+	if rep.Guard.Passed {
+		t.Fatal("guard passed with a holdtime above the source limit")
+	}
+	if got := strings.Join(rep.Guard.Reasons, "; "); !strings.Contains(got, "the holdtime maximum of capture A is 259200000 ms, above the 600000 ms limit of timers throttle spf") {
+		t.Fatalf("reasons = %q; want the holdtime above the limit named", got)
+	}
+	if got := kinds(rep.Findings); len(got) != 1 || !strings.HasPrefix(got[0], "ospf_comparison_unverified") {
+		t.Fatalf("findings = %q; want only ospf_comparison_unverified", got)
+	}
+}
+
+// TestGuardAcceptsTheLargestTimerFRRAccepts keeps the boundary: 600000 ms is
+// the largest value the CLI takes. The sum of the two largest timers is 1200 s,
+// so a window of 1300 s still passes.
+func TestGuardAcceptsTheLargestTimerFRRAccepts(t *testing.T) {
+	n := healthy()
+	for i := range n.Processes {
+		n.Processes[i].HoldtimeMaxMs = 600000
+		n.Processes[i].SPFDelayMs = 600000
+	}
+	n.Processes[1].CollectedAt = at(1300)
+	rep := findingsOf(t, n)
+	if !rep.Guard.Passed {
+		t.Fatalf("guard = %+v; want the largest accepted timers to pass", rep.Guard)
 	}
 }
 

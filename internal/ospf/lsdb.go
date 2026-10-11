@@ -394,9 +394,12 @@ func checkGuard(n NodeInput, procs []Process) (*Process, []string) {
 	} else if a.RouterID != d.RouterID {
 		reasons = append(reasons, fmt.Sprintf("the router ID changed from %s to %s", a.RouterID, d.RouterID))
 	}
-	bound := max(timerMs(a.HoldtimeMaxMs)+timerMs(a.SPFDelayMs), timerMs(d.HoldtimeMaxMs)+timerMs(d.SPFDelayMs), aseIntervalMs)
-	if window := d.CollectedAt.Sub(a.CollectedAt); window <= time.Duration(bound)*time.Millisecond {
-		reasons = append(reasons, fmt.Sprintf("the window of %s does not exceed the %dms timer bound", window, bound))
+	bound, timerReasons := windowBound(a, d)
+	reasons = append(reasons, timerReasons...)
+	if len(timerReasons) == 0 {
+		if window := d.CollectedAt.Sub(a.CollectedAt); window <= time.Duration(bound)*time.Millisecond {
+			reasons = append(reasons, fmt.Sprintf("the window of %s does not exceed the %dms timer bound", window, bound))
+		}
 	}
 	return a, append(reasons, compareStates(a, d)...)
 }
@@ -520,14 +523,41 @@ func gateOf(n NodeInput, a *Process, rows []Reconciliation, findings *[]LSDBFind
 	return g
 }
 
-// maxTimerMs caps a timer read from a capture at one day. FRR's timers are
-// seconds to minutes, so a larger value is a bad capture. The cap keeps the sum
-// of the timers inside int64, and so inside time.Duration.
-const maxTimerMs = 24 * 60 * 60 * 1000
+// maxTimerMs is the largest SPF timer a capture may declare. The CLI takes each of
+// "timers throttle spf" delay, initial hold, and maximum hold only up to 600000
+// ms (FRR 10.7.0, ospfd/ospf_vty.c:2344), and the process state prints the delay
+// and the maximum hold from those values. Above it, FRR cannot have set the timer.
+const maxTimerMs = 600000
 
-// timerMs returns a timer in milliseconds, capped at maxTimerMs.
-func timerMs(ms uint64) int64 {
-	return int64(min(ms, maxTimerMs)) // #nosec G115 -- capped to maxTimerMs, which fits int64
+// windowBound returns the wait that the window must exceed, in milliseconds. It
+// is the larger of the holdtime maximum plus SPF delay read from A and from D,
+// and at least the AS-external calculation interval. A timer above maxTimerMs
+// gives no bound. Each such timer is named as a reason, and the sum is never
+// formed from it.
+func windowBound(a, d *Process) (int64, []string) {
+	var reasons []string
+	for _, p := range []struct {
+		label string
+		p     *Process
+	}{{"A", a}, {"D", d}} {
+		for _, t := range []struct {
+			name string
+			ms   uint64
+		}{{"holdtime maximum", p.p.HoldtimeMaxMs}, {"SPF delay", p.p.SPFDelayMs}} {
+			if t.ms > maxTimerMs {
+				reasons = append(reasons, fmt.Sprintf("the %s of capture %s is %d ms, above the %d ms limit of timers throttle spf", t.name, p.label, t.ms, maxTimerMs))
+			}
+		}
+	}
+	if len(reasons) > 0 {
+		return 0, reasons
+	}
+	bound := int64(aseIntervalMs)
+	for _, p := range []*Process{a, d} {
+		// Each timer is at most maxTimerMs here, so the sum fits int64.
+		bound = max(bound, int64(p.HoldtimeMaxMs)+int64(p.SPFDelayMs)) // #nosec G115 -- each timer is at most maxTimerMs
+	}
+	return bound, nil
 }
 
 // lsaUse decides whether an advertisement is compared, and says why not when it

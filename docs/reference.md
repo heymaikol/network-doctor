@@ -2031,7 +2031,8 @@ The guard decides whether a node is compared. It fails, and the node gets only `
 - A capture of the bracket is refused or missing, or A and D do not both report a running OSPF process.
 - The router ID changed between A and D.
 - The holdtime maximum or the SPF delay changed between A and D. The report names the timer and both values. A timer change is a configuration change, so the report does not say that SPF ran.
-- The window from A to D does not exceed the bound. The bound is the largest of three values: holdtime plus SPF delay read from A, the same sum read from D, and one second. Each timer is capped at one day before the sum.
+- A holdtime maximum or an SPF delay is above 600000 ms in A or D. That is the largest value `timers throttle spf` accepts (FRR 10.7.0, `ospfd/ospf_vty.c`). The report names each such timer, and no bound is formed from it.
+- The window from A to D does not exceed the bound. The bound is the largest of three values: holdtime plus SPF delay read from A, the same sum read from D, and one second.
 - The area inventory, an area's SPF counter, or an area's LSA count or checksum changed between A and D. The AS-external count or checksum changed too.
 
 A failed guard names each failed check in the report. The guard never passes on a partial bracket.

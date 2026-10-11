@@ -1,0 +1,66 @@
+name: proxy-only-network-http-proxy
+description: >-
+  The proxy-only network from proxy-only-network.yaml, with its HTTP CONNECT
+  proxy handed to netdoc only as HTTP_PROXY. netdoc's proxy row follows HTTPS
+  proxy selection and reads HTTP_PROXY only for plain http:// requests, so the
+  row is N/A, nothing tunnels, and the diagnosis must not call the network
+  online through a proxy that was never used.
+
+topology:
+  subnet: 10.77.0.0/24
+  nodes:
+    - name: client
+      role: client
+      address: 10.77.0.10
+      gateway: 10.77.0.1
+      resolver: 10.77.0.1
+
+    # The simulated internet, claiming the fixed endpoints netdoc's direct
+    # egress and public-DNS probes dial. Everything on 443 here is what the
+    # client is cut off from; DNS on 53 and the plain-HTTP portal endpoint on
+    # 80 stay reachable, which is what a proxy-only network actually looks
+    # like and what keeps the DNS rows honest.
+    - name: internet
+      address: 10.77.0.1
+      aliases: [1.1.1.1, 8.8.8.8]
+      services:
+        - type: dns
+          zone:
+            connectivitycheck.gstatic.com: 10.77.0.1
+        - {type: http, port: 80}
+        - {name: internet-encrypted-dns, type: encrypted_dns, port: 443, certificate: {mode: valid, dns_names: [cloudflare-dns.com]}, zone: {connectivitycheck.gstatic.com: 10.77.0.1}}
+        - {name: internet-quic, type: quic, port: 443, certificate: {mode: valid, dns_names: [connectivitycheck.gstatic.com]}}
+
+    # The only way out. Its own namespace carries no drop rule, so it reaches
+    # the internet node on 443 that the client cannot.
+    - name: proxy
+      address: 10.77.0.30
+      resolver: 10.77.0.1
+      services:
+        - name: connect-proxy
+          type: http_connect
+          port: 3128
+
+faults:
+  # Identical to proxy-only-network.yaml, so the only difference between the
+  # two networks is the variable netdoc is handed the proxy through.
+  - {type: drop, node: client, direction: outbound, protocol: tcp, port: 443}
+  - {type: drop, node: client, direction: outbound, protocol: tcp, port: 853}
+
+tests:
+  - name: generic checks with an HTTP_PROXY-only proxy
+    node: client
+    proxy: {scheme: http, node: proxy, port: 3128, variable: HTTP_PROXY}
+
+expect:
+  verdict: network
+  checks:
+    - {id: iface, status: PASS}
+    # FAIL rather than WARN: nothing else proves the machine is online, so the
+    # direct failure is not downgraded.
+    - {id: internet_tcp, status: FAIL}
+    # N/A: the proxy is handed over but the HTTPS row never dials it.
+    - {id: proxy_connect, status: N/A}
+    - {id: dns, status: PASS}
+    - {id: dns_public, status: PASS}
+    - {id: dns_encrypted, status: FAIL}

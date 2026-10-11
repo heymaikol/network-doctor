@@ -418,8 +418,11 @@
           "minimum": 0,
           "maximum": 65535,
           "description": "The proxy port. 0, like an absent key, means the scheme's default: 1080 for socks5 and socks5h, 3128 for http."
-        }
-      }
+        },
+        "variable": { "$ref": "#/$defs/proxyVariable" }
+      },
+      "if": { "required": ["variable"], "properties": { "variable": { "const": "HTTP_PROXY" } } },
+      "then": { "properties": { "scheme": { "const": "http" } } }
     },
 
     "TestTrust": {
@@ -625,6 +628,11 @@
     "proxyScheme": {
       "enum": ["socks5", "socks5h", "http"],
       "description": "The public URL scheme netdoc is given for the proxy."
+    },
+
+    "proxyVariable": {
+      "enum": ["", "HTTP_PROXY"],
+      "description": "The environment variable an http proxy is handed through instead of HTTPS_PROXY. Only with scheme http, where it applies to plain http:// requests and never to the HTTPS tunnel. Absent or empty, the scheme picks the variable."
     },
 
     "addressFamily": {

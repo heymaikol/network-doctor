@@ -2307,6 +2307,74 @@ func TestProxyOnlyNetworkBrokenDNSScenario(t *testing.T) {
 	assertCleanedUp(t, rep)
 }
 
+// TestProxyOnlyNetworkHTTPProxyScenario is the negative control for the proxy
+// claim: the same proxy-only network, with its CONNECT proxy handed to netdoc
+// only as HTTP_PROXY. netdoc's proxy row reads HTTP_PROXY only for plain http://
+// requests and stands in for an HTTPS client, so the row is N/A, nothing dials
+// the proxy, and direct egress stays blocked with no other way out. The
+// diagnosis has to say that rather than read the proxy as working egress.
+// TestProxyOnlyNetworkScenario is the paired positive control: same topology,
+// same blocked 443, handed over as HTTPS_PROXY.
+func TestProxyOnlyNetworkHTTPProxyScenario(t *testing.T) {
+	t.Parallel()
+	requireBackend(t)
+	rep := runScenario(t, "proxy-only-network-http-proxy", "-timeout", timedTimeout)
+	if rep.Result != ResultPass {
+		t.Fatalf("result = %s (error %q); suggestions: %+v; tests: %+v", rep.Result, rep.Error, rep.Suggestions, rep.Tests)
+	}
+	out := rep.Tests[0]
+	if out.FalsePositives != 0 || out.FalseNegatives != 0 {
+		t.Errorf("comparison fp=%d fn=%d: %+v", out.FalsePositives, out.FalseNegatives, out.Checks)
+	}
+	if out.Proxy != "http://10.77.0.30:3128" {
+		t.Errorf("netdoc was handed proxy %q", out.Proxy)
+	}
+
+	// The block is measured: the client's own TCP/443 filter matched real packets.
+	assertObservedFamily(t, rep, "ipv4", FamilyStateUnreachable)
+	if !droppedOutbound(rep.Evidence, "client", "tcp", 443) {
+		t.Errorf("the client's own TCP/443 filter never matched a packet: %+v", rep.Evidence.PacketDrops)
+	}
+
+	// Nothing reached the proxy. Every request it receives is recorded with its
+	// status, a 405 included, so zero records means no request arrived. A proxy
+	// that never started would also read as zero, which is why the paired
+	// TestProxyOnlyNetworkScenario has to keep passing for this to mean anything.
+	for _, reply := range rep.Evidence.ServiceReplies {
+		if reply.Type == ServiceHTTPConnect {
+			t.Errorf("the CONNECT proxy answered a request with %d, want none: %+v", reply.Status, reply)
+		}
+	}
+
+	// The rows, pinned exactly. The N/A detail is the only proof HTTP_PROXY reached
+	// netdoc: unset, the detail would say no proxy is in the environment at all.
+	internet := diagnosisCheck(out, string(diagnostic.ProbeInternet))
+	if internet.Status != "FAIL" || strings.Contains(internet.Detail, "but the environment proxy works") {
+		t.Errorf("direct egress row = %+v", internet)
+	}
+	proxy := diagnosisCheck(out, string(diagnostic.ProbeProxy))
+	if proxy.Status != "N/A" || proxy.Detail != "no proxy applies to HTTPS requests, but one applies to plain HTTP" {
+		t.Errorf("proxy_connect = %+v", proxy)
+	}
+	if out.ActualVerdict != "network" {
+		t.Errorf("verdict = %q, want network", out.ActualVerdict)
+	}
+
+	// The user-visible half of the claim. No proxy carried traffic, so the summary
+	// may not describe a proxy-only network, and no finding may say it is one.
+	summary := out.Diagnosis.Summary
+	want := "DNS resolves but there's no direct TCP egress to the egress check's reference endpoints (proxy-only or filtered network?)."
+	if summary != want {
+		t.Errorf("summary = %q, want %q", summary, want)
+	}
+	for _, finding := range out.Diagnosis.Findings {
+		if finding.ID == string(diagnostic.DiagnosisProxyOnlyNetwork) {
+			t.Errorf("proxy-only finding on a network whose proxy was never used: %+v", finding)
+		}
+	}
+	assertCleanedUp(t, rep)
+}
+
 // TestEncryptedDNSBlockedScenario is one half of the README's independence
 // claim: a network can carry ordinary DNS while blocking DoH and DoT. Both
 // encrypted transports are cut off at the one bootstrap address the row dials,

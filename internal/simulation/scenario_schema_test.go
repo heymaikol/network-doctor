@@ -152,6 +152,7 @@ func TestSchemaAcceptsEveryScenarioShape(t *testing.T) {
 		"explicit routes":        "missing-subnet-route.yaml",
 		"socks5 proxy":           "socks5-local-dns-fails.yaml",
 		"http connect proxy":     "proxy-only-network.yaml",
+		"http proxy variable":    "proxy-only-network-http-proxy.yaml",
 		"tls certificate":        "tls-expired-certificate.yaml",
 		"encrypted dns":          "encrypted-dns-blocked.yaml",
 		"tcp banner":             "service-banners.yaml",
@@ -229,6 +230,24 @@ expect:
   summary: ""
   checks:
     - {id: iface, status: PASS, cause: "", fix: "", ipv4: "", ipv6: ""}
+`,
+	"proxy variable on an http proxy and an empty one on socks5": `
+name: proxy-variable
+topology:
+  nodes:
+    - {name: client, role: client, address: 10.77.0.10}
+    - name: proxy
+      address: 10.77.0.1
+      resolver: 10.77.0.1
+      services:
+        - {name: connect-proxy, type: http_connect, port: 3128}
+        - {name: socks, type: socks5, port: 1080}
+tests:
+  - {node: client, proxy: {scheme: http, node: proxy, variable: HTTP_PROXY}}
+  - {node: client, proxy: {scheme: socks5, node: proxy, variable: ""}}
+expect:
+  checks:
+    - {id: iface, status: PASS}
 `,
 	"null campaign": `
 name: null-campaign
@@ -494,6 +513,33 @@ topology:
     - {name: client, role: client, address: 10.77.0.10}
     - {name: proxy, address: 10.77.0.1, resolver: 10.77.0.1, services: [{type: socks5, port: 1080}]}
 tests: [{node: client, proxy: {scheme: socks4, node: proxy, port: 1080}}]
+expect: {checks: [{id: iface, status: PASS}]}
+`,
+	"proxy variable on a socks5 proxy": `
+name: bad
+topology:
+  nodes:
+    - {name: client, role: client, address: 10.77.0.10}
+    - {name: proxy, address: 10.77.0.1, resolver: 10.77.0.1, services: [{type: socks5, port: 1080}]}
+tests: [{node: client, proxy: {scheme: socks5, node: proxy, port: 1080, variable: HTTP_PROXY}}]
+expect: {checks: [{id: iface, status: PASS}]}
+`,
+	"unknown proxy variable": `
+name: bad
+topology:
+  nodes:
+    - {name: client, role: client, address: 10.77.0.10}
+    - {name: proxy, address: 10.77.0.1, resolver: 10.77.0.1, services: [{type: http_connect, port: 3128}]}
+tests: [{node: client, proxy: {scheme: http, node: proxy, port: 3128, variable: HTTPS_PROXY}}]
+expect: {checks: [{id: iface, status: PASS}]}
+`,
+	"lowercase proxy variable": `
+name: bad
+topology:
+  nodes:
+    - {name: client, role: client, address: 10.77.0.10}
+    - {name: proxy, address: 10.77.0.1, resolver: 10.77.0.1, services: [{type: http_connect, port: 3128}]}
+tests: [{node: client, proxy: {scheme: http, node: proxy, port: 3128, variable: http_proxy}}]
 expect: {checks: [{id: iface, status: PASS}]}
 `,
 	"node name is not a safe name": `
@@ -829,6 +875,7 @@ func TestSchemaEnumsMatchGoVocabularies(t *testing.T) {
 		{def: "dropProtocol", want: cases["f.Protocol"], allowEmpty: true},
 		{def: "nodeRole", want: cases["n.Role"], allowEmpty: true},
 		{def: "proxyScheme", want: cases["p.Scheme"]},
+		{def: "proxyVariable", want: cases["p.Variable"], allowEmpty: true},
 		{def: "probeID", want: probes},
 		{def: "status", want: statuses},
 		{def: "verdict", want: verdicts, allowEmpty: true},

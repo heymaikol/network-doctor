@@ -211,6 +211,12 @@ Some semantics are easy to get wrong even after reading a scenario:
   purpose: a CONNECT proxy resolves the tunnel authority in its own namespace,
   so a drop that also caught the proxy's lookups would take the proxy down
   along with the client and stop testing anything.
+- `variable: HTTP_PROXY` hands an `http` proxy over as `HTTP_PROXY` instead of
+  `HTTPS_PROXY`. netdoc's proxy row reads that variable only for plain `http://`
+  requests, so the HTTPS row is N/A and nothing tunnels.
+  [`proxy-only-network-http-proxy.yaml`](../internal/simulation/scenarios/proxy-only-network-http-proxy.yaml)
+  is that case on the blocked network: the diagnosis stays network-level and
+  never calls it proxy-only.
 - TLS, QUIC, and encrypted-DNS fixtures generate private keys and certificates
   in memory. Only public CA certificates are written inside the mode-`0700` run
   workspace; trusted code points the netdoc process at the selected TLS CA and

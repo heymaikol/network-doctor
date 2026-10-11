@@ -295,6 +295,26 @@ func TestParseScenarioRejects(t *testing.T) {
 			"command",
 		},
 		{
+			"proxy variable needs the http scheme",
+			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: socks5, node: server, variable: HTTP_PROXY}", 1),
+			"needs scheme http",
+		},
+		{
+			"proxy variable on socks5h needs the http scheme",
+			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: socks5h, node: server, variable: HTTP_PROXY}", 1),
+			"needs scheme http",
+		},
+		{
+			"proxy variable other than HTTP_PROXY",
+			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: http, node: server, variable: HTTPS_PROXY}", 1),
+			"unknown variable",
+		},
+		{
+			"lowercase proxy variable",
+			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: http, node: server, variable: http_proxy}", 1),
+			"unknown variable",
+		},
+		{
 			"unknown trust service",
 			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, trust: {service: missing}", 1),
 			"unknown tls service",
@@ -421,6 +441,37 @@ func TestProxyDefaultsAndUsesValidatedNodeAddress(t *testing.T) {
 	}
 	if got := s.Topology.Nodes[1].Services[0].Port; got != 1080 {
 		t.Errorf("service port = %d", got)
+	}
+}
+
+// HTTP_PROXY is the only explicit variable choice, and only an http proxy can
+// make it. Absent or empty, each scheme keeps the variable it always had.
+func TestProxyVariableChoice(t *testing.T) {
+	for _, tc := range []struct {
+		name, proxy, wantEnv string
+		wantPort             int
+	}{
+		{"http proxy asks for HTTP_PROXY", "scheme: http, node: server, variable: HTTP_PROXY", "HTTP_PROXY", 3128},
+		{"http proxy with no variable keeps HTTPS_PROXY", "scheme: http, node: server", "HTTPS_PROXY", 3128},
+		{"http proxy with an empty variable keeps HTTPS_PROXY", `scheme: http, node: server, variable: ""`, "HTTPS_PROXY", 3128},
+		{"socks5 proxy keeps ALL_PROXY", "scheme: socks5, node: server", "ALL_PROXY", 1080},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := strings.Replace(minimalScenario, "address: 10.77.0.1}",
+				"address: 10.77.0.1, resolver: 10.77.0.1, services: [{name: connect-proxy, type: http_connect}, {name: socks, type: socks5}]}", 1)
+			raw = strings.Replace(raw, "target: example.test:80", "target: example.test:80, proxy: {"+tc.proxy+"}", 1)
+			s, err := ParseScenario(strings.NewReader(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxy := s.Tests[0].Proxy
+			if proxy.Port != tc.wantPort {
+				t.Errorf("port = %d, want %d", proxy.Port, tc.wantPort)
+			}
+			if got := proxy.envName(); got != tc.wantEnv {
+				t.Errorf("env name = %q, want %q", got, tc.wantEnv)
+			}
+		})
 	}
 }
 

@@ -56,6 +56,7 @@ func addFRRLSDB(t *testing.T, dir, manifest, scenario, node string) {
 		if err := os.WriteFile(filepath.Join(dir, file), []byte(payload), 0o600); err != nil {
 			t.Fatal(err)
 		}
+		// #nosec G304 -- the lab directory and stem are this test's own table.
 		stamp, err := os.ReadFile(filepath.Join(frrLSDBDir, scenario, stem+".collected_at"))
 		if err != nil {
 			t.Fatal(err)

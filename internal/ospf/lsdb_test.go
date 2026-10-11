@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// The healthy node is r1 of the lab in ext2-steady. Its captures bracket one
-// stable state: A at lsdbT0, B at lsdbT0+3s, E at lsdbT0+6s, D at lsdbT0+15s. Its counters and
-// checksums reconcile exactly.
+// The healthy node is r1 of the steady LSDB lab. Its captures bracket one stable
+// state: A at lsdbT0, B at lsdbT0+3s, E at lsdbT0+6s, D at lsdbT0+15s. Its
+// counters and checksums reconcile exactly.
 
 var lsdbT0 = time.Date(2026, 10, 11, 2, 35, 0, 0, time.UTC)
 
@@ -79,9 +79,9 @@ func healthy() NodeInput {
 
 func ptr(v uint64) *uint64 { return &v }
 
-// killed is the r2-killed bracket in ext2-kill9. r2's router and network LSAs
-// stay in the LSDB, but its prefixes are gone from the route table. Its network
-// LSA 10.0.1.1 of r1 is at MaxAge and still counted.
+// killed is the kill9 bracket of r1, after r2 was SIGKILLed. r2's router and
+// network LSAs stay in the LSDB, but its prefixes are gone from the route table.
+// The network LSA 10.0.1.1 of r1 is at MaxAge and still counted.
 func killed() NodeInput {
 	n := healthy()
 	n.LSDB.LSAs[2] = networkLSA("10.0.1.1", "1.1.1.1", 3600, 0xe564)

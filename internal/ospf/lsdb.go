@@ -384,7 +384,7 @@ func checkGuard(n NodeInput, procs []Process) (*Process, []string) {
 	}
 	if n.LSDB != nil && n.Routes != nil {
 		b, e := n.LSDB.CollectedAt, n.Routes.CollectedAt
-		if !(a.CollectedAt.Before(b) && b.Before(e) && e.Before(d.CollectedAt)) {
+		if !a.CollectedAt.Before(b) || !b.Before(e) || !e.Before(d.CollectedAt) {
 			reasons = append(reasons, fmt.Sprintf("the captures are out of order or tied: A %s, B %s, E %s, D %s",
 				stamp(a.CollectedAt), stamp(b), stamp(e), stamp(d.CollectedAt)))
 		}

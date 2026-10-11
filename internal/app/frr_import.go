@@ -479,8 +479,16 @@ func buildFRRReport(manifestPath string, m frrospf.Manifest, res frrospf.Result)
 	return r
 }
 
-// renderLSDB writes the OSPF LSDB comparison. Each node shows its guard, and each
-// finding shows what the captures show beside the limit of that reading.
+// Per-node facts follow the findings. They show the values the captures reported,
+// so a reader can see what a finding compared. Each list stops at its limit, and
+// the JSON report keeps every item.
+const (
+	lsdbFactLimit   = 20 // advertisements, routes, rows, areas, and unsupported entries per node
+	lsdbPrefixLimit = 5  // prefixes shown for one advertisement
+)
+
+// renderLSDB writes the OSPF LSDB comparison. Each node shows its guard, its
+// findings, and the facts its captures reported. Each finding also shows its limit.
 func renderLSDB(b *strings.Builder, rep *ospf.LSDBReport) {
 	clean := textsafe.Clean
 	b.WriteString("\nOSPF LSDB comparison:\n")
@@ -497,11 +505,141 @@ func renderLSDB(b *strings.Builder, rep *ospf.LSDBReport) {
 			fmt.Fprintf(b, "    %s (%s): %s\n", f.Kind, f.Strength, clean(f.Detail))
 			fmt.Fprintf(b, "      limit: %s\n", f.Limit)
 		}
+		renderLSDBFacts(b, n)
 	}
 	b.WriteString("  limitations:\n")
 	for _, line := range rep.Limitations {
 		fmt.Fprintf(b, "    %s\n", line)
 	}
+}
+
+// renderLSDBFacts writes what one node's captures reported: the process state,
+// the LSDB with its reconciliation, the calculated routes, and the unsupported
+// counts. A section with no capture says so.
+func renderLSDBFacts(b *strings.Builder, n ospf.NodeReport) {
+	clean := textsafe.Clean
+	for _, p := range n.Processes {
+		fmt.Fprintf(b, "    process state from %s, collected %s (reported)\n", clean(p.Source), p.CollectedAt.Format(time.RFC3339Nano))
+		router := "none"
+		if p.RouterID != "" {
+			router = clean(p.RouterID)
+		}
+		fmt.Fprintf(b, "      router ID %s, holdtime maximum %d ms, SPF delay %d ms, external LSAs %d, checksum %d\n",
+			router, p.HoldtimeMaxMs, p.SPFDelayMs, p.External.Number, p.External.Checksum)
+		areas := slices.Sorted(maps.Keys(p.Areas))
+		if len(areas) == 0 {
+			b.WriteString("      no areas\n")
+		}
+		for i, id := range areas {
+			if i == lsdbFactLimit {
+				fmt.Fprintf(b, "      ... %d more areas; see --json\n", len(areas)-i)
+				break
+			}
+			a := p.Areas[id]
+			fmt.Fprintf(b, "      area %s: SPF executed %d", clean(id), a.SPFExecuted)
+			for _, t := range []ospf.LSAType{ospf.LSARouter, ospf.LSANetwork, ospf.LSASummary, ospf.LSAASBRSummary, ospf.LSANSSA} {
+				fmt.Fprintf(b, ", %s %d", t, a.Counts[t].Number)
+			}
+			b.WriteString("\n")
+		}
+	}
+	if n.LSDBRead != nil {
+		fmt.Fprintf(b, "    LSDB from %s, collected %s (reported): %d LSAs\n",
+			clean(n.LSDBRead.Source), n.LSDBRead.CollectedAt.Format(time.RFC3339Nano), len(n.LSAs))
+		matched := 0
+		for _, r := range n.Reconciliation {
+			if r.Matched {
+				matched++
+			}
+		}
+		fmt.Fprintf(b, "      reconciliation: %d of %d rows matched\n", matched, len(n.Reconciliation))
+		for i, r := range n.Reconciliation {
+			if i == lsdbFactLimit {
+				fmt.Fprintf(b, "      ... %d more rows; see --json\n", len(n.Reconciliation)-i)
+				break
+			}
+			process := "process count not reported"
+			if r.Process != nil {
+				process = fmt.Sprintf("process %d LSAs, checksum %d", r.Process.Number, r.Process.Checksum)
+			}
+			verdict := "not matched"
+			if r.Matched {
+				verdict = "matched"
+			}
+			fmt.Fprintf(b, "        %s, type %s: LSDB %d LSAs, checksum %d; %s; %s\n",
+				scopeLabel(r.Area), r.Type, r.LSDB.Number, r.LSDB.Checksum, process, verdict)
+		}
+		for i, f := range n.LSAs {
+			if i == lsdbFactLimit {
+				fmt.Fprintf(b, "      ... %d more advertisements; see --json\n", len(n.LSAs)-i)
+				break
+			}
+			fmt.Fprintf(b, "      %s advertisement %s from %s, %s, sequence %s, age %d",
+				f.Type, clean(f.LinkStateID), clean(f.AdvertisingRouter), scopeLabel(f.Area), clean(f.Sequence), f.Age)
+			if f.Metric != nil {
+				fmt.Fprintf(b, ", metric %d", *f.Metric)
+			}
+			if len(f.Prefixes) > 0 {
+				fmt.Fprintf(b, ", prefixes %s", prefixList(f.Prefixes))
+			}
+			fmt.Fprintf(b, ", use: %s\n", clean(f.Use))
+		}
+		for i, u := range n.Unsupported {
+			if i == lsdbFactLimit {
+				fmt.Fprintf(b, "    ... %d more unsupported counts; see --json\n", len(n.Unsupported)-i)
+				break
+			}
+			where := ""
+			if u.Area != "" {
+				where = " in " + scopeLabel(u.Area)
+			}
+			fmt.Fprintf(b, "    unsupported: %d %s entries%s, not compared\n", u.Entries, clean(u.Section), where)
+		}
+	} else {
+		b.WriteString("    LSDB: not read\n")
+	}
+	if n.RoutesRead != nil {
+		fmt.Fprintf(b, "    calculated route table from %s, collected %s (reported): %d routes\n",
+			clean(n.RoutesRead.Source), n.RoutesRead.CollectedAt.Format(time.RFC3339Nano), len(n.Routes))
+		for i, r := range n.Routes {
+			if i == lsdbFactLimit {
+				fmt.Fprintf(b, "      ... %d more routes; see --json\n", len(n.Routes)-i)
+				break
+			}
+			fmt.Fprintf(b, "      route %s, type %s, cost %d", r.Prefix, clean(r.RouteType), r.Cost)
+			if r.Area != "" {
+				fmt.Fprintf(b, ", area %s", clean(r.Area))
+			}
+			fmt.Fprintf(b, ", next hops %d", r.NextHops)
+			if r.Type2Cost != nil {
+				fmt.Fprintf(b, ", type 2 cost %d", *r.Type2Cost)
+			}
+			b.WriteString("\n")
+		}
+	} else {
+		b.WriteString("    calculated route table: not read\n")
+	}
+}
+
+// prefixList joins up to lsdbPrefixLimit prefixes and counts the rest.
+func prefixList(ps []ospf.Prefix) string {
+	var parts []string
+	for i, p := range ps {
+		if i == lsdbPrefixLimit {
+			parts = append(parts, fmt.Sprintf("and %d more", len(ps)-i))
+			break
+		}
+		parts = append(parts, p.Prefix.String())
+	}
+	return strings.Join(parts, ", ")
+}
+
+// scopeLabel names an area, or the AS scope when the item has no area.
+func scopeLabel(area string) string {
+	if area == "" {
+		return "AS scope"
+	}
+	return "area " + textsafe.Clean(area)
 }
 
 // renderFRRText is the human report. Every value from a capture or a manifest

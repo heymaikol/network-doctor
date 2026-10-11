@@ -208,14 +208,26 @@ type LSDBFinding struct {
 	Limit             string    `json:"limit"`
 }
 
-// NodeReport is the comparison for one node in one VRF.
+// ReadInfo names the capture that gave a set of facts, with its declared
+// collection time.
+type ReadInfo struct {
+	Source      string    `json:"source"`
+	CollectedAt time.Time `json:"collected_at"`
+}
+
+// NodeReport is the comparison for one node in one VRF. The facts are what the
+// captures reported. LSDBRead and RoutesRead name the captures that gave the LSA
+// and route facts, and each is nil when that capture was not read.
 type NodeReport struct {
 	Node           string           `json:"node"`
 	VRF            string           `json:"vrf"`
 	Guard          Guard            `json:"guard"`
 	Processes      []Process        `json:"processes,omitempty"`
 	Reconciliation []Reconciliation `json:"reconciliation,omitempty"`
+	LSDBRead       *ReadInfo        `json:"lsdb_read,omitempty"`
 	LSAs           []LSAFact        `json:"lsas,omitempty"`
+	Unsupported    []Unsupported    `json:"unsupported,omitempty"`
+	RoutesRead     *ReadInfo        `json:"routes_read,omitempty"`
 	Routes         []Route          `json:"routes,omitempty"`
 	Findings       []LSDBFinding    `json:"findings"`
 }
@@ -286,6 +298,13 @@ func compareNode(n NodeInput) NodeReport {
 		return cmp.Or(a.CollectedAt.Compare(b.CollectedAt), strings.Compare(a.Source, b.Source))
 	})
 	rep.Processes = procs
+	if n.LSDB != nil {
+		rep.LSDBRead = &ReadInfo{Source: n.LSDB.Source, CollectedAt: n.LSDB.CollectedAt}
+		rep.Unsupported = sortedUnsupported(n.LSDB.Unsupported)
+	}
+	if n.Routes != nil {
+		rep.RoutesRead = &ReadInfo{Source: n.Routes.Source, CollectedAt: n.Routes.CollectedAt}
+	}
 
 	a, reasons := checkGuard(n, procs)
 	rep.Guard = Guard{Passed: len(reasons) == 0, Reasons: reasons}
@@ -609,6 +628,16 @@ func routeSet(r *Routes) map[netip.Prefix]bool {
 		set[e.Prefix] = true
 	}
 	return set
+}
+
+// sortedUnsupported orders the unsupported counts by area, then section, so the
+// report does not depend on the order the decoder met them.
+func sortedUnsupported(in []Unsupported) []Unsupported {
+	out := slices.Clone(in)
+	slices.SortFunc(out, func(a, b Unsupported) int {
+		return cmp.Or(strings.Compare(a.Area, b.Area), strings.Compare(a.Section, b.Section))
+	})
+	return out
 }
 
 func sortedRoutes(in []Route) []Route {

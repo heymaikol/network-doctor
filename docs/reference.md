@@ -1988,7 +1988,7 @@ Exit `0` is not a health result. It means the captures were read and each neighb
 
 ### Report
 
-The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish. With LSDB captures, it also has an `OSPF LSDB comparison` block: one line per node with its guard result, then each finding with its limit.
+The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish. With LSDB captures, it also has an `OSPF LSDB comparison` block. Each node has its guard result, then each finding with its limit, then the facts its captures reported. The facts are the process state, the LSDB and its reconciliation, the advertisements, the calculated routes, and the unsupported counts. Each list shows its first 20 items and says how many it left out. The [JSON report](#lsdb-comparison) has every item.
 
 `--json` prints one object. Its `version` is `1`.
 
@@ -1997,7 +1997,7 @@ The text report names the result, lists each capture with its declared fields an
 - `counts`: `captures`, `accepted`, `refused`, `records`, `mapped`, and `unmapped`.
 - `captures`: each with `file`, `declared` (`source`, `node`, `vrf`, `frr_version`, `command`, and `collected_at`), `accepted`, `reason` when refused, `empty` (accepted with no neighbor or interface records), `interfaces`, `neighbors`, and `notes` when present.
 - `records`: each neighbor record with `source`, `node`, `vrf`, `local_interface`, `neighbor_address`, `router_id` when present, `state`, `area`, `mapped`, `remote_node` and `remote_interface` when mapped, and `reason` when present.
-- `ospf_lsdb`: the [LSDB comparison](#lsdb-comparison). It is present only when the manifest has LSDB captures.
+- `ospf_lsdb`: the [LSDB comparison](#lsdb-comparison). It is present only when the manifest has LSDB captures. Each node also names the source and declared collection time of its LSDB and route captures (`lsdb_read`, `routes_read`) and lists its unsupported counts (`unsupported`).
 - `not_imported` and `limitations`: the same lines the text report prints.
 - `topology`: `requested`, `written`, `path` when `--write-topology` was given, and `reason` when the topology was not written.
 
@@ -2048,6 +2048,8 @@ A node gets the findings below, whatever its guard result. Each finding names it
 The comparison compares the prefixes of router LSA stub links and AS-external LSAs. It skips an LSA at MaxAge, a self-originated AS-external LSA, and an AS-external LSA with the metric LSInfinity, as FRR's route calculation does (`ospfd/ospf_ase.c`). Network, summary, ASBR summary, and NSSA LSAs are read and reported, not compared. Transit, point-to-point, and virtual links in a router LSA carry no prefix.
 
 Findings say what the captures show. They name no cause, and they do not say that a route is installed, forwarded, or missing from the kernel. The advertising router of a finding is a router ID. It is not mapped to a node.
+
+The text report also shows the facts each node's captures reported, and marks them as reported, not verified. The process state lists the router ID, the holdtime maximum, the SPF delay, the AS-external count and checksum, and each area's SPF counter and LSA counts. The LSDB block lists each area and type with its LSDB count and checksum, the process count, and whether they match. It then lists each advertisement with its advertising router, sequence, age, and prefixes. The prefixes of one advertisement stop at five. The calculated routes list each prefix, route type, cost, area, and next-hop count. The text names the layer each fact comes from. These are the LSDB and the calculated OSPF route table, not the RIB or the kernel forwarding table. A node whose captures were not read says `not read` for that section. Legacy reports with no LSDB captures show none of this.
 
 The comparison reads the default VRF only. Opaque LSAs are counted as unsupported and not decoded. A capture is limited to 1 MiB, like any other capture.
 

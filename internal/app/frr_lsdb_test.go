@@ -3,12 +3,15 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heymaikol/network-doctor/internal/frrospf"
+	"github.com/heymaikol/network-doctor/internal/ospf"
 )
 
 // frrLSDBDir holds the recorded OSPF LSDB lab, one directory per scenario. Each
@@ -238,5 +241,82 @@ func TestFRRImportMissingProcessStateIsAManifestError(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "needs exactly 2") {
 		t.Errorf("stderr lacks the count refusal: %s", stderr)
+	}
+}
+
+// A node with no finding still shows what its captures reported. The facts are
+// the process state, the advertisements, and the calculated routes, each with
+// its source, so the report is not only the findings.
+func TestFRRImportLSDBTextShowsTheReportedFacts(t *testing.T) {
+	dir, manifest := stageFRRBcast(t)
+	addFRRLSDB(t, dir, manifest, "kill9", "r1")
+	code, stdout, stderr := runNetdoc(t, "--import-frr-ospf", manifest)
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"router ID 1.1.1.1, holdtime maximum 5000 ms, SPF delay 0 ms",
+		"area 0.0.0.0: SPF executed 5",
+		"rows matched",
+		"router advertisement 1.1.1.1 from 1.1.1.1, area 0.0.0.0",
+		"prefixes 10.0.1.0/24, 10.10.1.0/24",
+		"external advertisement 10.20.0.0 from 2.2.2.2, AS scope",
+		"10.0.1.0/24, type N, cost 10, area 0.0.0.0, next hops 1",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("text report lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
+// lsdbFactLimitForTest is the per-list item limit that renderLSDBFacts applies.
+const lsdbFactLimitForTest = 20
+
+// The facts block is bounded. A capture with many advertisements, routes, or
+// prefixes names the first items and a count of the rest, and the output does not
+// depend on the order the report holds them.
+func TestLSDBTextFactsAreBoundedAndDeterministic(t *testing.T) {
+	at := time.Date(2026, 10, 11, 2, 39, 0, 0, time.UTC)
+	node := ospf.NodeReport{
+		Node: "r1", VRF: "default", Guard: ospf.Guard{Passed: true},
+		LSDBRead:   &ospf.ReadInfo{Source: "lsdb.json", CollectedAt: at},
+		RoutesRead: &ospf.ReadInfo{Source: "routes.json", CollectedAt: at},
+	}
+	for i := range 25 {
+		node.LSAs = append(node.LSAs, ospf.LSAFact{
+			LSA: ospf.LSA{Type: ospf.LSAExternal, LinkStateID: fmt.Sprintf("10.%d.0.0", i), AdvertisingRouter: "2.2.2.2",
+				Sequence: "80000001", Checksum: 1, Prefixes: []ospf.Prefix{{Prefix: netip.MustParsePrefix(fmt.Sprintf("10.%d.0.0/24", i))}}},
+			Use: "compared",
+		})
+		node.Routes = append(node.Routes, ospf.Route{Prefix: netip.MustParsePrefix(fmt.Sprintf("10.%d.0.0/24", i)), RouteType: "N", Cost: 10, NextHops: 1})
+	}
+	var many []ospf.Prefix
+	for i := range 9 {
+		many = append(many, ospf.Prefix{Prefix: netip.MustParsePrefix(fmt.Sprintf("192.0.%d.0/24", i))})
+	}
+	// The router LSA comes first, so the 20-item cut cannot hide its prefixes.
+	router := ospf.LSAFact{LSA: ospf.LSA{Type: ospf.LSARouter, Area: "0.0.0.0", LinkStateID: "3.3.3.3", AdvertisingRouter: "3.3.3.3", Sequence: "80000001", Prefixes: many}, Use: "compared"}
+	node.LSAs = append([]ospf.LSAFact{router}, node.LSAs...)
+	rep := &ospf.LSDBReport{Nodes: []ospf.NodeReport{node}}
+
+	var first, second strings.Builder
+	renderLSDB(&first, rep)
+	renderLSDB(&second, rep)
+	if first.String() != second.String() {
+		t.Fatal("two renders of one report differ")
+	}
+	out := first.String()
+	for _, want := range []string{"... 6 more advertisements", "... 5 more routes", "and 4 more"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bounded facts lack %q:\n%s", want, out)
+		}
+	}
+	// Each list shows its first twenty items. The router LSA and twenty-five
+	// routes are in the report, so the counts below are exact.
+	if n := strings.Count(out, " advertisement "); n != lsdbFactLimitForTest {
+		t.Errorf("advertisement lines = %d; want %d", n, lsdbFactLimitForTest)
+	}
+	if n := strings.Count(out, ", type N, cost "); n != lsdbFactLimitForTest {
+		t.Errorf("route lines = %d; want %d", n, lsdbFactLimitForTest)
 	}
 }

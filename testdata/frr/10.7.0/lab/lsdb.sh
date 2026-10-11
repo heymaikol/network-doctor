@@ -43,7 +43,7 @@ start() {
   sock=/run/frr/$(basename "$1")
   mkdir -p "$sock"
   local run="$FRR/zebra -d -f $d/zebra.conf -i $d/zebra.pid -z $sock/zserv.api --vty_socket $sock -u root -g root && $FRR/ospfd -d -f $d/ospfd.conf -i $d/ospfd.pid -z $sock/zserv.api --vty_socket $sock -u root -g root"
-  if [ "$ns" = self ]; then sh -c "$run" >/dev/null 2>&1; else nsenter -t "$ns" -n sh -c "$run" >/dev/null 2>&1; fi
+  if [[ "$ns" = self ]]; then sh -c "$run" >/dev/null 2>&1; else nsenter -t "$ns" -n sh -c "$run" >/dev/null 2>&1; fi
 }
 start "$L/r1" self
 start "$L/r2" $R2
@@ -59,7 +59,7 @@ cap() {
   local ns=$1 tag=$2 port=$3 name=$4; shift 4
   local base="$L/$tag-$name-${*// /_}"
   date -u +%Y-%m-%dT%H:%M:%S.%NZ > "$base.collected_at"
-  if [ "$ns" = self ]; then timeout 30 python3 -I "$TCP" "$port" "$*" > "$base.raw" 2>&1
+  if [[ "$ns" = self ]]; then timeout 30 python3 -I "$TCP" "$port" "$*" > "$base.raw" 2>&1
   else timeout 30 nsenter -t "$ns" -n python3 -I "$TCP" "$port" "$*" > "$base.raw" 2>&1; fi
 }
 bracket() { # ns tag port
@@ -67,10 +67,10 @@ bracket() { # ns tag port
   cap "$ns" "$tag" "$port" A "show ip ospf json"
   cap "$ns" "$tag" "$port" B "show ip ospf database detail json"
   cap "$ns" "$tag" "$port" E "show ip ospf route json"
-  if [ "$MODE" = flap ] && [ "$ns" = self ]; then ip link set stub1 down; sleep 4; fi
+  if [[ "$MODE" = flap ]] && [[ "$ns" = self ]]; then ip link set stub1 down; sleep 4; fi
   cap "$ns" "$tag" "$port" D "show ip ospf json"
 }
-if [ "$MODE" = kill9 ]; then
+if [[ "$MODE" = kill9 ]]; then
   # SIGKILL r2 daemons: r2 LSAs stay in r1's LSDB, r1 loses the adjacency.
   cat "$L"/r2/*.pid 2>/dev/null | xargs -r kill -9; echo "r2 SIGKILL"; sleep 75
   bracket self r1 2604
@@ -78,7 +78,7 @@ else
   bracket self r1 2604
   bracket $R2 r2 2604
 fi
-[ "$MODE" = flap ] && ip link set stub1 up
+[[ "$MODE" = flap ]] && ip link set stub1 up
 echo "DONE"
 cat "$L"/r1/*.pid "$L"/r2/*.pid 2>/dev/null | xargs -r kill
 kill $R2 2>/dev/null

@@ -100,6 +100,7 @@ const (
 	limitDeclaredRecorded   = "Both ends declare this link, the effective areas differ, and an OSPF neighbor record reports the link. Both cannot hold at once, so no area is chosen. The declaration is supplied by the user, and the captures may have been taken at different times, shown on the evidence rows. FRR shows one area per interface name, so the interface's area may not be the area of this adjacency."
 	limitDeclaredOneSided   = "Only one end declares this link, so the declaration does not confirm that the link exists. The effective areas of the two interfaces differ. No area is chosen and no cause is shown."
 	limitDeclaredIncomplete = "An end of this declared link has no effective area, or one that cannot be read, so the areas are not compared. Nothing is concluded about the link."
+	limitMissingPassive     = "A passive OSPF interface sends no hellos, which is consistent with the expected adjacency not forming. The reading rests on the passive value one end reports, a link both ends declare, and no OSPF record for the pair. It does not show that the neighbor is down, and it does not say why the interface is passive."
 )
 
 // Report is the OSPF reading of one model. It has no findings when no OSPF
@@ -139,7 +140,10 @@ type Evidence struct {
 	Area          string `json:"area,omitempty"`
 	EffectiveArea string `json:"effective_area,omitempty"`
 	RouterID      string `json:"router_id,omitempty"`
-	Note          string `json:"note,omitempty"`
+	// Passive is the ospf.passive value an interface row reports. Only the rows
+	// behind a passive reading carry it.
+	Passive string `json:"passive,omitempty"`
+	Note    string `json:"note,omitempty"`
 }
 
 // Analyze reads m and returns every OSPF finding it supports, in a stable order
@@ -150,7 +154,9 @@ func Analyze(m netmodel.Model) Report {
 	a.interfaceAreas()
 	a.expectedNeighbors()
 	a.areaMismatches()
-	a.declaredAreas()
+	declared := a.declaredLinks()
+	a.declaredAreas(declared)
+	a.declaredPassive(declared)
 	if len(a.findings) == 0 {
 		return Report{}
 	}
@@ -615,13 +621,10 @@ func endWord(s endState) string {
 	return "ambiguous"
 }
 
-// declaredAreas compares effective areas across each link the intended plane
-// declares. A link declared from both ends is compared. A link declared from one
-// end is reported only when its two ends read different areas, under its own
-// kind, because one declaration does not confirm the link. An end with no usable
-// area leaves a link declared from both ends incomplete. Completeness flags and
-// timestamps never decide a reading.
-func (a *analysis) declaredAreas() {
+// declaredLinks indexes the neighbor records the intended plane declares, by the
+// link each one names. A record with no remote interface names no single link, so
+// it is left out.
+func (a *analysis) declaredLinks() map[link][]record {
 	declared := map[link][]record{}
 	for _, inv := range a.inv {
 		if inv.plane != netmodel.PlaneIntended {
@@ -633,6 +636,16 @@ func (a *analysis) declaredAreas() {
 			}
 		}
 	}
+	return declared
+}
+
+// declaredAreas compares effective areas across each link the intended plane
+// declares. A link declared from both ends is compared. A link declared from one
+// end is reported only when its two ends read different areas, under its own
+// kind, because one declaration does not confirm the link. An end with no usable
+// area leaves a link declared from both ends incomplete. Completeness flags and
+// timestamps never decide a reading.
+func (a *analysis) declaredAreas(declared map[link][]record) {
 	for l, recs := range declared {
 		m := l.mirror()
 		mrecs, mutual := declared[m]
@@ -675,6 +688,100 @@ func (a *analysis) declaredAreas() {
 			a.add(KindIncompleteAttributes, Unknown, l, "effective area not compared over the declared link: "+strings.Join(parts, ", "), limitDeclaredIncomplete, ev)
 		}
 	}
+}
+
+// declaredPassive reads a passive OSPF interface on a link that the intended plane
+// declares from both ends. The reading says only that passive OSPF is consistent
+// with the expected adjacency not forming. It needs one end whose own control-plane
+// rows report ospf.passive true, with no unreadable or conflicting value, while the
+// other end does not also read true. It needs no OSPF record for the pair on either
+// end, whatever its remote interface. Completeness flags are not read, so no
+// absence is claimed. The finding is anchored at the smaller direction of the link,
+// as declaredAreas anchors its findings.
+func (a *analysis) declaredPassive(declared map[link][]record) {
+	for l, recs := range declared {
+		m := l.mirror()
+		mrecs, mutual := declared[m]
+		if !mutual || compareLink(l, m) >= 0 {
+			continue
+		}
+		lp, lev := a.passiveAt(l.node, l.vrf, l.iface)
+		mp, mev := a.passiveAt(m.node, m.vrf, m.iface)
+		passive, other := l, m
+		switch {
+		case lp == "true" && mp != "true":
+		case mp == "true" && lp != "true":
+			passive, other = m, l
+			lev, mev = mev, lev
+		default:
+			continue
+		}
+		if len(a.pairRecords(l)) > 0 || len(a.pairRecords(m)) > 0 {
+			continue
+		}
+		ev := slices.Concat(lev, mev, evidenceOf(recs, "declared link, this end"), evidenceOf(mrecs, "declared link, far end"))
+		a.add(KindMissingNeighbor, ConsistentWith, l, fmt.Sprintf("%s %s reports OSPF passive, which is consistent with the expected adjacency with %s %s not forming", passive.node, passive.iface, other.node, other.iface), limitMissingPassive, ev)
+	}
+}
+
+// passiveAt reads the ospf.passive values that the control plane reports for one
+// interface. It returns "true" or "false" when every value agrees, with the rows
+// that hold them. It returns "" when no value is read, when a value is not true or
+// false, or when the values conflict.
+func (a *analysis) passiveAt(node, vrf, iface string) (string, []Evidence) {
+	var vals []string
+	var rows []ifaceRow
+	for _, r := range a.ifaces {
+		if r.plane != netmodel.PlaneControl || r.node != node || r.vrf != vrf || r.iface != iface {
+			continue
+		}
+		if got := values(r.attrs, KeyPassive); len(got) > 0 {
+			vals = append(vals, got...)
+			rows = append(rows, r)
+		}
+	}
+	if slices.ContainsFunc(vals, func(v string) bool { return v != "true" && v != "false" }) {
+		return "", nil
+	}
+	t, f := slices.Contains(vals, "true"), slices.Contains(vals, "false")
+	if t == f {
+		return "", nil
+	}
+	value := "false"
+	if t {
+		value = "true"
+	}
+	ev := make([]Evidence, 0, len(rows))
+	for _, r := range rows {
+		ev = append(ev, r.passiveEvidence(value))
+	}
+	return value, ev
+}
+
+// pairRecords returns the control-plane OSPF neighbor records that name the pair of
+// link l, whatever their remote interface. A record that names the same pair under
+// another remote interface is still OSPF evidence for it.
+func (a *analysis) pairRecords(l link) []record {
+	var out []record
+	for _, inv := range a.inv {
+		if inv.plane != netmodel.PlaneControl || inv.node != l.node || inv.vrf != l.vrf {
+			continue
+		}
+		for _, r := range inv.neighbors {
+			if r.link.pair() == l.pair() && ospfRecord(r.attrs) {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
+// passiveEvidence is the evidence row of a passive reading. Only these rows carry
+// the passive value, so every other finding keeps the rows it had.
+func (r ifaceRow) passiveEvidence(passive string) Evidence {
+	e := r.evidence("ospf.passive as reported")
+	e.Passive = passive
+	return e
 }
 
 // operationalRecords returns the control-plane OSPF neighbor records that show
@@ -722,7 +829,7 @@ func (f Finding) key() string {
 }
 
 func (e Evidence) key() string {
-	return strings.Join([]string{e.Source, e.CollectedAt, e.Plane, e.Node, e.VRF, e.Interface, e.Peer, e.PeerInterface, e.State, e.Area, e.EffectiveArea, e.RouterID, e.Note}, "\x00")
+	return strings.Join([]string{e.Source, e.CollectedAt, e.Plane, e.Node, e.VRF, e.Interface, e.Peer, e.PeerInterface, e.State, e.Area, e.EffectiveArea, e.RouterID, e.Passive, e.Note}, "\x00")
 }
 
 func (r record) evidence(note string) Evidence {
@@ -891,6 +998,9 @@ func (e Evidence) text() string {
 	}
 	if e.RouterID != "" {
 		parts = append(parts, "router ID "+e.RouterID)
+	}
+	if e.Passive != "" {
+		parts = append(parts, "ospf.passive "+e.Passive)
 	}
 	if e.Note != "" {
 		parts = append(parts, e.Note)

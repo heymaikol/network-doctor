@@ -58,9 +58,9 @@ type Area struct {
 	Counts      map[LSAType]Count `json:"counts"`
 }
 
-// Process is one read of the process state. RouterID is empty when the instance
-// is not running. That is not an empty LSDB, and the comparison treats it as
-// unknown.
+// Process is one read of the process state. RouterID is empty when the capture
+// holds no router ID, as for an instance that has not taken one. That is not an
+// empty LSDB, and the comparison treats it as unknown.
 type Process struct {
 	Source        string          `json:"source"`
 	CollectedAt   time.Time       `json:"collected_at"`
@@ -390,7 +390,7 @@ func checkGuard(n NodeInput, procs []Process) (*Process, []string) {
 		}
 	}
 	if a.RouterID == "" || d.RouterID == "" {
-		reasons = append(reasons, "OSPF is not running in capture A or D, which holds no router ID")
+		reasons = append(reasons, "capture A or D holds no router ID, so OSPF has no identity to compare")
 	} else if a.RouterID != d.RouterID {
 		reasons = append(reasons, fmt.Sprintf("the router ID changed from %s to %s", a.RouterID, d.RouterID))
 	}

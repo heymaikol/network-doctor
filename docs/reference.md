@@ -2028,7 +2028,7 @@ A and D bracket B and E. The comparison runs only when the checks below show OSP
 
 The guard decides whether a node is compared. It fails, and the node gets only `ospf_comparison_unverified`, when any of these holds:
 
-- A capture of the bracket is refused or missing, or A and D do not both report a running OSPF process.
+- A capture of the bracket is refused or missing, or A and D do not both report a router ID. FRR 10.7.0 prints `0.0.0.0` as the router ID of an OSPF instance that has not taken one, and the report reads that as no router ID, not as a router. An absent instance prints no JSON body, and that capture is refused.
 - The router ID changed between A and D.
 - The holdtime maximum or the SPF delay changed between A and D. The report names the timer and both values. A timer change is a configuration change, so the report does not say that SPF ran.
 - A holdtime maximum or an SPF delay is above 600000 ms in A or D. That is the largest value `timers throttle spf` accepts (FRR 10.7.0, `ospfd/ospf_vty.c`). The report names each such timer, and no bound is formed from it.

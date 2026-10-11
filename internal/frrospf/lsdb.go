@@ -134,9 +134,12 @@ var processCounters = []struct {
 	{ospf.LSANSSA, "lsaNssaNumber", "lsaNssaChecksum"},
 }
 
-// decodeProcessState reads one show ip ospf json output. The output {} is a
-// process that is not running. It has no router ID and no areas, and the
-// comparison treats it as unknown, not as an empty LSDB.
+// decodeProcessState reads one show ip ospf json output. The FRR 10.7.0 source
+// prints {} when the default VRF has no running instance and some other OSPF
+// instance exists (ospfd/ospf_vty.c:3536-3538). No capture shows that output for
+// this command. Such a process has no router ID and no areas, and the comparison
+// treats it as unknown, not as an empty LSDB. The source prints nothing when no
+// OSPF instance exists (ospf_vty.c:3494-3495), and that empty body is refused.
 func decodeProcessState(data []byte) (ospf.Process, string) {
 	top, err := decodeTopLevel(data)
 	if err != nil {
@@ -150,6 +153,20 @@ func decodeProcessState(data []byte) (ospf.Process, string) {
 		return ospf.Process{}, err.Error()
 	}
 	return p, ""
+}
+
+// routerIdentity returns the router ID that a process reports, or "" when it
+// reports none. FRR 10.7.0 prints 0.0.0.0 for an instance that has not taken a
+// router ID. ospf_new_alloc sets the ID to 0 (ospfd/ospfd.c:335). The refresh
+// assigns only a static ID or the ID that zebra supplies (ospfd.c:165-200), and
+// zebra supplies 0.0.0.0 when no interface has an address (zebra/router-id.c:
+// 61-84). The instance still counts as running (ospfd.c:458-459). The comparison
+// treats "" as unknown.
+func routerIdentity(id netip.Addr) string {
+	if id.IsUnspecified() {
+		return ""
+	}
+	return id.String()
 }
 
 func processFrom(f fields) (ospf.Process, error) {
@@ -178,7 +195,7 @@ func processFrom(f fields) (ospf.Process, error) {
 		return ospf.Process{}, err
 	}
 	p := ospf.Process{
-		RouterID:      routerID.String(),
+		RouterID:      routerIdentity(routerID),
 		HoldtimeMaxMs: holdtime,
 		SPFDelayMs:    delay,
 		External:      ospf.Count{Number: extNumber, Checksum: extSum},

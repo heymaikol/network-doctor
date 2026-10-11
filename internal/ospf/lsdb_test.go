@@ -406,6 +406,9 @@ func TestGuardNotRunningIsUnknownNotEmpty(t *testing.T) {
 	if rep.Guard.Passed {
 		t.Fatal("guard passed for a process state with no router ID")
 	}
+	if got := strings.Join(rep.Guard.Reasons, "; "); !strings.Contains(got, "capture A or D holds no router ID") {
+		t.Fatalf("reasons = %q; want the missing router ID named", got)
+	}
 	if got := kinds(rep.Findings); len(got) != 1 || !strings.HasPrefix(got[0], "ospf_comparison_unverified") {
 		t.Fatalf("findings = %q; want only the unverified finding", got)
 	}

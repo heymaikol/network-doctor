@@ -2,6 +2,7 @@ package frrospf
 
 import (
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,6 +80,41 @@ func TestNotRunningProcessStateIsEmptyNotLSDB(t *testing.T) {
 	}
 	if p.RouterID != "" || len(p.Areas) != 0 {
 		t.Fatalf("not running decoded as %+v", p)
+	}
+}
+
+// TestUnsetRouterIDIsNotAnIdentity reads FRR 10.7.0 output from an OSPF instance
+// with no router ID. FRR prints 0.0.0.0 for it, and the instance still answers
+// as running. The reader must not take 0.0.0.0 for a router ID. A router ID that
+// zebra supplies is kept. Output from an instance that does not exist has no
+// JSON body, and it is refused.
+func TestUnsetRouterIDIsNotAnIdentity(t *testing.T) {
+	none := loadCapture(t, "unset-router-id", "none", "r1", CommandProcessState, "probe r1 none")
+	p, reason := decodeProcessState(none.Data)
+	if reason != "" {
+		t.Fatalf("refused: %s", reason)
+	}
+	if p.RouterID != "" {
+		t.Fatalf("router ID = %q; want none for 0.0.0.0", p.RouterID)
+	}
+	if p.HoldtimeMaxMs != 5000 || len(p.Areas) != 0 {
+		t.Fatalf("the rest of the process state was not read: holdtime %d, areas %d", p.HoldtimeMaxMs, len(p.Areas))
+	}
+
+	addr := loadCapture(t, "unset-router-id", "addr", "r1", CommandProcessState, "probe r1 addr")
+	if p, reason := decodeProcessState(addr.Data); reason != "" || p.RouterID != "10.9.9.9" {
+		t.Fatalf("zebra-supplied router ID: %q, refusal %q; want 10.9.9.9", p.RouterID, reason)
+	}
+
+	// The recorded output of an absent instance is the echoed command and the
+	// prompt, with no payload. loadCapture expects a payload line, so the bytes are
+	// read directly, and the empty payload is refused.
+	absent := readFile(t, filepath.Join(fixtureRoot, "unset-router-id", "absent.raw"))
+	if strings.Contains(string(absent), "{") {
+		t.Fatal("the absent-instance capture holds a JSON payload")
+	}
+	if _, reason := decodeProcessState(nil); reason == "" {
+		t.Fatal("output of an absent OSPF instance was read as a process state")
 	}
 }
 

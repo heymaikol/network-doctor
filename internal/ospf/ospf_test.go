@@ -718,6 +718,9 @@ func TestDeclaredLinkWithDifferentAreasIsConsistentWithAFailedAdjacency(t *testi
 	if withArea != 2 || declared != 2 || len(f.Evidence) != 4 {
 		t.Errorf("evidence = %+v, want two interface rows with an effective area and two declaration rows", f.Evidence)
 	}
+	if text := r.Text(); !strings.Contains(text, "effective area 0.0.0.1") {
+		t.Errorf("text lacks the effective area FRR reported:\n%s", text)
+	}
 }
 
 func TestDeclaredLinkWithEqualAreasIsSilent(t *testing.T) {

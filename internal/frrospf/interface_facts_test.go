@@ -552,3 +552,24 @@ func TestFindingsUnchangedForCommittedCaptures(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryFRRNetworkTypeAndStateIsMapped checks each value FRR 10.7.0 prints for
+// networkType and for an interface's own state. Each maps to the lowercase name
+// the topology uses. Null is not an FRR network type, and TestNullNewFieldIsUnreadable
+// covers it.
+func TestEveryFRRNetworkTypeAndStateIsMapped(t *testing.T) {
+	for frr, want := range map[string]string{
+		"POINTOPOINT": "point-to-point", "BROADCAST": "broadcast", "NBMA": "nbma",
+		"POINTOMULTIPOINT": "point-to-multipoint", "VIRTUALLINK": "virtual-link", "LOOPBACK": "loopback",
+	} {
+		res := importSynth(t, synthIface(map[string]any{"networkType": frr}))
+		checkFacts(t, "networkType "+frr, ifaceFacts(t, res, "r3", "e3"), map[string]string{keyNetworkType: want})
+	}
+	for frr, want := range map[string]string{
+		"DependUpon": "dependupon", "Down": "down", "Loopback": "loopback", "Waiting": "waiting",
+		"Point-To-Point": "point-to-point", "DROther": "drother", "Backup": "backup", "DR": "dr",
+	} {
+		res := importSynth(t, synthIface(map[string]any{"state": frr}))
+		checkFacts(t, "state "+frr, ifaceFacts(t, res, "r3", "e3"), map[string]string{keyInterfaceState: want})
+	}
+}

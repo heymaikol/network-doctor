@@ -39,7 +39,7 @@ var frrNotImported = []string{
 	"routes: the RIB and FIB are not read, so the topology has no routes",
 	"the OSPF link-state database: not read",
 	"OSPF area of a neighbor record: reported, not written to the topology",
-	"OSPF area of an interface: a plain dotted area is written as ospf.effective_area, one value per interface name; a qualified, incomplete, or missing area is not written",
+	"OSPF area of an interface: a plain dotted area is written as ospf.effective_area, one value per interface name; a qualified, incomplete, or missing area, or one that a neighbor contradicts, is not written",
 	"secondary interface addresses: not read; only the primary address is used",
 	"any other FRR output field: not read",
 	"source address: not set, so the topology claims no address for the source node",

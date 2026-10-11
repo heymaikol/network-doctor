@@ -54,6 +54,8 @@ The interface `area` field is `ospf_area_desc_string(oi->area)` in `ospfd/ospf_v
 
 FRR prints one OSPF interface record per interface name. An interface that holds several OSPF interfaces, such as a secondary address in another area, shows only the last one it visits, because each loop iteration overwrites the same JSON keys. `secondary/` shows this: e1 holds two OSPF interfaces, and the record names only the secondary, while the Full adjacency on the primary is in area 0.0.0.0. So an area read from an interface name is not an inventory of that interface's areas, and it can differ from the area of an adjacency on it.
 
+The importer withholds the area of e1 in `secondary/`. The Full adjacency's neighbor record names local address 10.0.1.1, which the e1 record does not give, so that record's area is not known to be the adjacency's, and the reason appears in the capture's notes. A link declared over e1 then reads as incomplete, not as a failed adjacency.
+
 The declared links that the topology tests add to these captures are not FRR output. They are synthetic intended-plane rows written by the test, and each such test says so.
 
 ## Socket paths

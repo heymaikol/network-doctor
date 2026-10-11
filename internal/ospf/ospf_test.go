@@ -676,3 +676,188 @@ func TestIPv6PeerRouterIDDoesNotContradictIPv4Identity(t *testing.T) {
 	)
 	wantSummary(t, Analyze(m), "neighbor_state/reported", "router_id_unconfirmed/unknown")
 }
+
+// mutualDeclaration is the intended plane declaring one link from both ends.
+func mutualDeclaration(source string) []netmodel.Observation {
+	return []netmodel.Observation{
+		view(source+":r1", t0, netmodel.PlaneIntended, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0")}, nil),
+		view(source+":r2", t0, netmodel.PlaneIntended, "r2", false, []netmodel.Neighbor{nb("eth0", "r1", "eth0")}, nil),
+	}
+}
+
+// areaView is the control plane of node at at, reporting eth0's effective area.
+// An empty area reports eth0 with no effective area.
+func areaView(source, node string, at time.Time, area string) netmodel.Observation {
+	var a []netmodel.Attribute
+	if area != "" {
+		a = attrs("ospf.effective_area", area)
+	}
+	return view(source, at, netmodel.PlaneControl, node, false, nil, []netmodel.Interface{iface("eth0", a...)})
+}
+
+// TestDeclaredLinkWithDifferentAreasIsConsistentWithAFailedAdjacency compares the
+// effective areas across a link that both ends declare. No neighbor record shows
+// the link, so the reading stays consistent_with.
+func TestDeclaredLinkWithDifferentAreasIsConsistentWithAFailedAdjacency(t *testing.T) {
+	obs := append(mutualDeclaration("decl"), areaView("frr:r1", "r1", t0, "0.0.0.0"), areaView("frr:r2", "r2", t0, "0.0.0.1"))
+	r := Analyze(model(t, obs...))
+	wantSummary(t, r, "area_mismatch/consistent_with")
+	f := r.Findings[0]
+	if f.Node != "r1" || f.Interface != "eth0" || f.Peer != "r2" || f.PeerInterface != "eth0" {
+		t.Errorf("finding on %s %s to %s %s, want r1 eth0 to r2 eth0", f.Node, f.Interface, f.Peer, f.PeerInterface)
+	}
+	var withArea, declared int
+	for _, e := range f.Evidence {
+		if b, _ := json.Marshal(e); strings.Contains(string(b), `"effective_area":"`) {
+			withArea++
+		}
+		if strings.Contains(e.Note, "declared") {
+			declared++
+		}
+	}
+	if withArea != 2 || declared != 2 || len(f.Evidence) != 4 {
+		t.Errorf("evidence = %+v, want two interface rows with an effective area and two declaration rows", f.Evidence)
+	}
+}
+
+func TestDeclaredLinkWithEqualAreasIsSilent(t *testing.T) {
+	obs := append(mutualDeclaration("decl"), areaView("frr:r1", "r1", t0, "0.0.0.0"), areaView("frr:r2", "r2", t0, "0"))
+	if r := Analyze(model(t, obs...)); len(r.Findings) != 0 {
+		t.Errorf("equal areas (0 and 0.0.0.0) produced %v", summary(r))
+	}
+}
+
+// An operational neighbor record for the link means the adjacency is reported.
+// Different areas then cannot both hold, so the reading is unknown, not
+// consistent_with, and no area is chosen.
+func TestDeclaredLinkMismatchWithOperationalRecordIsUnknown(t *testing.T) {
+	obs := append(mutualDeclaration("decl"),
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", false,
+			[]netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs("ospf.state", "full")...)},
+			[]netmodel.Interface{iface("eth0", attrs("ospf.effective_area", "0.0.0.0")...)}),
+		areaView("frr:r2", "r2", t0, "0.0.0.1"))
+	r := Analyze(model(t, obs...))
+	f := only(t, r, Kind("area_mismatch"))
+	if f.Strength != Unknown {
+		t.Errorf("strength = %s, want unknown", f.Strength)
+	}
+}
+
+// A link declared from one end only is not compared as a mismatch. Its differing
+// areas are reported under their own kind, with unknown strength.
+func TestDeclaredLinkDeclaredByOneEndIsOneSidedAndUnknown(t *testing.T) {
+	obs := []netmodel.Observation{
+		view("decl:r1", t0, netmodel.PlaneIntended, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0")}, nil),
+		areaView("frr:r1", "r1", t0, "0.0.0.0"),
+		areaView("frr:r2", "r2", t0, "0.0.0.1"),
+	}
+	r := Analyze(model(t, obs...))
+	wantSummary(t, r, "declared_link_one_sided/unknown")
+	if f := r.Findings[0]; f.Kind == "area_mismatch" {
+		t.Errorf("one-sided declaration reported as area_mismatch: %+v", f)
+	}
+}
+
+func TestDeclaredLinkDeclaredByOneEndWithEqualAreasIsSilent(t *testing.T) {
+	obs := []netmodel.Observation{
+		view("decl:r1", t0, netmodel.PlaneIntended, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0")}, nil),
+		areaView("frr:r1", "r1", t0, "0.0.0.0"),
+		areaView("frr:r2", "r2", t0, "0.0.0.0"),
+	}
+	if r := Analyze(model(t, obs...)); len(r.Findings) != 0 {
+		t.Errorf("one-sided declaration with equal areas produced %v", summary(r))
+	}
+}
+
+// One end with an effective area and the other with none leaves the link
+// incomplete. The reading names the end that has no area.
+func TestDeclaredLinkWithOneEndMissingAreaIsIncomplete(t *testing.T) {
+	obs := append(mutualDeclaration("decl"), areaView("frr:r1", "r1", t0, "0.0.0.0"), areaView("frr:r2", "r2", t0, ""))
+	r := Analyze(model(t, obs...))
+	wantSummary(t, r, "incomplete_attributes/unknown")
+	if d := r.Findings[0].Detail; !strings.Contains(d, "r2 eth0 is missing") {
+		t.Errorf("detail %q does not name r2 eth0 as missing", d)
+	}
+}
+
+// Without an effective area on either end, a declared link says nothing about
+// areas, so it is silent.
+func TestDeclaredLinkWithoutAnyEffectiveAreaIsSilent(t *testing.T) {
+	obs := append(mutualDeclaration("decl"), areaView("frr:r1", "r1", t0, ""), areaView("frr:r2", "r2", t0, ""))
+	if r := Analyze(model(t, obs...)); len(r.Findings) != 0 {
+		t.Errorf("declared link with no effective area produced %v", summary(r))
+	}
+}
+
+// An end whose sources read two areas is ambiguous. It is not a conflict, and
+// no value is chosen, in either timestamp order.
+func TestDeclaredLinkAmbiguousEndIsIncompleteWhateverTheTimes(t *testing.T) {
+	for _, order := range [][2]time.Time{{t0, t1}, {t1, t0}} {
+		obs := append(mutualDeclaration("decl"),
+			areaView("frr:r1", "r1", order[0], "0.0.0.0"),
+			areaView("cisco:r1", "r1", order[1], "0.0.0.1"),
+			areaView("frr:r2", "r2", t0, "0.0.0.1"))
+		r := Analyze(model(t, obs...))
+		wantSummary(t, r, "incomplete_attributes/unknown")
+	}
+}
+
+// A value that is not an area is ambiguous too.
+func TestDeclaredLinkUnreadableAreaIsIncomplete(t *testing.T) {
+	obs := append(mutualDeclaration("decl"), areaView("frr:r1", "r1", t0, "bogus"), areaView("frr:r2", "r2", t0, "0.0.0.1"))
+	r := Analyze(model(t, obs...))
+	wantSummary(t, r, "incomplete_attributes/unknown")
+}
+
+// Neither a complete neighbor list nor a timestamp raises the strength of a
+// declared mismatch.
+func TestDeclaredLinkStrengthIgnoresCompletenessAndTimes(t *testing.T) {
+	obs := append(mutualDeclaration("decl"),
+		view("frr:r1", t1, netmodel.PlaneControl, "r1", true, nil, []netmodel.Interface{iface("eth0", attrs("ospf.effective_area", "0.0.0.0")...)}),
+		view("frr:r2", t0, netmodel.PlaneControl, "r2", true, nil, []netmodel.Interface{iface("eth0", attrs("ospf.effective_area", "0.0.0.1")...)}))
+	wantSummary(t, Analyze(model(t, obs...)), "area_mismatch/consistent_with")
+}
+
+// A declaration from two sources, and the same link declared from both ends,
+// still gives one finding for the link.
+func TestDeclaredLinkIsReportedOncePerLink(t *testing.T) {
+	obs := append(mutualDeclaration("decl-a"), mutualDeclaration("decl-b")...)
+	obs = append(obs, areaView("frr:r1", "r1", t0, "0.0.0.0"), areaView("frr:r2", "r2", t0, "0.0.0.1"))
+	wantSummary(t, Analyze(model(t, obs...)), "area_mismatch/consistent_with")
+}
+
+// A declared OSPF attribute on the intended plane still feeds the existing
+// expected-neighbor check. The declared-link reading is added beside it.
+func TestDeclaredLinkBesideAnExpectedOSPFNeighbor(t *testing.T) {
+	obs := []netmodel.Observation{
+		view("decl:r1", t0, netmodel.PlaneIntended, "r1", false, []netmodel.Neighbor{nb("eth0", "r2", "eth0", attrs("ospf.state", "full")...)}, nil),
+		view("decl:r2", t0, netmodel.PlaneIntended, "r2", false, []netmodel.Neighbor{nb("eth0", "r1", "eth0")}, nil),
+		view("frr:r1", t0, netmodel.PlaneControl, "r1", false, []netmodel.Neighbor{nb("eth9", "r3", "eth0", attrs("ospf.state", "full")...)}, []netmodel.Interface{iface("eth0", attrs("ospf.effective_area", "0.0.0.0")...)}),
+		areaView("frr:r2", "r2", t0, "0.0.0.1"),
+	}
+	r := Analyze(model(t, obs...))
+	got := summary(r)
+	for _, want := range []string{"missing_neighbor/unknown", "area_mismatch/consistent_with"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("findings %v lack %s", got, want)
+		}
+	}
+}
+
+func TestDeclaredLinkOutputIsIndependentOfInputOrder(t *testing.T) {
+	obs := append(mutualDeclaration("decl"),
+		view("decl:r3", t0, netmodel.PlaneIntended, "r3", false, []netmodel.Neighbor{nb("eth0", "r1", "eth1")}, nil),
+		areaView("frr:r1", "r1", t0, "0.0.0.0"),
+		areaView("frr:r2", "r2", t0, "0.0.0.1"),
+		view("frr:r3", t0, netmodel.PlaneControl, "r3", false, nil, []netmodel.Interface{iface("eth0", attrs("ospf.effective_area", "0.0.0.2")...)}))
+	rev := slices.Clone(obs)
+	slices.Reverse(rev)
+	a, _ := json.Marshal(Analyze(model(t, obs...)))
+	b, _ := json.Marshal(Analyze(model(t, rev...)))
+	if string(a) != string(b) {
+		t.Fatalf("order changed the output:\n%s\n%s", a, b)
+	}
+	if !strings.Contains(string(a), "area_mismatch") {
+		t.Fatalf("fixture produced no declared-link finding to prove ordering: %s", a)
+	}
+}

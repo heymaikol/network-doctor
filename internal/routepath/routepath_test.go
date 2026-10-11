@@ -388,6 +388,41 @@ func TestDiscardRouteDropsAndDiffersFromControl(t *testing.T) {
 	}
 }
 
+// A control table with no route against a FIB that discards the destination is a
+// true difference, and the detail must say the FIB discards, not that it forwards.
+func TestNoRouteControlVersusFIBDiscardSaysDiscards(t *testing.T) {
+	obs := without(threeRouters(), "control:r2:default", "fib:r2:default")
+	obs = append(obs,
+		table(netmodel.PlaneControl, "r2", "default", true),
+		table(netmodel.PlaneFIB, "r2", "default", true,
+			netmodel.Route{Prefix: pfx("10.20.0.0/16"), Origin: "kernel", Discard: true}))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+
+	got := findings(e, FindingFIBDiffers)
+	if len(got) != 1 || got[0].Node != "r2" {
+		t.Fatalf("fib_differs_from_control = %+v, want one at r2", got)
+	}
+	if want := "the FIB discards 10.20.0.0/16"; !strings.Contains(got[0].Detail, want) {
+		t.Errorf("detail = %q, want it to contain %q", got[0].Detail, want)
+	}
+}
+
+// The forward wording is unchanged by the discard case: a control table with no
+// route against a FIB that forwards still says the FIB forwards.
+func TestNoRouteControlVersusFIBForwardKeepsForwardWording(t *testing.T) {
+	obs := without(threeRouters(), "control:r2:default")
+	obs = append(obs, table(netmodel.PlaneControl, "r2", "default", true))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+
+	got := findings(e, FindingFIBDiffers)
+	if len(got) != 1 || got[0].Node != "r2" {
+		t.Fatalf("fib_differs_from_control = %+v, want one at r2", got)
+	}
+	if want := "the FIB forwards on 10.20.0.0/16"; !strings.Contains(got[0].Detail, want) {
+		t.Errorf("detail = %q, want it to contain %q", got[0].Detail, want)
+	}
+}
+
 func TestPartialFIBDoesNotProveAbsence(t *testing.T) {
 	obs := without(threeRouters(), "fib:r2:default")
 	obs = append(obs, table(netmodel.PlaneFIB, "r2", "default", false))

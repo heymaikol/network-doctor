@@ -205,16 +205,19 @@ Some semantics are easy to get wrong even after reading a scenario:
   anything else with a status code, so a scenario cannot mistake a refused
   request for a working one; `proxy-only-network.yaml` is the worked example,
   and it blocks direct egress rather than only pointing netdoc at the proxy.
-  [`proxy-only-network-broken-dns.yaml`](../internal/simulation/scenarios/proxy-only-network-broken-dns.yaml)
-  is the same network with the client's resolver taken away too. Its port 53
-  drops are scoped to the client and to the configured resolver address on
-  purpose: a CONNECT proxy resolves the tunnel authority in its own namespace,
-  so a drop that also caught the proxy's lookups would take the proxy down
-  along with the client and stop testing anything.
+  The two variants below are not library files. The netns tests derive them
+  from that file in memory, so the topology is written once:
+  `TestProxyOnlyNetworkBrokenDNSScenario` and
+  `TestProxyOnlyNetworkHTTPProxyScenario` in
+  `internal/simulation/netns_integration_test.go`.
+  The broken-DNS variant is the same network with the client's resolver taken
+  away too. Its port 53 drops are scoped to the client and to the configured
+  resolver address on purpose: a CONNECT proxy resolves the tunnel authority in
+  its own namespace, so a drop that also caught the proxy's lookups would take
+  the proxy down along with the client and stop testing anything.
 - `variable: HTTP_PROXY` hands an `http` proxy over as `HTTP_PROXY` instead of
   `HTTPS_PROXY`. netdoc's proxy row reads that variable only for plain `http://`
-  requests, so the HTTPS row is N/A and nothing tunnels.
-  [`proxy-only-network-http-proxy.yaml`](../internal/simulation/scenarios/proxy-only-network-http-proxy.yaml)
+  requests, so the HTTPS row is N/A and nothing tunnels. The HTTP_PROXY variant
   is that case on the blocked network: the diagnosis stays network-level and
   never calls it proxy-only.
 - TLS, QUIC, and encrypted-DNS fixtures generate private keys and certificates

@@ -152,7 +152,6 @@ func TestSchemaAcceptsEveryScenarioShape(t *testing.T) {
 		"explicit routes":        "missing-subnet-route.yaml",
 		"socks5 proxy":           "socks5-local-dns-fails.yaml",
 		"http connect proxy":     "proxy-only-network.yaml",
-		"http proxy variable":    "proxy-only-network-http-proxy.yaml",
 		"tls certificate":        "tls-expired-certificate.yaml",
 		"encrypted dns":          "encrypted-dns-blocked.yaml",
 		"tcp banner":             "service-banners.yaml",

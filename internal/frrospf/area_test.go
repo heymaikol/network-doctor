@@ -185,3 +185,63 @@ func TestImportAreaIsIndependentOfCaptureOrder(t *testing.T) {
 		t.Errorf("results differ with input order:\n%+v\n%+v", a.Report, b.Report)
 	}
 }
+
+// TestImportWithholdsAreaThatANeighborContradicts imports the secondary lab.
+// FRR prints one interface record for e1, the secondary's, while the Full
+// adjacency is on the primary address. The adjacency's neighbor record names a
+// local address that the interface record does not give, so the area on that
+// record is not this adjacency's. The area is withheld with a note, and the
+// neighbor record stays unmapped, as it was before.
+func TestImportWithholdsAreaThatANeighborContradicts(t *testing.T) {
+	res, err := Import([]Capture{
+		fixture(t, "secondary", "r1", CommandInterface),
+		fixture(t, "secondary", "r1", CommandNeighborDetail),
+		fixture(t, "secondary", "r2", CommandInterface),
+		fixture(t, "secondary", "r2", CommandNeighborDetail),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ifaces := controlInterfaces(res)
+	if v, ok := attr(ifaces["r1"]["e1"].Attributes, "ospf.effective_area"); ok {
+		t.Errorf("r1 e1 wrote ospf.effective_area = %q; the adjacency's area is unknown", v)
+	}
+	if v, _ := attr(ifaces["r2"]["e2"].Attributes, "ospf.effective_area"); v != "0.0.0.0" {
+		t.Errorf("r2 e2 ospf.effective_area = %q, want 0.0.0.0; its record agrees with the adjacency", v)
+	}
+	var notes string
+	for _, c := range res.Report.Captures {
+		if c.Node == "r1" && c.Command == CommandInterface {
+			notes = strings.Join(c.Notes, "\n")
+		}
+	}
+	if !strings.Contains(notes, `interface "e1": area withheld`) {
+		t.Errorf("r1 interface notes %q lack the withheld area", notes)
+	}
+	var unmapped bool
+	for _, r := range res.Report.Records {
+		if r.Node == "r1" && r.LocalInterface == "e1" && !r.Mapped && strings.Contains(r.Reason, "localIfaceAddress") {
+			unmapped = true
+		}
+	}
+	if !unmapped {
+		t.Errorf("r1 e1 neighbor record is not reported as unmapped on its local address: %+v", res.Report.Records)
+	}
+}
+
+// TestImportKeepsAreaWhenNeighborsAgree checks that the withholding does not
+// touch a lab where every neighbor record names the interface's own address.
+func TestImportKeepsAreaWhenNeighborsAgree(t *testing.T) {
+	res, err := Import(broadcastCaptures(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Report.Captures {
+		if strings.Contains(strings.Join(c.Notes, "\n"), "area withheld") {
+			t.Errorf("%s %s withheld an area although its neighbors agree: %v", c.Node, c.Command, c.Notes)
+		}
+	}
+	if v, _ := attr(controlInterfaces(res)["r1"]["e1"].Attributes, "ospf.effective_area"); v != "0.0.0.0" {
+		t.Errorf("r1 e1 ospf.effective_area = %q, want 0.0.0.0", v)
+	}
+}

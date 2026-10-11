@@ -16,6 +16,9 @@ import (
 type mappedNeighbors struct {
 	neighbors []netmodel.Neighbor
 	records   []Record
+	// contradicted names the node's interfaces that a record on them places at a
+	// local address other than the interface's own. See Import.
+	contradicted []string
 }
 
 // candidate is one neighbor record after parsing. reason is set when the record
@@ -47,6 +50,9 @@ func mapNeighbors(c Capture, entries map[string][]detailRecord, local map[string
 	var out mappedNeighbors
 	for i := range cands {
 		cd := &cands[i]
+		if li, ok := local[cd.rec.LocalInterface]; ok && cd.hasLocal && li.hasAddr && cd.localAdr != li.addr && !slices.Contains(out.contradicted, li.name) {
+			out.contradicted = append(out.contradicted, li.name)
+		}
 		if cd.reason == "" {
 			resolve(cd, c.Node, local, owners[cd.addr], gate)
 		}

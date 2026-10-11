@@ -161,6 +161,39 @@ func Import(captures []Capture) (Result, error) {
 		o.mapped = mapNeighbors(o.capture, o.entries, local[s], owners[o.capture.VRF], gate)
 	}
 
+	// FRR prints one interface record per name. When a neighbor on that name
+	// names a local address the record does not give, the record describes
+	// another OSPF interface on the same name, such as a secondary address. Its
+	// area is then not the adjacency's, so the area is withheld, and the
+	// neighbor record is still reported as it was.
+	withheld := map[scope]map[string]bool{}
+	for i := range outcomes {
+		o := &outcomes[i]
+		if o.reason != "" || o.capture.Command != CommandNeighborDetail {
+			continue
+		}
+		s := scope{o.capture.Node, o.capture.VRF}
+		for _, name := range o.mapped.contradicted {
+			if withheld[s] == nil {
+				withheld[s] = map[string]bool{}
+			}
+			withheld[s][name] = true
+		}
+	}
+	for i := range outcomes {
+		o := &outcomes[i]
+		if o.reason != "" || o.capture.Command != CommandInterface {
+			continue
+		}
+		for j := range o.ifaces {
+			info := &o.ifaces[j]
+			if info.area != "" && withheld[scope{o.capture.Node, o.capture.VRF}][info.name] {
+				info.area = ""
+				o.notes = append(o.notes, fmt.Sprintf("interface %s: area withheld; a neighbor record names a different local address for it", quote(info.name)))
+			}
+		}
+	}
+
 	var res Result
 	var obs []netmodel.Observation
 	for i := range outcomes {

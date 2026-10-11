@@ -8,7 +8,8 @@
 #   absent  no router ospf instance configured, and no interface address
 #   noinst  an interface block for d0 and no router ospf stanza, with d0 as in addr
 # Each run writes show.raw (a vtysh transcript) and show.collected_at to
-# $SCRATCH/run/unset-router-id-<mode>/.
+# $SCRATCH/run/unset-router-id-<mode>/. A failed probe exits nonzero, leaves
+# show.raw.failed in place of show.raw, and writes no show.collected_at.
 set -u
 S=${SCRATCH:?set SCRATCH to a directory holding frr-root/ (see README)}
 MODE=${1-}
@@ -22,15 +23,25 @@ OUT=$S/run/unset-router-id-$MODE
 FRR=$S/frr-root/usr/libexec/frr
 export LD_LIBRARY_PATH="$S/frr-root/usr/lib64:$S/frr-root/usr/lib64/frr"
 
+# Stops the daemons this run started.
+cleanup() {
+  local rc=$?
+  cat "$OUT"/*.pid 2>/dev/null | xargs -r kill 2>/dev/null
+  exit "$rc"
+}
+trap cleanup EXIT
+
+fail() { echo "unset-router-id.sh: $*" >&2; exit 1; }
+
 mount -t tmpfs tmpfs /run && mkdir -p /run/frr
 mount -t tmpfs tmpfs /var/lib && mkdir -p /var/lib/frr
 mount --bind "$HERE/etc/group" /etc/group
 mount --bind "$HERE/etc/passwd" /etc/passwd
 rm -rf "$OUT"; mkdir -p "$OUT"
 
-ip link set lo up
+ip link set lo up || fail "lo up failed"
 if [[ $MODE == addr || $MODE == noinst ]]; then
-  ip link add d0 type dummy; ip link set d0 up; ip addr add 10.9.9.9/32 dev d0
+  { ip link add d0 type dummy && ip link set d0 up && ip addr add 10.9.9.9/32 dev d0; } || fail "d0 setup failed"
 fi
 printf 'hostname r1\nline vty\n no login\n' > "$OUT/zebra.conf"
 if [[ $MODE == absent ]]; then
@@ -43,11 +54,16 @@ fi
 
 sock=/run/frr/r1
 mkdir -p "$sock"
-"$FRR/zebra" -d -f "$OUT/zebra.conf" -i "$OUT/zebra.pid" -z "$sock/zserv.api" --vty_socket "$sock" -u root -g root
-"$FRR/ospfd" -d -f "$OUT/ospfd.conf" -i "$OUT/ospfd.pid" -z "$sock/zserv.api" --vty_socket "$sock" -u root -g root
+"$FRR/zebra" -d -f "$OUT/zebra.conf" -i "$OUT/zebra.pid" -z "$sock/zserv.api" --vty_socket "$sock" -u root -g root || fail "zebra did not start"
+"$FRR/ospfd" -d -f "$OUT/ospfd.conf" -i "$OUT/ospfd.pid" -z "$sock/zserv.api" --vty_socket "$sock" -u root -g root || fail "ospfd did not start"
 sleep 5
 
-date -u +%Y-%m-%dT%H:%M:%S.%NZ > "$OUT/show.collected_at"
+at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
 timeout 30 python3 -I "$TCP" 2604 "show ip ospf json" > "$OUT/show.raw" 2>&1
+rc=$?
+if (( rc != 0 )) || [[ ! -s $OUT/show.raw ]]; then
+  mv -f "$OUT/show.raw" "$OUT/show.raw.failed" 2>/dev/null
+  fail "probe failed (status $rc)"
+fi
+printf '%s\n' "$at" > "$OUT/show.collected_at"
 echo "DONE $MODE"
-cat "$OUT"/*.pid 2>/dev/null | xargs -r kill

@@ -71,6 +71,8 @@ func disagreement(exp, fwd *Hop) (FindingKind, string, bool) {
 		return "", "", false
 	case fk == KindNoRoute:
 		return FindingControlNotInFIB, fmt.Sprintf("control expects %s; the FIB holds no route for the destination", describe(exp.Decision)), true
+	case ek == KindNoRoute && fk == KindDiscard:
+		return FindingFIBDiffers, fmt.Sprintf("control holds no route; the FIB discards %s", fwd.Decision.Prefix), true
 	case ek == KindNoRoute:
 		return FindingFIBDiffers, fmt.Sprintf("control holds no route; the FIB forwards on %s", describe(fwd.Decision)), true
 	case exp.Decision.Prefix != fwd.Decision.Prefix && prefixBits(exp.Decision.Prefix) > prefixBits(fwd.Decision.Prefix):

@@ -32,9 +32,18 @@ command fails the test.
 
 ## Scenarios
 
-Each scenario was run serially with `lab/run5.sh`, one scenario per
-`unshare` invocation. The `lsdb/` scenarios were run with `lab/lsdb.sh`
-instead, and they are described in `lsdb/README.md`.
+Each scenario was run with `lab/run5.sh`, one scenario per `unshare`
+invocation. The `passive1/`, `cost50/`, `mixp2p/`, `secp1/`, `secp2/`, and
+`down1/` directories came from one queue that ran them one after another, and
+the `.collected_at` stamps show that order. Earlier runs that overlapped were
+discarded, and none of their captures is committed. The `lsdb/` scenarios were
+run with `lab/lsdb.sh` instead, and they are described in `lsdb/README.md`.
+
+Each run writes more captures than the committed directories keep. The
+committed set for the scenarios added in PR 6 is the interface, neighbor-detail,
+and route output of each node, plus the configuration, `ospfd-version.txt`, and
+`r2-e2-mtu.txt`. The `vrf all` and `vrf nosuch` dumps of those runs are not
+committed.
 
 | Directory | What it shows |
 | --- | --- |
@@ -47,18 +56,36 @@ instead, and they are described in `lsdb/README.md`.
 | `area/` | r2 puts e2 in area 0.0.0.1 while r1 keeps e1 in 0.0.0.0, on one subnet. No adjacency forms, so both neighbor lists are empty. Each interface capture reports the area its side is in. |
 | `lsdb/` | Two routers with an OSPF LSDB bracket. Scenarios `steady`, `flap`, and `kill9`. See `lsdb/README.md`. |
 | `secondary/` | r1 adds 10.0.2.1/24 to e1 in area 0.0.0.1, beside the primary 10.0.1.1/24 in area 0.0.0.0. The adjacency with r2 is Full in area 0.0.0.0. The interface record for e1 shows only the secondary: `ipAddress` 10.0.2.1, `area` 0.0.0.1, `nbrCount` 0. See the section below. |
+| `passive1/` | r1 e1 set to `ip ospf passive`, with no address on the command. r2 e2 is active on the same subnet. No neighbor forms on either side. r1's e1 record holds `timerPassiveIface` true and no hello timer. r2's holds a hello timer. |
+| `cost50/` | r1 e1 set to `ip ospf cost 50` against r2 e2 at the default cost 10. The adjacency is Full on both ends, and each side installs the other's stub network. |
+| `mixp2p/` | r1 e1 set to `ip ospf network point-to-point`, while r2 e2 stays broadcast. The adjacency is Full on both ends. Neither OSPF route table holds the calculated route to the other's stub network. See the section below. |
+| `secp1/` | `secondary/` with `ip ospf passive 10.0.1.1` on e1, so the primary address is passive. No neighbor forms. The e1 record holds `timerPassiveIface` true and `timerHelloInMsecs` together. |
+| `secp2/` | `secondary/` with `ip ospf passive 10.0.2.1` on e1, so the secondary address is passive. The Full adjacency on the primary is kept. The e1 record holds `timerPassiveIface` true and `timerHelloInMsecs` together, and its `bdrAddress` 10.0.1.1 lies outside 10.0.2.0/24. |
+| `down1/` | The broadcast adjacency of `bcast/`, then `ip link set e1 down` on r1 and a 5-second wait before the dump. r1 e1 is absent from the all-interface listing. See the section below. |
 
 ## Area and secondary-address captures
 
 `area/` and `secondary/` are genuine FRR 10.7.0 output from the same lab, run with `lab/run5.sh area` and `lab/run5.sh secondary`.
 
-The interface `area` field is `ospf_area_desc_string(oi->area)` in `ospfd/ospf_vty.c`, which prints `A.B.C.D`, `A.B.C.D [Stub]`, `A.B.C.D [NSSA]`, or `(incomplete)`. The field is absent when the interface is not up, because the printer returns early with `ospfRunning` false. The importer writes a plain dotted area as `ospf.effective_area`. A qualified area, `(incomplete)`, or a missing area is noted and no area is written for that interface.
+The interface `area` field is `ospf_area_desc_string(oi->area)` in `ospfd/ospf_vty.c`, which prints `A.B.C.D`, `A.B.C.D [Stub]`, `A.B.C.D [NSSA]`, or `(incomplete)`. For an OSPF interface that is not up, the printer returns early after writing `ospfRunning` false, so `ipAddress`, `area`, and the other numbered-interface keys are not printed. The source therefore predicts such a record. The `down1/` run did not show one: r1 e1 was absent from the all-interface listing, which skips an interface with no OSPF instance (`ospf_oi_count` zero), and why the count was zero is not established. The importer writes a plain dotted area as `ospf.effective_area`. A qualified area, `(incomplete)`, or a missing area is noted and no area is written for that interface.
 
 FRR prints one OSPF interface record per interface name. An interface that holds several OSPF interfaces, such as a secondary address in another area, shows only the last one it visits, because each loop iteration overwrites the same JSON keys. `secondary/` shows this: e1 holds two OSPF interfaces, and the record names only the secondary, while the Full adjacency on the primary is in area 0.0.0.0. So an area read from an interface name is not an inventory of that interface's areas, and it can differ from the area of an adjacency on it.
 
 The importer withholds the area of e1 in `secondary/`. The Full adjacency's neighbor record names local address 10.0.1.1, which the e1 record does not give, so that record's area is not known to be the adjacency's, and the reason appears in the capture's notes. A link declared over e1 then reads as incomplete, not as a failed adjacency.
 
 The declared links that the topology tests add to these captures are not FRR output. They are synthetic intended-plane rows written by the test, and each such test says so.
+
+## Interface-fact captures (PR 6)
+
+`passive1/`, `cost50/`, `mixp2p/`, `secp1/`, `secp2/`, and `down1/` were run with the modes of the same names in `lab/run5.sh`. Each scenario's `r1-ospfd.conf` and `r2-ospfd.conf` hold the configuration it ran with. Each `.raw` file is FRR output read from the vty, and nothing in these directories was edited or synthesized.
+
+- `passive1/`: r1 e1 is passive, and r2 e2 is active on the same subnet. Neither side forms a neighbor, and both neighbor lists are empty. r1's e1 record holds `timerPassiveIface` true with no hello timer. r2's e2 record holds a hello timer. This shows FRR's passive status for the interface. It does not show how the status was set.
+- `cost50/`: r1 e1 costs 50 and r2 e2 costs 10. The adjacency is Full on both ends, and each router's OSPF route table holds the other's stub network.
+- `mixp2p/`: r1 e1 is point-to-point and r2 e2 is broadcast. The adjacency is Full on both ends (`Full/-` on r1 and `Full/Backup` on r2). Each router's `show ip ospf route json` lacks the calculated route to the other's stub network: r1 has no `10.10.2.0/24` and r2 has no `10.10.1.0/24`. The captures show only that those calculated entries are absent from the captured OSPF route tables. They show no kernel FIB failure and no loss of connectivity, and they do not show why the entries are absent.
+- `secp1/` and `secp2/`: the primary address and the secondary address share the name e1, and the one e1 record holds `timerPassiveIface` true and `timerHelloInMsecs` together. In `secp1/` no neighbor forms, since the primary is passive. In `secp2/` the Full adjacency on the primary is kept, and the record's `bdrAddress` 10.0.1.1 lies outside the secondary subnet 10.0.2.0/24. Both records show that one name can mix two OSPF interfaces. Neither shows a fault.
+- `down1/`: the broadcast adjacency of `bcast/`, then `ip link set e1 down` on r1 and a 5-second wait. r1 e1 is absent from the all-interface listing, as described in the area section above. The run does not show the `ospfRunning` false record that the source predicts for a down interface with an OSPF instance.
+
+A secondary-address case with the two addresses added in the reverse order was not run. The effect of the order in which FRR visits addresses on the record it prints last is therefore not observed.
 
 ## Socket paths
 
@@ -100,8 +127,8 @@ Replace `/path/to` with the directory that holds the two RPMs:
     (cd "$SCRATCH/frr-root" && rpm2cpio /path/to/frr-10.7.0-1.fc44.x86_64.rpm | cpio -idm && rpm2cpio /path/to/libyang-3.13.5-2.fc44.x86_64.rpm | cpio -idm)
     SCRATCH="$SCRATCH" unshare -Urnm bash testdata/frr/10.7.0/lab/run5.sh bcast
 
-Modes are `bcast`, `p2p`, `mtu`, `empty`, `nbma`, `noinst`, `area`, and `secondary`. Each run takes
-about 100 seconds. Output goes to `$SCRATCH/run/<mode>`. Copy the files you keep into
+Modes are `bcast`, `p2p`, `mtu`, `empty`, `nbma`, `noinst`, `area`, `secondary`, `secp1`, `secp2`, `passive1`, `cost50`, `mixp2p`, and `down1`. Each run takes
+about 100 seconds. Run them one at a time, as the committed PR 6 captures were run. Output goes to `$SCRATCH/run/<mode>`. Copy the files you keep into
 `testdata/frr/10.7.0/<mode>/` by hand; the tests read those names. The helper
 script that copied them here is not in the repo. The
 `lab/etc/group` and `lab/etc/passwd` files are a minimal set, so the host's

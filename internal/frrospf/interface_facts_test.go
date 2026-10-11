@@ -573,3 +573,31 @@ func TestEveryFRRNetworkTypeAndStateIsMapped(t *testing.T) {
 		checkFacts(t, "state "+frr, ifaceFacts(t, res, "r3", "e3"), map[string]string{keyInterfaceState: want})
 	}
 }
+
+// TestUnspecifiedDRIsNotChecked gives a point-to-point and a waiting broadcast
+// record drAddress and bdrAddress 0.0.0.0, the value FRR prints when no DR
+// exists. An unspecified address is no DR, so the subnet check does not treat it
+// as outside the subnet, and every fact stays.
+func TestUnspecifiedDRIsNotChecked(t *testing.T) {
+	cases := []struct {
+		name string
+		set  map[string]any
+		want map[string]string
+	}{
+		{"point-to-point", map[string]any{"networkType": "POINTOPOINT", "state": "Point-To-Point", "drAddress": "0.0.0.0", "bdrAddress": "0.0.0.0"},
+			map[string]string{"ospf.cost": "10", "ospf.network_type": "point-to-point", "ospf.interface_state": "point-to-point", "ospf.passive": "false"}},
+		{"waiting broadcast", map[string]any{"state": "Waiting", "drAddress": "0.0.0.0", "bdrAddress": "0.0.0.0"},
+			map[string]string{"ospf.cost": "10", "ospf.network_type": "broadcast", "ospf.interface_state": "waiting", "ospf.passive": "false"}},
+	}
+	for _, c := range cases {
+		res := importSynth(t, synthIface(c.set))
+		checkFacts(t, c.name, ifaceFacts(t, res, "r3", "e3"), c.want)
+		notes := capNotes(t, res, "r3", CommandInterface)
+		if n := noteWith(notes, "facts withheld"); n != "" {
+			t.Errorf("%s: unspecified DR withheld facts: %s", c.name, n)
+		}
+		if n := noteWith(notes, "is outside"); n != "" {
+			t.Errorf("%s: unspecified DR reported as outside the subnet: %s", c.name, n)
+		}
+	}
+}

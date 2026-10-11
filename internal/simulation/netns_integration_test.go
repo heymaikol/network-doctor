@@ -2180,6 +2180,82 @@ func TestSOCKS5hRemoteDNSScenario(t *testing.T) {
 	assertCleanedUp(t, rep)
 }
 
+// proxyOnlyVariant runs one case derived from the built-in proxy-only-network
+// scenario. The blocked topology is written once, in that file, and a case
+// states only what it changes. LibraryScenario returns a clone, so the mutations
+// here cannot reach the cached copy the other proxy-only tests read.
+func proxyOnlyVariant(t *testing.T, name string, mutate func(*Scenario)) Report {
+	t.Helper()
+	netdoc, sim := buildBinaries(t)
+	scenario, err := LibraryScenario("proxy-only-network")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalScenarioInput(scenario)
+	scenario.Name = name
+	mutate(scenario)
+	if err := scenario.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return runScenarioDefinition(t, sim, netdoc, scenario, "-timeout", timedTimeout)
+}
+
+// requireProxyOnlyRun checks what every proxy-only case shares: the run passed,
+// netdoc matched its expectation with no false positives or negatives, and the
+// client's own TCP/443 filter matched real packets. It returns the one outcome.
+func requireProxyOnlyRun(t *testing.T, rep Report) TestOutcome {
+	t.Helper()
+	if rep.Result != ResultPass {
+		t.Fatalf("result = %s (error %q); suggestions: %+v; tests: %+v", rep.Result, rep.Error, rep.Suggestions, rep.Tests)
+	}
+	out := rep.Tests[0]
+	if out.FalsePositives != 0 || out.FalseNegatives != 0 {
+		t.Errorf("comparison fp=%d fn=%d: %+v", out.FalsePositives, out.FalseNegatives, out.Checks)
+	}
+	if !droppedOutbound(rep.Evidence, "client", "tcp", 443) {
+		t.Errorf("the client's own TCP/443 filter never matched a packet: %+v", rep.Evidence.PacketDrops)
+	}
+	return out
+}
+
+// requireProxyTunnel checks the CONNECT proxy's side of a working tunnel. It
+// answered 200, which it sends only once the upstream connection is open, and it
+// resolved the CONNECT authority from its own namespace, not the client's.
+func requireProxyTunnel(t *testing.T, rep Report) {
+	t.Helper()
+	if !hasServiceReply(rep, "proxy", "connect-proxy", ServiceHTTPConnect, 200) {
+		t.Errorf("the CONNECT proxy never established a tunnel: %+v", rep.Evidence.ServiceReplies)
+	}
+	if !hasDNSEvidence(rep, "internet", "10.77.0.30", proxyProbeName, "ANSWER") {
+		t.Errorf("no proxy-side lookup of the CONNECT authority: %+v", rep.Evidence.DNS)
+	}
+}
+
+// requireProxyHandedOver checks what a proxy-only case shares once netdoc is
+// handed the proxy: netdoc was given the proxy's address, and the simulator, not
+// netdoc, measured the client's direct IPv4 path as unreachable.
+func requireProxyHandedOver(t *testing.T, rep Report, out TestOutcome) {
+	t.Helper()
+	if out.Proxy != "http://10.77.0.30:3128" {
+		t.Errorf("netdoc was handed proxy %q", out.Proxy)
+	}
+	assertObservedFamily(t, rep, "ipv4", FamilyStateUnreachable)
+}
+
+// proxyOnlyExpect is the expectation for the two proxy-only variants. Both end in
+// the network verdict and share the interface, public DNS, and encrypted DNS
+// rows, so a variant names only the three rows it changes.
+func proxyOnlyExpect(internetTCP, proxyConnect, dns string) Expect {
+	return Expect{Verdict: "network", Checks: []ExpectedCheck{
+		{ID: "iface", Status: "PASS"},
+		{ID: "internet_tcp", Status: internetTCP},
+		{ID: "proxy_connect", Status: proxyConnect},
+		{ID: "dns", Status: dns},
+		{ID: "dns_public", Status: "PASS"},
+		{ID: "dns_encrypted", Status: "FAIL"},
+	}}
+}
+
 // TestProxyOnlyNetworkScenario is the regression for netdoc's headline proxy
 // claim: a machine with no direct TCP/443 egress and a working HTTP CONNECT
 // proxy reads as online through that proxy, not as offline. Everything below
@@ -2190,40 +2266,18 @@ func TestProxyOnlyNetworkScenario(t *testing.T) {
 	t.Parallel()
 	requireBackend(t)
 	rep := runScenario(t, "proxy-only-network", "-timeout", timedTimeout)
-	if rep.Result != ResultPass {
-		t.Fatalf("result = %s (error %q); suggestions: %+v; tests: %+v", rep.Result, rep.Error, rep.Suggestions, rep.Tests)
-	}
-	out := rep.Tests[0]
-	if out.FalsePositives != 0 || out.FalseNegatives != 0 {
-		t.Errorf("comparison fp=%d fn=%d: %+v", out.FalsePositives, out.FalseNegatives, out.Checks)
-	}
-	if out.Proxy != "http://10.77.0.30:3128" {
-		t.Errorf("netdoc was handed proxy %q", out.Proxy)
-	}
-
-	// Half one of the claim, measured by the simulator rather than read off
-	// netdoc's own report: from inside the client namespace, the fixed internet
-	// endpoints on TCP/443 are unreachable.
-	assertObservedFamily(t, rep, "ipv4", FamilyStateUnreachable)
-	if !droppedOutbound(rep.Evidence, "client", "tcp", 443) {
-		t.Errorf("the client's own TCP/443 filter never matched a packet: %+v", rep.Evidence.PacketDrops)
-	}
+	out := requireProxyOnlyRun(t, rep)
+	// Half one: the client's direct TCP/443 path is measured unreachable.
+	requireProxyHandedOver(t, rep, out)
 
 	// Half two, measured by the fixture: the proxy answered a real CONNECT with
 	// 200, which it sends only once it has the upstream connection open. That
 	// is proxy-to-destination reachability, stated by the proxy.
-	if !hasServiceReply(rep, "proxy", "connect-proxy", ServiceHTTPConnect, 200) {
-		t.Errorf("the CONNECT proxy never established a tunnel: %+v", rep.Evidence.ServiceReplies)
-	}
+	requireProxyTunnel(t, rep)
 	for _, reply := range rep.Evidence.ServiceReplies {
 		if reply.Type == ServiceHTTPConnect && reply.Status != 200 {
 			t.Errorf("the CONNECT proxy also answered %d: %+v", reply.Status, reply)
 		}
-	}
-	// The tunnel authority was resolved from the proxy's namespace, which is
-	// what a CONNECT proxy does and what says the request reached it as a name.
-	if !hasDNSEvidence(rep, "internet", "10.77.0.30", proxyProbeName, "ANSWER") {
-		t.Errorf("no proxy-side lookup of the CONNECT authority: %+v", rep.Evidence.DNS)
 	}
 
 	// And the diagnosis those two halves have to produce.
@@ -2254,33 +2308,34 @@ func TestProxyOnlyNetworkScenario(t *testing.T) {
 func TestProxyOnlyNetworkBrokenDNSScenario(t *testing.T) {
 	t.Parallel()
 	requireBackend(t)
-	rep := runScenario(t, "proxy-only-network-broken-dns", "-timeout", timedTimeout)
-	if rep.Result != ResultPass {
-		t.Fatalf("result = %s (error %q); suggestions: %+v; tests: %+v", rep.Result, rep.Error, rep.Suggestions, rep.Tests)
-	}
-	out := rep.Tests[0]
-	if out.FalsePositives != 0 || out.FalseNegatives != 0 {
-		t.Errorf("comparison fp=%d fn=%d: %+v", out.FalsePositives, out.FalseNegatives, out.Checks)
-	}
+	rep := proxyOnlyVariant(t, "proxy-only-network-broken-dns", func(s *Scenario) {
+		s.Description = "The proxy-only network again, with its configured resolver taken away too."
+		s.Tests[0].Name = "generic checks with egress only through the CONNECT proxy and no resolver"
+		// The new half. Both transports port 53 runs on, so nothing survives on a
+		// TCP retry. Scoped to the configured resolver so the public second opinion
+		// on 8.8.8.8 keeps answering, and dropped on the way out of the client so
+		// the proxy's own lookups on the same resolver are untouched.
+		s.Faults = append(s.Faults,
+			Fault{Type: FaultDrop, Node: "client", Direction: DirectionOutbound, To: "10.77.0.1", Protocol: "udp", Port: 53},
+			Fault{Type: FaultDrop, Node: "client", Direction: DirectionOutbound, To: "10.77.0.1", Protocol: "tcp", Port: 53},
+		)
+		// Not degraded: with the direct route dead and no name resolving, the path
+		// itself is the finding. WARN for internet_tcp, as in the control: the
+		// proxy proves the machine is not offline, and the diagnosis must not read
+		// that WARN as working egress.
+		s.Expect = proxyOnlyExpect("WARN", "PASS", "FAIL")
+	})
+	out := requireProxyOnlyRun(t, rep)
 
 	// The three halves of the state, each measured rather than assumed. The
-	// client's own filters matched real packets on TCP/443 and on both
-	// transports port 53 runs on, and the proxy answered a real CONNECT with
-	// the 200 it sends only once the upstream connection is open.
-	if !droppedOutbound(rep.Evidence, "client", "tcp", 443) {
-		t.Errorf("the client's own TCP/443 filter never matched a packet: %+v", rep.Evidence.PacketDrops)
-	}
+	// client's own UDP/53 filter matched a real packet, and the proxy answered a
+	// real CONNECT with the 200 it sends only once the upstream connection is open.
 	if !droppedOutbound(rep.Evidence, "client", "udp", 53) {
 		t.Errorf("the client's own UDP/53 filter never matched a packet: %+v", rep.Evidence.PacketDrops)
 	}
-	if !hasServiceReply(rep, "proxy", "connect-proxy", ServiceHTTPConnect, 200) {
-		t.Errorf("the CONNECT proxy never established a tunnel: %+v", rep.Evidence.ServiceReplies)
-	}
 	// Resolved from the proxy's namespace, which is what keeps the tunnel
 	// working while the client resolves nothing.
-	if !hasDNSEvidence(rep, "internet", "10.77.0.30", proxyProbeName, "ANSWER") {
-		t.Errorf("no proxy-side lookup of the CONNECT authority: %+v", rep.Evidence.DNS)
-	}
+	requireProxyTunnel(t, rep)
 
 	// The rows those measurements have to produce.
 	internet := diagnosisCheck(out, string(diagnostic.ProbeInternet))
@@ -2303,6 +2358,70 @@ func TestProxyOnlyNetworkBrokenDNSScenario(t *testing.T) {
 	want := "Direct egress is blocked and DNS resolution is failing; only the environment proxy is carrying traffic."
 	if summary != want {
 		t.Errorf("summary = %q, want %q", summary, want)
+	}
+	assertCleanedUp(t, rep)
+}
+
+// TestProxyOnlyNetworkHTTPProxyScenario is the negative control for the proxy
+// claim: the same proxy-only network, with its CONNECT proxy handed to netdoc
+// only as HTTP_PROXY. netdoc's proxy row reads HTTP_PROXY only for plain http://
+// requests and stands in for an HTTPS client, so the row is N/A, nothing dials
+// the proxy, and direct egress stays blocked with no other way out. The
+// diagnosis has to say that rather than read the proxy as working egress.
+// TestProxyOnlyNetworkScenario is the paired positive control: same topology,
+// same blocked 443, handed over as HTTPS_PROXY.
+func TestProxyOnlyNetworkHTTPProxyScenario(t *testing.T) {
+	t.Parallel()
+	requireBackend(t)
+	rep := proxyOnlyVariant(t, "proxy-only-network-http-proxy", func(s *Scenario) {
+		s.Description = "The proxy-only network, with its CONNECT proxy handed to netdoc only as HTTP_PROXY."
+		s.Tests[0].Name = "generic checks with an HTTP_PROXY-only proxy"
+		// The only change from the control: the variable netdoc is handed the proxy
+		// through. Faults and topology are shared, so nothing else differs.
+		s.Tests[0].Proxy.Variable = "HTTP_PROXY"
+		// N/A: the proxy is handed over, but the HTTPS row never dials it. FAIL
+		// rather than WARN for internet_tcp: nothing else proves the machine is
+		// online, so the direct failure is not downgraded.
+		s.Expect = proxyOnlyExpect("FAIL", "N/A", "PASS")
+	})
+	out := requireProxyOnlyRun(t, rep)
+	requireProxyHandedOver(t, rep, out)
+
+	// Nothing reached the proxy. Every request it receives is recorded with its
+	// status, a 405 included, so zero records means no request arrived. A proxy
+	// that never started would also read as zero, which is why the paired
+	// TestProxyOnlyNetworkScenario has to keep passing for this to mean anything.
+	for _, reply := range rep.Evidence.ServiceReplies {
+		if reply.Type == ServiceHTTPConnect {
+			t.Errorf("the CONNECT proxy answered a request with %d, want none: %+v", reply.Status, reply)
+		}
+	}
+
+	// The rows, pinned exactly. The N/A detail is the only proof HTTP_PROXY reached
+	// netdoc: unset, the detail would say no proxy is in the environment at all.
+	internet := diagnosisCheck(out, string(diagnostic.ProbeInternet))
+	if internet.Status != "FAIL" || strings.Contains(internet.Detail, "but the environment proxy works") {
+		t.Errorf("direct egress row = %+v", internet)
+	}
+	proxy := diagnosisCheck(out, string(diagnostic.ProbeProxy))
+	if proxy.Status != "N/A" || proxy.Detail != "no proxy applies to HTTPS requests, but one applies to plain HTTP" {
+		t.Errorf("proxy_connect = %+v", proxy)
+	}
+	if out.ActualVerdict != "network" {
+		t.Errorf("verdict = %q, want network", out.ActualVerdict)
+	}
+
+	// The user-visible half of the claim. No proxy carried traffic, so the summary
+	// may not describe a proxy-only network, and no finding may say it is one.
+	summary := out.Diagnosis.Summary
+	want := "DNS resolves but there's no direct TCP egress to the egress check's reference endpoints (proxy-only or filtered network?)."
+	if summary != want {
+		t.Errorf("summary = %q, want %q", summary, want)
+	}
+	for _, finding := range out.Diagnosis.Findings {
+		if finding.ID == string(diagnostic.DiagnosisProxyOnlyNetwork) {
+			t.Errorf("proxy-only finding on a network whose proxy was never used: %+v", finding)
+		}
 	}
 	assertCleanedUp(t, rep)
 }

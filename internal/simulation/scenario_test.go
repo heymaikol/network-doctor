@@ -82,6 +82,9 @@ func TestParseScenarioDocumentBoundaries(t *testing.T) {
 }
 
 func TestParseScenarioRejects(t *testing.T) {
+	withProxy := func(opts string) string {
+		return strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {"+opts+"}", 1)
+	}
 	tests := []struct {
 		name string
 		yaml string
@@ -294,6 +297,10 @@ func TestParseScenarioRejects(t *testing.T) {
 			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: socks5, node: server, command: sh}", 1),
 			"command",
 		},
+		{"proxy variable needs the http scheme", withProxy("scheme: socks5, node: server, variable: HTTP_PROXY"), "needs scheme http"},
+		{"proxy variable on socks5h needs the http scheme", withProxy("scheme: socks5h, node: server, variable: HTTP_PROXY"), "needs scheme http"},
+		{"proxy variable other than HTTP_PROXY", withProxy("scheme: http, node: server, variable: HTTPS_PROXY"), "unknown variable"},
+		{"lowercase proxy variable", withProxy("scheme: http, node: server, variable: http_proxy"), "unknown variable"},
 		{
 			"unknown trust service",
 			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, trust: {service: missing}", 1),
@@ -407,20 +414,53 @@ func TestPMTUBlackholeAccepted(t *testing.T) {
 	}
 }
 
-func TestProxyDefaultsAndUsesValidatedNodeAddress(t *testing.T) {
+// proxyScenario parses minimalScenario with a resolver on the server, the given
+// services on it, and the given body as the client's proxy option.
+func proxyScenario(t *testing.T, services, proxy string) *Scenario {
+	t.Helper()
 	raw := strings.Replace(minimalScenario, "address: 10.77.0.1}",
-		"address: 10.77.0.1, resolver: 10.77.0.1, services: [{name: proxy, type: socks5}]}", 1)
-	raw = strings.Replace(raw, "target: example.test:80", "target: example.test:80, proxy: {scheme: socks5h, node: server}", 1)
+		"address: 10.77.0.1, resolver: 10.77.0.1, services: ["+services+"]}", 1)
+	raw = strings.Replace(raw, "target: example.test:80", "target: example.test:80, proxy: {"+proxy+"}", 1)
 	s, err := ParseScenario(strings.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return s
+}
+
+func TestProxyDefaultsAndUsesValidatedNodeAddress(t *testing.T) {
+	s := proxyScenario(t, "{name: proxy, type: socks5}", "scheme: socks5h, node: server")
 	proxy := s.Tests[0].Proxy
 	if proxy == nil || proxy.Port != 1080 || proxy.address != "10.77.0.1" {
 		t.Errorf("proxy = %+v", proxy)
 	}
 	if got := s.Topology.Nodes[1].Services[0].Port; got != 1080 {
 		t.Errorf("service port = %d", got)
+	}
+}
+
+// HTTP_PROXY is the only explicit variable choice, and only an http proxy can
+// make it. Absent or empty, each scheme keeps the variable it always had.
+func TestProxyVariableChoice(t *testing.T) {
+	const services = "{name: connect-proxy, type: http_connect}, {name: socks, type: socks5}"
+	for _, tc := range []struct {
+		name, proxy, wantEnv string
+		wantPort             int
+	}{
+		{"http proxy asks for HTTP_PROXY", "scheme: http, node: server, variable: HTTP_PROXY", "HTTP_PROXY", 3128},
+		{"http proxy with no variable keeps HTTPS_PROXY", "scheme: http, node: server", "HTTPS_PROXY", 3128},
+		{"http proxy with an empty variable keeps HTTPS_PROXY", `scheme: http, node: server, variable: ""`, "HTTPS_PROXY", 3128},
+		{"socks5 proxy keeps ALL_PROXY", "scheme: socks5, node: server", "ALL_PROXY", 1080},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			proxy := proxyScenario(t, services, tc.proxy).Tests[0].Proxy
+			if proxy.Port != tc.wantPort {
+				t.Errorf("port = %d, want %d", proxy.Port, tc.wantPort)
+			}
+			if got := proxy.envName(); got != tc.wantEnv {
+				t.Errorf("env name = %q, want %q", got, tc.wantEnv)
+			}
+		})
 	}
 }
 

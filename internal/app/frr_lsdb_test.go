@@ -269,12 +269,8 @@ func TestFRRImportLSDBTextShowsTheReportedFacts(t *testing.T) {
 	}
 }
 
-// lsdbFactLimitForTest is the per-list item limit that renderLSDBFacts applies.
-const lsdbFactLimitForTest = 20
-
-// The facts block is bounded. A capture with many advertisements, routes, or
-// prefixes names the first items and a count of the rest, and the output does not
-// depend on the order the report holds them.
+// The facts block is bounded. A list with more items than its limit shows the
+// first ones and a count of the rest. Two renders of one report are identical.
 func TestLSDBTextFactsAreBoundedAndDeterministic(t *testing.T) {
 	at := time.Date(2026, 10, 11, 2, 39, 0, 0, time.UTC)
 	node := ospf.NodeReport{
@@ -313,10 +309,10 @@ func TestLSDBTextFactsAreBoundedAndDeterministic(t *testing.T) {
 	}
 	// Each list shows its first twenty items. The router LSA and twenty-five
 	// routes are in the report, so the counts below are exact.
-	if n := strings.Count(out, " advertisement "); n != lsdbFactLimitForTest {
-		t.Errorf("advertisement lines = %d; want %d", n, lsdbFactLimitForTest)
+	if n := strings.Count(out, " advertisement "); n != lsdbFactLimit {
+		t.Errorf("advertisement lines = %d; want %d", n, lsdbFactLimit)
 	}
-	if n := strings.Count(out, ", type N, cost "); n != lsdbFactLimitForTest {
-		t.Errorf("route lines = %d; want %d", n, lsdbFactLimitForTest)
+	if n := strings.Count(out, ", type N, cost "); n != lsdbFactLimit {
+		t.Errorf("route lines = %d; want %d", n, lsdbFactLimit)
 	}
 }

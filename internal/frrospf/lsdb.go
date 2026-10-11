@@ -137,9 +137,10 @@ var processCounters = []struct {
 // decodeProcessState reads one show ip ospf json output. The FRR 10.7.0 source
 // prints {} when the default VRF has no running instance and some other OSPF
 // instance exists (ospfd/ospf_vty.c:3536-3538). No capture shows that output for
-// this command. Such a process has no router ID and no areas, and the comparison
-// treats it as unknown, not as an empty LSDB. The source prints nothing when no
-// OSPF instance exists (ospf_vty.c:3494-3495), and that empty body is refused.
+// this command. The decoder reads {} as a process with no router ID and no areas
+// (TestNotRunningProcessStateIsEmptyNotLSDB), and the guard then withholds the
+// comparison. The source prints nothing when no OSPF instance exists
+// (ospf_vty.c:3494-3495). That empty body has no JSON to read, so it is refused.
 func decodeProcessState(data []byte) (ospf.Process, string) {
 	top, err := decodeTopLevel(data)
 	if err != nil {

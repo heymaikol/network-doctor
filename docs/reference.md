@@ -1988,7 +1988,7 @@ Exit `0` is not a health result. It means the captures were read and each neighb
 
 ### Report
 
-The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish. With LSDB captures, it also has an `OSPF LSDB comparison` block. Each node has its guard result, then each finding with its limit, then the facts its captures reported. The facts are the process state, the LSDB and its reconciliation, the advertisements, the calculated routes, and the unsupported counts. Each list shows its first 20 items and says how many it left out. The [JSON report](#lsdb-comparison) has every item.
+The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish. With LSDB captures, it also has an `OSPF LSDB comparison` block. Each node has its guard result, then each finding with its limit, then the facts its captures reported. The facts are the process state, the LSDB and its reconciliation, the advertisements, the calculated routes, and the unsupported counts. Each list shows its first 20 items and says how many it left out. The JSON report has every item.
 
 `--json` prints one object. Its `version` is `1`.
 

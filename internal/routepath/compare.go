@@ -87,20 +87,43 @@ func disagreement(exp, fwd *Hop) (FindingKind, string, bool) {
 
 // sameHops reports whether two next-hop lists name the same forwarding. An
 // empty Interface is an unreported field, so it matches any interface on the
-// same gateway, exactly as netmodel.CoversHops reads a Route's next hops. A
-// list that merely omits an interface is therefore not a disagreement.
-func sameHops(a, b []NextHop) bool { return coversHops(a, b) && coversHops(b, a) }
-
-// coversHops reports whether every hop in want has a counterpart in have.
-func coversHops(have, want []NextHop) bool {
-	for _, w := range want {
-		if !slices.ContainsFunc(have, func(h NextHop) bool {
-			return w.Addr == h.Addr && (w.Interface == "" || h.Interface == "" || w.Interface == h.Interface)
-		}) {
-			return false
-		}
+// same gateway, exactly as netmodel.CoversHops reads a Route's next hops. The
+// match is one-to-one, though: an unreported interface stands in for at most
+// one counterpart, so a single hop never swallows two ECMP alternatives and a
+// difference in ECMP width stays a difference. A list that merely omits an
+// interface is not a disagreement; one that disagrees on gateway, a named
+// interface, or the number of alternatives is.
+func sameHops(a, b []NextHop) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	return true
+	return matchHops(a, b, make([]bool, len(b)))
+}
+
+// matchHops reports whether every hop in want can be paired with a distinct hop
+// in have. Distinctness makes the pairing a bijection, so the two lists hold the
+// same number of forwarding alternatives and none is matched twice.
+func matchHops(want, have []NextHop, taken []bool) bool {
+	if len(want) == 0 {
+		return true
+	}
+	for i, h := range have {
+		if taken[i] || !hopCompatible(want[0], h) {
+			continue
+		}
+		taken[i] = true
+		if matchHops(want[1:], have, taken) {
+			return true
+		}
+		taken[i] = false
+	}
+	return false
+}
+
+// hopCompatible reports whether two next hops can describe the same forwarding:
+// the gateways must match, and the interfaces agree unless one is unreported.
+func hopCompatible(a, b NextHop) bool {
+	return a.Addr == b.Addr && (a.Interface == "" || b.Interface == "" || a.Interface == b.Interface)
 }
 
 // concrete is a decision that names what happens to the destination, as

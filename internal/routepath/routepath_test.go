@@ -896,3 +896,80 @@ func TestOmittedInterfaceIsNotADisagreement(t *testing.T) {
 		t.Errorf("r1 agreement = %q, want agrees", got)
 	}
 }
+
+// An unreported interface is unreported, not licence to match more than one
+// alternative. If a single hop with an unstated interface compared equal to two
+// ECMP legs through the same gateway, a FIB that dropped one leg would read as
+// agreement and the difference would be lost.
+func TestSameHopsMatchesOneToOne(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b []NextHop
+		want bool
+	}{
+		{
+			"an omitted interface matches a single named one",
+			[]NextHop{{Addr: "192.0.2.1"}},
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}},
+			true,
+		},
+		{
+			"one unreported hop cannot stand in for two ECMP alternatives",
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}, {Addr: "192.0.2.1", Interface: "eth1"}},
+			[]NextHop{{Addr: "192.0.2.1"}},
+			false,
+		},
+		{
+			"the reverse ECMP width difference is a difference too",
+			[]NextHop{{Addr: "192.0.2.1"}},
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}, {Addr: "192.0.2.1", Interface: "eth1"}},
+			false,
+		},
+		{
+			"genuinely different gateways differ",
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}},
+			[]NextHop{{Addr: "192.0.2.2", Interface: "eth0"}},
+			false,
+		},
+		{
+			"conflicting interface names differ",
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}},
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth1"}},
+			false,
+		},
+		{
+			"identical named alternatives agree regardless of order",
+			[]NextHop{{Addr: "192.0.2.1", Interface: "eth0"}, {Addr: "192.0.2.2", Interface: "eth1"}},
+			[]NextHop{{Addr: "192.0.2.2", Interface: "eth1"}, {Addr: "192.0.2.1", Interface: "eth0"}},
+			true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := sameHops(c.a, c.b); got != c.want {
+				t.Errorf("sameHops(%v, %v) = %v, want %v", c.a, c.b, got, c.want)
+			}
+			if got := sameHops(c.b, c.a); got != c.want {
+				t.Errorf("sameHops(%v, %v) = %v, want %v (must be symmetric)", c.b, c.a, got, c.want)
+			}
+		})
+	}
+}
+
+// A control plane that programs two ECMP legs through one gateway but a FIB
+// that holds one hop, interface unstated, is still a fib_differs_from_control:
+// the missing leg is the difference, and an unreported interface must not hide
+// it by matching both alternatives at once.
+func TestECMPLegMissingFromTheFIBIsADifference(t *testing.T) {
+	obs := without(threeRouters(), "control:r1:default", "fib:r1:default")
+	obs = append(obs,
+		table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", "ospf", nh("10.0.12.2", "eth1"), nh("10.0.12.2", "eth2"))),
+		table(netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", nh("10.0.12.2", ""))))
+	e := explainFrom(t, obs, nil, fromR1, dest)
+	if got := findings(e, FindingFIBDiffers); len(got) != 1 {
+		t.Errorf("fib_differs_from_control = %+v, want one at r1: the FIB holds one of the two ECMP legs", got)
+	}
+	if got := e.Forwarding.Decision.Agreement; got != AgreementDisagrees {
+		t.Errorf("r1 agreement = %q, want disagrees", got)
+	}
+}

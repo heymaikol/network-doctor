@@ -42,8 +42,9 @@ const MaxCaptureBytes = 1 << 20
 // The attribute keys this package writes. internal/ospf reads the same keys,
 // and a test in this package checks that they still agree.
 const (
-	keyState    = "ospf.state"
-	keyRouterID = "ospf.router_id"
+	keyState         = "ospf.state"
+	keyRouterID      = "ospf.router_id"
+	keyEffectiveArea = "ospf.effective_area"
 )
 
 // Capture is one recorded command output and the facts its caller declares
@@ -255,6 +256,7 @@ type ifaceInfo struct {
 	hasPrefix bool
 	unusable  string
 	routerID  string
+	area      string
 }
 
 // outcome carries one capture through the passes. reason is set once the
@@ -411,6 +413,11 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 		} else {
 			notes = append(notes, fmt.Sprintf("interface %s: routerId %s is not IPv4", quote(name), quote(*rec.RouterID)))
 		}
+		area, note := effectiveArea(rec.Area)
+		info.area = area
+		if note != "" {
+			notes = append(notes, fmt.Sprintf("interface %s: %s", quote(name), note))
+		}
 		out = append(out, info)
 	}
 	return out, notes, nil
@@ -418,7 +425,8 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 
 // interfaceList writes the interfaces of an accepted capture as netmodel
 // interfaces. The router ID is recorded as ospf.router_id, which the OSPF
-// analyzer reads as the interface's own identity.
+// analyzer reads as the interface's own identity. The area is recorded as
+// ospf.effective_area, the dotted area the interface reports.
 func interfaceList(ifaces []ifaceInfo) []netmodel.Interface {
 	var out []netmodel.Interface
 	for _, info := range ifaces {
@@ -427,7 +435,10 @@ func interfaceList(ifaces []ifaceInfo) []netmodel.Interface {
 			i.Addresses = []netip.Prefix{info.prefix}
 		}
 		if info.routerID != "" {
-			i.Attributes = []netmodel.Attribute{{Key: keyRouterID, Value: info.routerID}}
+			i.Attributes = append(i.Attributes, netmodel.Attribute{Key: keyRouterID, Value: info.routerID})
+		}
+		if info.area != "" {
+			i.Attributes = append(i.Attributes, netmodel.Attribute{Key: keyEffectiveArea, Value: info.area})
 		}
 		out = append(out, i)
 	}

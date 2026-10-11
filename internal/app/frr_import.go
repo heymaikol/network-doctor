@@ -38,7 +38,8 @@ var frrImportFlags = map[string]bool{"import-frr-ospf": true, "write-topology": 
 var frrNotImported = []string{
 	"routes: the RIB and FIB are not read, so the topology has no routes",
 	"the OSPF link-state database: not read",
-	"OSPF area: read per neighbor record and reported, not written to the topology",
+	"OSPF area of a neighbor record: reported, not written to the topology",
+	"OSPF area of an interface: a plain dotted area is written as ospf.effective_area, one value per interface name; a qualified, incomplete, or missing area is not written",
 	"secondary interface addresses: not read; only the primary address is used",
 	"any other FRR output field: not read",
 	"source address: not set, so the topology claims no address for the source node",
@@ -51,6 +52,7 @@ var frrLimitations = []string{
 	"neighbors and routes are not claimed complete; the topology says so explicitly",
 	"exit 0 means every capture was accepted and every neighbor record was mapped; it does not mean the network is healthy or that OSPF is complete on every node",
 	"a neighbor record with no router ID (noNbrID) is never mapped, even when its address is unique",
+	"an interface's ospf.effective_area is the one area FRR printed for that interface name; it is not a list of every area the interface runs OSPF in, and it may differ from the area of an adjacency on the same interface",
 }
 
 // runFRRImport imports offline FRR OSPF captures named by a manifest. It runs no

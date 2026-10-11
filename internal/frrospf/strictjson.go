@@ -119,7 +119,7 @@ func checkStrictJSON(data []byte) error {
 var decodedKeys = []string{
 	"neighbors", "interfaces",
 	"ifaceAddress", "areaId", "ifaceName", "localIfaceAddress", "nbrState",
-	"ipAddress", "ipAddressPrefixlen", "routerId",
+	"ipAddress", "ipAddressPrefixlen", "routerId", "area",
 }
 
 // nearKnownKey returns the decoded key that key matches only when case and

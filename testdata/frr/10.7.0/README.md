@@ -50,7 +50,7 @@ Each scenario was run serially with `lab/run5.sh`, one scenario per
 
 `area/` and `secondary/` are genuine FRR 10.7.0 output from the same lab, run with `lab/run5.sh area` and `lab/run5.sh secondary`.
 
-The interface `area` field is `ospf_area_desc_string(oi->area)` in `ospfd/ospf_vty.c`, which prints `A.B.C.D`, `A.B.C.D [Stub]`, `A.B.C.D [NSSA]`, or `(incomplete)`. The field is absent when the interface is not up, because the printer returns early with `ospfRunning` false. The importer reads the dotted base. The stub or NSSA qualifier and `(incomplete)` are noted, not written.
+The interface `area` field is `ospf_area_desc_string(oi->area)` in `ospfd/ospf_vty.c`, which prints `A.B.C.D`, `A.B.C.D [Stub]`, `A.B.C.D [NSSA]`, or `(incomplete)`. The field is absent when the interface is not up, because the printer returns early with `ospfRunning` false. The importer writes a plain dotted area as `ospf.effective_area`. A qualified area, `(incomplete)`, or a missing area is noted and no area is written for that interface.
 
 FRR prints one OSPF interface record per interface name. An interface that holds several OSPF interfaces, such as a secondary address in another area, shows only the last one it visits, because each loop iteration overwrites the same JSON keys. `secondary/` shows this: e1 holds two OSPF interfaces, and the record names only the secondary, while the Full adjacency on the primary is in area 0.0.0.0. So an area read from an interface name is not an inventory of that interface's areas, and it can differ from the area of an adjacency on it.
 

@@ -281,6 +281,25 @@ func parseState(s string) (string, error) {
 	return state, nil
 }
 
+// effectiveArea returns the dotted area ID that an interface record reports, for
+// ospf.effective_area, or a note saying why none is written. FRR prints a Stub
+// or NSSA qualifier after the ID, and (incomplete) for an interface with no
+// area. The area type is not compared yet, so a qualified area is not written
+// either: writing the ID alone would hide the qualifier from a later comparison.
+func effectiveArea(p *string) (string, string) {
+	switch {
+	case p == nil:
+		return "", "area is missing; none recorded"
+	case *p == "(incomplete)":
+		return "", `area is "(incomplete)"; none recorded`
+	case checkArea(*p) != nil:
+		return "", fmt.Sprintf("area %s is not a dotted area ID; none recorded", quote(*p))
+	case strings.Contains(*p, " "):
+		return "", fmt.Sprintf("area %s carries a qualifier; none recorded", quote(*p))
+	}
+	return *p, ""
+}
+
 // checkArea accepts a dotted IPv4 area with an optional known qualifier, as FRR
 // prints it: "0.0.0.1", "0.0.0.1 [Stub]", or "0.0.0.1 [NSSA]". Anything else
 // refuses the record. The qualifier is checked, not stripped, and it stays in

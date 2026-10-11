@@ -2006,7 +2006,7 @@ The report lists these, so a reader does not take the topology for the whole net
 
 - Routes: the RIB and FIB are not read, so the topology has no routes.
 - The OSPF link-state database is not read.
-- Areas are read per neighbor record and reported, but not written to the topology.
+- Areas are read per neighbor record and reported, but not written to the topology. An interface's plain dotted area is written as `ospf.effective_area`.
 - Only the primary interface address is used. Secondary addresses are not read.
 - No other FRR output field is read.
 - The source address is not set, so the topology claims no address for the source node.

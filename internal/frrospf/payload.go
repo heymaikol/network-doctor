@@ -32,12 +32,13 @@ type detailPayload struct {
 // 1 MiB input into a much larger working set.
 const maxEntries = 4096
 
-// interfaceRecord is one entry from show ip ospf interface json. Area and other
-// keys are not read here.
+// interfaceRecord is one entry from show ip ospf interface json. Other keys are
+// not read here.
 type interfaceRecord struct {
 	IPAddress          *string `json:"ipAddress"`
 	IPAddressPrefixlen *int    `json:"ipAddressPrefixlen"`
 	RouterID           *string `json:"routerId"`
+	Area               *string `json:"area"`
 }
 
 // interfacePayload is the top level of show ip ospf interface json, keyed by

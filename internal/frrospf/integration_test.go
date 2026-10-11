@@ -84,3 +84,17 @@ func TestAnalyzerLimitsPreFullStates(t *testing.T) {
 		t.Fatalf("neighbor states = %q, want %q:\n%s", states, want, report.Text())
 	}
 }
+
+// TestKeysMatchTheOSPFAnalyzer checks that each attribute key this package writes
+// is the key the OSPF analyzer reads, so a rename in one cannot go unseen.
+func TestKeysMatchTheOSPFAnalyzer(t *testing.T) {
+	for _, p := range [][2]string{
+		{keyState, ospf.KeyState},
+		{keyRouterID, ospf.KeyRouterID},
+		{keyEffectiveArea, ospf.KeyEffectiveArea},
+	} {
+		if p[0] != p[1] {
+			t.Errorf("this package writes %q, and the analyzer reads %q", p[0], p[1])
+		}
+	}
+}

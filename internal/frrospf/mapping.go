@@ -16,6 +16,9 @@ import (
 type mappedNeighbors struct {
 	neighbors []netmodel.Neighbor
 	records   []Record
+	// contradicted names the node's interfaces that a record on them places at a
+	// local address other than the interface's own. See Import.
+	contradicted []string
 }
 
 // candidate is one neighbor record after parsing. reason is set when the record
@@ -47,6 +50,9 @@ func mapNeighbors(c Capture, entries map[string][]detailRecord, local map[string
 	var out mappedNeighbors
 	for i := range cands {
 		cd := &cands[i]
+		if li, ok := local[cd.rec.LocalInterface]; ok && cd.hasLocal && li.hasAddr && cd.localAdr != li.addr && !slices.Contains(out.contradicted, li.name) {
+			out.contradicted = append(out.contradicted, li.name)
+		}
 		if cd.reason == "" {
 			resolve(cd, c.Node, local, owners[cd.addr], gate)
 		}
@@ -279,6 +285,25 @@ func parseState(s string) (string, error) {
 		return "", fmt.Errorf("nbrState %s has role %s, which is not DR, Backup, DROther, or -", quote(s), quote(role))
 	}
 	return state, nil
+}
+
+// effectiveArea returns the dotted area ID that an interface record reports, for
+// ospf.effective_area, or a note saying why none is written. FRR prints a Stub
+// or NSSA qualifier after the ID, and (incomplete) for an interface with no
+// area. The area type is not compared yet, so a qualified area is not written
+// either: writing the ID alone would hide the qualifier from a later comparison.
+func effectiveArea(p *string) (string, string) {
+	switch {
+	case p == nil:
+		return "", "area is missing; none recorded"
+	case *p == "(incomplete)":
+		return "", `area is "(incomplete)"; none recorded`
+	case checkArea(*p) != nil:
+		return "", fmt.Sprintf("area %s is not a dotted area ID; none recorded", quote(*p))
+	case strings.Contains(*p, " "):
+		return "", fmt.Sprintf("area %s carries a qualifier; none recorded", quote(*p))
+	}
+	return *p, ""
 }
 
 // checkArea accepts a dotted IPv4 area with an optional known qualifier, as FRR

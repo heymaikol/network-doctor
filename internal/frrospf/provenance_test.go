@@ -10,7 +10,7 @@ func TestFixtureInterfacesBelongToTheirNode(t *testing.T) {
 		"r1": {"e1": "1.1.1.1", "stub1": "1.1.1.1"},
 		"r2": {"e2": "2.2.2.2", "stub2": "2.2.2.2"},
 	}
-	for _, scenario := range []string{"bcast", "p2p", "mtu"} {
+	for _, scenario := range []string{"bcast", "p2p", "mtu", "area", "secondary"} {
 		for node, ifaces := range want {
 			c := fixture(t, scenario, node, CommandInterface)
 			raw, reason := decodeInterfaces(c.Data)

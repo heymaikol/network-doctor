@@ -42,8 +42,9 @@ const MaxCaptureBytes = 1 << 20
 // The attribute keys this package writes. internal/ospf reads the same keys,
 // and a test in this package checks that they still agree.
 const (
-	keyState    = "ospf.state"
-	keyRouterID = "ospf.router_id"
+	keyState         = "ospf.state"
+	keyRouterID      = "ospf.router_id"
+	keyEffectiveArea = "ospf.effective_area"
 )
 
 // Capture is one recorded command output and the facts its caller declares
@@ -160,6 +161,39 @@ func Import(captures []Capture) (Result, error) {
 		o.mapped = mapNeighbors(o.capture, o.entries, local[s], owners[o.capture.VRF], gate)
 	}
 
+	// FRR prints one interface record per name. When a neighbor on that name
+	// names a local address the record does not give, the record describes
+	// another OSPF interface on the same name, such as a secondary address. Its
+	// area is then not the adjacency's, so the area is withheld, and the
+	// neighbor record is still reported as it was.
+	withheld := map[scope]map[string]bool{}
+	for i := range outcomes {
+		o := &outcomes[i]
+		if o.reason != "" || o.capture.Command != CommandNeighborDetail {
+			continue
+		}
+		s := scope{o.capture.Node, o.capture.VRF}
+		for _, name := range o.mapped.contradicted {
+			if withheld[s] == nil {
+				withheld[s] = map[string]bool{}
+			}
+			withheld[s][name] = true
+		}
+	}
+	for i := range outcomes {
+		o := &outcomes[i]
+		if o.reason != "" || o.capture.Command != CommandInterface {
+			continue
+		}
+		for j := range o.ifaces {
+			info := &o.ifaces[j]
+			if info.area != "" && withheld[scope{o.capture.Node, o.capture.VRF}][info.name] {
+				info.area = ""
+				o.notes = append(o.notes, fmt.Sprintf("interface %s: area withheld; a neighbor record names a different local address for it", quote(info.name)))
+			}
+		}
+	}
+
 	var res Result
 	var obs []netmodel.Observation
 	for i := range outcomes {
@@ -255,6 +289,7 @@ type ifaceInfo struct {
 	hasPrefix bool
 	unusable  string
 	routerID  string
+	area      string
 }
 
 // outcome carries one capture through the passes. reason is set once the
@@ -411,6 +446,11 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 		} else {
 			notes = append(notes, fmt.Sprintf("interface %s: routerId %s is not IPv4", quote(name), quote(*rec.RouterID)))
 		}
+		area, note := effectiveArea(rec.Area)
+		info.area = area
+		if note != "" {
+			notes = append(notes, fmt.Sprintf("interface %s: %s", quote(name), note))
+		}
 		out = append(out, info)
 	}
 	return out, notes, nil
@@ -418,7 +458,8 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 
 // interfaceList writes the interfaces of an accepted capture as netmodel
 // interfaces. The router ID is recorded as ospf.router_id, which the OSPF
-// analyzer reads as the interface's own identity.
+// analyzer reads as the interface's own identity. The area is recorded as
+// ospf.effective_area, the dotted area the interface reports.
 func interfaceList(ifaces []ifaceInfo) []netmodel.Interface {
 	var out []netmodel.Interface
 	for _, info := range ifaces {
@@ -427,7 +468,10 @@ func interfaceList(ifaces []ifaceInfo) []netmodel.Interface {
 			i.Addresses = []netip.Prefix{info.prefix}
 		}
 		if info.routerID != "" {
-			i.Attributes = []netmodel.Attribute{{Key: keyRouterID, Value: info.routerID}}
+			i.Attributes = append(i.Attributes, netmodel.Attribute{Key: keyRouterID, Value: info.routerID})
+		}
+		if info.area != "" {
+			i.Attributes = append(i.Attributes, netmodel.Attribute{Key: keyEffectiveArea, Value: info.area})
 		}
 		out = append(out, i)
 	}

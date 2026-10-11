@@ -9,7 +9,10 @@
 // and intended planes. Interface areas are compared only within the configured
 // plane. Links are matched only when both sides report each other on the same
 // routing domain and interfaces. A source may leave the remote interface empty,
-// and that record then names the same neighbor as any remote interface.
+// and that record then names the same neighbor as any remote interface. A link
+// the intended plane declares is compared by the effective areas its ends report.
+// A link declared from one end alone is reported only when its ends differ, under
+// its own kind.
 package ospf
 
 import (
@@ -32,6 +35,9 @@ const (
 	KeyState    = "ospf.state"
 	KeyArea     = "ospf.area"
 	KeyRouterID = "ospf.router_id"
+	// KeyEffectiveArea is the dotted area an interface reports on the control
+	// plane. It is read only for links the intended plane declares.
+	KeyEffectiveArea = "ospf.effective_area"
 )
 
 // states is the closed vocabulary of OSPF neighbor states. A value outside it is
@@ -66,20 +72,27 @@ const (
 	KindAttributeConflict    Kind = "attribute_conflict"
 	KindIncompleteAttributes Kind = "incomplete_attributes"
 	KindRouterIDUnconfirmed  Kind = "router_id_unconfirmed"
+	// KindDeclaredLinkOneSided: a link one end declares has differing effective
+	// areas at its two ends. The declaration does not confirm the link.
+	KindDeclaredLinkOneSided Kind = "declared_link_one_sided"
 )
 
 const (
-	limitFull              = "FULL is the reporter's own claim. It does not prove that the link carries traffic or that the destination is reachable."
-	limitTwoWay            = "2-way is the normal stable state between two non-designated routers on a broadcast network. Alone it shows no fault."
-	limitBeforeFull        = "A state before FULL is what the reporter says. It names no root cause and does not prove the far side is down."
-	limitStatesConflict    = "Sources disagree about this neighbor state. No state is chosen, and the newest timestamp does not decide."
-	limitMissingConsistent = "The reporter marks its neighbor list complete, and that list holds OSPF records but none for this neighbor. The flag does not show that every OSPF source was collected. The omission does not prove the adjacency is down."
-	limitMissingUnknown    = "The evidence cannot show whether the neighbor is absent. Nothing is concluded about the adjacency."
-	limitMissingConflict   = "One complete neighbor list lacks a record that another source reports. Neither source is chosen."
-	limitAreaMismatch      = "The configured areas differ on the two ends of a link that both sides report. That is consistent with a failed adjacency. It does not name a cause."
-	limitAttributeConflict = "Sources or values disagree about one OSPF attribute. No value is chosen."
-	limitIncomplete        = "The attribute is missing or cannot be read, so no conclusion rests on it."
-	limitRouterID          = "A neighbor record reports this router ID, and the peer's node reports none that matches. A router ID never names a peer, so nothing is matched by it."
+	limitFull               = "FULL is the reporter's own claim. It does not prove that the link carries traffic or that the destination is reachable."
+	limitTwoWay             = "2-way is the normal stable state between two non-designated routers on a broadcast network. Alone it shows no fault."
+	limitBeforeFull         = "A state before FULL is what the reporter says. It names no root cause and does not prove the far side is down."
+	limitStatesConflict     = "Sources disagree about this neighbor state. No state is chosen, and the newest timestamp does not decide."
+	limitMissingConsistent  = "The reporter marks its neighbor list complete, and that list holds OSPF records but none for this neighbor. The flag does not show that every OSPF source was collected. The omission does not prove the adjacency is down."
+	limitMissingUnknown     = "The evidence cannot show whether the neighbor is absent. Nothing is concluded about the adjacency."
+	limitMissingConflict    = "One complete neighbor list lacks a record that another source reports. Neither source is chosen."
+	limitAreaMismatch       = "The configured areas differ on the two ends of a link that both sides report. That is consistent with a failed adjacency. It does not name a cause."
+	limitAttributeConflict  = "Sources or values disagree about one OSPF attribute. No value is chosen."
+	limitIncomplete         = "The attribute is missing or cannot be read, so no conclusion rests on it."
+	limitRouterID           = "A neighbor record reports this router ID, and the peer's node reports none that matches. A router ID never names a peer, so nothing is matched by it."
+	limitDeclaredArea       = "Both ends declare this link, and the effective areas FRR reports for its two interfaces differ. The declaration is supplied by the user. The captures may have been taken at different times, shown on the evidence rows. A failed adjacency would fit this reading, but the evidence does not show one."
+	limitDeclaredRecorded   = "Both ends declare this link, the effective areas differ, and an OSPF neighbor record reports the link. Both cannot hold at once, so no area is chosen. The declaration is supplied by the user, and the captures may have been taken at different times, shown on the evidence rows. FRR shows one area per interface name, so the interface's area may not be the area of this adjacency."
+	limitDeclaredOneSided   = "Only one end declares this link, so the declaration does not confirm that the link exists. The effective areas of the two interfaces differ. No area is chosen and no cause is shown."
+	limitDeclaredIncomplete = "An end of this declared link has no effective area, or one that cannot be read, so the areas are not compared. Nothing is concluded about the link."
 )
 
 // Report is the OSPF reading of one model. It has no findings when no OSPF
@@ -117,6 +130,7 @@ type Evidence struct {
 	PeerInterface string `json:"peer_interface,omitempty"`
 	State         string `json:"state,omitempty"`
 	Area          string `json:"area,omitempty"`
+	EffectiveArea string `json:"effective_area,omitempty"`
 	RouterID      string `json:"router_id,omitempty"`
 	Note          string `json:"note,omitempty"`
 }
@@ -129,6 +143,7 @@ func Analyze(m netmodel.Model) Report {
 	a.interfaceAreas()
 	a.expectedNeighbors()
 	a.areaMismatches()
+	a.declaredAreas()
 	if len(a.findings) == 0 {
 		return Report{}
 	}
@@ -542,6 +557,140 @@ func (a *analysis) areaMismatches() {
 	}
 }
 
+// effectiveArea reads the effective area the control plane reports for one
+// interface. One distinct readable value is usable. No value is missing. A value
+// that is not an area, or two distinct areas, is ambiguous. Timestamps never
+// decide between values.
+func (a *analysis) effectiveArea(node, vrf, iface string) (uint32, endState, []Evidence) {
+	var nums []uint32
+	var names, bad []string
+	var ev []Evidence
+	for _, r := range a.ifaces {
+		if r.plane != netmodel.PlaneControl || r.node != node || r.vrf != vrf || r.iface != iface {
+			continue
+		}
+		vals := values(r.attrs, KeyEffectiveArea)
+		if len(vals) == 0 {
+			continue
+		}
+		ev = append(ev, r.evidence("effective area as reported"))
+		for _, v := range vals {
+			if n, ok := parseArea(v); ok {
+				nums = appendUniqueNum(nums, n)
+				names = appendUnique(names, strconv.FormatUint(uint64(n), 10))
+			} else {
+				bad = appendUnique(bad, v)
+			}
+		}
+	}
+	switch {
+	case len(ev) == 0:
+		return 0, endMissing, nil
+	case len(bad) == 0 && len(nums) == 1:
+		return nums[0], endUsable, ev
+	}
+	return 0, endAmbiguous, ev
+}
+
+// endState says how far one end of a declared link reads its effective area.
+type endState int
+
+const (
+	endMissing endState = iota
+	endAmbiguous
+	endUsable
+)
+
+func endWord(s endState) string {
+	if s == endMissing {
+		return "missing"
+	}
+	return "ambiguous"
+}
+
+// declaredAreas compares effective areas across each link the intended plane
+// declares. A link declared from both ends is compared. A link declared from one
+// end is reported only when its two ends read different areas, under its own
+// kind, because one declaration does not confirm the link. An end with no usable
+// area leaves a link declared from both ends incomplete. Completeness flags and
+// timestamps never decide a reading.
+func (a *analysis) declaredAreas() {
+	declared := map[link][]record{}
+	for _, inv := range a.inv {
+		if inv.plane != netmodel.PlaneIntended {
+			continue
+		}
+		for _, r := range inv.neighbors {
+			if r.link.peerIface != "" {
+				declared[r.link] = append(declared[r.link], r)
+			}
+		}
+	}
+	for l, recs := range declared {
+		m := l.mirror()
+		mrecs, mutual := declared[m]
+		// A link declared from both ends is reported once, from its smaller direction.
+		if mutual && compareLink(l, m) >= 0 {
+			continue
+		}
+		na, sa, ra := a.effectiveArea(l.node, l.vrf, l.iface)
+		nb, sb, rb := a.effectiveArea(m.node, m.vrf, m.iface)
+		ev := slices.Concat(ra, rb, evidenceOf(recs, "declared link, this end"))
+		if mutual {
+			ev = append(ev, evidenceOf(mrecs, "declared link, far end")...)
+		}
+		switch {
+		case sa == endUsable && sb == endUsable:
+			if na == nb {
+				continue
+			}
+			ends := fmt.Sprintf("effective area %d on %s %s and area %d on %s %s differ", na, l.node, l.iface, nb, m.node, m.iface)
+			if !mutual {
+				a.add(KindDeclaredLinkOneSided, Unknown, l, ends+" over a link declared from one end only", limitDeclaredOneSided, ev)
+				continue
+			}
+			if op := append(a.operationalRecords(l), a.operationalRecords(m)...); len(op) > 0 {
+				a.add(KindAreaMismatch, Unknown, l, ends+" over a link declared from both ends, and an OSPF neighbor record reports the link", limitDeclaredRecorded, append(ev, evidenceOf(op, "operational record")...))
+				continue
+			}
+			a.add(KindAreaMismatch, ConsistentWith, l, ends+" over a link declared from both ends", limitDeclaredArea, ev)
+		case !mutual || (sa == endMissing && sb == endMissing):
+			// A link one end declares is not compared unless its ends differ, and
+			// with no area at either end there is nothing to read.
+		default:
+			var parts []string
+			if sa != endUsable {
+				parts = append(parts, fmt.Sprintf("%s %s is %s", l.node, l.iface, endWord(sa)))
+			}
+			if sb != endUsable {
+				parts = append(parts, fmt.Sprintf("%s %s is %s", m.node, m.iface, endWord(sb)))
+			}
+			a.add(KindIncompleteAttributes, Unknown, l, "effective area not compared over the declared link: "+strings.Join(parts, ", "), limitDeclaredIncomplete, ev)
+		}
+	}
+}
+
+// operationalRecords returns the control-plane OSPF neighbor records that show
+// link l. The identity rule is the one expected() uses: the pair must match, and
+// the remote interface must match or be left empty.
+func (a *analysis) operationalRecords(l link) []record {
+	var out []record
+	for _, inv := range a.inv {
+		if inv.plane != netmodel.PlaneControl || inv.node != l.node || inv.vrf != l.vrf {
+			continue
+		}
+		for _, r := range inv.neighbors {
+			if r.link.pair() != l.pair() || !ospfRecord(r.attrs) {
+				continue
+			}
+			if r.link.peerIface == "" || r.link.peerIface == l.peerIface {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
 func (a *analysis) add(kind Kind, s Strength, l link, detail, limit string, ev []Evidence) {
 	ev = slices.Clone(ev)
 	slices.SortFunc(ev, func(x, y Evidence) int { return strings.Compare(x.key(), y.key()) })
@@ -566,7 +715,7 @@ func (f Finding) key() string {
 }
 
 func (e Evidence) key() string {
-	return strings.Join([]string{e.Source, e.CollectedAt, e.Plane, e.Node, e.VRF, e.Interface, e.Peer, e.PeerInterface, e.State, e.Area, e.RouterID, e.Note}, "\x00")
+	return strings.Join([]string{e.Source, e.CollectedAt, e.Plane, e.Node, e.VRF, e.Interface, e.Peer, e.PeerInterface, e.State, e.Area, e.EffectiveArea, e.RouterID, e.Note}, "\x00")
 }
 
 func (r record) evidence(note string) Evidence {
@@ -584,9 +733,10 @@ func (r ifaceRow) evidence(note string) Evidence {
 	return Evidence{
 		Source: r.Source, CollectedAt: utcText(r.CollectedAt), Plane: string(r.plane),
 		Node: r.node, VRF: r.vrf, Interface: r.iface,
-		Area:     strings.Join(values(r.attrs, KeyArea), ", "),
-		RouterID: strings.Join(values(r.attrs, KeyRouterID), ", "),
-		Note:     note,
+		Area:          strings.Join(values(r.attrs, KeyArea), ", "),
+		EffectiveArea: strings.Join(values(r.attrs, KeyEffectiveArea), ", "),
+		RouterID:      strings.Join(values(r.attrs, KeyRouterID), ", "),
+		Note:          note,
 	}
 }
 
@@ -728,6 +878,9 @@ func (e Evidence) text() string {
 	}
 	if e.Area != "" {
 		parts = append(parts, "area "+e.Area)
+	}
+	if e.EffectiveArea != "" {
+		parts = append(parts, "effective area "+e.EffectiveArea)
 	}
 	if e.RouterID != "" {
 		parts = append(parts, "router ID "+e.RouterID)

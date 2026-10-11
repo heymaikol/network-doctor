@@ -1891,9 +1891,12 @@ When the file carries `ospf.*` attributes on neighbors or interfaces, the explan
 
 - `ospf.state` on a `control` neighbor: the state a reporter gives for its side of one adjacency. The vocabulary is `down`, `attempt`, `init`, `2-way`, `exstart`, `exchange`, `loading`, and `full`, compared without regard to case. Any other value is reported as unreadable and is never read as FULL.
 - `ospf.area` on a `configured` interface gives its configured area. On a `control` neighbor, every source must agree on one area. `0` and `0.0.0.0` name the same area. A value that is neither a number nor a dotted address is unreadable.
+- `ospf.effective_area` on a `control` interface is the dotted area the node reports for that interface. It is read only for a link that the `intended` plane declares. Each end's sources must report one area. Two different areas, or a value that is not a dotted area, make that end ambiguous. No value is chosen, and the newest timestamp does not decide. The FRR import writes it only for a plain dotted area, as described under FRR OSPF import.
 - `ospf.router_id` on a `control` neighbor is the peer's router ID as the reporter gives it. On a `control` interface it is the router ID the node reports for itself. The protocol writes a router ID as a 32-bit identifier in dotted IPv4 form, so an IPv6 address is unreadable and confirms nothing.
 
 An adjacency is identified by node, VRF, local interface, and remote node. A source may leave the remote interface empty, and that record names the same adjacency as any remote interface. Two different remote interfaces on one adjacency are a conflict, and no state is reported for it. A state is reported only when every record for the adjacency reads one state. A readable state beside a missing or unreadable state is incomplete, so no state is reported. Two readable, different states are a conflict. A link is two records that name each other on the same VRF and interfaces, with the same remote interfaces. A router ID never names a node. It can only confirm or contradict the peer's own records.
+
+A link is declared when the `intended` plane names it: a neighbor with a remote interface, with or without any `ospf.*` key. A link that both ends declare is compared by the effective areas of its two interfaces. If each end reads one area and the areas differ, the reading is `area_mismatch`. If an end has no usable effective area, the link is `incomplete_attributes`, except when neither end has any effective area, when the link says nothing. A link that only one end declares is reported only when its two ends read different areas, under `declared_link_one_sided`. One declaration does not confirm the link, so that kind is never `area_mismatch`. Completeness flags and timestamps decide none of these readings.
 
 An expected neighbor is an `ospf.*` neighbor record in the `configured` or `intended` plane. Its absence is checked only against the `control` inventory of the node that names it, and only an OSPF record in that inventory shows presence. A generic record, such as LLDP, names a link. It never satisfies an expected OSPF neighbor. The completeness flag says the neighbor list is complete. It does not say that every OSPF source was collected.
 
@@ -1904,14 +1907,17 @@ Each finding has one of these strengths and kinds:
 | `neighbor_state` | `reported` | One state for one neighbor, from its reporter. `full` does not prove that traffic flows. A state before FULL names no cause. `2-way` is normal between non-designated routers on a broadcast network. |
 | `neighbor_state` | `conflicting` | Two states for one neighbor, from one reporter or several. Neither is chosen, and the newest timestamp does not decide. |
 | `attribute_conflict` | `conflicting` | Two area values or two router IDs for one identity or interface, two remote interfaces for one adjacency, or a peer that reports a router ID other than the one named. |
-| `incomplete_attributes` | `unknown` | A record has no state, or a state, area, or router ID that cannot be read. A router ID must be dotted IPv4. A readable state beside a missing or unreadable one is incomplete, and no state is reported for that neighbor. |
+| `incomplete_attributes` | `unknown` | A record has no state, or a state, area, or router ID that cannot be read. A router ID must be dotted IPv4. A readable state beside a missing or unreadable one is incomplete, and no state is reported for that neighbor. An end of a link that both ends declare has no usable effective area. |
 | `router_id_unconfirmed` | `unknown` | A neighbor reports a router ID that the peer's own interfaces do not report. |
 | `missing_neighbor` | `consistent_with` | The node's neighbor list is marked complete and holds OSPF records, but none for an expected neighbor. The flag does not show that every OSPF source was collected. The adjacency is not called down. |
 | `missing_neighbor` | `unknown` | The absence cannot be checked: there is no control-plane inventory, the inventory is partial, a complete neighbor list holds no OSPF record, the inventory names another remote interface for the expected neighbor, or the expected neighbor names no remote interface. |
 | `missing_neighbor` | `conflicting` | One source expects a neighbor that a complete neighbor list with OSPF records lacks. |
 | `area_mismatch` | `consistent_with` | The configured areas on the two ends of a link that both sides report as control-plane records differ. This fits a failed adjacency. It names no cause. |
+| `area_mismatch` | `consistent_with` | Both ends declare a link, each reads one effective area, and the areas differ. No OSPF neighbor record reports the link. This fits a failed adjacency. The declaration is user-supplied, and the captures may have been taken at different times. |
+| `area_mismatch` | `unknown` | As above, but an OSPF neighbor record reports the link. Both areas cannot hold at once, so no area is chosen. |
+| `declared_link_one_sided` | `unknown` | One end declares a link, and the effective areas at its two ends differ. The declaration does not confirm the link. No area is chosen. |
 
-Each text block gives the finding, the source and collection time of every evidence row, and the limit of the conclusion. In JSON, each finding has `kind`, `strength`, `node`, `vrf`, `interface`, `peer`, and `peer_interface` where they apply, plus `detail`, `limit`, and `evidence`. Each evidence row names its `source`, `collected_at`, and `plane`, the state, area, or router ID it recorded, and a `note` where the row shows an absence or a link.
+Each text block gives the finding, the source and collection time of every evidence row, and the limit of the conclusion. In JSON, each finding has `kind`, `strength`, `node`, `vrf`, `interface`, `peer`, and `peer_interface` where they apply, plus `detail`, `limit`, and `evidence`. Each evidence row names its `source`, `collected_at`, and `plane`, the state, area, effective area, or router ID it recorded, and a `note` where the row shows an absence or a link.
 
 The `fib` and `observed` planes are not read by this section.
 
@@ -2006,7 +2012,7 @@ The report lists these, so a reader does not take the topology for the whole net
 
 - Routes: the RIB and FIB are not read, so the topology has no routes.
 - The OSPF link-state database is not read.
-- Areas are read per neighbor record and reported, but not written to the topology.
+- Areas are read per neighbor record and reported, but not written to the topology. An interface's plain dotted area is written as `ospf.effective_area`, unless it is qualified with `[Stub]` or `[NSSA]`, reads `(incomplete)`, or is missing, or unless a neighbor record on that interface names a local address that the interface record does not give. The capture's notes say why.
 - Only the primary interface address is used. Secondary addresses are not read.
 - No other FRR output field is read.
 - The source address is not set, so the topology claims no address for the source node.
@@ -2016,6 +2022,7 @@ The report lists these, so a reader does not take the topology for the whole net
 
 - A neighbor record with no router ID (`noNbrID`) is never mapped, even when its address is unique.
 - A captured interface with no usable `ipAddress`, either absent, `null`, not IPv4, or unspecified, multicast, or broadcast such as `0.0.0.0`, leaves address ownership unknown for the whole import. No neighbor record maps while that holds, even one whose address is unique.
+- An interface's `ospf.effective_area` is the one area FRR printed for its name. FRR keeps one record per name, so a second OSPF area on the same interface is not seen. When a neighbor contradicts that record, the area is withheld, and the neighbor record stays unmapped as before.
 - Neighbors and routes are never claimed complete.
 - A record that is not mapped keeps its state, address, and reason in the report, so the reader sees what FRR reported and why it was not used.
 

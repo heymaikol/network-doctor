@@ -1,8 +1,9 @@
 name: proxy-failure-causes
 description: >-
-  Four SOCKS5 proxies expose independent reachability, protocol, remote DNS,
-  and destination failures while direct egress and a literal control target
-  remain healthy.
+  Four SOCKS5 proxies exercise reachability, protocol, remote DNS, and
+  destination failures while direct egress and a literal control target
+  remain healthy. SOCKS5 replies alone cannot distinguish remote DNS failure
+  from host unreachable.
 
 topology:
   subnet: 10.77.0.0/24
@@ -89,7 +90,7 @@ tests:
     expect:
       verdict: degraded
       checks:
-        - {id: proxy_connect, status: FAIL, cause: proxy_side_dns_failure}
+        - {id: proxy_connect, status: FAIL, cause: destination_unreachable_from_proxy}
 
   - name: proxy resolves destination but cannot connect
     node: client

@@ -356,6 +356,9 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 			r.Cause = diagnostic.ProxyCauseProxyDNS
 			if from == node.Name {
 				r.Cause = diagnostic.ProxyCauseClientDNS
+			} else if proxy.Scheme == "socks5h" {
+				// SOCKS5 reply 4 cannot prove a proxy-side DNS failure.
+				r.Cause = diagnostic.ProxyCauseDestinationUnreachable
 			}
 			return r
 		}

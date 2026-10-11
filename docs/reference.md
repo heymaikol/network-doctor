@@ -1965,7 +1965,7 @@ The manifest is one JSON object. The import refuses duplicate keys at any depth,
 | `node` | The router the capture came from. |
 | `vrf` | Must be `default`, the only VRF these commands read. |
 | `frr_version` | Must be `10.7.0`. |
-| `command` | `show ip ospf interface json` or `show ip ospf neighbor detail json`. |
+| `command` | `show ip ospf interface json` or `show ip ospf neighbor detail json`, or one of the [LSDB comparison](#lsdb-comparison) commands: `show ip ospf json`, `show ip ospf database detail json`, or `show ip ospf route json`. |
 | `collected_at` | An RFC 3339 time with an offset, such as `2026-10-09T12:00:00Z`. |
 
 Two captures may not name the same file, directly or through a hard link.
@@ -1974,19 +1974,21 @@ Each capture is the JSON output of its command, unframed: the echoed command lin
 
 The declared fields are the manifest's claim. netdoc checks the FRR version, the command, and the VRF. It does not check which router produced a capture, and the report labels every declared field as declared, not verified.
 
+A node with any LSDB command needs exactly two `show ip ospf json` captures, one `show ip ospf database detail json`, and one `show ip ospf route json`. A manifest that gives such a node any other set is refused with exit `2`. Two `show ip ospf json` captures of one node are accepted only as the before and after pair, taken at different times. Any other repeated command for one node is refused as a duplicate.
+
 ### Import exit codes
 
 | Situation | Exit |
 |---|---|
 | Every capture accepted and every neighbor record mapped | `0` |
-| A capture refused, or a neighbor record left unmapped. With `--write-topology`, nothing is written. | `1` |
+| A capture refused, including an LSDB capture, or a neighbor record left unmapped. With `--write-topology`, nothing is written. | `1` |
 | Invalid manifest, unsafe or unreadable capture, a flag that cannot be combined with the import, or a topology that cannot be written | `2` |
 
-Exit `0` is not a health result. It means the captures were read and each neighbor record was mapped. It does not mean the network is healthy, that OSPF is complete on every router, or that every router was captured.
+Exit `0` is not a health result. It means the captures were read and each neighbor record was mapped. It does not mean the network is healthy, that OSPF is complete on every router, or that every router was captured. LSDB findings do not change the exit code. Read the [LSDB comparison](#lsdb-comparison) for them.
 
 ### Report
 
-The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish.
+The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish. With LSDB captures, it also has an `OSPF LSDB comparison` block. Each node has its guard result, then each finding with its limit, then the facts its captures reported. The facts are the process state, the LSDB and its reconciliation, the advertisements, the calculated routes, and the unsupported counts. Each list shows its first 20 items and says how many it left out. The JSON report has every item.
 
 `--json` prints one object. Its `version` is `1`.
 
@@ -1995,6 +1997,7 @@ The text report names the result, lists each capture with its declared fields an
 - `counts`: `captures`, `accepted`, `refused`, `records`, `mapped`, and `unmapped`.
 - `captures`: each with `file`, `declared` (`source`, `node`, `vrf`, `frr_version`, `command`, and `collected_at`), `accepted`, `reason` when refused, `empty` (accepted with no neighbor or interface records), `interfaces`, `neighbors`, and `notes` when present.
 - `records`: each neighbor record with `source`, `node`, `vrf`, `local_interface`, `neighbor_address`, `router_id` when present, `state`, `area`, `mapped`, `remote_node` and `remote_interface` when mapped, and `reason` when present.
+- `ospf_lsdb`: the [LSDB comparison](#lsdb-comparison). It is present only when the manifest has LSDB captures. Each node also names the source and declared collection time of its LSDB and route captures (`lsdb_read`, `routes_read`) and lists its unsupported counts (`unsupported`).
 - `not_imported` and `limitations`: the same lines the text report prints.
 - `topology`: `requested`, `written`, `path` when `--write-topology` was given, and `reason` when the topology was not written.
 
@@ -2004,14 +2007,60 @@ The text report names the result, lists each capture with its declared fields an
 
 `--write-topology` needs `source_node` in the manifest, and the manifest must hold a default-VRF `show ip ospf interface json` capture for that node.
 
+LSDB captures do not change the file. The same neighbor captures written with and without the LSDB captures give the same bytes.
+
 The file is written to a temporary name in the target's directory and published by hard link, so an existing file is never replaced. A filesystem without hard links, such as some FAT, SMB, and network filesystems, refuses the write with exit `2`. There is no fallback to a rename or a copy. The temporary file is removed after each write attempt, including a failed one. A crash or a kill can still leave it behind. The file is not synced to disk before it is published.
+
+### LSDB comparison
+
+With LSDB captures, the import compares one router's OSPF link-state database with its calculated OSPF routes. The comparison is a second reading of the same router. It writes nothing to the topology and adds no observation. It does not reach the route path or `--explain`.
+
+Each router needs four captures, taken in this order:
+
+| Role | Command | Holds |
+|---|---|---|
+| A | `show ip ospf json` | Process state before the bracket: router ID, timers, SPF counters, and per-area LSA counts and checksums. |
+| B | `show ip ospf database detail json` | The link-state database, one entry per LSA. |
+| E | `show ip ospf route json` | The calculated OSPF routes. |
+| D | `show ip ospf json` | Process state after the bracket. |
+
+A and D bracket B and E. The comparison runs only when the checks below show OSPF unchanged between A and D.
+
+The guard decides whether a node is compared. It fails, and the node gets only `ospf_comparison_unverified`, when any of these holds:
+
+- A capture of the bracket is refused or missing, or A and D do not both report a router ID. FRR 10.7.0 prints `0.0.0.0` as the router ID of an OSPF instance that has not taken one, and the report reads that as no router ID, not as a router. An absent instance prints no JSON body, and that capture is refused.
+- The router ID changed between A and D.
+- The holdtime maximum or the SPF delay changed between A and D. The report names the timer and both values. A timer change is a configuration change, so the report does not say that SPF ran.
+- A holdtime maximum or an SPF delay is above 600000 ms in A or D. That is the largest value `timers throttle spf` accepts (FRR 10.7.0, `ospfd/ospf_vty.c`). The report names each such timer, and no bound is formed from it.
+- The window from A to D does not exceed the bound. The bound is the largest of three values: holdtime plus SPF delay read from A, the same sum read from D, and one second.
+- The area inventory, an area's SPF counter, or an area's LSA count or checksum changed between A and D. The AS-external count or checksum changed too.
+
+A failed guard names each failed check in the report. The guard never passes on a partial bracket.
+
+A node gets the findings below, whatever its guard result. Each finding names its kind, its strength, and a limit that says what the finding does not establish. `lsdb_prefix_not_calculated` comes only from a node whose guard passed.
+
+| Kind | Strength | Meaning |
+|---|---|---|
+| `lsdb_prefix_not_calculated` | `consistent_with` | The LSDB advertises a prefix, in a router LSA stub link or an AS-external LSA, and the calculated routes have no route for it. |
+| `lsdb_incomplete` | `unknown` | A capture was refused, the calculated route table is empty or not captured, the LSDB holds content the reader does not recognize, its router ID differs from the process state, or its counts disagree with the process state. Nothing is concluded about the prefixes in that scope. |
+| `ospf_comparison_unverified` | `unknown` | The guard failed. No prefix is compared for the node. |
+
+The comparison compares the prefixes of router LSA stub links and AS-external LSAs. It skips an LSA at MaxAge, a self-originated AS-external LSA, and an AS-external LSA with the metric LSInfinity, as FRR's route calculation does (`ospfd/ospf_ase.c`). Network, summary, ASBR summary, and NSSA LSAs are read and reported, not compared. Transit, point-to-point, and virtual links in a router LSA carry no prefix.
+
+Findings say what the captures show. They name no cause, and they do not say that a route is installed, forwarded, or missing from the kernel. The advertising router of a finding is a router ID. It is not mapped to a node.
+
+The text report also shows the facts each node's captures reported, and marks them as reported, not verified. The process state lists the router ID, the holdtime maximum, the SPF delay, the AS-external count and checksum, and each area's SPF counter and LSA counts. The LSDB block lists each area and type with its LSDB count and checksum, the process count, and whether they match. It then lists each advertisement with its advertising router, sequence, age, and prefixes. The prefixes of one advertisement stop at five. The calculated routes list each prefix, route type, cost, area, and next-hop count. The text names the layer each fact comes from. These are the LSDB and the calculated OSPF route table, not the RIB or the kernel forwarding table. A node whose captures were not read says `not read` for that section. Legacy reports with no LSDB captures show none of this.
+
+The comparison reads the default VRF only. Opaque LSAs are counted as unsupported and not decoded. A capture is limited to 1 MiB, like any other capture.
 
 ### What the import does not read
 
 The report lists these, so a reader does not take the topology for the whole network.
 
 - Routes: the RIB and FIB are not read, so the topology has no routes.
-- The OSPF link-state database is not read.
+- The OSPF link-state database is not read, unless the manifest has LSDB captures. Then it is read for the [LSDB comparison](#lsdb-comparison) only, and it is not written to the topology.
+
+With LSDB captures, the OSPF route table (`show ip ospf route json`) is read too, for the [LSDB comparison](#lsdb-comparison) only. It does not feed the topology or the route path.
 - Areas are read per neighbor record and reported, but not written to the topology. An interface's plain dotted area is written as `ospf.effective_area`, unless it is qualified with `[Stub]` or `[NSSA]`, reads `(incomplete)`, or is missing, or unless a neighbor record on that interface names a local address that the interface record does not give. The capture's notes say why.
 - Only the primary interface address is used. Secondary addresses are not read.
 - No other FRR output field is read.
@@ -2024,6 +2073,7 @@ The report lists these, so a reader does not take the topology for the whole net
 - A captured interface with no usable `ipAddress`, either absent, `null`, not IPv4, or unspecified, multicast, or broadcast such as `0.0.0.0`, leaves address ownership unknown for the whole import. No neighbor record maps while that holds, even one whose address is unique.
 - An interface's `ospf.effective_area` is the one area FRR printed for its name. FRR keeps one record per name, so a second OSPF area on the same interface is not seen. When a neighbor contradicts that record, the area is withheld, and the neighbor record stays unmapped as before.
 - Neighbors and routes are never claimed complete.
+- An LSDB finding does not establish a cause, a failure, or a forwarding state. A passing guard does not establish that OSPF is healthy.
 - A record that is not mapped keeps its state, address, and reason in the report, so the reader sees what FRR reported and why it was not used.
 
 ## Remote diagnosis over SSH

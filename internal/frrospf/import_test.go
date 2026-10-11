@@ -981,7 +981,7 @@ func TestInterfaceNamesAreNotFieldNames(t *testing.T) {
 // JSON names the decoders read, so a new tag cannot skip the guard.
 func TestDecodedKeysMatchJSONTags(t *testing.T) {
 	want := map[string]bool{}
-	for _, k := range decodedKeys {
+	for _, k := range structDecodedKeys {
 		want[k] = true
 	}
 	got := map[string]bool{}

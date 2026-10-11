@@ -139,3 +139,42 @@ func FuzzDecodeManifest(f *testing.F) {
 		}
 	})
 }
+
+// FuzzDecodeLSDB feeds arbitrary bytes to each LSDB decoder. A refusal must be
+// plain text. An accepted LSDB must hold valid prefixes and checksums in range,
+// so a crafted capture cannot reach the comparison in an unusable shape.
+func FuzzDecodeLSDB(f *testing.F) {
+	for _, sc := range []string{"steady", "kill9"} {
+		f.Add(lsdbCapture(f, sc, "r1", "A").Data)
+		f.Add(lsdbCapture(f, sc, "r1", "B").Data)
+		f.Add(lsdbCapture(f, sc, "r1", "E").Data)
+	}
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`{"routerId":"1.1.1.1"}`))
+	f.Add([]byte(`{"routeType":"N"}`))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if db, reason := decodeLSDB(data); reason != "" {
+			if !plain(reason) {
+				t.Fatalf("LSDB refusal repeats control text: %q", reason)
+			}
+		} else {
+			for _, l := range db.LSAs {
+				if l.Checksum > 0xffff {
+					t.Fatalf("accepted checksum %#x out of range", l.Checksum)
+				}
+				for _, p := range l.Prefixes {
+					if !p.Prefix.IsValid() {
+						t.Fatalf("accepted an invalid prefix in %s %s", l.Type, l.LinkStateID)
+					}
+				}
+			}
+		}
+		if _, reason := decodeProcessState(data); reason != "" && !plain(reason) {
+			t.Fatalf("process refusal repeats control text: %q", reason)
+		}
+		if _, reason := decodeRoutes(data); reason != "" && !plain(reason) {
+			t.Fatalf("route refusal repeats control text: %q", reason)
+		}
+	})
+}

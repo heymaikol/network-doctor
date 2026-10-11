@@ -53,8 +53,9 @@ destination must be an IP address, because a name would need a resolver. The
 file's format is documented under Route path explanation in the reference.
 
 --import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each
-one, and reports every capture and every neighbor record. It is headless and
-runs no probe and contacts no router: the captures are the only evidence. The
+one, and reports every capture and every neighbor record. With LSDB captures, it
+also reports the OSPF LSDB comparison. It is headless and runs no probe and
+contacts no router: the captures are the only evidence. The
 manifest is JSON with "version": 1 and names each capture's file, source label,
 node, VRF, FRR version, command, and collection time. Exit 0 means every
 capture was accepted and every neighbor record was mapped; it does not mean the

@@ -2218,6 +2218,44 @@ func requireProxyOnlyRun(t *testing.T, rep Report) TestOutcome {
 	return out
 }
 
+// requireProxyTunnel checks the CONNECT proxy's side of a working tunnel. It
+// answered 200, which it sends only once the upstream connection is open, and it
+// resolved the CONNECT authority from its own namespace, not the client's.
+func requireProxyTunnel(t *testing.T, rep Report) {
+	t.Helper()
+	if !hasServiceReply(rep, "proxy", "connect-proxy", ServiceHTTPConnect, 200) {
+		t.Errorf("the CONNECT proxy never established a tunnel: %+v", rep.Evidence.ServiceReplies)
+	}
+	if !hasDNSEvidence(rep, "internet", "10.77.0.30", proxyProbeName, "ANSWER") {
+		t.Errorf("no proxy-side lookup of the CONNECT authority: %+v", rep.Evidence.DNS)
+	}
+}
+
+// requireProxyHandedOver checks what a proxy-only case shares once netdoc is
+// handed the proxy: netdoc was given the proxy's address, and the simulator, not
+// netdoc, measured the client's direct IPv4 path as unreachable.
+func requireProxyHandedOver(t *testing.T, rep Report, out TestOutcome) {
+	t.Helper()
+	if out.Proxy != "http://10.77.0.30:3128" {
+		t.Errorf("netdoc was handed proxy %q", out.Proxy)
+	}
+	assertObservedFamily(t, rep, "ipv4", FamilyStateUnreachable)
+}
+
+// proxyOnlyExpect is the expectation for the two proxy-only variants. Both end in
+// the network verdict and share the interface, public DNS, and encrypted DNS
+// rows, so a variant names only the three rows it changes.
+func proxyOnlyExpect(internetTCP, proxyConnect, dns string) Expect {
+	return Expect{Verdict: "network", Checks: []ExpectedCheck{
+		{ID: "iface", Status: "PASS"},
+		{ID: "internet_tcp", Status: internetTCP},
+		{ID: "proxy_connect", Status: proxyConnect},
+		{ID: "dns", Status: dns},
+		{ID: "dns_public", Status: "PASS"},
+		{ID: "dns_encrypted", Status: "FAIL"},
+	}}
+}
+
 // TestProxyOnlyNetworkScenario is the regression for netdoc's headline proxy
 // claim: a machine with no direct TCP/443 egress and a working HTTP CONNECT
 // proxy reads as online through that proxy, not as offline. Everything below
@@ -2229,30 +2267,17 @@ func TestProxyOnlyNetworkScenario(t *testing.T) {
 	requireBackend(t)
 	rep := runScenario(t, "proxy-only-network", "-timeout", timedTimeout)
 	out := requireProxyOnlyRun(t, rep)
-	if out.Proxy != "http://10.77.0.30:3128" {
-		t.Errorf("netdoc was handed proxy %q", out.Proxy)
-	}
-
-	// Half one of the claim, measured by the simulator rather than read off
-	// netdoc's own report: from inside the client namespace, the fixed internet
-	// endpoints on TCP/443 are unreachable.
-	assertObservedFamily(t, rep, "ipv4", FamilyStateUnreachable)
+	// Half one: the client's direct TCP/443 path is measured unreachable.
+	requireProxyHandedOver(t, rep, out)
 
 	// Half two, measured by the fixture: the proxy answered a real CONNECT with
 	// 200, which it sends only once it has the upstream connection open. That
 	// is proxy-to-destination reachability, stated by the proxy.
-	if !hasServiceReply(rep, "proxy", "connect-proxy", ServiceHTTPConnect, 200) {
-		t.Errorf("the CONNECT proxy never established a tunnel: %+v", rep.Evidence.ServiceReplies)
-	}
+	requireProxyTunnel(t, rep)
 	for _, reply := range rep.Evidence.ServiceReplies {
 		if reply.Type == ServiceHTTPConnect && reply.Status != 200 {
 			t.Errorf("the CONNECT proxy also answered %d: %+v", reply.Status, reply)
 		}
-	}
-	// The tunnel authority was resolved from the proxy's namespace, which is
-	// what a CONNECT proxy does and what says the request reached it as a name.
-	if !hasDNSEvidence(rep, "internet", "10.77.0.30", proxyProbeName, "ANSWER") {
-		t.Errorf("no proxy-side lookup of the CONNECT authority: %+v", rep.Evidence.DNS)
 	}
 
 	// And the diagnosis those two halves have to produce.
@@ -2298,14 +2323,7 @@ func TestProxyOnlyNetworkBrokenDNSScenario(t *testing.T) {
 		// itself is the finding. WARN for internet_tcp, as in the control: the
 		// proxy proves the machine is not offline, and the diagnosis must not read
 		// that WARN as working egress.
-		s.Expect = Expect{Verdict: "network", Checks: []ExpectedCheck{
-			{ID: "iface", Status: "PASS"},
-			{ID: "internet_tcp", Status: "WARN"},
-			{ID: "proxy_connect", Status: "PASS"},
-			{ID: "dns", Status: "FAIL"},
-			{ID: "dns_public", Status: "PASS"},
-			{ID: "dns_encrypted", Status: "FAIL"},
-		}}
+		s.Expect = proxyOnlyExpect("WARN", "PASS", "FAIL")
 	})
 	out := requireProxyOnlyRun(t, rep)
 
@@ -2315,14 +2333,9 @@ func TestProxyOnlyNetworkBrokenDNSScenario(t *testing.T) {
 	if !droppedOutbound(rep.Evidence, "client", "udp", 53) {
 		t.Errorf("the client's own UDP/53 filter never matched a packet: %+v", rep.Evidence.PacketDrops)
 	}
-	if !hasServiceReply(rep, "proxy", "connect-proxy", ServiceHTTPConnect, 200) {
-		t.Errorf("the CONNECT proxy never established a tunnel: %+v", rep.Evidence.ServiceReplies)
-	}
 	// Resolved from the proxy's namespace, which is what keeps the tunnel
 	// working while the client resolves nothing.
-	if !hasDNSEvidence(rep, "internet", "10.77.0.30", proxyProbeName, "ANSWER") {
-		t.Errorf("no proxy-side lookup of the CONNECT authority: %+v", rep.Evidence.DNS)
-	}
+	requireProxyTunnel(t, rep)
 
 	// The rows those measurements have to produce.
 	internet := diagnosisCheck(out, string(diagnostic.ProbeInternet))
@@ -2369,22 +2382,10 @@ func TestProxyOnlyNetworkHTTPProxyScenario(t *testing.T) {
 		// N/A: the proxy is handed over, but the HTTPS row never dials it. FAIL
 		// rather than WARN for internet_tcp: nothing else proves the machine is
 		// online, so the direct failure is not downgraded.
-		s.Expect = Expect{Verdict: "network", Checks: []ExpectedCheck{
-			{ID: "iface", Status: "PASS"},
-			{ID: "internet_tcp", Status: "FAIL"},
-			{ID: "proxy_connect", Status: "N/A"},
-			{ID: "dns", Status: "PASS"},
-			{ID: "dns_public", Status: "PASS"},
-			{ID: "dns_encrypted", Status: "FAIL"},
-		}}
+		s.Expect = proxyOnlyExpect("FAIL", "N/A", "PASS")
 	})
 	out := requireProxyOnlyRun(t, rep)
-	if out.Proxy != "http://10.77.0.30:3128" {
-		t.Errorf("netdoc was handed proxy %q", out.Proxy)
-	}
-
-	// The block is measured: the client's own TCP/443 filter matched real packets.
-	assertObservedFamily(t, rep, "ipv4", FamilyStateUnreachable)
+	requireProxyHandedOver(t, rep, out)
 
 	// Nothing reached the proxy. Every request it receives is recorded with its
 	// status, a 405 included, so zero records means no request arrived. A proxy

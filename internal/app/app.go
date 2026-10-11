@@ -113,7 +113,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	// The stdlib flag package stops parsing at the first non-flag argument;
 	// peel positionals off and re-parse the remainder so flags are accepted
-	// both before and after the target.
+	// both before and after the target. A "--" that ends the options ends that
+	// too: everything after it is positional, flags included.
 	var positional []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -128,6 +129,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		if fs.NArg() == 0 {
+			break
+		}
+		if endsOptions(fs, args[:len(args)-fs.NArg()]) {
+			positional = append(positional, fs.Args()...)
 			break
 		}
 		positional = append(positional, fs.Arg(0))
@@ -481,6 +486,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return ui.ExitCode(final)
+}
+
+// endsOptions reports whether the last token flag parsing consumed is the "--"
+// marker. Parse stops right after a marker it consumes, but it also consumes the
+// value of a non-boolean option, and a "--" there is a value, not a marker. So
+// this walks the consumed tokens the way Parse did, skipping each option's value.
+func endsOptions(fs *flag.FlagSet, consumed []string) bool {
+	for i := 0; i < len(consumed); i++ {
+		if consumed[i] == "--" {
+			return i == len(consumed)-1
+		}
+		name, _, inline := strings.Cut(strings.TrimLeft(consumed[i], "-"), "=")
+		f := fs.Lookup(name)
+		if f == nil || inline {
+			continue
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			continue
+		}
+		i++ // this option's value, which is "--" when it is written that way
+	}
+	return false
 }
 
 // artifactReadingFlags is every flag that describes a run netdoc would perform.

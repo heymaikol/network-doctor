@@ -88,6 +88,49 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// "--" ends option parsing, so a flag after it is a positional. A "--" that is
+// the value of an option is not the marker, and the flags after it still parse.
+// runAll fails the test if any row reaches a probe run.
+func TestRunEndOfOptionsMarker(t *testing.T) {
+	orig := runAll
+	t.Cleanup(func() { runAll = orig })
+	runAll = func(context.Context, []diagnostic.Probe, time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {
+		t.Error("runAll called; a flag after -- must not start a probe run")
+		return nil
+	}
+	tests := []struct {
+		name       string
+		args       []string
+		want       int
+		wantStdout string
+		wantStderr string
+	}{
+		{"json after leading marker", []string{"--", "example.com", "--json"}, 2, "", `unexpected arguments: ["--json"]`},
+		{"help after leading marker", []string{"--", "example.com", "-help"}, 2, "", `unexpected arguments: ["-help"]`},
+		{"version after leading marker", []string{"--", "example.com", "-version"}, 2, "", `unexpected arguments: ["-version"]`},
+		{"help after target marker", []string{"example.com", "--", "extra", "-help"}, 2, "", `unexpected arguments: ["extra" "-help"]`},
+		{"version after target", []string{"example.com", "-version"}, 0, "netdoc dev\n", ""},
+		{"version after target before marker", []string{"example.com", "-version", "--"}, 0, "netdoc dev\n", ""},
+		{"version before marker", []string{"-version", "--", "example.com"}, 0, "netdoc dev\n", ""},
+		{"marker as option value", []string{"-public-dns", "--", "example.com", "-version"}, 0, "netdoc dev\n", ""},
+		{"marker after dash-valued option", []string{"-iface", "-check", "--", "example.com", "-version"}, 2, "", `unexpected arguments: ["-version"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if got := run(tt.args, &stdout, &stderr); got != tt.want {
+				t.Errorf("run(%q) = %d, want %d; stderr: %s", tt.args, got, tt.want, stderr.String())
+			}
+			if stdout.String() != tt.wantStdout {
+				t.Errorf("stdout = %q, want %q", stdout.String(), tt.wantStdout)
+			}
+			if !strings.Contains(stderr.String(), tt.wantStderr) {
+				t.Errorf("stderr = %q, want contains %q", stderr.String(), tt.wantStderr)
+			}
+		})
+	}
+}
+
 func TestRunListChecks(t *testing.T) {
 	restore := runAll
 	runAll = func(context.Context, []diagnostic.Probe, time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {

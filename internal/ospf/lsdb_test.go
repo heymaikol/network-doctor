@@ -2,6 +2,7 @@ package ospf
 
 import (
 	"encoding/json"
+	"math"
 	"net/netip"
 	"slices"
 	"strings"
@@ -86,6 +87,25 @@ func killed() NodeInput {
 	n.LSDB.LSAs[2] = networkLSA("10.0.1.1", "1.1.1.1", 3600, 0xe564)
 	n.Routes.Entries = n.Routes.Entries[:2]
 	return n
+}
+
+// TestHugeTimersCannotWrapTheWindowBound checks a capture whose timers would
+// wrap the window bound. Both holdtimes at MaxUint64 plus a 2ms SPF delay sum to
+// 1ms in uint64. An unclamped bound would fall to the one-second floor, and the
+// 15-second window would pass the guard.
+func TestHugeTimersCannotWrapTheWindowBound(t *testing.T) {
+	n := killed()
+	for i := range n.Processes {
+		n.Processes[i].HoldtimeMaxMs = math.MaxUint64
+		n.Processes[i].SPFDelayMs = 2
+	}
+	rep := findingsOf(t, n)
+	if rep.Guard.Passed {
+		t.Fatal("guard passed with timers that wrap the window bound")
+	}
+	if got := strings.Join(rep.Guard.Reasons, "; "); !strings.Contains(got, "does not exceed") {
+		t.Fatalf("reasons = %q; want the window bound named", got)
+	}
 }
 
 // findingsOf returns the report's findings for node r1, or fails the test if the

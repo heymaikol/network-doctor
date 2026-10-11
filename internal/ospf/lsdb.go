@@ -394,7 +394,7 @@ func checkGuard(n NodeInput, procs []Process) (*Process, []string) {
 	} else if a.RouterID != d.RouterID {
 		reasons = append(reasons, fmt.Sprintf("the router ID changed from %s to %s", a.RouterID, d.RouterID))
 	}
-	bound := max(a.HoldtimeMaxMs+a.SPFDelayMs, d.HoldtimeMaxMs+d.SPFDelayMs, aseIntervalMs)
+	bound := max(timerMs(a.HoldtimeMaxMs)+timerMs(a.SPFDelayMs), timerMs(d.HoldtimeMaxMs)+timerMs(d.SPFDelayMs), aseIntervalMs)
 	if window := d.CollectedAt.Sub(a.CollectedAt); window <= time.Duration(bound)*time.Millisecond {
 		reasons = append(reasons, fmt.Sprintf("the window of %s does not exceed the %dms timer bound", window, bound))
 	}
@@ -511,6 +511,16 @@ func gateOf(n NodeInput, a *Process, rows []Reconciliation, findings *[]LSDBFind
 		})
 	}
 	return g
+}
+
+// maxTimerMs caps a timer read from a capture at one day. FRR's timers are
+// seconds to minutes, so a larger value is a bad capture. The cap keeps the sum
+// of the timers inside int64, and so inside time.Duration.
+const maxTimerMs = 24 * 60 * 60 * 1000
+
+// timerMs returns a timer in milliseconds, capped at maxTimerMs.
+func timerMs(ms uint64) int64 {
+	return int64(min(ms, maxTimerMs)) // #nosec G115 -- capped to maxTimerMs, which fits int64
 }
 
 // lsaUse decides whether an advertisement is compared, and says why not when it

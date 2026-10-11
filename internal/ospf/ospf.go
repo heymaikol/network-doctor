@@ -44,7 +44,7 @@ const (
 	KeyCost           = "ospf.cost"
 	KeyNetworkType    = "ospf.network_type"
 	KeyInterfaceState = "ospf.interface_state"
-	KeyPassive        = "ospf.passive"
+	KeyPassive        = "ospf.passive" //nolint:gosec // G101 matches "pass" in the name; this is an OSPF attribute, not a credential.
 )
 
 // states is the closed vocabulary of OSPF neighbor states. A value outside it is
@@ -100,7 +100,7 @@ const (
 	limitDeclaredRecorded   = "Both ends declare this link, the effective areas differ, and an OSPF neighbor record reports the link. Both cannot hold at once, so no area is chosen. The declaration is supplied by the user, and the captures may have been taken at different times, shown on the evidence rows. FRR shows one area per interface name, so the interface's area may not be the area of this adjacency."
 	limitDeclaredOneSided   = "Only one end declares this link, so the declaration does not confirm that the link exists. The effective areas of the two interfaces differ. No area is chosen and no cause is shown."
 	limitDeclaredIncomplete = "An end of this declared link has no effective area, or one that cannot be read, so the areas are not compared. Nothing is concluded about the link."
-	limitMissingPassive     = "A passive OSPF interface sends no hellos, which is consistent with the expected adjacency not forming. The reading rests on the passive value one end reports, a link both ends declare, and no OSPF record for the pair. It does not show that the neighbor is down, and it does not say why the interface is passive."
+	limitMissingPassive     = "A passive OSPF interface sends no hellos, which is consistent with the expected adjacency not forming. The reading rests on the passive value one end reports, a link both ends declare, and no OSPF record for the pair. It does not show that the neighbor is down, and it does not say why the interface is passive." //nolint:gosec // G101 matches "pass" in the name; this is prose, not a credential.
 )
 
 // Report is the OSPF reading of one model. It has no findings when no OSPF

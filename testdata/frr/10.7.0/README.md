@@ -43,6 +43,18 @@ Each scenario was run serially with `lab/run5.sh`, one scenario per
 | `empty/` | r1 alone, with no peer daemon. Valid empty neighbor list. |
 | `nbma/` | r1 e1 set to `ip ospf network non-broadcast` with a static `neighbor 10.0.1.2`. The peer is absent. `r1-early-*` is a detail dump taken 15 seconds after start and holds the `noNbrId` record. The later dump, at the end of the settle window, is an empty neighbor list. |
 | `noinst/` | r2 runs ospfd with no `router ospf` stanza. Its commands return `{}`. |
+| `area/` | r2 puts e2 in area 0.0.0.1 while r1 keeps e1 in 0.0.0.0, on one subnet. No adjacency forms, so both neighbor lists are empty. Each interface capture reports the area its side is in. |
+| `secondary/` | r1 adds 10.0.2.1/24 to e1 in area 0.0.0.1, beside the primary 10.0.1.1/24 in area 0.0.0.0. The adjacency with r2 is Full in area 0.0.0.0. The interface record for e1 shows only the secondary: `ipAddress` 10.0.2.1, `area` 0.0.0.1, `nbrCount` 0. See the section below. |
+
+## Area and secondary-address captures
+
+`area/` and `secondary/` are genuine FRR 10.7.0 output from the same lab, run with `lab/run5.sh area` and `lab/run5.sh secondary`.
+
+The interface `area` field is `ospf_area_desc_string(oi->area)` in `ospfd/ospf_vty.c`, which prints `A.B.C.D`, `A.B.C.D [Stub]`, `A.B.C.D [NSSA]`, or `(incomplete)`. The field is absent when the interface is not up, because the printer returns early with `ospfRunning` false. The importer reads the dotted base. The stub or NSSA qualifier and `(incomplete)` are noted, not written.
+
+FRR prints one OSPF interface record per interface name. An interface that holds several OSPF interfaces, such as a secondary address in another area, shows only the last one it visits, because each loop iteration overwrites the same JSON keys. `secondary/` shows this: e1 holds two OSPF interfaces, and the record names only the secondary, while the Full adjacency on the primary is in area 0.0.0.0. So an area read from an interface name is not an inventory of that interface's areas, and it can differ from the area of an adjacency on it.
+
+The declared links that the topology tests add to these captures are not FRR output. They are synthetic intended-plane rows written by the test, and each such test says so.
 
 ## Socket paths
 
@@ -84,7 +96,7 @@ Replace `/path/to` with the directory that holds the two RPMs:
     (cd "$SCRATCH/frr-root" && rpm2cpio /path/to/frr-10.7.0-1.fc44.x86_64.rpm | cpio -idm && rpm2cpio /path/to/libyang-3.13.5-2.fc44.x86_64.rpm | cpio -idm)
     SCRATCH="$SCRATCH" unshare -Urnm bash testdata/frr/10.7.0/lab/run5.sh bcast
 
-Modes are `bcast`, `p2p`, `mtu`, `empty`, `nbma`, and `noinst`. Each run takes
+Modes are `bcast`, `p2p`, `mtu`, `empty`, `nbma`, `noinst`, `area`, and `secondary`. Each run takes
 about 100 seconds. Output goes to `$SCRATCH/run/<mode>`. Copy the files you keep into
 `testdata/frr/10.7.0/<mode>/` by hand; the tests read those names. The helper
 script that copied them here is not in the repo. The

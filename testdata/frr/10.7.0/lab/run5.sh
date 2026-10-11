@@ -1,7 +1,7 @@
 #!/bin/bash
 # Local two-router FRR 10.7.0 lab, one scenario per run, inside user+mount+net namespaces.
 # No host network change. Output is read over each daemon's loopback TCP vty from inside its netns.
-# Run as: SCRATCH=<dir> unshare -Urnm bash run5.sh <bcast|p2p|mtu|empty|nbma|noinst>
+# Run as: SCRATCH=<dir> unshare -Urnm bash run5.sh <bcast|p2p|mtu|empty|nbma|noinst|area|secondary>
 #   SCRATCH must hold frr-root/ extracted from the FRR 10.7.0 RPM (see ../README.md).
 #   bcast   broadcast adjacency, r1 DR/Backup pair, passive stub on r1
 #   p2p     point-to-point adjacency
@@ -9,6 +9,8 @@
 #   empty   r1 only, no peer daemon, valid empty neighbor list
 #   nbma    r1 non-broadcast with static neighbor 10.0.1.2, peer absent, RID unknown
 #   noinst  r2 ospfd running with no router ospf stanza
+#   area    r2 puts e2 in area 0.0.0.1 while r1 keeps e1 in 0.0.0.0, so no adjacency forms
+#   secondary  r1 adds 10.0.2.1/24 to e1 in area 0.0.0.1, so e1 holds two OSPF interfaces
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 S=${SCRATCH:?set SCRATCH to a directory holding frr-root/ (see README)}
@@ -33,16 +35,19 @@ ip link set e2 netns $R2
 ip link set lo up
 ip link set e1 up
 ip addr add 10.0.1.1/24 dev e1
+[ "$MODE" = secondary ] && ip addr add 10.0.2.1/24 dev e1
 ip link add stub1 type dummy; ip link set stub1 up; ip addr add 10.10.1.1/24 dev stub1
 nsenter -t $R2 -n sh -c 'ip link set lo up; ip link set e2 up; ip addr add 10.0.1.2/24 dev e2; ip link add stub2 type dummy; ip link set stub2 up; ip addr add 10.10.2.1/24 dev stub2'
 [ "$MODE" = mtu ] && nsenter -t $R2 -n ip link set e2 mtu 1400
 nsenter -t $R2 -n ip -o link show e2 | grep -o 'mtu [0-9]*' > "$L/meta/r2-e2-mtu.txt"
 
-P2P=""; NBMA=""; R1_NEIGH=""; R2_OSPF=1
+P2P=""; NBMA=""; R1_NEIGH=""; R1_SECOND=""; R2_OSPF=1; R2_AREA=0.0.0.0
 case "$MODE" in
   p2p) P2P="ip ospf network point-to-point" ;;
   nbma) NBMA="ip ospf network non-broadcast"; R1_NEIGH=" neighbor 10.0.1.2"; R2_OSPF=0 ;;
   empty) R2_OSPF=0 ;;
+  area) R2_AREA=0.0.0.1 ;;
+  secondary) R1_SECOND=" network 10.0.2.0/24 area 0.0.0.1" ;;
 esac
 
 cat > "$L/r1/ospfd.conf" <<CONF
@@ -56,6 +61,7 @@ router ospf
  network 10.0.1.0/24 area 0.0.0.0
  network 10.10.1.0/24 area 0.0.0.0
  passive-interface stub1
+$R1_SECOND
 $R1_NEIGH
 CONF
 if [ "$MODE" = noinst ]; then
@@ -74,8 +80,8 @@ interface e2
  $P2P
 router ospf
  ospf router-id 2.2.2.2
- network 10.0.1.0/24 area 0.0.0.0
- network 10.10.2.0/24 area 0.0.0.0
+ network 10.0.1.0/24 area $R2_AREA
+ network 10.10.2.0/24 area $R2_AREA
 CONF
 fi
 : > "$L/r1/zebra.conf"; : > "$L/r2/zebra.conf"

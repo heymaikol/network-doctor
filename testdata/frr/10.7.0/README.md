@@ -128,7 +128,7 @@ Replace `/path/to` with the directory that holds the two RPMs:
     SCRATCH="$SCRATCH" unshare -Urnm bash testdata/frr/10.7.0/lab/run5.sh bcast
 
 Modes are `bcast`, `p2p`, `mtu`, `empty`, `nbma`, `noinst`, `area`, `secondary`, `secp1`, `secp2`, `passive1`, `cost50`, `mixp2p`, and `down1`. Each run takes
-about 100 seconds. Run them one at a time, as the committed PR 6 captures were run. Output goes to `$SCRATCH/run/<mode>`. Copy the files you keep into
+about 100 seconds. Run them one at a time, as the committed PR 6 captures were run. Output goes to `$SCRATCH/run/<mode>`. A run that fails exits nonzero and never prints `DONE`. A capture that fails is kept as `<name>.raw.failed` with no `.collected_at` marker, so the tests never read it as a capture. Copy the files you keep into
 `testdata/frr/10.7.0/<mode>/` by hand; the tests read those names. The helper
 script that copied them here is not in the repo. The
 `lab/etc/group` and `lab/etc/passwd` files are a minimal set, so the host's

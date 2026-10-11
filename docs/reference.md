@@ -1988,7 +1988,7 @@ Exit `0` is not a health result. It means the captures were read and each neighb
 
 ### Report
 
-The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish.
+The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish. With LSDB captures, it also has an `OSPF LSDB comparison` block: one line per node with its guard result, then each finding with its limit.
 
 `--json` prints one object. Its `version` is `1`.
 
@@ -2030,7 +2030,7 @@ The guard decides whether a node is compared. It fails, and the node gets only `
 
 - A capture of the bracket is refused or missing, or A and D do not both report a running OSPF process.
 - The router ID changed between A and D.
-- The window from A to D does not exceed the longer of the two holdtime and SPF delay bounds, and one second.
+- The window from A to D does not exceed the bound. The bound is the largest of three values: holdtime plus SPF delay read from A, the same sum read from D, and one second. Each timer is capped at one day before the sum.
 - The area inventory, an area's SPF counter, or an area's LSA count or checksum changed between A and D. The AS-external count or checksum changed too.
 
 A failed guard names each failed check in the report. The guard never passes on a partial bracket.
@@ -2053,8 +2053,10 @@ The comparison reads the default VRF only. Opaque LSAs are counted as unsupporte
 
 The report lists these, so a reader does not take the topology for the whole network.
 
-- Routes: the RIB and FIB are not read, so the topology has no routes. The OSPF route table (`show ip ospf route json`) is read for the [LSDB comparison](#lsdb-comparison) only.
+- Routes: the RIB and FIB are not read, so the topology has no routes.
 - The OSPF link-state database is not read, unless the manifest has LSDB captures. Then it is read for the [LSDB comparison](#lsdb-comparison) only, and it is not written to the topology.
+
+With LSDB captures, the OSPF route table (`show ip ospf route json`) is read too, for the [LSDB comparison](#lsdb-comparison) only. It does not feed the topology or the route path.
 - Areas are read per neighbor record and reported, but not written to the topology. An interface's plain dotted area is written as `ospf.effective_area`, unless it is qualified with `[Stub]` or `[NSSA]`, reads `(incomplete)`, or is missing, or unless a neighbor record on that interface names a local address that the interface record does not give. The capture's notes say why.
 - Only the primary interface address is used. Secondary addresses are not read.
 - No other FRR output field is read.

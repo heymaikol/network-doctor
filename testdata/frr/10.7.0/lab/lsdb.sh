@@ -38,9 +38,9 @@ trap cleanup EXIT
 
 fail() { echo "lsdb.sh: $*" >&2; exit 1; }
 
-# Move the old run aside, then remove it, so a failed remove cannot leave old captures at $L.
+# Move the old run aside, then remove it. If that fails, drop the old .collected_at markers so no old capture reads as kept.
 { { [[ ! -e $L ]] || mv -T "$L" "$L.discard.$$"; } && rm -rf "$L.discard.$$" && mkdir -p "$L/r1" "$L/r2"; } \
-  || fail "could not clear $L"
+  || { rm -f "$L"/*.collected_at 2>/dev/null; fail "could not clear $L"; }
 { mount -t tmpfs tmpfs /run && mkdir -p /run/frr \
   && mount -t tmpfs tmpfs /var/lib && mkdir -p /var/lib/frr \
   && mount --bind "$HERE/etc/group" /etc/group \

@@ -34,9 +34,9 @@ trap cleanup EXIT
 
 fail() { echo "unset-router-id.sh: $*" >&2; exit 1; }
 
-# Move the old run aside, then remove it, so a failed remove cannot leave old output at $OUT.
+# Move the old run aside, then remove it. If that fails, drop the old marker so no old probe reads as kept.
 { { [[ ! -e $OUT ]] || mv -T "$OUT" "$OUT.discard.$$"; } && rm -rf "$OUT.discard.$$" && mkdir -p "$OUT"; } \
-  || fail "could not clear $OUT"
+  || { rm -f "$OUT"/*.collected_at 2>/dev/null; fail "could not clear $OUT"; }
 { mount -t tmpfs tmpfs /run && mkdir -p /run/frr \
   && mount -t tmpfs tmpfs /var/lib && mkdir -p /var/lib/frr \
   && mount --bind "$HERE/etc/group" /etc/group \

@@ -43,7 +43,7 @@ ip link set e2 netns $R2
 ip link set lo up
 ip link set e1 up
 ip addr add 10.0.1.1/24 dev e1
-{ [ "$MODE" = secondary ] || [ "$MODE" = secp1 ] || [ "$MODE" = secp2 ]; } && ip addr add 10.0.2.1/24 dev e1
+{ [[ $MODE = secondary ]] || [[ $MODE = secp1 ]] || [[ $MODE = secp2 ]]; } && ip addr add 10.0.2.1/24 dev e1
 ip link add stub1 type dummy; ip link set stub1 up; ip addr add 10.10.1.1/24 dev stub1
 nsenter -t $R2 -n sh -c 'ip link set lo up; ip link set e2 up; ip addr add 10.0.1.2/24 dev e2; ip link add stub2 type dummy; ip link set stub2 up; ip addr add 10.10.2.1/24 dev stub2'
 [ "$MODE" = mtu ] && nsenter -t $R2 -n ip link set e2 mtu 1400
@@ -126,7 +126,7 @@ if [ "$MODE" = nbma ]; then
   timeout 30 python3 -I "$HERE/tcpvty2.py" 2604 "show ip ospf neighbor detail json" > "$L/r1-early-show_ip_ospf_neighbor_detail_json.raw" 2>&1
 fi
 sleep 75
-[ "$MODE" = down1 ] && { ip link set e1 down; sleep 5; }
+[[ $MODE = down1 ]] && { ip link set e1 down; sleep 5; }
 
 CMDS=(
   "show ip ospf neighbor detail json"

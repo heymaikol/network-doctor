@@ -1642,18 +1642,78 @@ func TestProxyProbeOnlyAsksAboutProbeHost(t *testing.T) {
 	}
 }
 
-// HTTP_PROXY-only environments (no HTTPS_PROXY) still count as configured.
-func TestProxyProbeFallsBackToHTTP(t *testing.T) {
-	ops := &netops{proxyFromEnv: func(req *http.Request) (*url.URL, error) {
-		if req.URL.Scheme == "http" {
-			return url.Parse("http://proxy:8080")
-		}
+// goProxyEnv answers proxy lookups with the matcher net/http builds
+// ProxyFromEnvironment from, minus ALL_PROXY, but from explicit settings rather
+// than the process environment: net/http caches that environment once per
+// process, so t.Setenv cannot drive it.
+func goProxyEnv(cfg httpproxy.Config) func(*http.Request) (*url.URL, error) {
+	proxyFunc := cfg.ProxyFunc()
+	return func(req *http.Request) (*url.URL, error) { return proxyFunc(req.URL) }
+}
+
+// HTTP_PROXY applies only to plain http:// requests, which an HTTPS client never
+// sends, so an HTTP_PROXY-only host has no HTTPS proxy. The probe must not
+// tunnel through it and report HTTPS egress as working.
+func TestProxyProbeHTTPProxyOnlyIsNotHTTPSEgress(t *testing.T) {
+	ops := &netops{proxyFromEnv: goProxyEnv(httpproxy.Config{HTTPProxy: "http://user:secret@proxy.corp:8080"}), dialContext: func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("HTTP_PROXY must not carry the HTTPS probe")
 		return nil, nil
-	}, dialContext: func(context.Context, string, string) (net.Conn, error) {
+	}}
+	r := ops.proxyProbe(context.Background(), nil)
+	if r.Status != StatusNA || !strings.Contains(r.Detail, "plain HTTP") {
+		t.Errorf("HTTP_PROXY-only = %+v, want N/A saying the proxy covers plain HTTP", r)
+	}
+	if strings.Contains(r.Detail+r.Fix, "secret") {
+		t.Errorf("proxy credentials reached the report: %+v", r)
+	}
+}
+
+// A NO_PROXY entry scoped to :443 exempts the HTTPS probe but not a plain-HTTP
+// request on port 80. The exemption must hold, so HTTP_PROXY cannot stand in.
+func TestProxyProbeNoProxy443DoesNotFallBackToHTTPProxy(t *testing.T) {
+	proxyEnv := goProxyEnv(httpproxy.Config{
+		HTTPProxy:  "http://proxy.corp:8080",
+		HTTPSProxy: "http://proxy.corp:3128",
+		NoProxy:    ConnectivityProbeHost + ":443",
+	})
+	ops := &netops{proxyFromEnv: proxyEnv, dialContext: func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("an exempt HTTPS probe must not be dialed through HTTP_PROXY")
+		return nil, nil
+	}}
+	if r := ops.proxyProbe(context.Background(), nil); r.Status != StatusNA {
+		t.Errorf("NO_PROXY=host:443 with HTTP_PROXY = %+v, want N/A", r)
+	}
+}
+
+// With both settings present, HTTPS egress goes through HTTPS_PROXY.
+func TestProxyProbeHTTPSProxyBeatsHTTPProxy(t *testing.T) {
+	var dialed string
+	proxyEnv := goProxyEnv(httpproxy.Config{HTTPProxy: "http://http.proxy.corp:8080", HTTPSProxy: "http://https.proxy.corp:3128"})
+	ops := &netops{proxyFromEnv: proxyEnv, dialContext: func(_ context.Context, _, addr string) (net.Conn, error) {
+		dialed = addr
 		return &scriptConn{r: strings.NewReader("HTTP/1.1 200 Connection established\r\n\r\n")}, nil
 	}}
-	if r := ops.proxyProbe(context.Background(), nil); r.Status != StatusPass {
-		t.Errorf("HTTP_PROXY fallback = %+v, want PASS", r)
+	if r := ops.proxyProbe(context.Background(), nil); r.Status != StatusPass || dialed != "https.proxy.corp:3128" {
+		t.Errorf("dialed %q, result %+v; want the HTTPS proxy to PASS", dialed, r)
+	}
+}
+
+// ALL_PROXY is the https:// answer proxyFromEnvironment gives, and an HTTP_PROXY
+// beside it must not displace it.
+func TestProxyProbeAllProxyBeatsHTTPProxy(t *testing.T) {
+	var dialed string
+	ops := &netops{proxyFromEnv: func(req *http.Request) (*url.URL, error) {
+		if req.URL.Scheme == "http" {
+			return url.Parse("http://http.proxy.corp:8080")
+		}
+		return url.Parse("socks5h://proxy.corp:1080")
+	}, dialContext: func(_ context.Context, _, addr string) (net.Conn, error) {
+		dialed = addr
+		return nil, errors.New("dial refused by test")
+	}}
+	ops.proxyProbe(context.Background(), nil)
+	if dialed != "proxy.corp:1080" {
+		t.Errorf("dialed %q, want the ALL_PROXY address proxy.corp:1080", dialed)
 	}
 }
 

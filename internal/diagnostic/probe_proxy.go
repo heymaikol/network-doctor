@@ -77,14 +77,15 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 	var r ProbeResult
 	var proxyURL *url.URL
 	var err error
-	// ProxyFromEnvironment answers per request scheme (HTTPS_PROXY vs
-	// HTTP_PROXY), so ask for both; https first since that's what almost all
-	// tunneled traffic is.
-	for _, scheme := range []string{"https", "http"} {
-		proxyURL, err = o.proxyFromEnv(&http.Request{URL: &url.URL{Scheme: scheme, Host: ConnectivityProbeHost}})
-		if err != nil || proxyURL != nil {
-			break
-		}
+	// Only https:// decides this probe, since it stands in for an HTTPS
+	// client, and net/http reads HTTP_PROXY only for plain http:// requests.
+	// The http:// lookup below explains an N/A; that proxy is never dialed.
+	proxyURL, err = o.proxyFromEnv(&http.Request{URL: &url.URL{Scheme: "https", Host: ConnectivityProbeHost}})
+	plainHTTPProxy := false
+	if err == nil && proxyURL == nil {
+		var httpURL *url.URL
+		httpURL, err = o.proxyFromEnv(&http.Request{URL: &url.URL{Scheme: "http", Host: ConnectivityProbeHost}})
+		plainHTTPProxy = httpURL != nil
 	}
 	if err != nil {
 		r.Status = StatusFail
@@ -96,6 +97,9 @@ func (o *netops) proxyProbe(ctx context.Context, _ map[ProbeID]ProbeResult) Prob
 	if proxyURL == nil {
 		r.Status = StatusNA
 		r.Detail = "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)"
+		if plainHTTPProxy {
+			r.Detail = "no proxy applies to HTTPS requests, but one applies to plain HTTP"
+		}
 		return r
 	}
 	// A bare root path ("http://proxy:3128/") is the same endpoint as none.

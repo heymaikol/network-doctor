@@ -25,22 +25,26 @@ export LD_LIBRARY_PATH="$S/frr-root/usr/lib64:$S/frr-root/usr/lib64/frr"
 R2=
 
 # Stops every daemon this run started, the namespace holder, and restores the flap link.
+# Pid files are read only once a daemon has started, so a run that failed earlier never signals a stale pid.
 cleanup() {
   local rc=$?
   if [[ $MODE = flap ]]; then ip link set stub1 up 2>/dev/null; fi
-  cat "$L"/r1/*.pid "$L"/r2/*.pid 2>/dev/null | xargs -r kill 2>/dev/null
+  if (( started )); then cat "$L"/r1/*.pid "$L"/r2/*.pid 2>/dev/null | xargs -r kill 2>/dev/null; fi
   if [[ -n $R2 ]]; then kill "$R2" 2>/dev/null; fi
   exit "$rc"
 }
+started=0
 trap cleanup EXIT
 
 fail() { echo "lsdb.sh: $*" >&2; exit 1; }
 
-mount -t tmpfs tmpfs /run && mkdir -p /run/frr
-mount -t tmpfs tmpfs /var/lib && mkdir -p /var/lib/frr
-mount --bind "$HERE/etc/group" /etc/group
-mount --bind "$HERE/etc/passwd" /etc/passwd
-rm -rf "$L"; mkdir -p "$L/r1" "$L/r2"
+# Move the old run aside, then remove it, so a failed remove cannot leave old captures at $L.
+{ { [[ ! -e $L ]] || mv -T "$L" "$L.discard.$$"; } && rm -rf "$L.discard.$$" && mkdir -p "$L/r1" "$L/r2"; } \
+  || fail "could not clear $L"
+{ mount -t tmpfs tmpfs /run && mkdir -p /run/frr \
+  && mount -t tmpfs tmpfs /var/lib && mkdir -p /var/lib/frr \
+  && mount --bind "$HERE/etc/group" /etc/group \
+  && mount --bind "$HERE/etc/passwd" /etc/passwd; } || fail "mount setup failed"
 
 unshare -n sleep 3600 & R2=$!
 sleep 0.5
@@ -51,21 +55,23 @@ sleep 0.5
 nsenter -t "$R2" -n sh -c 'ip link set lo up && ip link set e2 up && ip addr add 10.0.1.2/24 dev e2 && ip link add stub2 type dummy && ip link set stub2 up && ip addr add 10.10.2.1/24 dev stub2 && ip link add stub3 type dummy && ip link set stub3 up && ip addr add 10.20.0.1/24 dev stub3' \
   || fail "r2 namespace setup failed"
 
-printf 'hostname r1\nline vty\n no login\n' > "$L/r1/zebra.conf"
-printf 'hostname r2\nline vty\n no login\n' > "$L/r2/zebra.conf"
-printf 'hostname r1\nline vty\n no login\ninterface e1\nrouter ospf\n ospf router-id 1.1.1.1\n network 10.0.1.0/24 area 0.0.0.0\n network 10.10.1.0/24 area 0.0.0.0\n' > "$L/r1/ospfd.conf"
-printf 'hostname r2\nline vty\n no login\ninterface e2\nrouter ospf\n ospf router-id 2.2.2.2\n network 10.0.1.0/24 area 0.0.0.0\n network 10.10.2.0/24 area 0.0.0.0\n redistribute connected\n' > "$L/r2/ospfd.conf"
+{ printf 'hostname r1\nline vty\n no login\n' > "$L/r1/zebra.conf" \
+  && printf 'hostname r2\nline vty\n no login\n' > "$L/r2/zebra.conf" \
+  && printf 'hostname r1\nline vty\n no login\ninterface e1\nrouter ospf\n ospf router-id 1.1.1.1\n network 10.0.1.0/24 area 0.0.0.0\n network 10.10.1.0/24 area 0.0.0.0\n' > "$L/r1/ospfd.conf" \
+  && printf 'hostname r2\nline vty\n no login\ninterface e2\nrouter ospf\n ospf router-id 2.2.2.2\n network 10.0.1.0/24 area 0.0.0.0\n network 10.10.2.0/24 area 0.0.0.0\n redistribute connected\n' > "$L/r2/ospfd.conf"; } \
+  || fail "config write failed"
 
 # start DIR NS: zebra, then ospfd if zebra started, in namespace NS (self, or the holder pid).
 start() {
   local d=$1 ns=$2 sock
   sock=/run/frr/$(basename "$1")
-  mkdir -p "$sock"
+  mkdir -p "$sock" || fail "could not create $sock"
   local -a at=()
   if [[ $ns != self ]]; then at=(nsenter -t "$ns" -n); fi
   "${at[@]}" "$FRR/zebra" -d -f "$d/zebra.conf" -i "$d/zebra.pid" -z "$sock/zserv.api" --vty_socket "$sock" -u root -g root >/dev/null 2>&1 \
     && "${at[@]}" "$FRR/ospfd" -d -f "$d/ospfd.conf" -i "$d/ospfd.pid" -z "$sock/zserv.api" --vty_socket "$sock" -u root -g root >/dev/null 2>&1
 }
+started=1
 start "$L/r1" self || fail "r1 daemons did not start"
 start "$L/r2" "$R2" || fail "r2 daemons did not start"
 echo "daemons started"
@@ -83,7 +89,7 @@ sleep 25
 cap() {
   local ns=$1 tag=$2 port=$3 name=$4; shift 4
   local base="$L/$tag-$name-${*// /_}" at rc
-  at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+  at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || return 1
   if [[ "$ns" = self ]]; then timeout 30 python3 -I "$TCP" "$port" "$*" > "$base.raw" 2>&1; rc=$?
   else timeout 30 nsenter -t "$ns" -n python3 -I "$TCP" "$port" "$*" > "$base.raw" 2>&1; rc=$?; fi
   if (( rc != 0 )) || [[ ! -s $base.raw ]]; then
@@ -92,7 +98,11 @@ cap() {
     echo "lsdb.sh: capture $tag $name failed (status $rc)" >&2
     return 1
   fi
-  printf '%s\n' "$at" > "$base.collected_at"
+  printf '%s\n' "$at" > "$base.collected_at" && return 0
+  rm -f "$base.collected_at"
+  mv -f "$base.raw" "$base.raw.failed" 2>/dev/null
+  echo "lsdb.sh: capture $tag $name failed (could not write .collected_at)" >&2
+  return 1
 }
 bracket() { # ns tag port
   local ns=$1 tag=$2 port=$3

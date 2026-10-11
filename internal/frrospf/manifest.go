@@ -121,6 +121,9 @@ func decodeManifestObject(data []byte) (Manifest, error) {
 	if err := checkManifestLabels(m); err != nil {
 		return Manifest{}, err
 	}
+	if err := checkLSDBCounts(m); err != nil {
+		return Manifest{}, err
+	}
 	return m, nil
 }
 
@@ -211,6 +214,41 @@ func checkManifestLabels(m Manifest) error {
 	}
 	if m.SourceNode != "" && !slices.ContainsFunc(m.Captures, func(c ManifestCapture) bool { return c.Node == m.SourceNode }) {
 		return fmt.Errorf("source_node %s names no captured node", quote(m.SourceNode))
+	}
+	return nil
+}
+
+// checkLSDBCounts refuses a node whose LSDB evidence is not the full set. A node
+// with any of the three LSDB commands needs exactly two process-state captures,
+// one LSDB capture, and one route capture. Anything else leaves the comparison
+// without an A and a D, or with a choice between captures it cannot make.
+func checkLSDBCounts(m Manifest) error {
+	type counts struct{ process, lsdb, routes int }
+	byNode := map[string]*counts{}
+	for _, c := range m.Captures {
+		if !lsdbCommand(c.Command) {
+			continue
+		}
+		n := byNode[c.Node]
+		if n == nil {
+			n = &counts{}
+			byNode[c.Node] = n
+		}
+		switch c.Command {
+		case CommandProcessState:
+			n.process++
+		case CommandLSDB:
+			n.lsdb++
+		case CommandRoute:
+			n.routes++
+		}
+	}
+	for _, node := range slices.Sorted(maps.Keys(byNode)) {
+		n := byNode[node]
+		if n.process != 2 || n.lsdb != 1 || n.routes != 1 {
+			return fmt.Errorf("node %s needs exactly 2 %q captures, 1 %q capture, and 1 %q capture; it has %d, %d, and %d",
+				quote(node), CommandProcessState, CommandLSDB, CommandRoute, n.process, n.lsdb, n.routes)
+		}
 	}
 	return nil
 }

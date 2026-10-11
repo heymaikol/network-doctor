@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/internal/ospf"
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
@@ -29,8 +30,9 @@ import (
 // it, and any other version is refused.
 const Version = "10.7.0"
 
-// The two commands this package reads. A capture declares one of them, and its
-// JSON must hold the payload that command produces.
+// The commands this package reads for the neighbor and interface records. A
+// capture declares one of them, and its JSON must hold the payload that command
+// produces. The three LSDB commands are declared in lsdb.go.
 const (
 	CommandNeighborDetail = "show ip ospf neighbor detail json"
 	CommandInterface      = "show ip ospf interface json"
@@ -64,6 +66,9 @@ type Capture struct {
 type Result struct {
 	Observations []netmodel.Observation
 	Report       Report
+	// LSDB is the OSPF comparison of the LSDB captures. It is nil when none was
+	// given. It never reaches Observations, so it cannot change the topology.
+	LSDB *ospf.LSDBReport
 }
 
 // Report accounts for every capture and every neighbor record. Nothing is
@@ -195,6 +200,10 @@ func Import(captures []Capture) (Result, error) {
 	}
 
 	var res Result
+	if nodes := lsdbNodes(outcomes); len(nodes) > 0 {
+		rep := ospf.CompareLSDB(nodes)
+		res.LSDB = &rep
+	}
 	var obs []netmodel.Observation
 	for i := range outcomes {
 		o := &outcomes[i]
@@ -218,15 +227,19 @@ func Import(captures []Capture) (Result, error) {
 			Node:       o.capture.Node,
 			VRF:        o.capture.VRF,
 		}
-		if o.capture.Command == CommandInterface {
+		// Only interface and neighbor captures become observations. The LSDB
+		// captures are read by the comparison above and never reach the topology.
+		switch o.capture.Command {
+		case CommandInterface:
 			ob.Interfaces = interfaceList(o.ifaces)
 			cr.Interfaces = len(ob.Interfaces)
-		} else {
+			obs = append(obs, ob)
+		case CommandNeighborDetail:
 			ob.Neighbors = o.mapped.neighbors
 			cr.Neighbors = len(ob.Neighbors)
 			res.Report.Records = append(res.Report.Records, o.mapped.records...)
+			obs = append(obs, ob)
 		}
-		obs = append(obs, ob)
 		res.Report.Captures = append(res.Report.Captures, cr)
 	}
 
@@ -302,11 +315,35 @@ type outcome struct {
 	ifaces  []ifaceInfo
 	entries map[string][]detailRecord
 	mapped  mappedNeighbors
+	process *ospf.Process
+	lsdb    *ospf.LSDB
+	routes  *ospf.Routes
 }
 
 // parse decodes an accepted capture by its declared command.
 func (o *outcome) parse() {
 	switch o.capture.Command {
+	case CommandProcessState:
+		p, reason := decodeProcessState(o.capture.Data)
+		if reason != "" {
+			o.reason = reason
+			return
+		}
+		o.process = &p
+	case CommandLSDB:
+		db, reason := decodeLSDB(o.capture.Data)
+		if reason != "" {
+			o.reason = reason
+			return
+		}
+		o.lsdb = &db
+	case CommandRoute:
+		rt, reason := decodeRoutes(o.capture.Data)
+		if reason != "" {
+			o.reason = reason
+			return
+		}
+		o.routes = &rt
 	case CommandInterface:
 		raw, reason := decodeInterfaces(o.capture.Data)
 		if reason != "" {
@@ -359,7 +396,7 @@ func checkMetadata(c Capture) string {
 		return "collected_at is zero"
 	case c.FRRVersion != Version:
 		return fmt.Sprintf("FRR version %s is not %s", quote(c.FRRVersion), Version)
-	case c.Command != CommandNeighborDetail && c.Command != CommandInterface:
+	case !supportedCommand(c.Command):
 		return fmt.Sprintf("command %s is not supported", quote(c.Command))
 	case len(c.Data) > MaxCaptureBytes:
 		return fmt.Sprintf("output exceeds %d bytes", MaxCaptureBytes)
@@ -399,10 +436,91 @@ func markDuplicates(outcomes []outcome) {
 		}
 	}
 	for k, idx := range byKey {
-		if len(idx) > 1 {
+		if len(idx) > 1 && !processPair(outcomes, idx) {
 			mark(idx, fmt.Sprintf("%d captures give %s for node %s", len(idx), quote(k[1]), quote(k[0])))
 		}
 	}
+}
+
+// processPair reports whether a repeated group is the two process-state captures
+// the OSPF comparison needs as A and D. Only exactly two captures of that command,
+// taken at distinct instants, qualify. The comparison then orders them by time.
+// Any other repeat is refused, and so is a pair whose order cannot be told.
+func processPair(outcomes []outcome, idx []int) bool {
+	if len(idx) != 2 {
+		return false
+	}
+	a, b := outcomes[idx[0]].capture, outcomes[idx[1]].capture
+	return a.Command == CommandProcessState && b.Command == CommandProcessState && !a.CollectedAt.Equal(b.CollectedAt)
+}
+
+// supportedCommand reports whether the importer reads a command.
+func supportedCommand(cmd string) bool {
+	switch cmd {
+	case CommandNeighborDetail, CommandInterface, CommandProcessState, CommandLSDB, CommandRoute:
+		return true
+	}
+	return false
+}
+
+// lsdbCommand reports whether a command feeds the OSPF comparison.
+func lsdbCommand(cmd string) bool {
+	return cmd == CommandProcessState || cmd == CommandLSDB || cmd == CommandRoute
+}
+
+// lsdbNodes gathers the LSDB evidence of each node and VRF for the OSPF
+// comparison. A refused capture is passed on as a refusal, so the comparison
+// names what it could not read. The result is in no particular order, and
+// ospf.CompareLSDB sorts it.
+func lsdbNodes(outcomes []outcome) []ospf.NodeInput {
+	byScope := map[scope]*ospf.NodeInput{}
+	for i := range outcomes {
+		o := &outcomes[i]
+		if !lsdbCommand(o.capture.Command) {
+			continue
+		}
+		s := scope{o.capture.Node, o.capture.VRF}
+		in := byScope[s]
+		if in == nil {
+			in = &ospf.NodeInput{Node: o.capture.Node, VRF: o.capture.VRF}
+			byScope[s] = in
+		}
+		if o.reason != "" {
+			in.Refused = append(in.Refused, ospf.Refusal{Kind: refusalKind(o.capture.Command), Source: o.capture.Source, Reason: o.reason})
+			continue
+		}
+		switch o.capture.Command {
+		case CommandProcessState:
+			p := *o.process
+			p.Source, p.CollectedAt = o.capture.Source, o.capture.CollectedAt
+			in.Processes = append(in.Processes, p)
+		case CommandLSDB:
+			db := *o.lsdb
+			db.Source, db.CollectedAt = o.capture.Source, o.capture.CollectedAt
+			in.LSDB = &db
+		case CommandRoute:
+			rt := *o.routes
+			rt.Source, rt.CollectedAt = o.capture.Source, o.capture.CollectedAt
+			in.Routes = &rt
+		}
+	}
+	var out []ospf.NodeInput
+	for _, in := range byScope {
+		out = append(out, *in)
+	}
+	return out
+}
+
+// refusalKind names the evidence a refused LSDB-comparison capture would have
+// supplied. internal/ospf reads these names.
+func refusalKind(cmd string) string {
+	switch cmd {
+	case CommandProcessState:
+		return "process"
+	case CommandLSDB:
+		return "lsdb"
+	}
+	return "routes"
 }
 
 // buildInterfaces turns the decoded interface entries into interface records,

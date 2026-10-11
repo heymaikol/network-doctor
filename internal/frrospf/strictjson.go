@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/heymaikol/network-doctor/internal/textsafe"
@@ -112,15 +113,37 @@ func checkStrictJSON(data []byte) error {
 	return nil
 }
 
-// decodedKeys are the JSON keys the decoders read through encoding/json. That
-// package matches keys case-insensitively and Unicode-folded, and keeps the last
-// of two matches. A second spelling of one of these keys would silently replace
-// the first, so each key must be spelled exactly.
-var decodedKeys = []string{
+// structDecodedKeys are the JSON keys the neighbor and interface decoders read
+// through encoding/json struct tags. That package matches keys case-insensitively
+// and keeps the last of two matches, so a second spelling would replace the first.
+var structDecodedKeys = []string{
 	"neighbors", "interfaces",
 	"ifaceAddress", "areaId", "ifaceName", "localIfaceAddress", "nbrState",
 	"ipAddress", "ipAddressPrefixlen", "routerId", "area",
 }
+
+// mapDecodedKeys are the JSON keys the LSDB decoders read by exact key from a
+// map, which ignores a second spelling silently. The guard refuses a case variant
+// of any of them, so none can hide a value. No key has a case variant in FRR's
+// genuine output.
+var mapDecodedKeys = []string{
+	// process state
+	"areas", "holdtimeMaxMsecs", "spfScheduleDelayMsecs", "lsaExternalCounter",
+	"lsaExternalChecksum", "spfExecutedCounter", "lsaRouterNumber", "lsaRouterChecksum",
+	"lsaNetworkNumber", "lsaNetworkChecksum", "lsaSummaryNumber", "lsaSummaryChecksum",
+	"lsaAsbrNumber", "lsaAsbrChecksum", "lsaNssaNumber", "lsaNssaChecksum",
+	// LSDB
+	"routerLinkStates", "networkLinkStates", "summaryLinkStates", "asbrSummaryLinkStates",
+	"nssaExternalLinkStates", "linkLocalOpaqueLsa", "areaLocalOpaqueLsa",
+	"asExternalLinkStates", "asExternalOpaqueLsa", "lsaType", "lsaAge", "linkStateId",
+	"advertisingRouter", "lsaSeqNumber", "checksum", "networkMask", "routerLinks",
+	"linkType", "networkAddress", "metric",
+	// calculated routes
+	"routeType", "cost", "type2cost", "nexthops",
+}
+
+// decodedKeys is every key the guard checks for a case variant.
+var decodedKeys = append(slices.Clone(structDecodedKeys), mapDecodedKeys...)
 
 // nearKnownKey returns the decoded key that key matches only when case and
 // folding are ignored.

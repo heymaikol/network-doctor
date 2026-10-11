@@ -316,6 +316,8 @@ jobs:
         run: go test -run='^$' -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
       - if: matrix.shard == 'fuzz'
         run: go test -run='^$' -fuzz=FuzzDecodeManifest -fuzztime=10s ./internal/frrospf
+      - if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzDecodeLSDB -fuzztime=10s ./internal/frrospf
       # The Challenge Mode generator builds every hunt case from a seed, so
       # smoke-fuzz it too: a bad seed there produces an invalid scenario.
       - if: matrix.shard == 'fuzz'

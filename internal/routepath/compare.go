@@ -97,25 +97,47 @@ func sameHops(a, b []NextHop) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	return matchHops(a, b, make([]bool, len(b)))
+	return matchHops(a, b)
 }
 
 // matchHops reports whether every hop in want can be paired with a distinct hop
-// in have. Distinctness makes the pairing a bijection, so the two lists hold the
-// same number of forwarding alternatives and none is matched twice.
-func matchHops(want, have []NextHop, taken []bool) bool {
-	if len(want) == 0 {
-		return true
+// in have. It finds a perfect matching in the bipartite graph whose edges join
+// hops that hopCompatible accepts. Distinctness makes the pairing a bijection,
+// so two lists of equal length pair every hop exactly once.
+//
+// The search is Kuhn's augmenting-path algorithm, which is polynomial. The
+// recursion it replaces re-explored every combination when a hop had several
+// compatible counterparts, so n shared gateways with two partners each took
+// O(2^n) time; Kuhn's method reaches the same answer in O(n^3) here, and a wide
+// ECMP set can no longer make --explain stall.
+func matchHops(want, have []NextHop) bool {
+	// owner[i] is the index in want paired with have[i], or -1 while free.
+	owner := make([]int, len(have))
+	for i := range owner {
+		owner[i] = -1
 	}
-	for i, h := range have {
-		if taken[i] || !hopCompatible(want[0], h) {
+	for w := range want {
+		seen := make([]bool, len(have))
+		if !augmentHop(want, have, w, seen, owner) {
+			return false
+		}
+	}
+	return true
+}
+
+// augmentHop tries to pair want[w] with a free compatible hop in have, asking
+// the hop that currently owns a partner to look for another one, which is an
+// augmenting path. It reports whether the matching grew by one.
+func augmentHop(want, have []NextHop, w int, seen []bool, owner []int) bool {
+	for i := range have {
+		if seen[i] || !hopCompatible(want[w], have[i]) {
 			continue
 		}
-		taken[i] = true
-		if matchHops(want[1:], have, taken) {
+		seen[i] = true
+		if owner[i] == -1 || augmentHop(want, have, owner[i], seen, owner) {
+			owner[i] = w
 			return true
 		}
-		taken[i] = false
 	}
 	return false
 }

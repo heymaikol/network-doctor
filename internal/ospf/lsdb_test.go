@@ -563,6 +563,54 @@ func TestOutputDoesNotDependOnInputOrder(t *testing.T) {
 	}
 }
 
+// Two areas put reconciliation rows and LSAs in more than one area. The output
+// must not change with the order of the LSAs, because the rows and the LSA list
+// are sorted and the process areas are a map.
+func TestMultiAreaOutputIsInputIndependent(t *testing.T) {
+	build := func(reverse bool) NodeInput {
+		n := healthy()
+		extra := routerLSA("3.3.3.3", 40, 0x1111, "192.0.2.0/24")
+		extra.Area = "0.0.0.1"
+		n.LSDB.LSAs = append(n.LSDB.LSAs, extra)
+		for i := range n.Processes {
+			n.Processes[i].Areas["0.0.0.1"] = Area{SPFExecuted: 5, Counts: map[LSAType]Count{LSARouter: {Number: 1, Checksum: 0x1111}}}
+		}
+		if reverse {
+			slices.Reverse(n.LSDB.LSAs)
+		}
+		return n
+	}
+	first := CompareLSDB([]NodeInput{build(false)})
+	second := CompareLSDB([]NodeInput{build(true)})
+
+	areas := map[string]bool{}
+	for _, r := range first.Nodes[0].Reconciliation {
+		areas[r.Area] = true
+	}
+	if !areas["0.0.0.0"] || !areas["0.0.0.1"] {
+		t.Fatalf("reconciliation covers areas %v; want both 0.0.0.0 and 0.0.0.1", areas)
+	}
+	if a, b := mustJSON(t, first), mustJSON(t, second); a != b {
+		t.Fatalf("report depends on LSA order:\n%s\n---\n%s", a, b)
+	}
+}
+
+// An unset process has no router ID to compare, so the LSDB router ID is not
+// checked against it, even when the LSDB reports 0.0.0.0.
+func TestUnsetProcessRaisesNoRouterIDFinding(t *testing.T) {
+	n := healthy()
+	for i := range n.Processes {
+		n.Processes[i].RouterID = ""
+	}
+	n.LSDB.RouterID = "0.0.0.0"
+	rep := findingsOf(t, n)
+	for _, f := range rep.Findings {
+		if f.Scope == "router-id" {
+			t.Fatalf("router-ID finding for an unset process: %q", f.Detail)
+		}
+	}
+}
+
 func TestFindingTextNamesNoCause(t *testing.T) {
 	rep := CompareLSDB([]NodeInput{killed()})
 	for _, n := range rep.Nodes {

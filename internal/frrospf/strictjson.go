@@ -120,6 +120,7 @@ var structDecodedKeys = []string{
 	"neighbors", "interfaces",
 	"ifaceAddress", "areaId", "ifaceName", "localIfaceAddress", "nbrState",
 	"ipAddress", "ipAddressPrefixlen", "routerId", "area",
+	"cost", "networkType", "state", "timerPassiveIface", "timerHelloInMsecs", "drAddress", "bdrAddress",
 }
 
 // mapDecodedKeys are the JSON keys the LSDB decoders read by exact key from a

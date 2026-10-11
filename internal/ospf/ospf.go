@@ -38,6 +38,13 @@ const (
 	// KeyEffectiveArea is the dotted area an interface reports on the control
 	// plane. It is read only for links the intended plane declares.
 	KeyEffectiveArea = "ospf.effective_area"
+	// KeyCost, KeyNetworkType, KeyInterfaceState, and KeyPassive are the facts of
+	// one OSPF interface, read from the control plane. KeyInterfaceState is the
+	// interface's own state, never a neighbor's, so it does not share KeyState.
+	KeyCost           = "ospf.cost"
+	KeyNetworkType    = "ospf.network_type"
+	KeyInterfaceState = "ospf.interface_state"
+	KeyPassive        = "ospf.passive"
 )
 
 // states is the closed vocabulary of OSPF neighbor states. A value outside it is

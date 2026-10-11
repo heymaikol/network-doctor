@@ -192,9 +192,18 @@ func Import(captures []Capture) (Result, error) {
 		}
 		for j := range o.ifaces {
 			info := &o.ifaces[j]
-			if info.area != "" && withheld[scope{o.capture.Node, o.capture.VRF}][info.name] {
-				info.area = ""
+			// A name whose record is held, or that the neighbor trigger names, gives
+			// none of its facts. The area note keeps the text it has always had.
+			neighbor := withheld[scope{o.capture.Node, o.capture.VRF}][info.name]
+			if neighbor && info.area != "" {
 				o.notes = append(o.notes, fmt.Sprintf("interface %s: area withheld; a neighbor record names a different local address for it", quote(info.name)))
+			}
+			if !neighbor && !info.held {
+				continue
+			}
+			cleared := info.withhold()
+			if neighbor && slices.ContainsFunc(cleared, func(k string) bool { return k != keyEffectiveArea }) {
+				o.notes = append(o.notes, fmt.Sprintf("interface %s: facts withheld; a neighbor record names a different local address for it", quote(info.name)))
 			}
 		}
 	}
@@ -303,6 +312,15 @@ type ifaceInfo struct {
 	unusable  string
 	routerID  string
 	area      string
+
+	// The facts below are written as attributes, each one "" when not written.
+	// held says the record may describe another OSPF interface on the name, so
+	// the facts are withheld. See readFacts.
+	cost        string
+	networkType string
+	state       string
+	passive     string
+	held        bool
 }
 
 // outcome carries one capture through the passes. reason is set once the
@@ -569,6 +587,7 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 		if note != "" {
 			notes = append(notes, fmt.Sprintf("interface %s: %s", quote(name), note))
 		}
+		notes = append(notes, readFacts(name, rec, &info)...)
 		out = append(out, info)
 	}
 	return out, notes, nil
@@ -590,6 +609,16 @@ func interfaceList(ifaces []ifaceInfo) []netmodel.Interface {
 		}
 		if info.area != "" {
 			i.Attributes = append(i.Attributes, netmodel.Attribute{Key: keyEffectiveArea, Value: info.area})
+		}
+		for _, f := range []struct{ key, val string }{
+			{keyCost, info.cost},
+			{keyNetworkType, info.networkType},
+			{keyInterfaceState, info.state},
+			{keyPassive, info.passive},
+		} {
+			if f.val != "" {
+				i.Attributes = append(i.Attributes, netmodel.Attribute{Key: f.key, Value: f.val})
+			}
 		}
 		out = append(out, i)
 	}

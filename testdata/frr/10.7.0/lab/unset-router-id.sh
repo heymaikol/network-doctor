@@ -1,7 +1,7 @@
 #!/bin/bash
 # Local single-router FRR 10.7.0 probe: what "show ip ospf json" prints when the
 # OSPF instance has no router ID, has one from zebra, or does not exist.
-# Run as: SCRATCH=<dir> unshare -Urnm bash unset-router-id.sh <none|addr|absent>
+# Run as: SCRATCH=<dir> unshare -Urnm bash unset-router-id.sh <none|addr|absent|noinst>
 #   SCRATCH must hold frr-root/ extracted from the FRR 10.7.0 RPM (see ../README.md).
 #   none    router ospf, no router-id, no IPv4 address on any interface
 #   addr    as none, plus 10.9.9.9/32 on dummy d0, which zebra offers as the router ID
@@ -11,7 +11,11 @@
 # $SCRATCH/run/unset-router-id-<mode>/.
 set -u
 S=${SCRATCH:?set SCRATCH to a directory holding frr-root/ (see README)}
-MODE=$1
+MODE=${1-}
+case $MODE in
+  none | addr | absent | noinst) ;;
+  *) echo "unset-router-id.sh: MODE must be none, addr, absent, or noinst, not '$MODE'" >&2; exit 2 ;;
+esac
 HERE=$(cd "$(dirname "$0")" && pwd)
 TCP=$HERE/tcpvty2.py
 OUT=$S/run/unset-router-id-$MODE

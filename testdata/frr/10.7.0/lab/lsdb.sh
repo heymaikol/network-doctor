@@ -11,7 +11,11 @@
 # start time is in the .collected_at file beside it.
 set -u
 S=${SCRATCH:?set SCRATCH to a directory holding frr-root/ (see README)}
-MODE=$1
+MODE=${1-}
+case $MODE in
+  steady | flap | kill9) ;;
+  *) echo "lsdb.sh: MODE must be steady, flap, or kill9, not '$MODE'" >&2; exit 2 ;;
+esac
 HERE=$(cd "$(dirname "$0")" && pwd)
 TCP=$HERE/tcpvty2.py
 L=$S/run/lsdb-$MODE
@@ -42,8 +46,10 @@ start() {
   local d=$1 ns=$2 sock
   sock=/run/frr/$(basename "$1")
   mkdir -p "$sock"
-  local run="$FRR/zebra -d -f $d/zebra.conf -i $d/zebra.pid -z $sock/zserv.api --vty_socket $sock -u root -g root && $FRR/ospfd -d -f $d/ospfd.conf -i $d/ospfd.pid -z $sock/zserv.api --vty_socket $sock -u root -g root"
-  if [[ "$ns" = self ]]; then sh -c "$run" >/dev/null 2>&1; else nsenter -t "$ns" -n sh -c "$run" >/dev/null 2>&1; fi
+  local -a at=()
+  if [[ $ns != self ]]; then at=(nsenter -t "$ns" -n); fi
+  "${at[@]}" "$FRR/zebra" -d -f "$d/zebra.conf" -i "$d/zebra.pid" -z "$sock/zserv.api" --vty_socket "$sock" -u root -g root >/dev/null 2>&1 \
+    && "${at[@]}" "$FRR/ospfd" -d -f "$d/ospfd.conf" -i "$d/ospfd.pid" -z "$sock/zserv.api" --vty_socket "$sock" -u root -g root >/dev/null 2>&1
 }
 start "$L/r1" self
 start "$L/r2" $R2

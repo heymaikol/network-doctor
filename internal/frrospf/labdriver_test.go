@@ -446,8 +446,8 @@ func TestLabDriverDaemonStartupFailureStopsAndCleansUp(t *testing.T) {
 
 // TestLabDriverHappyPathKeepsTheLabConfig runs every mode with no fault. Each run must
 // finish, and each generated ospfd.conf must hold the same non-blank lines as the one
-// committed beside the capture. The committed files predate the blank lines some
-// modes now write, so blank lines are not compared.
+// committed beside the capture. The generator writes blank lines that the committed
+// files do not hold, so blank lines are not compared.
 func TestLabDriverHappyPathKeepsTheLabConfig(t *testing.T) {
 	modes := []string{"bcast", "p2p", "mtu", "empty", "nbma", "noinst", "area", "secondary", "secp1", "secp2", "passive1", "cost50", "mixp2p", "down1"}
 	lab := filepath.Join("..", "..", "testdata", "frr", "10.7.0")

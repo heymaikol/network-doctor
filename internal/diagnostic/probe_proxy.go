@@ -436,7 +436,7 @@ func (o *netops) socks5Probe(ctx context.Context, addr string, remoteDNS bool, d
 		}
 		_ = conn.Close()
 		r.Status = StatusFail
-		r.Cause = proxyCauseForSOCKSError(err, remoteDNS)
+		r.Cause = proxyCauseForSOCKSError(err)
 		r.Detail = "SOCKS5 proxy " + addr + ": " + err.Error()
 		r.Fix = "check that the proxy URL names a SOCKS5 port and that the proxy allows this destination"
 		if !socks5RetryOtherDestination(err) {
@@ -586,20 +586,14 @@ type socks5ReplyError struct{ code byte }
 
 func (e socks5ReplyError) Error() string { return "refused CONNECT: " + socks5Error(e.code) }
 
-func proxyCauseForSOCKSError(err error, remoteDNS bool) string {
+func proxyCauseForSOCKSError(err error) string {
 	var reply socks5ReplyError
 	if errors.As(err, &reply) {
 		switch reply.code {
-		case 3, 5, 6:
-			return ProxyCauseDestinationUnreachable
-		case 4:
-			// RFC 1928 names code 4 "host unreachable"; it can only
-			// represent proxy-side name resolution in this probe when the
-			// request actually carried a domain name. A locally resolving
-			// socks5 request sent an address and must not be labelled DNS.
-			if remoteDNS {
-				return ProxyCauseProxyDNS
-			}
+		case 3, 4, 5, 6:
+			// Code 4 is "host unreachable" even for a domain-form request. The proxy
+			// may have resolved the name and failed to reach the host, so the code
+			// does not prove a proxy-side DNS failure.
 			return ProxyCauseDestinationUnreachable
 		}
 	}

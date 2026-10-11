@@ -532,6 +532,12 @@ func TestLibraryScenariosCoverKnownCauses(t *testing.T) {
 	}
 	var missing []string
 	for _, cause := range knownCauses {
+		if cause == diagnostic.ProxyCauseProxyDNS {
+			// Retained for existing reports, but SOCKS5 reply 4 cannot
+			// distinguish proxy-side DNS failure from host unreachable.
+			// No scenario can honestly assert this cause from that reply.
+			continue
+		}
 		if cause == diagnostic.TLSCauseTCPUnreachable {
 			// A real-socket scenario cannot deterministically force ECONNREFUSED
 			// after an earlier TCP connection succeeds. The structured errno

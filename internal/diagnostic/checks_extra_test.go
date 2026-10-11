@@ -663,7 +663,7 @@ func TestProxyProbeSocks5NoRetry(t *testing.T) {
 		cause  string
 	}{
 		{"malformed reply", "socks5", string([]byte{5, 0, 4, 4, 0, 1}), false, ProxyCauseProtocol},
-		{"remote DNS", "socks5h", socks5Rejected(4), false, ProxyCauseProxyDNS},
+		{"remote DNS host unreachable", "socks5h", socks5Rejected(4), false, ProxyCauseDestinationUnreachable},
 		{"cancelled", "socks5", socks5Rejected(4), true, ProxyCauseDestinationUnreachable},
 		{"general failure", "socks5", socks5Rejected(1), false, ProxyCauseProtocol},
 		{"command not supported", "socks5", socks5Rejected(7), false, ProxyCauseProtocol},
@@ -769,7 +769,7 @@ func TestSOCKS5ReplyCausesDistinguishFailureStages(t *testing.T) {
 		cause string
 	}{
 		{3, ProxyCauseDestinationUnreachable},
-		{4, ProxyCauseProxyDNS},
+		{4, ProxyCauseDestinationUnreachable},
 		{5, ProxyCauseDestinationUnreachable},
 		{6, ProxyCauseDestinationUnreachable},
 		{7, ProxyCauseProtocol},
@@ -785,20 +785,23 @@ func TestSOCKS5ReplyCausesDistinguishFailureStages(t *testing.T) {
 	}
 }
 
-func TestSOCKS5HostUnreachableCauseDependsOnResolutionLocation(t *testing.T) {
-	for _, tc := range []struct {
-		scheme string
-		cause  string
-	}{
-		{"socks5", ProxyCauseDestinationUnreachable},
-		{"socks5h", ProxyCauseProxyDNS},
-	} {
-		conn := &scriptConn{r: strings.NewReader(string([]byte{5, 0, 5, 4, 0, 1, 0, 0, 0, 0, 0, 0}))}
-		ops := proxyOps(tc.scheme+"://proxy.corp:1080", func(context.Context, string, string) (net.Conn, error) {
-			return conn, nil
-		})
-		if got := ops.proxyProbe(context.Background(), nil).Cause; got != tc.cause {
-			t.Errorf("%s reply 4 cause = %q, want %q", tc.scheme, got, tc.cause)
+// Reply 4 is host unreachable under either scheme. Under socks5h the proxy may
+// have resolved the name itself, so the reply alone never proves a DNS failure.
+// Replies 3 and 5 sit either side of it as regression guards.
+func TestSOCKS5UnreachableRepliesAreNotProxyDNS(t *testing.T) {
+	for _, scheme := range []string{"socks5", "socks5h"} {
+		for _, tc := range []struct {
+			code byte
+			msg  string
+		}{{3, "network unreachable"}, {4, "host unreachable"}, {5, "connection refused"}} {
+			conn := &scriptConn{r: strings.NewReader(socks5Rejected(tc.code))}
+			ops := proxyOps(scheme+"://proxy.corp:1080", func(context.Context, string, string) (net.Conn, error) {
+				return conn, nil
+			})
+			r := ops.proxyProbe(context.Background(), nil)
+			if r.Status != StatusFail || r.Cause != ProxyCauseDestinationUnreachable || !strings.Contains(r.Detail, tc.msg) || strings.Contains(r.Detail+r.Fix, "DNS") {
+				t.Errorf("%s reply %d = %+v, want FAIL with cause %q and no DNS claim", scheme, tc.code, r, ProxyCauseDestinationUnreachable)
+			}
 		}
 	}
 }

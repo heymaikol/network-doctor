@@ -9,8 +9,9 @@ import (
 )
 
 // detailRecord is one neighbor entry from show ip ospf neighbor detail json.
-// Pointers tell a missing key from a present one. A value of the wrong JSON
-// type fails the whole capture, because the schema is strict on types.
+// Pointers tell a missing key from a present one. The fields are load-bearing,
+// so a value of the wrong JSON type fails the whole capture. Interface facts are
+// the exception: see interfaceRecord.
 type detailRecord struct {
 	IfaceAddress      *string `json:"ifaceAddress"`
 	AreaID            *string `json:"areaId"`
@@ -32,13 +33,25 @@ type detailPayload struct {
 // 1 MiB input into a much larger working set.
 const maxEntries = 4096
 
-// interfaceRecord is one entry from show ip ospf interface json. Other keys are
-// not read here.
+// interfaceRecord is one entry from show ip ospf interface json. The first four
+// fields are load-bearing and strict: a value of the wrong JSON type fails the
+// whole capture. The fields after them are interface facts. Each is held as raw
+// JSON and decoded on its own (see facts.go), so a wrong type loses only that
+// fact and never the capture. The ownership gate reads ipAddress alone, so no
+// fact field can close it. Other keys are not read here.
 type interfaceRecord struct {
 	IPAddress          *string `json:"ipAddress"`
 	IPAddressPrefixlen *int    `json:"ipAddressPrefixlen"`
 	RouterID           *string `json:"routerId"`
 	Area               *string `json:"area"`
+
+	Cost              json.RawMessage `json:"cost"`
+	NetworkType       json.RawMessage `json:"networkType"`
+	State             json.RawMessage `json:"state"`
+	TimerPassiveIface json.RawMessage `json:"timerPassiveIface"`
+	TimerHelloInMsecs json.RawMessage `json:"timerHelloInMsecs"`
+	DRAddress         json.RawMessage `json:"drAddress"`
+	BDRAddress        json.RawMessage `json:"bdrAddress"`
 }
 
 // interfacePayload is the top level of show ip ospf interface json, keyed by

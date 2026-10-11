@@ -1,11 +1,15 @@
 package frrospf
 
 import (
+	"encoding/json"
+	"maps"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/heymaikol/network-doctor/internal/netmodel"
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
@@ -80,6 +84,108 @@ func FuzzImportNeighborDetail(f *testing.F) {
 			t.Fatalf("%d records mapped but %d neighbors written", mapped, written)
 		}
 	})
+}
+
+// FuzzImportInterfaceFacts feeds arbitrary interface output for r3, next to the
+// genuine broadcast captures of r1 and r2. For any input it must not panic,
+// netmodel must accept what Import writes, every fact written must come from its
+// closed vocabulary, and each key may be written at most once per interface.
+//
+// The first seed is the genuine broadcast interface output of r1. The others are
+// short shapes that exercise each fact field.
+func FuzzImportInterfaceFacts(f *testing.F) {
+	f.Add(fixture(f, "bcast", "r1", CommandInterface).Data)
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"cost":0,"networkType":"POINTOPOINT","state":"Point-To-Point","timerPassiveIface":true}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"cost":65536,"networkType":"Null","state":null,"timerPassiveIface":false,"timerHelloInMsecs":"9000"}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerPassiveIface":true,"timerHelloInMsecs":9000,"drAddress":"10.99.9.9","bdrAddress":"10.1.1.1"}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"drAddress":"0.0.0.0","bdrAddress":"not-an-address"}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":1.5}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":-1}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":1e300}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":65535001}}}`))
+	f.Add([]byte(`{}`))
+
+	ifaces := []Capture{
+		fixture(f, "bcast", "r1", CommandInterface),
+		fixture(f, "bcast", "r2", CommandInterface),
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		caps := append(slices.Clone(ifaces), Capture{
+			Node:        "r3",
+			VRF:         "default",
+			Source:      "fuzz r3 interface",
+			CollectedAt: ifaces[0].CollectedAt,
+			FRRVersion:  Version,
+			Command:     CommandInterface,
+			Data:        data,
+		})
+		res, err := Import(caps)
+		if err != nil {
+			t.Fatalf("netmodel refused what Import wrote: %v", err)
+		}
+		for _, cr := range res.Report.Captures {
+			if !plain(cr.Reason) {
+				t.Fatalf("capture reason repeats control text: %q", cr.Reason)
+			}
+			for _, n := range cr.Notes {
+				if !plain(n) {
+					t.Fatalf("note repeats control text: %q", n)
+				}
+			}
+		}
+		for _, o := range res.Observations {
+			for _, i := range o.Interfaces {
+				seen := map[string]bool{}
+				for _, a := range i.Attributes {
+					if seen[a.Key] {
+						t.Fatalf("%s %s writes %s twice", o.Node, i.Name, a.Key)
+					}
+					seen[a.Key] = true
+					if !inVocabulary(a) {
+						t.Fatalf("%s %s writes %s = %q, outside its vocabulary", o.Node, i.Name, a.Key, a.Value)
+					}
+					if o.Node == "r3" && i.Name == "e3" && a.Key == keyPassive && a.Value == "false" && !activeRecord(data) {
+						t.Fatalf("r3 e3 writes ospf.passive false without an in-range integer hello timer: %q", data)
+					}
+				}
+			}
+		}
+	})
+}
+
+// activeRecord reports whether the e3 record in data is the only shape that writes
+// ospf.passive false: an integer hello timer in range and no timerPassiveIface.
+func activeRecord(data []byte) bool {
+	var doc struct {
+		Interfaces map[string]map[string]json.RawMessage `json:"interfaces"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return false
+	}
+	rec := doc.Interfaces["e3"]
+	if _, ok := rec["timerPassiveIface"]; ok {
+		return false
+	}
+	var n int64
+	return json.Unmarshal(rec["timerHelloInMsecs"], &n) == nil && n >= 0 && n <= maxHelloMsecs
+}
+
+// inVocabulary reports whether an interface attribute holds a value its key may
+// hold. It reads the closed maps in facts.go, so a fact written outside them fails.
+func inVocabulary(a netmodel.Attribute) bool {
+	switch a.Key {
+	case keyCost:
+		n, err := strconv.Atoi(a.Value)
+		return err == nil && n >= 0 && n <= maxCost && strconv.Itoa(n) == a.Value
+	case keyNetworkType:
+		return slices.Contains(slices.Collect(maps.Values(networkTypes)), a.Value)
+	case keyInterfaceState:
+		return slices.Contains(slices.Collect(maps.Values(interfaceStates)), a.Value)
+	case keyPassive:
+		return a.Value == "true" || a.Value == "false"
+	}
+	return true
 }
 
 // FuzzDecodeManifest feeds arbitrary manifest bytes. It must not panic, and every

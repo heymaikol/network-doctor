@@ -62,24 +62,22 @@ func TestImportWritesEffectiveAreaFromGenuineCaptures(t *testing.T) {
 	}
 }
 
-// TestImportSecondaryAddressShowsOneAreaPerInterfaceName imports the secondary
-// lab. r1 e1 holds a primary address in 0.0.0.0 and a secondary in 0.0.0.1, and
-// FRR prints only the secondary's record under the name e1. The import writes
-// that one value and nothing else for e1.
-func TestImportSecondaryAddressShowsOneAreaPerInterfaceName(t *testing.T) {
+// TestImportSecondaryAddressWithholdsArea imports the secondary lab. r1 e1 holds a
+// primary address in 0.0.0.0 and a secondary in 0.0.0.1, and FRR prints only the
+// secondary's record under the name e1. That record's bdrAddress lies outside its
+// own subnet, so the record may describe the secondary alone. The area is then
+// withheld rather than written for the name, and a note says why.
+func TestImportSecondaryAddressWithholdsArea(t *testing.T) {
 	res, err := Import([]Capture{fixture(t, "secondary", "r1", CommandInterface)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	e1 := controlInterfaces(res)["r1"]["e1"]
-	var values []string
-	for _, a := range e1.Attributes {
-		if a.Key == "ospf.effective_area" {
-			values = append(values, a.Value)
-		}
+	if v, ok := attr(e1.Attributes, "ospf.effective_area"); ok {
+		t.Errorf("e1 ospf.effective_area = %q, want withheld", v)
 	}
-	if len(values) != 1 || values[0] != "0.0.0.1" {
-		t.Errorf("e1 ospf.effective_area values = %q, want exactly [0.0.0.1]", values)
+	if noteWith(capNotes(t, res, "r1", CommandInterface), `interface "e1": facts withheld`) == "" {
+		t.Errorf("no note says e1 facts are withheld")
 	}
 }
 

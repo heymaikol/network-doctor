@@ -47,9 +47,10 @@ var frrNotImported = []string{
 	"routes: the RIB and FIB are not read, so the topology has no routes",
 	frrLSDBNotRead,
 	"OSPF area of a neighbor record: reported, not written to the topology",
-	"OSPF area of an interface: a plain dotted area is written as ospf.effective_area, one value per interface name; a qualified, incomplete, or missing area, or one that a neighbor contradicts, is not written",
+	"OSPF area of an interface: a plain dotted area is written as ospf.effective_area, one value per interface name; a qualified, incomplete, or missing area is not written, and neither is one withheld because a neighbor contradicts it or because its record may describe another OSPF interface on the name",
+	"OSPF interface facts: ospf.cost, ospf.network_type, ospf.interface_state, and ospf.passive are written from the interface's cost, networkType, state, and passive settings; a name whose record may describe another OSPF interface gives none of them",
 	"secondary interface addresses: not read; only the primary address is used",
-	"any other FRR output field: not read",
+	"any other FRR output field: not read; drAddress and bdrAddress are read only to detect such a record, and ospfIfType is never read",
 	"source address: not set, so the topology claims no address for the source node",
 	"checks and boundaries: none written; OSPF output does not supply them",
 }
@@ -76,6 +77,7 @@ var frrLimitations = []string{
 	"exit 0 means every capture was accepted and every neighbor record was mapped; it does not mean the network is healthy or that OSPF is complete on every node",
 	"a neighbor record with no router ID (noNbrID) is never mapped, even when its address is unique",
 	"an interface's ospf.effective_area is the one area FRR printed for that interface name; it is not a list of every area the interface runs OSPF in, and it may differ from the area of an adjacency on the same interface",
+	"a passive OSPF reading is consistent with an expected adjacency not forming; it claims no absence, no cause, and no effect on traffic",
 }
 
 // runFRRImport imports offline FRR OSPF captures named by a manifest. It runs no

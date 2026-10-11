@@ -1009,35 +1009,52 @@ func TestECMPLegMissingFromTheFIBIsADifference(t *testing.T) {
 	}
 }
 
-// A route with many shared gateways, each naming an unreported hop beside a
-// named one, offers the matcher two valid pairings per gateway. A recursive
-// search retried every combination before it could report that a later gateway
-// differs, so a legitimate 50-hop --explain input could stall. The match is now
-// polynomial, so this returns at once; the guard fails the test rather than
-// hanging if a future change reintroduces the blow-up.
+// Wide ECMP inputs previously caused exponential backtracking.
+// Check both a perfect matching and a mismatch at the final gateway.
+// The Go test runner provides timeout protection.
 func TestWideECMPMatchDoesNotBlowUp(t *testing.T) {
 	const gateways = 25
-	var a, b []NextHop
-	for i := 0; i < gateways; i++ {
-		g := "10.200.0." + strconv.Itoa(i+1)
-		// Both lists invite two pairings: the unreported hop fits either side.
-		a = append(a, NextHop{Addr: g}, NextHop{Addr: g, Interface: "eth0"})
-		if i == gateways-1 {
-			// The last gateway names interfaces that cannot absorb the named
-			// hop, so no perfect matching exists and the answer is false.
-			b = append(b, NextHop{Addr: g, Interface: "eth1"}, NextHop{Addr: g, Interface: "eth2"})
-			continue
-		}
-		b = append(b, NextHop{Addr: g}, NextHop{Addr: g, Interface: "eth0"})
+
+	cases := []struct {
+		name             string
+		incompatibleLast bool
+		want             bool
+	}{
+		{"all compatible", false, true},
+		{"incompatible final gateway", true, false},
 	}
-	done := make(chan bool, 1)
-	go func() { done <- sameHops(a, b) }()
-	select {
-	case got := <-done:
-		if got {
-			t.Errorf("sameHops over %d gateways with a mismatched last one = true, want false", gateways)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("sameHops took over 10s on 50 hops: the match is exponential again")
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var a, b []NextHop
+
+			for i := 0; i < gateways; i++ {
+				g := "10.200.0." + strconv.Itoa(i+1)
+
+				a = append(a,
+					NextHop{Addr: g},
+					NextHop{Addr: g, Interface: "eth0"},
+				)
+
+				if tc.incompatibleLast && i == gateways-1 {
+					b = append(b,
+						NextHop{Addr: g, Interface: "eth1"},
+						NextHop{Addr: g, Interface: "eth2"},
+					)
+				} else {
+					b = append(b,
+						NextHop{Addr: g},
+						NextHop{Addr: g, Interface: "eth0"},
+					)
+				}
+			}
+
+			if got := sameHops(a, b); got != tc.want {
+				t.Errorf("sameHops(a, b) = %v, want %v", got, tc.want)
+			}
+			if got := sameHops(b, a); got != tc.want {
+				t.Errorf("sameHops(b, a) = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

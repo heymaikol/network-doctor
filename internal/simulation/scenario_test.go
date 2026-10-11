@@ -82,6 +82,9 @@ func TestParseScenarioDocumentBoundaries(t *testing.T) {
 }
 
 func TestParseScenarioRejects(t *testing.T) {
+	withProxy := func(opts string) string {
+		return strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {"+opts+"}", 1)
+	}
 	tests := []struct {
 		name string
 		yaml string
@@ -294,26 +297,10 @@ func TestParseScenarioRejects(t *testing.T) {
 			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: socks5, node: server, command: sh}", 1),
 			"command",
 		},
-		{
-			"proxy variable needs the http scheme",
-			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: socks5, node: server, variable: HTTP_PROXY}", 1),
-			"needs scheme http",
-		},
-		{
-			"proxy variable on socks5h needs the http scheme",
-			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: socks5h, node: server, variable: HTTP_PROXY}", 1),
-			"needs scheme http",
-		},
-		{
-			"proxy variable other than HTTP_PROXY",
-			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: http, node: server, variable: HTTPS_PROXY}", 1),
-			"unknown variable",
-		},
-		{
-			"lowercase proxy variable",
-			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, proxy: {scheme: http, node: server, variable: http_proxy}", 1),
-			"unknown variable",
-		},
+		{"proxy variable needs the http scheme", withProxy("scheme: socks5, node: server, variable: HTTP_PROXY"), "needs scheme http"},
+		{"proxy variable on socks5h needs the http scheme", withProxy("scheme: socks5h, node: server, variable: HTTP_PROXY"), "needs scheme http"},
+		{"proxy variable other than HTTP_PROXY", withProxy("scheme: http, node: server, variable: HTTPS_PROXY"), "unknown variable"},
+		{"lowercase proxy variable", withProxy("scheme: http, node: server, variable: http_proxy"), "unknown variable"},
 		{
 			"unknown trust service",
 			strings.Replace(minimalScenario, "target: example.test:80", "target: example.test:80, trust: {service: missing}", 1),

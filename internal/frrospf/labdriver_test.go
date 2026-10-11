@@ -156,7 +156,7 @@ func runScript(t *testing.T, script, scratch, mode string, faults ...string) lab
 		"REAL_SLEEP=" + lookPath(t, "sleep"),
 		"REAL_MKDIR=" + lookPath(t, "mkdir"),
 	}, faults...)
-	t.Cleanup(func() { killRecordedPIDs(scratch) })
+	t.Cleanup(func() { killRecordedPIDs(scratch, logPath) })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -188,18 +188,30 @@ func lookPath(t *testing.T, name string) string {
 	return p
 }
 
-// killRecordedPIDs kills every pid a daemon wrote under scratch, so no fake daemon
-// outlives its test. Failures are ignored, since most pids are already gone.
-func killRecordedPIDs(scratch string) {
+// killRecordedPIDs kills the daemons and sleeps a run left under scratch, so no fake
+// daemon outlives its test. A pid is killed only while its process still carries this
+// run's MOCK_LOG, since a pid that was reused belongs to something else. Failures are
+// ignored, since most pids are already gone.
+func killRecordedPIDs(scratch, logPath string) {
 	_ = filepath.WalkDir(scratch, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || filepath.Ext(p) != ".pid" {
 			return nil
 		}
-		if pid, ok := pidOf(p); ok {
+		if pid, ok := pidOf(p); ok && ownedByRun(pid, logPath) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 		return nil
 	})
+}
+
+// ownedByRun reports whether pid runs with this run's MOCK_LOG in its environment. The
+// fake daemons and their sleeps inherit it, and a process from anywhere else does not.
+func ownedByRun(pid int, logPath string) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
+	if err != nil {
+		return false
+	}
+	return slices.Contains(strings.Split(string(b), "\x00"), "MOCK_LOG="+logPath)
 }
 
 // pidOf reads the pid a daemon wrote to path.
@@ -222,11 +234,13 @@ func reaped(pid int) bool {
 	return i >= 0 && len(b) > i+2 && b[i+2] == 'Z'
 }
 
-// startSacrificial starts a process the driver must never signal. It returns the pid
-// and a channel that closes once the process is reaped.
-func startSacrificial(t *testing.T) (int, <-chan struct{}) {
+// startSacrificial starts a process the driver must never signal. env, when given,
+// is added to this process's environment. It returns the pid and a channel that closes
+// once the process is reaped.
+func startSacrificial(t *testing.T, env ...string) (int, <-chan struct{}) {
 	t.Helper()
 	cmd := exec.Command(lookPath(t, "sleep"), "600") //nolint:gosec // G204: a fixed sleep binary and argument, the sacrificial process under test.
+	cmd.Env = append(os.Environ(), env...)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -420,6 +434,11 @@ func TestLabDriverDaemonStartupFailureStopsAndCleansUp(t *testing.T) {
 	if !ok {
 		t.Fatalf("zebra started no pid file")
 	}
+	// The driver kills zebra before it exits, but the signal lands asynchronously, so
+	// wait a bounded time for the process to be reaped before calling it still running.
+	for deadline := time.Now().Add(2 * time.Second); !reaped(pid) && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+	}
 	if !reaped(pid) {
 		t.Errorf("zebra pid %d still runs after the failed start", pid)
 	}
@@ -469,5 +488,33 @@ func TestLabDriverDaemonArgvIsUnchanged(t *testing.T) {
 		if !slices.Contains(r.mock, want) {
 			t.Errorf("no daemon call %q in the log", want)
 		}
+	}
+}
+
+// TestKillRecordedPIDsSparesAForeignProcess writes two pid files. One names a process
+// that carries this run's MOCK_LOG, and the other a process that does not, as a reused
+// pid would. Cleanup must kill the first and leave the second running.
+func TestKillRecordedPIDsSparesAForeignProcess(t *testing.T) {
+	scratch := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "mock.log")
+	owned, ownedDone := startSacrificial(t, "MOCK_LOG="+logPath)
+	foreign, foreignDone := startSacrificial(t, "MOCK_LOG="+filepath.Join(t.TempDir(), "other.log"))
+	for name, pid := range map[string]int{"owned": owned, "foreign": foreign} {
+		dir := filepath.Join(scratch, name)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "zebra.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	killRecordedPIDs(scratch, logPath)
+	select {
+	case <-ownedDone:
+	case <-time.After(2 * time.Second):
+		t.Errorf("the run's own pid %d survived cleanup", owned)
+	}
+	if !alive(foreignDone) {
+		t.Errorf("cleanup killed pid %d, which does not carry this run's MOCK_LOG", foreign)
 	}
 }

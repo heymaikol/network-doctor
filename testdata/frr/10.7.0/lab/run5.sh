@@ -145,9 +145,9 @@ fi
 
 # alive FILE: the daemon that wrote pid file FILE holds a live pid within about ten seconds.
 alive() {
-  local i pid
+  local f=$1 i pid
   for ((i = 0; i < 50; i++)); do
-    pid=$(cat "$1" 2>/dev/null)
+    pid=$(cat "$f" 2>/dev/null)
     if [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then return 0; fi
     sleep 0.2
   done
@@ -196,8 +196,8 @@ cap() {
   printf '%s\n' "$at" > "$L/meta/$tag-$slug.collected_at" || return 1
 }
 dump() { # NS TAG
-  local c
-  for c in "${CMDS[@]}"; do cap "$1" "$2" "$c" || return 1; done
+  local ns=$1 tag=$2 c
+  for c in "${CMDS[@]}"; do cap "$ns" "$tag" "$c" || return 1; done
 }
 
 started=1

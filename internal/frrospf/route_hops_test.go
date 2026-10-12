@@ -298,7 +298,7 @@ func TestRouteHopsSynthetic(t *testing.T) {
 		expect(t, r, "next_hops", 2)
 	})
 	t.Run("F28 Unicode fold of advertisedRouter is ambiguous, not listed, not counted", func(t *testing.T) {
-		r := synthRoute(t, []any{map[string]any{"ip": "10.0.1.2", "via": "e1", "advertiſedRouter": "2.2.2.2"}})
+		r := synthRoute(t, []any{map[string]any{"ip": "10.0.1.2", "via": "e1", "adverti\u017fedRouter": "2.2.2.2"}})
 		expect(t, r, "next_hop_status", "ambiguous")
 		expect(t, r, "forwarding_hops", []any{})
 		expect(t, r, "next_hops", 1)
@@ -310,14 +310,14 @@ func TestRouteHopsSynthetic(t *testing.T) {
 // an identity. The hop is unidentified, and the table is still accepted.
 func TestRouteHopsUnusableInterfaceNames(t *testing.T) {
 	cases := map[string]any{
-		"bidi override in via":    addrHop("10.0.1.2", "e1‮", "2.2.2.2"),
-		"zero-width space in via": addrHop("10.0.1.2", "e1​", "2.2.2.2"),
-		"no-break space in via":   addrHop("10.0.1.2", "e 1", "2.2.2.2"),
+		"bidi override in via":    addrHop("10.0.1.2", "e1\u202e", "2.2.2.2"),
+		"zero-width space in via": addrHop("10.0.1.2", "e1\u200b", "2.2.2.2"),
+		"no-break space in via":   addrHop("10.0.1.2", "e\u00a01", "2.2.2.2"),
 		"tab in via":              addrHop("10.0.1.2", "e\t1", "2.2.2.2"),
 		"bell in via":             addrHop("10.0.1.2", "e\u00071", "2.2.2.2"),
 		"invalid UTF-8 in via":    addrHop("10.0.1.2", "e\xff1", "2.2.2.2"),
-		"bidi override in direct": directHop("stub1‮"),
-		"zero-width in direct":    directHop("stub1​"),
+		"bidi override in direct": directHop("stub1\u202e"),
+		"zero-width in direct":    directHop("stub1\u200b"),
 	}
 	for name, hop := range cases {
 		t.Run(name, func(t *testing.T) {

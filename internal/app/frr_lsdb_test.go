@@ -84,6 +84,7 @@ func addFRRLSDBFrom(t *testing.T, dir, manifest, captureDir, scenario, node stri
 // writeFRRJSONRaw writes data as a staged capture file.
 func writeFRRJSONRaw(t *testing.T, path string, data []byte) {
 	t.Helper()
+	// #nosec G703 -- path is a capture file this test staged in its own temporary directory.
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}

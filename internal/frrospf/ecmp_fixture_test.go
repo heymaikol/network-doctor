@@ -40,6 +40,7 @@ func TestECMPBracketWindowExceedsTheBound(t *testing.T) {
 		if reason != "" {
 			t.Fatalf("%s D: %s", node, reason)
 		}
+		// #nosec G115 -- the timers in these captures are a few seconds, far below the int64 range.
 		bound := max(int64(pa.HoldtimeMaxMs)+int64(pa.SPFDelayMs), int64(pd.HoldtimeMaxMs)+int64(pd.SPFDelayMs), 1000)
 		window := d.CollectedAt.Sub(a.CollectedAt)
 		if window <= time.Duration(bound)*time.Millisecond {

@@ -63,8 +63,9 @@ type zebraCandidate struct {
 }
 
 // zebraHop is one nexthops element. It is identified when it prints a valid IPv4 ip
-// and an interface name, or directlyConnected true and an interface name. Any other
-// hop is unidentified, and no identity is inferred for it.
+// and an interface name, or directlyConnected true and an interface name with no ip
+// key. A hop with an ip key and directlyConnected true is unidentified, since the two
+// disagree. Any other hop is unidentified, and no identity is inferred for it.
 type zebraHop struct {
 	Identified        bool
 	IP                netip.Addr // set only for an identified address hop
@@ -226,7 +227,8 @@ func readZebraCandidate(p netip.Prefix, raw json.RawMessage, hopsLeft int) (zebr
 // readZebraHop reads one nexthops element. A non-object element refuses the
 // candidate, and so does a malformed directlyConnected, active, or fib. A missing,
 // null, or mistyped ip or interfaceName leaves the hop unidentified, as the identity
-// rule says, and the flags are still read.
+// rule says, and the flags are still read. A present ip key with directlyConnected
+// true also leaves the hop unidentified, whatever the ip holds.
 func readZebraHop(raw json.RawMessage) (zebraHop, error) {
 	obj, err := objectFields(raw)
 	if err != nil {
@@ -250,9 +252,14 @@ func readZebraHop(raw json.RawMessage) (zebraHop, error) {
 	h := zebraHop{DirectlyConnected: direct, Active: active, FIB: fib}
 	// hopText reads a missing, null, or mistyped value as "", which is neither an
 	// address nor an interface name.
-	ip, _, _ := hopText(obj, "ip")
+	ip, hasIP, _ := hopText(obj, "ip")
 	name, _, _ := hopText(obj, "interfaceName")
 	if !ifaceName(name) {
+		return h, nil
+	}
+	// An ip key with directlyConnected true disagrees with itself, so no identity is
+	// inferred, whatever the ip holds.
+	if hasIP && direct != nil && *direct {
 		return h, nil
 	}
 	if addr, ok := parseIPv4(ip); ok && !addr.IsUnspecified() {

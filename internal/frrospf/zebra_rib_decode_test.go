@@ -379,8 +379,8 @@ func TestZebraRIBRefusesDuplicatesAndTrailingData(t *testing.T) {
 }
 
 // TestZebraRIBHopIdentity checks the identity rule one hop at a time. An identified hop
-// has an interface name and either a valid IPv4 ip or directlyConnected true. Any other
-// hop is unidentified and keeps its flags. A malformed flag refuses the body.
+// has an interface name and either a valid IPv4 ip or directlyConnected true with no ip
+// key. Any other hop is unidentified and keeps its flags. A malformed flag refuses the body.
 func TestZebraRIBHopIdentity(t *testing.T) {
 	const key = "10.0.1.0/24"
 	cases := []struct {
@@ -389,7 +389,7 @@ func TestZebraRIBHopIdentity(t *testing.T) {
 		ip, iface  string
 	}{
 		{"address with interface", `{"ip":"10.0.1.2","interfaceName":"e1"}`, true, "10.0.1.2", "e1"},
-		{"address and directly connected", `{"ip":"10.0.1.2","interfaceName":"e1","directlyConnected":true}`, true, "10.0.1.2", "e1"},
+		{"address and directly connected", `{"ip":"10.0.1.2","interfaceName":"e1","directlyConnected":true}`, false, "", ""},
 		{"directly connected", `{"directlyConnected":true,"interfaceName":"stub1"}`, true, "", "stub1"},
 		{"directly connected false, no address", `{"directlyConnected":false,"interfaceName":"e1"}`, false, "", ""},
 		{"directly connected, no interface", `{"directlyConnected":true}`, false, "", ""},
@@ -451,6 +451,71 @@ func TestZebraRIBHopIdentity(t *testing.T) {
 			m["nexthops"] = json.RawMessage("[" + r.hop + "]")
 		}))
 		zebraTestRefuse(t, body, r.want)
+	}
+}
+
+// TestZebraRIBDirectlyConnectedWithIPKey checks a hop that prints an ip key next to
+// directlyConnected true. Any ip value makes the hop unidentified, valid or not, and the
+// flags stay as printed. With directlyConnected false, or with no ip key, the hop keeps
+// its identity. A candidate is identified only when every hop is.
+func TestZebraRIBDirectlyConnectedWithIPKey(t *testing.T) {
+	const key = "10.0.1.0/24"
+	cases := []struct {
+		name, hop  string
+		identified bool
+		ip, iface  string
+		direct     string
+	}{
+		{"valid address, directly connected true", `{"ip":"10.0.1.2","interfaceName":"e1","directlyConnected":true,"active":true,"fib":true}`, false, "", "", "true"},
+		{"zero address, directly connected true", `{"ip":"0.0.0.0","interfaceName":"e1","directlyConnected":true,"active":true,"fib":true}`, false, "", "", "true"},
+		{"three-octet address, directly connected true", `{"ip":"10.0.1","interfaceName":"e1","directlyConnected":true,"active":true,"fib":true}`, false, "", "", "true"},
+		{"address as a number, directly connected true", `{"ip":167772162,"interfaceName":"e1","directlyConnected":true,"active":true,"fib":true}`, false, "", "", "true"},
+		{"null address, directly connected true", `{"ip":null,"interfaceName":"e1","directlyConnected":true,"active":true,"fib":true}`, false, "", "", "true"},
+		{"empty address, directly connected true", `{"ip":"","interfaceName":"e1","directlyConnected":true,"active":true,"fib":true}`, false, "", "", "true"},
+		{"valid address, directly connected false", `{"ip":"10.0.1.2","interfaceName":"e1","directlyConnected":false,"active":true,"fib":true}`, true, "10.0.1.2", "e1", "false"},
+		{"valid address, no directly connected key", `{"ip":"10.0.1.2","interfaceName":"e1","active":true,"fib":true}`, true, "10.0.1.2", "e1", "absent"},
+		{"directly connected true, no address key", `{"interfaceName":"e1","directlyConnected":true,"active":true,"fib":true}`, true, "", "e1", "true"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			body := zebraTestBody(t, key, zebraTestCandidate(t, key, func(m map[string]any) {
+				m["nexthops"] = json.RawMessage("[" + c.hop + "]")
+			}))
+			got := zebraTestCandidates(t, body, key)[0]
+			if len(got.NextHops) != 1 {
+				t.Fatalf("%d hops, want 1", len(got.NextHops))
+			}
+			h := got.NextHops[0]
+			if h.Identified != c.identified || got.HopsIdentified != c.identified {
+				t.Errorf("hop identified %v, candidate %v; want %v", h.Identified, got.HopsIdentified, c.identified)
+			}
+			ip := ""
+			if h.IP.IsValid() {
+				ip = h.IP.String()
+			}
+			if ip != c.ip || h.InterfaceName != c.iface {
+				t.Errorf("hop IP %q, interface %q; want %q, %q", ip, h.InterfaceName, c.ip, c.iface)
+			}
+			if zebraBoolText(h.DirectlyConnected) != c.direct || !boolIs(h.Active, true) || !boolIs(h.FIB, true) {
+				t.Errorf("hop directlyConnected %s, active %s, fib %s; want %s, true, true",
+					zebraBoolText(h.DirectlyConnected), zebraBoolText(h.Active), zebraBoolText(h.FIB), c.direct)
+			}
+		})
+	}
+	// A valid hop beside a contradictory hop: both are recorded, the first stays
+	// identified, and the candidate is not identified as a whole.
+	mixed := zebraTestBody(t, key, zebraTestCandidate(t, key, func(m map[string]any) {
+		m["nexthops"] = json.RawMessage(`[{"ip":"10.0.1.2","interfaceName":"e1"},{"ip":"10.0.1.2","interfaceName":"e1","directlyConnected":true}]`)
+	}))
+	if got := zebraTestCandidates(t, mixed, key)[0]; got.HopsIdentified || len(got.NextHops) != 2 || !got.NextHops[0].Identified || got.NextHops[1].Identified || !boolIs(got.NextHops[1].DirectlyConnected, true) {
+		t.Errorf("contradictory hop: identified %v, %d hops; want not identified, two hops, first identified, second not", got.HopsIdentified, len(got.NextHops))
+	}
+	// Every hop is identified: one has no ip key, the other has directlyConnected false.
+	allIdentified := zebraTestBody(t, key, zebraTestCandidate(t, key, func(m map[string]any) {
+		m["nexthops"] = json.RawMessage(`[{"interfaceName":"stub1","directlyConnected":true},{"ip":"10.0.1.2","interfaceName":"e1","directlyConnected":false}]`)
+	}))
+	if got := zebraTestCandidates(t, allIdentified, key)[0]; !got.HopsIdentified || len(got.NextHops) != 2 {
+		t.Errorf("identified hops: identified %v, %d hops; want identified and two hops", got.HopsIdentified, len(got.NextHops))
 	}
 }
 

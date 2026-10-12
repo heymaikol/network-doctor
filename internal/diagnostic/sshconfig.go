@@ -81,6 +81,10 @@ func parseSSHAliases(r io.Reader) map[string]string {
 		switch strings.ToLower(keyword) {
 		case "host":
 			aliases = args
+		case "match":
+			// Match starts a separate block whose conditions we do not
+			// evaluate. Its HostName does not belong to the preceding Host.
+			aliases = nil
 		case "hostname":
 			// ssh honors only the first HostName per block; so do we,
 			// even when it isn't an IP literal.

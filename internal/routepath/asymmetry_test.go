@@ -74,6 +74,17 @@ func concernKinds(a *Asymmetry) []string {
 	return out
 }
 
+// assertUnknown fails unless a is unknown and its reason names want.
+func assertUnknown(t *testing.T, a *Asymmetry, want string) {
+	t.Helper()
+	if a == nil || a.Assessment != AssessUnknown {
+		t.Fatalf("Asymmetry = %+v, want unknown", a)
+	}
+	if !strings.Contains(a.Reason, want) {
+		t.Errorf("reason = %q, want it to contain %q", a.Reason, want)
+	}
+}
+
 // A proven asymmetry with no boundary, VRF change, or failure is benign. The
 // human text says so, and the JSON keeps each route separate.
 func TestAsymmetryWithoutPolicyEvidenceIsBenign(t *testing.T) {
@@ -635,12 +646,7 @@ func TestUnnamedParallelLinkIsUnknown(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			a := explainTwoPath(t, c.obs, nil, nil, "10.0.1.10").Asymmetry
-			if a == nil || a.Assessment != AssessUnknown {
-				t.Fatalf("Asymmetry = %+v, want unknown", a)
-			}
-			if !strings.Contains(a.Reason, c.want) {
-				t.Errorf("reason = %q, want it to contain %q", a.Reason, c.want)
-			}
+			assertUnknown(t, a, c.want)
 			if proven := len(a.ForwardRoute) > 0 && len(a.ReturnRoute) > 0; proven != c.routesProven {
 				t.Errorf("forward %v and return %v, want both proven = %v", stepNodes(a.ForwardRoute), stepNodes(a.ReturnRoute), c.routesProven)
 			}
@@ -651,26 +657,23 @@ func TestUnnamedParallelLinkIsUnknown(t *testing.T) {
 	}
 }
 
-// sharedSegmentNet is one flow from h1 (10.0.1.10) to srv (10.20.40.8) through r1
-// and r2. The two routers meet on one segment: r1 eth1 is r1Eth1 and r2 eth0 is
-// r2Eth0. Each router also holds a loopback, 10.12.9.1/32 on r1 and 10.12.9.2/32
-// on r2. fwdHop is the next hop r1 uses toward srv, and backHop is the next hop
-// r2 uses toward h1. Every FIB table is complete.
+// sharedSegmentNet is parallelLinkNet(1) with r1 and r2 replaced. The two routers
+// meet on one segment: r1 eth1 is r1Eth1 and r2 eth0 is r2Eth0. h1, srv, and their
+// FIB tables are kept from parallelLinkNet(1). Each router also holds a loopback,
+// 10.12.9.1/32 on r1 and 10.12.9.2/32 on r2. fwdHop is the next hop r1 uses toward
+// srv, and backHop is the next hop r2 uses toward h1. Every FIB table is complete.
 func sharedSegmentNet(r1Eth1, r2Eth0, fwdHop, backHop string) []netmodel.Observation {
-	return []netmodel.Observation{
-		configured("h1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.10/24")}),
+	return append(
+		without(parallelLinkNet(1), "config:r1:default", "config:r2:default", "fib:r1:default", "fib:r2:default"),
 		configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.1/24"), ifc("eth1", r1Eth1), ifc("lo", "10.12.9.1/32")}),
 		configured("r2", "default", []netmodel.Interface{ifc("eth0", r2Eth0), ifc("eth1", "10.20.40.1/24"), ifc("lo", "10.12.9.2/32")}),
-		configured("srv", "default", []netmodel.Interface{ifc("eth0", "10.20.40.8/24")}),
-		table(netmodel.PlaneFIB, "h1", "default", true, route("0.0.0.0/0", "kernel", nh("10.0.1.1", "eth0"))),
 		table(netmodel.PlaneFIB, "r1", "default", true,
 			route("10.20.0.0/16", "kernel", nh(fwdHop, "eth1")),
 			route("10.0.1.0/24", "kernel", onLink("eth0"))),
 		table(netmodel.PlaneFIB, "r2", "default", true,
 			route("10.20.40.0/24", "kernel", onLink("eth1")),
 			route("10.0.1.0/24", "kernel", nh(backHop, "eth0"))),
-		table(netmodel.PlaneFIB, "srv", "default", true, route("0.0.0.0/0", "kernel", nh("10.20.40.1", "eth0"))),
-	}
+	)
 }
 
 // Regression: a next hop that the far node holds outside the egress subnet names no
@@ -704,12 +707,7 @@ func TestLinkWithoutASharedSubnetIsUnknown(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			a := explainTwoPath(t, c.obs, nil, nil, "10.0.1.10").Asymmetry
-			if a == nil || a.Assessment != AssessUnknown {
-				t.Fatalf("Asymmetry = %+v, want unknown", a)
-			}
-			if !strings.Contains(a.Reason, c.want) {
-				t.Errorf("reason = %q, want it to contain %q", a.Reason, c.want)
-			}
+			assertUnknown(t, a, c.want)
 			if got, want := stepNodes(a.ForwardRoute), []string{"h1", "r1", "r2", "srv"}; !slices.Equal(got, want) {
 				t.Errorf("forward route = %v, want %v", got, want)
 			}

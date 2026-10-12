@@ -5,7 +5,8 @@ taken from a two-router lab on one Linux host. They are the main input the
 `internal/frrospf` tests read. Some tests also edit a copy of a capture, add a
 record by hand, or seed the fuzz target with hand-written shapes. Each such case
 says so. Nothing here came from a production network, and no authentication
-material is present.
+material is present. `zebra-rib/` is the exception: the operator recorded it, and its
+README says what it holds.
 
 ## Provenance
 
@@ -16,7 +17,7 @@ material is present.
   Both were extracted with `rpm2cpio`. FRR was not installed on the host.
 - Source line references in the tests use the `frr-10.7.0` tag.
 - Each scenario's `ospfd-version.txt` holds the `ospfd --version` output from
-  the run.
+  the run, where the scenario has one. `zebra-rib/steady/` has none.
 - `<node>-<command>.collected_at` is the UTC time taken with `date -u` just
   before the vty helper connects. The helper then waits about two seconds
   before it sends the command, so the stamp is a few seconds early.
@@ -28,7 +29,8 @@ on the last line. Lines end in CRLF. The `.raw` files are the exact bytes read
 from the vty, and `.gitattributes` marks them `-text` so git does not rewrite
 the line endings. The tests unframe them by dropping the echo and the prompt
 and converting CRLF to LF. A fixture whose echo does not match the declared
-command fails the test.
+command fails the test. `zebra-rib/` is the exception: its tests check the framing as
+written and do not convert CRLF.
 
 ## Scenarios
 
@@ -39,6 +41,7 @@ the `.collected_at` stamps show that order. Earlier runs that overlapped were
 discarded, and none of their captures is committed. The `lsdb/` scenarios and
 the `ecmp/` bracket were run with `lab/lsdb.sh` instead. `lsdb/` is described in
 `lsdb/README.md`, and `ecmp/` is described in the ECMP section below.
+`zebra-rib/` is described in its own README, not here.
 
 Each run writes more captures than the committed directories keep. The
 committed set for the scenarios added in PR 6 is the interface, neighbor-detail,
@@ -64,6 +67,7 @@ committed.
 | `secp1/` | `secondary/` with `ip ospf passive 10.0.1.1` on e1, so the primary address is passive. No neighbor forms. The e1 record holds `timerPassiveIface` true and `timerHelloInMsecs` together. |
 | `secp2/` | `secondary/` with `ip ospf passive 10.0.2.1` on e1, so the secondary address is passive. The Full adjacency on the primary is kept. The e1 record holds `timerPassiveIface` true and `timerHelloInMsecs` together, and its `bdrAddress` 10.0.1.1 lies outside 10.0.2.0/24. |
 | `down1/` | The broadcast adjacency of `bcast/`, then `ip link set e1 down` on r1 and a 5-second wait before the dump. r1 e1 is absent from the all-interface listing. See the section below. |
+| `zebra-rib/` | The steady run's zebra RIB capture (R) between E and D, with the ospfd A, B, E, and D captures of the same bracket, from two isolated routers the operator recorded on 2026-10-12 UTC. The files were copied from the operator's original run. See `zebra-rib/README.md`. |
 
 ## Area and secondary-address captures
 
@@ -175,4 +179,5 @@ or `ecmp` as its mode, with the same `SCRATCH` and `unshare -Urnm` setup:
 The mode writes to `$SCRATCH/run/lsdb-<mode>`. The `ecmp` mode also writes
 `ospfd-version.txt`, which `lsdb.sh` writes for no other mode. Setting
 `ZEBRA_VTY_PORT` to zebra's vty port adds the optional zebra RIB capture to every
-mode, with `zebra-version.txt` beside it. `lsdb/README.md` describes it.
+mode, with `zebra-version.txt` beside it. `lsdb/README.md` describes it. The steady
+run's zebra RIB capture is described in `zebra-rib/README.md`.

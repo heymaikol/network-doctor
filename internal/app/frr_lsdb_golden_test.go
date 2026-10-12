@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +28,16 @@ func TestFRRImportLSDBReportIsByteStable(t *testing.T) {
 			for _, node := range c.nodes {
 				addFRRLSDB(t, dir, manifest, c.name, node)
 			}
-			norm := func(s string) string { return strings.ReplaceAll(s, manifest, "manifest.json") }
+			// The JSON report escapes each backslash of the manifest path, so a Windows
+			// path appears twice: plain in the text, and doubled in the JSON.
+			escaped, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			quoted := strings.Trim(string(escaped), `"`)
+			norm := func(s string) string {
+				return strings.ReplaceAll(strings.ReplaceAll(s, quoted, "manifest.json"), manifest, "manifest.json")
+			}
 			code, stdout, stderr := runNetdoc(t, "--import-frr-ospf", manifest)
 			if code != 0 {
 				t.Fatalf("text exit %d, want 0; stderr %q", code, stderr)

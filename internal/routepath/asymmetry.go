@@ -15,8 +15,8 @@ type AsymmetryAssessment string
 
 const (
 	// AssessSymmetric: the return retraces the forward route in reverse, router by
-	// router and routing domain by routing domain, over the same physical link
-	// between each pair of routers.
+	// router and routing domain by routing domain, over the same link between
+	// each pair of routers.
 	AssessSymmetric AsymmetryAssessment = "symmetric"
 	// AssessBenign: the return differs from the forward route, and no concern holds.
 	// Asymmetry alone is not a fault, so this is not a failure.
@@ -219,9 +219,9 @@ func isReverse(fwd, ret []state) bool {
 	return true
 }
 
-// endpoint is one end of a physical link: an interface of one node in one
-// routing domain. Interface names mean nothing across nodes, so a link is
-// compared by all three fields.
+// endpoint is one end of a link: an interface of one node in one routing domain.
+// Interface names mean nothing across nodes, so a link is compared by all three
+// fields.
 type endpoint struct {
 	node, vrf, iface string
 }
@@ -236,10 +236,12 @@ func (e endpoint) String() string {
 // evidence proves uses another link. unknown names the first hop whose link ends
 // the evidence cannot name. A proven difference wins over an unknown hop. Both
 // are empty when every hop matches.
-// ponytail: a link end is named only by an interface whose prefix holds the next
-// hop, and by the one interface that owns that address on the far node. Unnumbered
-// interfaces and next hops on a loopback read as unknown. Neighbor records are not
-// used, so add them as a second source when a fixture needs unnumbered links.
+// ponytail: a link end is named only by the one interface of the far node that
+// holds the next hop, and only when both ends hold the same subnet around it. So a
+// next hop held outside the egress subnet, such as a loopback /32, reads as unknown.
+// The model records no interface type, so a loopback numbered inside the egress
+// subnet still reads as the far end. Neighbor records are not used. Add them as a
+// second source when a fixture needs unnumbered links or a loopback in a link subnet.
 func (w *walker) linksOf(fwd, ret []Step, src netip.Addr) (differ, unknown string) {
 	n := len(fwd)
 	for i := 0; i+1 < n; i++ {
@@ -258,8 +260,9 @@ func (w *walker) linksOf(fwd, ret []Step, src netip.Addr) (differ, unknown strin
 
 // segmentEnds names both ends of the link that one segment of a route crosses.
 // The near end is the egress of steps[i]. The far end is the one interface of
-// steps[i+1] that owns the next hop, or owns dest when the egress is on-link. why
-// names the first end the evidence cannot name, and it is empty when both are named.
+// steps[i+1] that owns the next hop, or owns dest when the egress is on-link, and
+// it must hold that address on a subnet the egress also holds. why names the first
+// end the evidence cannot name, and it is empty when both are named.
 func (w *walker) segmentEnds(steps []Step, i int, dest netip.Addr) (near, far endpoint, why string) {
 	s, next := steps[i], steps[i+1]
 	if s.Interface == "" {
@@ -274,31 +277,52 @@ func (w *walker) segmentEnds(steps []Step, i int, dest netip.Addr) (near, far en
 		target = hop.WithZone("").Unmap()
 	}
 	near = endpoint{s.Node, s.VRF, s.Interface}
-	if !w.holdsPrefix(near, target) {
+	nearNets := w.subnetsOf(near, target)
+	if len(nearNets) == 0 {
 		return near, far, fmt.Sprintf("%s holds no prefix containing %s", near, target)
 	}
 	iface, ok := w.ownerIface(next.Node, next.VRF, target)
 	if !ok {
 		return near, far, fmt.Sprintf("%s (%s) does not name one interface holding %s", next.Node, next.VRF, target)
 	}
-	return near, endpoint{next.Node, next.VRF, iface}, ""
+	far = endpoint{next.Node, next.VRF, iface}
+	farNets := w.subnetsOf(far, target)
+	if !slices.ContainsFunc(farNets, func(p netip.Prefix) bool { return slices.Contains(nearNets, p) }) {
+		return near, far, fmt.Sprintf("%s holds %s on %s, but %s holds it on %s, so the two ends share no subnet", far, target, prefixList(farNets), near, prefixList(nearNets))
+	}
+	return near, far, ""
 }
 
-// holdsPrefix reports whether interface e.iface of its routing domain holds a
-// prefix that contains target, so the interface reaches target directly. Only
-// the planes that can own an address count.
-func (w *walker) holdsPrefix(e endpoint, target netip.Addr) bool {
+// subnetsOf returns the subnets, masked, that interface e.iface of its routing
+// domain holds around target, so the interface reaches target directly. Only the
+// planes that can own an address count.
+func (w *walker) subnetsOf(e endpoint, target netip.Addr) []netip.Prefix {
+	var out []netip.Prefix
 	for _, o := range w.obs {
 		if o.Node != e.node || o.VRF != e.vrf || !slices.Contains(readPlanes, o.Plane) {
 			continue
 		}
 		for _, i := range o.Interfaces {
-			if i.Name == e.iface && slices.ContainsFunc(i.Addresses, func(p netip.Prefix) bool { return p.Contains(target) }) {
-				return true
+			if i.Name != e.iface {
+				continue
+			}
+			for _, p := range i.Addresses {
+				if p.Contains(target) && !slices.Contains(out, p.Masked()) {
+					out = append(out, p.Masked())
+				}
 			}
 		}
 	}
-	return false
+	return out
+}
+
+// prefixList joins subnets in the order given, for a reason.
+func prefixList(ps []netip.Prefix) string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = p.String()
+	}
+	return strings.Join(out, ", ")
 }
 
 // ownerIface names the one interface of node in routing domain vrf that holds

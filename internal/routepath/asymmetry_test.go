@@ -650,3 +650,75 @@ func TestUnnamedParallelLinkIsUnknown(t *testing.T) {
 		})
 	}
 }
+
+// sharedSegmentNet is one flow from h1 (10.0.1.10) to srv (10.20.40.8) through r1
+// and r2. The two routers meet on one segment: r1 eth1 is r1Eth1 and r2 eth0 is
+// r2Eth0. Each router also holds a loopback, 10.12.9.1/32 on r1 and 10.12.9.2/32
+// on r2. fwdHop is the next hop r1 uses toward srv, and backHop is the next hop
+// r2 uses toward h1. Every FIB table is complete.
+func sharedSegmentNet(r1Eth1, r2Eth0, fwdHop, backHop string) []netmodel.Observation {
+	return []netmodel.Observation{
+		configured("h1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.10/24")}),
+		configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.1/24"), ifc("eth1", r1Eth1), ifc("lo", "10.12.9.1/32")}),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", r2Eth0), ifc("eth1", "10.20.40.1/24"), ifc("lo", "10.12.9.2/32")}),
+		configured("srv", "default", []netmodel.Interface{ifc("eth0", "10.20.40.8/24")}),
+		table(netmodel.PlaneFIB, "h1", "default", true, route("0.0.0.0/0", "kernel", nh("10.0.1.1", "eth0"))),
+		table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.20.0.0/16", "kernel", nh(fwdHop, "eth1")),
+			route("10.0.1.0/24", "kernel", onLink("eth0"))),
+		table(netmodel.PlaneFIB, "r2", "default", true,
+			route("10.20.40.0/24", "kernel", onLink("eth1")),
+			route("10.0.1.0/24", "kernel", nh(backHop, "eth0"))),
+		table(netmodel.PlaneFIB, "srv", "default", true, route("0.0.0.0/0", "kernel", nh("10.20.40.1", "eth0"))),
+	}
+}
+
+// Regression: a next hop that the far node holds outside the egress subnet names no
+// link. The model has no interface type, so a loopback is caught only because its
+// /32 sits outside the egress subnet. Without the subnet check, the first two cases
+// read as different links, and the third read as the same link in reverse. Now every
+// case is unknown, both routes stay walkable, and the return is the forward route
+// reversed.
+func TestLinkWithoutASharedSubnetIsUnknown(t *testing.T) {
+	cases := []struct {
+		name string
+		obs  []netmodel.Observation
+		want string
+	}{
+		{
+			name: "forward next hop on the far loopback",
+			obs:  sharedSegmentNet("10.12.0.1/16", "10.12.0.2/16", "10.12.9.2", "10.12.0.1"),
+			want: "the link between r1 and r2 is not proven: r2 (default) lo holds 10.12.9.2 on 10.12.9.2/32, but r1 (default) eth1 holds it on 10.12.0.0/16, so the two ends share no subnet",
+		},
+		{
+			name: "return next hop on the far loopback",
+			obs:  sharedSegmentNet("10.12.0.1/16", "10.12.0.2/16", "10.12.0.2", "10.12.9.1"),
+			want: "the link between r1 and r2 is not proven: r1 (default) lo holds 10.12.9.1 on 10.12.9.1/32, but r2 (default) eth0 holds it on 10.12.0.0/16, so the two ends share no subnet",
+		},
+		{
+			name: "far end holds the next hop on a narrower subnet",
+			obs:  sharedSegmentNet("10.12.0.1/16", "10.12.5.2/20", "10.12.5.2", "10.12.0.1"),
+			want: "the link between r1 and r2 is not proven: r2 (default) eth0 holds 10.12.5.2 on 10.12.0.0/20, but r1 (default) eth1 holds it on 10.12.0.0/16, so the two ends share no subnet",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := explainTwoPath(t, c.obs, nil, nil, "10.0.1.10").Asymmetry
+			if a == nil || a.Assessment != AssessUnknown {
+				t.Fatalf("Asymmetry = %+v, want unknown", a)
+			}
+			if !strings.Contains(a.Reason, c.want) {
+				t.Errorf("reason = %q, want it to contain %q", a.Reason, c.want)
+			}
+			if got, want := stepNodes(a.ForwardRoute), []string{"h1", "r1", "r2", "srv"}; !slices.Equal(got, want) {
+				t.Errorf("forward route = %v, want %v", got, want)
+			}
+			if got, want := stepNodes(a.ReturnRoute), []string{"srv", "r2", "r1", "h1"}; !slices.Equal(got, want) {
+				t.Errorf("return route = %v, want %v", got, want)
+			}
+			if len(a.Concerns) != 0 {
+				t.Errorf("Concerns = %+v, want none: unknown raises no concern", a.Concerns)
+			}
+		})
+	}
+}

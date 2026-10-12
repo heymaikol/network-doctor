@@ -1,7 +1,9 @@
 package routepath
 
 import (
+	"cmp"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -13,7 +15,8 @@ type AsymmetryAssessment string
 
 const (
 	// AssessSymmetric: the return retraces the forward route in reverse, router by
-	// router and routing domain by routing domain.
+	// router and routing domain by routing domain, over the same physical link
+	// between each pair of routers.
 	AssessSymmetric AsymmetryAssessment = "symmetric"
 	// AssessBenign: the return differs from the forward route, and no concern holds.
 	// Asymmetry alone is not a fault, so this is not a failure.
@@ -22,7 +25,8 @@ const (
 	// policy boundary, a routing-domain change, or a recorded failure. It is a
 	// risk to check, not a proven failure.
 	AssessRisk AsymmetryAssessment = "asymmetric_risk"
-	// AssessUnknown: one direction is not proven, so the two cannot be compared.
+	// AssessUnknown: one direction, or the link at one hop, is not proven, so the two
+	// cannot be compared.
 	AssessUnknown AsymmetryAssessment = "unknown"
 )
 
@@ -136,12 +140,20 @@ func (w *walker) asymmetry(f File, fwd Explanation) *Asymmetry {
 	}
 	a.ReturnRoute = rSteps
 	fwdSet, retSet := statesOf(fSteps), statesOf(rSteps)
-	if isReverse(fwdSet, retSet) {
-		a.Assessment, a.Reason = AssessSymmetric, "forward and return cross the same routers in the same routing domains, in reverse order."
-		return a
-	}
 	differ := "forward and return cross different routers or routing domains"
-	if sameStates(fwdSet, retSet) {
+	if isReverse(fwdSet, retSet) {
+		links, unknown := w.linksOf(fSteps, rSteps, src)
+		switch {
+		case links != "":
+			differ = "forward and return cross the same routers in reverse order, but " + links
+		case unknown != "":
+			a.Assessment, a.Reason = AssessUnknown, "forward and return cross the same routers in reverse order, but "+unknown
+			return a
+		default:
+			a.Assessment, a.Reason = AssessSymmetric, "forward and return cross the same routers and links in the same routing domains, in reverse order."
+			return a
+		}
+	} else if sameStates(fwdSet, retSet) {
 		differ = "forward and return cross the same routers, but the return does not retrace the forward route"
 	}
 	a.Concerns = concernsOf(f.Boundaries, fwdSet, retSet, fwd.Regions, a.Return.Regions)
@@ -192,10 +204,9 @@ func statesOf(steps []Step) []state {
 }
 
 // isReverse reports whether ret is fwd traversed backward, router by router and
-// routing domain by routing domain. Only this is symmetric. A set match is not
-// enough, because the same routers can be visited in another order.
-// ponytail: parallel links between the same two routers are not distinguished,
-// so a return over another link between them still reads as symmetric.
+// routing domain by routing domain. A set match is not enough, because the same
+// routers can be visited in another order. It does not look at the links between
+// routers, which linksOf checks before a reverse route is called symmetric.
 func isReverse(fwd, ret []state) bool {
 	if len(fwd) != len(ret) {
 		return false
@@ -206,6 +217,111 @@ func isReverse(fwd, ret []state) bool {
 		}
 	}
 	return true
+}
+
+// endpoint is one end of a physical link: an interface of one node in one
+// routing domain. Interface names mean nothing across nodes, so a link is
+// compared by all three fields.
+type endpoint struct {
+	node, vrf, iface string
+}
+
+func (e endpoint) String() string {
+	return e.node + " (" + e.vrf + ") " + e.iface
+}
+
+// linksOf checks, hop by hop, that the return crosses the forward link. Segment i
+// of fwd runs from fwd[i] to fwd[i+1]. Its mirror in ret is segment n-2-i, which
+// runs back over the same two routers. differ names the first hop that the
+// evidence proves uses another link. unknown names the first hop whose link ends
+// the evidence cannot name. A proven difference wins over an unknown hop. Both
+// are empty when every hop matches.
+// ponytail: a link end is named only by an interface whose prefix holds the next
+// hop, and by the one interface that owns that address on the far node. Unnumbered
+// interfaces and next hops on a loopback read as unknown. Neighbor records are not
+// used, so add them as a second source when a fixture needs unnumbered links.
+func (w *walker) linksOf(fwd, ret []Step, src netip.Addr) (differ, unknown string) {
+	n := len(fwd)
+	for i := 0; i+1 < n; i++ {
+		fNear, fFar, fWhy := w.segmentEnds(fwd, i, w.dest)
+		rNear, rFar, rWhy := w.segmentEnds(ret, n-2-i, src)
+		if fWhy != "" || rWhy != "" {
+			unknown = cmp.Or(unknown, "the link between "+fwd[i].Node+" and "+fwd[i+1].Node+" is not proven: "+cmp.Or(fWhy, rWhy))
+			continue
+		}
+		if fNear != rFar || fFar != rNear {
+			return fmt.Sprintf("between %s and %s they use different links: forward %s to %s, return %s to %s", fwd[i].Node, fwd[i+1].Node, fNear, fFar, rNear, rFar), ""
+		}
+	}
+	return "", unknown
+}
+
+// segmentEnds names both ends of the link that one segment of a route crosses.
+// The near end is the egress of steps[i]. The far end is the one interface of
+// steps[i+1] that owns the next hop, or owns dest when the egress is on-link. why
+// names the first end the evidence cannot name, and it is empty when both are named.
+func (w *walker) segmentEnds(steps []Step, i int, dest netip.Addr) (near, far endpoint, why string) {
+	s, next := steps[i], steps[i+1]
+	if s.Interface == "" {
+		return near, far, fmt.Sprintf("%s (%s) does not name the interface it leaves by", s.Node, s.VRF)
+	}
+	target := dest
+	if s.NextHop != "" {
+		hop, err := netip.ParseAddr(s.NextHop)
+		if err != nil {
+			return near, far, fmt.Sprintf("%s (%s) names an unreadable next hop %q", s.Node, s.VRF, s.NextHop)
+		}
+		target = hop.WithZone("").Unmap()
+	}
+	near = endpoint{s.Node, s.VRF, s.Interface}
+	if !w.holdsPrefix(near, target) {
+		return near, far, fmt.Sprintf("%s holds no prefix containing %s", near, target)
+	}
+	iface, ok := w.ownerIface(next.Node, next.VRF, target)
+	if !ok {
+		return near, far, fmt.Sprintf("%s (%s) does not name one interface holding %s", next.Node, next.VRF, target)
+	}
+	return near, endpoint{next.Node, next.VRF, iface}, ""
+}
+
+// holdsPrefix reports whether interface e.iface of its routing domain holds a
+// prefix that contains target, so the interface reaches target directly. Only
+// the planes that can own an address count.
+func (w *walker) holdsPrefix(e endpoint, target netip.Addr) bool {
+	for _, o := range w.obs {
+		if o.Node != e.node || o.VRF != e.vrf || !slices.Contains(readPlanes, o.Plane) {
+			continue
+		}
+		for _, i := range o.Interfaces {
+			if i.Name == e.iface && slices.ContainsFunc(i.Addresses, func(p netip.Prefix) bool { return p.Contains(target) }) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ownerIface names the one interface of node in routing domain vrf that holds
+// target as its own address. It fails when no interface holds it, and when more
+// than one does, because the link to that address is then not named.
+func (w *walker) ownerIface(node, vrf string, target netip.Addr) (string, bool) {
+	var names []string
+	for _, o := range w.obs {
+		if o.Node != node || o.VRF != vrf || !slices.Contains(readPlanes, o.Plane) {
+			continue
+		}
+		for _, i := range o.Interfaces {
+			for _, p := range i.Addresses {
+				if p.Addr().WithZone("").Unmap() == target && !slices.Contains(names, i.Name) {
+					names = append(names, i.Name)
+				}
+			}
+		}
+	}
+	if len(names) != 1 {
+		return "", false
+	}
+	return names[0], true
 }
 
 // sameStates reports whether a and b hold the same routers in the same routing

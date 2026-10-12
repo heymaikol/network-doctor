@@ -378,6 +378,33 @@ func TestZebraRIBRefusesDuplicatesAndTrailingData(t *testing.T) {
 	zebraTestRefuse(t, []byte(`[]`), "not JSON output")
 }
 
+// zebraTestOneHop decodes a candidate under key whose only next hop is the JSON object
+// hop. It checks the identity of the hop and of its candidate, the address the hop
+// keeps, and its interface name. An empty wantIP means the hop keeps no address. It
+// returns the hop so the caller can check its flags.
+func zebraTestOneHop(t *testing.T, key, hop string, identified bool, wantIP, wantIface string) zebraHop {
+	t.Helper()
+	body := zebraTestBody(t, key, zebraTestCandidate(t, key, func(m map[string]any) {
+		m["nexthops"] = json.RawMessage("[" + hop + "]")
+	}))
+	got := zebraTestCandidates(t, body, key)[0]
+	if len(got.NextHops) != 1 {
+		t.Fatalf("%d hops, want 1", len(got.NextHops))
+	}
+	h := got.NextHops[0]
+	if h.Identified != identified || got.HopsIdentified != identified {
+		t.Errorf("hop identified %v, candidate %v; want %v", h.Identified, got.HopsIdentified, identified)
+	}
+	ip := ""
+	if h.IP.IsValid() {
+		ip = h.IP.String()
+	}
+	if ip != wantIP || h.InterfaceName != wantIface {
+		t.Errorf("hop IP %q, interface %q; want %q, %q", ip, h.InterfaceName, wantIP, wantIface)
+	}
+	return h
+}
+
 // TestZebraRIBHopIdentity checks the identity rule one hop at a time. An identified hop
 // has an interface name and either a valid IPv4 ip or directlyConnected true with no ip
 // key. Any other hop is unidentified and keeps its flags. A malformed flag refuses the body.
@@ -404,24 +431,7 @@ func TestZebraRIBHopIdentity(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			body := zebraTestBody(t, key, zebraTestCandidate(t, key, func(m map[string]any) {
-				m["nexthops"] = json.RawMessage("[" + c.hop + "]")
-			}))
-			got := zebraTestCandidates(t, body, key)[0]
-			if len(got.NextHops) != 1 {
-				t.Fatalf("%d hops, want 1", len(got.NextHops))
-			}
-			h := got.NextHops[0]
-			if h.Identified != c.identified || got.HopsIdentified != c.identified {
-				t.Errorf("hop identified %v, candidate %v; want %v", h.Identified, got.HopsIdentified, c.identified)
-			}
-			ip := ""
-			if h.IP.IsValid() {
-				ip = h.IP.String()
-			}
-			if ip != c.ip || h.InterfaceName != c.iface {
-				t.Errorf("hop IP %q, interface %q; want %q, %q", ip, h.InterfaceName, c.ip, c.iface)
-			}
+			zebraTestOneHop(t, key, c.hop, c.identified, c.ip, c.iface)
 		})
 	}
 	mixed := zebraTestBody(t, key, zebraTestCandidate(t, key, func(m map[string]any) {
@@ -478,24 +488,7 @@ func TestZebraRIBDirectlyConnectedWithIPKey(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			body := zebraTestBody(t, key, zebraTestCandidate(t, key, func(m map[string]any) {
-				m["nexthops"] = json.RawMessage("[" + c.hop + "]")
-			}))
-			got := zebraTestCandidates(t, body, key)[0]
-			if len(got.NextHops) != 1 {
-				t.Fatalf("%d hops, want 1", len(got.NextHops))
-			}
-			h := got.NextHops[0]
-			if h.Identified != c.identified || got.HopsIdentified != c.identified {
-				t.Errorf("hop identified %v, candidate %v; want %v", h.Identified, got.HopsIdentified, c.identified)
-			}
-			ip := ""
-			if h.IP.IsValid() {
-				ip = h.IP.String()
-			}
-			if ip != c.ip || h.InterfaceName != c.iface {
-				t.Errorf("hop IP %q, interface %q; want %q, %q", ip, h.InterfaceName, c.ip, c.iface)
-			}
+			h := zebraTestOneHop(t, key, c.hop, c.identified, c.ip, c.iface)
 			if zebraBoolText(h.DirectlyConnected) != c.direct || !boolIs(h.Active, true) || !boolIs(h.FIB, true) {
 				t.Errorf("hop directlyConnected %s, active %s, fib %s; want %s, true, true",
 					zebraBoolText(h.DirectlyConnected), zebraBoolText(h.Active), zebraBoolText(h.FIB), c.direct)

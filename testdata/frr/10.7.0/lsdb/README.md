@@ -78,3 +78,9 @@ counts toward the per-area reconciliation, which matches the counters.
   capture.
 - A single area. The comparison's per-area reconciliation is tested on one
   area here, and on more than one only in synthetic tests.
+- No zebra RIB capture is committed. With `ZEBRA_VTY_PORT` set, `lab/lsdb.sh`
+  also takes R, zebra's unfiltered `show ip route json`, between E and D. The
+  repo does not prove zebra's vty port, so it must be given. R is kept only when
+  its echo and one JSON object check out, and it is not decoded or compared. The
+  process-state guard checks A and D only. It does not show that the zebra RIB
+  held still between E, R, and D.

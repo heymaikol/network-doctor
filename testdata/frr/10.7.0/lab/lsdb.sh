@@ -1,7 +1,7 @@
 #!/bin/bash
 # Local two-router FRR 10.7.0 OSPF LSDB lab, one scenario per run, inside user+mount+net namespaces.
 # In steady, flap, and kill9, r2 redistributes connected stub3 (10.20.0.0/24) as a Type 5 external LSA.
-# Run as: SCRATCH=<dir> unshare -Urnm bash lsdb.sh <steady|flap|kill9|ecmp>
+# Run as: SCRATCH=<dir> [ZEBRA_VTY_PORT=<port>] unshare -Urnm bash lsdb.sh <steady|flap|kill9|ecmp>
 #   SCRATCH must hold frr-root/ extracted from the FRR 10.7.0 RPM (see ../README.md).
 #   steady  no change inside the bracket
 #   flap    stub1 down between the route capture and the closing process state
@@ -13,6 +13,13 @@
 # Each capture is a vtysh transcript named <node>-<role>-<command>.raw. Its UTC
 # start time is in the .collected_at file beside it. A failed capture exits nonzero,
 # leaves <name>.raw.failed in place of .raw, and writes no .collected_at.
+# ZEBRA_VTY_PORT, when set, adds an R capture: zebra's unfiltered "show ip route json",
+# taken after E and before any flap and before D, on each bracketed node. It also writes
+# zebra-version.txt. The repo does not prove zebra's vty port, so it is never assumed, and
+# 2604 (ospfd) is refused. R fails closed: its output must be the echoed command and then
+# one JSON object, with field names not read. A failed R is kept as .raw.failed.
+# R is not an OSPF process-state guard. A and D do not show that the zebra RIB held still
+# between E, R, and D, and R is not compared with anything.
 set -u
 S=${SCRATCH:?set SCRATCH to a directory holding frr-root/ (see README)}
 MODE=${1-}
@@ -20,6 +27,15 @@ case $MODE in
   steady | flap | kill9 | ecmp) ;;
   *) echo "lsdb.sh: MODE must be steady, flap, kill9, or ecmp, not '$MODE'" >&2; exit 2 ;;
 esac
+# Unset ZEBRA_VTY_PORT leaves the legacy bracket. Set, the port is checked here, before any
+# file is touched, and ZP holds it.
+ZP=
+if [[ -n ${ZEBRA_VTY_PORT+set} ]]; then
+  ZP=${ZEBRA_VTY_PORT-}
+  if ! [[ $ZP =~ ^[1-9][0-9]{0,4}$ ]] || (( ZP > 65535 )) || (( ZP == 2604 )); then
+    echo "lsdb.sh: ZEBRA_VTY_PORT must be zebra's vty port, 1 to 65535 and not 2604 (ospfd), not '$ZP'" >&2; exit 2
+  fi
+fi
 HERE=$(cd "$(dirname "$0")" && pwd)
 TCP=$HERE/tcpvty2.py
 L=$S/run/lsdb-$MODE
@@ -96,6 +112,7 @@ started=1
 start "$L/r1" self || fail "r1 daemons did not start"
 start "$L/r2" "$R2" || fail "r2 daemons did not start"
 echo "daemons started"
+if [[ -n $ZP ]]; then "$FRR/zebra" --version > "$L/zebra-version.txt" || fail "could not write zebra-version.txt"; fi
 if [[ $MODE = ecmp ]]; then
   "$FRR/ospfd" --version > "$L/ospfd-version.txt" || fail "could not write ospfd-version.txt"
   # vty_out NS CMD...: one raw vty query on r1 (NS self) or on r2 (NS is the holder pid).
@@ -161,11 +178,29 @@ cap() {
   echo "lsdb.sh: capture $tag $name failed (could not write .collected_at)" >&2
   return 1
 }
+# RIBOK: the first line must be the echoed command, and the rest one JSON object. Field
+# names are not read. A truncated answer, or one from another daemon, fails here.
+RIBOK='import json,sys
+t=sys.stdin.read()
+lines=t.splitlines()
+if not lines or lines[0]!=sys.argv[1]: sys.exit(1)
+sys.exit(0 if isinstance(json.loads(t[t.index("{"):t.rindex("}")+1]),dict) else 1)'
+# ribcap ns tag zport: the unfiltered zebra RIB. A capture that fails RIBOK is kept as .raw.failed.
+ribcap() {
+  local base="$L/$2-R-show_ip_route_json"
+  cap "$1" "$2" "$3" R "show ip route json" || return 1
+  python3 -I -c "$RIBOK" "show ip route json" <"$base.raw" 2>/dev/null && return 0
+  rm -f "$base.collected_at"
+  mv -f "$base.raw" "$base.raw.failed" 2>/dev/null
+  echo "lsdb.sh: capture $2 R failed (not one JSON object after the echo)" >&2
+  return 1
+}
 bracket() { # ns tag port
   local ns=$1 tag=$2 port=$3
   cap "$ns" "$tag" "$port" A "show ip ospf json" || return 1
   cap "$ns" "$tag" "$port" B "show ip ospf database detail json" || return 1
   cap "$ns" "$tag" "$port" E "show ip ospf route json" || return 1
+  if [[ -n $ZP ]]; then ribcap "$ns" "$tag" "$ZP" || return 1; fi
   if [[ "$MODE" = flap ]] && [[ "$ns" = self ]]; then ip link set stub1 down || return 1; sleep 4; fi
   cap "$ns" "$tag" "$port" D "show ip ospf json" || return 1
 }

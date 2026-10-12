@@ -73,6 +73,36 @@ Host = mixed-seps3
 	}
 }
 
+func TestParseSSHAliasesMatchBoundary(t *testing.T) {
+	for _, directive := range []string{"Match host other", "mAtCh host other", "Match all"} {
+		t.Run(directive, func(t *testing.T) {
+			config := `
+Host router
+  HostName 192.0.2.1
+
+Host printer
+  User alice
+` + directive + `
+  HostName 192.0.2.1
+
+Host nas
+  HostName 2001:db8::6
+`
+			// A Match block must not attach its address to the preceding
+			// Host alias or overwrite an alias that was already collected.
+			// A later Host block must still be read normally.
+			got := parseSSHAliases(strings.NewReader(config))
+			want := map[string]string{
+				"192.0.2.1":   "router",
+				"2001:db8::6": "nas",
+			}
+			if !maps.Equal(got, want) {
+				t.Fatalf("parseSSHAliases = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 func TestSplitSSHConfigDirective(t *testing.T) {
 	cases := []struct {
 		line    string

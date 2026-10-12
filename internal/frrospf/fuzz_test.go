@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -304,14 +305,15 @@ func FuzzDecodeLSDB(f *testing.F) {
 		}
 		if reason == "" {
 			checkRouteHops(t, rt)
+			checkSpellingConflicts(t, data, rt)
 		}
 	})
 }
 
 // checkRouteHops holds the next hop invariants of an accepted route table: the
-// status and count agree, the lists are sorted, unique, and never nil, and the
-// metric status matches the printed values. Conflict and repeat handling is
-// covered by the unit tests, not here.
+// status and count agree, the lists are sorted, unique, and never nil, every
+// interface name is usable, and the metric status matches the printed values.
+// Repeated elements are covered by the unit tests, not here.
 func checkRouteHops(t *testing.T, rt ospf.Routes) {
 	t.Helper()
 	for _, r := range rt.Entries {
@@ -334,7 +336,7 @@ func checkRouteHops(t *testing.T, rt ospf.Routes) {
 			t.Fatalf("route %s: %d nexthops with status %s", r.Prefix, r.NextHops, r.NextHopStatus)
 		}
 		for i, h := range r.ForwardingHops {
-			if !h.Address.Is4() || h.Address.IsUnspecified() || h.Interface == "" || len(h.AdvertisedBy) == 0 {
+			if !h.Address.Is4() || h.Address.IsUnspecified() || !ifaceName(h.Interface) || len(h.AdvertisedBy) == 0 {
 				t.Fatalf("route %s: forwarding hop %d is not an identity: %+v", r.Prefix, i, h)
 			}
 			if !slices.IsSortedFunc(h.AdvertisedBy, netip.Addr.Compare) || len(slices.Compact(slices.Clone(h.AdvertisedBy))) != len(h.AdvertisedBy) {
@@ -350,9 +352,56 @@ func checkRouteHops(t *testing.T, rt ospf.Routes) {
 		if !slices.IsSorted(r.DirectInterfaces) || len(slices.Compact(slices.Clone(r.DirectInterfaces))) != len(r.DirectInterfaces) {
 			t.Fatalf("route %s: direct interfaces are not sorted and unique", r.Prefix)
 		}
+		for _, name := range r.DirectInterfaces {
+			if !ifaceName(name) {
+				t.Fatalf("route %s: direct interface %q is not a usable name", r.Prefix, name)
+			}
+		}
 		unrepresentable := r.Cost > math.MaxUint32 || (r.Type2Cost != nil && *r.Type2Cost > math.MaxUint32)
 		if unrepresentable != (r.MetricStatus == ospf.MetricUnrepresentable) {
 			t.Fatalf("route %s: metric_status %q for cost %d", r.Prefix, r.MetricStatus, r.Cost)
+		}
+	}
+}
+
+// checkSpellingConflicts holds the ambiguity rule against the input itself: a
+// nexthops element with a key that folds to a hop key name without matching it
+// makes its route ambiguous. The route table is decoded again from data only to
+// find those keys, so no identity is read from the element.
+func checkSpellingConflicts(t *testing.T, data []byte, rt ospf.Routes) {
+	t.Helper()
+	var top map[string]json.RawMessage
+	if json.Unmarshal(data, &top) != nil {
+		return
+	}
+	status := map[string]string{}
+	for _, r := range rt.Entries {
+		status[r.Prefix.String()] = r.NextHopStatus
+	}
+	for key, raw := range top {
+		s, ok := status[key]
+		if !ok {
+			continue
+		}
+		var route struct {
+			NextHops []json.RawMessage `json:"nexthops"`
+		}
+		if json.Unmarshal(raw, &route) != nil {
+			continue
+		}
+		for _, hop := range route.NextHops {
+			var el map[string]json.RawMessage
+			if json.Unmarshal(hop, &el) != nil {
+				continue
+			}
+			for k := range el {
+				if slices.Contains(hopKeys, k) || !slices.ContainsFunc(hopKeys, func(n string) bool { return strings.EqualFold(n, k) }) {
+					continue
+				}
+				if s != ospf.NextHopAmbiguous {
+					t.Fatalf("route %s: key %q folds to a hop key but the status is %s", key, k, s)
+				}
+			}
 		}
 	}
 }

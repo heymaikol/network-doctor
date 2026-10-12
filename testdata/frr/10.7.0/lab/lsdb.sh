@@ -16,8 +16,10 @@
 # ZEBRA_VTY_PORT, when set, adds an R capture: zebra's unfiltered "show ip route json",
 # taken after E and before any flap and before D, on each bracketed node. It also writes
 # zebra-version.txt. The repo does not prove zebra's vty port, so it is never assumed, and
-# 2604 (ospfd) is refused. R fails closed: its output must be the echoed command and then
-# one JSON object, with field names not read. A failed R is kept as .raw.failed.
+# 2604 (ospfd) is refused. R fails closed: its bytes must be the echoed command, CRLF, one
+# JSON object, CRLF, and the node's prompt ("r1> " or "r2> ") with nothing after it. Field
+# names are not read. Zebra's own prompt is unverified, so another prompt fails R. A failed R
+# is kept as .raw.failed.
 # R is not an OSPF process-state guard. A and D do not show that the zebra RIB held still
 # between E, R, and D, and R is not compared with anything.
 set -u
@@ -178,21 +180,26 @@ cap() {
   echo "lsdb.sh: capture $tag $name failed (could not write .collected_at)" >&2
   return 1
 }
-# RIBOK: the first line must be the echoed command, and the rest one JSON object. Field
-# names are not read. A truncated answer, or one from another daemon, fails here.
+# RIBOK: the bytes must be the echoed command, CRLF, one JSON object, CRLF, and the node's ">"
+# prompt, with nothing after it. argv: the command, then the node (r1 or r2). Field names are not
+# read. The ">" prompt is the one the committed ospfd captures show. Zebra's prompt is unverified,
+# so another prompt fails closed. Truncated, extra, or other-daemon answers fail here too.
 RIBOK='import json,sys
-t=sys.stdin.read()
-lines=t.splitlines()
-if not lines or lines[0]!=sys.argv[1]: sys.exit(1)
-sys.exit(0 if isinstance(json.loads(t[t.index("{"):t.rindex("}")+1]),dict) else 1)'
+b=sys.stdin.buffer.read()
+head=sys.argv[1].encode()+b"\r\n"
+tail=b"\r\n"+sys.argv[2].encode()+b"> "
+if len(b)<len(head)+len(tail) or not b.startswith(head) or not b.endswith(tail): sys.exit(1)
+body=b[len(head):len(b)-len(tail)].decode("utf-8")
+if body[:1]!="{" or body[-1:]!="}": sys.exit(1)
+sys.exit(0 if isinstance(json.loads(body),dict) else 1)'
 # ribcap ns tag zport: the unfiltered zebra RIB. A capture that fails RIBOK is kept as .raw.failed.
 ribcap() {
   local base="$L/$2-R-show_ip_route_json"
   cap "$1" "$2" "$3" R "show ip route json" || return 1
-  python3 -I -c "$RIBOK" "show ip route json" <"$base.raw" 2>/dev/null && return 0
+  python3 -I -c "$RIBOK" "show ip route json" "$2" <"$base.raw" 2>/dev/null && return 0
   rm -f "$base.collected_at"
   mv -f "$base.raw" "$base.raw.failed" 2>/dev/null
-  echo "lsdb.sh: capture $2 R failed (not one JSON object after the echo)" >&2
+  echo "lsdb.sh: capture $2 R failed (not the echo, one JSON object, and the node's prompt)" >&2
   return 1
 }
 bracket() { # ns tag port

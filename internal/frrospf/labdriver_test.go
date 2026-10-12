@@ -139,11 +139,17 @@ func runLab(t *testing.T, scratch, mode string, faults ...string) labRun {
 // runScript is runLab for the driver at script.
 func runScript(t *testing.T, script, scratch, mode string, faults ...string) labRun {
 	t.Helper()
+	return runWithShims(t, labShims, script, scratch, mode, faults...)
+}
+
+// runWithShims is runScript with the command shims given by shims.
+func runWithShims(t *testing.T, shims map[string]string, script, scratch, mode string, faults ...string) labRun {
+	t.Helper()
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.Mkdir(bin, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range labShims {
+	for name, body := range shims {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil { //nolint:gosec // G306: the shim must be executable to run; it lives in t.TempDir.
 			t.Fatal(err)
 		}

@@ -173,4 +173,6 @@ or `ecmp` as its mode, with the same `SCRATCH` and `unshare -Urnm` setup:
     SCRATCH="$SCRATCH" unshare -Urnm bash testdata/frr/10.7.0/lab/lsdb.sh ecmp
 
 The mode writes to `$SCRATCH/run/lsdb-<mode>`. The `ecmp` mode also writes
-`ospfd-version.txt`, which `lsdb.sh` writes for no other mode.
+`ospfd-version.txt`, which `lsdb.sh` writes for no other mode. Setting
+`ZEBRA_VTY_PORT` to zebra's vty port adds the optional zebra RIB capture to every
+mode, with `zebra-version.txt` beside it. `lsdb/README.md` describes it.

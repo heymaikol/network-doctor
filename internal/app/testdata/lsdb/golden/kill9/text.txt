@@ -1,0 +1,96 @@
+FRR OSPF import: manifest.json
+Result: complete. Every capture was accepted and every neighbor record was mapped.
+Exit 0 means the import is complete. It does not mean the network is healthy.
+
+Captures (8): 8 accepted, 0 refused
+  r1 interface
+    file: r1-interface.json
+    declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip ospf interface json", collected 2026-10-10T17:41:22Z
+    checked: accepted, 2 interfaces, 0 neighbors
+  r1 neighbor detail
+    file: r1-neighbor.json
+    declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip ospf neighbor detail json", collected 2026-10-10T17:41:19Z
+    checked: accepted, 0 interfaces, 1 neighbors
+  r2 interface
+    file: r2-interface.json
+    declared (not verified): node r2, vrf default, FRR 10.7.0, command "show ip ospf interface json", collected 2026-10-10T17:41:35Z
+    checked: accepted, 2 interfaces, 0 neighbors
+  r2 neighbor detail
+    file: r2-neighbor.json
+    declared (not verified): node r2, vrf default, FRR 10.7.0, command "show ip ospf neighbor detail json", collected 2026-10-10T17:41:32Z
+    checked: accepted, 0 interfaces, 1 neighbors
+  kill9 r1 A
+    file: kill9-r1-A-show_ip_ospf_json.json
+    declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip ospf json", collected 2026-10-11T02:39:10.143433281Z
+    checked: accepted, 0 interfaces, 0 neighbors
+  kill9 r1 B
+    file: kill9-r1-B-show_ip_ospf_database_detail_json.json
+    declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip ospf database detail json", collected 2026-10-11T02:39:13.290022772Z
+    checked: accepted, 0 interfaces, 0 neighbors
+  kill9 r1 E
+    file: kill9-r1-E-show_ip_ospf_route_json.json
+    declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip ospf route json", collected 2026-10-11T02:39:19.591681485Z
+    checked: accepted, 0 interfaces, 0 neighbors
+  kill9 r1 D
+    file: kill9-r1-D-show_ip_ospf_json.json
+    declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip ospf json", collected 2026-10-11T02:39:22.7341651Z
+    checked: accepted, 0 interfaces, 0 neighbors
+
+Neighbor records (2): 2 mapped, 0 unmapped
+  mapped    r1 e1 10.0.1.2 state Full/DR area 0.0.0.0 router-id 2.2.2.2 -> r2 e2
+  mapped    r2 e2 10.0.1.1 state Full/Backup area 0.0.0.0 router-id 1.1.1.1 -> r1 e1
+
+OSPF LSDB comparison:
+  node r1 vrf default: guard passed
+    lsdb_prefix_not_calculated (consistent_with): The external advertisement 10.20.0.0 from router 2.2.2.2 names 10.20.0.0/24. No calculated route has that prefix.
+      limit: The LSDB advertises this prefix, and the calculated OSPF route table has no route for it. The evidence names no cause and says nothing about forwarding.
+    lsdb_prefix_not_calculated (consistent_with): The router advertisement 2.2.2.2 from router 2.2.2.2 names 10.10.2.0/24. No calculated route has that prefix.
+      limit: The LSDB advertises this prefix, and the calculated OSPF route table has no route for it. The evidence names no cause and says nothing about forwarding.
+    process state from kill9 r1 A, collected 2026-10-11T02:39:10.143433281Z (reported)
+      router ID 1.1.1.1, holdtime maximum 5000 ms, SPF delay 0 ms, external LSAs 1, checksum 64412
+      area 0.0.0.0: SPF executed 5, router 2, network 2, summary 0, asbr-summary 0, nssa 0
+    process state from kill9 r1 D, collected 2026-10-11T02:39:22.7341651Z (reported)
+      router ID 1.1.1.1, holdtime maximum 5000 ms, SPF delay 0 ms, external LSAs 1, checksum 64412
+      area 0.0.0.0: SPF executed 5, router 2, network 2, summary 0, asbr-summary 0, nssa 0
+    LSDB from kill9 r1 B, collected 2026-10-11T02:39:13.290022772Z (reported): 5 LSAs
+      reconciliation: 6 of 6 rows matched
+        AS scope, type external: LSDB 1 LSAs, checksum 64412; process 1 LSAs, checksum 64412; matched
+        area 0.0.0.0, type router: LSDB 2 LSAs, checksum 52508; process 2 LSAs, checksum 52508; matched
+        area 0.0.0.0, type network: LSDB 2 LSAs, checksum 69491; process 2 LSAs, checksum 69491; matched
+        area 0.0.0.0, type summary: LSDB 0 LSAs, checksum 0; process 0 LSAs, checksum 0; matched
+        area 0.0.0.0, type asbr-summary: LSDB 0 LSAs, checksum 0; process 0 LSAs, checksum 0; matched
+        area 0.0.0.0, type nssa: LSDB 0 LSAs, checksum 0; process 0 LSAs, checksum 0; matched
+      external advertisement 10.20.0.0 from 2.2.2.2, AS scope, sequence 80000001, age 150, metric 20, prefixes 10.20.0.0/24, use: compared
+      network advertisement 10.0.1.1 from 1.1.1.1, area 0.0.0.0, sequence 80000001, age 3600, prefixes 10.0.1.0/24, use: not compared: MaxAge
+      network advertisement 10.0.1.2 from 2.2.2.2, area 0.0.0.0, sequence 80000001, age 110, prefixes 10.0.1.0/24, use: reported only: this type is not compared
+      router advertisement 1.1.1.1 from 1.1.1.1, area 0.0.0.0, sequence 80000008, age 49, prefixes 10.0.1.0/24, 10.10.1.0/24, use: compared
+      router advertisement 2.2.2.2 from 2.2.2.2, area 0.0.0.0, sequence 80000005, age 110, prefixes 10.10.2.0/24, use: compared
+    calculated route table from kill9 r1 E, collected 2026-10-11T02:39:19.591681485Z (reported): 2 routes
+      route 10.0.1.0/24, type N, cost 10, area 0.0.0.0, next hops 1
+      route 10.10.1.0/24, type N, cost 10, area 0.0.0.0, next hops 1
+  limitations:
+    the LSDB and the calculated routes are what FRR printed for the captures. They are not the RIB and not the kernel forwarding table.
+    the guard compares declared collection times and counters. A passed guard is a guarded comparison, not proof that OSPF did not change between the captures.
+    only the default VRF is read. Only prefixes from Type 1 stub links and from Type 5 advertisements of other routers are compared.
+    Type 2, Type 3, Type 4, Type 7, and opaque advertisements are reported as facts. No finding is drawn from them.
+    point-to-point and virtual links are not derived to prefixes. Their advertisements are reported as facts only.
+    an advertising router ID is not mapped to a node. The report names routers by router ID.
+
+Not imported:
+  routes: the RIB and FIB are not read, so the topology has no routes
+  the OSPF link-state database: read for the ospf_lsdb section only; not written to the topology
+  OSPF area of a neighbor record: reported, not written to the topology
+  OSPF area of an interface: a plain dotted area is written as ospf.effective_area, one value per interface name; a qualified, incomplete, or missing area is not written, and neither is one withheld because a neighbor contradicts it or because its record may describe another OSPF interface on the name
+  OSPF interface facts: ospf.cost, ospf.network_type, ospf.interface_state, and ospf.passive are written from the interface's cost, networkType, state, and passive settings; a name whose record may describe another OSPF interface gives none of them
+  secondary interface addresses: not read; only the primary address is used
+  any other FRR output field: not read; drAddress and bdrAddress are read only to detect such a record, and ospfIfType is never read
+  source address: not set, so the topology claims no address for the source node
+  checks and boundaries: none written; OSPF output does not supply them
+
+Limitations:
+  declared metadata (source, node, VRF, FRR version, command, collection time) is the manifest's claim; netdoc checks the FRR version, the command, and the VRF it reads, but not which node produced a capture
+  neighbors and routes are not claimed complete; the topology says so explicitly
+  exit 0 means every capture was accepted and every neighbor record was mapped; it does not mean the network is healthy or that OSPF is complete on every node
+  a neighbor record with no router ID (noNbrID) is never mapped, even when its address is unique
+  an interface's ospf.effective_area is the one area FRR printed for that interface name; it is not a list of every area the interface runs OSPF in, and it may differ from the area of an adjacency on the same interface
+  a passive OSPF reading is consistent with an expected adjacency not forming; it claims no absence, no cause, and no effect on traffic

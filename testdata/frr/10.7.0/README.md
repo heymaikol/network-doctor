@@ -36,8 +36,9 @@ Each scenario was run with `lab/run5.sh`, one scenario per `unshare`
 invocation. The `passive1/`, `cost50/`, `mixp2p/`, `secp1/`, `secp2/`, and
 `down1/` directories came from one queue that ran them one after another, and
 the `.collected_at` stamps show that order. Earlier runs that overlapped were
-discarded, and none of their captures is committed. The `lsdb/` scenarios were
-run with `lab/lsdb.sh` instead, and they are described in `lsdb/README.md`.
+discarded, and none of their captures is committed. The `lsdb/` scenarios and
+the `ecmp/` bracket were run with `lab/lsdb.sh` instead. `lsdb/` is described in
+`lsdb/README.md`, and `ecmp/` is described in the ECMP section below.
 
 Each run writes more captures than the committed directories keep. The
 committed set for the scenarios added in PR 6 is the interface, neighbor-detail,
@@ -55,6 +56,7 @@ committed.
 | `noinst/` | r2 runs ospfd with no `router ospf` stanza. Its `show ip ospf interface json` and `show ip ospf neighbor detail json` return `{}`. The process-state command, `show ip ospf json`, was not captured here. |
 | `area/` | r2 puts e2 in area 0.0.0.1 while r1 keeps e1 in 0.0.0.0, on one subnet. No adjacency forms, so both neighbor lists are empty. Each interface capture reports the area its side is in. |
 | `lsdb/` | Two routers with an OSPF LSDB bracket. Scenarios `steady`, `flap`, and `kill9`. See `lsdb/README.md`. |
+| `ecmp/` | Two routers over three links, with r1 e5 at cost 50. Both LSDB brackets, taken once each router had three Full neighbors and the expected equal-cost next hops. See the ECMP section below. |
 | `secondary/` | r1 adds 10.0.2.1/24 to e1 in area 0.0.0.1, beside the primary 10.0.1.1/24 in area 0.0.0.0. The adjacency with r2 is Full in area 0.0.0.0. The interface record for e1 shows only the secondary: `ipAddress` 10.0.2.1, `area` 0.0.0.1, `nbrCount` 0. See the section below. |
 | `passive1/` | r1 e1 set to `ip ospf passive`, with no address on the command. r2 e2 is active on the same subnet. No neighbor forms on either side. r1's e1 record holds `timerPassiveIface` true and no hello timer. r2's holds a hello timer. |
 | `cost50/` | r1 e1 set to `ip ospf cost 50` against r2 e2 at the default cost 10. The adjacency is Full on both ends, and each side installs the other's stub network. |
@@ -86,6 +88,36 @@ The declared links that the topology tests add to these captures are not FRR out
 - `down1/`: the broadcast adjacency of `bcast/`, then `ip link set e1 down` on r1 and a 5-second wait. r1 e1 is absent from the all-interface listing, as described in the area section above. The run does not show the `ospfRunning` false record that the source predicts for a down interface with an OSPF instance.
 
 A secondary-address case with the two addresses added in the reverse order was not run. The effect of the order in which FRR visits addresses on the record it prints last is therefore not observed.
+
+## ECMP bracket
+
+`ecmp/` is the only committed capture with more than one next hop for a route.
+It was taken by `lab/lsdb.sh ecmp` on 2026-10-12 UTC. The topology is three
+links in area 0.0.0.0. r1 e1 10.0.1.1/24 connects to r2 e2 10.0.1.2/24, r1 e3
+10.0.3.1/24 to r2 e4 10.0.3.2/24, and r1 e5 10.0.5.1/24 to r2 e6 10.0.5.2/24.
+Each link costs 10 except r1 e5, which is set to `ip ospf cost 50`. stub1
+10.10.1.0/24 is on r1, and stub2 10.10.2.0/24 is on r2. The router IDs are
+1.1.1.1 for r1 and 2.2.2.2 for r2.
+
+The driver waits until each router has three Full neighbors and the expected
+next-hop counts, then takes the captures in the order A, B, E, D on each node.
+The A-to-D window is about 9.4 seconds on both nodes. That is above the 5000 ms
+bound, which comes from the default holdtime of 5000 ms and an SPF delay of 0.
+
+The routes the captures hold:
+
+- r1 `10.10.2.0/24` has two next hops, 10.0.1.2 via e1 and 10.0.3.2 via e3. Both
+  are advertised by 2.2.2.2, and each route costs 20. The path through e5 would
+  cost 60 (50 on e5 plus 10 for stub2). That is arithmetic from the configured
+  costs, not a captured value, and the table does not hold that path.
+- r2 `10.10.1.0/24` has three next hops, 10.0.1.1 via e2, 10.0.3.1 via e4, and
+  10.0.5.1 via e6. All three are advertised by 1.1.1.1.
+- r1 `10.0.5.0/24` is reached through e1 and e3 at cost 20, not directly through
+  e5 at cost 50. The direct link loses to the cheaper path through r2.
+
+`ospfd-version.txt` is the output of `ospfd --version`. `r1-ospfd.conf` and
+`r2-ospfd.conf` are the configurations that ran. The `.raw` files are FRR output
+read from the vty, with nothing edited.
 
 ## Socket paths
 
@@ -134,3 +166,11 @@ script that copied them here is not in the repo. The
 `lab/etc/group` and `lab/etc/passwd` files are a minimal set, so the host's
 account files are never copied into the repository. `lab/tcpvty2.py` reads the
 vty over loopback from inside each namespace.
+
+The LSDB brackets run with `lab/lsdb.sh`, which takes `steady`, `flap`, `kill9`,
+or `ecmp` as its mode, with the same `SCRATCH` and `unshare -Urnm` setup:
+
+    SCRATCH="$SCRATCH" unshare -Urnm bash testdata/frr/10.7.0/lab/lsdb.sh ecmp
+
+The mode writes to `$SCRATCH/run/lsdb-<mode>`. The `ecmp` mode also writes
+`ospfd-version.txt`, which `lsdb.sh` writes for no other mode.

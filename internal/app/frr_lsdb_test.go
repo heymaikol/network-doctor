@@ -32,6 +32,13 @@ var lsdbRoles = []struct{ role, command string }{
 // broadcast captures are, and its declared collection time comes from the lab.
 func addFRRLSDB(t *testing.T, dir, manifest, scenario, node string) {
 	t.Helper()
+	addFRRLSDBFrom(t, dir, manifest, filepath.Join(frrLSDBDir, scenario), scenario, node)
+}
+
+// addFRRLSDBFrom is addFRRLSDB for a capture directory outside the LSDB scenarios.
+// scenario labels the staged files and the manifest sources.
+func addFRRLSDBFrom(t *testing.T, dir, manifest, captureDir, scenario, node string) {
+	t.Helper()
 	// #nosec G304 -- manifest is a file this test staged in its own temporary directory.
 	raw, err := os.ReadFile(manifest)
 	if err != nil {
@@ -45,7 +52,7 @@ func addFRRLSDB(t *testing.T, dir, manifest, scenario, node string) {
 	for _, r := range lsdbRoles {
 		stem := node + "-" + r.role + "-" + strings.ReplaceAll(r.command, " ", "_")
 		// #nosec G304 -- the lab directory and stem are this test's own table.
-		framed, err := os.ReadFile(filepath.Join(frrLSDBDir, scenario, stem+".raw"))
+		framed, err := os.ReadFile(filepath.Join(captureDir, stem+".raw"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,7 +67,7 @@ func addFRRLSDB(t *testing.T, dir, manifest, scenario, node string) {
 			t.Fatal(err)
 		}
 		// #nosec G304 -- the lab directory and stem are this test's own table.
-		stamp, err := os.ReadFile(filepath.Join(frrLSDBDir, scenario, stem+".collected_at"))
+		stamp, err := os.ReadFile(filepath.Join(captureDir, stem+".collected_at"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,6 +84,7 @@ func addFRRLSDB(t *testing.T, dir, manifest, scenario, node string) {
 // writeFRRJSONRaw writes data as a staged capture file.
 func writeFRRJSONRaw(t *testing.T, path string, data []byte) {
 	t.Helper()
+	// #nosec G703 -- path is a capture file this test staged in its own temporary directory.
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}

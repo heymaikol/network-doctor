@@ -2058,6 +2058,17 @@ Findings say what the captures show. They name no cause, and they do not say tha
 
 The text report also shows the facts each node's captures reported, and marks them as reported, not verified. The process state lists the router ID, the holdtime maximum, the SPF delay, the AS-external count and checksum, and each area's SPF counter and LSA counts. The LSDB block lists each area and type with its LSDB count and checksum, the process count, and whether they match. It then lists each advertisement with its advertising router, sequence, age, and prefixes. The prefixes of one advertisement stop at five. The calculated routes list each prefix, route type, cost, area, and next-hop count. The text names the layer each fact comes from. These are the LSDB and the calculated OSPF route table, not the RIB or the kernel forwarding table. A node whose captures were not read says `not read` for that section. Legacy reports with no LSDB captures show none of this.
 
+The JSON report adds the next hops of each calculated route. `forwarding_hops` lists each address hop by its address, its interface, and the routers that advertised it. Two routers that advertise the same address and interface give one hop with two advertisers. `direct_interfaces` lists each interface the route reaches with no next-hop address. `next_hops` is still the raw count of `nexthops` entries FRR printed, including any entry the reader could not use. `next_hop_status` says how completely the entries were read:
+
+- `complete`: every entry is identified and none repeats. `forwarding_hop_count` is exact. It is the number of `forwarding_hops` entries plus the number of `direct_interfaces` entries.
+- `explicitly_empty`: FRR printed an empty list. The count is 0.
+- `incomplete`: at least one entry has no usable address or interface. The listed hops are a lower bound, and the count is omitted.
+- `ambiguous`: an entry repeats another, or a key matches `ip`, `via`, `advertisedRouter`, or `directlyAttachedTo` only after case folding. The count is omitted. An entry with such a key contributes no hop.
+
+A route is ECMP when its exact `forwarding_hop_count` is 2 or more. That describes what OSPF calculated. It does not show that the RIB or the kernel uses those hops. An `incomplete` or `ambiguous` route gives no ECMP answer. `metric_status` is `unrepresentable` when a printed `cost`, or the `type2_cost` of an N E2 route, is above 4294967295. FRR 10.7.0 cannot print such a value. The route stays in the report.
+
+The text report still prints the raw `next_hops` count. For a route with one forwarding hop and two advertisers, the text says 2 and the JSON says 1.
+
 The comparison reads the default VRF only. Opaque LSAs are counted as unsupported and not decoded. A capture is limited to 1 MiB, like any other capture.
 
 ### What the import does not read

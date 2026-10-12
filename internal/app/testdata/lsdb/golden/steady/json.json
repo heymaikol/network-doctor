@@ -1,0 +1,853 @@
+{
+  "version": 1,
+  "manifest": "manifest.json",
+  "complete": true,
+  "source_node": "r1",
+  "neighbors_complete": false,
+  "routes_complete": false,
+  "counts": {
+    "captures": 12,
+    "accepted": 12,
+    "refused": 0,
+    "records": 2,
+    "mapped": 2,
+    "unmapped": 0
+  },
+  "captures": [
+    {
+      "file": "r1-interface.json",
+      "declared": {
+        "source": "r1 interface",
+        "node": "r1",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf interface json",
+        "collected_at": "2026-10-10T17:41:22Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 2,
+      "neighbors": 0
+    },
+    {
+      "file": "r1-neighbor.json",
+      "declared": {
+        "source": "r1 neighbor detail",
+        "node": "r1",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf neighbor detail json",
+        "collected_at": "2026-10-10T17:41:19Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 1
+    },
+    {
+      "file": "r2-interface.json",
+      "declared": {
+        "source": "r2 interface",
+        "node": "r2",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf interface json",
+        "collected_at": "2026-10-10T17:41:35Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 2,
+      "neighbors": 0
+    },
+    {
+      "file": "r2-neighbor.json",
+      "declared": {
+        "source": "r2 neighbor detail",
+        "node": "r2",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf neighbor detail json",
+        "collected_at": "2026-10-10T17:41:32Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 1
+    },
+    {
+      "file": "steady-r1-A-show_ip_ospf_json.json",
+      "declared": {
+        "source": "steady r1 A",
+        "node": "r1",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf json",
+        "collected_at": "2026-10-11T02:35:26.549462967Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 0
+    },
+    {
+      "file": "steady-r1-B-show_ip_ospf_database_detail_json.json",
+      "declared": {
+        "source": "steady r1 B",
+        "node": "r1",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf database detail json",
+        "collected_at": "2026-10-11T02:35:29.687522374Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 0
+    },
+    {
+      "file": "steady-r1-E-show_ip_ospf_route_json.json",
+      "declared": {
+        "source": "steady r1 E",
+        "node": "r1",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf route json",
+        "collected_at": "2026-10-11T02:35:35.963097848Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 0
+    },
+    {
+      "file": "steady-r1-D-show_ip_ospf_json.json",
+      "declared": {
+        "source": "steady r1 D",
+        "node": "r1",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf json",
+        "collected_at": "2026-10-11T02:35:39.105623413Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 0
+    },
+    {
+      "file": "steady-r2-A-show_ip_ospf_json.json",
+      "declared": {
+        "source": "steady r2 A",
+        "node": "r2",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf json",
+        "collected_at": "2026-10-11T02:35:42.236558532Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 0
+    },
+    {
+      "file": "steady-r2-B-show_ip_ospf_database_detail_json.json",
+      "declared": {
+        "source": "steady r2 B",
+        "node": "r2",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf database detail json",
+        "collected_at": "2026-10-11T02:35:45.367580743Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 0
+    },
+    {
+      "file": "steady-r2-E-show_ip_ospf_route_json.json",
+      "declared": {
+        "source": "steady r2 E",
+        "node": "r2",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf route json",
+        "collected_at": "2026-10-11T02:35:51.645322512Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 0
+    },
+    {
+      "file": "steady-r2-D-show_ip_ospf_json.json",
+      "declared": {
+        "source": "steady r2 D",
+        "node": "r2",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip ospf json",
+        "collected_at": "2026-10-11T02:35:54.807440831Z"
+      },
+      "accepted": true,
+      "empty": false,
+      "interfaces": 0,
+      "neighbors": 0
+    }
+  ],
+  "records": [
+    {
+      "source": "r1 neighbor detail",
+      "node": "r1",
+      "vrf": "default",
+      "local_interface": "e1",
+      "neighbor_address": "10.0.1.2",
+      "router_id": "2.2.2.2",
+      "state": "Full/DR",
+      "area": "0.0.0.0",
+      "mapped": true,
+      "remote_node": "r2",
+      "remote_interface": "e2"
+    },
+    {
+      "source": "r2 neighbor detail",
+      "node": "r2",
+      "vrf": "default",
+      "local_interface": "e2",
+      "neighbor_address": "10.0.1.1",
+      "router_id": "1.1.1.1",
+      "state": "Full/Backup",
+      "area": "0.0.0.0",
+      "mapped": true,
+      "remote_node": "r1",
+      "remote_interface": "e1"
+    }
+  ],
+  "ospf_lsdb": {
+    "nodes": [
+      {
+        "node": "r1",
+        "vrf": "default",
+        "guard": {
+          "passed": true
+        },
+        "processes": [
+          {
+            "source": "steady r1 A",
+            "collected_at": "2026-10-11T02:35:26.549462967Z",
+            "router_id": "1.1.1.1",
+            "holdtime_max_ms": 5000,
+            "spf_delay_ms": 0,
+            "external": {
+              "number": 1,
+              "checksum": 64412
+            },
+            "areas": {
+              "0.0.0.0": {
+                "spf_executed": 4,
+                "counts": {
+                  "asbr-summary": {
+                    "number": 0,
+                    "checksum": 0
+                  },
+                  "network": {
+                    "number": 1,
+                    "checksum": 10767
+                  },
+                  "nssa": {
+                    "number": 0,
+                    "checksum": 0
+                  },
+                  "router": {
+                    "number": 2,
+                    "checksum": 24702
+                  },
+                  "summary": {
+                    "number": 0,
+                    "checksum": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "source": "steady r1 D",
+            "collected_at": "2026-10-11T02:35:39.105623413Z",
+            "router_id": "1.1.1.1",
+            "holdtime_max_ms": 5000,
+            "spf_delay_ms": 0,
+            "external": {
+              "number": 1,
+              "checksum": 64412
+            },
+            "areas": {
+              "0.0.0.0": {
+                "spf_executed": 4,
+                "counts": {
+                  "asbr-summary": {
+                    "number": 0,
+                    "checksum": 0
+                  },
+                  "network": {
+                    "number": 1,
+                    "checksum": 10767
+                  },
+                  "nssa": {
+                    "number": 0,
+                    "checksum": 0
+                  },
+                  "router": {
+                    "number": 2,
+                    "checksum": 24702
+                  },
+                  "summary": {
+                    "number": 0,
+                    "checksum": 0
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "reconciliation": [
+          {
+            "type": "external",
+            "matched": true,
+            "lsdb": {
+              "number": 1,
+              "checksum": 64412
+            },
+            "process": {
+              "number": 1,
+              "checksum": 64412
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "router",
+            "matched": true,
+            "lsdb": {
+              "number": 2,
+              "checksum": 24702
+            },
+            "process": {
+              "number": 2,
+              "checksum": 24702
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "network",
+            "matched": true,
+            "lsdb": {
+              "number": 1,
+              "checksum": 10767
+            },
+            "process": {
+              "number": 1,
+              "checksum": 10767
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "summary",
+            "matched": true,
+            "lsdb": {
+              "number": 0,
+              "checksum": 0
+            },
+            "process": {
+              "number": 0,
+              "checksum": 0
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "asbr-summary",
+            "matched": true,
+            "lsdb": {
+              "number": 0,
+              "checksum": 0
+            },
+            "process": {
+              "number": 0,
+              "checksum": 0
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "nssa",
+            "matched": true,
+            "lsdb": {
+              "number": 0,
+              "checksum": 0
+            },
+            "process": {
+              "number": 0,
+              "checksum": 0
+            }
+          }
+        ],
+        "lsdb_read": {
+          "source": "steady r1 B",
+          "collected_at": "2026-10-11T02:35:29.687522374Z"
+        },
+        "lsas": [
+          {
+            "type": "external",
+            "link_state_id": "10.20.0.0",
+            "advertising_router": "2.2.2.2",
+            "age": 75,
+            "sequence": "80000001",
+            "checksum": 64412,
+            "metric": 20,
+            "prefixes": [
+              {
+                "prefix": "10.20.0.0/24"
+              }
+            ],
+            "use": "compared"
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "network",
+            "link_state_id": "10.0.1.2",
+            "advertising_router": "2.2.2.2",
+            "age": 35,
+            "sequence": "80000001",
+            "checksum": 10767,
+            "prefixes": [
+              {
+                "prefix": "10.0.1.0/24",
+                "note": "link state ID 10.0.1.2 has host bits; prefix taken as 10.0.1.0/24"
+              }
+            ],
+            "use": "reported only: this type is not compared"
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "router",
+            "link_state_id": "1.1.1.1",
+            "advertising_router": "1.1.1.1",
+            "age": 34,
+            "sequence": "80000006",
+            "checksum": 16564,
+            "prefixes": [
+              {
+                "prefix": "10.10.1.0/24"
+              }
+            ],
+            "use": "compared"
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "router",
+            "link_state_id": "2.2.2.2",
+            "advertising_router": "2.2.2.2",
+            "age": 35,
+            "sequence": "80000005",
+            "checksum": 8138,
+            "prefixes": [
+              {
+                "prefix": "10.10.2.0/24"
+              }
+            ],
+            "use": "compared"
+          }
+        ],
+        "routes_read": {
+          "source": "steady r1 E",
+          "collected_at": "2026-10-11T02:35:35.963097848Z"
+        },
+        "routes": [
+          {
+            "prefix": "10.0.1.0/24",
+            "route_type": "N",
+            "area": "0.0.0.0",
+            "cost": 10,
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [],
+            "direct_interfaces": [
+              "e1"
+            ],
+            "metric_status": "representable"
+          },
+          {
+            "prefix": "10.10.1.0/24",
+            "route_type": "N",
+            "area": "0.0.0.0",
+            "cost": 10,
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [],
+            "direct_interfaces": [
+              "stub1"
+            ],
+            "metric_status": "representable"
+          },
+          {
+            "prefix": "10.10.2.0/24",
+            "route_type": "N",
+            "area": "0.0.0.0",
+            "cost": 20,
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [
+              {
+                "address": "10.0.1.2",
+                "interface": "e1",
+                "advertised_by": [
+                  "2.2.2.2"
+                ]
+              }
+            ],
+            "direct_interfaces": [],
+            "metric_status": "representable"
+          },
+          {
+            "prefix": "10.20.0.0/24",
+            "route_type": "N E2",
+            "cost": 10,
+            "type2_cost": 20,
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [
+              {
+                "address": "10.0.1.2",
+                "interface": "e1",
+                "advertised_by": [
+                  "2.2.2.2"
+                ]
+              }
+            ],
+            "direct_interfaces": [],
+            "metric_status": "representable"
+          }
+        ],
+        "findings": []
+      },
+      {
+        "node": "r2",
+        "vrf": "default",
+        "guard": {
+          "passed": true
+        },
+        "processes": [
+          {
+            "source": "steady r2 A",
+            "collected_at": "2026-10-11T02:35:42.236558532Z",
+            "router_id": "2.2.2.2",
+            "holdtime_max_ms": 5000,
+            "spf_delay_ms": 0,
+            "external": {
+              "number": 1,
+              "checksum": 64412
+            },
+            "areas": {
+              "0.0.0.0": {
+                "spf_executed": 4,
+                "counts": {
+                  "asbr-summary": {
+                    "number": 0,
+                    "checksum": 0
+                  },
+                  "network": {
+                    "number": 1,
+                    "checksum": 10767
+                  },
+                  "nssa": {
+                    "number": 0,
+                    "checksum": 0
+                  },
+                  "router": {
+                    "number": 2,
+                    "checksum": 24702
+                  },
+                  "summary": {
+                    "number": 0,
+                    "checksum": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "source": "steady r2 D",
+            "collected_at": "2026-10-11T02:35:54.807440831Z",
+            "router_id": "2.2.2.2",
+            "holdtime_max_ms": 5000,
+            "spf_delay_ms": 0,
+            "external": {
+              "number": 1,
+              "checksum": 64412
+            },
+            "areas": {
+              "0.0.0.0": {
+                "spf_executed": 4,
+                "counts": {
+                  "asbr-summary": {
+                    "number": 0,
+                    "checksum": 0
+                  },
+                  "network": {
+                    "number": 1,
+                    "checksum": 10767
+                  },
+                  "nssa": {
+                    "number": 0,
+                    "checksum": 0
+                  },
+                  "router": {
+                    "number": 2,
+                    "checksum": 24702
+                  },
+                  "summary": {
+                    "number": 0,
+                    "checksum": 0
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "reconciliation": [
+          {
+            "type": "external",
+            "matched": true,
+            "lsdb": {
+              "number": 1,
+              "checksum": 64412
+            },
+            "process": {
+              "number": 1,
+              "checksum": 64412
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "router",
+            "matched": true,
+            "lsdb": {
+              "number": 2,
+              "checksum": 24702
+            },
+            "process": {
+              "number": 2,
+              "checksum": 24702
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "network",
+            "matched": true,
+            "lsdb": {
+              "number": 1,
+              "checksum": 10767
+            },
+            "process": {
+              "number": 1,
+              "checksum": 10767
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "summary",
+            "matched": true,
+            "lsdb": {
+              "number": 0,
+              "checksum": 0
+            },
+            "process": {
+              "number": 0,
+              "checksum": 0
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "asbr-summary",
+            "matched": true,
+            "lsdb": {
+              "number": 0,
+              "checksum": 0
+            },
+            "process": {
+              "number": 0,
+              "checksum": 0
+            }
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "nssa",
+            "matched": true,
+            "lsdb": {
+              "number": 0,
+              "checksum": 0
+            },
+            "process": {
+              "number": 0,
+              "checksum": 0
+            }
+          }
+        ],
+        "lsdb_read": {
+          "source": "steady r2 B",
+          "collected_at": "2026-10-11T02:35:45.367580743Z"
+        },
+        "lsas": [
+          {
+            "type": "external",
+            "link_state_id": "10.20.0.0",
+            "advertising_router": "2.2.2.2",
+            "age": 90,
+            "sequence": "80000001",
+            "checksum": 64412,
+            "metric": 20,
+            "prefixes": [
+              {
+                "prefix": "10.20.0.0/24"
+              }
+            ],
+            "use": "not compared: self-originated; the calculation skips these"
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "network",
+            "link_state_id": "10.0.1.2",
+            "advertising_router": "2.2.2.2",
+            "age": 50,
+            "sequence": "80000001",
+            "checksum": 10767,
+            "prefixes": [
+              {
+                "prefix": "10.0.1.0/24",
+                "note": "link state ID 10.0.1.2 has host bits; prefix taken as 10.0.1.0/24"
+              }
+            ],
+            "use": "reported only: this type is not compared"
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "router",
+            "link_state_id": "1.1.1.1",
+            "advertising_router": "1.1.1.1",
+            "age": 51,
+            "sequence": "80000006",
+            "checksum": 16564,
+            "prefixes": [
+              {
+                "prefix": "10.10.1.0/24"
+              }
+            ],
+            "use": "compared"
+          },
+          {
+            "area": "0.0.0.0",
+            "type": "router",
+            "link_state_id": "2.2.2.2",
+            "advertising_router": "2.2.2.2",
+            "age": 50,
+            "sequence": "80000005",
+            "checksum": 8138,
+            "prefixes": [
+              {
+                "prefix": "10.10.2.0/24"
+              }
+            ],
+            "use": "compared"
+          }
+        ],
+        "routes_read": {
+          "source": "steady r2 E",
+          "collected_at": "2026-10-11T02:35:51.645322512Z"
+        },
+        "routes": [
+          {
+            "prefix": "10.0.1.0/24",
+            "route_type": "N",
+            "area": "0.0.0.0",
+            "cost": 10,
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [],
+            "direct_interfaces": [
+              "e2"
+            ],
+            "metric_status": "representable"
+          },
+          {
+            "prefix": "10.10.1.0/24",
+            "route_type": "N",
+            "area": "0.0.0.0",
+            "cost": 20,
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [
+              {
+                "address": "10.0.1.1",
+                "interface": "e2",
+                "advertised_by": [
+                  "1.1.1.1"
+                ]
+              }
+            ],
+            "direct_interfaces": [],
+            "metric_status": "representable"
+          },
+          {
+            "prefix": "10.10.2.0/24",
+            "route_type": "N",
+            "area": "0.0.0.0",
+            "cost": 10,
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [],
+            "direct_interfaces": [
+              "stub2"
+            ],
+            "metric_status": "representable"
+          }
+        ],
+        "findings": []
+      }
+    ],
+    "limitations": [
+      "the LSDB and the calculated routes are what FRR printed for the captures. They are not the RIB and not the kernel forwarding table.",
+      "the guard compares declared collection times and counters. A passed guard is a guarded comparison, not proof that OSPF did not change between the captures.",
+      "only the default VRF is read. Only prefixes from Type 1 stub links and from Type 5 advertisements of other routers are compared.",
+      "Type 2, Type 3, Type 4, Type 7, and opaque advertisements are reported as facts. No finding is drawn from them.",
+      "point-to-point and virtual links are not derived to prefixes. Their advertisements are reported as facts only.",
+      "an advertising router ID is not mapped to a node. The report names routers by router ID."
+    ]
+  },
+  "not_imported": [
+    "routes: the RIB and FIB are not read, so the topology has no routes",
+    "the OSPF link-state database: read for the ospf_lsdb section only; not written to the topology",
+    "OSPF area of a neighbor record: reported, not written to the topology",
+    "OSPF area of an interface: a plain dotted area is written as ospf.effective_area, one value per interface name; a qualified, incomplete, or missing area is not written, and neither is one withheld because a neighbor contradicts it or because its record may describe another OSPF interface on the name",
+    "OSPF interface facts: ospf.cost, ospf.network_type, ospf.interface_state, and ospf.passive are written from the interface's cost, networkType, state, and passive settings; a name whose record may describe another OSPF interface gives none of them",
+    "secondary interface addresses: not read; only the primary address is used",
+    "any other FRR output field: not read; drAddress and bdrAddress are read only to detect such a record, and ospfIfType is never read",
+    "source address: not set, so the topology claims no address for the source node",
+    "checks and boundaries: none written; OSPF output does not supply them"
+  ],
+  "limitations": [
+    "declared metadata (source, node, VRF, FRR version, command, collection time) is the manifest's claim; netdoc checks the FRR version, the command, and the VRF it reads, but not which node produced a capture",
+    "neighbors and routes are not claimed complete; the topology says so explicitly",
+    "exit 0 means every capture was accepted and every neighbor record was mapped; it does not mean the network is healthy or that OSPF is complete on every node",
+    "a neighbor record with no router ID (noNbrID) is never mapped, even when its address is unique",
+    "an interface's ospf.effective_area is the one area FRR printed for that interface name; it is not a list of every area the interface runs OSPF in, and it may differ from the area of an adjacency on the same interface",
+    "a passive OSPF reading is consistent with an expected adjacency not forming; it claims no absence, no cause, and no effect on traffic"
+  ],
+  "topology": {
+    "requested": false,
+    "written": false
+  }
+}

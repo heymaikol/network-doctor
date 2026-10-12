@@ -61,7 +61,9 @@ counts toward the per-area reconciliation, which matches the counters.
 - The max-age command (`show ip ospf database max-age json`). The earlier run
   captured it, but max-age LSAs are not part of the comparison, so the capture
   is not kept, and the driver no longer runs it.
-- Topo-ecmp and topo-area runs. They are not committed, so no test reads them.
+- The earlier topo-ecmp run. It is not committed and is not evidence. The ECMP
+  bracket is committed under `../ecmp/`, from `lab/lsdb.sh ecmp`.
+- Topo-area runs. They are not committed, so no test reads them.
 - NSSA (Type 7) LSAs. No lab run produced one, and no test reads one, so that
   decode path is unverified against FRR output.
 - Point-to-point and virtual links in a router LSA. Their entries carry no

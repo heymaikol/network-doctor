@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"math/bits"
 	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/heymaikol/network-doctor/internal/ospf"
 )
@@ -303,7 +306,167 @@ func routeFrom(p netip.Prefix, obj fields, routeType string) (ospf.Route, error)
 		return ospf.Route{}, err
 	}
 	r.NextHops = len(hops)
+	setNextHops(&r, hops)
+	r.MetricStatus = ospf.MetricRepresentable
+	if cost > math.MaxUint32 || (r.Type2Cost != nil && *r.Type2Cost > math.MaxUint32) {
+		r.MetricStatus = ospf.MetricUnrepresentable
+	}
 	return r, nil
+}
+
+// hopKeys are the keys that identify a next hop element. A key that folds to one
+// of them under strings.EqualFold without matching exactly is a spelling conflict.
+var hopKeys = []string{"ip", "via", "directlyAttachedTo", "advertisedRouter"}
+
+// hopKey is the identity of one next hop element. An address hop sets addr,
+// iface, and adv. A direct hop sets direct and iface.
+type hopKey struct {
+	direct bool
+	addr   netip.Addr
+	iface  string
+	adv    netip.Addr
+}
+
+// hopState is the result of reading one next hop element.
+type hopState int
+
+const (
+	hopIdentified   hopState = iota
+	hopUnidentified          // no usable identity; counted, not listed
+	hopConflict              // a key folds to a hop key name; contributes nothing
+)
+
+// readHop reads the identity of one nexthops element. It never refuses the
+// table. A wrong type, null, a missing key, or a malformed value makes the
+// element unidentified.
+func readHop(raw json.RawMessage) (hopKey, hopState) {
+	obj, err := objectFields(raw)
+	if err != nil {
+		return hopKey{}, hopUnidentified
+	}
+	for k := range obj {
+		if !slices.Contains(hopKeys, k) && slices.ContainsFunc(hopKeys, func(n string) bool { return strings.EqualFold(n, k) }) {
+			return hopKey{}, hopConflict
+		}
+	}
+	ip, hasIP, okIP := hopText(obj, "ip")
+	via, hasVia, okVia := hopText(obj, "via")
+	adv, hasAdv, okAdv := hopText(obj, "advertisedRouter")
+	name, hasName, okName := hopText(obj, "directlyAttachedTo")
+	if !okIP || !okVia || !okAdv || !okName {
+		return hopKey{}, hopUnidentified
+	}
+	if hasName {
+		if hasIP && ip == " " && !hasVia && !hasAdv && ifaceName(name) {
+			return hopKey{direct: true, iface: name}, hopIdentified
+		}
+		return hopKey{}, hopUnidentified
+	}
+	if !hasIP || !hasVia || !hasAdv || !ifaceName(via) {
+		return hopKey{}, hopUnidentified
+	}
+	addr, addrOK := parseIPv4(ip)
+	advAddr, advOK := parseIPv4(adv)
+	if !addrOK || addr.IsUnspecified() || !advOK || advAddr.IsUnspecified() {
+		return hopKey{}, hopUnidentified
+	}
+	return hopKey{addr: addr, iface: via, adv: advAddr}, hopIdentified
+}
+
+// hopText reads an optional string key of a next hop element. present is false
+// when the key is absent. ok is false when the key holds a non-string, null
+// included.
+func hopText(f fields, key string) (string, bool, bool) {
+	raw, present := f[key]
+	if !present {
+		return "", false, true
+	}
+	var s string
+	if string(raw) == "null" || json.Unmarshal(raw, &s) != nil {
+		return "", true, false
+	}
+	return s, true, true
+}
+
+// ifaceName reports whether s can name an interface in a report: non-empty,
+// plain text, and no whitespace. unicode.IsSpace catches the no-break space,
+// which textsafe leaves in place.
+func ifaceName(s string) bool {
+	if s == "" || !plain(s) {
+		return false
+	}
+	return !strings.ContainsFunc(s, unicode.IsSpace)
+}
+
+// addressHop is the forwarding identity of an address hop.
+type addressHop struct {
+	addr  netip.Addr
+	iface string
+}
+
+// setNextHops reads a route's nexthops array into r. It sets the status, the
+// exact count when the status has one, and the two identity lists, which are
+// sorted and unique. It never refuses the route for an element.
+func setNextHops(r *ospf.Route, hops []json.RawMessage) {
+	r.ForwardingHops = []ospf.ForwardingHop{}
+	r.DirectInterfaces = []string{}
+	if len(hops) == 0 {
+		zero := 0
+		r.NextHopStatus = ospf.NextHopExplicitlyEmpty
+		r.ForwardingHopCount = &zero
+		return
+	}
+	var conflict, unidentified, repeated bool
+	seen := map[hopKey]bool{}
+	addrs := map[addressHop][]netip.Addr{}
+	direct := map[string]bool{}
+	for _, raw := range hops {
+		k, state := readHop(raw)
+		switch state {
+		case hopConflict:
+			conflict = true
+			continue
+		case hopUnidentified:
+			unidentified = true
+			continue
+		}
+		repeated = repeated || seen[k]
+		seen[k] = true
+		if k.direct {
+			direct[k.iface] = true
+			continue
+		}
+		id := addressHop{k.addr, k.iface}
+		addrs[id] = append(addrs[id], k.adv)
+	}
+	for id, advs := range addrs {
+		slices.SortFunc(advs, netip.Addr.Compare)
+		r.ForwardingHops = append(r.ForwardingHops, ospf.ForwardingHop{
+			Address:      id.addr,
+			Interface:    id.iface,
+			AdvertisedBy: slices.Compact(advs),
+		})
+	}
+	slices.SortFunc(r.ForwardingHops, func(a, b ospf.ForwardingHop) int {
+		if c := a.Address.Compare(b.Address); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Interface, b.Interface)
+	})
+	for name := range direct {
+		r.DirectInterfaces = append(r.DirectInterfaces, name)
+	}
+	slices.Sort(r.DirectInterfaces)
+	count := len(r.ForwardingHops) + len(r.DirectInterfaces)
+	switch {
+	case conflict || repeated:
+		r.NextHopStatus = ospf.NextHopAmbiguous
+	case unidentified:
+		r.NextHopStatus = ospf.NextHopIncomplete
+	default:
+		r.NextHopStatus = ospf.NextHopComplete
+		r.ForwardingHopCount = &count
+	}
 }
 
 // lsdbSections are the area-scoped sections of the LSDB output. Each holds an

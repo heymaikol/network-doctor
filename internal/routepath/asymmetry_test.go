@@ -74,6 +74,17 @@ func concernKinds(a *Asymmetry) []string {
 	return out
 }
 
+// assertUnknown fails unless a is unknown and its reason names want.
+func assertUnknown(t *testing.T, a *Asymmetry, want string) {
+	t.Helper()
+	if a == nil || a.Assessment != AssessUnknown {
+		t.Fatalf("Asymmetry = %+v, want unknown", a)
+	}
+	if !strings.Contains(a.Reason, want) {
+		t.Errorf("reason = %q, want it to contain %q", a.Reason, want)
+	}
+}
+
 // A proven asymmetry with no boundary, VRF change, or failure is benign. The
 // human text says so, and the JSON keeps each route separate.
 func TestAsymmetryWithoutPolicyEvidenceIsBenign(t *testing.T) {
@@ -500,5 +511,212 @@ func TestSameRoutersInAnotherOrderIsNotSymmetric(t *testing.T) {
 	}
 	if !strings.Contains(a.Reason, "same routers, but the return does not retrace the forward route") {
 		t.Errorf("reason = %q, want it to say the routers match but the order does not", a.Reason)
+	}
+}
+
+// parallelLinkNet is one flow from h1 (10.0.1.10) to srv (10.20.40.8). r1 and r2
+// share two point-to-point links: link 1 is 10.12.1.0/30 and link 2 is
+// 10.12.2.0/30. The forward route leaves r1 over link 1. The return leaves r2
+// toward h1 over the link that returnLink names. Every FIB table is complete.
+func parallelLinkNet(returnLink int) []netmodel.Observation {
+	back := nh("10.12.1.1", "eth0")
+	if returnLink == 2 {
+		back = nh("10.12.2.1", "eth2")
+	}
+	return []netmodel.Observation{
+		configured("h1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.10/24")}),
+		configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.1/24"), ifc("eth1", "10.12.1.1/30"), ifc("eth2", "10.12.2.1/30")}),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", "10.12.1.2/30"), ifc("eth1", "10.20.40.1/24"), ifc("eth2", "10.12.2.2/30")}),
+		configured("srv", "default", []netmodel.Interface{ifc("eth0", "10.20.40.8/24")}),
+		table(netmodel.PlaneFIB, "h1", "default", true, route("0.0.0.0/0", "kernel", nh("10.0.1.1", "eth0"))),
+		table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.20.0.0/16", "kernel", nh("10.12.1.2", "eth1")),
+			route("10.0.1.0/24", "kernel", onLink("eth0"))),
+		table(netmodel.PlaneFIB, "r2", "default", true,
+			route("10.20.40.0/24", "kernel", onLink("eth1")),
+			route("10.0.1.0/24", "kernel", back)),
+		table(netmodel.PlaneFIB, "srv", "default", true, route("0.0.0.0/0", "kernel", nh("10.20.40.1", "eth0"))),
+	}
+}
+
+// Regression: the return reverses the forward route router by router, but it
+// crosses the other link between r1 and r2. The old comparison read that as
+// symmetric. Both links are named by their addresses, so the pair is not symmetric.
+func TestParallelLinkReturnIsNotSymmetric(t *testing.T) {
+	a := explainTwoPath(t, parallelLinkNet(2), nil, nil, "10.0.1.10").Asymmetry
+	if a == nil {
+		t.Fatal("Asymmetry = nil, want a comparison because the topology names the source address")
+	}
+	if got, want := stepNodes(a.ForwardRoute), []string{"h1", "r1", "r2", "srv"}; !slices.Equal(got, want) {
+		t.Fatalf("forward route = %v, want %v", got, want)
+	}
+	if got, want := stepNodes(a.ReturnRoute), []string{"srv", "r2", "r1", "h1"}; !slices.Equal(got, want) {
+		t.Fatalf("return route = %v, want %v", got, want)
+	}
+	if a.Assessment != AssessBenign {
+		t.Errorf("Assessment = %q, want %q: the links differ, and no concern holds", a.Assessment, AssessBenign)
+	}
+	if len(a.Concerns) != 0 {
+		t.Errorf("Concerns = %+v, want none: a parallel link is not a policy boundary", a.Concerns)
+	}
+	want := "between r1 and r2 they use different links: forward r1 (default) eth1 to r2 (default) eth0, return r2 (default) eth2 to r1 (default) eth2"
+	if !strings.Contains(a.Reason, want) {
+		t.Errorf("reason = %q, want it to contain %q", a.Reason, want)
+	}
+}
+
+// The return over the forward link reverses it exactly, link for link, so the
+// pair stays symmetric.
+func TestParallelLinkReturnOnTheForwardLinkIsSymmetric(t *testing.T) {
+	a := explainTwoPath(t, parallelLinkNet(1), nil, nil, "10.0.1.10").Asymmetry
+	if a == nil || a.Assessment != AssessSymmetric || len(a.Concerns) != 0 {
+		t.Fatalf("Asymmetry = %+v, want symmetric with no concerns", a)
+	}
+}
+
+// The links differ, but a firewall on r2 sits on both directions, so it does not
+// separate them. A boundary is recorded per node, and nothing here places it on
+// one interface, so the pair stays benign.
+func TestParallelLinkDifferenceUnderABoundaryOnBothDirectionsStaysBenign(t *testing.T) {
+	bounds := []Boundary{boundary("r2", "default", BoundaryStatefulFirewall)}
+	a := explainTwoPath(t, parallelLinkNet(2), nil, bounds, "10.0.1.10").Asymmetry
+	if a.Assessment != AssessBenign || len(a.Concerns) != 0 {
+		t.Errorf("assessment %q with concerns %+v, want benign with none", a.Assessment, a.Concerns)
+	}
+}
+
+// A recorded failure on the return is still a concern when the links differ. The
+// link difference does not hide it.
+func TestParallelLinkDifferenceKeepsARecordedReturnFailure(t *testing.T) {
+	checks := []Check{check("r2", "default", "eth2", "10.0.1.10", CheckFail)}
+	a := explainTwoPath(t, parallelLinkNet(2), checks, nil, "10.0.1.10").Asymmetry
+	if got := concernKinds(a); !slices.Equal(got, []string{"recorded_failure/return"}) {
+		t.Fatalf("concerns = %v, want one recorded_failure on the return route", got)
+	}
+	if a.Assessment != AssessRisk {
+		t.Errorf("Assessment = %q, want %q", a.Assessment, AssessRisk)
+	}
+}
+
+// A hop whose link the evidence cannot name makes the pair unknown. It is not
+// symmetric, and it is not a proven difference either. Routes that are proven stay
+// in the output, and a route that is not proven stays out.
+func TestUnnamedParallelLinkIsUnknown(t *testing.T) {
+	cases := []struct {
+		name         string
+		obs          []netmodel.Observation
+		want         string
+		routesProven bool
+	}{
+		{
+			name: "return route names no egress interface",
+			obs: append(without(parallelLinkNet(1), "fib:r2:default"), table(netmodel.PlaneFIB, "r2", "default", true,
+				route("10.20.40.0/24", "kernel", onLink("eth1")),
+				route("10.0.1.0/24", "kernel", nh("10.12.1.1", "")))),
+			want:         "r2 (default) does not name the interface it leaves by",
+			routesProven: true,
+		},
+		{
+			name: "egress interface holds no address toward the next hop",
+			obs: append(without(parallelLinkNet(2), "config:r1:default"), configured("r1", "default",
+				[]netmodel.Interface{ifc("eth0", "10.0.1.1/24"), ifc("eth1"), ifc("eth2", "10.12.2.1/30")})),
+			want:         "r1 (default) eth1 holds no prefix containing 10.12.1.2",
+			routesProven: true,
+		},
+		{
+			name: "next hop address on two interfaces of one node",
+			obs: append(parallelLinkNet(1), netmodel.Observation{
+				Provenance: netmodel.Provenance{Source: "ospf:r1:default", CollectedAt: t0},
+				Plane:      netmodel.PlaneControl,
+				Node:       "r1",
+				VRF:        "default",
+				Interfaces: []netmodel.Interface{ifc("eth2", "10.12.1.1/30")},
+			}),
+			want:         "r1 (default) does not name one interface holding 10.12.1.1",
+			routesProven: true,
+		},
+		{
+			name: "ECMP over both links on r1",
+			obs: append(without(parallelLinkNet(1), "fib:r1:default"), table(netmodel.PlaneFIB, "r1", "default", true,
+				route("10.20.0.0/16", "kernel", nh("10.12.1.2", "eth1"), nh("10.12.2.2", "eth2")),
+				route("10.0.1.0/24", "kernel", onLink("eth0")))),
+			want: "forward route not proven: r1 (default): 2 next hops",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := explainTwoPath(t, c.obs, nil, nil, "10.0.1.10").Asymmetry
+			assertUnknown(t, a, c.want)
+			if proven := len(a.ForwardRoute) > 0 && len(a.ReturnRoute) > 0; proven != c.routesProven {
+				t.Errorf("forward %v and return %v, want both proven = %v", stepNodes(a.ForwardRoute), stepNodes(a.ReturnRoute), c.routesProven)
+			}
+			if len(a.Concerns) != 0 {
+				t.Errorf("Concerns = %+v, want none: unknown raises no concern", a.Concerns)
+			}
+		})
+	}
+}
+
+// sharedSegmentNet is parallelLinkNet(1) with r1 and r2 replaced. The two routers
+// meet on one segment: r1 eth1 is r1Eth1 and r2 eth0 is r2Eth0. h1, srv, and their
+// FIB tables are kept from parallelLinkNet(1). Each router also holds a loopback,
+// 10.12.9.1/32 on r1 and 10.12.9.2/32 on r2. fwdHop is the next hop r1 uses toward
+// srv, and backHop is the next hop r2 uses toward h1. Every FIB table is complete.
+func sharedSegmentNet(r1Eth1, r2Eth0, fwdHop, backHop string) []netmodel.Observation {
+	return append(
+		without(parallelLinkNet(1), "config:r1:default", "config:r2:default", "fib:r1:default", "fib:r2:default"),
+		configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.1.1/24"), ifc("eth1", r1Eth1), ifc("lo", "10.12.9.1/32")}),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", r2Eth0), ifc("eth1", "10.20.40.1/24"), ifc("lo", "10.12.9.2/32")}),
+		table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.20.0.0/16", "kernel", nh(fwdHop, "eth1")),
+			route("10.0.1.0/24", "kernel", onLink("eth0"))),
+		table(netmodel.PlaneFIB, "r2", "default", true,
+			route("10.20.40.0/24", "kernel", onLink("eth1")),
+			route("10.0.1.0/24", "kernel", nh(backHop, "eth0"))),
+	)
+}
+
+// Regression: a next hop that the far node holds outside the egress subnet names no
+// link. The model has no interface type, so a loopback is caught only because its
+// /32 sits outside the egress subnet. Without the subnet check, the first two cases
+// read as different links, and the third read as the same link in reverse. Now every
+// case is unknown, both routes stay walkable, and the return is the forward route
+// reversed.
+func TestLinkWithoutASharedSubnetIsUnknown(t *testing.T) {
+	cases := []struct {
+		name string
+		obs  []netmodel.Observation
+		want string
+	}{
+		{
+			name: "forward next hop on the far loopback",
+			obs:  sharedSegmentNet("10.12.0.1/16", "10.12.0.2/16", "10.12.9.2", "10.12.0.1"),
+			want: "the link between r1 and r2 is not proven: r2 (default) lo holds 10.12.9.2 on 10.12.9.2/32, but r1 (default) eth1 holds it on 10.12.0.0/16, so the two ends share no subnet",
+		},
+		{
+			name: "return next hop on the far loopback",
+			obs:  sharedSegmentNet("10.12.0.1/16", "10.12.0.2/16", "10.12.0.2", "10.12.9.1"),
+			want: "the link between r1 and r2 is not proven: r1 (default) lo holds 10.12.9.1 on 10.12.9.1/32, but r2 (default) eth0 holds it on 10.12.0.0/16, so the two ends share no subnet",
+		},
+		{
+			name: "far end holds the next hop on a narrower subnet",
+			obs:  sharedSegmentNet("10.12.0.1/16", "10.12.5.2/20", "10.12.5.2", "10.12.0.1"),
+			want: "the link between r1 and r2 is not proven: r2 (default) eth0 holds 10.12.5.2 on 10.12.0.0/20, but r1 (default) eth1 holds it on 10.12.0.0/16, so the two ends share no subnet",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := explainTwoPath(t, c.obs, nil, nil, "10.0.1.10").Asymmetry
+			assertUnknown(t, a, c.want)
+			if got, want := stepNodes(a.ForwardRoute), []string{"h1", "r1", "r2", "srv"}; !slices.Equal(got, want) {
+				t.Errorf("forward route = %v, want %v", got, want)
+			}
+			if got, want := stepNodes(a.ReturnRoute), []string{"srv", "r2", "r1", "h1"}; !slices.Equal(got, want) {
+				t.Errorf("return route = %v, want %v", got, want)
+			}
+			if len(a.Concerns) != 0 {
+				t.Errorf("Concerns = %+v, want none: unknown raises no concern", a.Concerns)
+			}
+		})
 	}
 }

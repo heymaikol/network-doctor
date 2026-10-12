@@ -78,12 +78,14 @@ counts toward the per-area reconciliation, which matches the counters.
   capture.
 - A single area. The comparison's per-area reconciliation is tested on one
   area here, and on more than one only in synthetic tests.
-- No zebra RIB capture is committed. With `ZEBRA_VTY_PORT` set, `lab/lsdb.sh`
-  also takes R, zebra's unfiltered `show ip route json`, between E and D. The
-  repo does not prove zebra's vty port, so it must be given. R is kept only when
-  its bytes are the echoed command, CRLF, one JSON object, CRLF, and the node's
-  prompt, `r1> ` or `r2> ` (with its trailing space), with nothing after it. The
-  prompt is the one the committed ospfd captures show. Zebra's own prompt is not
-  verified, so another prompt fails R. R is not decoded or compared. The
-  process-state guard checks A and D only. It does not show that the zebra RIB
-  held still between E, R, and D.
+- No zebra RIB capture is in this directory. The steady run's zebra RIB capture
+  is preserved in `../zebra-rib/steady/` from the operator's original run. It is described
+  in `../zebra-rib/README.md`. With `ZEBRA_VTY_PORT` set, `lab/lsdb.sh` also takes
+  R, zebra's unfiltered `show ip route json`, between E and D. The repo does not
+  prove zebra's vty port, so it must be given. R is kept only when its bytes are
+  the echoed command, CRLF, one JSON object, CRLF, and the node's prompt, `r1> `
+  or `r2> ` (with its trailing space), with nothing after it. The prompt is the
+  one the committed ospfd captures show. Zebra's own prompt is not verified by
+  any script here. The `../zebra-rib/` tests require the node's prompt on the
+  steady R capture, and a different prompt fails the check. R is not decoded or compared. The process-state guard checks A
+  and D only. It does not show that the zebra RIB held still between E, R, and D.

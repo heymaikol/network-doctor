@@ -424,14 +424,28 @@
             "route_type": "N",
             "area": "0.0.0.0",
             "cost": 10,
-            "next_hops": 1
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [],
+            "direct_interfaces": [
+              "e1"
+            ],
+            "metric_status": "representable"
           },
           {
             "prefix": "10.10.1.0/24",
             "route_type": "N",
             "area": "0.0.0.0",
             "cost": 10,
-            "next_hops": 1
+            "next_hops": 1,
+            "next_hop_status": "complete",
+            "forwarding_hop_count": 1,
+            "forwarding_hops": [],
+            "direct_interfaces": [
+              "stub1"
+            ],
+            "metric_status": "representable"
           }
         ],
         "findings": [

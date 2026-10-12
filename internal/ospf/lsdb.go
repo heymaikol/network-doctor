@@ -120,6 +120,20 @@ type LSDB struct {
 	Unknown     []UnknownContent `json:"unknown,omitempty"`
 }
 
+// Next-hop statuses, as printed in next_hop_status.
+const (
+	NextHopComplete        = "complete"
+	NextHopExplicitlyEmpty = "explicitly_empty"
+	NextHopAmbiguous       = "ambiguous"
+	NextHopIncomplete      = "incomplete"
+)
+
+// Metric statuses, as printed in metric_status.
+const (
+	MetricRepresentable   = "representable"
+	MetricUnrepresentable = "unrepresentable"
+)
+
 // Route is one calculated prefix route.
 type Route struct {
 	Prefix    netip.Prefix `json:"prefix"`
@@ -127,7 +141,24 @@ type Route struct {
 	Area      string       `json:"area,omitempty"`
 	Cost      uint64       `json:"cost"`
 	Type2Cost *uint64      `json:"type2_cost,omitempty"`
-	NextHops  int          `json:"next_hops"`
+	// NextHops is the raw count of nexthops elements, unidentified ones included.
+	NextHops int `json:"next_hops"`
+
+	// NextHopStatus says how fully the next hops were read. The count is set only
+	// for complete and explicitly empty routes.
+	NextHopStatus      string          `json:"next_hop_status"`
+	ForwardingHopCount *int            `json:"forwarding_hop_count,omitempty"`
+	ForwardingHops     []ForwardingHop `json:"forwarding_hops"`
+	DirectInterfaces   []string        `json:"direct_interfaces"`
+	MetricStatus       string          `json:"metric_status"`
+}
+
+// ForwardingHop is one calculated address next hop. The routers that advertised
+// it are attributes of the hop, not part of its identity.
+type ForwardingHop struct {
+	Address      netip.Addr   `json:"address"`
+	Interface    string       `json:"interface"`
+	AdvertisedBy []netip.Addr `json:"advertised_by"`
 }
 
 // Routes is one read of the calculated route table. Known is false for an empty

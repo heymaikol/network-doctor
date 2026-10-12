@@ -360,29 +360,27 @@ func (w *walker) choose(at state, p netmodel.Plane, cands []netip.Prefix) (Decis
 	}
 	switch ans.State {
 	case netmodel.Present:
-		first := ans.Evidence[0].Route
-		for _, e := range ans.Evidence[1:] {
-			if !sameForwarding(first, e.Route) {
-				d.Kind = KindConflicting
-				d.Reason = fmt.Sprintf("%s origins disagree on forwarding for %s; no path is chosen", p, cands[0])
-				return d, nil
-			}
+		if !agreeOnForwarding(ans.Evidence) {
+			d.Kind = KindConflicting
+			d.Reason = fmt.Sprintf("%s origins disagree on forwarding for %s; no path is chosen", p, cands[0])
+			return d, nil
 		}
+		best := mostNamed(ans.Evidence)
 		switch {
 		case p == netmodel.PlaneFIB && !d.Proven:
 			d.Kind = KindUnknown
 			d.Reason = "FIB for this node is partial, so a more specific route may exist; no path is chosen"
 			return d, nil
-		case first.Discard:
+		case best.Discard:
 			d.Kind = KindDiscard
-		case len(first.NextHops) == 0:
+		case len(best.NextHops) == 0:
 			d.Kind = KindUnknown
 			d.Reason = "route names no next hop and is not a discard, so forwarding is unknown"
 			return d, nil
 		default:
 			d.Kind = KindForward
-			d.NextHops = nextHopTexts(first.NextHops)
-			return d, first.NextHops
+			d.NextHops = nextHopTexts(best.NextHops)
+			return d, best.NextHops
 		}
 		return d, nil
 	case netmodel.Conflicting:
@@ -510,8 +508,44 @@ func keyAddr(a netip.Addr) string {
 	return a.WithZone("").Unmap().String()
 }
 
+// sameForwarding reports whether two routes forward the same way. Next hops match
+// one to one as sameHops reads them, so an omitted interface agrees with a named
+// one on the same gateway, while an ECMP width difference still differs.
 func sameForwarding(a, b netmodel.Route) bool {
-	return a.Discard == b.Discard && slices.Equal(a.NextHops, b.NextHops)
+	return a.Discard == b.Discard && sameHops(nextHopTexts(a.NextHops), nextHopTexts(b.NextHops))
+}
+
+// agreeOnForwarding checks every pair of rows. Agreement is not transitive once an
+// omitted interface counts as a match, so a row can agree with two rows that
+// disagree with each other. Comparing each row only with the first would miss that.
+func agreeOnForwarding(ev []netmodel.Evidence) bool {
+	for i := range ev {
+		for _, f := range ev[i+1:] {
+			if !sameForwarding(ev[i].Route, f.Route) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// mostNamed returns the row that names the most interfaces, as its origin stated
+// it. Rows that agree differ only in omitted interfaces, so this is the row whose
+// checks can attach to a segment. A tie keeps the first row in canonical order.
+// ponytail: no per-hop merge, since two ECMP legs on one gateway can pair two ways.
+// Rows that each omit a different interface report the first of them. Merge
+// per hop only once a capture shows that case.
+func mostNamed(ev []netmodel.Evidence) netmodel.Route {
+	named := func(e netmodel.Evidence) int {
+		n := 0
+		for _, h := range e.Route.NextHops {
+			if h.Interface != "" {
+				n++
+			}
+		}
+		return n
+	}
+	return slices.MaxFunc(ev, func(a, b netmodel.Evidence) int { return cmp.Compare(named(a), named(b)) }).Route
 }
 
 func supports(ans netmodel.Answer) []Support {

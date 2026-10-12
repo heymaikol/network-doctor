@@ -351,6 +351,103 @@ func TestConflictingFIBOriginsKeepBothProvenances(t *testing.T) {
 	}
 }
 
+// Two FIB rows can name the same gateway while one leaves the interface unreported.
+// That is compatible, so the decision goes forward on the row that names the
+// interface. Named interfaces that differ, an ECMP width difference, and a third
+// row that disagrees with another row still conflict.
+func TestOmittedFIBInterfaceIsCompatibleNotConflicting(t *testing.T) {
+	row := func(source, origin string, hops ...netmodel.NextHop) netmodel.Observation {
+		return tableFrom(source, netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", origin, hops...))
+	}
+	kernelEth1 := row("fib:r1:default", "kernel", nh("10.0.12.2", "eth1"))
+	cases := []struct {
+		name string
+		fib  []netmodel.Observation
+		want Kind
+		hops []NextHop
+	}{
+		{
+			"an omitted interface from another origin is compatible",
+			[]netmodel.Observation{row("a-fib:r1:default", "frr", nh("10.0.12.2", "")), kernelEth1},
+			KindForward,
+			[]NextHop{{Addr: "10.0.12.2", Interface: "eth1"}},
+		},
+		{
+			"an omitted interface from the same origin is compatible",
+			[]netmodel.Observation{row("a-fib:r1:default", "kernel", nh("10.0.12.2", "")), kernelEth1},
+			KindForward,
+			[]NextHop{{Addr: "10.0.12.2", Interface: "eth1"}},
+		},
+		{
+			"no row names the interface, so none is invented",
+			[]netmodel.Observation{row("a-fib:r1:default", "frr", nh("10.0.12.2", "")), row("fib:r1:default", "kernel", nh("10.0.12.2", ""))},
+			KindForward,
+			[]NextHop{{Addr: "10.0.12.2"}},
+		},
+		{
+			"named interfaces that differ conflict",
+			[]netmodel.Observation{row("a-fib:r1:default", "frr", nh("10.0.12.2", "eth2")), kernelEth1},
+			KindConflicting,
+			nil,
+		},
+		{
+			"an omitted interface cannot hide a disagreement between two named rows",
+			[]netmodel.Observation{row("a-fib:r1:default", "ospf", nh("10.0.12.2", "")), kernelEth1, row("z-fib:r1:default", "bgp", nh("10.0.12.2", "eth2"))},
+			KindConflicting,
+			nil,
+		},
+		{
+			"one unlabeled leg is not two ECMP legs",
+			[]netmodel.Observation{row("a-fib:r1:default", "frr", nh("10.0.12.2", "")), row("fib:r1:default", "kernel", nh("10.0.12.2", "eth1"), nh("10.0.12.2", "eth2"))},
+			KindConflicting,
+			nil,
+		},
+		{
+			"unreported forwarding on both rows stays unknown",
+			[]netmodel.Observation{row("a-fib:r1:default", "frr"), row("fib:r1:default", "kernel")},
+			KindUnknown,
+			nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			obs := append(without(threeRouters(), "fib:r1:default"), c.fib...)
+			m, err := netmodel.New(obs...)
+			if err != nil {
+				t.Fatalf("netmodel.New: %v", err)
+			}
+			if got := m.Lookup("r1", "default", netmodel.PlaneFIB, pfx("10.20.0.0/16")); got.State != netmodel.Present {
+				t.Fatalf("Lookup = %s, want present so routepath decides", got.State)
+			}
+			d := explainFrom(t, obs, nil, fromR1, dest).Forwarding.Decision
+			if d.Kind != c.want || !slices.Equal(d.NextHops, c.hops) {
+				t.Errorf("r1 = %s %v, want %s %v", d.Kind, d.NextHops, c.want, c.hops)
+			}
+		})
+	}
+}
+
+// The row that names an interface is the one reported, so a recorded failure on
+// that interface still attaches to its segment, whichever row sorts first.
+func TestOmittedFIBInterfaceKeepsItsNamedInterfaceForChecks(t *testing.T) {
+	obs := append(without(threeRouters(), "fib:r1:default"),
+		tableFrom("a-fib:r1:default", netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "frr", nh("10.0.12.2", ""))),
+		tableFrom("fib:r1:default", netmodel.PlaneFIB, "r1", "default", true, route("10.20.0.0/16", "kernel", nh("10.0.12.2", "eth1"))))
+	e := explainFrom(t, obs, []Check{check("r1", "default", "eth1", dest, CheckFail)}, fromR1, dest)
+	if e.Forwarding.Decision.Kind != KindForward || len(e.Forwarding.Next) != 1 {
+		t.Fatalf("r1 = %+v, want forward on one next hop", e.Forwarding.Decision)
+	}
+	if via := e.Forwarding.Next[0].Via; via.Interface != "eth1" || via.Outcome != OutcomeFail {
+		t.Errorf("segment = %s %s, want eth1 failing", via.Interface, via.Outcome)
+	}
+	if got := findings(e, FindingForwardingFailed); len(got) != 1 {
+		t.Errorf("forwarding_failed = %+v, want one at r1", got)
+	}
+	if got := findings(e, FindingConflict); len(got) != 0 {
+		t.Errorf("conflicting_evidence = %+v, want none", got)
+	}
+}
+
 func TestUnknownNextHopIsNeverInvented(t *testing.T) {
 	obs := without(threeRouters(), "fib:r1:default")
 	obs = append(obs, table(netmodel.PlaneFIB, "r1", "default", true,

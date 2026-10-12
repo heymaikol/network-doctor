@@ -11,7 +11,7 @@ has no ospfd version record.
 The operator's 21 original capture files are preserved under `steady/` with a
 `SHA256SUMS` manifest computed from those same source bytes. The tests require
 every file and reject missing files, altered contents, and invalid framing.
-The captures have not been decoded or compared with the kernel FIB.
+An unexported decoder in `internal/frrospf/zebra_rib.go` reads the two R bodies offline, and only the tests call it. Import does not call it, and nothing compares the captures with the kernel FIB.
 
 ## Files
 
@@ -44,7 +44,7 @@ convert CRLF to LF.
 
 The R output is one JSON object. Its top-level keys are prefixes that
 `netip.ParsePrefix` accepts, and no top-level key repeats. r1 has 6 keys and r2
-has 7. Values are not read.
+has 7. The checks in `zebra_rib_test.go` do not read values, and the decoder in `zebra_rib.go` does.
 
 ## Stamps and order
 

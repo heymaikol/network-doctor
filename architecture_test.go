@@ -25,7 +25,8 @@ func TestPackageLayering(t *testing.T) {
 	// sits beside diagnostic at layer one. OSPF reasoning reads a netmodel the
 	// same way, and it never imports routepath, so it sits there too. The FRR
 	// import reads recorded captures and compares their LSDB through that OSPF
-	// reasoning, so it sits one layer above it.
+	// reasoning, so it sits one layer above it. The BGP summary decoder reads one
+	// recorded transcript and imports only textsafe, so it sits at layer one.
 	// Checking every direct edge also rules out a transitive path to the same or
 	// a higher layer.
 	layers := map[string]int{

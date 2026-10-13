@@ -93,6 +93,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	explain := fs.Bool("explain", false, "explain how traffic to a destination should leave a topology file; runs no probes")
 	importFRR := fs.String("import-frr-ospf", "", "import the FRR OSPF captures named by manifest `file`; runs no probes")
 	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf, write the topology to `file` only when every capture and record is accepted")
+	importBGP := fs.String("import-frr-bgp", "", "import the FRR BGP summary captures named by manifest `file`; runs no probes")
 	watch := fs.Bool("watch", false, "continuously re-run checks (with -json, stream one report per line)")
 	profileName := fs.String("profile", "", "run a service `profile` ("+strings.Join(profiles.Names(), ", ")+"; use list to describe them)")
 	var peerListen peerListenList
@@ -164,9 +165,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		allowed = 2
 	}
 	// An import reads a manifest flag and writes an optional topology flag. It
-	// takes no positional argument, since the manifest names every capture.
+	// takes no positional argument, since the manifest names every capture. The
+	// BGP import reads a manifest flag alone.
 	importSet := setFlagNames(fs)["import-frr-ospf"] || setFlagNames(fs)["write-topology"]
-	if importSet {
+	bgpSet := setFlagNames(fs)["import-frr-bgp"]
+	if importSet || bgpSet {
 		allowed = 0
 	}
 	if len(positional) > allowed {
@@ -177,6 +180,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	// Before -version and -list-checks, so a combination with them is refused
 	// rather than answered by whichever flag is checked first.
+	// The BGP check comes first: it refuses the OSPF flags by name, and the OSPF
+	// runner would otherwise answer a BGP combination with its own message.
+	if bgpSet {
+		return runFRRBGPImport(setFlagNames(fs), *importBGP, *jsonOut, stdout, stderr)
+	}
 	if importSet {
 		return runFRRImport(setFlagNames(fs), *importFRR, *writeTopology, *jsonOut, stdout, stderr)
 	}

@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-10-10" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-10-12" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the
  connection breaks
@@ -36,6 +36,10 @@ netdoc \- diagnose network connectivity and name the layer where the
 .B \-import\-frr\-ospf
 .I manifest.json
 .RB [ \-write\-topology " file" ]
+.RI [ \-json ]
+.br
+.B netdoc
+.BI \-import\-frr\-bgp " manifest.json"
 .RI [ \-json ]
 .br
 .B netdoc
@@ -341,6 +345,16 @@ in the \-explain format. The file is written only when every capture was
 accepted and every neighbor record was mapped; an incomplete import writes
 nothing. The file is published by hard link, so an existing file is never
 replaced, and a filesystem without hard links refuses the write.
+.TP
+.BI \-import\-frr\-bgp " manifest.json"
+Import the FRR BGP summary captures that the manifest names, and report each
+router's ID, local AS, and peer sessions, with the state FRR printed for each
+peer. The manifest is the version 1 format, and each capture declares
+"command": "show ip bgp summary json", "frr_version": "10.7.0", and "vrf":
+"default". Each capture is the raw VTY transcript. The import is headless: it
+runs no probe, contacts no router, and writes no topology. Exit 0 means every
+capture was valid; it does not mean a session is up. Exit 2 means the manifest,
+a capture, or the output cannot be used.
 .TP
 .B \-two\-sided
 Say which of two vantage points a same-target failure is specific to. With two
@@ -720,6 +734,9 @@ Under
 .B \-import\-frr\-ospf
 it means every capture was accepted and every neighbor record was mapped. It is
 not a health result.
+Under
+.B \-import\-frr\-bgp
+it means every capture was valid. It is not a health result.
 .TP
 .B 1
 A row failed, the terminal UI was quit before the chain finished, or the run
@@ -769,6 +786,14 @@ Under
 an invalid manifest, an unsafe or unreadable capture, a flag that cannot be
 combined
 with the import, and a topology that cannot be written also exit
+.BR 2 .
+Under
+.BR \-import\-frr\-bgp ,
+an invalid manifest, a capture or transcript that cannot be used,
+a manifest that names another command, FRR version, VRF, or
+.BR source_node ,
+a flag that cannot be combined with the import,
+and output that cannot be written also exit
 .BR 2 .
 Under offline
 .BR \-two\-sided ,

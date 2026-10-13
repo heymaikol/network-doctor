@@ -16,6 +16,19 @@ import (
 // write them.
 const frrBGPSteady = "../../testdata/frr/10.7.0/bgp/steady"
 
+// openRoot opens dir for this test. Each file the test reads or writes in dir is
+// named relative to it, so no name can leave dir. The root closes when the test
+// ends.
+func openRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
+
 // stageFRRBGP copies the committed r1 and r2 summary transcripts and their
 // collection times into a new directory, and writes a manifest that names both.
 // The transcripts are copied byte for byte, so their framing is FRR's own. Each
@@ -23,17 +36,19 @@ const frrBGPSteady = "../../testdata/frr/10.7.0/bgp/steady"
 func stageFRRBGP(t *testing.T) (dir, manifest string) {
 	t.Helper()
 	dir = t.TempDir()
+	steady := openRoot(t, frrBGPSteady)
+	staged := openRoot(t, dir)
 	var captures []any
 	for _, node := range []string{"r1", "r2"} {
 		file := node + "-show_ip_bgp_summary_json.raw"
-		raw, err := os.ReadFile(filepath.Join(frrBGPSteady, file))
+		raw, err := steady.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, file), raw, 0o600); err != nil {
+		if err := staged.WriteFile(file, raw, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		stamp, err := os.ReadFile(filepath.Join(frrBGPSteady, node+"-show_ip_bgp_summary_json.collected_at"))
+		stamp, err := steady.ReadFile(node + "-show_ip_bgp_summary_json.collected_at")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,18 +69,20 @@ type failWriter struct{}
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
 
 func TestFRRBGPStagedTranscriptsAreThePreservedBytes(t *testing.T) {
-	sums, err := os.ReadFile(filepath.Join(frrBGPSteady, "SHA256SUMS"))
+	steady := openRoot(t, frrBGPSteady)
+	sums, err := steady.ReadFile("SHA256SUMS")
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir, _ := stageFRRBGP(t)
+	staged := openRoot(t, dir)
 	checked := 0
 	for _, line := range strings.Split(strings.TrimSpace(string(sums)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 || !strings.HasSuffix(fields[1], "_summary_json.raw") {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, fields[1]))
+		raw, err := staged.ReadFile(fields[1])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -186,8 +203,9 @@ func TestFRRBGPImportLeavesTheOSPFReportAlone(t *testing.T) {
 // report reaches standard output.
 func TestFRRBGPImportRefusesABadTranscriptWithNoReport(t *testing.T) {
 	dir, manifest := stageFRRBGP(t)
-	path := filepath.Join(dir, "r1-show_ip_bgp_summary_json.raw")
-	raw, err := os.ReadFile(path)
+	staged := openRoot(t, dir)
+	name := "r1-show_ip_bgp_summary_json.raw"
+	raw, err := staged.ReadFile(name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +213,7 @@ func TestFRRBGPImportRefusesABadTranscriptWithNoReport(t *testing.T) {
 	if bytes.Equal(mutated, raw) {
 		t.Fatal("fixture prompt not found; the test cannot change it")
 	}
-	if err := os.WriteFile(path, mutated, 0o600); err != nil {
+	if err := staged.WriteFile(name, mutated, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := runNetdoc(t, "--import-frr-bgp", manifest)
@@ -211,8 +229,9 @@ func TestFRRBGPImportRefusesABadTranscriptWithNoReport(t *testing.T) {
 // says the session is down.
 func TestFRRBGPImportObservedEmptyIsNotDown(t *testing.T) {
 	dir, manifest := stageFRRBGP(t)
-	path := filepath.Join(dir, "r2-show_ip_bgp_summary_json.raw")
-	raw, err := os.ReadFile(path)
+	staged := openRoot(t, dir)
+	name := "r2-show_ip_bgp_summary_json.raw"
+	raw, err := staged.ReadFile(name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +241,7 @@ func TestFRRBGPImportObservedEmptyIsNotDown(t *testing.T) {
 		t.Fatal("fixture layout changed; the peers object is not where the test expects it")
 	}
 	emptied := bytes.Join([][]byte{raw[:start], []byte("\"peers\":{},\r\n  "), raw[end:]}, nil)
-	if err := os.WriteFile(path, emptied, 0o600); err != nil {
+	if err := staged.WriteFile(name, emptied, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := runNetdoc(t, "--import-frr-bgp", manifest)

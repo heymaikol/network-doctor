@@ -3,7 +3,6 @@ package frrbgp
 import (
 	"net/netip"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -34,10 +33,22 @@ func transcript(node, body string) []byte {
 	return []byte(CommandSummary + "\r\n" + body + "\r\n" + node + "> ")
 }
 
+// openRoot opens dir for this test. Each file the test reads in dir is named
+// relative to it, so no name can leave dir. The root closes when the test ends.
+func openRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
+
 // readFixture returns one committed summary transcript, unchanged.
 func readFixture(t *testing.T, node string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(steadyDir, node+"-show_ip_bgp_summary_json.raw"))
+	data, err := openRoot(t, steadyDir).ReadFile(node + "-show_ip_bgp_summary_json.raw")
 	if err != nil {
 		t.Fatal(err)
 	}

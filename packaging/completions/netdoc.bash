@@ -64,7 +64,7 @@ _netdoc() {
             COMPREPLY=($(compgen -A hostname -- "$cur"))
             return
             ;;
-        -import-frr-ospf | --import-frr-ospf | -write-topology | --write-topology)
+        -import-frr-ospf | --import-frr-ospf | -write-topology | --write-topology | -import-frr-bgp | --import-frr-bgp)
             # A manifest, or the topology file to write, so local filenames.
             COMPREPLY=($(compgen -f -- "$cur"))
             return
@@ -117,6 +117,7 @@ _netdoc() {
         -two-sided --two-sided
         -explain --explain
         -import-frr-ospf --import-frr-ospf
+        -import-frr-bgp --import-frr-bgp
         -write-topology --write-topology
         -route-a --route-a
         -route-b --route-b

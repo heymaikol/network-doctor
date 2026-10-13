@@ -21,6 +21,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --compare before.ndoc after.ndoc [--json]
        netdoc --explain topology.json DEST [--json]
        netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
+       netdoc --import-frr-bgp manifest.json [--json]
        netdoc --two-sided here.ndoc there.ndoc [--route-a topology.json] [--route-b topology.json] [--json]
        netdoc --two-sided --via ssh-destination [target] [--json]
 
@@ -65,6 +66,14 @@ network is healthy. Exit 1 means something was refused or left unmapped. With
 by hard link, so it never replaces an existing file, and a filesystem without
 hard links refuses the write. The format is documented under FRR OSPF import in
 the reference.
+
+--import-frr-bgp reads the FRR BGP summary captures that a manifest names and
+reports each router's ID, local AS, and peer sessions, with each state as FRR
+printed it. It is headless, runs no probe, and contacts no router. Its manifest
+is the version 1 format, and each capture names "command": "show ip bgp summary
+json", "frr_version": "10.7.0", and "vrf": "default". Exit 0 means every capture
+was valid; it does not mean a session is up. Exit 2 means the manifest, a
+capture, or the output cannot be used.
 
 --two-sided reads two snapshots as two machines looking at one target and says
 whether the evidence places a failure on side A, side B, something shared, or

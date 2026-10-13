@@ -1,0 +1,12 @@
+show ip bgp json
+{
+ "vrfId": 0,
+ "vrfName": "default",
+ "tableVersion": 1,
+ "routerId": "1.1.1.1",
+ "defaultLocPrf": 100,
+ "localAS": 65001,
+ "routes": { "10.10.2.0/24": [{"valid":true,"bestpath":true,"selectionReason":"First path received","pathFrom":"external","prefix":"10.10.2.0","prefixLen":24,"network":"10.10.2.0/24","version":1,"metric":0,"weight":0,"peerId":"10.0.1.2","path":"65002","origin":"IGP","nexthops":[{"ip":"10.0.1.2","hostname":"r2","afi":"ipv4","used":true}]}]
+ } , "totalRoutes": 1, "totalPaths": 1,"numRoutes":1
+ } 
+r1> 

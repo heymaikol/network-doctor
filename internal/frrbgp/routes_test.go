@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -26,12 +28,22 @@ var routeCaptureSums = map[string]string{
 // routeOnePath is a path with no peerId: pathFrom, path, origin and one next hop.
 const routeOnePath = `{"pathFrom":"external","path":"65002","origin":"IGP","nexthops":[{"ip":"10.0.1.2"}]}`
 
+// routeReadCapture returns the raw bytes of one pinned capture. Only the nodes in
+// routeCaptureSums have a fixture, and fs.ReadFile on a DirFS refuses any name that
+// leaves routeFixtureRoot.
+func routeReadCapture(node string) ([]byte, error) {
+	if _, ok := routeCaptureSums[node]; !ok {
+		return nil, fmt.Errorf("%q is not a pinned capture node", node)
+	}
+	return fs.ReadFile(os.DirFS(routeFixtureRoot), "bgp/steady/"+node+"-show_ip_bgp_json.raw")
+}
+
 // routeCapture reads one genuine capture. It returns the raw bytes and the JSON body
 // between the echoed command and the node prompt. It fails on a digest or framing
 // mismatch, and it never writes the fixture.
 func routeCapture(t *testing.T, node string) (raw, body []byte) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(routeFixtureRoot, "bgp", "steady", node+"-show_ip_bgp_json.raw"))
+	raw, err := routeReadCapture(node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,5 +387,15 @@ func TestRouteStdlibKeepsDuplicateKey(t *testing.T) {
 	}
 	if _, err := DecodeRouteTable(doc); err == nil || !strings.Contains(err.Error(), "duplicate key") {
 		t.Errorf("DecodeRouteTable err = %v, want duplicate key", err)
+	}
+}
+
+// TestRouteReadCaptureRefusesUnpinnedNodes checks that routeReadCapture refuses every node
+// outside routeCaptureSums, including names that climb out of the fixture tree.
+func TestRouteReadCaptureRefusesUnpinnedNodes(t *testing.T) {
+	for _, node := range []string{"", "r3", "../r1", "r1/../r2", "../../../../go.mod", "/etc/passwd"} {
+		if _, err := routeReadCapture(node); err == nil || !strings.Contains(err.Error(), "not a pinned capture node") {
+			t.Errorf("node %q: err = %v, want it to contain %q", node, err, "not a pinned capture node")
+		}
 	}
 }

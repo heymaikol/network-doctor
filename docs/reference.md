@@ -235,6 +235,8 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--import-frr-ospf`: every capture accepted and every neighbor record mapped; this is not a health result | `0` |
 | `--import-frr-ospf`: a capture refused or a neighbor record left unmapped; with `--write-topology`, nothing is written | `1` |
 | `--import-frr-ospf`: an invalid manifest, an unsafe or unreadable capture, a flag that cannot be combined with it, or a topology that cannot be written | `2` |
+| `--import-frr-bgp`: every capture valid; this is not a health result, and an Active or Idle peer is reported as observed | `0` |
+| `--import-frr-bgp`: an invalid manifest, a capture or transcript that cannot be used, a manifest that names another command, FRR version, VRF, or `source_node`, a flag that cannot be combined with it, or output that cannot be written | `2` |
 | Quit before the chain finished | `1` |
 | Bad arguments, pairing-input reject, validation reject, or no terminal for the TUI | `2` |
 | `--via`: SSH failed, no usable `netdoc` on the SSH host, a remote protocol mismatch, or an acquisition that outlasted its overall bound | `2` |
@@ -2092,6 +2094,30 @@ The report lists these, so a reader does not take the topology for the whole net
 - Neighbors and routes are never claimed complete.
 - An LSDB finding does not establish a cause, a failure, or a forwarding state. A passing guard does not establish that OSPF is healthy.
 - A record that is not mapped keeps its state, address, and reason in the report, so the reader sees what FRR reported and why it was not used.
+
+## FRR BGP summary import
+
+`--import-frr-bgp` reads the BGP summary that FRR printed for each router and reports each router's ID, local AS, and peer sessions, with each session state as FRR printed it. It is offline. It runs no probe, opens no socket, and contacts no router, and it writes no topology.
+
+```sh
+netdoc --import-frr-bgp manifest.json
+netdoc --import-frr-bgp manifest.json --json
+```
+
+The manifest is the version 1 format of the [OSPF import](#frr-ospf-import). Every capture must declare `"command": "show ip bgp summary json"`, `"frr_version": "10.7.0"`, and `"vrf": "default"`. Each node may have one summary capture. A `source_node` is refused, since a BGP import writes no topology.
+
+Unlike the OSPF import, a BGP capture is the raw VTY transcript, byte for byte, as FRR printed it. Its framing is checked: the command echo and CRLF come first, then one JSON object, then CRLF and the prompt of the declared node, such as `r1> `. Nothing may follow the prompt. A capture with a missing prompt, a blank line before or after the object, or another node's prompt is refused. Each capture is at most 1 MiB.
+
+The import reads `routerId` and `as` from `ipv4Unicast`, and from each entry of `peers` it reads `localAs`, `remoteAs`, and `state`. The entries are keyed by peer address. `peerState` is not read, since FRR prints `OK` there, and that is not a session state. A key that differs from a known one only in case is refused, and a key repeated at any depth is refused. An AS number must be an integer from 1 to 4294967294, because 0 and 4294967295 are reserved. A session state is shown verbatim as non-empty plain text. A `peers` object with no entries is observed empty, and the report says so.
+
+Exit 0 means every capture was valid. It does not mean a session is up. Exit 2 means the manifest, a capture, or the output cannot be used, and nothing reaches standard output.
+
+What the import does not establish:
+
+- Routes, prefixes, and `pfxRcd` counts are not read, so no route is claimed.
+- A node or peer that no capture names is unknown, not down.
+- A session state is FRR's value at the capture's collection time, not a current one.
+- Which router produced a capture is the manifest's claim. The only check is the prompt in the transcript.
 
 ## Remote diagnosis over SSH
 

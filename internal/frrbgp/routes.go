@@ -17,6 +17,10 @@ import (
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
+// CommandRoute is the one route-table command this package reads. The transcript
+// echoes it before the output.
+const CommandRoute = "show ip bgp json"
+
 // routeMaxBytes bounds one route table. It matches frrospf.MaxCaptureBytes, so
 // both decoders take the same input size.
 const routeMaxBytes = 1 << 20
@@ -146,6 +150,21 @@ func DecodeRouteTable(data []byte) (RouteTable, error) {
 		return cmp.Or(a.Prefix.Addr().Compare(b.Prefix.Addr()), a.Prefix.Bits()-b.Prefix.Bits())
 	})
 	return table, nil
+}
+
+// DecodeRouteCapture decodes one capture of CommandRoute taken on node. The framing
+// is the summary's: the echo, one JSON object, then CRLF and the node's prompt. One
+// difference is allowed. FRR prints a space after the table's closing brace, so
+// spaces may stand between that brace and the CRLF. No other byte may.
+func DecodeRouteCapture(data []byte, node string) (RouteTable, error) {
+	body, err := transcriptBody(data, CommandRoute, node)
+	if err != nil {
+		return RouteTable{}, err
+	}
+	if body, err = objectBody(bytes.TrimRight(body, " ")); err != nil {
+		return RouteTable{}, err
+	}
+	return DecodeRouteTable(body)
 }
 
 // routeCheckJSON walks the whole document once. It refuses what encoding/json

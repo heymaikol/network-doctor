@@ -69,11 +69,12 @@ the reference.
 
 --import-frr-bgp reads the FRR BGP summary captures that a manifest names and
 reports each router's ID, local AS, and peer sessions, with each state as FRR
-printed it. It is headless, runs no probe, and contacts no router. Its manifest
-is the version 1 format, and each capture names "command": "show ip bgp summary
-json", "frr_version": "10.7.0", and "vrf": "default". Exit 0 means every capture
-was valid; it does not mean a session is up. Exit 2 means the manifest, a
-capture, or the output cannot be used.
+printed it. A "show ip bgp json" capture adds the learned routes of that router,
+the prefixes whose paths name a peer. It is headless, runs no probe, and contacts
+no router. Its manifest is the version 1 format, and each capture names "command":
+"show ip bgp summary json" or "show ip bgp json", "frr_version": "10.7.0", and
+"vrf": "default". Exit 0 means every capture was valid; it does not mean a
+session is up. Exit 2 means the manifest, a capture, or the output cannot be used.
 
 --two-sided reads two snapshots as two machines looking at one target and says
 whether the evidence places a failure on side A, side B, something shared, or

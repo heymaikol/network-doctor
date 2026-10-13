@@ -93,7 +93,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	explain := fs.Bool("explain", false, "explain how traffic to a destination should leave a topology file; runs no probes")
 	importFRR := fs.String("import-frr-ospf", "", "import the FRR OSPF captures named by manifest `file`; runs no probes")
 	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf, write the topology to `file` only when every capture and record is accepted")
-	importBGP := fs.String("import-frr-bgp", "", "import the FRR BGP summary captures named by manifest `file`; runs no probes")
+	importBGP := fs.String("import-frr-bgp", "", "import the FRR BGP summary and route captures named by manifest `file`; runs no probes")
 	watch := fs.Bool("watch", false, "continuously re-run checks (with -json, stream one report per line)")
 	profileName := fs.String("profile", "", "run a service `profile` ("+strings.Join(profiles.Names(), ", ")+"; use list to describe them)")
 	var peerListen peerListenList

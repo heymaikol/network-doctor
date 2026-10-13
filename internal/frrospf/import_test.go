@@ -310,6 +310,7 @@ func TestImportRefusesCaptureMetadata(t *testing.T) {
 		{"other FRR version", func(c *Capture) { c.FRRVersion = "10.7.1" }, "FRR version"},
 		{"version not declared", func(c *Capture) { c.FRRVersion = "" }, "FRR version"},
 		{"unsupported command", func(c *Capture) { c.Command = "show ip ospf vrf all neighbor detail json" }, "not supported"},
+		{"zebra RIB command", func(c *Capture) { c.Command = "show ip route json" }, "not supported"},
 		{"output over the size limit", func(c *Capture) { c.Data = []byte(strings.Repeat(" ", MaxCaptureBytes+1)) }, "exceeds"},
 	}
 	for _, tt := range tests {

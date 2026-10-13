@@ -1999,12 +1999,14 @@ Exit `0` is not a health result. It means the captures were read and each neighb
 
 The text report names the result, lists each capture with its declared fields and its status (with the reason for a refusal), lists each neighbor record with its state and whether it was mapped, and then lists what the import does not read and what the result does not establish. With LSDB captures, it also has an `OSPF LSDB comparison` block. Each node has its guard result, then each finding with its limit, then the facts its captures reported. The facts are the process state, the LSDB and its reconciliation, the advertisements, the calculated routes, and the unsupported counts. Each list shows its first 20 items and says how many it left out. The JSON report has every item.
 
+An accepted `show ip ospf interface json` capture reports an observed local OSPF router ID only when every interface record provides the same usable IPv4 ID. In JSON, this value appears as `captures[].router_id`. A missing, invalid, unspecified, or conflicting ID is omitted rather than guessed. Conflicting IDs may produce a capture note. A neighbor record's router ID identifies the neighbor, not the local router. These identities are reported by FRR, not independently verified.
+
 `--json` prints one object. Its `version` is `1`.
 
-- `version`, `manifest`, `complete`, and `source_node` (when the manifest names one).
+- `version`, `protocol` (always `"ospf"`), `manifest`, `complete`, and `source_node` (when the manifest names one).
 - `neighbors_complete` and `routes_complete`, which are always `false`.
 - `counts`: `captures`, `accepted`, `refused`, `records`, `mapped`, and `unmapped`.
-- `captures`: each with `file`, `declared` (`source`, `node`, `vrf`, `frr_version`, `command`, and `collected_at`), `accepted`, `reason` when refused, `empty` (accepted with no neighbor or interface records), `interfaces`, `neighbors`, and `notes` when present.
+- `captures`: each with `file`, `declared` (`source`, `node`, `vrf`, `frr_version`, `command`, and `collected_at`), `accepted`, `reason` when refused, `empty` (accepted with no neighbor or interface records), `interfaces`, `neighbors`, optional `router_id` for a unanimous usable local identity on an accepted interface capture, and `notes` when present.
 - `records`: each neighbor record with `source`, `node`, `vrf`, `local_interface`, `neighbor_address`, `router_id` when present, `state`, `area`, `mapped`, `remote_node` and `remote_interface` when mapped, and `reason` when present.
 - `ospf_lsdb`: the [LSDB comparison](#lsdb-comparison). It is present only when the manifest has LSDB captures. Each node also names the source and declared collection time of its LSDB and route captures (`lsdb_read`, `routes_read`) and lists its unsupported counts (`unsupported`).
 - `not_imported` and `limitations`: the same lines the text report prints.

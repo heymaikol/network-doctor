@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "protocol": "ospf",
   "manifest": "manifest.json",
   "complete": true,
   "source_node": "r1",
@@ -27,7 +28,8 @@
       "accepted": true,
       "empty": false,
       "interfaces": 2,
-      "neighbors": 0
+      "neighbors": 0,
+      "router_id": "1.1.1.1"
     },
     {
       "file": "r1-neighbor.json",
@@ -57,7 +59,8 @@
       "accepted": true,
       "empty": false,
       "interfaces": 2,
-      "neighbors": 0
+      "neighbors": 0,
+      "router_id": "2.2.2.2"
     },
     {
       "file": "r2-neighbor.json",

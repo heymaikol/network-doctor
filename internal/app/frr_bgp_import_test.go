@@ -198,8 +198,8 @@ func TestFRRBGPImportLeavesTheOSPFReportAlone(t *testing.T) {
 	_, manifest := stageFRRBcast(t)
 	_, stdout, _ := runNetdoc(t, "--import-frr-ospf", manifest, "--json")
 	fields := frrReportFields(t, stdout)
-	if _, ok := fields["protocol"]; ok {
-		t.Error("the OSPF report gained a protocol field")
+	if got := string(fields["protocol"]); got != `"ospf"` {
+		t.Errorf("OSPF report protocol = %s, want \"ospf\"", got)
 	}
 	if strings.Contains(stdout, "observed_family") {
 		t.Error("the OSPF report gained an observed_family field")

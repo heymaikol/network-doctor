@@ -7,6 +7,7 @@ Captures (12): 12 accepted, 0 refused
     file: r1-interface.json
     declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip ospf interface json", collected 2026-10-10T17:41:22Z
     checked: accepted, 2 interfaces, 0 neighbors
+    observed local router ID 1.1.1.1, reported by every interface record
   r1 neighbor detail
     file: r1-neighbor.json
     declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip ospf neighbor detail json", collected 2026-10-10T17:41:19Z
@@ -15,6 +16,7 @@ Captures (12): 12 accepted, 0 refused
     file: r2-interface.json
     declared (not verified): node r2, vrf default, FRR 10.7.0, command "show ip ospf interface json", collected 2026-10-10T17:41:35Z
     checked: accepted, 2 interfaces, 0 neighbors
+    observed local router ID 2.2.2.2, reported by every interface record
   r2 neighbor detail
     file: r2-neighbor.json
     declared (not verified): node r2, vrf default, FRR 10.7.0, command "show ip ospf neighbor detail json", collected 2026-10-10T17:41:32Z

@@ -1050,3 +1050,49 @@ func TestImportRefusesUnknownCommandShapesWhenPaired(t *testing.T) {
 		t.Errorf("accepted=%v reason=%q; want refusal for an interface payload under the detail command", cr.Accepted, cr.Reason)
 	}
 }
+
+// A capture-level local identity requires unanimous usable interface
+// evidence. Neighbor identities do not establish the local router ID.
+func TestLocalRouterIDRequiresUnanimousUsableID(t *testing.T) {
+	cases := []struct {
+		name string
+		ids  []string
+		want string
+		note string
+	}{
+		{"no interfaces", nil, "", ""},
+		{"one valid", []string{"1.1.1.1"}, "1.1.1.1", ""},
+		{"unanimous", []string{"1.1.1.1", "1.1.1.1"}, "1.1.1.1", ""},
+		{"missing", []string{"1.1.1.1", ""}, "", ""},
+		{"all missing", []string{"", ""}, "", ""},
+		{"unspecified", []string{"0.0.0.0"}, "", ""},
+		{"invalid", []string{"not-an-ip"}, "", ""},
+		{"disagree", []string{"1.1.1.1", "2.2.2.2"}, "", "conflicting router IDs"},
+		{"valid and unspecified", []string{"1.1.1.1", "0.0.0.0"}, "", "conflicting router IDs"},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			var ifaces []ifaceInfo
+
+			for i, id := range tt.ids {
+				ifaces = append(ifaces, ifaceInfo{
+					name:     fmt.Sprintf("interface-%d", i),
+					routerID: id,
+				})
+			}
+
+			got, note := localRouterID(ifaces)
+
+			if got != tt.want {
+				t.Errorf("router ID = %q, want %q", got, tt.want)
+			}
+			if tt.note == "" && note != "" {
+				t.Errorf("unexpected note %q", note)
+			}
+			if tt.note != "" && !strings.Contains(note, tt.note) {
+				t.Errorf("note %q lacks %q", note, tt.note)
+			}
+		})
+	}
+}

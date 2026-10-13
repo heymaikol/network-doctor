@@ -89,6 +89,7 @@ type CaptureReport struct {
 	Empty      bool     // accepted with an empty neighbor or interface list
 	Interfaces int      // interfaces written to the observation
 	Neighbors  int      // neighbors written to the observation
+	RouterID   string   // local OSPF router ID the interface records all report; "" unless they agree
 	Notes      []string // interface-level issues that did not refuse the capture
 }
 
@@ -242,6 +243,7 @@ func Import(captures []Capture) (Result, error) {
 		case CommandInterface:
 			ob.Interfaces = interfaceList(o.ifaces)
 			cr.Interfaces = len(ob.Interfaces)
+			cr.RouterID = o.localID
 			obs = append(obs, ob)
 		case CommandNeighborDetail:
 			ob.Neighbors = o.mapped.neighbors
@@ -331,6 +333,7 @@ type outcome struct {
 	empty   bool
 	notes   []string
 	ifaces  []ifaceInfo
+	localID string
 	entries map[string][]detailRecord
 	mapped  mappedNeighbors
 	process *ospf.Process
@@ -374,6 +377,11 @@ func (o *outcome) parse() {
 			return
 		}
 		o.ifaces, o.notes, o.empty = ifaces, notes, len(raw) == 0
+		var note string
+		o.localID, note = localRouterID(ifaces)
+		if note != "" {
+			o.notes = append(o.notes, note)
+		}
 	case CommandNeighborDetail:
 		raw, reason := decodeNeighborDetail(o.capture.Data)
 		if reason != "" {
@@ -591,6 +599,32 @@ func buildInterfaces(raw map[string]interfaceRecord) ([]ifaceInfo, []string, err
 		out = append(out, info)
 	}
 	return out, notes, nil
+}
+
+// localRouterID returns the local OSPF router ID that the interface records of
+// one capture all report, or "" when they do not all report one usable IPv4 ID.
+// The ID is the node's own: FRR writes its OSPF router ID on each interface
+// record, and a neighbor record's ID is never read here. A missing, non-IPv4, or
+// 0.0.0.0 ID withholds it. A missing or non-IPv4 ID is already noted per
+// interface. Two or more different IDs are noted, and none of them is chosen.
+func localRouterID(ifaces []ifaceInfo) (string, string) {
+	seen := map[string]bool{}
+	for _, info := range ifaces {
+		seen[info.routerID] = true
+	}
+	if len(seen) == 1 && usableRouterID(ifaces[0].routerID) {
+		return ifaces[0].routerID, ""
+	}
+	var values []string
+	for _, id := range slices.Sorted(maps.Keys(seen)) {
+		if id != "" {
+			values = append(values, quote(id))
+		}
+	}
+	if len(values) > 1 {
+		return "", "interface records give conflicting router IDs " + strings.Join(values, ", ") + "; no local router ID is reported"
+	}
+	return "", ""
 }
 
 // interfaceList writes the interfaces of an accepted capture as netmodel

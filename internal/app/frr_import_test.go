@@ -361,6 +361,7 @@ func TestFRRImportPreservesGenuineNonFullStates(t *testing.T) {
 		filename := c.node + "-show_ip_ospf_neighbor_detail_json.raw"
 		path := filepath.Join(frrBcastDir, "..", "mtu", filename)
 
+		// #nosec G304 -- path is a checked-in MTU fixture named from a literal r1/r2 table.
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -380,6 +381,7 @@ func TestFRRImportPreservesGenuineNonFullStates(t *testing.T) {
 
 		payload := strings.Join(lines[1:len(lines)-1], "\n") + "\n"
 
+		// #nosec G703 -- c.dest is a literal from this test's table; dir is its t.TempDir.
 		if err := os.WriteFile(filepath.Join(dir, c.dest), []byte(payload), 0o600); err != nil {
 			t.Fatal(err)
 		}

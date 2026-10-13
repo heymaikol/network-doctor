@@ -271,8 +271,9 @@ func routeAddr(text string) (netip.Addr, error) {
 
 // routeDecodePath decodes one element of a prefix's path array. Source comes from
 // peerId alone: a specified address means learned, "(unspec)" means no peer, and an
-// absent or unspecified peerId stays unknown. pathFrom, path, origin and nexthops
-// are required.
+// absent or unspecified peerId stays unknown. A multicast address or the IPv4 limited
+// broadcast address is refused, since neither names a peer. pathFrom, path, origin and
+// nexthops are required.
 func routeDecodePath(raw json.RawMessage) (RoutePath, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
@@ -294,8 +295,16 @@ func routeDecodePath(raw json.RawMessage) (RoutePath, error) {
 		if err != nil {
 			return RoutePath{}, fmt.Errorf("peerId: %w", err)
 		}
+		// Unmap first, so an IPv4 address written in IPv6 form is judged the same way.
+		unmapped := addr.Unmap()
+		if unmapped.IsMulticast() {
+			return RoutePath{}, fmt.Errorf("peerId: %q is a multicast address and names no BGP peer; want a unicast address or \"(unspec)\"", peer)
+		}
+		if unmapped == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+			return RoutePath{}, fmt.Errorf("peerId: %q is the limited broadcast address and names no BGP peer; want a unicast address or \"(unspec)\"", peer)
+		}
 		// The unspecified address names no peer, so the path stays unknown.
-		if !addr.IsUnspecified() {
+		if !unmapped.IsUnspecified() {
 			path.Source, path.Peer = RouteSourceLearned, addr
 		}
 	}

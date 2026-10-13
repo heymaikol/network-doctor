@@ -148,6 +148,47 @@ func TestRouteSourceFromPeerID(t *testing.T) {
 	}
 }
 
+// TestRoutePeerIDBoundaries checks the peerId values beside the refused ranges. Addresses
+// just below multicast and ordinary unicast addresses stay learned, and an unspecified
+// peerId, plain or IPv4-mapped, names no peer. The refusal covers peerId only, so a next
+// hop in the same ranges still decodes.
+func TestRoutePeerIDBoundaries(t *testing.T) {
+	tests := []struct {
+		name   string
+		peer   string
+		source RouteSource
+		addr   netip.Addr
+	}{
+		{"below multicast is learned", `"223.255.255.255"`, RouteSourceLearned, netip.MustParseAddr("223.255.255.255")},
+		{"ordinary IPv4 unicast is learned", `"10.0.1.2"`, RouteSourceLearned, netip.MustParseAddr("10.0.1.2")},
+		{"IPv6 link-local is learned", `"fe80::1"`, RouteSourceLearned, netip.MustParseAddr("fe80::1")},
+		{"IPv6 unicast is learned", `"2001:db8::1"`, RouteSourceLearned, netip.MustParseAddr("2001:db8::1")},
+		{"IPv4 unspecified stays unknown", `"0.0.0.0"`, RouteSourceUnknown, netip.Addr{}},
+		{"IPv4-mapped IPv6 unspecified stays unknown", `"::ffff:0.0.0.0"`, RouteSourceUnknown, netip.Addr{}},
+		{"IPv6 unspecified stays unknown", `"::"`, RouteSourceUnknown, netip.Addr{}},
+		{"unspec stays no peer", `"(unspec)"`, RouteSourceNoPeer, netip.Addr{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			table, err := DecodeRouteTable([]byte(routePeerDoc(tc.peer)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := table.Routes[0].Paths[0]
+			if path.Source != tc.source || path.Peer != tc.addr {
+				t.Errorf("Source = %d, Peer = %v; want %d, %v", path.Source, path.Peer, tc.source, tc.addr)
+			}
+		})
+	}
+	table, err := DecodeRouteTable([]byte(routeHopDoc(`[{"ip":"224.0.0.1"}]`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hops := table.Routes[0].Paths[0].NextHops; len(hops) != 1 || hops[0] != netip.MustParseAddr("224.0.0.1") {
+		t.Errorf("next hops = %v, want [224.0.0.1]", hops)
+	}
+}
+
 // TestRouteGenuineMutations edits the genuine r1 body and checks the rejection reason.
 func TestRouteGenuineMutations(t *testing.T) {
 	_, base := routeCapture(t, "r1")
@@ -223,6 +264,12 @@ func TestRouteRejectsMalformedTables(t *testing.T) {
 		{"peerId not an address", routePeerDoc(`"10.0.1.300"`), "peerId:"},
 		{"peerId empty", routePeerDoc(`""`), "peerId:"},
 		{"peerId with a zone", routePeerDoc(`"fe80::1%eth0"`), "peerId:"},
+		{"peerId IPv4 multicast", routePeerDoc(`"224.0.0.1"`), "multicast"},
+		{"peerId IPv4 multicast at the top", routePeerDoc(`"239.255.255.255"`), "multicast"},
+		{"peerId IPv6 multicast", routePeerDoc(`"ff02::1"`), "multicast"},
+		{"peerId IPv4 multicast in IPv6 form", routePeerDoc(`"::ffff:224.0.0.1"`), "multicast"},
+		{"peerId limited broadcast", routePeerDoc(`"255.255.255.255"`), "broadcast"},
+		{"peerId limited broadcast in IPv6 form", routePeerDoc(`"::ffff:255.255.255.255"`), "broadcast"},
 		{"next hop not an address", routeHopDoc(`[{"ip":"10.0.1.300"}]`), "ip:"},
 		{"next hop without ip", routeHopDoc(`[{}]`), "ip is missing"},
 		{"nexthops not an array", routeHopDoc(`{}`), "nexthops:"},

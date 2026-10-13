@@ -1,0 +1,46 @@
+show ip bgp summary json
+{
+"ipv4Unicast":{
+  "routerId":"2.2.2.2",
+  "as":65002,
+  "vrfId":0,
+  "vrfName":"default",
+  "tableVersion":1,
+  "ribCount":1,
+  "ribMemory":160,
+  "peerCount":1,
+  "peerMemory":30696,
+  "peers":{
+    "10.0.1.1":{
+      "hostname":"r1",
+      "softwareVersion":"n/a",
+      "remoteAs":65001,
+      "localAs":65002,
+      "version":4,
+      "msgRcvd":4,
+      "msgSent":4,
+      "tableVersion":1,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:14",
+      "peerUptimeMsec":14000,
+      "peerUptimeEstablishedEpoch":1791854540,
+      "pfxRcd":0,
+      "pfxSnt":1,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    }
+  },
+  "failedPeers":0,
+  "displayedPeers":1,
+  "totalPeers":1,
+  "dynamicPeers":0,
+  "bestPath":{
+    "multiPathRelax":"false"
+  }
+}
+}
+r2> 

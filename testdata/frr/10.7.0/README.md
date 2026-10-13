@@ -181,3 +181,26 @@ The mode writes to `$SCRATCH/run/lsdb-<mode>`. The `ecmp` mode also writes
 `ZEBRA_VTY_PORT` to zebra's vty port adds the optional zebra RIB capture to every
 mode, with `zebra-version.txt` beside it. `lsdb/README.md` describes it. The steady
 run's zebra RIB capture is described in `zebra-rib/README.md`.
+
+The BGP lab is `lab/bgp.sh`. It takes no mode. It needs `BGPD_VTY_PORT`, the TCP
+port for bgpd's vty, which must not be 2604 (ospfd), 2601 (zebra's default vty),
+or 179 (BGP itself):
+
+    SCRATCH="$SCRATCH" BGPD_VTY_PORT=<port> unshare -Urnm bash testdata/frr/10.7.0/lab/bgp.sh
+
+It writes to `$SCRATCH/run/bgp`, which must not exist. The script never removes
+anything, so after a failed run, remove that directory by hand before running
+again. The kept files are the `show ip bgp summary json` and `show ip bgp json`
+captures of r1 and r2, each with a `.collected_at` stamp, the bgpd and zebra
+version records, the four daemon configs, and the daemon logs. A capture that
+fails keeps `.raw.failed` and no stamp. The first successful run's captures are preserved in `bgp/steady/`.
+
+The first operator run completed on 2026-10-13 UTC using FRR 10.7.0. It
+reported convergence after approximately 6 seconds and finished with DONE.
+The four original VTY transcripts, timestamps, configurations, daemon version
+records, and SHA256SUMS are preserved in `bgp/steady/`.
+
+This proves the reported peer and route states in an isolated lab only. The
+captures are not simultaneous and do not prove kernel FIB installation.
+The script's content checker is intentionally narrow; it is not a general
+BGP decoder.

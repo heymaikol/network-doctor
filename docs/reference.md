@@ -2112,7 +2112,7 @@ The import reads `routerId` and `as` from `ipv4Unicast`, and from each entry of 
 
 Each capture names the family of the section it read as `observed_family`: `IPv4 unicast`, the family of `ipv4Unicast`. This is the section FRR printed, not a family any peer negotiated, and no peer carries a family in the report.
 
-Exit 0 means every capture was valid. It does not mean a session is up. Exit 2 means the manifest, a capture, or the output cannot be used, and nothing reaches standard output.
+Exit 0 means every capture was valid. It does not mean a session is up. Exit 2 means the manifest, a capture, or the output cannot be used. When the manifest or a capture cannot be used, nothing reaches standard output. When standard output fails during the write, it may already hold part of the report.
 
 What the import does not establish:
 

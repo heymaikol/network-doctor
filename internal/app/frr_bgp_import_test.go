@@ -68,6 +68,16 @@ type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
 
+// partialWriter accepts the first 16 bytes it is given and then fails, as a
+// standard output that fills part way through the report does.
+type partialWriter struct{ buf bytes.Buffer }
+
+func (w *partialWriter) Write(p []byte) (int, error) {
+	n := min(len(p), 16)
+	w.buf.Write(p[:n])
+	return n, errors.New("disk full")
+}
+
 func TestFRRBGPStagedTranscriptsAreThePreservedBytes(t *testing.T) {
 	steady := openRoot(t, frrBGPSteady)
 	sums, err := steady.ReadFile("SHA256SUMS")
@@ -322,6 +332,24 @@ func TestFRRBGPImportWriteFailureExitsTwo(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
 		var stderr bytes.Buffer
 		code := runFRRBGPImport(map[string]bool{"import-frr-bgp": true}, manifest, jsonOut, failWriter{}, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), "disk full") {
+			t.Errorf("json = %v: exit = %d, stderr = %q; want exit 2 naming the write error", jsonOut, code, stderr.String())
+		}
+	}
+}
+
+// A standard output that takes part of the report and then fails is still a
+// write failure. The test checks the exit and the error only. It makes no claim
+// about what standard output holds, since part of the report may have arrived.
+func TestFRRBGPImportPartialWriteFailureExitsTwo(t *testing.T) {
+	_, manifest := stageFRRBGP(t)
+	for _, jsonOut := range []bool{false, true} {
+		w := &partialWriter{}
+		var stderr bytes.Buffer
+		code := runFRRBGPImport(map[string]bool{"import-frr-bgp": true}, manifest, jsonOut, w, &stderr)
+		if w.buf.Len() == 0 {
+			t.Fatalf("json = %v: the writer took no bytes, so the partial write was not exercised", jsonOut)
+		}
 		if code != 2 || !strings.Contains(stderr.String(), "disk full") {
 			t.Errorf("json = %v: exit = %d, stderr = %q; want exit 2 naming the write error", jsonOut, code, stderr.String())
 		}

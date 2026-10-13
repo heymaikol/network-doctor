@@ -199,6 +199,232 @@ func TestFRRImportJSONReportKeepsItsWireShape(t *testing.T) {
 	}
 }
 
+// The report names its protocol. The local router ID is written on each accepted
+// interface capture and on no neighbor capture, so a neighbor's ID is never
+// mistaken for the node's own.
+func TestFRRImportJSONNamesProtocolAndLocalRouterID(t *testing.T) {
+	_, manifest := stageFRRBcast(t)
+	code, stdout, stderr := runNetdoc(t, "--import-frr-ospf", manifest, "--json")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	fields := frrReportFields(t, stdout)
+	if string(fields["protocol"]) != `"ospf"` || string(fields["version"]) != "1" {
+		t.Errorf("protocol = %s, version = %s; want \"ospf\" and 1", fields["protocol"], fields["version"])
+	}
+	var captures []map[string]any
+	if err := json.Unmarshal(fields["captures"], &captures); err != nil || len(captures) != 4 {
+		t.Fatalf("captures = %d entries, err %v; want 4", len(captures), err)
+	}
+	// The manifest order is r1 interface, r1 neighbor, r2 interface, r2 neighbor.
+	want := []any{"1.1.1.1", nil, "2.2.2.2", nil}
+	for i, c := range captures {
+		if got := c["router_id"]; got != want[i] {
+			t.Errorf("capture %d router_id = %v, want %v", i, got, want[i])
+		}
+	}
+}
+
+// The text report shows a local router ID only where the capture reported one.
+func TestFRRImportTextShowsLocalRouterIDWhenReported(t *testing.T) {
+	_, manifest := stageFRRBcast(t)
+	code, stdout, stderr := runNetdoc(t, "--import-frr-ospf", manifest)
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	for _, want := range []string{
+		"observed local router ID 1.1.1.1, reported by every interface record",
+		"observed local router ID 2.2.2.2, reported by every interface record",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("report lacks %q:\n%s", want, stdout)
+		}
+	}
+	if n := strings.Count(stdout, "observed local router ID"); n != 2 {
+		t.Errorf("report has %d local router ID lines, want 2 for the two interface captures", n)
+	}
+}
+
+// Interface records of one capture that name two IDs give no local router ID.
+// The report says so and names both values, and it chooses neither. The import
+// still completes, since the conflict changes no neighbor mapping.
+func TestFRRImportConflictingInterfaceRouterIDsAreNotChosen(t *testing.T) {
+	dir, manifest := stageFRRBcast(t)
+	editFRRJSON(t, filepath.Join(dir, "r1-interface.json"), func(m map[string]any) {
+		m["interfaces"].(map[string]any)["stub1"].(map[string]any)["routerId"] = "2.2.2.2"
+	})
+	code, stdout, stderr := runNetdoc(t, "--import-frr-ospf", manifest, "--json")
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	var captures []map[string]any
+	if err := json.Unmarshal(frrReportFields(t, stdout)["captures"], &captures); err != nil || len(captures) != 4 {
+		t.Fatalf("captures = %d entries, err %v; want 4", len(captures), err)
+	}
+	if got, ok := captures[0]["router_id"]; ok {
+		t.Errorf("conflicting r1 interface capture reports router_id %v", got)
+	}
+	if got := captures[2]["router_id"]; got != "2.2.2.2" {
+		t.Errorf("r2 interface capture router_id = %v, want 2.2.2.2", got)
+	}
+	if note := fmt.Sprint(captures[0]["notes"]); !strings.Contains(note, `conflicting router IDs "1.1.1.1", "2.2.2.2"`) {
+		t.Errorf("r1 interface notes %v do not name both IDs", captures[0]["notes"])
+	}
+	code, stdout, _ = runNetdoc(t, "--import-frr-ospf", manifest)
+	if code != 0 {
+		t.Fatalf("text exit %d, want 0", code)
+	}
+	if !strings.Contains(stdout, `note: interface records give conflicting router IDs "1.1.1.1", "2.2.2.2"; no local router ID is reported`) {
+		t.Errorf("text report lacks the conflict note:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "observed local router ID 1.1.1.1") {
+		t.Errorf("text report shows a local router ID for the conflicting capture:\n%s", stdout)
+	}
+}
+
+// An unusable local identity must not appear in the capture report.
+func TestFRRImportOmitsUnusableLocalRouterID(t *testing.T) {
+	cases := []struct {
+		name string
+		edit func(map[string]any)
+	}{
+		{"missing", func(rec map[string]any) {
+			delete(rec, "routerId")
+		}},
+		{"unspecified", func(rec map[string]any) {
+			rec["routerId"] = "0.0.0.0"
+		}},
+		{"invalid", func(rec map[string]any) {
+			rec["routerId"] = "not-an-ip"
+		}},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, manifest := stageFRRBcast(t)
+
+			editFRRJSON(t, filepath.Join(dir, "r1-interface.json"), func(m map[string]any) {
+				rec := m["interfaces"].(map[string]any)["stub1"].(map[string]any)
+				tt.edit(rec)
+			})
+
+			code, stdout, stderr := runNetdoc(t, "--import-frr-ospf", manifest, "--json")
+			if code != 0 {
+				t.Fatalf("JSON import exit %d: %s", code, stderr)
+			}
+
+			var captures []map[string]any
+			if err := json.Unmarshal(frrReportFields(t, stdout)["captures"], &captures); err != nil || len(captures) != 4 {
+				t.Fatalf("captures = %d, err %v", len(captures), err)
+			}
+
+			if id, ok := captures[0]["router_id"]; ok {
+				t.Errorf("unusable local router ID exposed: %v", id)
+			}
+
+			if captures[2]["router_id"] != "2.2.2.2" {
+				t.Errorf("unrelated identity lost: %v", captures[2]["router_id"])
+			}
+
+			code, stdout, stderr = runNetdoc(t, "--import-frr-ospf", manifest)
+			if code != 0 {
+				t.Fatalf("text import exit %d: %s", code, stderr)
+			}
+
+			if strings.Contains(stdout, "observed local router ID 1.1.1.1") {
+				t.Errorf("unusable identity appeared in text:\n%s", stdout)
+			}
+
+			if !strings.Contains(stdout, "observed local router ID 2.2.2.2") {
+				t.Errorf("unrelated identity missing:\n%s", stdout)
+			}
+		})
+	}
+}
+
+// Recorded FRR MTU captures contain Exchange and ExStart neighbors.
+// Preserve those observations without interpreting them as FULL.
+func TestFRRImportPreservesGenuineNonFullStates(t *testing.T) {
+	dir, manifest := stageFRRBcast(t)
+
+	captures := []struct {
+		node string
+		dest string
+	}{
+		{"r1", "r1-neighbor.json"},
+		{"r2", "r2-neighbor.json"},
+	}
+
+	const command = "show ip ospf neighbor detail json"
+
+	for _, c := range captures {
+		filename := c.node + "-show_ip_ospf_neighbor_detail_json.raw"
+		path := filepath.Join(frrBcastDir, "..", "mtu", filename)
+
+		// #nosec G304 -- path is a checked-in MTU fixture named from a literal r1/r2 table.
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		lines := strings.Split(
+			strings.TrimRight(
+				strings.ReplaceAll(string(raw), "\r\n", "\n"),
+				"\n",
+			),
+			"\n",
+		)
+
+		if len(lines) < 3 || lines[0] != command {
+			t.Fatalf("%s: unexpected captured command", filename)
+		}
+
+		payload := strings.Join(lines[1:len(lines)-1], "\n") + "\n"
+
+		// #nosec G703 -- c.dest is a literal from this test's table; dir is its t.TempDir.
+		if err := os.WriteFile(filepath.Join(dir, c.dest), []byte(payload), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	code, stdout, stderr := runNetdoc(t, "--import-frr-ospf", manifest)
+	if code != 0 {
+		t.Fatalf("text import exit %d: %s", code, stderr)
+	}
+
+	for _, state := range []string{
+		"state Exchange/DR",
+		"state ExStart/Backup",
+	} {
+		if !strings.Contains(stdout, state) {
+			t.Errorf("non-FULL state %q missing:\n%s", state, stdout)
+		}
+	}
+
+	code, stdout, stderr = runNetdoc(t, "--import-frr-ospf", manifest, "--json")
+	if code != 0 {
+		t.Fatalf("JSON import exit %d: %s", code, stderr)
+	}
+
+	var records []struct {
+		State string `json:"state"`
+	}
+
+	if err := json.Unmarshal(frrReportFields(t, stdout)["records"], &records); err != nil {
+		t.Fatal(err)
+	}
+
+	states := map[string]bool{}
+
+	for _, rec := range records {
+		states[rec.State] = true
+	}
+
+	if !states["Exchange/DR"] || !states["ExStart/Backup"] {
+		t.Errorf("reported states = %v", states)
+	}
+}
+
 func TestFRRImportExitCodesFollowCompleteness(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -672,6 +898,11 @@ func TestFRRTextReportSanitizesEveryValue(t *testing.T) {
 			File:     "r1\x1b[2J.json",
 			Declared: frrDeclared{Source: "r1\x1b[31m", Node: "r1", VRF: "default", FRRVersion: "10.7.0", Command: "cmd", CollectedAt: "t"},
 			Reason:   "refused\x1b[0m",
+		}, {
+			File:     "r2.json",
+			Declared: frrDeclared{Source: "r2 interface", Node: "r2", VRF: "default", FRRVersion: "10.7.0", Command: "show ip ospf interface json", CollectedAt: "t"},
+			Accepted: true,
+			RouterID: "2.2.2.2\x1b[2J",
 		}},
 		Records: []frrRecord{{Node: "r1", LocalInterface: "e1", NeighborAddress: "10.0.1.2", State: "Full/DR", Area: "0.0.0.0", Reason: "bad\x1b[2K"}},
 	}

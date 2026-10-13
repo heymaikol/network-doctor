@@ -28,6 +28,9 @@ const frrAggregateLimit = 32 << 20
 // to a field name or meaning raises it.
 const frrReportVersion = 1
 
+// frrOSPFProtocol names the protocol the --import-frr-ospf report describes.
+const frrOSPFProtocol = "ospf"
+
 // frrImportFlags are the only settings an import accepts beside its manifest.
 // Every other setting describes a probe run, another reading, or a finished run,
 // and the import would ignore it.
@@ -345,6 +348,7 @@ func publishFRRTopology(path string, data []byte) error {
 // importer checked and wrote.
 type frrReport struct {
 	Version           int              `json:"version"`
+	Protocol          string           `json:"protocol"`
 	Manifest          string           `json:"manifest"`
 	Complete          bool             `json:"complete"`
 	SourceNode        string           `json:"source_node,omitempty"`
@@ -376,6 +380,7 @@ type frrCapture struct {
 	Empty      bool        `json:"empty"`
 	Interfaces int         `json:"interfaces"`
 	Neighbors  int         `json:"neighbors"`
+	RouterID   string      `json:"router_id,omitempty"`
 	Notes      []string    `json:"notes,omitempty"`
 }
 
@@ -421,6 +426,7 @@ func buildFRRReport(manifestPath string, m frrospf.Manifest, res frrospf.Result)
 	}
 	r := frrReport{
 		Version:           frrReportVersion,
+		Protocol:          frrOSPFProtocol,
 		Manifest:          manifestPath,
 		SourceNode:        m.SourceNode,
 		NeighborsComplete: false,
@@ -446,6 +452,7 @@ func buildFRRReport(manifestPath string, m frrospf.Manifest, res frrospf.Result)
 			Empty:      cr.Empty,
 			Interfaces: cr.Interfaces,
 			Neighbors:  cr.Neighbors,
+			RouterID:   cr.RouterID,
 			Notes:      cr.Notes,
 		})
 		r.Counts.Captures++
@@ -670,6 +677,9 @@ func renderFRRText(r frrReport) string {
 				b.WriteString(" (empty)")
 			}
 			b.WriteString("\n")
+			if c.RouterID != "" {
+				fmt.Fprintf(&b, "    observed local router ID %s, reported by every interface record\n", clean(c.RouterID))
+			}
 		} else {
 			fmt.Fprintf(&b, "    checked: refused: %s\n", clean(c.Reason))
 		}

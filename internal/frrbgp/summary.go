@@ -72,8 +72,11 @@ type Peer struct {
 // any depth, a recognized key that differs from its name only in case, and a
 // value of the wrong type are all refused.
 func Decode(data []byte, node string) (Summary, error) {
-	body, err := transcriptBody(data, node)
+	body, err := transcriptBody(data, CommandSummary, node)
 	if err != nil {
+		return Summary{}, err
+	}
+	if body, err = objectBody(body); err != nil {
 		return Summary{}, err
 	}
 	if err := checkObjects(body); err != nil {
@@ -125,21 +128,26 @@ func Decode(data []byte, node string) (Summary, error) {
 	return s, nil
 }
 
-// transcriptBody checks the VTY framing and returns the bytes between the echo
-// and the prompt. FRR ends each line with CRLF, and the transcript ends with the
-// prompt, so nothing may follow it and only one CRLF may precede it. The body
-// must be exactly one object, so a blank line at either end is refused too.
-func transcriptBody(data []byte, node string) ([]byte, error) {
-	echo := CommandSummary + "\r\n"
+// transcriptBody checks the VTY framing of one capture of command taken on node
+// and returns the bytes between the echo and the prompt. FRR ends each line with
+// CRLF, and the transcript ends with the prompt, so nothing may follow it and only
+// one CRLF may precede it. objectBody checks what those bytes hold.
+func transcriptBody(data []byte, command, node string) ([]byte, error) {
+	echo := command + "\r\n"
 	if !bytes.HasPrefix(data, []byte(echo)) {
-		return nil, fmt.Errorf("transcript does not begin with the command echo %s and CRLF", quote(CommandSummary))
+		return nil, fmt.Errorf("transcript does not begin with the command echo %s and CRLF", quote(command))
 	}
 	rest := data[len(echo):]
 	prompt := "\r\n" + node + "> "
 	if !bytes.HasSuffix(rest, []byte(prompt)) {
 		return nil, fmt.Errorf("transcript does not end with CRLF and the prompt %s", quote(node+"> "))
 	}
-	body := rest[:len(rest)-len(prompt)]
+	return rest[:len(rest)-len(prompt)], nil
+}
+
+// objectBody returns body when it is exactly one JSON object. The body must open
+// with { and close with }, so a blank line at either end is refused too.
+func objectBody(body []byte) ([]byte, error) {
 	if len(body) == 0 || body[0] != '{' || body[len(body)-1] != '}' {
 		return nil, errNotObject
 	}

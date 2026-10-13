@@ -2097,30 +2097,38 @@ The report lists these, so a reader does not take the topology for the whole net
 
 ## FRR BGP summary import
 
-`--import-frr-bgp` reads the BGP summary that FRR printed for each router and reports each router's ID, local AS, and peer sessions, with each session state as FRR printed it. It is offline. It runs no probe, opens no socket, and contacts no router, and it writes no topology.
+`--import-frr-bgp` reads the BGP summary that FRR printed for each router and reports each router's ID, local AS, and peer sessions, with each session state as FRR printed it. A `show ip bgp json` route table, when the manifest names one, adds that router's learned routes. It is offline. It runs no probe, opens no socket, and contacts no router, and it writes no topology.
 
 ```sh
 netdoc --import-frr-bgp manifest.json
 netdoc --import-frr-bgp manifest.json --json
 ```
 
-The manifest is the version 1 format of the [OSPF import](#frr-ospf-import). Every capture must declare `"command": "show ip bgp summary json"`, `"frr_version": "10.7.0"`, and `"vrf": "default"`. Each node may have one summary capture. A `source_node` is refused, since a BGP import writes no topology.
+The manifest is the version 1 format of the [OSPF import](#frr-ospf-import). Every capture must declare `"frr_version": "10.7.0"` and `"vrf": "default"`, and its `"command"` must be `show ip bgp summary json` or `show ip bgp json`. Each node may have one summary capture and one route table, and when both print a router ID and local AS, they must agree. A `source_node` is refused, since a BGP import writes no topology.
 
-Unlike the OSPF import, a BGP capture is the raw VTY transcript, byte for byte, as FRR printed it. Its framing is checked: the command echo and CRLF come first, then one JSON object, then CRLF and the prompt of the declared node, such as `r1> `. Nothing may follow the prompt. A capture with a missing prompt, a blank line before or after the object, or another node's prompt is refused. Each capture is at most 1 MiB.
+Unlike the OSPF import, a BGP capture is the raw VTY transcript, byte for byte, as FRR printed it. Its framing is checked: the command echo and CRLF come first, then one JSON object, then CRLF and the prompt of the declared node, such as `r1> `. Nothing may follow the prompt. A capture with a missing prompt, a blank line before or after the object, or another node's prompt is refused. A route table may have spaces between its closing brace and that CRLF, since FRR prints one there; no other byte may. Each capture is at most 1 MiB.
 
 The import reads `routerId` and `as` from `ipv4Unicast`, and from each entry of `peers` it reads `localAs`, `remoteAs`, and `state`. The entries are keyed by peer address. `peerState` is not read, since FRR prints `OK` there, and that is not a session state. A key that differs from a known one only in case is refused, and a key repeated at any depth is refused. An AS number must be an integer from 1 to 4294967294, because 0 and 4294967295 are reserved. A session state is shown verbatim as non-empty plain text. A `peers` object with no entries is observed empty, and the report says so.
 
 Each capture names the family of the section it read as `observed_family`: `IPv4 unicast`, the family of `ipv4Unicast`. This is the section FRR printed, not a family any peer negotiated, and no peer carries a family in the report.
 
+A `show ip bgp json` capture is read as the router's BGP table. Its `routerId`, `localAS`, and `vrfName` are read when FRR prints them, and a printed `vrfName` must be `default`. A path is learned only when its `peerId` names a peer, the address FRR recorded for the session that sent the path. A `peerId` of `(unspec)`, an absent `peerId`, or an unspecified address is never learned, and such paths are counted instead. The JSON report lists each route table under `route_tables`, and each learned route under that table's `learned_routes`, with its `prefix`, `peer`, `path_from` (FRR's `pathFrom`, as printed), `as_path`, `bgp_origin` (the BGP ORIGIN attribute), and `next_hops`, in FRR's order. Each route table also reports its `prefixes`, `no_peer_paths`, and `unknown_peer_paths`. The text report lists 20 learned routes per table and says how many more there are; the JSON report keeps all of them. FRR's `valid`, `bestpath`, `multipath`, `used`, and `selectionReason` fields are not read.
+
+The report version stays 1. The `route_tables` key is written only when the manifest names a route table, so a summary-only report keeps the same keys and text as before.
+
 Exit 0 means every capture was valid. It does not mean a session is up. Exit 2 means the manifest, a capture, or the output cannot be used. When the manifest or a capture cannot be used, nothing reaches standard output. When standard output fails during the write, it may already hold part of the report.
 
 What the import does not establish:
 
-- Routes, prefixes, and `pfxRcd` counts are not read, so no route is claimed.
+- Without a route table, no route is claimed. Summary `pfxRcd` counts are not read, and they identify no route.
+- A node with no route table has its routes not read. A missing table does not show that a route was withdrawn, and an empty table is observed empty at its collection time, not withdrawn.
+- A learned route is a path in FRR's BGP table at the table's collection time. It is not a kernel-installed or FIB route, and it is not the path FRR selected as best: paths keep FRR's order, which is not a preference.
+- A learned route names the peer FRR recorded for it. It does not show that the session was Established. A table and a summary have separate collection times, and netdoc does not check that they describe one moment.
+- The BGP origin names no protocol, so the protocol that first carried a route is not identified beyond FRR's BGP table. `pathFrom` is FRR's label and is not checked against the session type.
 - The observed family is the `ipv4Unicast` section. It does not show which address families any session negotiated.
 - A node or peer that no capture names is unknown, not down.
 - A session state is FRR's value at the capture's collection time, not a current one.
-- Which router produced a capture is the manifest's claim. The only check is the prompt in the transcript.
+- Which router produced a capture is the manifest's claim. The checks are the prompt in the transcript and, for a route table, that a printed router ID and local AS agree with its node's summary.
 
 ## Remote diagnosis over SSH
 

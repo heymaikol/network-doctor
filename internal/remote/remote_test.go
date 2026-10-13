@@ -140,7 +140,11 @@ func fakeSSH(mode string) int {
 		rep, snap := diagnosedPair(resp.Tool, true)
 		resp.Report, resp.Snapshot = &rep, &snap
 	case "oversize":
-		fmt.Fprint(os.Stdout, `{"protocol":1,"tool":{},"error":"remote failure"}`+"\n")
+		// The oversize sits inside the first value, not after a complete one.
+		// The decoder reaches the cap synchronously, so the outcome does not
+		// depend on how fast the trailing check drains stdout before
+		// responseEOFGrace expires. Spaces are legal inside the string.
+		fmt.Fprint(os.Stdout, `{"protocol":1,"tool":{},"padding":"`)
 		_, _ = io.CopyN(os.Stdout, endless{}, 3*MaxResponseBytes)
 		return 0
 	}
@@ -658,7 +662,10 @@ func TestRunReturnsACompleteResponseWhenStdoutStaysOpen(t *testing.T) {
 
 func TestRunStopsAnOversizedProducer(t *testing.T) {
 	useFakeSSH(t, "oversize")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// The deadline is a hang backstop, not a timing assertion. Pushing the cap
+	// through the decoder is CPU work whose speed depends on the machine, and
+	// -race on a loaded runner can take more than a few seconds.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	_, err := Run(ctx, "server", "", Request{})
 	if ctx.Err() != nil {

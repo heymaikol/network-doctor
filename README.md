@@ -4,6 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/heymaikol/network-doctor)](https://github.com/heymaikol/network-doctor/releases/latest)
 [![License: Apache-2.0](https://img.shields.io/github/license/heymaikol/network-doctor)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-networkdoctor.dev-1f6feb)](https://networkdoctor.dev/)
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
 **Find the layer where your connection breaks.** Network Doctor is a
 cross-platform network troubleshooting TUI that turns interface, DNS, TCP,

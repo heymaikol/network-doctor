@@ -2110,11 +2110,14 @@ Unlike the OSPF import, a BGP capture is the raw VTY transcript, byte for byte, 
 
 The import reads `routerId` and `as` from `ipv4Unicast`, and from each entry of `peers` it reads `localAs`, `remoteAs`, and `state`. The entries are keyed by peer address. `peerState` is not read, since FRR prints `OK` there, and that is not a session state. A key that differs from a known one only in case is refused, and a key repeated at any depth is refused. An AS number must be an integer from 1 to 4294967294, because 0 and 4294967295 are reserved. A session state is shown verbatim as non-empty plain text. A `peers` object with no entries is observed empty, and the report says so.
 
+Each capture names the family of the section it read as `observed_family`: `IPv4 unicast`, the family of `ipv4Unicast`. This is the section FRR printed, not a family any peer negotiated, and no peer carries a family in the report.
+
 Exit 0 means every capture was valid. It does not mean a session is up. Exit 2 means the manifest, a capture, or the output cannot be used, and nothing reaches standard output.
 
 What the import does not establish:
 
 - Routes, prefixes, and `pfxRcd` counts are not read, so no route is claimed.
+- The observed family is the `ipv4Unicast` section. It does not show which address families any session negotiated.
 - A node or peer that no capture names is unknown, not down.
 - A session state is FRR's value at the capture's collection time, not a current one.
 - Which router produced a capture is the manifest's claim. The only check is the prompt in the transcript.

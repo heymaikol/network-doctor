@@ -103,6 +103,9 @@ func TestFRRBGPImportReportsEstablishedAndActiveSessions(t *testing.T) {
 	if strings.Index(stdout, "router ID 1.1.1.1") > strings.Index(stdout, "router ID 2.2.2.2") {
 		t.Errorf("captures are out of manifest order:\n%s", stdout)
 	}
+	if n := strings.Count(stdout, "observed family: IPv4 unicast (summary section ipv4Unicast)"); n != 2 {
+		t.Errorf("output names the observed family %d times, want once per capture:\n%s", n, stdout)
+	}
 }
 
 func TestFRRBGPImportJSONIsItsOwnReport(t *testing.T) {
@@ -137,12 +140,42 @@ func TestFRRBGPImportJSONIsItsOwnReport(t *testing.T) {
 	}
 }
 
+// Each capture names the family its summary section was observed as. No peer
+// carries one, since a peer's negotiated families are not read.
+func TestFRRBGPImportJSONNamesTheObservedFamilyPerCapture(t *testing.T) {
+	_, manifest := stageFRRBGP(t)
+	code, stdout, stderr := runNetdoc(t, "--import-frr-bgp", manifest, "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, stderr)
+	}
+	var captures []map[string]any
+	if err := json.Unmarshal(frrReportFields(t, stdout)["captures"], &captures); err != nil {
+		t.Fatal(err)
+	}
+	if len(captures) != 2 {
+		t.Fatalf("captures = %d, want 2", len(captures))
+	}
+	for i, c := range captures {
+		if got := c["observed_family"]; got != "IPv4 unicast" {
+			t.Errorf("capture %d observed_family = %v, want \"IPv4 unicast\"", i, got)
+		}
+		for _, p := range c["peers"].([]any) {
+			if _, ok := p.(map[string]any)["observed_family"]; ok {
+				t.Errorf("capture %d: a peer carries observed_family; the family is observed per capture only", i)
+			}
+		}
+	}
+}
+
 func TestFRRBGPImportLeavesTheOSPFReportAlone(t *testing.T) {
 	_, manifest := stageFRRBcast(t)
 	_, stdout, _ := runNetdoc(t, "--import-frr-ospf", manifest, "--json")
 	fields := frrReportFields(t, stdout)
 	if _, ok := fields["protocol"]; ok {
 		t.Error("the OSPF report gained a protocol field")
+	}
+	if strings.Contains(stdout, "observed_family") {
+		t.Error("the OSPF report gained an observed_family field")
 	}
 	if got := string(fields["version"]); got != "1" {
 		t.Errorf("OSPF report version = %s, want 1", got)
@@ -198,6 +231,9 @@ func TestFRRBGPImportObservedEmptyIsNotDown(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "observed empty and not down") {
 		t.Errorf("text does not say the collection is observed empty:\n%s", stdout)
+	}
+	if i := strings.Index(stdout, "router ID 2.2.2.2"); i < 0 || !strings.Contains(stdout[i:], "observed family: IPv4 unicast") {
+		t.Errorf("the emptied capture does not name its observed family:\n%s", stdout)
 	}
 	if _, jsonOut, _ := runNetdoc(t, "--import-frr-bgp", manifest, "--json"); !strings.Contains(jsonOut, `"peers": []`) {
 		t.Errorf("JSON peers is not an empty array:\n%s", jsonOut)

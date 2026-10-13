@@ -31,6 +31,14 @@ const Version = "10.7.0"
 // it before the output.
 const CommandSummary = "show ip bgp summary json"
 
+// Section is the summary section Decode reads, the one FRR prints for the IPv4
+// unicast family of the default VRF. Decode reads no other section.
+const Section = "ipv4Unicast"
+
+// Family labels Section in a report. It names the section FRR printed, not a
+// family any peer negotiated, so it makes no claim about a session.
+const Family = "IPv4 unicast"
+
 // maxDepth bounds object nesting. The summary nests four levels, so the bound
 // only stops a crafted capture from deepening the walk.
 const maxDepth = 8
@@ -75,7 +83,7 @@ func Decode(data []byte, node string) (Summary, error) {
 	if err := json.Unmarshal(body, &top); err != nil || top == nil {
 		return Summary{}, errNotObject
 	}
-	raw, err := member(top, "the capture", "ipv4Unicast")
+	raw, err := member(top, "the capture", Section)
 	if err != nil {
 		return Summary{}, err
 	}

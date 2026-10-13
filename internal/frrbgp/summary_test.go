@@ -193,6 +193,7 @@ func TestDecodeRefusesMalformedSummaries(t *testing.T) {
 		{"ipv4Unicast has no routerId", `{"ipv4Unicast":{"as":65001,"peers":{}}}`, `has no "routerId"`},
 		{"ipv4Unicast is null", `{"ipv4Unicast":null}`, `"ipv4Unicast" is not a JSON object`},
 		{"no ipv4Unicast", `{"vrfName":"default"}`, `has no "ipv4Unicast"`},
+		{"only ipv6Unicast", `{"ipv6Unicast":{"routerId":"1.1.1.1","as":65001,"peers":{}}}`, `has no "ipv4Unicast"`},
 		{"body is an array", `[]`, "not a JSON object"},
 		{"object is truncated", `{"ipv4Unicast":{"routerId":"1.1.1.1","as":65001,"peers":{}}`, "not valid JSON"},
 		{"data follows the object", `{"ipv4Unicast":{"routerId":"1.1.1.1","as":65001,"peers":{}}}{}`, "data follows"},

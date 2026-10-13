@@ -41,6 +41,7 @@ var frrBGPNotRead = []string{
 var frrBGPLimitations = []string{
 	"declared metadata (source, node, VRF, FRR version, command, collection time) is the manifest's claim; netdoc checks the FRR version, the command, the VRF, and that the transcript prompt names the declared node, but cannot verify which router produced a capture",
 	"each state is the JSON state field FRR printed at collection; peerState is not read",
+	"the observed family names the summary section FRR printed; it does not establish which address families any session negotiated",
 	"exit 0 means every capture is valid; it does not mean any session is Established or that the network is healthy",
 	"an empty peer collection is observed empty; it is not reported as a down session",
 }
@@ -112,7 +113,8 @@ func runFRRBGPImport(setFlags map[string]bool, manifestPath string, jsonOut bool
 }
 
 // frrBGPReport is the --import-frr-bgp report. Every value in it is either a
-// manifest's declared claim or a value FRR printed in a capture.
+// manifest's declared claim, a value FRR printed in a capture, or a label for
+// the section FRR printed.
 type frrBGPReport struct {
 	Version     int             `json:"version"`
 	Protocol    string          `json:"protocol"`
@@ -122,11 +124,13 @@ type frrBGPReport struct {
 	Limitations []string        `json:"limitations"`
 }
 
-// frrBGPCapture is one accepted summary capture. Declared is the manifest's claim,
-// and the router ID, local AS, and peers are what the transcript reported.
+// frrBGPCapture is one accepted summary capture. Declared is the manifest's claim.
+// Family names the summary section the transcript was read from, and the router
+// ID, local AS, and peers are what the transcript reported.
 type frrBGPCapture struct {
 	File     string       `json:"file"`
 	Declared frrDeclared  `json:"declared"`
+	Family   string       `json:"observed_family"`
 	RouterID string       `json:"router_id"`
 	LocalAS  uint32       `json:"local_as"`
 	Peers    []frrBGPPeer `json:"peers"`
@@ -187,6 +191,7 @@ func buildFRRBGPReport(manifestPath string, m frrospf.Manifest, captures []frros
 				Command:     mc.Command,
 				CollectedAt: mc.CollectedAt.Format(time.RFC3339Nano),
 			},
+			Family:   frrbgp.Family,
 			RouterID: s.RouterID,
 			LocalAS:  s.LocalAS,
 			Peers:    peers,
@@ -210,6 +215,7 @@ func renderFRRBGPText(r frrBGPReport) string {
 		fmt.Fprintf(&b, "    declared (not verified): node %s, vrf %s, FRR %s, command %q, collected %s\n",
 			clean(c.Declared.Node), clean(c.Declared.VRF), clean(c.Declared.FRRVersion), clean(c.Declared.Command), clean(c.Declared.CollectedAt))
 		fmt.Fprintf(&b, "    router ID %s, local AS %d\n", clean(c.RouterID), c.LocalAS)
+		fmt.Fprintf(&b, "    observed family: %s (summary section %s); no peer's negotiated families are read\n", c.Family, frrbgp.Section)
 		if len(c.Peers) == 0 {
 			b.WriteString("    peers: none; the summary reported an empty peer collection, observed empty and not down\n")
 		}

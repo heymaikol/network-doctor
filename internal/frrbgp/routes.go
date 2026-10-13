@@ -269,10 +269,19 @@ func routeAddr(text string) (netip.Addr, error) {
 	return addr, nil
 }
 
+// routeThisNetwork and routeReserved are the blocks the IANA IPv4 Special-Purpose
+// Address Space registry marks as not valid destinations. A peerId in either names no
+// BGP peer, except the unspecified address, which stays unknown.
+var (
+	routeThisNetwork = netip.MustParsePrefix("0.0.0.0/8")
+	routeReserved    = netip.MustParsePrefix("240.0.0.0/4")
+)
+
 // routeDecodePath decodes one element of a prefix's path array. Source comes from
 // peerId alone: a specified address means learned, "(unspec)" means no peer, and an
-// absent or unspecified peerId stays unknown. A multicast address or the IPv4 limited
-// broadcast address is refused, since neither names a peer. pathFrom, path, origin and
+// absent or unspecified peerId stays unknown. A multicast address, the IPv4 limited
+// broadcast address, or an IPv4 address in 0.0.0.0/8 or 240.0.0.0/4 (other than the
+// unspecified address) is refused, since none names a peer. pathFrom, path, origin and
 // nexthops are required.
 func routeDecodePath(raw json.RawMessage) (RoutePath, error) {
 	var fields map[string]json.RawMessage
@@ -302,6 +311,12 @@ func routeDecodePath(raw json.RawMessage) (RoutePath, error) {
 		}
 		if unmapped == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
 			return RoutePath{}, fmt.Errorf("peerId: %q is the limited broadcast address and names no BGP peer; want a unicast address or \"(unspec)\"", peer)
+		}
+		if routeReserved.Contains(unmapped) {
+			return RoutePath{}, fmt.Errorf("peerId: %q is in 240.0.0.0/4 (reserved) and names no BGP peer; want a unicast address or \"(unspec)\"", peer)
+		}
+		if routeThisNetwork.Contains(unmapped) && !unmapped.IsUnspecified() {
+			return RoutePath{}, fmt.Errorf("peerId: %q is in 0.0.0.0/8 (this network) and names no BGP peer; want a unicast address or \"(unspec)\"", peer)
 		}
 		// The unspecified address names no peer, so the path stays unknown.
 		if !unmapped.IsUnspecified() {

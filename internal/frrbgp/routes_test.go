@@ -149,9 +149,9 @@ func TestRouteSourceFromPeerID(t *testing.T) {
 }
 
 // TestRoutePeerIDBoundaries checks the peerId values beside the refused ranges. Addresses
-// just below multicast and ordinary unicast addresses stay learned, and an unspecified
-// peerId, plain or IPv4-mapped, names no peer. The refusal covers peerId only, so a next
-// hop in the same ranges still decodes.
+// just above 0.0.0.0/8, just below multicast, and ordinary unicast addresses stay learned,
+// and an unspecified peerId, plain or IPv4-mapped, names no peer. The refusal covers
+// peerId only, so a next hop in the same ranges still decodes.
 func TestRoutePeerIDBoundaries(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -161,8 +161,10 @@ func TestRoutePeerIDBoundaries(t *testing.T) {
 	}{
 		{"below multicast is learned", `"223.255.255.255"`, RouteSourceLearned, netip.MustParseAddr("223.255.255.255")},
 		{"ordinary IPv4 unicast is learned", `"10.0.1.2"`, RouteSourceLearned, netip.MustParseAddr("10.0.1.2")},
+		{"just above this-network block is learned", `"1.0.0.0"`, RouteSourceLearned, netip.MustParseAddr("1.0.0.0")},
 		{"IPv6 link-local is learned", `"fe80::1"`, RouteSourceLearned, netip.MustParseAddr("fe80::1")},
 		{"IPv6 unicast is learned", `"2001:db8::1"`, RouteSourceLearned, netip.MustParseAddr("2001:db8::1")},
+		{"IPv4-mapped unicast is learned", `"::ffff:10.0.1.2"`, RouteSourceLearned, netip.MustParseAddr("::ffff:10.0.1.2")},
 		{"IPv4 unspecified stays unknown", `"0.0.0.0"`, RouteSourceUnknown, netip.Addr{}},
 		{"IPv4-mapped IPv6 unspecified stays unknown", `"::ffff:0.0.0.0"`, RouteSourceUnknown, netip.Addr{}},
 		{"IPv6 unspecified stays unknown", `"::"`, RouteSourceUnknown, netip.Addr{}},
@@ -180,12 +182,13 @@ func TestRoutePeerIDBoundaries(t *testing.T) {
 			}
 		})
 	}
-	table, err := DecodeRouteTable([]byte(routeHopDoc(`[{"ip":"224.0.0.1"}]`)))
+	table, err := DecodeRouteTable([]byte(routeHopDoc(`[{"ip":"224.0.0.1"},{"ip":"0.0.0.1"},{"ip":"240.0.0.1"}]`)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hops := table.Routes[0].Paths[0].NextHops; len(hops) != 1 || hops[0] != netip.MustParseAddr("224.0.0.1") {
-		t.Errorf("next hops = %v, want [224.0.0.1]", hops)
+	want := []netip.Addr{netip.MustParseAddr("224.0.0.1"), netip.MustParseAddr("0.0.0.1"), netip.MustParseAddr("240.0.0.1")}
+	if hops := table.Routes[0].Paths[0].NextHops; !reflect.DeepEqual(hops, want) {
+		t.Errorf("next hops = %v, want %v", hops, want)
 	}
 }
 
@@ -270,6 +273,13 @@ func TestRouteRejectsMalformedTables(t *testing.T) {
 		{"peerId IPv4 multicast in IPv6 form", routePeerDoc(`"::ffff:224.0.0.1"`), "multicast"},
 		{"peerId limited broadcast", routePeerDoc(`"255.255.255.255"`), "broadcast"},
 		{"peerId limited broadcast in IPv6 form", routePeerDoc(`"::ffff:255.255.255.255"`), "broadcast"},
+		{"peerId in this-network block", routePeerDoc(`"0.0.0.1"`), "0.0.0.0/8"},
+		{"peerId at the top of this-network block", routePeerDoc(`"0.255.255.255"`), "0.0.0.0/8"},
+		{"peerId in this-network block in IPv6 form", routePeerDoc(`"::ffff:0.0.0.1"`), "0.0.0.0/8"},
+		{"peerId in reserved block", routePeerDoc(`"240.0.0.1"`), "240.0.0.0/4"},
+		{"peerId just below limited broadcast", routePeerDoc(`"255.255.255.254"`), "240.0.0.0/4"},
+		{"peerId in reserved block in IPv6 form", routePeerDoc(`"::ffff:240.0.0.1"`), "240.0.0.0/4"},
+		{"peerId just below limited broadcast in IPv6 form", routePeerDoc(`"::ffff:255.255.255.254"`), "240.0.0.0/4"},
 		{"next hop not an address", routeHopDoc(`[{"ip":"10.0.1.300"}]`), "ip:"},
 		{"next hop without ip", routeHopDoc(`[{}]`), "ip is missing"},
 		{"nexthops not an array", routeHopDoc(`{}`), "nexthops:"},

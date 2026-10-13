@@ -178,7 +178,8 @@ type frrBGPPeer struct {
 // frrBGPRouteTable is one accepted show ip bgp json capture. Declared is the
 // manifest's claim. The identity fields are what the table printed, and a field
 // the table did not print is left out. Learned lists each path whose peerId names
-// a peer, in the order FRR printed them.
+// a peer, sorted by prefix address and length; paths within each prefix
+// retain FRR's original order.
 type frrBGPRouteTable struct {
 	File         string               `json:"file"`
 	Declared     frrDeclared          `json:"declared"`
@@ -372,7 +373,7 @@ func renderFRRBGPText(r frrBGPReport) string {
 	}
 	if len(r.RouteTables) > 0 {
 		fmt.Fprintf(&b, "\nRoute tables (%d)\n", len(r.RouteTables))
-		b.WriteString("  FRR's BGP table, not the zebra RIB or the kernel FIB. Paths keep FRR's order, which is not a preference.\n")
+		b.WriteString("  FRR's BGP table, not the zebra RIB or the kernel FIB. Prefixes are sorted by address and prefix length. Paths within each prefix keep FRR's order, which does not imply preference.\n")
 		for _, t := range r.RouteTables {
 			renderFRRBGPRouteTable(&b, t)
 		}

@@ -150,6 +150,14 @@ func TestRouteGenuineMutations(t *testing.T) {
 		{"prefix without a length", routeReplaceOnce(t, base, `"10.10.2.0/24": [`, `"10.10.2.0": [`), "canonical"},
 		{"bytes after the object", append(bytes.Clone(base), "r1> "...), "data follows"},
 		{"echoed command kept", append([]byte("show ip bgp json\r\n"), base...), "invalid character"},
+		{"routerId with a trailing invisible rune", routeReplaceOnce(t, base, `"routerId": "1.1.1.1"`, `"routerId": "1.1.1.1`+string(rune(0x200b))+`"`), "not a canonical IPv4"},
+		{"routerId with a leading zero", routeReplaceOnce(t, base, `"routerId": "1.1.1.1"`, `"routerId": "01.1.1.1"`), "not a canonical IPv4"},
+		{"routerId as an IPv4-mapped IPv6 address", routeReplaceOnce(t, base, `"routerId": "1.1.1.1"`, `"routerId": "::ffff:1.1.1.1"`), "not a canonical IPv4"},
+		{"localAS zero", routeReplaceOnce(t, base, `"localAS": 65001`, `"localAS": 0`), "not a BGP ASN"},
+		{"vrfName empty", routeReplaceOnce(t, base, `"vrfName": "default"`, `"vrfName": ""`), "vrfName is empty"},
+		{"vrfName with a bidi override", routeReplaceOnce(t, base, `"vrfName": "default"`, `"vrfName": "def`+string(rune(0x202e))+`ault"`), "control or invisible"},
+		{"vrfName with a tab", routeReplaceOnce(t, base, `"vrfName": "default"`, `"vrfName": "de\tfault"`), "control or invisible"},
+		{"vrfName with an escape sequence", routeReplaceOnce(t, base, `"vrfName": "default"`, `"vrfName": "\u001b[31mdefault"`), "control or invisible"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -190,6 +198,14 @@ func TestRouteRejectsMalformedTables(t *testing.T) {
 		{"localAS negative", `{"localAS":-1,"routes":{}}`, "localAS:"},
 		{"routerId as a number", `{"routerId":1,"routes":{}}`, "routerId:"},
 		{"vrfName null", `{"vrfName":null,"routes":{}}`, "vrfName is null"},
+		{"vrfName empty string", `{"vrfName":"","routes":{}}`, "vrfName is empty"},
+		{"vrfName with a line separator", `{"vrfName":"de fault","routes":{}}`, "control or invisible"},
+		{"routerId not canonical IPv4", `{"routerId":"1.1.1","routes":{}}`, "not a canonical IPv4"},
+		{"routerId empty string", `{"routerId":"","routes":{}}`, "not a canonical IPv4"},
+		{"routerId IPv6 address", `{"routerId":"::1","routes":{}}`, "not a canonical IPv4"},
+		{"localAS zero", `{"localAS":0,"routes":{}}`, "not a BGP ASN"},
+		{"localAS 4294967295", `{"localAS":4294967295,"routes":{}}`, "not a BGP ASN"},
+		{"localAS past uint32", `{"localAS":4294967296,"routes":{}}`, "localAS:"},
 		{"peerId as a number", routePeerDoc(`5`), "peerId:"},
 		{"peerId null", routePeerDoc(`null`), "peerId is null"},
 		{"peerId not an address", routePeerDoc(`"10.0.1.300"`), "peerId:"},
@@ -217,6 +233,49 @@ func TestRouteRejectsMalformedTables(t *testing.T) {
 				t.Errorf("err = %v, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestRouteIdentityBoundaries checks the accepted edges of localAS, routerId and
+// vrfName, and that a missing identity key keeps its zero value without an error.
+func TestRouteIdentityBoundaries(t *testing.T) {
+	_, base := routeCapture(t, "r1")
+	for _, tc := range []struct {
+		text string
+		want uint32
+	}{{"1", 1}, {"64512", 64512}, {"65534", 65534}, {"4200000000", 4200000000}, {"4294967294", 4294967294}} {
+		table, err := DecodeRouteTable(routeReplaceOnce(t, base, `"localAS": 65001`, `"localAS": `+tc.text))
+		if err != nil {
+			t.Errorf("localAS %s: %v", tc.text, err)
+		} else if table.LocalAS != tc.want {
+			t.Errorf("localAS %s decoded as %d, want %d", tc.text, table.LocalAS, tc.want)
+		}
+	}
+	body := routeReplaceOnce(t, base, `"routerId": "1.1.1.1"`, `"routerId": "255.255.255.255"`)
+	body = routeReplaceOnce(t, body, `"vrfName": "default"`, `"vrfName": "vrf-ä"`)
+	table, err := DecodeRouteTable(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if table.RouterID != "255.255.255.255" || table.VRFName != "vrf-ä" {
+		t.Errorf("RouterID = %q, VRFName = %q; want 255.255.255.255 and vrf-ä", table.RouterID, table.VRFName)
+	}
+	for _, tc := range []struct {
+		drop string
+		want RouteTable
+	}{
+		{`"routerId": "1.1.1.1",`, RouteTable{LocalAS: 65001, VRFName: "default"}},
+		{`"localAS": 65001,`, RouteTable{RouterID: "1.1.1.1", VRFName: "default"}},
+		{`"vrfName": "default",`, RouteTable{RouterID: "1.1.1.1", LocalAS: 65001}},
+	} {
+		table, err := DecodeRouteTable(routeReplaceOnce(t, base, tc.drop, ""))
+		if err != nil {
+			t.Errorf("without %s: %v", tc.drop, err)
+			continue
+		}
+		if table.RouterID != tc.want.RouterID || table.LocalAS != tc.want.LocalAS || table.VRFName != tc.want.VRFName || len(table.Routes) != 1 {
+			t.Errorf("without %s: RouterID %q, LocalAS %d, VRFName %q, %d routes", tc.drop, table.RouterID, table.LocalAS, table.VRFName, len(table.Routes))
+		}
 	}
 }
 

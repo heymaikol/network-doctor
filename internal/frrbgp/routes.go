@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/netip"
 	"slices"
 	"strings"
@@ -75,7 +76,11 @@ const (
 // caller removes the echoed command and the node prompt first. It refuses input
 // over routeMaxBytes, invalid UTF-8, a key repeated in one object (ignoring case),
 // a key that differs from a decoded key only in case, nesting deeper than
-// routeMaxDepth, and data after the object. Keys it does not read are skipped.
+// routeMaxDepth, and data after the object. A supplied routerId must be a canonical
+// IPv4 address, a supplied localAS must be neither 0 nor 4294967295, and a supplied
+// vrfName must be non-empty with no control or invisible characters. Such values are
+// refused, never cleaned. A missing key keeps its zero value. Keys it does not read
+// are skipped.
 func DecodeRouteTable(data []byte) (RouteTable, error) {
 	if len(data) > routeMaxBytes {
 		return RouteTable{}, fmt.Errorf("route table is %d bytes, limit is %d", len(data), routeMaxBytes)
@@ -91,18 +96,30 @@ func DecodeRouteTable(data []byte) (RouteTable, error) {
 		return RouteTable{}, fmt.Errorf("route table is not a JSON object: %w", err)
 	}
 	var table RouteTable
-	if _, err := routeRead(top, "routerId", &table.RouterID, false); err != nil {
+	hasRouterID, err := routeRead(top, "routerId", &table.RouterID, false)
+	if err != nil {
 		return RouteTable{}, err
 	}
-	if _, err := routeRead(top, "localAS", &table.LocalAS, false); err != nil {
+	if hasRouterID && !routeCanonicalIPv4(table.RouterID) {
+		return RouteTable{}, fmt.Errorf("routerId %q is not a canonical IPv4 address", table.RouterID)
+	}
+	hasLocalAS, err := routeRead(top, "localAS", &table.LocalAS, false)
+	if err != nil {
 		return RouteTable{}, err
 	}
-	if _, err := routeRead(top, "vrfName", &table.VRFName, false); err != nil {
+	if hasLocalAS && (table.LocalAS == 0 || table.LocalAS == math.MaxUint32) {
+		return RouteTable{}, fmt.Errorf("localAS %d is not a BGP ASN", table.LocalAS)
+	}
+	hasVRFName, err := routeRead(top, "vrfName", &table.VRFName, false)
+	if err != nil {
 		return RouteTable{}, err
 	}
-	// Capture text is cleaned before it is stored, as frrospf cleans its stored fields.
-	table.RouterID = textsafe.Clean(table.RouterID)
-	table.VRFName = textsafe.Clean(table.VRFName)
+	if hasVRFName && table.VRFName == "" {
+		return RouteTable{}, errors.New("vrfName is empty")
+	}
+	if hasVRFName && textsafe.Clean(table.VRFName) != table.VRFName {
+		return RouteTable{}, fmt.Errorf("vrfName %q holds a control or invisible character", table.VRFName)
+	}
 	var routes map[string][]json.RawMessage
 	if _, err := routeRead(top, "routes", &routes, true); err != nil {
 		return RouteTable{}, err
@@ -233,6 +250,13 @@ func routeParsePrefix(key string) (netip.Prefix, error) {
 		return netip.Prefix{}, fmt.Errorf("route %q is not a canonical IPv4 prefix", key)
 	}
 	return p, nil
+}
+
+// routeCanonicalIPv4 reports whether text is an IPv4 address spelled the way netip
+// prints it, so each address has exactly one spelling.
+func routeCanonicalIPv4(text string) bool {
+	addr, err := netip.ParseAddr(text)
+	return err == nil && addr.Is4() && addr.String() == text
 }
 
 // routeAddr parses an IP address from a capture. A zone is refused, because the

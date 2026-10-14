@@ -201,7 +201,8 @@ func TestFRRBGPSummaryOnlyReportIsUnchanged(t *testing.T) {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	if want := []string{"captures", "limitations", "manifest", "not_read", "protocol", "version"}; !slices.Equal(keys, want) {
+	// findings is the one key a summary with peers adds; route_tables stays out.
+	if want := []string{"captures", "findings", "limitations", "manifest", "not_read", "protocol", "version"}; !slices.Equal(keys, want) {
 		t.Errorf("top-level keys = %q, want %q", keys, want)
 	}
 	var notRead, limitations []string

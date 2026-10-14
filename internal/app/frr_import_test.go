@@ -129,13 +129,25 @@ func TestFRRImportCompleteWritesATopologyThatReadsBack(t *testing.T) {
 	if file.Source != (routepath.Start{Node: "r1", VRF: "default"}) {
 		t.Errorf("source = %+v, want r1 default", file.Source)
 	}
-	var interfaces, neighbors int
+	var interfaces, neighbors, mtus int
 	for _, o := range file.Model.Observations() {
 		interfaces += len(o.Interfaces)
 		neighbors += len(o.Neighbors)
+		for _, i := range o.Interfaces {
+			for _, a := range i.Attributes {
+				if a.Key == "ospf.mtu" && a.Value == "1500" {
+					mtus++
+				}
+			}
+		}
 	}
 	if interfaces != 4 || neighbors != 2 {
 		t.Errorf("topology holds %d interfaces and %d neighbors; want 4 and 2", interfaces, neighbors)
+	}
+	// Every interface in the broadcast lab reports mtuBytes 1500, and the value
+	// survives the round trip through the topology file.
+	if mtus != interfaces {
+		t.Errorf("topology holds ospf.mtu 1500 on %d of %d interfaces", mtus, interfaces)
 	}
 	for _, want := range []string{`"neighbors_complete": false`, `"routes_complete": false`} {
 		if !strings.Contains(string(data), want) {

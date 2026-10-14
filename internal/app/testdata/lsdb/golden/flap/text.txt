@@ -121,7 +121,7 @@ Not imported:
   the OSPF link-state database: read for the ospf_lsdb section only; not written to the topology
   OSPF area of a neighbor record: reported, not written to the topology
   OSPF area of an interface: a plain dotted area is written as ospf.effective_area, one value per interface name; a qualified, incomplete, or missing area is not written, and neither is one withheld because a neighbor contradicts it or because its record may describe another OSPF interface on the name
-  OSPF interface facts: ospf.cost, ospf.network_type, ospf.interface_state, and ospf.passive are written from the interface's cost, networkType, state, and passive settings; a name whose record may describe another OSPF interface gives none of them
+  OSPF interface facts: ospf.cost, ospf.network_type, ospf.interface_state, ospf.passive, and ospf.mtu are written from the interface's cost, networkType, state, passive settings, and mtuBytes; a name whose record may describe another OSPF interface gives none of them
   secondary interface addresses: not read; only the primary address is used
   any other FRR output field: not read; drAddress and bdrAddress are read only to detect such a record, and ospfIfType is never read
   source address: not set, so the topology claims no address for the source node

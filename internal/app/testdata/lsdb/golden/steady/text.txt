@@ -58,6 +58,14 @@ Neighbor records (2): 2 mapped, 0 unmapped
   mapped    r1 e1 10.0.1.2 state Full/DR area 0.0.0.0 router-id 2.2.2.2 -> r2 e2
   mapped    r2 e2 10.0.1.1 state Full/Backup area 0.0.0.0 router-id 1.1.1.1 -> r1 e1
 
+OSPF (from recorded evidence for every node in the file; nothing was probed):
+  neighbor_state [reported] r1 e1 to r2 e2 (vrf default): reports state full
+    evidence: r1 neighbor detail at 2026-10-10T17:41:19Z (control plane, vrf default): r1 e1 to r2 e2, state Full, router ID 2.2.2.2
+    limit: FULL is the reporter's own claim. It does not prove that the link carries traffic or that the destination is reachable.
+  neighbor_state [reported] r2 e2 to r1 e1 (vrf default): reports state full
+    evidence: r2 neighbor detail at 2026-10-10T17:41:32Z (control plane, vrf default): r2 e2 to r1 e1, state Full, router ID 1.1.1.1
+    limit: FULL is the reporter's own claim. It does not prove that the link carries traffic or that the destination is reachable.
+
 OSPF LSDB comparison:
   node r1 vrf default: guard passed
     no finding

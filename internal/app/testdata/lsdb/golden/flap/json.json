@@ -226,6 +226,60 @@
       "remote_interface": "e1"
     }
   ],
+  "ospf": {
+    "findings": [
+      {
+        "kind": "neighbor_state",
+        "strength": "reported",
+        "node": "r1",
+        "vrf": "default",
+        "interface": "e1",
+        "peer": "r2",
+        "peer_interface": "e2",
+        "detail": "reports state full",
+        "limit": "FULL is the reporter's own claim. It does not prove that the link carries traffic or that the destination is reachable.",
+        "evidence": [
+          {
+            "source": "r1 neighbor detail",
+            "collected_at": "2026-10-10T17:41:19Z",
+            "plane": "control",
+            "node": "r1",
+            "vrf": "default",
+            "interface": "e1",
+            "peer": "r2",
+            "peer_interface": "e2",
+            "state": "Full",
+            "router_id": "2.2.2.2"
+          }
+        ]
+      },
+      {
+        "kind": "neighbor_state",
+        "strength": "reported",
+        "node": "r2",
+        "vrf": "default",
+        "interface": "e2",
+        "peer": "r1",
+        "peer_interface": "e1",
+        "detail": "reports state full",
+        "limit": "FULL is the reporter's own claim. It does not prove that the link carries traffic or that the destination is reachable.",
+        "evidence": [
+          {
+            "source": "r2 neighbor detail",
+            "collected_at": "2026-10-10T17:41:32Z",
+            "plane": "control",
+            "node": "r2",
+            "vrf": "default",
+            "interface": "e2",
+            "peer": "r1",
+            "peer_interface": "e1",
+            "state": "Full",
+            "router_id": "1.1.1.1"
+          }
+        ]
+      }
+    ]
+  },
   "ospf_lsdb": {
     "nodes": [
       {

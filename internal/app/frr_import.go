@@ -357,6 +357,7 @@ type frrReport struct {
 	Counts            frrCounts        `json:"counts"`
 	Captures          []frrCapture     `json:"captures"`
 	Records           []frrRecord      `json:"records"`
+	OSPF              *ospf.Report     `json:"ospf,omitempty"`
 	OSPFLSDB          *ospf.LSDBReport `json:"ospf_lsdb,omitempty"`
 	NotImported       []string         `json:"not_imported"`
 	Limitations       []string         `json:"limitations"`
@@ -485,6 +486,15 @@ func buildFRRReport(manifestPath string, m frrospf.Manifest, res frrospf.Result)
 		}
 	}
 	r.Complete = r.Counts.Refused == 0 && r.Counts.Unmapped == 0
+	// The OSPF findings read what the accepted captures wrote, whether or not the
+	// import is complete. An unmapped record or a refused capture wrote nothing, so
+	// it gives no finding. Import returns only observations it has already built
+	// a model from, so New does not fail here; if it did, the findings are left out.
+	if model, err := netmodel.New(res.Observations...); err == nil {
+		if rep := ospf.Analyze(model); len(rep.Findings) > 0 {
+			r.OSPF = &rep
+		}
+	}
 	return r
 }
 
@@ -697,6 +707,12 @@ func renderFRRText(r frrReport) string {
 			fmt.Fprintf(&b, "  unmapped  %s %s %s state %s area %s router-id %s: %s\n",
 				clean(rec.Node), clean(rec.LocalInterface), clean(rec.NeighborAddress), clean(rec.State), clean(rec.Area),
 				clean(rec.RouterID), clean(rec.Reason))
+		}
+	}
+	if r.OSPF != nil {
+		b.WriteString(r.OSPF.Text())
+		if r.Counts.Unmapped > 0 || r.Counts.Refused > 0 {
+			fmt.Fprintf(&b, "  not analyzed: unmapped neighbor records %d, refused captures %d. They wrote no evidence, so what they report is unknown here, not absent.\n", r.Counts.Unmapped, r.Counts.Refused)
 		}
 	}
 	if r.OSPFLSDB != nil {

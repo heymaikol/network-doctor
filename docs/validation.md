@@ -51,6 +51,8 @@ go test -run='^$' -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
 go test -run='^$' -fuzz=FuzzDecodeManifest -fuzztime=10s ./internal/frrospf
 go test -run='^$' -fuzz=FuzzDecodeLSDB -fuzztime=10s ./internal/frrospf
 go test -run='^$' -fuzz=FuzzImportInterfaceFacts -fuzztime=10s ./internal/frrospf
+go test -run='^$' -fuzz=FuzzDecodeSummary -fuzztime=10s ./internal/frrbgp
+go test -run='^$' -fuzz=FuzzDecodeRouteCapture -fuzztime=10s ./internal/frrbgp
 go test -run='^$' -fuzz=FuzzGenerateHuntCase -fuzztime=10s ./internal/simulation
 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

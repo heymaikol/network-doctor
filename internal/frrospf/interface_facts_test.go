@@ -177,35 +177,33 @@ func TestNBMANetworkTypeIsNotOSPFIfType(t *testing.T) {
 	})
 }
 
-// TestCostMismatchStaysFacts imports the cost lab. The two ends hold cost 50 and
-// cost 10. Both facts are written, and the adjacency adds no finding of its own.
-func TestCostMismatchStaysFacts(t *testing.T) {
-	res, err := Import(labCaptures(t, "cost50"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkFacts(t, "cost50 r1 e1", ifaceFacts(t, res, "r1", "e1"), map[string]string{"ospf.cost": "50"})
-	checkFacts(t, "cost50 r2 e2", ifaceFacts(t, res, "r2", "e2"), map[string]string{"ospf.cost": "10"})
-	for _, f := range ospf.Analyze(mustModel(t, res)).Findings {
-		if f.Kind != ospf.KindNeighborState {
-			t.Errorf("cost mismatch added a %s finding; facts only", f.Kind)
+// TestMismatchStaysFacts imports the labs whose two ends differ in one interface
+// setting. Each side writes its own value, and the mismatch adds no finding
+// besides neighbor state.
+func TestMismatchStaysFacts(t *testing.T) {
+	for _, tc := range []struct {
+		lab, key string
+		want     map[string]string // value by node and interface
+	}{
+		// The cost lab holds cost 50 and cost 10.
+		{"cost50", "ospf.cost", map[string]string{"r1 e1": "50", "r2 e2": "10"}},
+		// In the mixed lab, r1 e1 is point-to-point and r2 e2 is broadcast.
+		{"mixp2p", "ospf.network_type", map[string]string{"r1 e1": "point-to-point", "r2 e2": "broadcast"}},
+		// In the MTU lab, r2 e2 is set to 1400 and the other interfaces keep 1500.
+		{"mtu", "ospf.mtu", map[string]string{"r1 e1": "1500", "r2 e2": "1400", "r2 stub2": "1500"}},
+	} {
+		res, err := Import(labCaptures(t, tc.lab))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-}
-
-// TestNetworkTypeMismatchStaysFacts imports the mixed lab, where r1 e1 is
-// point-to-point and r2 e2 is broadcast. Each side writes its own network type,
-// and no finding besides neighbor state is added.
-func TestNetworkTypeMismatchStaysFacts(t *testing.T) {
-	res, err := Import(labCaptures(t, "mixp2p"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkFacts(t, "mixp2p r1 e1", ifaceFacts(t, res, "r1", "e1"), map[string]string{"ospf.network_type": "point-to-point"})
-	checkFacts(t, "mixp2p r2 e2", ifaceFacts(t, res, "r2", "e2"), map[string]string{"ospf.network_type": "broadcast"})
-	for _, f := range ospf.Analyze(mustModel(t, res)).Findings {
-		if f.Kind != ospf.KindNeighborState {
-			t.Errorf("network type mismatch added a %s finding; facts only", f.Kind)
+		for at, v := range tc.want {
+			node, iface, _ := strings.Cut(at, " ")
+			checkFacts(t, tc.lab+" "+at, ifaceFacts(t, res, node, iface), map[string]string{tc.key: v})
+		}
+		for _, f := range ospf.Analyze(mustModel(t, res)).Findings {
+			if f.Kind != ospf.KindNeighborState {
+				t.Errorf("%s: %s mismatch added a %s finding; facts only", tc.lab, tc.key, f.Kind)
+			}
 		}
 	}
 }
@@ -383,24 +381,6 @@ func TestCostOutOfRangeIsUnreadable(t *testing.T) {
 		checkAbsent(t, "synthetic cost out of range", ifaceFacts(t, res, "r3", "e3"), "ospf.cost")
 		if noteWith(capNotes(t, res, "r3", CommandInterface), "cost "+strconv.Itoa(v)) == "" {
 			t.Errorf("cost %d: no note quotes the value", v)
-		}
-	}
-}
-
-// TestMTULabWritesEachSidesMTU imports the MTU lab, where r2 e2 is set to MTU
-// 1400 and r1 e1 keeps 1500. Each side writes its own value, and the mismatch
-// adds no finding of its own.
-func TestMTULabWritesEachSidesMTU(t *testing.T) {
-	res, err := Import(labCaptures(t, "mtu"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkFacts(t, "mtu r1 e1", ifaceFacts(t, res, "r1", "e1"), map[string]string{"ospf.mtu": "1500"})
-	checkFacts(t, "mtu r2 e2", ifaceFacts(t, res, "r2", "e2"), map[string]string{"ospf.mtu": "1400"})
-	checkFacts(t, "mtu r2 stub2", ifaceFacts(t, res, "r2", "stub2"), map[string]string{"ospf.mtu": "1500"})
-	for _, f := range ospf.Analyze(mustModel(t, res)).Findings {
-		if f.Kind != ospf.KindNeighborState {
-			t.Errorf("MTU mismatch added a %s finding; facts only", f.Kind)
 		}
 	}
 }

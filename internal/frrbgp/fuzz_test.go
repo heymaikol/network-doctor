@@ -85,7 +85,7 @@ func FuzzDecodeRouteCapture(f *testing.F) {
 	f.Add(routeTranscript("r1", routePeerDoc(`"::ffff:240.0.0.1"`)), "r1")
 	f.Add(routeTranscript("r1", routeHopDoc(`[{"ip":"fe80::1%eth0"}]`)), "r1")
 	f.Add(routeTranscript("r1", routeDoc("10.0.0.1/8", routeOnePath)), "r1")
-	f.Add(routeTranscript("r1", `{"routes":{"10.0.0.0/8":[{"pathFrom":"ext‮ernal","path":"65002","origin":"IGP","nexthops":[]}]}} `), "r1")
+	f.Add(routeTranscript("r1", `{"routes":{"10.0.0.0/8":[{"pathFrom":"ext`+"\u202e"+`ernal","path":"65002","origin":"IGP","nexthops":[]}]}} `), "r1")
 	f.Add(routeTranscript("r1", `{"routes":{},"Routes":{}}`), "r1")
 
 	f.Fuzz(func(t *testing.T, data []byte, node string) {

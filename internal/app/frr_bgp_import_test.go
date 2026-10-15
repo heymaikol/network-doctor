@@ -325,6 +325,55 @@ func TestFRRBGPImportReportsSessionStateFindings(t *testing.T) {
 	}
 }
 
+// A state FRR prints outside the six RFC 4271 names, such as "Down", is reported
+// exactly as printed. Its limit claims no meaning, so it never says the session
+// is not down, and it reads no cause or reachability into the state.
+func TestFRRBGPImportReportsAnUnfamiliarStateAsPrinted(t *testing.T) {
+	dir, manifest := stageFRRBGP(t)
+	staged := openRoot(t, dir)
+	name := "r1-show_ip_bgp_summary_json.raw"
+	raw, err := staged.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := bytes.Replace(raw, []byte(`"state":"Active"`), []byte(`"state":"Down"`), 1)
+	if bytes.Equal(mutated, raw) {
+		t.Fatal("fixture Active state not found; the test cannot change it")
+	}
+	if err := staged.WriteFile(name, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, _ := runBGPJSON(t, manifest)
+	var down []frrBGPFinding
+	for _, f := range rep.Findings {
+		if f.Node == "r1" && f.Peer == "10.0.1.3" {
+			down = append(down, f)
+		}
+	}
+	if len(down) != 1 {
+		t.Fatalf("findings for r1 to 10.0.1.3 = %+v, want one", down)
+	}
+	if want := "FRR reported state Down for the session with peer 10.0.1.3, remote AS 65003"; down[0].Detail != want {
+		t.Errorf("detail = %q, want %q", down[0].Detail, want)
+	}
+	if want := "This import does not interpret this state. It is shown as FRR printed it, and no meaning or cause is claimed. The state alone does not show whether the peer is reachable. The far end is not identified; the summary maps no address to a node."; down[0].Limit != want {
+		t.Errorf("limit = %q, want %q", down[0].Limit, want)
+	}
+
+	code, text, stderr := runNetdoc(t, "--import-frr-bgp", manifest)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, stderr)
+	}
+	if want := "  session_state [reported] r1 to 10.0.1.3 (vrf default): FRR reported state Down for the session with peer 10.0.1.3, remote AS 65003\n"; !strings.Contains(text, want) {
+		t.Errorf("text lacks %q:\n%s", want, text)
+	}
+	// Every other peer in the staged captures is Established, so no line may deny
+	// a down state.
+	if strings.Contains(text, "not reported as down") {
+		t.Errorf("text denies the state FRR printed:\n%s", text)
+	}
+}
+
 // The findings block is added before the not-read list, and every other line of
 // the text report keeps its bytes.
 func TestFRRBGPFindingsBlockLeavesTheRestOfTheTextAlone(t *testing.T) {

@@ -73,6 +73,10 @@ type walker struct {
 	budget    int
 	truncated bool
 	notes     []string
+	// fail is the simulated failure, and touched says a walk met it. Both are
+	// unset outside Simulate.
+	fail    *Failure
+	touched bool
 }
 
 // Explain walks file from its source toward dest, once along the expected
@@ -183,9 +187,17 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 	}
 	w.budget--
 	if owned := w.owned[ownerKey{w.dest, at}]; len(owned) > 0 {
-		h.Decision = w.localDecision(planes, at, owned)
-		w.noteOtherOwners(at, owned)
-		return h
+		switch lost, why := w.heldOnFailure(at); {
+		case why != "":
+			h.Decision = Decision{Kind: KindUnknown, Reason: why}
+			return h
+		case !lost:
+			h.Decision = w.localDecision(planes, at, owned)
+			w.noteOtherOwners(at, owned)
+			return h
+		}
+		// The destination went down with its interface, so the node no longer
+		// holds it and forwards it as the rest of its tables say.
 	}
 	d, hops := w.decide(planes, at)
 	h.Decision = d
@@ -290,6 +302,11 @@ func onLinkOnly(d Decision, hops []netmodel.NextHop) bool {
 // of the current VRF. An on-link next hop is resolved by the destination itself.
 // When no modeled node owns the address, the walk stops there and says why.
 func (w *walker) resolve(planes []netmodel.Plane, from state, n netmodel.NextHop, seg *Segment, branch []state) Hop {
+	if w.fail != nil {
+		if cut, ok := w.sever(from, n, seg); ok {
+			return cut
+		}
+	}
 	target := n.Addr
 	if !target.IsValid() {
 		target = w.dest

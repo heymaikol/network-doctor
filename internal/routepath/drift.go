@@ -215,14 +215,25 @@ func reachOf(h *Hop, below func(state) reach) reach {
 		if h.Decision.Proven {
 			r = reachOK
 		}
-	case KindNoRoute, KindDiscard, KindLoop:
+	case KindNoRoute, KindDiscard, KindLoop, KindFailed:
 		r = reachFailed
 	}
 	if len(h.Next) < len(h.Decision.NextHops) {
 		r = max(r, reachUnknown)
 	}
+	// A failed leg carries nothing once a simulated failure removes it, so it
+	// counts only when no leg survives. A less specific route may then take
+	// over, and a leg past the fan-out cap may survive, which the evidence
+	// cannot decide.
+	live := slices.ContainsFunc(h.Next, func(c Hop) bool { return c.Decision.Kind != KindFailed })
+	if !live && len(h.Next) > 0 && (len(h.Decision.Shadowed) > 0 || len(h.Next) < len(h.Decision.NextHops)) {
+		return reachUnknown
+	}
 	for i := range h.Next {
 		c := &h.Next[i]
+		if live && c.Decision.Kind == KindFailed {
+			continue
+		}
 		var cr reach
 		if below != nil && c.Node != "" {
 			cr = below(state{c.Node, c.VRF})

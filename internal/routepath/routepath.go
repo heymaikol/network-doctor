@@ -90,6 +90,7 @@ const (
 	KindUnresolved  Kind = "unresolved"  // the next hop address is not owned by any modeled node
 	KindAmbiguous   Kind = "ambiguous"   // the next hop address is owned by more than one node
 	KindOnLink      Kind = "on_link"     // the destination is on link, and no modeled node owns it
+	KindFailed      Kind = "failed"      // a simulated failure removes this segment; only Simulate gives it
 )
 
 // Outcome is the recorded result for one segment.

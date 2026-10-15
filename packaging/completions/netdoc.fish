@@ -21,6 +21,7 @@ complete -c netdoc -o support -l support -r -F -d 'Write a sanitized support sna
 complete -c netdoc -o compare -l compare -d 'Compare two saved snapshots (.ndoc); runs no probes'
 complete -c netdoc -o two-sided -l two-sided -d 'Localize two saved snapshots, or local and --via live runs'
 complete -c netdoc -o explain -l explain -d 'Explain how traffic to a destination should leave a topology file; runs no probes'
+complete -c netdoc -o fail -l fail -r -f -d 'With --explain, simulate a router or node:interface failing; runs no probes'
 # The two route files are topology JSON for side A and side B of offline
 # --two-sided, so they take file completion and are refused with --via.
 complete -c netdoc -o route-a -l route-a -r -F -d 'Add the routing context of a topology file to side A of offline --two-sided'

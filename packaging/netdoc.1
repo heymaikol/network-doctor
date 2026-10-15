@@ -336,12 +336,15 @@ simulate router
 .I node
 becoming unavailable, or that interface of
 .I node
-going down, and list the destinations that lose reachability or redundancy
-from the source. The text before the first colon is the node. The simulation
-reads the recorded forwarding table only: each node stops using a next hop
-that crosses the failure, and nothing else changes. It recomputes no route and
-predicts no convergence, so a lost destination means no recorded path
-survives, and what the evidence cannot decide is reported as unknown. A node
+going down, and list the destinations that lose redundancy, or lose
+reachability on some or all of their forwarding branches, from the source.
+The text before the first colon is the node. The simulation reads the
+recorded forwarding table only: each node stops using a next hop that crosses
+the failure, and nothing else changes. It recomputes no route and predicts no
+convergence. A destination rated reachability_lost has at least one recorded
+branch left with no next hop, and another equal-cost branch may still deliver
+it, so the loss can be partial; the listed walk shows which. What the evidence
+cannot decide is reported as unknown. A node
 or interface the file does not describe, or the source node itself, exits
 .BR 2 .
 Refused without

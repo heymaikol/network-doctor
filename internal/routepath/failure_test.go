@@ -220,6 +220,12 @@ func TestBranchWithNoSurvivingNextHopIsALoss(t *testing.T) {
 	if got := impacts(s)[dest]; got != ImpactReachabilityLost {
 		t.Errorf("%s impact = %s, want reachability_lost", dest, got)
 	}
+	// The loss is partial: the walk keeps the r2 branch, which still delivers.
+	delivers := false
+	walkHops(affected(t, s, dest).After, func(h *Hop) { delivers = delivers || h.Decision.Kind == KindLocal })
+	if !delivers {
+		t.Error("the walk drops the r2 branch that still delivers, so a partial loss reads as complete")
+	}
 }
 
 func TestIncompleteEvidenceIsUnknownNeverLost(t *testing.T) {

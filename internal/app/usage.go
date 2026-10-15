@@ -55,9 +55,9 @@ file's format is documented under Route path explanation in the reference.
 
 --fail NODE or --fail NODE:INTERFACE adds a failure simulation to --explain. It
 removes that router or interface from the recorded forwarding and lists the
-destinations that lose reachability or redundancy from the source. It
-recomputes no route and predicts no convergence. See Failure simulation in the
-reference.
+destinations that lose redundancy, or lose reachability on some or all of their
+forwarding branches, from the source. It recomputes no route and predicts no
+convergence. See Failure simulation in the reference.
 
 --import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each
 one, and reports every capture and every neighbor record. With LSDB captures, it

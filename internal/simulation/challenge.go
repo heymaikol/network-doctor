@@ -449,8 +449,9 @@ var challengeRecognition = map[ChallengeAnswer]func(*Diagnosis) bool{
 	//
 	// AnswerPacketLoss has no entry on purpose. netdoc's cause vocabulary
 	// carries no impairment verdict at all, so there is no report it could
-	// produce that would name observed packet loss, and the `packet-loss` control
-	// scenario expects a clean `ok`. A challenge on it is netdoc's to lose.
+	// produce that would name observed packet loss: on the `packet-loss` control
+	// scenario it reports `ok`, or a slow, timed-out, or unresolved row that
+	// names no loss either. A challenge on it is netdoc's to lose.
 }
 
 // flaggedRow recognizes a diagnosis by the row it raised its hand on. Used only

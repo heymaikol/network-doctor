@@ -410,26 +410,52 @@ func TestSimulationTextIsDeterministicAndQualified(t *testing.T) {
 	}
 }
 
-func TestAfterWalksAreBoundedTogether(t *testing.T) {
-	// A 30-router chain whose last FIB is partial, so every destination routed
-	// along it is unknown and listed with a 30-hop walk. The chain stays under
-	// maxDepth, so no walk is stopped by a bound of its own.
+// chain is n routers in a line, from r0, each forwarding 10.9.0.0/16 to the
+// next. The last FIB is partial, so a walk that reaches it is unknown.
+func chain(t *testing.T, n int) File {
+	t.Helper()
 	var obs []netmodel.Observation
-	for i := range 30 {
+	for i := range n {
 		node := fmt.Sprintf("r%d", i)
 		obs = append(obs,
 			configured(node, "default", []netmodel.Interface{ifc("in", fmt.Sprintf("10.1.%d.2/24", i)), ifc("out", fmt.Sprintf("10.1.%d.1/24", i+1))}),
-			table(netmodel.PlaneFIB, node, "default", i < 29, route("10.9.0.0/16", "kernel", nh(fmt.Sprintf("10.1.%d.2", i+1), "out"))))
+			table(netmodel.PlaneFIB, node, "default", i < n-1, route("10.9.0.0/16", "kernel", nh(fmt.Sprintf("10.1.%d.2", i+1), "out"))))
 	}
 	m, err := netmodel.New(obs...)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return File{Source: Start{Node: "r0", VRF: "default"}, Model: m}
+}
+
+func TestWalkStoppedAtItsOwnBoundSkipsNoDestination(t *testing.T) {
+	// The chain is longer than maxDepth, so the walk to 10.9.0.1 stops at that
+	// bound, while every destination is still considered.
+	s, err := Simulate(chain(t, maxDepth+8), Failure{Node: "r0", Interface: "in"}, addr("10.9.0.1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 1 + 2*(maxDepth+8); !s.Truncated || s.Considered != want {
+		t.Errorf("truncated %v, considered %d, want true and %d", s.Truncated, s.Considered, want)
+	}
+	text := s.Text()
+	if strings.Contains(text, "not considered") {
+		t.Errorf("the text says destinations were not considered, but every one was:\n%s", text)
+	}
+	if !strings.Contains(text, "walks stopped at a depth, state, or fan-out bound") {
+		t.Errorf("the text does not say a walk stopped at its own bound:\n%s", text)
+	}
+}
+
+func TestAfterWalksAreBoundedTogether(t *testing.T) {
+	// A 30-router chain is listed with a 30-hop walk for every destination routed
+	// along it. The chain stays under maxDepth, so no walk is stopped by a bound
+	// of its own.
 	var extra []netip.Addr
 	for i := range 30 {
 		extra = append(extra, addr(fmt.Sprintf("10.9.0.%d", i+1)))
 	}
-	s, err := Simulate(File{Source: Start{Node: "r0", VRF: "default"}, Model: m}, Failure{Node: "r0", Interface: "in"}, extra...)
+	s, err := Simulate(chain(t, 30), Failure{Node: "r0", Interface: "in"}, extra...)
 	if err != nil {
 		t.Fatal(err)
 	}

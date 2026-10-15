@@ -30,7 +30,7 @@ netdoc \- diagnose network connectivity and name the layer where the
 .B netdoc
 .B \-explain
 .I topology.json destination
-.RB [ \-fail " node[:interface]" ]
+.RB [ \-fail " node[:interface] | " \-fail\-ospf " node:interface:neighbor" ]
 .RI [ \-json ]
 .br
 .B netdoc
@@ -347,6 +347,33 @@ it, so the loss can be partial; the listed walk shows which. What the evidence
 cannot decide is reported as unknown. A node
 or interface the file does not describe, or the source node itself, exits
 .BR 2 .
+Refused without
+.BR \-explain .
+.TP
+.BI \-fail\-ospf " node:interface:neighbor"
+With
+.BR \-explain ,
+simulate losing the OSPF adjacency that
+.I node
+records on
+.I interface
+toward
+.IR neighbor .
+The interface stays up, so connected and static routes across it keep
+forwarding, and only OSPF next hops across its link stop. The records prove
+that dependency only on a point-to-point interface whose records state the
+neighbor full at one address: there, SPF cannot use the link as a transit edge
+once the adjacency is gone. That is the recorded structure, not a prediction of
+the forwarding table after the loss. Otherwise each such next hop is
+unknown. A BGP route anywhere on a
+walk is unknown, because its session may run over the adjacency. No SPF is
+run, so a destination left with no recorded next hop is unknown, never
+reachability_lost. The node ends at the first colon and the neighbor starts
+after the last. An adjacency no control-plane OSPF neighbor record names, or
+one recorded in several routing domains, exits
+.BR 2 ,
+and so does a combination with
+.BR \-fail .
 Refused without
 .BR \-explain .
 .TP

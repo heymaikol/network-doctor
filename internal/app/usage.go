@@ -20,6 +20,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --peer-connect [--json]
        netdoc --compare before.ndoc after.ndoc [--json]
        netdoc --explain topology.json DEST [--fail NODE[:INTERFACE]] [--json]
+       netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR [--json]
        netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
        netdoc --import-frr-bgp manifest.json [--json]
        netdoc --two-sided here.ndoc there.ndoc [--route-a topology.json] [--route-b topology.json] [--json]
@@ -58,6 +59,15 @@ removes that router or interface from the recorded forwarding and lists the
 destinations that lose redundancy, or lose reachability on some or all of their
 forwarding branches, from the source. It recomputes no route and predicts no
 convergence. See Failure simulation in the reference.
+
+--fail-ospf NODE:INTERFACE:NEIGHBOR simulates losing the OSPF adjacency NODE
+records on INTERFACE toward NEIGHBOR instead. The interface stays up, so only
+OSPF next hops across its link stop, and only where the records prove the
+link depends on the adjacency for transit: a point-to-point interface with the
+neighbor full at one address. That is the recorded structure, not the FIB after
+the loss. Where the records do not prove it, or a route is from BGP, the result
+is unknown. No SPF is run, so a
+destination left with no recorded next hop is unknown too, never lost.
 
 --import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each
 one, and reports every capture and every neighbor record. With LSDB captures, it

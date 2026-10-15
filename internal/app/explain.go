@@ -20,7 +20,7 @@ import (
 // explanation, including one that says the path is broken, and 2 when the
 // input cannot be read, the destination is not an address, or the failure to
 // simulate is not in the file.
-func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail string, stdout, stderr io.Writer) int {
+func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, failOSPF string, stdout, stderr io.Writer) int {
 	if rejectRunFlags("explain", setFlags, stderr) {
 		return 2
 	}
@@ -46,15 +46,30 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail str
 	result := routepath.Explain(file, dest)
 	var sim *routepath.Simulation
 	simText := ""
+	flag, failure := "fail", routepath.Failure{}
 	if fail != "" {
 		node, iface, colon := strings.Cut(fail, ":")
 		if colon && iface == "" {
 			fmt.Fprintf(stderr, "netdoc: -fail: %q names no interface after the colon\n", fail)
 			return 2
 		}
-		s, err := routepath.Simulate(file, routepath.Failure{Node: node, Interface: iface}, dest)
+		failure = routepath.Failure{Node: node, Interface: iface}
+	}
+	if failOSPF != "" {
+		// The node ends at the first colon and the neighbor starts after the
+		// last, so an interface name may hold colons and the two names may not.
+		node, rest, _ := strings.Cut(failOSPF, ":")
+		cut := strings.LastIndex(rest, ":")
+		if node == "" || cut <= 0 || cut == len(rest)-1 {
+			fmt.Fprintf(stderr, "netdoc: -fail-ospf: %q is not node:interface:neighbor\n", failOSPF)
+			return 2
+		}
+		flag, failure = "fail-ospf", routepath.Failure{Node: node, Interface: rest[:cut], OSPFNeighbor: rest[cut+1:]}
+	}
+	if fail != "" || failOSPF != "" {
+		s, err := routepath.Simulate(file, failure, dest)
 		if err != nil {
-			fmt.Fprintf(stderr, "netdoc: -fail: %s\n", textsafe.Clean(err.Error()))
+			fmt.Fprintf(stderr, "netdoc: -%s: %s\n", flag, textsafe.Clean(err.Error()))
 			return 2
 		}
 		sim, simText = &s, s.Text()
@@ -78,8 +93,8 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail str
 }
 
 // explainOutput is the --explain JSON object. Its failure field is present only
-// with -fail, and its ospf field only when the topology holds OSPF evidence that
-// yields a finding, so any other run encodes the same bytes as
+// with -fail or -fail-ospf, and its ospf field only when the topology holds OSPF
+// evidence that yields a finding, so any other run encodes the same bytes as
 // routepath.Explanation.JSON.
 type explainOutput struct {
 	routepath.Explanation

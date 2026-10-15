@@ -151,6 +151,7 @@ type frrBGPReport struct {
 	Manifest    string             `json:"manifest"`
 	Captures    []frrBGPCapture    `json:"captures"`
 	RouteTables []frrBGPRouteTable `json:"route_tables,omitempty"`
+	Findings    []frrBGPFinding    `json:"findings,omitempty"`
 	NotRead     []string           `json:"not_read"`
 	Limitations []string           `json:"limitations"`
 }
@@ -173,6 +174,26 @@ type frrBGPPeer struct {
 	LocalAS  uint32 `json:"local_as"`
 	RemoteAS uint32 `json:"remote_as"`
 	State    string `json:"state"`
+}
+
+// frrBGPFinding is one reading of a session state FRR printed. Its shape follows
+// the OSPF findings: what it is, how far it goes, its subject, what it says, what
+// it does not establish, and the capture it rests on.
+type frrBGPFinding struct {
+	Kind     string           `json:"kind"`
+	Strength string           `json:"strength"`
+	Node     string           `json:"node"`
+	VRF      string           `json:"vrf"`
+	Peer     string           `json:"peer"`
+	Detail   string           `json:"detail"`
+	Limit    string           `json:"limit"`
+	Evidence []frrBGPEvidence `json:"evidence"`
+}
+
+// frrBGPEvidence is the capture behind a finding, as its manifest declares it.
+type frrBGPEvidence struct {
+	Source      string `json:"source"`
+	CollectedAt string `json:"collected_at"`
 }
 
 // frrBGPRouteTable is one accepted show ip bgp json capture. Declared is the
@@ -247,9 +268,20 @@ func buildFRRBGPReport(manifestPath string, m frrospf.Manifest, captures []frros
 			return frrBGPReport{}, fmt.Errorf("captures[%d] %s: %w", i, mc.File, err)
 		}
 		summaries[c.Node] = s
+		collected := mc.CollectedAt.Format(time.RFC3339Nano)
 		peers := make([]frrBGPPeer, 0, len(s.Peers))
 		for _, p := range s.Peers {
 			peers = append(peers, frrBGPPeer{Address: p.Address.String(), LocalAS: p.LocalAS, RemoteAS: p.RemoteAS, State: p.State})
+			r.Findings = append(r.Findings, frrBGPFinding{
+				Kind:     "session_state",
+				Strength: "reported",
+				Node:     mc.Node,
+				VRF:      mc.VRF,
+				Peer:     p.Address.String(),
+				Detail:   fmt.Sprintf("FRR reported state %s for the session with peer %s, remote AS %d", p.State, p.Address, p.RemoteAS),
+				Limit:    frrbgp.StateLimit(p.State),
+				Evidence: []frrBGPEvidence{{Source: mc.Source, CollectedAt: collected}},
+			})
 		}
 		r.Captures = append(r.Captures, frrBGPCapture{
 			File: mc.File,
@@ -259,7 +291,7 @@ func buildFRRBGPReport(manifestPath string, m frrospf.Manifest, captures []frros
 				VRF:         mc.VRF,
 				FRRVersion:  mc.FRRVersion,
 				Command:     mc.Command,
-				CollectedAt: mc.CollectedAt.Format(time.RFC3339Nano),
+				CollectedAt: collected,
 			},
 			Family:   frrbgp.Family,
 			RouterID: s.RouterID,
@@ -376,6 +408,16 @@ func renderFRRBGPText(r frrBGPReport) string {
 		b.WriteString("  FRR's BGP table, not the zebra RIB or the kernel FIB. Prefixes are sorted by address and prefix length. Paths within each prefix keep FRR's order, which does not imply preference.\n")
 		for _, t := range r.RouteTables {
 			renderFRRBGPRouteTable(&b, t)
+		}
+	}
+	if len(r.Findings) > 0 {
+		b.WriteString("\nBGP findings (from recorded summaries; nothing was probed):\n")
+		for _, f := range r.Findings {
+			fmt.Fprintf(&b, "  %s [%s] %s to %s (vrf %s): %s\n", f.Kind, f.Strength, clean(f.Node), clean(f.Peer), clean(f.VRF), clean(f.Detail))
+			for _, e := range f.Evidence {
+				fmt.Fprintf(&b, "    evidence: %s, collected %s\n", clean(e.Source), clean(e.CollectedAt))
+			}
+			fmt.Fprintf(&b, "    limit: %s\n", f.Limit)
 		}
 	}
 	b.WriteString("\nNot read:\n")

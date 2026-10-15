@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -264,8 +265,130 @@ func TestFRRBGPImportObservedEmptyIsNotDown(t *testing.T) {
 	if i := strings.Index(stdout, "router ID 2.2.2.2"); i < 0 || !strings.Contains(stdout[i:], "observed family: IPv4 unicast") {
 		t.Errorf("the emptied capture does not name its observed family:\n%s", stdout)
 	}
-	if _, jsonOut, _ := runNetdoc(t, "--import-frr-bgp", manifest, "--json"); !strings.Contains(jsonOut, `"peers": []`) {
+	_, jsonOut, _ := runNetdoc(t, "--import-frr-bgp", manifest, "--json")
+	if !strings.Contains(jsonOut, `"peers": []`) {
 		t.Errorf("JSON peers is not an empty array:\n%s", jsonOut)
+	}
+	// An empty collection names no peer, so it gives no finding.
+	var rep frrBGPReport
+	if err := json.Unmarshal([]byte(jsonOut), &rep); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range rep.Findings {
+		if f.Node == "r2" {
+			t.Errorf("emptied r2 summary gave a finding: %+v", f)
+		}
+	}
+}
+
+// Each peer in a summary gives one reported session_state finding. The Active
+// session in the committed capture is not reported as down, and no finding names
+// the node at the far end, since the summary maps no address to a node.
+func TestFRRBGPImportReportsSessionStateFindings(t *testing.T) {
+	_, manifest := stageFRRBGP(t)
+	rep, _ := runBGPJSON(t, manifest)
+	states := map[string]string{}
+	for _, c := range rep.Captures {
+		for _, p := range c.Peers {
+			states[c.Declared.Node+" "+p.Address] = p.State
+		}
+	}
+	type key struct{ node, peer, state string }
+	var got []key
+	for _, f := range rep.Findings {
+		if f.Kind != "session_state" || f.Strength != "reported" || f.VRF != "default" {
+			t.Errorf("finding %+v is not a reported session_state in the default VRF", f)
+		}
+		if len(f.Evidence) != 1 || f.Evidence[0].Source == "" || f.Evidence[0].CollectedAt == "" {
+			t.Errorf("finding %+v does not name its capture", f)
+		}
+		if !strings.Contains(f.Limit, "The far end is not identified") {
+			t.Errorf("finding %+v identifies the far end", f)
+		}
+		if strings.Contains(f.Detail+f.Limit, "is down") {
+			t.Errorf("finding %+v calls a session down", f)
+		}
+		state := states[f.Node+" "+f.Peer]
+		got = append(got, key{f.Node, f.Peer, state})
+		if notDown := strings.Contains(f.Limit, "not reported as down"); notDown == (state == "Established") {
+			t.Errorf("finding %+v: not-down wording present = %v for state %s", f, notDown, state)
+		}
+	}
+	want := []key{{"r1", "10.0.1.2", "Established"}, {"r1", "10.0.1.3", "Active"}, {"r2", "10.0.1.1", "Established"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("findings = %v, want %v", got, want)
+	}
+
+	_, text, _ := runNetdoc(t, "--import-frr-bgp", manifest)
+	if want := "  session_state [reported] r1 to 10.0.1.3 (vrf default): FRR reported state Active for the session with peer 10.0.1.3, remote AS 65003\n"; !strings.Contains(text, want) {
+		t.Errorf("text lacks %q:\n%s", want, text)
+	}
+}
+
+// A state FRR prints outside the six RFC 4271 names, such as "Down", is reported
+// exactly as printed. Its limit claims no meaning, so it never says the session
+// is not down, and it reads no cause or reachability into the state.
+func TestFRRBGPImportReportsAnUnfamiliarStateAsPrinted(t *testing.T) {
+	dir, manifest := stageFRRBGP(t)
+	staged := openRoot(t, dir)
+	name := "r1-show_ip_bgp_summary_json.raw"
+	raw, err := staged.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := bytes.Replace(raw, []byte(`"state":"Active"`), []byte(`"state":"Down"`), 1)
+	if bytes.Equal(mutated, raw) {
+		t.Fatal("fixture Active state not found; the test cannot change it")
+	}
+	if err := staged.WriteFile(name, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, _ := runBGPJSON(t, manifest)
+	var down []frrBGPFinding
+	for _, f := range rep.Findings {
+		if f.Node == "r1" && f.Peer == "10.0.1.3" {
+			down = append(down, f)
+		}
+	}
+	if len(down) != 1 {
+		t.Fatalf("findings for r1 to 10.0.1.3 = %+v, want one", down)
+	}
+	if want := "FRR reported state Down for the session with peer 10.0.1.3, remote AS 65003"; down[0].Detail != want {
+		t.Errorf("detail = %q, want %q", down[0].Detail, want)
+	}
+	if want := "This import does not interpret this state. It is shown as FRR printed it, and no meaning or cause is claimed. The state alone does not show whether the peer is reachable. The far end is not identified; the summary maps no address to a node."; down[0].Limit != want {
+		t.Errorf("limit = %q, want %q", down[0].Limit, want)
+	}
+
+	code, text, stderr := runNetdoc(t, "--import-frr-bgp", manifest)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, stderr)
+	}
+	if want := "  session_state [reported] r1 to 10.0.1.3 (vrf default): FRR reported state Down for the session with peer 10.0.1.3, remote AS 65003\n"; !strings.Contains(text, want) {
+		t.Errorf("text lacks %q:\n%s", want, text)
+	}
+	// Every other peer in the staged captures is Established, so no line may deny
+	// a down state.
+	if strings.Contains(text, "not reported as down") {
+		t.Errorf("text denies the state FRR printed:\n%s", text)
+	}
+}
+
+// The findings block is added before the not-read list, and every other line of
+// the text report keeps its bytes.
+func TestFRRBGPFindingsBlockLeavesTheRestOfTheTextAlone(t *testing.T) {
+	_, manifest := stageFRRBGP(t)
+	rep, _ := runBGPJSON(t, manifest)
+	with := renderFRRBGPText(rep)
+	rep.Findings = nil
+	without := renderFRRBGPText(rep)
+	start := strings.Index(with, "\nBGP findings")
+	end := strings.Index(with, "\nNot read:")
+	if start < 0 || end < start {
+		t.Fatalf("findings block is missing or after the not-read list:\n%s", with)
+	}
+	if with[:start]+with[end:] != without {
+		t.Errorf("text outside the findings block changed:\nwith:\n%s\nwithout:\n%s", with, without)
 	}
 }
 

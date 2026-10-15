@@ -709,11 +709,16 @@ func renderFRRText(r frrReport) string {
 				clean(rec.RouterID), clean(rec.Reason))
 		}
 	}
+	notAnalyzed := r.Counts.Unmapped > 0 || r.Counts.Refused > 0
 	if r.OSPF != nil {
 		b.WriteString(r.OSPF.Text())
-		if r.Counts.Unmapped > 0 || r.Counts.Refused > 0 {
-			fmt.Fprintf(&b, "  not analyzed: unmapped neighbor records %d, refused captures %d. They wrote no evidence, so what they report is unknown here, not absent.\n", r.Counts.Unmapped, r.Counts.Refused)
-		}
+	} else if notAnalyzed {
+		// The accepted captures gave no finding, but some evidence was never read.
+		// The block still says so, since an empty block would read as nothing found.
+		b.WriteString("\nOSPF (from recorded evidence for every node in the file; nothing was probed):\n  no finding from the accepted captures\n")
+	}
+	if notAnalyzed {
+		fmt.Fprintf(&b, "  not analyzed: unmapped neighbor records %d, refused captures %d. They wrote no evidence, so what they report is unknown here, not absent.\n", r.Counts.Unmapped, r.Counts.Refused)
 	}
 	if r.OSPFLSDB != nil {
 		renderLSDB(&b, r.OSPFLSDB)

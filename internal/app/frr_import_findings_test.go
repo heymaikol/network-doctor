@@ -155,3 +155,50 @@ func TestFRRImportUnmappedRecordGivesNoFindingForItsSide(t *testing.T) {
 		t.Errorf("text does not count the unmapped record as not analyzed:\n%s", text)
 	}
 }
+
+// An incomplete import whose accepted captures give no finding still says what
+// was not analyzed. The text keeps the OSPF block with that line, so the gap is
+// not read as nothing found, and the JSON still leaves out the ospf key.
+func TestFRRImportIncompleteWithNoFindingSaysWhatWasNotAnalyzed(t *testing.T) {
+	cases := []struct {
+		name        string
+		edit        func(t *testing.T, dir, manifest string)
+		notAnalyzed string
+	}{
+		{"refused neighbor captures", func(t *testing.T, _, manifest string) {
+			editFRRJSON(t, manifest, func(m map[string]any) {
+				frrManifestCapture(m, 1)["frr_version"] = "10.6.0" // r1 neighbor detail
+				frrManifestCapture(m, 3)["frr_version"] = "10.6.0" // r2 neighbor detail
+			})
+		}, "not analyzed: unmapped neighbor records 0, refused captures 2."},
+		{"unmapped neighbor records", func(t *testing.T, dir, _ string) {
+			for _, s := range []struct{ file, iface string }{{"r1-interface.json", "e1"}, {"r2-interface.json", "e2"}} {
+				editFRRJSON(t, filepath.Join(dir, s.file), func(m map[string]any) {
+					delete(m["interfaces"].(map[string]any)[s.iface].(map[string]any), "routerId")
+				})
+			}
+		}, "not analyzed: unmapped neighbor records 2, refused captures 0."},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir, manifest := stageFRRBcast(t)
+			c.edit(t, dir, manifest)
+			code, findings := importOSPFFindings(t, manifest)
+			if code != 1 || findings != nil {
+				t.Fatalf("exit %d, findings %+v; want 1 and no ospf key", code, findings)
+			}
+			code, text, _ := runNetdoc(t, "--import-frr-ospf", manifest)
+			if code != 1 {
+				t.Fatalf("text exit %d, want 1", code)
+			}
+			want := "\nOSPF (from recorded evidence for every node in the file; nothing was probed):\n  no finding from the accepted captures\n  " + c.notAnalyzed + " They wrote no evidence, so what they report is unknown here, not absent.\n"
+			block := strings.Index(text, want)
+			if block < 0 || block < strings.Index(text, "\nNeighbor records") || block > strings.Index(text, "\nNot imported:") {
+				t.Errorf("text lacks %q between the neighbor records and the not-imported list:\n%s", want, text)
+			}
+			if !strings.Contains(text, "Result: incomplete.") {
+				t.Errorf("text does not say the import is incomplete:\n%s", text)
+			}
+		})
+	}
+}

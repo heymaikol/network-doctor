@@ -390,3 +390,70 @@ func TestFailIsRefusedWhereItCannotApply(t *testing.T) {
 		}
 	}
 }
+
+// ospfAdjacencyTopology is r1 -- r2 over one point-to-point OSPF adjacency that
+// r1 records as full, with r1's OSPF route to the LAN behind r2 across it.
+const ospfAdjacencyTopology = `{
+  "version": 1,
+  "source": {"node": "r1", "vrf": "default"},
+  "observations": [
+    {"source": "config:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r1", "vrf": "default",
+     "interfaces": [{"name": "eth1", "addresses": ["10.0.12.1/30"]}]},
+    {"source": "config:r2", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r2", "vrf": "default",
+     "interfaces": [{"name": "eth0", "addresses": ["10.0.12.2/30"]}, {"name": "lan", "addresses": ["10.20.40.8/24"]}]},
+    {"source": "frr:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "control", "node": "r1", "vrf": "default",
+     "interfaces": [{"name": "eth1", "attributes": [{"key": "ospf.network_type", "value": "point-to-point"}]}],
+     "neighbors": [{"local_interface": "eth1", "remote_node": "r2", "remote_interface": "eth0", "remote_addr": "10.0.12.2",
+       "attributes": [{"key": "ospf.state", "value": "Full"}]}]},
+    {"source": "fib:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "fib", "node": "r1", "vrf": "default", "routes_complete": true,
+     "routes": [{"prefix": "10.20.0.0/16", "origin": "ospf", "next_hops": [{"addr": "10.0.12.2", "interface": "eth1"}]}]}
+  ]
+}`
+
+func TestExplainFailOSPFReportsTheAdjacencyLoss(t *testing.T) {
+	path := writeTopology(t, ospfAdjacencyTopology)
+	code, out, errOut := runNetdoc(t, "--explain", path, "10.20.40.8", "--fail-ospf", "r1:eth1:r2", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, errOut)
+	}
+	var decoded struct {
+		Failure *routepath.Simulation `json:"failure"`
+	}
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	s := decoded.Failure
+	want := routepath.Failure{Node: "r1", Interface: "eth1", VRF: "default", OSPFNeighbor: "r2"}
+	if s == nil || s.Failure != want || s.Adjacency == nil || !s.Adjacency.Proven {
+		t.Fatalf("failure = %+v, want the proven adjacency %+v", s, want)
+	}
+	// A single-homed OSPF destination is unknown, never lost: OSPF recomputes
+	// its routes after the loss, which is not modeled.
+	if len(s.Affected) != 1 || s.Affected[0].Destination != "10.20.40.8" || s.Affected[0].Impact != routepath.ImpactUnknown {
+		t.Errorf("affected = %+v, want 10.20.40.8 unknown", s.Affected)
+	}
+
+	code, out, errOut = runNetdoc(t, "--explain", path, "10.20.40.8", "--fail-ospf", "r1:eth1:r2")
+	if code != 0 || !strings.Contains(out, "Failure simulation: OSPF adjacency r1 (default) eth1 to r2 lost, from r1 (default)") || !strings.Contains(out, "unknown 10.20.40.8 (r2 default)") {
+		t.Errorf("exit = %d, stderr %q, text:\n%s", code, errOut, out)
+	}
+}
+
+func TestFailOSPFIsRefusedWhereItCannotApply(t *testing.T) {
+	path := writeTopology(t, ospfAdjacencyTopology)
+	for _, args := range [][]string{
+		{"--fail-ospf", "r1:eth1:r2", "example.com"},
+		{"--explain", path, "10.20.40.8", "--fail-ospf", ""},
+		{"--explain", path, "10.20.40.8", "--fail-ospf", "r1:eth1:r2", "--fail", "r2"},
+		{"--explain", path, "10.20.40.8", "--fail-ospf", "r1:eth1"},
+		{"--explain", path, "10.20.40.8", "--fail-ospf", "r1::r2"},
+		{"--explain", path, "10.20.40.8", "--fail-ospf", "r1:eth1:"},
+		{"--explain", path, "10.20.40.8", "--fail-ospf", ":eth1:r2"},
+		{"--explain", path, "10.20.40.8", "--fail-ospf", "r1:eth1:r9"},
+		{"--explain", path, "10.20.40.8", "--fail-ospf", "r2:eth0:r1"},
+	} {
+		if code, _, errOut := runNetdoc(t, args...); code != 2 || !strings.Contains(errOut, "-fail-ospf") {
+			t.Errorf("netdoc %q = %d, stderr %q; want 2 naming -fail-ospf", args, code, errOut)
+		}
+	}
+}

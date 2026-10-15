@@ -82,6 +82,7 @@ _arguments \
   '(--two-sided -two-sided --compare -compare --explain -explain --import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp)'{--two-sided,-two-sided}'[localize two saved snapshots, or local and --via live runs]' \
   '(--explain -explain --compare -compare --two-sided -two-sided --import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp)'{--explain,-explain}'[explain how traffic to a destination should leave a topology file; runs no probes]' \
   '(--fail -fail)'{--fail,-fail}='[with --explain, simulate a router or node\:interface failing; runs no probes]:node or node\:interface:' \
+  '(--fail-ospf -fail-ospf)'{--fail-ospf,-fail-ospf}='[with --explain, simulate losing the OSPF adjacency node\:interface\:neighbor; runs no probes]:node\:interface\:neighbor:' \
   '(--import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-ospf,-import-frr-ospf}'=[import the FRR OSPF captures a manifest names; runs no probes]:manifest:_files' \
   '(--import-frr-bgp -import-frr-bgp --import-frr-ospf -import-frr-ospf --write-topology -write-topology --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-bgp,-import-frr-bgp}'=[import the FRR BGP summary and route captures a manifest names; runs no probes]:manifest:_files' \
   '(--write-topology -write-topology)'{--write-topology,-write-topology}'=[with --import-frr-ospf, write the topology of a complete import to a file]:file:_files' \

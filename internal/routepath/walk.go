@@ -73,10 +73,12 @@ type walker struct {
 	budget    int
 	truncated bool
 	notes     []string
-	// fail is the simulated failure, and touched says a walk met it. Both are
-	// unset outside Simulate.
+	// fail is the simulated failure, and touched says a walk met it. adj is
+	// what the evidence says about a lost OSPF adjacency. All are unset outside
+	// Simulate.
 	fail    *Failure
 	touched bool
+	adj     *Adjacency
 }
 
 // Explain walks file from its source toward dest, once along the expected
@@ -212,7 +214,7 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 	for _, n := range hops {
 		out, checks := w.outcome(at, n, shared[n.Interface])
 		seg := &Segment{From: at.node, VRF: at.vrf, Interface: n.Interface, NextHop: addrText(n.Addr), Outcome: out, Checks: checks}
-		h.Next = append(h.Next, w.resolve(planes, at, n, seg, branch))
+		h.Next = append(h.Next, w.resolve(planes, at, n, seg, branch, d.Evidence))
 	}
 	return h
 }
@@ -296,10 +298,11 @@ func onLinkOnly(d Decision, hops []netmodel.NextHop) bool {
 // resolve follows one next hop to the node that owns its address. The owner's
 // VRF comes from the observation that lists the address, never from the name
 // of the current VRF. An on-link next hop is resolved by the destination itself.
-// When no modeled node owns the address, the walk stops there and says why.
-func (w *walker) resolve(planes []netmodel.Plane, from state, n netmodel.NextHop, seg *Segment, branch []state) Hop {
+// When no modeled node owns the address, the walk stops there and says why. ev
+// is the evidence of the decision that chose n.
+func (w *walker) resolve(planes []netmodel.Plane, from state, n netmodel.NextHop, seg *Segment, branch []state, ev []Support) Hop {
 	if w.fail != nil {
-		if cut, ok := w.sever(from, n, seg); ok {
+		if cut, ok := w.sever(from, n, seg, ev); ok {
 			return cut
 		}
 	}

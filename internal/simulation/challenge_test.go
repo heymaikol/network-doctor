@@ -787,8 +787,8 @@ func TestChallengeRecognizesNetdocsOwnVocabulary(t *testing.T) {
 
 // lossChallengeReport is a report for a netem.loss challenge. The packet
 // condition carries the shaper's own kernel drop counter, which is what makes
-// the impairment observed; verdict is the `ok` netdoc really returns for the
-// `packet-loss` control scenario.
+// the impairment observed; verdict is the `ok` netdoc returns on a
+// `packet-loss` run whose loss happened to spare every row.
 func lossChallengeReport(t *testing.T, challenge *Challenge) *Report {
 	t.Helper()
 	m := challenge.Manifest.Mutations[0]

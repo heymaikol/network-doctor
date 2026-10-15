@@ -1,6 +1,23 @@
 name: packet-loss
 description: Moderate seeded packet loss degrades one otherwise healthy local network.
 
+# The seed fixes which positions on the client's queue are dropped, not which
+# packets fill them: concurrent probes enqueue in a slightly different order on
+# every run. So which row the loss reaches is not part of the scenario. A lost
+# SYN costs a TCP row a one second retransmission, which it reports as high
+# latency; a QUIC handshake can run out its budget; and when the loss takes both
+# of the A queries the dns row sends in its budget, a DNS timeout is the correct
+# report for that run. The only row every run owes is the interface, so that is
+# all this file expects.
+#
+# TestPacketLossScenario holds each run to the report its own evidence calls
+# for. The target's name is asked only by the dns row (dns_public asks the
+# internet node), and netem shapes only the client's egress, so an A query
+# loss-resolver answered is an answer the dns row received, and one it never
+# saw is one the dns row never got. The other rows have no such log, so there
+# the test asks only that the loss slowed or silenced them and did nothing a
+# loss cannot do.
+
 topology:
   subnet: 10.77.0.0/24
   nodes:
@@ -8,15 +25,25 @@ topology:
       role: client
       address: 10.77.0.10
       gateway: 10.77.0.1
-      resolver: 10.77.0.1
+      resolver: 10.77.0.53
+    - name: resolver
+      address: 10.77.0.53
+      services:
+        - name: loss-resolver
+          type: dns
+          zone:
+            lossy-target.test: 10.77.0.1
+            connectivitycheck.gstatic.com: 10.77.0.1
     - name: internet
       address: 10.77.0.1
       aliases: [1.1.1.1, 8.8.8.8]
       services:
         - type: dns
           zone:
+            lossy-target.test: 10.77.0.1
             connectivitycheck.gstatic.com: 10.77.0.1
         - {type: http, port: 80}
+        - {name: lossy-target, type: tcp, port: 9999}
         - {name: internet-encrypted-dns, type: encrypted_dns, port: 443, certificate: {mode: valid, dns_names: [cloudflare-dns.com]}, zone: {connectivitycheck.gstatic.com: 10.77.0.1}}
         - {name: internet-quic, type: quic, port: 443, certificate: {mode: valid, dns_names: [connectivitycheck.gstatic.com]}}
 
@@ -28,11 +55,8 @@ faults:
     seed: 219540062
 
 tests:
-  - {name: connectivity under loss, node: client}
+  - {name: connectivity under loss, node: client, target: "lossy-target.test:9999"}
 
 expect:
-  verdict: ok
   checks:
     - {id: iface, status: PASS}
-    - {id: internet_tcp, status: PASS}
-    - {id: dns, status: PASS}

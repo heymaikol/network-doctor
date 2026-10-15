@@ -395,25 +395,13 @@ func TestTierOneScenarios(t *testing.T) {
 		{name: "dns-nxdomain", testCount: 1, extra: []string{"-repeat", "3"}},
 		{name: "tcp-port-blocked", testCount: 1, extra: []string{"-timeout", timedTimeout}},
 		{name: "connection-refused", testCount: 2},
-		{name: "packet-loss", testCount: 1},
 		{name: "http-error", testCount: 1},
 		{name: "missing-subnet-route", testCount: 1},
 		{name: "quic-udp-443-blocked", testCount: 1, extra: []string{"-timeout", timedTimeout}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.name == "packet-loss" {
-				requireNetemSeed(t)
-			}
 			rep := runScenario(t, tc.name, tc.extra...)
 			if rep.Result != ResultPass || len(rep.Tests) != tc.testCount {
-				if tc.name == "packet-loss" {
-					// When the verdict or test count is wrong, print what the lossy path
-					// did with it. Nothing else bounds the DNS query list, so cap it.
-					queries := rep.Evidence.DNSQueries
-					shown := queries[:min(len(queries), 32)]
-					t.Logf("DNS queries, first %d of %d: %+v", len(shown), len(queries), shown)
-					t.Logf("packet conditions: %+v", rep.Evidence.PacketConditions)
-				}
 				t.Fatalf("result = %s (error %q); tests=%+v suggestions=%+v", rep.Result, rep.Error, rep.Tests, rep.Suggestions)
 			}
 			out := rep.Tests[0]
@@ -465,13 +453,6 @@ func TestTierOneScenarios(t *testing.T) {
 					diagnosisCheck(control, string(diagnostic.ProbeHTTP)).Status != "PASS" {
 					t.Errorf("same-node reachability control: %+v", control)
 				}
-			case "packet-loss":
-				if len(rep.Faults) != 1 || rep.Faults[0].Type != FaultNetem || rep.Faults[0].LossPercent != 10 || rep.Faults[0].Seed == 0 {
-					t.Fatalf("packet-loss qdisc evidence = %+v", rep.Faults)
-				}
-				if len(rep.Evidence.PacketConditions) != 1 || !rep.Evidence.PacketConditions[0].Active || rep.Evidence.PacketConditions[0].DroppedPackets == 0 {
-					t.Fatalf("tc did not report an active netem qdisc: %+v", rep.Evidence.PacketConditions)
-				}
 			case "http-error":
 				check := diagnosisCheck(out, string(diagnostic.ProbeHTTP))
 				if check.Status != "PASS" || check.Detail != "HTTP 503 (responded)" {
@@ -502,6 +483,33 @@ func TestTierOneScenarios(t *testing.T) {
 			assertCleanedUp(t, rep)
 		})
 	}
+}
+
+// TestPacketLossScenario runs real seeded loss and holds the run to what its
+// own evidence proves, which packetLossProblem spells out. Which rows the loss
+// reaches varies from run to run, so the log line says what this one did.
+func TestPacketLossScenario(t *testing.T) {
+	t.Parallel()
+	requireBackend(t)
+	requireNetemSeed(t)
+	rep := runScenario(t, "packet-loss")
+	if problem := packetLossProblem(rep); problem != "" {
+		// Nothing else bounds the DNS query list, so cap it.
+		queries := rep.Evidence.DNSQueries
+		shown := queries[:min(len(queries), 32)]
+		t.Logf("DNS queries, first %d of %d: %+v", len(shown), len(queries), shown)
+		t.Logf("packet conditions: %+v", rep.Evidence.PacketConditions)
+		t.Fatal(problem)
+	}
+	var degraded []string
+	for _, check := range rep.Tests[0].Diagnosis.Checks {
+		if check.Status == "WARN" || check.Status == "FAIL" {
+			degraded = append(degraded, check.ID+" "+check.Status)
+		}
+	}
+	t.Logf("netem dropped %d packets; verdict %s; degraded rows %v", rep.Evidence.PacketConditions[0].DroppedPackets,
+		rep.Tests[0].ActualVerdict, degraded)
+	assertCleanedUp(t, rep)
 }
 
 func TestStableCauseScenarios(t *testing.T) {

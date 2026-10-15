@@ -364,7 +364,8 @@ forwarding, and only OSPF next hops across its link stop. The records prove
 that dependency only on a point-to-point interface whose records state the
 neighbor full at one address: there, SPF cannot use the link as a transit edge
 once the adjacency is gone. That is the recorded structure, not a prediction of
-the forwarding table after the loss. Otherwise each such next hop is unknown. A BGP route anywhere on a
+the forwarding table after the loss. Otherwise each such next hop is
+unknown. A BGP route anywhere on a
 walk is unknown, because its session may run over the adjacency. No SPF is
 run, so a destination left with no recorded next hop is unknown, never
 reachability_lost. The node ends at the first colon and the neighbor starts

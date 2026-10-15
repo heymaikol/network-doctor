@@ -84,9 +84,9 @@ func affected(t *testing.T, s Simulation, d string) Affected {
 
 func TestRedundantPathSurvivesALinkFailureOnTheAlternate(t *testing.T) {
 	s := simulate(t, diamond(), Failure{Node: "r1", Interface: "eth1"})
-	// 10.0.12.1 is the address of the interface that went down, so it is gone
-	// even from r1 itself.
-	want := map[string]Impact{dest: ImpactRedundancyLost, "10.0.12.1": ImpactReachabilityLost}
+	// 10.0.12.1 is the address of the interface that went down. Whether r1
+	// still answers for it depends on its platform, so it is unknown.
+	want := map[string]Impact{dest: ImpactRedundancyLost, "10.0.12.1": ImpactUnknown}
 	if got := impacts(s); !reflect.DeepEqual(got, want) {
 		t.Fatalf("impacts = %v, want %v", got, want)
 	}
@@ -159,12 +159,29 @@ func TestFailedLinkEndCutsTrafficArrivingOnIt(t *testing.T) {
 	}
 }
 
-func TestAddressOnTheFailedInterfaceIsLost(t *testing.T) {
+func TestAddressOnTheFailedInterfaceIsUnknown(t *testing.T) {
 	// 10.30.0.1 is held on r2 eth2. Traffic reaches r2 on eth0, which is up,
-	// but the address it is for is on the interface that went down.
-	s := simulate(t, singleHomed(), Failure{Node: "r2", Interface: "eth2"})
-	if got := impacts(s); !reflect.DeepEqual(got, map[string]Impact{"10.30.0.1": ImpactReachabilityLost}) {
-		t.Errorf("impacts = %v, want only 10.30.0.1 reachability_lost", got)
+	// but the address it is for is on the interface that went down. A Linux r2
+	// still delivers it, and many routers would not, so it is neither lost nor
+	// unchanged, whatever r2's FIB says.
+	for name, obs := range map[string][]netmodel.Observation{
+		"recorded FIB": singleHomed(),
+		"shadowed default route": append(without(singleHomed(), "fib:r2:default"),
+			table(netmodel.PlaneFIB, "r2", "default", true,
+				route("10.20.0.0/16", "kernel", nh("10.0.23.3", "eth1")),
+				route("10.30.0.0/24", "kernel", onLink("eth2")),
+				route("0.0.0.0/0", "kernel", nh("10.0.23.3", "eth1")))),
+		"no FIB at the owner": without(singleHomed(), "fib:r2:default"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := simulate(t, obs, Failure{Node: "r2", Interface: "eth2"})
+			if got := impacts(s)["10.30.0.1"]; got != ImpactUnknown {
+				t.Errorf("impact = %s, want unknown", got)
+			}
+			if after, _ := json.Marshal(affected(t, s, "10.30.0.1").After); !strings.Contains(string(after), "depends on its platform") {
+				t.Errorf("the walk does not say why:\n%s", after)
+			}
+		})
 	}
 }
 
@@ -179,29 +196,6 @@ func TestAddressAlsoOnAnotherInterfaceIsUnknown(t *testing.T) {
 	}
 	if after, _ := json.Marshal(a.After); !strings.Contains(string(after), "eth2, eth9") {
 		t.Errorf("the walk does not name both interfaces:\n%s", after)
-	}
-}
-
-func TestAddressOnAFailedInterfaceIsForwardedByTheRestOfTheFIB(t *testing.T) {
-	// With eth2 down, r2 no longer holds 10.30.0.1 and looks it up like any
-	// other address. Its on-link route leaves by eth2, and a recorded default
-	// route also matches, so whether delivery survives is unknown. With no FIB
-	// for r2, nothing says what r2 does with it either.
-	cases := map[string][]netmodel.Observation{
-		"shadowed default route": append(without(singleHomed(), "fib:r2:default"),
-			table(netmodel.PlaneFIB, "r2", "default", true,
-				route("10.20.0.0/16", "kernel", nh("10.0.23.3", "eth1")),
-				route("10.30.0.0/24", "kernel", onLink("eth2")),
-				route("0.0.0.0/0", "kernel", nh("10.0.23.3", "eth1")))),
-		"no FIB at the owner": without(singleHomed(), "fib:r2:default"),
-	}
-	for name, obs := range cases {
-		t.Run(name, func(t *testing.T) {
-			s := simulate(t, obs, Failure{Node: "r2", Interface: "eth2"})
-			if got := impacts(s)["10.30.0.1"]; got != ImpactUnknown {
-				t.Errorf("impact = %s, want unknown", got)
-			}
-		})
 	}
 }
 

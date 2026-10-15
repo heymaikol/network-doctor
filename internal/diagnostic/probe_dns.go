@@ -1,9 +1,13 @@
 package diagnostic
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
+	"io"
+	"maps"
+	"math"
 	"net"
 	"runtime"
 	"slices"
@@ -51,16 +55,29 @@ func (r *resolverTargetRecorder) snapshot() []string {
 // back empty, and the row says nothing rather than guessing. Reading
 // GetNetworkParams would fix that on Windows, if the missing identity ever
 // bites.
+//
+// A lookup that fails keeps whatever addresses the resolver already sent. Go
+// returns neither family until both settle, and its per-query timeout outlasts
+// a probe's budget, so one lost datagram would otherwise turn an answer that
+// arrived for the other family into a timeout. Given the time, Go would have
+// returned that answer once the lost query timed out, and replaying the
+// responses gets the same result now.
 func lookupIPWithDial(ctx context.Context, host string, dial func(context.Context, string, string) (net.Conn, error)) ([]net.IP, []string, error) {
 	var targets resolverTargetRecorder
+	var responses dnsResponses
 	r := net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			targets.add(addr)
-			return dial(ctx, network, addr)
+			return responses.observe(dial(ctx, network, addr))
 		},
 	}
 	ips, err := r.LookupIP(ctx, "ip", host)
+	if err != nil {
+		if kept := responses.replay(ctx, host); len(kept) > 0 {
+			ips, err = kept, nil
+		}
+	}
 	return ips, targets.snapshot(), err
 }
 
@@ -109,21 +126,12 @@ func answeredWithoutDNS(ctx context.Context, host string) bool {
 // tried, which is true whoever answered.
 func lookupIPPublicWithDial(ctx context.Context, host string, dial func(context.Context, string, string) (net.Conn, error), server string) ([]net.IP, []string, error) {
 	var targets resolverTargetRecorder
-	var responses publicDNSResponses
+	var responses dnsResponses
 	r := net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			targets.add(server)
-			conn, err := dial(ctx, network, server)
-			if err != nil {
-				return conn, err
-			}
-			_, packet := conn.(net.PacketConn)
-			observed := &publicDNSConn{Conn: conn, packet: packet, responses: &responses}
-			if packet {
-				return publicDNSPacketConn{observed}, nil
-			}
-			return observed, nil
+			return responses.observe(dial(ctx, network, server))
 		},
 	}
 	ips, err := r.LookupIP(ctx, "ip", host)
@@ -148,24 +156,111 @@ type publicDNSAnsweredError struct{ error }
 
 func (e *publicDNSAnsweredError) Unwrap() error { return e.error }
 
-type publicDNSResponses struct {
+// dnsResponses is what one lookup heard back. verified holds each NOERROR or
+// NXDOMAIN response by the question it answers, so replay can hand it back.
+type dnsResponses struct {
 	mu       sync.Mutex
 	answered bool
 	failure  *dnsResponseError
+	verified map[string][]byte
 }
 
-// publicDNSConn observes the single query Go sends per connection. Verification
-// reuses the encrypted-DNS header, question and record framing checks for both
-// A and AAAA. Reading bytes or opening a socket alone never proves an answer.
-type publicDNSConn struct {
+// observe wraps a resolver connection so its responses are recorded.
+func (d *dnsResponses) observe(conn net.Conn, err error) (net.Conn, error) {
+	if err != nil {
+		return conn, err
+	}
+	_, packet := conn.(net.PacketConn)
+	observed := &observedDNSConn{Conn: conn, packet: packet, responses: d}
+	if packet {
+		return observedDNSPacketConn{observed}, nil
+	}
+	return observed, nil
+}
+
+// replay resolves host again from the responses already verified, with every
+// dial answered from them and none reaching the network. The Go resolver
+// applies its own checks to the same bytes, so an address comes back only if
+// Go would have accepted it, and a question nothing answered fails at once, as
+// it would have when its timeout ran out.
+func (d *dnsResponses) replay(ctx context.Context, host string) []net.IP {
+	d.mu.Lock()
+	verified := maps.Clone(d.verified)
+	d.mu.Unlock()
+	if len(verified) == 0 {
+		return nil
+	}
+	r := net.Resolver{
+		PreferGo: true,
+		Dial: func(context.Context, string, string) (net.Conn, error) {
+			return &replayDNSConn{verified: verified}, nil
+		},
+	}
+	// Not the caller's context, which is usually the one that expired. Every
+	// dial answers or fails at once, so this cannot block.
+	ips, err := r.LookupIP(context.WithoutCancel(ctx), "ip", host)
+	if err != nil {
+		return nil
+	}
+	return ips
+}
+
+// replayDNSConn answers the one query written to it with a verified response
+// to the same question, under the new query's ID. It is not a PacketConn, so
+// the Go resolver frames the exchange as it does over TCP.
+type replayDNSConn struct {
+	verified map[string][]byte
+	reply    []byte
+}
+
+func (c *replayDNSConn) Write(p []byte) (int, error) {
+	if len(p) < 2+dnsHeaderLen {
+		return 0, errNoDNSAllowed
+	}
+	query := p[2:]
+	end, err := skipDNSName(query, dnsHeaderLen)
+	if err != nil || end+4 > len(query) {
+		return 0, errNoDNSAllowed
+	}
+	response, ok := c.verified[string(query[dnsHeaderLen:end+4])]
+	if !ok || len(response) > math.MaxUint16 {
+		return 0, errNoDNSAllowed
+	}
+	c.reply = binary.BigEndian.AppendUint16(nil, uint16(len(response)))
+	c.reply = append(c.reply, query[:2]...)
+	c.reply = append(c.reply, response[2:]...)
+	return len(p), nil
+}
+
+func (c *replayDNSConn) Read(p []byte) (int, error) {
+	if len(c.reply) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, c.reply)
+	c.reply = c.reply[n:]
+	return n, nil
+}
+
+func (*replayDNSConn) Close() error                     { return nil }
+func (*replayDNSConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
+func (*replayDNSConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
+func (*replayDNSConn) SetDeadline(time.Time) error      { return nil }
+func (*replayDNSConn) SetReadDeadline(time.Time) error  { return nil }
+func (*replayDNSConn) SetWriteDeadline(time.Time) error { return nil }
+
+// observedDNSConn observes the single query Go sends per connection.
+// Verification reuses the encrypted-DNS header, question and record framing
+// checks for both A and AAAA. Reading bytes or opening a socket alone never
+// proves an answer.
+type observedDNSConn struct {
 	net.Conn
 	packet    bool
 	query     dnsQuery
 	read      []byte
-	responses *publicDNSResponses
+	responses *dnsResponses
 }
 
-func (c *publicDNSConn) Write(p []byte) (int, error) {
+func (c *observedDNSConn) Write(p []byte) (int, error) {
 	n, err := c.Conn.Write(p)
 	msg := p[:n]
 	if !c.packet {
@@ -183,7 +278,7 @@ func (c *publicDNSConn) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func (c *publicDNSConn) Read(p []byte) (int, error) {
+func (c *observedDNSConn) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
 	if c.packet {
 		c.observe(p[:n])
@@ -199,7 +294,7 @@ func (c *publicDNSConn) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (c *publicDNSConn) observe(msg []byte) {
+func (c *observedDNSConn) observe(msg []byte) {
 	// Unlike encrypted DNS, plaintext needs the echoed question even for
 	// FORMERR/NOTIMP: there is no authenticated transport to correlate it.
 	if len(c.query.question) == 0 || len(msg) < dnsHeaderLen || binary.BigEndian.Uint16(msg[4:6]) != 1 {
@@ -217,17 +312,23 @@ func (c *publicDNSConn) observe(msg []byte) {
 	if responseErr != nil && (c.responses.failure == nil || responseErr.rcode < c.responses.failure.rcode) {
 		c.responses.failure = responseErr
 	}
+	if err == nil {
+		if c.responses.verified == nil {
+			c.responses.verified = make(map[string][]byte)
+		}
+		c.responses.verified[string(c.query.question)] = bytes.Clone(msg)
+	}
 }
 
 // Go selects datagram framing by the PacketConn interface, not Dial's network
 // argument. Preserve it while observing the connected socket's Read and Write.
-type publicDNSPacketConn struct{ *publicDNSConn }
+type observedDNSPacketConn struct{ *observedDNSConn }
 
-func (c publicDNSPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+func (c observedDNSPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	return c.Conn.(net.PacketConn).ReadFrom(p)
 }
 
-func (c publicDNSPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+func (c observedDNSPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	return c.Conn.(net.PacketConn).WriteTo(p, addr)
 }
 

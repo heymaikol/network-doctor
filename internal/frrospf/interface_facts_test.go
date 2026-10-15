@@ -177,35 +177,33 @@ func TestNBMANetworkTypeIsNotOSPFIfType(t *testing.T) {
 	})
 }
 
-// TestCostMismatchStaysFacts imports the cost lab. The two ends hold cost 50 and
-// cost 10. Both facts are written, and the adjacency adds no finding of its own.
-func TestCostMismatchStaysFacts(t *testing.T) {
-	res, err := Import(labCaptures(t, "cost50"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkFacts(t, "cost50 r1 e1", ifaceFacts(t, res, "r1", "e1"), map[string]string{"ospf.cost": "50"})
-	checkFacts(t, "cost50 r2 e2", ifaceFacts(t, res, "r2", "e2"), map[string]string{"ospf.cost": "10"})
-	for _, f := range ospf.Analyze(mustModel(t, res)).Findings {
-		if f.Kind != ospf.KindNeighborState {
-			t.Errorf("cost mismatch added a %s finding; facts only", f.Kind)
+// TestMismatchStaysFacts imports the labs whose two ends differ in one interface
+// setting. Each side writes its own value, and the mismatch adds no finding
+// besides neighbor state.
+func TestMismatchStaysFacts(t *testing.T) {
+	for _, tc := range []struct {
+		lab, key string
+		want     map[string]string // value by node and interface
+	}{
+		// The cost lab holds cost 50 and cost 10.
+		{"cost50", "ospf.cost", map[string]string{"r1 e1": "50", "r2 e2": "10"}},
+		// In the mixed lab, r1 e1 is point-to-point and r2 e2 is broadcast.
+		{"mixp2p", "ospf.network_type", map[string]string{"r1 e1": "point-to-point", "r2 e2": "broadcast"}},
+		// In the MTU lab, r2 e2 is set to 1400 and the other interfaces keep 1500.
+		{"mtu", "ospf.mtu", map[string]string{"r1 e1": "1500", "r2 e2": "1400", "r2 stub2": "1500"}},
+	} {
+		res, err := Import(labCaptures(t, tc.lab))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-}
-
-// TestNetworkTypeMismatchStaysFacts imports the mixed lab, where r1 e1 is
-// point-to-point and r2 e2 is broadcast. Each side writes its own network type,
-// and no finding besides neighbor state is added.
-func TestNetworkTypeMismatchStaysFacts(t *testing.T) {
-	res, err := Import(labCaptures(t, "mixp2p"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkFacts(t, "mixp2p r1 e1", ifaceFacts(t, res, "r1", "e1"), map[string]string{"ospf.network_type": "point-to-point"})
-	checkFacts(t, "mixp2p r2 e2", ifaceFacts(t, res, "r2", "e2"), map[string]string{"ospf.network_type": "broadcast"})
-	for _, f := range ospf.Analyze(mustModel(t, res)).Findings {
-		if f.Kind != ospf.KindNeighborState {
-			t.Errorf("network type mismatch added a %s finding; facts only", f.Kind)
+		for at, v := range tc.want {
+			node, iface, _ := strings.Cut(at, " ")
+			checkFacts(t, tc.lab+" "+at, ifaceFacts(t, res, node, iface), map[string]string{tc.key: v})
+		}
+		for _, f := range ospf.Analyze(mustModel(t, res)).Findings {
+			if f.Kind != ospf.KindNeighborState {
+				t.Errorf("%s: %s mismatch added a %s finding; facts only", tc.lab, tc.key, f.Kind)
+			}
 		}
 	}
 }
@@ -253,7 +251,7 @@ func TestSecpPassiveMixingWithholdsName(t *testing.T) {
 				t.Fatal(err)
 			}
 			checkAbsent(t, scenario+" r1 e1", ifaceFacts(t, res, "r1", "e1"),
-				"ospf.effective_area", "ospf.cost", "ospf.network_type", "ospf.interface_state", "ospf.passive")
+				"ospf.effective_area", "ospf.cost", "ospf.network_type", "ospf.interface_state", "ospf.passive", "ospf.mtu")
 			if n := noteWith(capNotes(t, res, "r1", CommandInterface), `interface "e1": facts withheld`); n == "" {
 				t.Errorf("no note says e1 facts are withheld; notes = %q", capNotes(t, res, "r1", CommandInterface))
 			}
@@ -270,7 +268,7 @@ func TestSecondaryOutsideSubnetWithholdsName(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkAbsent(t, "secondary r1 e1", ifaceFacts(t, res, "r1", "e1"),
-		"ospf.effective_area", "ospf.cost", "ospf.network_type", "ospf.interface_state", "ospf.passive")
+		"ospf.effective_area", "ospf.cost", "ospf.network_type", "ospf.interface_state", "ospf.passive", "ospf.mtu")
 	if n := noteWith(capNotes(t, res, "r1", CommandInterface), "bdrAddress 10.0.1.1 is outside 10.0.2.0/24"); n == "" {
 		t.Errorf("no note names the out-of-subnet bdrAddress; notes = %q", capNotes(t, res, "r1", CommandInterface))
 	}
@@ -301,7 +299,7 @@ func TestSingleOSPFInterfaceNameNotWithheld(t *testing.T) {
 				t.Errorf("single-interface name withheld: %q", n)
 			}
 			checkFacts(t, scenario+" r1 e1", ifaceFacts(t, res, "r1", "e1"), map[string]string{"ospf.cost": "10"})
-			for _, k := range []string{"ospf.network_type", "ospf.interface_state", "ospf.passive", "ospf.effective_area"} {
+			for _, k := range []string{"ospf.network_type", "ospf.interface_state", "ospf.passive", "ospf.effective_area", "ospf.mtu"} {
 				if _, ok := ifaceFacts(t, res, "r1", "e1")[k]; !ok {
 					t.Errorf("%s r1 e1 lacks %s", scenario, k)
 				}
@@ -384,6 +382,40 @@ func TestCostOutOfRangeIsUnreadable(t *testing.T) {
 		if noteWith(capNotes(t, res, "r3", CommandInterface), "cost "+strconv.Itoa(v)) == "" {
 			t.Errorf("cost %d: no note quotes the value", v)
 		}
+	}
+}
+
+// TestMTUBoundsAreInclusive uses synthetic records. 1 and 65536, the loopback
+// MTU on Linux, are both written.
+func TestMTUBoundsAreInclusive(t *testing.T) {
+	for _, v := range []int{1, 65536} {
+		res := importSynth(t, synthIface(map[string]any{"mtuBytes": v}))
+		checkFacts(t, "synthetic mtuBytes", ifaceFacts(t, res, "r3", "e3"), map[string]string{"ospf.mtu": strconv.Itoa(v)})
+	}
+}
+
+// TestUnreadableMTUWritesNothing uses synthetic records. A null, a string, a
+// fraction, or a value outside 1 to 65536 writes no MTU, and the note names
+// mtuBytes. The record's other facts stay.
+func TestUnreadableMTUWritesNothing(t *testing.T) {
+	for _, v := range []any{nil, "1500", 1500.5, 0, -1, 65537} {
+		res := importSynth(t, synthIface(map[string]any{"mtuBytes": v}))
+		facts := ifaceFacts(t, res, "r3", "e3")
+		checkAbsent(t, "synthetic mtuBytes", facts, "ospf.mtu")
+		checkFacts(t, "synthetic mtuBytes", facts, map[string]string{"ospf.cost": "10"})
+		if noteWith(capNotes(t, res, "r3", CommandInterface), "mtuBytes") == "" {
+			t.Errorf("mtuBytes %v: no note names it; notes = %q", v, capNotes(t, res, "r3", CommandInterface))
+		}
+	}
+}
+
+// TestAbsentMTUIsSilent uses a synthetic record with no mtuBytes. Nothing is
+// written, and no note is added, since an absent field says nothing.
+func TestAbsentMTUIsSilent(t *testing.T) {
+	res := importSynth(t, synthIface(nil))
+	checkAbsent(t, "synthetic no mtuBytes", ifaceFacts(t, res, "r3", "e3"), "ospf.mtu")
+	if n := noteWith(capNotes(t, res, "r3", CommandInterface), "mtuBytes"); n != "" {
+		t.Errorf("absent mtuBytes added a note: %q", n)
 	}
 }
 

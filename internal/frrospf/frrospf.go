@@ -322,6 +322,7 @@ type ifaceInfo struct {
 	networkType string
 	state       string
 	passive     string
+	mtu         string
 	held        bool
 }
 
@@ -649,6 +650,7 @@ func interfaceList(ifaces []ifaceInfo) []netmodel.Interface {
 			{keyNetworkType, info.networkType},
 			{keyInterfaceState, info.state},
 			{keyPassive, info.passive},
+			{keyMTU, info.mtu},
 		} {
 			if f.val != "" {
 				i.Attributes = append(i.Attributes, netmodel.Attribute{Key: f.key, Value: f.val})

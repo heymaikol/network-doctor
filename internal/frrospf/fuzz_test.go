@@ -107,6 +107,8 @@ func FuzzImportInterfaceFacts(f *testing.F) {
 	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":-1}}}`))
 	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":1e300}}}`))
 	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"timerHelloInMsecs":65535001}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"mtuBytes":65537}}}`))
+	f.Add([]byte(`{"interfaces":{"e3":{"ipAddress":"10.99.9.1","ipAddressPrefixlen":24,"mtuBytes":"1500"},"e4":{"mtuBytes":null}}}`))
 	f.Add([]byte(`{}`))
 
 	ifaces := []Capture{

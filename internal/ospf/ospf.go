@@ -45,6 +45,9 @@ const (
 	KeyNetworkType    = "ospf.network_type"
 	KeyInterfaceState = "ospf.interface_state"
 	KeyPassive        = "ospf.passive" //nolint:gosec // G101 matches "pass" in the name; this is an OSPF attribute, not a credential.
+	// KeyMTU is the interface MTU in bytes, as the control plane reports it. The
+	// FRR import writes it, and no finding reads it yet.
+	KeyMTU = "ospf.mtu"
 )
 
 // states is the closed vocabulary of OSPF neighbor states. A value outside it is

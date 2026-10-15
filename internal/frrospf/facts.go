@@ -10,9 +10,9 @@ import (
 	"github.com/heymaikol/network-doctor/internal/ospf"
 )
 
-// Interface facts. An interface record can state four facts about one OSPF
-// interface: its cost, its network type, its own state, and whether it is
-// passive. Each is written as a control-plane attribute. Each field is decoded
+// Interface facts. An interface record can state five facts about one OSPF
+// interface: its cost, its network type, its own state, whether it is passive,
+// and its MTU. Each is written as a control-plane attribute. Each field is decoded
 // on its own. A field that is absent writes nothing. A field that is null, has
 // the wrong JSON type, or holds a value outside its vocabulary writes nothing
 // and gets a note. Only the DR and BDR addresses are read for another purpose:
@@ -26,11 +26,16 @@ const (
 	keyNetworkType    = ospf.KeyNetworkType
 	keyInterfaceState = ospf.KeyInterfaceState
 	keyPassive        = ospf.KeyPassive
+	keyMTU            = ospf.KeyMTU
 )
 
 // maxCost is the largest cost an OSPF interface carries, LS infinity. FRR writes
 // cost 0 for a loopback, which is a valid value.
 const maxCost = 65535
+
+// maxMTU bounds mtuBytes, the interface MTU FRR reports. Linux gives a loopback
+// 65536, one more than the largest IPv4 packet.
+const maxMTU = 65536
 
 // maxHelloMsecs bounds timerHelloInMsecs. FRR writes the time left until the next
 // hello, in milliseconds, and that is at most the largest hello interval the router
@@ -87,23 +92,23 @@ func classify(raw json.RawMessage, v any) fact {
 	return factValue
 }
 
-// costFact reads cost. An absent key is noted only on a numbered interface,
-// because FRR always writes cost there.
-func costFact(name string, raw json.RawMessage, numbered bool) (string, string) {
+// intFact reads an integer field that must lie in lo to hi. An absent key is
+// noted only when noteAbsent is set.
+func intFact(name, key string, raw json.RawMessage, noteAbsent bool, lo, hi int) (string, string) {
 	var n int
 	switch classify(raw, &n) {
 	case factAbsent:
-		if numbered {
-			return "", fmt.Sprintf("interface %s: cost is absent; not written", quote(name))
+		if noteAbsent {
+			return "", fmt.Sprintf("interface %s: %s is absent; not written", quote(name), key)
 		}
 		return "", ""
 	case factNull:
-		return "", fmt.Sprintf("interface %s: cost is null; not written", quote(name))
+		return "", fmt.Sprintf("interface %s: %s is null; not written", quote(name), key)
 	case factMalformed:
-		return "", fmt.Sprintf("interface %s: cost is not an integer; not written", quote(name))
+		return "", fmt.Sprintf("interface %s: %s is not an integer; not written", quote(name), key)
 	}
-	if n < 0 || n > maxCost {
-		return "", fmt.Sprintf("interface %s: cost %d is outside 0 to %d; not written", quote(name), n, maxCost)
+	if n < lo || n > hi {
+		return "", fmt.Sprintf("interface %s: %s %d is outside %d to %d; not written", quote(name), key, n, lo, hi)
 	}
 	return strconv.Itoa(n), ""
 }
@@ -237,7 +242,10 @@ func readFacts(name string, rec interfaceRecord, info *ifaceInfo) []string {
 	}
 	numbered := info.hasAddr
 	var note string
-	info.cost, note = costFact(name, rec.Cost, numbered)
+	// FRR always writes cost on a numbered interface, so its absence there is noted.
+	info.cost, note = intFact(name, "cost", rec.Cost, numbered, 0, maxCost)
+	add(note)
+	info.mtu, note = intFact(name, "mtuBytes", rec.MTUBytes, false, 1, maxMTU)
 	add(note)
 	info.networkType, note = vocabFact(name, "networkType", rec.NetworkType, networkTypes, false)
 	add(note)
@@ -281,6 +289,7 @@ func (info *ifaceInfo) withhold() []string {
 		{keyNetworkType, &info.networkType},
 		{keyInterfaceState, &info.state},
 		{keyPassive, &info.passive},
+		{keyMTU, &info.mtu},
 	} {
 		if *f.val != "" {
 			cleared = append(cleared, f.key)

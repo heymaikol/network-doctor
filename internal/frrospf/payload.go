@@ -46,6 +46,7 @@ type interfaceRecord struct {
 	Area               *string `json:"area"`
 
 	Cost              json.RawMessage `json:"cost"`
+	MTUBytes          json.RawMessage `json:"mtuBytes"`
 	NetworkType       json.RawMessage `json:"networkType"`
 	State             json.RawMessage `json:"state"`
 	TimerPassiveIface json.RawMessage `json:"timerPassiveIface"`

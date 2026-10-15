@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -35,7 +36,7 @@ func TestHelperProcess(t *testing.T) {
 	case "longline":
 		fmt.Print(strings.Repeat("A", maxLineBytes*2) + "\n")
 	case "flood":
-		for i := 0; i < 20000; i++ {
+		for i := 0; i < floodLines; i++ {
 			fmt.Printf("flood %d\n", i)
 		}
 	case "grandchild":
@@ -183,18 +184,59 @@ func TestJobLongLineTruncated(t *testing.T) {
 	}
 }
 
-// Overflow must drop output lines but still deliver the terminal event.
+// floodLines is how many lines the flood helper prints: far more than chanBuf.
+const floodLines = 20000
+
+// A full channel drops and counts every line, and streamReader still reads its
+// input to EOF instead of waiting for room, so the child never stalls.
+func TestStreamReaderDropsWhenChannelFull(t *testing.T) {
+	// In a bubble, a regression that blocks on the full channel fails at once
+	// as a deadlock instead of hanging until the test binary times out.
+	synctest.Test(t, func(t *testing.T) {
+		held := ToolOutputMsg{Line: "held"}
+		ch := make(chan tea.Msg, 1)
+		ch <- held
+		r := strings.NewReader("a\nb\nc")
+		var dropped int64
+		streamReader(r, "test", "test", 0, ch, &dropped)
+		if dropped != 3 {
+			t.Errorf("dropped = %d, want 3", dropped)
+		}
+		if r.Len() != 0 {
+			t.Errorf("%d bytes left unread, want the input consumed", r.Len())
+		}
+		if len(ch) != 1 || <-ch != held {
+			t.Error("a full channel's contents changed")
+		}
+	})
+}
+
+// Overflow must drop output lines but still deliver the terminal event, last.
+// Nothing reads the channel until synctest.Wait sees every goroutine in the
+// bubble durably blocked. Pipe reads and the process wait never count as that,
+// so by then the flood is over: the first chanBuf lines fill the channel, the
+// rest are dropped, and the job is parked on its terminal send.
 func TestJobOverflowKeepsTerminal(t *testing.T) {
-	j := startHelper(t, context.Background(), "flood")
-	time.Sleep(200 * time.Millisecond) // let the reader fill+drop before we read
-	out, done := drain(t, j.ch)
-	if done.Status != JobDone {
-		t.Fatalf("status = %v, want JobDone (terminal must survive overflow)", done.Status)
-	}
-	if len(out) >= 20000 {
-		t.Errorf("expected some lines dropped, got all %d", len(out))
-	}
-	if done.Dropped == 0 {
-		t.Error("expected a non-zero dropped count under overflow")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		j := startHelper(t, context.Background(), "flood")
+		synctest.Wait()
+		if len(j.ch) != cap(j.ch) {
+			t.Fatalf("channel holds %d of %d before any read, want it full", len(j.ch), cap(j.ch))
+		}
+		out, done := drain(t, j.ch)
+		if done.Status != JobDone {
+			t.Fatalf("status = %v, want JobDone (terminal must survive overflow)", done.Status)
+		}
+		if len(out) != chanBuf {
+			t.Errorf("got %d lines before the terminal event, want %d", len(out), chanBuf)
+		}
+		if done.Dropped != floodLines-chanBuf {
+			t.Errorf("dropped = %d, want %d", done.Dropped, floodLines-chanBuf)
+		}
+		select {
+		case m := <-j.ch:
+			t.Errorf("message after the terminal event: %v", m)
+		default:
+		}
+	})
 }

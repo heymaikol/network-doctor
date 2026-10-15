@@ -226,6 +226,7 @@ func (c *replayDNSConn) Write(p []byte) (int, error) {
 	if !ok || len(response) > math.MaxUint16 {
 		return 0, errNoDNSAllowed
 	}
+	// #nosec G115 -- the check above bounds the response to 65535 bytes.
 	c.reply = binary.BigEndian.AppendUint16(nil, uint16(len(response)))
 	c.reply = append(c.reply, query[:2]...)
 	c.reply = append(c.reply, response[2:]...)

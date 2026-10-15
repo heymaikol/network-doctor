@@ -177,6 +177,80 @@ func (publicDNSTimeoutConn) Read([]byte) (int, error) { return 0, os.ErrDeadline
 
 func (publicDNSTimeoutConn) Write(p []byte) (int, error) { return len(p), nil }
 
+// lostDNSConn is a query dropped on the way to the resolver: the write
+// succeeds and no reply ever comes, so the read waits until the lookup gives
+// up on it, the way a lost datagram does.
+type lostDNSConn struct {
+	*publicDNSFixtureConn
+	ctx context.Context
+}
+
+func (c lostDNSConn) Read(p []byte) (int, error) {
+	if len(c.reply) == 0 {
+		<-c.ctx.Done()
+		return 0, os.ErrDeadlineExceeded
+	}
+	return c.publicDNSFixtureConn.Read(p)
+}
+
+// One lost datagram must not cost the answer the other family already got.
+// Go asks A and AAAA separately and returns neither until both settle, and its
+// per-query timeout outlasts the probe budget, so a lookup whose AAAA query was
+// dropped used to report the A answer it had received as a resolver timeout.
+// The packet-loss scenario failed that way, with the resolver answering every
+// A query it was sent. A lookup that received no address is still a failure,
+// whichever family was lost.
+func TestDNSProbeKeepsAnAnswerWhenTheOtherFamilyIsLost(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		lost   []uint16
+		nodata []uint16
+		want   Status
+		addrs  []string
+	}{
+		{"a lost AAAA query keeps the A answer", []uint16{dnsTypeAAAA}, nil, StatusPass, []string{splitDNSAnswerA}},
+		{"a lost A query keeps the AAAA answer", []uint16{dnsTypeA}, nil, StatusPass, []string{splitDNSAnswer6}},
+		{"a lost A query beside an empty AAAA answer fails", []uint16{dnsTypeA}, []uint16{dnsTypeAAAA}, StatusFail, nil},
+		{"both families lost fails", []uint16{dnsTypeA, dnsTypeAAAA}, nil, StatusFail, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutate := func(msg []byte) []byte {
+				end, _ := skipDNSName(msg, dnsHeaderLen)
+				qtype := binary.BigEndian.Uint16(msg[end:])
+				if slices.Contains(tc.lost, qtype) {
+					return nil
+				}
+				if slices.Contains(tc.nodata, qtype) {
+					clear(msg[6:8])
+					return msg[:end+4]
+				}
+				return msg
+			}
+			ops := &netops{lookupIP: func(ctx context.Context, host string) ([]net.IP, []string, error) {
+				return lookupIPWithDial(ctx, host, func(ctx context.Context, _, _ string) (net.Conn, error) {
+					fixture := &publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, mutate: mutate}
+					return lostDNSConn{fixture, ctx}, nil
+				})
+			}}
+			// Well inside any resolv.conf timeout, so only the probe budget can
+			// end a lost query.
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			r := ops.dnsProbe("netdoc.test.", nil)(ctx, nil)
+			got := make([]string, len(r.Addrs))
+			for i, ip := range r.Addrs {
+				got[i] = ip.String()
+			}
+			if r.Status != tc.want || !slices.Equal(got, tc.addrs) {
+				t.Fatalf("result = %s %v (%s), want %s %v", r.Status, got, r.Detail, tc.want, tc.addrs)
+			}
+			if tc.want == StatusFail && r.Cause != DNSCauseTimeout {
+				t.Errorf("cause = %q, want %q: nothing answered in time", r.Cause, DNSCauseTimeout)
+			}
+		})
+	}
+}
+
 func TestPublicDNSWireOutcomes(t *testing.T) {
 	noRecords := func(msg []byte) []byte {
 		end, _ := skipDNSName(msg, dnsHeaderLen)

@@ -329,6 +329,16 @@ func prefixList(ps []netip.Prefix) string {
 // target as its own address. It fails when no interface holds it, and when more
 // than one does, because the link to that address is then not named.
 func (w *walker) ownerIface(node, vrf string, target netip.Addr) (string, bool) {
+	names := w.ownerIfaces(node, vrf, target)
+	if len(names) != 1 {
+		return "", false
+	}
+	return names[0], true
+}
+
+// ownerIfaces names, in order, every interface of node in routing domain vrf
+// that holds target as its own address.
+func (w *walker) ownerIfaces(node, vrf string, target netip.Addr) []string {
 	var names []string
 	for _, o := range w.obs {
 		if o.Node != node || o.VRF != vrf || !slices.Contains(readPlanes, o.Plane) {
@@ -342,10 +352,8 @@ func (w *walker) ownerIface(node, vrf string, target netip.Addr) (string, bool) 
 			}
 		}
 	}
-	if len(names) != 1 {
-		return "", false
-	}
-	return names[0], true
+	slices.Sort(names)
+	return names
 }
 
 // sameStates reports whether a and b hold the same routers in the same routing

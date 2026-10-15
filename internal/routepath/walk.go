@@ -187,7 +187,11 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 	}
 	w.budget--
 	if owned := w.owned[ownerKey{w.dest, at}]; len(owned) > 0 {
-		if w.heldOnFailure(at) {
+		switch lost, why := w.heldOnFailure(at); {
+		case why != "":
+			h.Decision = Decision{Kind: KindUnknown, Reason: why}
+			return h
+		case lost:
 			h.Decision = Decision{Kind: KindFailed, Reason: "the destination is held on the simulated failure: " + w.fail.String()}
 			return h
 		}

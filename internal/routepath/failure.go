@@ -243,15 +243,22 @@ func (w *walker) sever(at state, n netmodel.NextHop, seg *Segment) (Hop, bool) {
 }
 
 // heldOnFailure reports that the destination is an address of the down interface
-// at at. A down interface owns nothing, as a failed router owns nothing.
-func (w *walker) heldOnFailure(at state) bool {
+// at at. A down interface owns nothing, as a failed router owns nothing. When
+// another interface of at holds the destination too, which one delivers it is
+// not in the evidence, and why says so.
+func (w *walker) heldOnFailure(at state) (lost bool, why string) {
 	if w.fail == nil || w.fail.Interface == "" || w.fail.Node != at.node {
-		return false
+		return false, ""
 	}
-	iface, ok := w.ownerIface(at.node, at.vrf, w.dest)
-	held := ok && iface == w.fail.Interface
-	w.touched = w.touched || held
-	return held
+	names := w.ownerIfaces(at.node, at.vrf, w.dest)
+	if !slices.Contains(names, w.fail.Interface) {
+		return false, ""
+	}
+	w.touched = true
+	if len(names) > 1 {
+		return false, fmt.Sprintf("%s (%s) holds %s on %s, so which one delivers it with %s down is unknown", at.node, at.vrf, w.dest, strings.Join(names, ", "), w.fail.Interface)
+	}
+	return true, ""
 }
 
 // Text renders the simulation for a person. Every line passes through

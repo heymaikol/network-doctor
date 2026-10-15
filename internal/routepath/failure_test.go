@@ -168,6 +168,20 @@ func TestAddressOnTheFailedInterfaceIsLost(t *testing.T) {
 	}
 }
 
+func TestAddressAlsoOnAnotherInterfaceIsUnknown(t *testing.T) {
+	// r2 holds 10.30.0.1 on eth2 and eth9. Which one delivers it once eth2 is
+	// down is not in the evidence, so the impact is neither none nor a loss.
+	obs := append(without(singleHomed(), "config:r2:default"),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", "10.0.12.2/30"), ifc("eth1", "10.0.23.2/30"), ifc("eth2", "10.30.0.1/24"), ifc("eth9", "10.30.0.1/24")}))
+	a := affected(t, simulate(t, obs, Failure{Node: "r2", Interface: "eth2"}), "10.30.0.1")
+	if a.Impact != ImpactUnknown {
+		t.Fatalf("impact = %s, want unknown", a.Impact)
+	}
+	if after, _ := json.Marshal(a.After); !strings.Contains(string(after), "eth2, eth9") {
+		t.Errorf("the walk does not name both interfaces:\n%s", after)
+	}
+}
+
 func TestEveryECMPLegCrossingTheFailureLosesReachability(t *testing.T) {
 	s := simulate(t, diamond(), Failure{Node: "r3"})
 	if got := impacts(s)[dest]; got != ImpactReachabilityLost {

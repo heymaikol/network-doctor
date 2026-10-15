@@ -11,12 +11,14 @@ description: Moderate seeded packet loss degrades one otherwise healthy local ne
 # all this file expects.
 #
 # TestPacketLossScenario holds each run to the report its own evidence calls
-# for. The target's name is asked only by the dns row (dns_public asks the
-# internet node), and netem shapes only the client's egress, so an A query
-# loss-resolver answered is an answer the dns row received, and one it never
-# saw is one the dns row never got. The other rows have no such log, so there
-# the test asks only that the loss slowed or silenced them and did nothing a
-# loss cannot do.
+# for. Netem shapes only the client's egress, so an answer a resolver logged
+# sending is one the client received. Only the dns row asks loss-resolver for
+# the target, and only the public DNS row asks the internet node for it, so
+# those two rows are held to those logs. QUIC shares its endpoint's name with
+# the egress row's portal check, which asks once, so QUIC is held only to
+# answers beyond that one. The other rows have no such log, so there the test
+# asks only that the loss slowed or silenced them, that a failure says it timed
+# out, and that nothing happened a loss cannot do.
 
 topology:
   subnet: 10.77.0.0/24

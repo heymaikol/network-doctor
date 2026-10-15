@@ -501,14 +501,14 @@ func TestPacketLossScenario(t *testing.T) {
 		t.Logf("packet conditions: %+v", rep.Evidence.PacketConditions)
 		t.Fatal(problem)
 	}
-	var degraded []string
+	var notPassing []string
 	for _, check := range rep.Tests[0].Diagnosis.Checks {
-		if check.Status == "WARN" || check.Status == "FAIL" {
-			degraded = append(degraded, check.ID+" "+check.Status)
+		if check.Status != "PASS" {
+			notPassing = append(notPassing, check.ID+" "+check.Status)
 		}
 	}
-	t.Logf("netem dropped %d packets; verdict %s; degraded rows %v", rep.Evidence.PacketConditions[0].DroppedPackets,
-		rep.Tests[0].ActualVerdict, degraded)
+	t.Logf("netem dropped %d packets; verdict %s; rows not passing %v", rep.Evidence.PacketConditions[0].DroppedPackets,
+		rep.Tests[0].ActualVerdict, notPassing)
 	assertCleanedUp(t, rep)
 }
 

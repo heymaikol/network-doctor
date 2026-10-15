@@ -182,6 +182,29 @@ func TestAddressAlsoOnAnotherInterfaceIsUnknown(t *testing.T) {
 	}
 }
 
+func TestAddressOnAFailedInterfaceIsForwardedByTheRestOfTheFIB(t *testing.T) {
+	// With eth2 down, r2 no longer holds 10.30.0.1 and looks it up like any
+	// other address. Its on-link route leaves by eth2, and a recorded default
+	// route also matches, so whether delivery survives is unknown. With no FIB
+	// for r2, nothing says what r2 does with it either.
+	cases := map[string][]netmodel.Observation{
+		"shadowed default route": append(without(singleHomed(), "fib:r2:default"),
+			table(netmodel.PlaneFIB, "r2", "default", true,
+				route("10.20.0.0/16", "kernel", nh("10.0.23.3", "eth1")),
+				route("10.30.0.0/24", "kernel", onLink("eth2")),
+				route("0.0.0.0/0", "kernel", nh("10.0.23.3", "eth1")))),
+		"no FIB at the owner": without(singleHomed(), "fib:r2:default"),
+	}
+	for name, obs := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := simulate(t, obs, Failure{Node: "r2", Interface: "eth2"})
+			if got := impacts(s)["10.30.0.1"]; got != ImpactUnknown {
+				t.Errorf("impact = %s, want unknown", got)
+			}
+		})
+	}
+}
+
 func TestEveryECMPLegCrossingTheFailureLosesReachability(t *testing.T) {
 	s := simulate(t, diamond(), Failure{Node: "r3"})
 	if got := impacts(s)[dest]; got != ImpactReachabilityLost {

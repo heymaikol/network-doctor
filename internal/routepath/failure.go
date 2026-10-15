@@ -243,7 +243,8 @@ func (w *walker) sever(at state, n netmodel.NextHop, seg *Segment) (Hop, bool) {
 }
 
 // heldOnFailure reports that the destination is an address of the down interface
-// at at. A down interface owns nothing, as a failed router owns nothing. When
+// at at. A down interface owns nothing, as a failed router owns nothing, so the
+// node forwards the destination like any other address. When
 // another interface of at holds the destination too, which one delivers it is
 // not in the evidence, and why says so.
 func (w *walker) heldOnFailure(at state) (lost bool, why string) {

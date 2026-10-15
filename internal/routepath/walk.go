@@ -191,13 +191,13 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 		case why != "":
 			h.Decision = Decision{Kind: KindUnknown, Reason: why}
 			return h
-		case lost:
-			h.Decision = Decision{Kind: KindFailed, Reason: "the destination is held on the simulated failure: " + w.fail.String()}
+		case !lost:
+			h.Decision = w.localDecision(planes, at, owned)
+			w.noteOtherOwners(at, owned)
 			return h
 		}
-		h.Decision = w.localDecision(planes, at, owned)
-		w.noteOtherOwners(at, owned)
-		return h
+		// The destination went down with its interface, so the node no longer
+		// holds it and forwards it as the rest of its tables say.
 	}
 	d, hops := w.decide(planes, at)
 	h.Decision = d

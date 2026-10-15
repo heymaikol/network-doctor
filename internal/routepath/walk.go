@@ -187,17 +187,13 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 	}
 	w.budget--
 	if owned := w.owned[ownerKey{w.dest, at}]; len(owned) > 0 {
-		switch lost, why := w.heldOnFailure(at); {
-		case why != "":
+		if why := w.heldOnFailure(at); why != "" {
 			h.Decision = Decision{Kind: KindUnknown, Reason: why}
 			return h
-		case !lost:
-			h.Decision = w.localDecision(planes, at, owned)
-			w.noteOtherOwners(at, owned)
-			return h
 		}
-		// The destination went down with its interface, so the node no longer
-		// holds it and forwards it as the rest of its tables say.
+		h.Decision = w.localDecision(planes, at, owned)
+		w.noteOtherOwners(at, owned)
+		return h
 	}
 	d, hops := w.decide(planes, at)
 	h.Decision = d

@@ -19,7 +19,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --peer-listen IP:port [--peer-listen IP:port]
        netdoc --peer-connect [--json]
        netdoc --compare before.ndoc after.ndoc [--json]
-       netdoc --explain topology.json DEST [--json]
+       netdoc --explain topology.json DEST [--fail NODE[:INTERFACE]] [--json]
        netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
        netdoc --import-frr-bgp manifest.json [--json]
        netdoc --two-sided here.ndoc there.ndoc [--route-a topology.json] [--route-b topology.json] [--json]
@@ -52,6 +52,12 @@ control plane disagree, and which segments a recorded failure could lie in. It
 is headless and runs no probe: the file is the only evidence, and the
 destination must be an IP address, because a name would need a resolver. The
 file's format is documented under Route path explanation in the reference.
+
+--fail NODE or --fail NODE:INTERFACE adds a failure simulation to --explain. It
+removes that router or interface from the recorded forwarding and lists the
+destinations that lose reachability or redundancy from the source. It
+recomputes no route and predicts no convergence. See Failure simulation in the
+reference.
 
 --import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each
 one, and reports every capture and every neighbor record. With LSDB captures, it

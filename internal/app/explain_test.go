@@ -342,3 +342,51 @@ func TestOSPFAttributesLeaveRoutePathFindingsUnchanged(t *testing.T) {
 		t.Errorf("ospf attributes changed the route-path text")
 	}
 }
+
+func TestExplainFailReportsWhatTheFailureCuts(t *testing.T) {
+	path := writeTopology(t, omittedInterfaceTopology)
+	code, out, errOut := runNetdoc(t, "--explain", path, "10.20.40.8", "--fail", "r2", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, errOut)
+	}
+	var decoded struct {
+		Failure *routepath.Simulation `json:"failure"`
+	}
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	s := decoded.Failure
+	if s == nil || len(s.Affected) != 1 || s.Affected[0].Destination != "10.20.40.8" || s.Affected[0].Impact != routepath.ImpactReachabilityLost {
+		t.Fatalf("failure = %+v, want 10.20.40.8 reachability_lost", s)
+	}
+
+	code, out, errOut = runNetdoc(t, "--explain", path, "10.20.40.8", "--fail", "r1:eth1")
+	if code != 0 || !strings.Contains(out, "Failure simulation: interface r1 eth1 down, from r1 (default)") || !strings.Contains(out, "reachability_lost 10.20.40.8 (r2 default)") {
+		t.Errorf("exit = %d, stderr %q, text:\n%s", code, errOut, out)
+	}
+}
+
+func TestExplainWithoutFailHasNoFailureField(t *testing.T) {
+	path := writeTopology(t, omittedInterfaceTopology)
+	_, out, _ := runNetdoc(t, "--explain", path, "10.20.40.8", "--json")
+	if strings.Contains(out, `"failure"`) {
+		t.Errorf("JSON without --fail carries a failure field:\n%s", out)
+	}
+}
+
+func TestFailIsRefusedWhereItCannotApply(t *testing.T) {
+	path := writeTopology(t, omittedInterfaceTopology)
+	for _, args := range [][]string{
+		{"--fail", "r2", "example.com"},
+		{"--compare", "--fail", "r2", "a.ndoc", "b.ndoc"},
+		{"--explain", path, "10.20.40.8", "--fail", ""},
+		{"--explain", path, "10.20.40.8", "--fail", "r9"},
+		{"--explain", path, "10.20.40.8", "--fail", "r1:eth7"},
+		{"--explain", path, "10.20.40.8", "--fail", "r2:"},
+		{"--explain", path, "10.20.40.8", "--fail", "r1"},
+	} {
+		if code, _, errOut := runNetdoc(t, args...); code != 2 || !strings.Contains(errOut, "-fail") {
+			t.Errorf("netdoc %q = %d, stderr %q; want 2 naming -fail", args, code, errOut)
+		}
+	}
+}

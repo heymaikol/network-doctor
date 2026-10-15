@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"strings"
 
 	"github.com/heymaikol/network-doctor/internal/ospf"
 	"github.com/heymaikol/network-doctor/internal/routepath"
@@ -17,8 +18,9 @@ import (
 // described in a topology file. Like compare, it reads what it is given and
 // sends nothing, so no probe setting applies. It exits 0 once it has an
 // explanation, including one that says the path is broken, and 2 when the
-// input cannot be read or the destination is not an address.
-func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, stdout, stderr io.Writer) int {
+// input cannot be read, the destination is not an address, or the failure to
+// simulate is not in the file.
+func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail string, stdout, stderr io.Writer) int {
 	if rejectRunFlags("explain", setFlags, stderr) {
 		return 2
 	}
@@ -42,9 +44,24 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, stdout, 
 		return 2
 	}
 	result := routepath.Explain(file, dest)
+	var sim *routepath.Simulation
+	simText := ""
+	if fail != "" {
+		node, iface, colon := strings.Cut(fail, ":")
+		if colon && iface == "" {
+			fmt.Fprintf(stderr, "netdoc: -fail: %q names no interface after the colon\n", fail)
+			return 2
+		}
+		s, err := routepath.Simulate(file, routepath.Failure{Node: node, Interface: iface}, dest)
+		if err != nil {
+			fmt.Fprintf(stderr, "netdoc: -fail: %s\n", textsafe.Clean(err.Error()))
+			return 2
+		}
+		sim, simText = &s, s.Text()
+	}
 	report := ospf.Analyze(file.Model)
 	if jsonOut {
-		out := explainOutput{Explanation: result}
+		out := explainOutput{Explanation: result, Failure: sim}
 		if len(report.Findings) > 0 {
 			out.OSPF = &report
 		}
@@ -56,16 +73,18 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, stdout, 
 		fmt.Fprintln(stdout, string(encoded))
 		return 0
 	}
-	fmt.Fprint(stdout, result.Text()+report.Text())
+	fmt.Fprint(stdout, result.Text()+simText+report.Text())
 	return 0
 }
 
-// explainOutput is the --explain JSON object. Its ospf field is present only
-// when the topology holds OSPF evidence that yields a finding, so any other file
-// encodes the same bytes as routepath.Explanation.JSON.
+// explainOutput is the --explain JSON object. Its failure field is present only
+// with -fail, and its ospf field only when the topology holds OSPF evidence that
+// yields a finding, so any other run encodes the same bytes as
+// routepath.Explanation.JSON.
 type explainOutput struct {
 	routepath.Explanation
-	OSPF *ospf.Report `json:"ospf,omitempty"`
+	Failure *routepath.Simulation `json:"failure,omitempty"`
+	OSPF    *ospf.Report          `json:"ospf,omitempty"`
 }
 
 // explainDestination takes an address literal only. A name would need a

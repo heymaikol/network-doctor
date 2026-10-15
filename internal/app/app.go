@@ -91,6 +91,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	routeA := fs.String("route-a", "", "with offline -two-sided, add the routing context of topology `file` to side A; runs no probes")
 	routeB := fs.String("route-b", "", "with offline -two-sided, add the routing context of topology `file` to side B; runs no probes")
 	explain := fs.Bool("explain", false, "explain how traffic to a destination should leave a topology file; runs no probes")
+	failSpec := fs.String("fail", "", "with -explain, simulate router `node` or interface node:interface failing in the recorded forwarding; runs no probes")
 	importFRR := fs.String("import-frr-ospf", "", "import the FRR OSPF captures named by manifest `file`; runs no probes")
 	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf, write the topology to `file` only when every capture and record is accepted")
 	importBGP := fs.String("import-frr-bgp", "", "import the FRR BGP summary and route captures named by manifest `file`; runs no probes")
@@ -155,6 +156,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "netdoc: -route-a and -route-b need a topology file name")
 			return 2
 		}
+	}
+	// A simulated failure only changes what -explain reads, so it is refused in
+	// every other mode, for the same reason as the route files.
+	if setFlagNames(fs)["fail"] && (!*explain || *failSpec == "") {
+		fmt.Fprintln(stderr, "netdoc: -fail needs -explain and a node or node:interface")
+		return 2
 	}
 	if liveTwoSided && len(positional) > 1 {
 		fmt.Fprintln(stderr, "netdoc: live -two-sided accepts at most one target; remove -via to read two snapshot files")
@@ -234,7 +241,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "netdoc: -explain cannot be combined with -compare or -two-sided")
 			return 2
 		}
-		return runExplain(positional, setFlagNames(fs), *jsonOut, stdout, stderr)
+		return runExplain(positional, setFlagNames(fs), *jsonOut, *failSpec, stdout, stderr)
 	}
 	if *compareMode {
 		return runCompare(positional, setFlagNames(fs), *jsonOut, stdout, stderr)

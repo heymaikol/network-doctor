@@ -73,6 +73,10 @@ type walker struct {
 	budget    int
 	truncated bool
 	notes     []string
+	// fail is the simulated failure, and touched says a walk met it. Both are
+	// unset outside Simulate.
+	fail    *Failure
+	touched bool
 }
 
 // Explain walks file from its source toward dest, once along the expected
@@ -183,6 +187,10 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 	}
 	w.budget--
 	if owned := w.owned[ownerKey{w.dest, at}]; len(owned) > 0 {
+		if w.heldOnFailure(at) {
+			h.Decision = Decision{Kind: KindFailed, Reason: "the destination is held on the simulated failure: " + w.fail.String()}
+			return h
+		}
 		h.Decision = w.localDecision(planes, at, owned)
 		w.noteOtherOwners(at, owned)
 		return h
@@ -290,6 +298,11 @@ func onLinkOnly(d Decision, hops []netmodel.NextHop) bool {
 // of the current VRF. An on-link next hop is resolved by the destination itself.
 // When no modeled node owns the address, the walk stops there and says why.
 func (w *walker) resolve(planes []netmodel.Plane, from state, n netmodel.NextHop, seg *Segment, branch []state) Hop {
+	if w.fail != nil {
+		if cut, ok := w.sever(from, n, seg); ok {
+			return cut
+		}
+	}
 	target := n.Addr
 	if !target.IsValid() {
 		target = w.dest

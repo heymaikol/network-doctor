@@ -40,7 +40,7 @@ _netdoc() {
             compopt -o nospace 2>/dev/null
             return
             ;;
-        -timeout | --timeout | -peer-listen | --peer-listen)
+        -timeout | --timeout | -peer-listen | --peer-listen | -fail | --fail)
             # These values have nothing useful to enumerate.
             return
             ;;
@@ -116,6 +116,7 @@ _netdoc() {
         -compare --compare
         -two-sided --two-sided
         -explain --explain
+        -fail --fail
         -import-frr-ospf --import-frr-ospf
         -import-frr-bgp --import-frr-bgp
         -write-topology --write-topology

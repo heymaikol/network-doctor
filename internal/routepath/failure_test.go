@@ -356,6 +356,9 @@ func TestSimulationBoundsDestinations(t *testing.T) {
 	if !s.Truncated || s.Considered != maxDestinations {
 		t.Errorf("truncated %v, considered %d, want true and %d", s.Truncated, s.Considered, maxDestinations)
 	}
+	if !strings.Contains(s.Text(), "not considered") {
+		t.Errorf("the text does not say destinations were left unconsidered:\n%s", s.Text())
+	}
 }
 
 func TestExtraDestinationIsConsidered(t *testing.T) {
@@ -402,14 +405,15 @@ func TestSimulationTextIsDeterministicAndQualified(t *testing.T) {
 }
 
 func TestAfterWalksAreBoundedTogether(t *testing.T) {
-	// A 40-router chain whose last FIB is partial, so every destination routed
-	// along it is unknown and listed with a 40-hop walk.
+	// A 30-router chain whose last FIB is partial, so every destination routed
+	// along it is unknown and listed with a 30-hop walk. The chain stays under
+	// maxDepth, so no walk is stopped by a bound of its own.
 	var obs []netmodel.Observation
-	for i := range 40 {
+	for i := range 30 {
 		node := fmt.Sprintf("r%d", i)
 		obs = append(obs,
 			configured(node, "default", []netmodel.Interface{ifc("in", fmt.Sprintf("10.1.%d.2/24", i)), ifc("out", fmt.Sprintf("10.1.%d.1/24", i+1))}),
-			table(netmodel.PlaneFIB, node, "default", i < 39, route("10.9.0.0/16", "kernel", nh(fmt.Sprintf("10.1.%d.2", i+1), "out"))))
+			table(netmodel.PlaneFIB, node, "default", i < 29, route("10.9.0.0/16", "kernel", nh(fmt.Sprintf("10.1.%d.2", i+1), "out"))))
 	}
 	m, err := netmodel.New(obs...)
 	if err != nil {
@@ -434,7 +438,20 @@ func TestAfterWalksAreBoundedTogether(t *testing.T) {
 	if omitted == 0 || shown > 2*maxStates {
 		t.Errorf("shown %d hops, omitted %d walks; want some omitted and at most %d shown", shown, omitted, 2*maxStates)
 	}
-	if !strings.Contains(s.Text(), "walk omitted") {
+	// No destination or traversal bound applies here, so only the omitted walks
+	// make the output incomplete, and the text must not say anything was left
+	// unconsidered.
+	if !s.Truncated {
+		t.Error("walks were omitted, but the simulation is not marked truncated")
+	}
+	if want := 30 + 60; s.Considered != want {
+		t.Errorf("considered %d, want %d", s.Considered, want)
+	}
+	text := s.Text()
+	if !strings.Contains(text, "walk omitted") {
 		t.Error("the text does not say a walk was omitted")
+	}
+	if strings.Contains(text, "not considered") {
+		t.Errorf("the text says destinations were not considered, but every one was:\n%s", text)
 	}
 }

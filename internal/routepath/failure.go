@@ -56,7 +56,7 @@ const (
 // Affected is one destination whose impact is not none. After is the forwarding
 // walk with the failure applied, so a surviving path is shown with its evidence.
 // It is nil once the walks listed before it hold maxStates hops, which keeps the
-// output within about two walks' size.
+// output within about two walks' size, and the simulation is then truncated.
 type Affected struct {
 	Destination string  `json:"destination"`
 	Owners      []Start `json:"owners,omitempty"`
@@ -67,7 +67,9 @@ type Affected struct {
 
 // Simulation is what one failure does to forwarding from the source. Considered
 // counts the destinations walked, Unchanged those with no impact, and Affected
-// lists the rest in address order.
+// lists the rest in address order. Truncated says a bound cut the output short:
+// bounded says a destination went unconsidered or a walk was stopped, and an
+// Affected with no After says its walk was omitted after it was rated.
 type Simulation struct {
 	Failure    Failure    `json:"failure"`
 	Source     Start      `json:"source"`
@@ -75,6 +77,7 @@ type Simulation struct {
 	Unchanged  int        `json:"unchanged"`
 	Affected   []Affected `json:"affected"`
 	Truncated  bool       `json:"truncated"`
+	bounded    bool
 }
 
 // Simulate removes one router or interface from the recorded FIB and compares
@@ -105,13 +108,13 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 
 	s := Simulation{Failure: fail, Source: f.Source, Affected: []Affected{}}
 	if len(dests) > maxDestinations {
-		dests, s.Truncated = dests[:maxDestinations], true
+		dests, s.bounded = dests[:maxDestinations], true
 	}
 	src := state{f.Source.Node, f.Source.VRF}
 	spent := 0
 	for _, d := range dests {
 		if spent >= maxSimStates {
-			s.Truncated = true
+			s.bounded = true
 			break
 		}
 		s.Considered++
@@ -126,7 +129,7 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 			spent += maxStates - w.budget
 			trunc = trunc || t
 		}
-		s.Truncated = s.Truncated || trunc
+		s.bounded = s.bounded || trunc
 		a := Affected{Destination: d.String(), After: &after}
 		for _, o := range w.owners[d] {
 			a.Owners = append(a.Owners, Start{Node: o.node, VRF: o.vrf})
@@ -141,10 +144,11 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	slices.SortFunc(s.Affected, func(a, b Affected) int {
 		return netip.MustParseAddr(a.Destination).Compare(netip.MustParseAddr(b.Destination))
 	})
+	s.Truncated = s.bounded
 	shown := 0
 	for i := range s.Affected {
 		if shown >= maxStates {
-			s.Affected[i].After = nil
+			s.Affected[i].After, s.Truncated = nil, true
 			continue
 		}
 		walkHops(s.Affected[i].After, func(*Hop) { shown++ })
@@ -274,8 +278,17 @@ func (s Simulation) Text() string {
 	line("Failure simulation: %s, from %s (%s)", s.Failure, s.Source.Node, s.Source.VRF)
 	line("Recorded FIB only: each node stops using a next hop that crosses the failure, and no route is recomputed. Convergence is not predicted.")
 	line("%d destinations considered, %d unchanged.", s.Considered, s.Unchanged)
-	if s.Truncated {
+	if s.bounded {
 		line("The simulation stopped at a bound; destinations past it were not considered, and a walk stopped by a bound proves nothing.")
+	}
+	omitted := 0
+	for _, a := range s.Affected {
+		if a.After == nil {
+			omitted++
+		}
+	}
+	if omitted > 0 {
+		line("The output stopped at a bound; %d affected destinations below are rated, and their walks are omitted.", omitted)
 	}
 	for _, a := range s.Affected {
 		owners := make([]string, len(a.Owners))

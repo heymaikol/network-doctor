@@ -51,9 +51,13 @@ const (
 )
 
 // Adjacency is what the control-plane records say about a lost OSPF adjacency.
-// Proven says that every OSPF next hop crossing the adjacency's link is
-// withdrawn with it. Reason says why that is not proven, and each such next hop
-// is then unknown. Evidence lists the neighbor and interface rows read.
+// Proven says the records establish the link's transit dependency on it: the
+// link is point-to-point and the neighbor is full, so once the adjacency is
+// gone SPF cannot use the link as a transit edge, and the simulation removes
+// each recorded OSPF next hop across it. Proven says nothing about what the FIB
+// holds after the loss. Reason says why the dependency is not proven, and each
+// such next hop is then unknown. Evidence lists the neighbor and interface rows
+// read.
 type Adjacency struct {
 	NeighborAddr    string    `json:"neighbor_addr,omitempty"`
 	RemoteInterface string    `json:"remote_interface,omitempty"`
@@ -120,7 +124,8 @@ type Simulation struct {
 // nothing in it.
 //
 // An OSPF adjacency loss leaves its link up, so only OSPF next hops that cross
-// the link are stopped, as Adjacency proves, and no destination is rated
+// the link are stopped, where Adjacency proves the link's transit dependency on
+// the adjacency, and no destination is rated
 // reachability_lost: OSPF recomputes its routes after the loss, and no SPF is
 // run here.
 func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
@@ -255,12 +260,16 @@ func (w *walker) checkFailure(src Start, f Failure) error {
 // adjacency, and returns the failure with its routing domain filled in. It
 // refuses an adjacency no record names, so a mistyped name never reads as a loss
 // that affects nothing, and one recorded in several routing domains when the
-// failure names none. The loss is proven only on a point-to-point interface
-// with no other OSPF neighbor, whose records agree on one neighbor address and
-// state full. A router lists a point-to-point link in its router-LSA only while
-// that neighbor is full, and SPF uses a link only when both ends list it, so no
-// OSPF route crosses the link in either direction once the adjacency is gone.
-// On any other network type, a router can forward to a neighbor it holds no
+// failure names none. The link's transit dependency on the adjacency is proven
+// only on a point-to-point interface with no other OSPF neighbor, whose records
+// agree on one neighbor address and state full. A router lists a point-to-point
+// link to its neighbor in its router-LSA only while that neighbor is full (RFC
+// 2328 12.4.1.1), and SPF uses a link between two routers only when both list
+// it (16.1), so once the adjacency is gone SPF cannot use the link as a transit
+// edge in either direction. That is the recorded structure the simulation
+// assumes, not a reading of the FIB after the loss: the router may still
+// advertise the link's stub network, and what OSPF installs instead is not
+// computed. On any other network type, a router can forward to a neighbor it holds no
 // full adjacency with, and losing the adjacency to the designated router drops
 // the whole network, so the next hops that depend on it are not in the evidence.
 func (w *walker) adjacency(f Failure) (Failure, *Adjacency, error) {
@@ -342,7 +351,7 @@ func (w *walker) adjacency(f Failure) (Failure, *Adjacency, error) {
 	case len(states) > 1:
 		adj.Reason = fmt.Sprintf("the neighbor records on %s state %s", at, strings.Join(states, " and "))
 	case states[0] != "full":
-		adj.Reason = fmt.Sprintf("the recorded state on %s is %s, not full, so no OSPF route may cross the link to begin with", at, states[0])
+		adj.Reason = fmt.Sprintf("the recorded state on %s is %s, not full, so the records do not show the link as an OSPF transit edge to begin with", at, states[0])
 	case len(remotes) > 1:
 		adj.Reason = fmt.Sprintf("the neighbor records on %s name remote interfaces %s", at, strings.Join(remotes, " and "))
 	case len(types) == 0:
@@ -383,7 +392,8 @@ func appendNew[T comparable](xs []T, x T) []T {
 // severAdjacency says what a lost OSPF adjacency does to the segment that
 // leaves at through n, whose decision rests on ev. The link stays up, so a
 // connected or static route across it keeps forwarding. An OSPF route across it
-// loses the segment when the adjacency is proven, and is unknown otherwise, as
+// loses the segment when the link's transit dependency is proven, and is
+// unknown otherwise, as
 // is any other origin and a mix of origins. A BGP route is unknown wherever it
 // is, because its session or next-hop resolution may run over the adjacency,
 // and BGP withdrawal is not modeled.
@@ -530,9 +540,9 @@ func (s Simulation) Text() string {
 		line("Recorded FIB only: each node stops using an OSPF next hop that crosses the adjacency's link. The link stays up, so connected and static routes across it keep forwarding. No SPF is run, so a destination left with no recorded next hop is unknown, never lost. Convergence is not predicted.")
 		line("Adjacency: neighbor address %s, remote interface %s, evidence %s.", cmp.Or(a.NeighborAddr, "unknown"), cmp.Or(a.RemoteInterface, "unreported"), evidenceText(a.Evidence))
 		if a.Proven {
-			line("Proven: the link is point-to-point and the neighbor is full, so every OSPF next hop across it is withdrawn with the adjacency.")
+			line("Transit dependency proven: the link is point-to-point and the neighbor is full, so once the adjacency is gone SPF cannot use the link as a transit edge (RFC 2328 12.4.1.1, 16.1), and each recorded OSPF next hop across it is removed. This assumes the records are current. It does not prove what the FIB holds after the loss, and the link's stub network may still be advertised.")
 		} else {
-			line("Not proven: %s. Every OSPF next hop across the link is unknown.", a.Reason)
+			line("Transit dependency not proven: %s. Every OSPF next hop across the link is unknown.", a.Reason)
 		}
 	} else {
 		line("Recorded FIB only: each node stops using a next hop that crosses the failure, and no route is recomputed. Convergence is not predicted.")

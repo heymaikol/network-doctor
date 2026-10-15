@@ -62,9 +62,11 @@ convergence. See Failure simulation in the reference.
 
 --fail-ospf NODE:INTERFACE:NEIGHBOR simulates losing the OSPF adjacency NODE
 records on INTERFACE toward NEIGHBOR instead. The interface stays up, so only
-OSPF next hops across its link stop, and only where the records prove it: a
-point-to-point interface with the neighbor full at one address. Where they do
-not, or a route is from BGP, the result is unknown. No SPF is run, so a
+OSPF next hops across its link stop, and only where the records prove the
+link depends on the adjacency for transit: a point-to-point interface with the
+neighbor full at one address. That is the recorded structure, not the FIB after
+the loss. Where the records do not prove it, or a route is from BGP, the result
+is unknown. No SPF is run, so a
 destination left with no recorded next hop is unknown too, never lost.
 
 --import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each

@@ -206,6 +206,35 @@ func TestOSPFAdjacencyLossLeavesTheLinkUp(t *testing.T) {
 	}
 }
 
+func TestOSPFAdjacencyLossKeepsTheLinkSubnet(t *testing.T) {
+	// r1 reaches the r2 -- r3 link subnet by the stub network r2 advertises,
+	// which a point-to-point router keeps advertising whatever its neighbor's
+	// state, and r2 delivers it on the link by its connected route. Only the
+	// LAN behind r3, which needs the link as a transit edge, depends on the
+	// adjacency.
+	obs := []netmodel.Observation{
+		configured("r1", "default", []netmodel.Interface{ifc("eth1", "10.0.12.1/30")}),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", "10.0.12.2/30"), ifc("eth1", "10.0.23.2/30")}),
+		configured("r3", "default", []netmodel.Interface{ifc("eth0", "10.0.23.3/30"), ifc("eth1", "10.20.40.8/24")}),
+		table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.0.12.0/30", netmodel.OriginConnected, onLink("eth1")),
+			route("10.0.23.0/30", netmodel.OriginOSPF, nh("10.0.12.2", "eth1")),
+			route("10.20.0.0/16", netmodel.OriginOSPF, nh("10.0.12.2", "eth1"))),
+		table(netmodel.PlaneFIB, "r2", "default", true,
+			route("10.0.23.0/30", netmodel.OriginConnected, onLink("eth1")),
+			route("10.20.0.0/16", netmodel.OriginOSPF, nh("10.0.23.3", "eth1"))),
+		table(netmodel.PlaneFIB, "r3", "default", true, route("10.20.40.0/24", netmodel.OriginConnected, onLink("eth1"))),
+		ospfControl("frr:r2", "r2", "default", "point-to-point", []string{"eth1"}, ospfNeighbor("eth1", "r3", "eth0", "10.0.23.3", "Full")),
+	}
+	s := simulate(t, obs, Failure{Node: "r2", Interface: "eth1", OSPFNeighbor: "r3"})
+	if s.Adjacency == nil || !s.Adjacency.Proven {
+		t.Fatalf("adjacency = %+v, want the transit dependency proven", s.Adjacency)
+	}
+	if got := impacts(s); !reflect.DeepEqual(got, map[string]Impact{"10.20.40.8": ImpactUnknown}) {
+		t.Errorf("impacts = %v, want only 10.20.40.8 unknown; the link subnet stays reachable", got)
+	}
+}
+
 func TestOSPFAdjacencyMustBeRecorded(t *testing.T) {
 	obs := append(ospfDiamond(),
 		// An expected neighbor on the configured plane is not an adjacency.
@@ -306,7 +335,7 @@ func TestOSPFAdjacencyEvidenceGapsAreUnknown(t *testing.T) {
 			if got := impacts(s); !reflect.DeepEqual(got, map[string]Impact{dest: ImpactUnknown}) {
 				t.Errorf("impacts = %v, want only %s unknown", got, dest)
 			}
-			if !strings.Contains(s.Text(), "Not proven: ") {
+			if !strings.Contains(s.Text(), "Transit dependency not proven: ") {
 				t.Errorf("text does not say the loss is unproven:\n%s", s.Text())
 			}
 		})
@@ -398,11 +427,18 @@ func TestOSPFAdjacencyTextAndJSONNameTheFailureType(t *testing.T) {
 		"Failure simulation: OSPF adjacency r1 (default) eth1 to r2 lost",
 		"The link stays up",
 		"neighbor address 10.0.12.2, remote interface eth0, evidence frr:r1",
-		"Proven: the link is point-to-point",
+		"Transit dependency proven: the link is point-to-point and the neighbor is full, so once the adjacency is gone SPF cannot use the link as a transit edge",
+		"It does not prove what the FIB holds after the loss, and the link's stub network may still be advertised.",
 		"redundancy_lost 10.20.40.8",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	}
+	// The records prove a structural dependency, never the FIB after the loss.
+	for _, claim := range []string{"withdrawn", "\nProven:", "next hop across it is gone"} {
+		if strings.Contains(text, claim) {
+			t.Errorf("text claims %q, which the records cannot prove:\n%s", claim, text)
 		}
 	}
 	data, _ := json.Marshal(s)

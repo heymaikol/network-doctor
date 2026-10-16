@@ -236,7 +236,7 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--import-frr-ospf`: a capture refused or a neighbor record left unmapped; with `--write-topology`, nothing is written | `1` |
 | `--import-frr-ospf`: an invalid manifest, an unsafe or unreadable capture, a flag that cannot be combined with it, or a topology that cannot be written | `2` |
 | `--import-frr-bgp`: every capture valid; this is not a health result, and an Active or Idle peer is reported as observed | `0` |
-| `--import-frr-bgp`: an invalid manifest, a capture or transcript that cannot be used, a manifest that names another command, FRR version, VRF, or `source_node`, a flag that cannot be combined with it, or output that cannot be written | `2` |
+| `--import-frr-bgp`: an invalid manifest, a capture or transcript that cannot be used, a manifest that names another command, FRR version, VRF, or `source_node`, a flag that cannot be combined with it, a `--withdraw-bgp` selector that is malformed or that the node's route table does not describe, or output that cannot be written | `2` |
 | Quit before the chain finished | `1` |
 | Bad arguments, pairing-input reject, validation reject, or no terminal for the TUI | `2` |
 | `--via`: SSH failed, no usable `netdoc` on the SSH host, a remote protocol mismatch, or an acquisition that outlasted its overall bound | `2` |
@@ -1929,7 +1929,7 @@ A segment crosses the adjacency's link when it leaves NODE in that routing domai
 - Only `connected` and `static`: it keeps forwarding.
 - Only `ospf`, with the transit dependency proven: it is cut as `failed`. A segment leaving NODE must name the neighbor's recorded address, and a segment arriving must come from NEIGHBOR; anything else contradicts the records and is `unknown`.
 - Any other origin, or `ospf` beside another origin: `unknown`, because the file does not say whether that route depends on the adjacency.
-- A segment of a `bgp` route is `unknown` wherever it is, even off the link, because its session or next-hop resolution may run over the adjacency, and BGP withdrawal is not modeled.
+- A segment of a `bgp` route is `unknown` wherever it is, even off the link, because its session or next-hop resolution may run over the adjacency, and `--explain` does not model BGP withdrawal.
 
 No SPF is run, so an adjacency loss is never rated `reachability_lost`. Where a branch is left with no surviving recorded next hop, OSPF would compute its routes again, and whether another path takes over is not in the file, so that destination is `unknown`. `redundancy_lost` means some legs are cut and every branch that survives delivers without crossing the link. Removing a link makes no path shorter and leaves the cost of every path that avoids it unchanged, so under the same assumption SPF still selects the recorded paths that avoid it. That too is a reading of the recorded structure, not of the FIB after the loss. `none` means no recorded branch crosses the link and none forwards by BGP.
 
@@ -1991,7 +1991,7 @@ Decision kinds are `forward`, `local`, `discard`, `no_route`, `unknown`, `confli
 - It collects nothing. Control-plane and FIB tables, interface addresses, and check results come only from the file, so the explanation is as current as the file.
 - It runs no traceroute and no probe, so it cannot confirm a route beyond what the file records.
 - It explains one destination per run.
-- A failure simulation removes one router, interface, or OSPF adjacency from the recorded FIB. It recomputes no route, runs no SPF, and predicts no convergence or timing. It does not model BGP withdrawal, a policy change, or a tunnel as a failure of its own, and an OSPF adjacency loss never says which alternate path OSPF would compute.
+- A failure simulation removes one router, interface, or OSPF adjacency from the recorded FIB. It recomputes no route, runs no SPF, and predicts no convergence or timing. It does not model BGP withdrawal, a policy change, or a tunnel as a failure of its own (the BGP import [simulates a prefix withdrawal](#simulated-prefix-withdrawal) against FRR's BGP table only, never against a FIB), and an OSPF adjacency loss never says which alternate path OSPF would compute.
 - It reads OSPF neighbor states, areas, and router IDs as the sources recorded them. It runs no SPF, parses no LSDB, and compares no metrics, so it never says why a route was chosen or whether an adjacency is down.
 - A recorded check whose `next_hop` matches no next hop of the route is not used, and the explanation does not say so.
 - It does not model NAT translations, firewall rules, or connection state. A `boundaries` entry records where such a device sits, not what it does to a packet.
@@ -2185,6 +2185,40 @@ What the import does not establish:
 - A node or peer that no capture names is unknown, not down.
 - A session state is FRR's value at the capture's collection time, not a current one.
 - Which router produced a capture is the manifest's claim. The checks are the prompt in the transcript and, for a route table, that a printed router ID and local AS agree with its node's summary.
+
+### Simulated prefix withdrawal
+
+`--withdraw-bgp NODE:PEER:PREFIX` adds to the BGP import a simulated withdrawal of PREFIX by PEER, read against NODE's recorded `show ip bgp json` table. It sends nothing, and it reads nothing beyond the manifest's captures.
+
+```sh
+netdoc --import-frr-bgp manifest.json --withdraw-bgp r1:10.0.1.2:10.10.2.0/24
+netdoc --import-frr-bgp manifest.json --withdraw-bgp r1:10.0.1.2:10.10.2.0/24 --json
+```
+
+The node ends at the first colon and the prefix starts after the last, so the peer between them may be an IPv6 address. The peer is matched exactly against the address FRR printed as each path's `peerId`. The prefix must be a canonical IPv4 prefix, such as `10.10.2.0/24`, because the table is IPv4 unicast in the default VRF.
+
+The simulation removes every path for PREFIX in NODE's table whose `peerId` is PEER, and changes nothing else. Add-path identifiers are not read, so several paths from one peer are removed together. Each path left for the prefix is one of these kinds:
+
+- `learned`: from another peer that NODE's summary shows `Established`, or from any other peer when the manifest names no summary for NODE.
+- `no_peer`: FRR recorded no peer (`"peerId": "(unspec)"`), as for a prefix the router originates itself.
+- `contradicted`: from a peer that NODE's summary lists in another state, or does not list. The table and the summary disagree about that path.
+- `unattributed`: its `peerId` is absent or an unspecified address, so it may be PEER's own path.
+
+The `outcome` rates the prefix at NODE only:
+
+- `paths_remain`: at least one `learned` or `no_peer` path remains. It is a candidate FRR listed. Whether it is valid, which path FRR would select, and whether it would be installed are not read.
+- `unknown`: the only paths left are `contradicted` or `unattributed`.
+- `no_recorded_path`: the table lists no other path for the prefix. Another peer may still send one once the withdrawal propagates, which no capture shows, so this is not reported as a route loss.
+
+A prefix withdrawal is not a session loss. The report counts PEER's learned paths for other prefixes as `peer_other_paths` and leaves them in place, and it shows PEER's state as NODE's summary printed it. A state other than `Established`, or a summary that does not list PEER, is shown as a disagreement between the captures and does not change the outcome. Other prefixes are not rated, because aggregation, conditional advertisement, policy, and next hops that resolve through the withdrawn prefix are not in the evidence.
+
+`forwarding_impact` is always `unknown`. The capture is FRR's BGP table: the import reads no zebra RIB, kernel FIB, or topology, and it ties no BGP path to a forwarding entry, so a withdrawal is never rated `reachability_lost` or `redundancy_lost`. `--explain` reads no BGP table, and `--withdraw-bgp` cannot be combined with it.
+
+The JSON report gains a `withdrawal` object with `node`, `vrf`, `family`, `peer`, `prefix`, `outcome`, `reason`, `removed`, `remaining`, `peer_session_state`, `peer_other_paths`, `forwarding_impact`, `forwarding_reason`, and `evidence`. `peer_session_state` is absent when NODE's summary does not list PEER or the manifest names no summary for NODE. `evidence` names the table capture, then the summary capture when there is one. Each path in `removed` and `remaining` carries its `kind`, its `peer` when it names one, its `session_state` when NODE's summary lists that peer, `path_from`, `as_path`, `bgp_origin`, and `next_hops`, and the paths keep FRR's order. The report's `limitations` gains the withdrawal's limitations. The report version stays 1, and without the flag the report is unchanged. The text report adds a `Prefix withdrawal` block before `BGP findings`. It lists 20 paths of each list and says how many more there are; the JSON report keeps all of them.
+
+`--withdraw-bgp` exits 2 and writes nothing to standard output when the selector is malformed, when it is used without `--import-frr-bgp`, when the manifest names no route table for NODE, or when NODE's table lists no path for PREFIX from PEER. A mistyped selector therefore never reads as a withdrawal that changes nothing. When some of the prefix's paths name no peer, the refusal says so, since one of them may be PEER's.
+
+The captures in `testdata/frr/10.7.0/bgp/withdraw` record a live FRR 10.7.0 run in which a peer withdrew prefixes while both sessions stayed Established. The tests check each prediction against the table FRR printed after the withdrawal. That run has no peer that sends a path only after another is withdrawn, so it shows that the table arithmetic matches FRR, not that `no_recorded_path` is final.
 
 ## Remote diagnosis over SSH
 

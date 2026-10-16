@@ -96,6 +96,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	importFRR := fs.String("import-frr-ospf", "", "import the FRR OSPF captures named by manifest `file`; runs no probes")
 	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf, write the topology to `file` only when every capture and record is accepted")
 	importBGP := fs.String("import-frr-bgp", "", "import the FRR BGP summary and route captures named by manifest `file`; runs no probes")
+	withdrawBGP := fs.String("withdraw-bgp", "", "with -import-frr-bgp, simulate peer withdrawing a prefix from one node's recorded BGP table, as `node:peer:prefix`; the forwarding impact stays unknown")
 	watch := fs.Bool("watch", false, "continuously re-run checks (with -json, stream one report per line)")
 	profileName := fs.String("profile", "", "run a service `profile` ("+strings.Join(profiles.Names(), ", ")+"; use list to describe them)")
 	var peerListen peerListenList
@@ -181,6 +182,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// BGP import reads a manifest flag alone.
 	importSet := setFlagNames(fs)["import-frr-ospf"] || setFlagNames(fs)["write-topology"]
 	bgpSet := setFlagNames(fs)["import-frr-bgp"]
+	// A simulated withdrawal reads only the BGP import's route tables, so it is
+	// refused in every other mode, the way -fail is refused outside -explain.
+	if setFlagNames(fs)["withdraw-bgp"] && (!bgpSet || *withdrawBGP == "") {
+		fmt.Fprintln(stderr, "netdoc: -withdraw-bgp needs -import-frr-bgp and node:peer:prefix")
+		return 2
+	}
 	if importSet || bgpSet {
 		allowed = 0
 	}
@@ -195,7 +202,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// The BGP check comes first: it refuses the OSPF flags by name, and the OSPF
 	// runner would otherwise answer a BGP combination with its own message.
 	if bgpSet {
-		return runFRRBGPImport(setFlagNames(fs), *importBGP, *jsonOut, stdout, stderr)
+		return runFRRBGPImport(setFlagNames(fs), *importBGP, *withdrawBGP, *jsonOut, stdout, stderr)
 	}
 	if importSet {
 		return runFRRImport(setFlagNames(fs), *importFRR, *writeTopology, *jsonOut, stdout, stderr)

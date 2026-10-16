@@ -41,6 +41,7 @@ complete -c netdoc -o import-frr-ospf -l import-frr-ospf -r -F -d 'Import the FR
 complete -c netdoc -o write-topology -l write-topology -r -F -d 'With --import-frr-ospf, write the topology of a complete import to a file'
 # --import-frr-bgp takes a manifest, so it is a path, and it takes no target.
 complete -c netdoc -o import-frr-bgp -l import-frr-bgp -r -F -d 'Import the FRR BGP summary and route captures a manifest names; runs no probes'
+complete -c netdoc -o withdraw-bgp -l withdraw-bgp -r -f -d 'With --import-frr-bgp, simulate a peer withdrawing a prefix from the recorded BGP table of one node'
 complete -c netdoc -o peer-listen -l peer-listen -r -f -d 'Listen for an authenticated peer on an exact IP:port (repeatable)'
 complete -c netdoc -o peer-connect -l peer-connect -d 'Read a temporary pairing string and run a two-ended diagnosis'
 complete -c netdoc -o via -l via -r -f \

@@ -23,6 +23,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR [--json]
        netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
        netdoc --import-frr-bgp manifest.json [--json]
+       netdoc --import-frr-bgp manifest.json --withdraw-bgp NODE:PEER:PREFIX [--json]
        netdoc --two-sided here.ndoc there.ndoc [--route-a topology.json] [--route-b topology.json] [--json]
        netdoc --two-sided --via ssh-destination [target] [--json]
 
@@ -91,6 +92,15 @@ no router. Its manifest is the version 1 format, and each capture names "command
 "show ip bgp summary json" or "show ip bgp json", "frr_version": "10.7.0", and
 "vrf": "default". Exit 0 means every capture was valid; it does not mean a
 session is up. Exit 2 means the manifest, a capture, or the output cannot be used.
+
+--withdraw-bgp NODE:PEER:PREFIX adds a simulated withdrawal of PREFIX by PEER,
+read against NODE's recorded BGP table only. Every path for PREFIX from PEER is
+removed and nothing else changes: the peer's other prefixes stay, so it is not a
+session loss. The outcome says whether a path from no peer or from another
+Established peer remains, whether none is recorded, or whether that is unknown.
+A result of no recorded path is not a route loss: another peer may still send one.
+The forwarding impact is always unknown, because no RIB, FIB, or topology is
+read. A selector the table does not describe exits 2.
 
 --two-sided reads two snapshots as two machines looking at one target and says
 whether the evidence places a failure on side A, side B, something shared, or

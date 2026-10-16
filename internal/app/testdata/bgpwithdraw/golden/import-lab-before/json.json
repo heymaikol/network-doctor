@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "protocol": "bgp",
+  "manifest": "manifest.json",
+  "captures": [
+    {
+      "file": "r1-before-show_ip_bgp_summary_json.raw",
+      "declared": {
+        "source": "r1-before-show_ip_bgp_summary_json",
+        "node": "r1",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip bgp summary json",
+        "collected_at": "2026-10-16T01:06:17.914613857Z"
+      },
+      "observed_family": "IPv4 unicast",
+      "router_id": "1.1.1.1",
+      "local_as": 65001,
+      "peers": [
+        {
+          "address": "10.0.1.2",
+          "local_as": 65001,
+          "remote_as": 65002,
+          "state": "Established"
+        },
+        {
+          "address": "10.0.3.3",
+          "local_as": 65001,
+          "remote_as": 65003,
+          "state": "Established"
+        }
+      ]
+    }
+  ],
+  "route_tables": [
+    {
+      "file": "r1-before-show_ip_bgp_json.raw",
+      "declared": {
+        "source": "r1-before-show_ip_bgp_json",
+        "node": "r1",
+        "vrf": "default",
+        "frr_version": "10.7.0",
+        "command": "show ip bgp json",
+        "collected_at": "2026-10-16T01:06:21.073297968Z"
+      },
+      "protocol": "bgp",
+      "router_id": "1.1.1.1",
+      "local_as": 65001,
+      "vrf_name": "default",
+      "prefixes": 4,
+      "no_peer_paths": 1,
+      "unknown_peer_paths": 0,
+      "learned_routes": [
+        {
+          "prefix": "10.10.1.0/24",
+          "peer": "10.0.1.2",
+          "path_from": "external",
+          "as_path": "65002",
+          "bgp_origin": "IGP",
+          "next_hops": [
+            "10.0.1.2"
+          ]
+        },
+        {
+          "prefix": "10.10.2.0/24",
+          "peer": "10.0.1.2",
+          "path_from": "external",
+          "as_path": "65002",
+          "bgp_origin": "IGP",
+          "next_hops": [
+            "10.0.1.2"
+          ]
+        },
+        {
+          "prefix": "10.10.2.0/24",
+          "peer": "10.0.3.3",
+          "path_from": "external",
+          "as_path": "65003",
+          "bgp_origin": "IGP",
+          "next_hops": [
+            "10.0.3.3"
+          ]
+        },
+        {
+          "prefix": "10.10.3.0/24",
+          "peer": "10.0.3.3",
+          "path_from": "external",
+          "as_path": "65003",
+          "bgp_origin": "IGP",
+          "next_hops": [
+            "10.0.3.3"
+          ]
+        },
+        {
+          "prefix": "10.10.9.0/24",
+          "peer": "10.0.1.2",
+          "path_from": "external",
+          "as_path": "65002",
+          "bgp_origin": "IGP",
+          "next_hops": [
+            "10.0.1.2"
+          ]
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "kind": "session_state",
+      "strength": "reported",
+      "node": "r1",
+      "vrf": "default",
+      "peer": "10.0.1.2",
+      "detail": "FRR reported state Established for the session with peer 10.0.1.2, remote AS 65002",
+      "limit": "Established means the session was up when the capture was taken. It does not show that any route was exchanged, accepted, or installed, or that the session stayed up. The state alone does not show whether the peer is reachable. The far end is not identified; the summary maps no address to a node.",
+      "evidence": [
+        {
+          "source": "r1-before-show_ip_bgp_summary_json",
+          "collected_at": "2026-10-16T01:06:17.914613857Z"
+        }
+      ]
+    },
+    {
+      "kind": "session_state",
+      "strength": "reported",
+      "node": "r1",
+      "vrf": "default",
+      "peer": "10.0.3.3",
+      "detail": "FRR reported state Established for the session with peer 10.0.3.3, remote AS 65003",
+      "limit": "Established means the session was up when the capture was taken. It does not show that any route was exchanged, accepted, or installed, or that the session stayed up. The state alone does not show whether the peer is reachable. The far end is not identified; the summary maps no address to a node.",
+      "evidence": [
+        {
+          "source": "r1-before-show_ip_bgp_summary_json",
+          "collected_at": "2026-10-16T01:06:17.914613857Z"
+        }
+      ]
+    }
+  ],
+  "not_read": [
+    "routes: read only from the show ip bgp json captures named; a node with no such capture has its routes not read, which is not the same as having none, and a missing capture does not show that a route was withdrawn",
+    "summary prefix counters (pfxRcd): not read; they identify no route",
+    "paths with no peer recorded (peerId absent, \"(unspec)\", or an unspecified address): counted, never reported as learned",
+    "best path, multipath, and the valid, bestpath, used, and selectionReason fields: not read; a learned route is one FRR listed, not the path it selected",
+    "kernel routing table, FIB, and installation: not read; a learned route is FRR's BGP table, not an installed route",
+    "nodes and peers that no capture names: unknown, not down",
+    "session state after its collection time: not observed"
+  ],
+  "limitations": [
+    "declared metadata (source, node, VRF, FRR version, command, collection time) is the manifest's claim; netdoc checks the FRR version, the command, the VRF, and that the transcript prompt names the declared node, but cannot verify which router produced a capture",
+    "each state is the JSON state field FRR printed at collection; peerState is not read",
+    "the observed family names the summary section FRR printed; it does not establish which address families any session negotiated",
+    "exit 0 means every capture is valid; it does not mean any session is Established or that the network is healthy",
+    "an empty peer collection is observed empty; it is not reported as a down session",
+    "a learned route names the peer FRR recorded at the table's collection time; the table does not show that the session was Established",
+    "route tables and summaries are separate commands with their own collection times; netdoc does not check that they describe one moment",
+    "the BGP origin names no protocol, so the protocol that first carried a route is not identified beyond FRR's BGP table",
+    "pathFrom is the label FRR printed for the path; it is not checked against the session type",
+    "an empty table is observed empty at collection time; neither it nor a missing capture shows that a route was withdrawn"
+  ]
+}

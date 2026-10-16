@@ -1,0 +1,70 @@
+FRR BGP import: manifest.json
+Result: valid. Every capture was read and checked. Exit 0 does not mean any session is up.
+
+Captures (1)
+  r2 bgp summary
+    file: r2-show_ip_bgp_summary_json.raw
+    declared (not verified): node r2, vrf default, FRR 10.7.0, command "show ip bgp summary json", collected 2026-10-13T01:22:32.78318338Z
+    router ID 2.2.2.2, local AS 65002
+    observed family: IPv4 unicast (summary section ipv4Unicast); no peer's negotiated families are read
+    peer 10.0.1.1: remote AS 65001, local AS 65002, state Established
+
+Route tables (1)
+  FRR's BGP table, not the zebra RIB or the kernel FIB. Prefixes are sorted by address and prefix length. Paths within each prefix keep FRR's order, which does not imply preference.
+  r1 bgp table
+    file: r1-show_ip_bgp_json.raw
+    declared (not verified): node r1, vrf default, FRR 10.7.0, command "show ip bgp json", collected 2026-10-13T01:22:30Z
+    printed by FRR: router ID 1.1.1.1, local AS 65001, VRF default
+    prefixes: 4; learned paths: 8; not learned: 1 with peerId (unspec), 1 with no peer ID naming a peer
+    learned route 10.20.0.0/16 from peer 10.0.1.9: path from external, AS path 65009, BGP origin IGP, next hops 10.0.1.9
+    learned route 10.20.0.0/16 from peer 10.0.1.2: path from external, AS path 65002, BGP origin IGP, next hops 10.0.1.2
+    learned route 10.20.0.0/16 from peer 10.0.1.3: path from external, AS path 65003, BGP origin IGP, next hops 10.0.1.3
+    learned route 10.30.0.0/16 from peer 10.0.1.9: path from external, AS path 65009, BGP origin IGP, next hops 10.0.1.9
+    learned route 10.40.0.0/16 from peer 10.0.1.9: path from external, AS path 65009, BGP origin IGP, next hops 10.0.1.9
+    learned route 10.40.0.0/16 from peer 10.0.1.2: path from external, AS path 65002, BGP origin IGP, next hops 10.0.1.2
+    learned route 10.50.0.0/16 from peer 10.0.1.3: path from external, AS path 65003, BGP origin IGP, next hops 10.0.1.3
+    learned route 10.50.0.0/16 from peer 10.0.1.2: path from external, AS path 65002, BGP origin IGP, next hops 10.0.1.2
+
+Prefix withdrawal (simulated against the recorded BGP table; nothing was sent):
+  peer 10.0.1.9 withdraws 10.20.0.0/16 at r1 (vrf default, IPv4 unicast)
+  outcome paths_remain: after peer 10.0.1.9 withdraws 10.20.0.0/16, r1's recorded BGP table still lists a path for it from no peer or from another peer; which path FRR would select, and whether it is valid or installed, is not read
+  removed: learned path from peer 10.0.1.9, AS path 65009, BGP origin IGP, next hops 10.0.1.9
+  remains: learned path from peer 10.0.1.2, AS path 65002, BGP origin IGP, next hops 10.0.1.2
+  remains: learned path from peer 10.0.1.3, AS path 65003, BGP origin IGP, next hops 10.0.1.3
+  remains: unattributed path from no peer ID names a peer, AS path 65008, BGP origin IGP, next hops 10.0.1.8
+  remains: no_peer path from no peer recorded, AS path (empty), BGP origin IGP, next hops 0.0.0.0
+  peer 10.0.1.9 session: not captured; the manifest names no summary for r1
+  not withdrawn: the peer's learned paths for other prefixes (2); a prefix withdrawal is not a session loss
+  forwarding impact unknown: the capture is FRR's BGP table, not zebra's RIB or the kernel FIB; which path FRR selected and whether any was installed are not read, so what forwarding does after the withdrawal is unknown
+  evidence: r1 bgp table, collected 2026-10-13T01:22:30Z
+
+BGP findings (from recorded summaries; nothing was probed):
+  session_state [reported] r2 to 10.0.1.1 (vrf default): FRR reported state Established for the session with peer 10.0.1.1, remote AS 65001
+    evidence: r2 bgp summary, collected 2026-10-13T01:22:32.78318338Z
+    limit: Established means the session was up when the capture was taken. It does not show that any route was exchanged, accepted, or installed, or that the session stayed up. The state alone does not show whether the peer is reachable. The far end is not identified; the summary maps no address to a node.
+
+Not read:
+  routes: read only from the show ip bgp json captures named; a node with no such capture has its routes not read, which is not the same as having none, and a missing capture does not show that a route was withdrawn
+  summary prefix counters (pfxRcd): not read; they identify no route
+  paths with no peer recorded (peerId absent, "(unspec)", or an unspecified address): counted, never reported as learned
+  best path, multipath, and the valid, bestpath, used, and selectionReason fields: not read; a learned route is one FRR listed, not the path it selected
+  kernel routing table, FIB, and installation: not read; a learned route is FRR's BGP table, not an installed route
+  nodes and peers that no capture names: unknown, not down
+  session state after its collection time: not observed
+
+Limitations:
+  declared metadata (source, node, VRF, FRR version, command, collection time) is the manifest's claim; netdoc checks the FRR version, the command, the VRF, and that the transcript prompt names the declared node, but cannot verify which router produced a capture
+  each state is the JSON state field FRR printed at collection; peerState is not read
+  the observed family names the summary section FRR printed; it does not establish which address families any session negotiated
+  exit 0 means every capture is valid; it does not mean any session is Established or that the network is healthy
+  an empty peer collection is observed empty; it is not reported as a down session
+  a learned route names the peer FRR recorded at the table's collection time; the table does not show that the session was Established
+  route tables and summaries are separate commands with their own collection times; netdoc does not check that they describe one moment
+  the BGP origin names no protocol, so the protocol that first carried a route is not identified beyond FRR's BGP table
+  pathFrom is the label FRR printed for the path; it is not checked against the session type
+  an empty table is observed empty at collection time; neither it nor a missing capture shows that a route was withdrawn
+  a prefix withdrawal is simulated against the named node's recorded BGP table only: every path for the prefix that names the peer is removed, and nothing else changes; no UPDATE is sent, no best path is recomputed, and propagation to other routers is not modeled
+  a remaining path is a candidate FRR listed; whether it is valid, selected, or installed is not read, and no alternate path is invented
+  no_recorded_path means the recorded table lists no other path; a path can still arrive from another peer once the withdrawal propagates, which no capture shows, so no route loss is claimed
+  the forwarding impact of a withdrawal is always unknown: the import reads no zebra RIB, kernel FIB, or topology, and ties no BGP path to a forwarding entry
+  other prefixes are not rated: aggregation, conditional advertisement, policy, and next-hop resolution through the withdrawn prefix are not in the evidence

@@ -34,7 +34,7 @@ const routeMaxDepth = 16
 // without notice.
 var routeKnownKeys = []string{
 	"routerId", "localAS", "vrfName", "routes",
-	"peerId", "pathFrom", "path", "origin", "nexthops", "ip",
+	"peerId", "pathFrom", "path", "origin", "nexthops", "ip", "stale",
 }
 
 // RouteTable is one decoded "show ip bgp json" body. Routes are sorted by prefix.
@@ -54,6 +54,7 @@ type RouteEntry struct {
 // RoutePath is one path. Source is decided by peerId alone, and Peer is set only
 // for RouteSourceLearned. PathFrom, ASPath and Origin hold the capture's text
 // after textsafe.Clean. Origin is the BGP ORIGIN attribute and names no protocol.
+// Stale is what the path's optional stale key records.
 type RoutePath struct {
 	Source   RouteSource
 	Peer     netip.Addr
@@ -61,7 +62,23 @@ type RoutePath struct {
 	ASPath   string
 	Origin   string
 	NextHops []netip.Addr
+	Stale    StaleFlag
 }
+
+// StaleFlag is what a path's optional stale key records, kept as printed. The zero
+// value is StaleNotRecorded, so a path with no key is never read as false. FRR
+// 10.7.0 printed the key only as true, on paths it kept after a session loss with
+// graceful restart, but what set a flag is not read.
+type StaleFlag int
+
+const (
+	// StaleNotRecorded means the path has no stale key.
+	StaleNotRecorded StaleFlag = iota
+	// StaleFalse means the path has "stale": false.
+	StaleFalse
+	// StaleTrue means the path has "stale": true.
+	StaleTrue
+)
 
 // RouteSource is what a path's peerId shows. The zero value is RouteSourceUnknown,
 // so a path the capture does not classify is never reported as learned.
@@ -301,7 +318,7 @@ var (
 // absent or unspecified peerId stays unknown. A multicast address, the IPv4 limited
 // broadcast address, or an IPv4 address in 0.0.0.0/8 or 240.0.0.0/4 (other than the
 // unspecified address) is refused, since none names a peer. pathFrom, path, origin and
-// nexthops are required.
+// nexthops are required. stale is optional and must be a JSON boolean.
 func routeDecodePath(raw json.RawMessage) (RoutePath, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
@@ -350,6 +367,16 @@ func routeDecodePath(raw json.RawMessage) (RoutePath, error) {
 	}
 	if _, err := routeRead(fields, "origin", &path.Origin, true); err != nil {
 		return RoutePath{}, err
+	}
+	var stale bool
+	if present, err = routeRead(fields, "stale", &stale, false); err != nil {
+		return RoutePath{}, err
+	}
+	switch {
+	case present && stale:
+		path.Stale = StaleTrue
+	case present:
+		path.Stale = StaleFalse
 	}
 	path.PathFrom = textsafe.Clean(path.PathFrom)
 	path.ASPath = textsafe.Clean(path.ASPath)

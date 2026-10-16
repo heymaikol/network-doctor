@@ -456,3 +456,72 @@ func TestRouteReadCaptureRefusesUnpinnedNodes(t *testing.T) {
 		}
 	}
 }
+
+// TestRouteStaleFlag checks the three values of the optional stale key: absent,
+// false, and true each decode to their own StaleFlag, and any other value or a
+// case variant of the key is refused.
+func TestRouteStaleFlag(t *testing.T) {
+	_, base := routeCapture(t, "r1")
+	const needle = `"peerId":"10.0.1.2"`
+	for _, tc := range []struct {
+		name string
+		body []byte
+		want StaleFlag
+	}{
+		{"no key", base, StaleNotRecorded},
+		{"recorded false", routeReplaceOnce(t, base, needle, `"stale":false,`+needle), StaleFalse},
+		{"recorded true", routeReplaceOnce(t, base, needle, `"stale":true,`+needle), StaleTrue},
+	} {
+		table, err := DecodeRouteTable(tc.body)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := table.Routes[0].Paths[0].Stale; got != tc.want {
+			t.Errorf("%s: Stale = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+	for value, want := range map[string]string{
+		`"stale":null`:   "stale is null",
+		`"stale":"true"`: "stale: json: cannot unmarshal string",
+		`"stale":1`:      "stale: json: cannot unmarshal number",
+		`"stale":{}`:     "stale: json: cannot unmarshal object",
+		`"stale":[]`:     "stale: json: cannot unmarshal array",
+		`"Stale":true`:   `key "Stale" differs from "stale" only in case`,
+		`"STALE":false`:  `key "STALE" differs from "stale" only in case`,
+	} {
+		_, err := DecodeRouteTable(routeReplaceOnce(t, base, needle, value+","+needle))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want it to contain %q", value, err, want)
+		}
+	}
+}
+
+// TestRouteStaleFlagInTheSessionLab decodes r1's table from the graceful-restart
+// session-loss run while r2's session was down: each of r2's three paths is
+// recorded stale, and no other path has the key. The app tests pin these bytes.
+func TestRouteStaleFlagInTheSessionLab(t *testing.T) {
+	raw, err := fs.ReadFile(os.DirFS(routeFixtureRoot), "bgp/session/gr/r1-during-show_ip_bgp_json.raw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := DecodeRouteCapture(raw, "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, other := 0, 0
+	for _, e := range table.Routes {
+		for _, p := range e.Paths {
+			switch {
+			case p.Stale == StaleTrue && p.Peer == netip.MustParseAddr("10.0.1.2"):
+				stale++
+			case p.Stale == StaleNotRecorded:
+				other++
+			default:
+				t.Errorf("%s path from %v: Stale = %d", e.Prefix, p.Peer, p.Stale)
+			}
+		}
+	}
+	if stale != 3 || other != 3 {
+		t.Errorf("%d stale paths from 10.0.1.2 and %d without a key, want 3 and 3", stale, other)
+	}
+}

@@ -28,8 +28,15 @@ const withdrawLab = "../../testdata/frr/10.7.0/bgp/withdraw"
 // directory, byte for byte, and writes a manifest that names both.
 func stageWithdrawPhase(t *testing.T, phase string) string {
 	t.Helper()
+	return stageLabPhase(t, withdrawLab, phase)
+}
+
+// stageLabPhase stages r1's summary and table of one phase of the lab run in
+// labDir, as stageWithdrawPhase does.
+func stageLabPhase(t *testing.T, labDir, phase string) string {
+	t.Helper()
 	dir := t.TempDir()
-	lab, staged := openRoot(t, withdrawLab), openRoot(t, dir)
+	lab, staged := openRoot(t, labDir), openRoot(t, dir)
 	var captures []any
 	for _, cmd := range []string{frrbgp.CommandSummary, frrbgp.CommandRoute} {
 		stem := "r1-" + phase + "-" + strings.ReplaceAll(cmd, " ", "_")

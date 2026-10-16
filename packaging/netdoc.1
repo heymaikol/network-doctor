@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-10-15" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-10-16" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the
  connection breaks
@@ -46,6 +46,11 @@ netdoc \- diagnose network connectivity and name the layer where the
 .B netdoc
 .BI \-import\-frr\-bgp " manifest.json"
 .BI \-withdraw\-bgp " node:peer:prefix"
+.RI [ \-json ]
+.br
+.B netdoc
+.BI \-import\-frr\-bgp " manifest.json"
+.BI \-fail\-bgp\-session " node:peer"
 .RI [ \-json ]
 .br
 .B netdoc
@@ -436,6 +441,38 @@ selector, or one the node's route table does not describe, exits
 .BR 2 .
 Refused without
 .BR \-import\-frr\-bgp .
+.TP
+.BI \-fail\-bgp\-session " node:peer"
+With
+.BR \-import\-frr\-bgp ,
+simulate a loss of the BGP session
+.I node
+holds with
+.IR peer .
+It assumes every path the recorded BGP table of
+.I node
+attributes to the peer, for every prefix, is removed, and that nothing else
+changes; every outcome rests on that assumption. Each prefix that had such a
+path is rated as
+.B \-withdraw\-bgp
+rates one, except that a remaining path FRR recorded with a stale flag is not
+counted. The peer's session state is shown as the summary printed it, and a
+state other than Established is not read as a session newly lost. Whether and
+when the node would remove the paths, for example under graceful restart, is
+unknown, and so is the forwarding impact. It needs
+.BR \-import\-frr\-bgp ,
+not
+.BR \-explain ,
+because a topology file holds no BGP session or path. When the summary lists
+the peer and the table attributes no path to it, the result is empty and says
+so. The node ends at the first colon, so the peer may be an IPv6 address; a
+zone is refused. A malformed selector, a node with no route table, or a peer
+that neither the node's table nor its summary names exits
+.BR 2 .
+Refused without
+.B \-import\-frr\-bgp
+and with
+.BR \-withdraw\-bgp .
 .TP
 .B \-two\-sided
 Say which of two vantage points a same-target failure is specific to. With two
@@ -877,7 +914,10 @@ a manifest that names another command, FRR version, VRF, or
 .BR source_node ,
 a flag that cannot be combined with the import, a
 .B \-withdraw\-bgp
-selector that is malformed or that the node's route table does not describe,
+selector that is malformed or that the node's route table does not describe, a
+.B \-fail\-bgp\-session
+selector that is malformed or that names a peer neither capture of the node
+names,
 and output that cannot be written also exit
 .BR 2 .
 Under offline

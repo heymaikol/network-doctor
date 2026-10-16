@@ -24,6 +24,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
        netdoc --import-frr-bgp manifest.json [--json]
        netdoc --import-frr-bgp manifest.json --withdraw-bgp NODE:PEER:PREFIX [--json]
+       netdoc --import-frr-bgp manifest.json --fail-bgp-session NODE:PEER [--json]
        netdoc --two-sided here.ndoc there.ndoc [--route-a topology.json] [--route-b topology.json] [--json]
        netdoc --two-sided --via ssh-destination [target] [--json]
 
@@ -101,6 +102,16 @@ Established peer remains, whether none is recorded, or whether that is unknown.
 A result of no recorded path is not a route loss: another peer may still send one.
 The forwarding impact is always unknown, because no RIB, FIB, or topology is
 read. A selector the table does not describe exits 2.
+
+--fail-bgp-session NODE:PEER adds a hypothetical loss of NODE's session with
+PEER. It assumes every path NODE's recorded BGP table attributes to PEER, for
+every prefix, is removed, and rates each such prefix the way --withdraw-bgp
+does; a path FRR recorded stale is not counted as remaining. PEER's session
+state is shown as the summary printed it, and whether or when NODE would remove
+the paths, for example under graceful restart, stays unknown, as does the
+forwarding impact. It needs --import-frr-bgp, not --explain, because a topology
+file holds no BGP session or path. A peer that neither NODE's table nor its
+summary names exits 2, and it cannot be combined with --withdraw-bgp.
 
 --two-sided reads two snapshots as two machines looking at one target and says
 whether the evidence places a failure on side A, side B, something shared, or

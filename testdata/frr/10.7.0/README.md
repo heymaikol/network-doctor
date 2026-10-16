@@ -219,3 +219,22 @@ anything. The 2026-10-16 UTC run settled each phase in about 7 seconds and
 finished with DONE. Its captures are preserved in `bgp/withdraw/`. Running the
 lab needs the extracted FRR root and unprivileged user namespaces, so CI does
 not run it; the tests read the preserved captures.
+
+The BGP session-loss lab is `lab/bgp-session.sh`. It takes the same
+`BGPD_VTY_PORT` and the same three routers as the withdrawal lab, plus `ARM`,
+which selects how r1 loses its session with r2: `plain` kills r2's bgpd with
+SIGKILL under FRR defaults, `gr` does the same after r2 configures graceful
+restart with a 30 second restart time, and `admin` has r1 shut the session
+administratively with r2 configured as in `gr`. Each phase captures r1's
+summary, table, and `show ip bgp neighbors 10.0.1.2 json`, and r1's kernel
+IPv4 routes as `ip -j` prints them, which are lab context only:
+
+    SCRATCH="$SCRATCH" BGPD_VTY_PORT=<port> ARM=plain unshare -Urnm bash testdata/frr/10.7.0/lab/bgp-session.sh
+
+It writes to `$SCRATCH/run/bgp-session-$ARM`, which must not exist, and never
+removes anything. A capture passes only when the session states, the `peerId`
+set of each prefix, the stable attributes of every path not from r2, the stale
+keys, and, where checked, the remote graceful-restart mode match the phase. Fields
+FRR may change when another path goes, such as `bestpath`, are never matched.
+Each arm's 2026-10-16 UTC run finished with DONE, and its captures are preserved
+in `bgp/session/`. CI does not run the lab; the tests read the preserved captures.

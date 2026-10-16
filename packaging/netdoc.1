@@ -44,6 +44,11 @@ netdoc \- diagnose network connectivity and name the layer where the
 .RI [ \-json ]
 .br
 .B netdoc
+.BI \-import\-frr\-bgp " manifest.json"
+.BI \-withdraw\-bgp " node:peer:prefix"
+.RI [ \-json ]
+.br
+.B netdoc
 .B \-two\-sided
 .I here.ndoc there.ndoc
 .RB [ \-route\-a " file" ]
@@ -406,6 +411,31 @@ transcript. The import is headless: it runs no probe, contacts no router, and
 writes no topology. Exit 0 means every capture was valid; it does not mean a
 session is up. Exit 2 means the manifest, a capture, or the output cannot
 be used.
+.TP
+.BI \-withdraw\-bgp " node:peer:prefix"
+With
+.BR \-import\-frr\-bgp ,
+simulate
+.I peer
+withdrawing
+.I prefix
+from the recorded BGP table of
+.IR node .
+Every path for the prefix that names the peer is removed, and nothing else
+changes: the peer's paths for other prefixes stay, so this is not a session
+loss. The outcome is paths_remain when a path from no peer, or from another
+peer the summary shows Established, is still listed; unknown when the only
+other paths name no peer or come from a peer the summary does not show
+Established; and no_recorded_path when the table lists no other path, which is
+not a route loss, since another peer may still send one. A
+remaining path is a candidate, not a selected or installed route. The forwarding
+impact is always unknown: no RIB, FIB, or topology is read, and the result is
+never reachability_lost or redundancy_lost. The node ends at the first colon
+and the prefix, a canonical IPv4 prefix, starts after the last. A malformed
+selector, or one the node's route table does not describe, exits
+.BR 2 .
+Refused without
+.BR \-import\-frr\-bgp .
 .TP
 .B \-two\-sided
 Say which of two vantage points a same-target failure is specific to. With two
@@ -845,7 +875,9 @@ Under
 an invalid manifest, a capture or transcript that cannot be used,
 a manifest that names another command, FRR version, VRF, or
 .BR source_node ,
-a flag that cannot be combined with the import,
+a flag that cannot be combined with the import, a
+.B \-withdraw\-bgp
+selector that is malformed or that the node's route table does not describe,
 and output that cannot be written also exit
 .BR 2 .
 Under offline

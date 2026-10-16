@@ -204,3 +204,18 @@ This proves the reported peer and route states in an isolated lab only. The
 captures are not simultaneous and do not prove kernel FIB installation.
 The script's content checker is intentionally narrow; it is not a general
 BGP decoder.
+
+The BGP withdrawal lab is `lab/bgp-withdraw.sh`. It takes no mode and the same
+`BGPD_VTY_PORT`, and runs three routers: r1 peers with r2 and r3, and r2
+withdraws prefixes in two steps by deleting the stub addresses its `network`
+statements import. It captures r1's summary and table before the first step and
+after each one, and each capture passes only when both sessions are Established
+and each prefix lists the expected `peerId` set, or is absent:
+
+    SCRATCH="$SCRATCH" BGPD_VTY_PORT=<port> unshare -Urnm bash testdata/frr/10.7.0/lab/bgp-withdraw.sh
+
+It writes to `$SCRATCH/run/bgp-withdraw`, which must not exist, and never removes
+anything. The 2026-10-16 UTC run settled each phase in about 7 seconds and
+finished with DONE. Its captures are preserved in `bgp/withdraw/`. Running the
+lab needs the extracted FRR root and unprivileged user namespaces, so CI does
+not run it; the tests read the preserved captures.

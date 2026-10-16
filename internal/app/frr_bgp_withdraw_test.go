@@ -342,7 +342,7 @@ func TestWithdrawIsNotASessionLoss(t *testing.T) {
 	}
 	for _, want := range []string{
 		"peer 10.0.1.2 withdraws 10.20.0.0/16 at r1 (vrf default, IPv4 unicast)",
-		"  removed: learned path from peer 10.0.1.2, AS path 65002, BGP origin IGP, next hops 10.0.1.2\n",
+		"  removed: learned path from peer 10.0.1.2, session Established, AS path 65002, BGP origin IGP, next hops 10.0.1.2\n",
 		"  remains: no_peer path from no peer recorded, AS path (empty), BGP origin IGP, next hops 0.0.0.0\n",
 		"the summary printed state Established, and a prefix withdrawal leaves the session as recorded",
 		"not withdrawn: the peer's learned paths for other prefixes (2); a prefix withdrawal is not a session loss",
@@ -382,6 +382,60 @@ func TestWithdrawingPeerSessionIsReportedNotJudged(t *testing.T) {
 	_, stdout, _ := runNetdoc(t, "--import-frr-bgp", stageSyntheticTable(t, routes, false), "--withdraw-bgp", "r1:10.0.1.3:10.20.0.0/16")
 	if !strings.Contains(stdout, "session: not captured; the manifest names no summary for r1") {
 		t.Errorf("text does not say the session was not captured:\n%s", stdout)
+	}
+}
+
+// TestWithdrawRemovedPathKeepsItsSessionState checks that a removed path carries
+// the state the node's summary printed for its peer, as a remaining path does,
+// and none when no summary lists the peer. The state is reported, never judged:
+// the outcome and the forwarding uncertainty are the same in every case.
+func TestWithdrawRemovedPathKeepsItsSessionState(t *testing.T) {
+	for _, c := range []struct {
+		name, peer string
+		summary    bool
+		state      string
+	}{
+		{"established peer", "10.0.1.2", true, "Established"},
+		{"active peer", "10.0.1.3", true, "Active"},
+		{"peer the summary does not list", "10.0.1.7", true, ""},
+		{"no summary captured", "10.0.1.2", false, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			routes := map[string][]string{"10.20.0.0/16": {bgpPath(c.peer, "65002", "IGP", c.peer), bgpPath("(unspec)", "", "IGP", "0.0.0.0")}}
+			manifest := stageSyntheticTable(t, routes, c.summary)
+			spec := "r1:" + c.peer + ":10.20.0.0/16"
+			w := runWithdrawJSON(t, manifest, spec)
+			if w.Outcome != withdrawPathsRemain || !slices.Equal(pathPeers(w.Remaining), []string{"no_peer "}) || w.PeerSessionState != c.state {
+				t.Fatalf("outcome %s, remaining %q, peer session %q; want paths_remain, [no_peer], %q", w.Outcome, pathPeers(w.Remaining), w.PeerSessionState, c.state)
+			}
+			if len(w.Removed) != 1 || w.Removed[0].Kind != pathLearned || w.Removed[0].Peer != c.peer || w.Removed[0].SessionState != c.state {
+				t.Fatalf("removed %+v, want one learned path from %s with session state %q", w.Removed, c.peer, c.state)
+			}
+
+			// The JSON key is present only when a state was recorded.
+			_, stdout, _ := runNetdoc(t, "--import-frr-bgp", manifest, "--withdraw-bgp", spec, "--json")
+			var rep struct {
+				Withdrawal struct {
+					Removed []map[string]any `json:"removed"`
+				} `json:"withdrawal"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+				t.Fatal(err)
+			}
+			got, present := rep.Withdrawal.Removed[0]["session_state"]
+			if present != (c.state != "") || (present && got != c.state) {
+				t.Errorf("removed session_state = %v (present %v), want %q", got, present, c.state)
+			}
+
+			_, text, _ := runNetdoc(t, "--import-frr-bgp", manifest, "--withdraw-bgp", spec)
+			want := "  removed: learned path from peer " + c.peer + ", AS path"
+			if c.state != "" {
+				want = "  removed: learned path from peer " + c.peer + ", session " + c.state + ", AS path"
+			}
+			if !strings.Contains(text, want) {
+				t.Errorf("text lacks %q:\n%s", want, text)
+			}
+		})
 	}
 }
 

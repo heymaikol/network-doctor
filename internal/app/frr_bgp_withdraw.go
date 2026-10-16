@@ -175,7 +175,7 @@ func withdrawFRRBGP(w bgpWithdraw, t frrbgp.RouteTable, tc frrospf.ManifestCaptu
 					out.PeerOtherPaths++
 				}
 			case fromPeer:
-				out.Removed = append(out.Removed, pathRead(p, pathLearned, ""))
+				out.Removed = append(out.Removed, pathRead(p, pathLearned, states[p.Peer]))
 			case p.Source == frrbgp.RouteSourceNoPeer:
 				out.Remaining = append(out.Remaining, pathRead(p, pathNoPeer, ""))
 			case p.Source == frrbgp.RouteSourceUnknown:

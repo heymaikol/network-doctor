@@ -1,0 +1,6 @@
+enable
+r1# configure terminal
+r1(config)# router bgp 65001
+r1(config-router)# neighbor 10.0.1.2 shutdown
+r1(config-router)# end
+r1# 

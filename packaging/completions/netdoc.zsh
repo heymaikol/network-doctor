@@ -85,7 +85,8 @@ _arguments \
   '(--fail-ospf -fail-ospf)'{--fail-ospf,-fail-ospf}='[with --explain, simulate losing the OSPF adjacency node\:interface\:neighbor; runs no probes]:node\:interface\:neighbor:' \
   '(--import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-ospf,-import-frr-ospf}'=[import the FRR OSPF captures a manifest names; runs no probes]:manifest:_files' \
   '(--import-frr-bgp -import-frr-bgp --import-frr-ospf -import-frr-ospf --write-topology -write-topology --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-bgp,-import-frr-bgp}'=[import the FRR BGP summary and route captures a manifest names; runs no probes]:manifest:_files' \
-  '(--withdraw-bgp -withdraw-bgp)'{--withdraw-bgp,-withdraw-bgp}='[with --import-frr-bgp, simulate a peer withdrawing a prefix from the recorded BGP table of one node]:node\:peer\:prefix:' \
+  '(--withdraw-bgp -withdraw-bgp --fail-bgp-session -fail-bgp-session)'{--withdraw-bgp,-withdraw-bgp}='[with --import-frr-bgp, simulate a peer withdrawing a prefix from the recorded BGP table of one node]:node\:peer\:prefix:' \
+  '(--fail-bgp-session -fail-bgp-session --withdraw-bgp -withdraw-bgp)'{--fail-bgp-session,-fail-bgp-session}='[with --import-frr-bgp, simulate losing the BGP session node\:peer in the recorded BGP table of one node]:node\:peer:' \
   '(--write-topology -write-topology)'{--write-topology,-write-topology}'=[with --import-frr-ospf, write the topology of a complete import to a file]:file:_files' \
   '(--route-a -route-a)'{--route-a,-route-a}'=[add the routing context of a topology file to side A of offline --two-sided]:topology file:_files' \
   '(--route-b -route-b)'{--route-b,-route-b}'=[add the routing context of a topology file to side B of offline --two-sided]:topology file:_files' \

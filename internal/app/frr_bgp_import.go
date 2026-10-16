@@ -32,7 +32,7 @@ const frrBGPLearnedLimit = 20
 // frrBGPFlags are the only settings a BGP import accepts beside its manifest.
 // Every other setting describes a probe run, another reading, or the OSPF import,
 // and this import would ignore it.
-var frrBGPFlags = map[string]bool{"import-frr-bgp": true, "json": true, "withdraw-bgp": true}
+var frrBGPFlags = map[string]bool{"import-frr-bgp": true, "json": true, "withdraw-bgp": true, "fail-bgp-session": true}
 
 // frrBGPNotRead says what the BGP import does not read. A reader checks it before
 // they treat the report as the whole picture. A report with route tables reads
@@ -81,8 +81,10 @@ var frrBGPRouteLimitations = []string{
 // when every capture is valid and 2 when the manifest, a capture, or the output
 // cannot be used. It writes no topology. A non-empty withdraw adds a simulated
 // prefix withdrawal read against the named node's route table, and exits 2 when
-// that table does not describe it.
-func runFRRBGPImport(setFlags map[string]bool, manifestPath, withdraw string, jsonOut bool, stdout, stderr io.Writer) int {
+// that table does not describe it. A non-empty session adds a simulated session
+// loss read the same way, and exits 2 when neither the node's table nor its
+// summary names the peer.
+func runFRRBGPImport(setFlags map[string]bool, manifestPath, withdraw, session string, jsonOut bool, stdout, stderr io.Writer) int {
 	for _, name := range slices.Sorted(maps.Keys(setFlags)) {
 		if !frrBGPFlags[name] {
 			fmt.Fprintf(stderr, "netdoc: -%s cannot be combined with -import-frr-bgp\n", name)
@@ -101,6 +103,15 @@ func runFRRBGPImport(setFlags map[string]bool, manifestPath, withdraw string, js
 			return 2
 		}
 		w = &sel
+	}
+	var sl *bgpSession
+	if session != "" {
+		sel, err := parseBGPSession(session)
+		if err != nil {
+			fmt.Fprintf(stderr, "netdoc: -fail-bgp-session: %s\n", textsafe.Clean(err.Error()))
+			return 2
+		}
+		sl = &sel
 	}
 
 	// The manifest and its captures are read under one root, the manifest's own
@@ -145,6 +156,13 @@ func runFRRBGPImport(setFlags map[string]bool, manifestPath, withdraw string, js
 		}
 		report.Limitations = slices.Concat(report.Limitations, frrBGPWithdrawLimitations)
 	}
+	if sl != nil {
+		if report.SessionLoss, err = sessionLossFromReport(*sl, manifest, captures); err != nil {
+			fmt.Fprintf(stderr, "netdoc: -fail-bgp-session: %s\n", textsafe.Clean(err.Error()))
+			return 2
+		}
+		report.Limitations = slices.Concat(report.Limitations, frrBGPSessionLossLimitations)
+	}
 
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
@@ -170,6 +188,7 @@ type frrBGPReport struct {
 	Captures    []frrBGPCapture    `json:"captures"`
 	RouteTables []frrBGPRouteTable `json:"route_tables,omitempty"`
 	Withdrawal  *frrBGPWithdrawal  `json:"withdrawal,omitempty"`
+	SessionLoss *frrBGPSessionLoss `json:"session_loss,omitempty"`
 	Findings    []frrBGPFinding    `json:"findings,omitempty"`
 	NotRead     []string           `json:"not_read"`
 	Limitations []string           `json:"limitations"`
@@ -431,6 +450,9 @@ func renderFRRBGPText(r frrBGPReport) string {
 	}
 	if r.Withdrawal != nil {
 		renderFRRBGPWithdrawal(&b, *r.Withdrawal)
+	}
+	if r.SessionLoss != nil {
+		renderFRRBGPSessionLoss(&b, *r.SessionLoss)
 	}
 	if len(r.Findings) > 0 {
 		b.WriteString("\nBGP findings (from recorded summaries; nothing was probed):\n")

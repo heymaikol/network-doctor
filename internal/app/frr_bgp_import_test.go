@@ -454,7 +454,7 @@ func TestFRRBGPImportWriteFailureExitsTwo(t *testing.T) {
 	_, manifest := stageFRRBGP(t)
 	for _, jsonOut := range []bool{false, true} {
 		var stderr bytes.Buffer
-		code := runFRRBGPImport(map[string]bool{"import-frr-bgp": true}, manifest, "", jsonOut, failWriter{}, &stderr)
+		code := runFRRBGPImport(map[string]bool{"import-frr-bgp": true}, manifest, "", "", jsonOut, failWriter{}, &stderr)
 		if code != 2 || !strings.Contains(stderr.String(), "disk full") {
 			t.Errorf("json = %v: exit = %d, stderr = %q; want exit 2 naming the write error", jsonOut, code, stderr.String())
 		}
@@ -469,7 +469,7 @@ func TestFRRBGPImportPartialWriteFailureExitsTwo(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
 		w := &partialWriter{}
 		var stderr bytes.Buffer
-		code := runFRRBGPImport(map[string]bool{"import-frr-bgp": true}, manifest, "", jsonOut, w, &stderr)
+		code := runFRRBGPImport(map[string]bool{"import-frr-bgp": true}, manifest, "", "", jsonOut, w, &stderr)
 		if w.buf.Len() == 0 {
 			t.Fatalf("json = %v: the writer took no bytes, so the partial write was not exercised", jsonOut)
 		}

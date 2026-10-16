@@ -96,47 +96,60 @@ type frrBGPWithdrawal struct {
 
 // frrBGPPathRead is one path of the withdrawn prefix. SessionState is the state
 // the node's summary printed for the path's peer; it is absent when the node has
-// no summary, or the summary does not list the peer.
+// no summary, or the summary does not list the peer. StaleFlag is set only by a
+// simulated session loss, so a withdrawal never writes it.
 type frrBGPPathRead struct {
 	Kind         string   `json:"kind"`
 	Peer         string   `json:"peer,omitempty"`
 	SessionState string   `json:"session_state,omitempty"`
+	StaleFlag    string   `json:"stale_flag,omitempty"`
 	PathFrom     string   `json:"path_from"`
 	ASPath       string   `json:"as_path"`
 	BGPOrigin    string   `json:"bgp_origin"`
 	NextHops     []string `json:"next_hops"`
 }
 
-// withdrawFromReport reads the node's route table and summary from the captures
-// buildFRRBGPReport accepted, which holds at most one of each per node, and
-// simulates the withdrawal against them.
+// withdrawFromReport reads the node's route table and summary and simulates the
+// withdrawal against them.
 func withdrawFromReport(w bgpWithdraw, m frrospf.Manifest, captures []frrospf.Capture) (*frrBGPWithdrawal, error) {
+	table, tc, sum, sc, err := nodeBGPCaptures(w.node, m, captures)
+	if err != nil {
+		return nil, err
+	}
+	return withdrawFRRBGP(w, table, tc, sum, sc)
+}
+
+// nodeBGPCaptures reads one node's route table and summary from the captures
+// buildFRRBGPReport accepted, which holds at most one of each per node. sum is
+// nil when the manifest names no summary for the node, and a node with no route
+// table is refused.
+func nodeBGPCaptures(node string, m frrospf.Manifest, captures []frrospf.Capture) (frrbgp.RouteTable, frrospf.ManifestCapture, *frrbgp.Summary, frrospf.ManifestCapture, error) {
 	var table *frrbgp.RouteTable
 	var sum *frrbgp.Summary
 	var tc, sc frrospf.ManifestCapture
 	for i, c := range captures {
-		if c.Node != w.node {
+		if c.Node != node {
 			continue
 		}
 		switch c.Command {
 		case frrbgp.CommandRoute:
 			t, err := frrbgp.DecodeRouteCapture(c.Data, c.Node)
 			if err != nil {
-				return nil, err
+				return frrbgp.RouteTable{}, tc, nil, sc, err
 			}
 			table, tc = &t, m.Captures[i]
 		case frrbgp.CommandSummary:
 			s, err := frrbgp.Decode(c.Data, c.Node)
 			if err != nil {
-				return nil, err
+				return frrbgp.RouteTable{}, tc, nil, sc, err
 			}
 			sum, sc = &s, m.Captures[i]
 		}
 	}
 	if table == nil {
-		return nil, fmt.Errorf("the manifest names no %q capture for node %q", frrbgp.CommandRoute, w.node)
+		return frrbgp.RouteTable{}, tc, nil, sc, fmt.Errorf("the manifest names no %q capture for node %q", frrbgp.CommandRoute, node)
 	}
-	return withdrawFRRBGP(w, *table, tc, sum, sc)
+	return *table, tc, sum, sc, nil
 }
 
 // withdrawFRRBGP removes every path for w.prefix that names w.peer from the
@@ -176,17 +189,12 @@ func withdrawFRRBGP(w bgpWithdraw, t frrbgp.RouteTable, tc frrospf.ManifestCaptu
 				}
 			case fromPeer:
 				out.Removed = append(out.Removed, pathRead(p, pathLearned, states[p.Peer]))
-			case p.Source == frrbgp.RouteSourceNoPeer:
-				out.Remaining = append(out.Remaining, pathRead(p, pathNoPeer, ""))
-			case p.Source == frrbgp.RouteSourceUnknown:
-				unattributed++
-				out.Remaining = append(out.Remaining, pathRead(p, pathUnattributed, ""))
-			case sum == nil:
-				out.Remaining = append(out.Remaining, pathRead(p, pathLearned, ""))
-			case states[p.Peer] == frrbgp.StateEstablished:
-				out.Remaining = append(out.Remaining, pathRead(p, pathLearned, states[p.Peer]))
 			default:
-				out.Remaining = append(out.Remaining, pathRead(p, pathContradicted, states[p.Peer]))
+				kind := pathKind(p, sum != nil, states)
+				if kind == pathUnattributed {
+					unattributed++
+				}
+				out.Remaining = append(out.Remaining, pathRead(p, kind, states[p.Peer]))
 			}
 		}
 	}
@@ -235,6 +243,24 @@ func withdrawOutcome(w *frrBGPWithdrawal) (string, string) {
 	return withdrawNoRecordedPath, fmt.Sprintf("after peer %s withdraws %s, %s lists no other path for it; another peer may still send one once the withdrawal propagates, which no capture shows, so no route loss is claimed", w.Peer, w.Prefix, at)
 }
 
+// pathKind reads a path that is not the simulated peer's. haveSummary says the
+// manifest names a summary for the node, and states holds the state it printed
+// for each peer it lists. Both simulations call it, so their kinds cannot drift.
+func pathKind(p frrbgp.RoutePath, haveSummary bool, states map[netip.Addr]string) string {
+	switch {
+	case p.Source == frrbgp.RouteSourceNoPeer:
+		return pathNoPeer
+	case p.Source == frrbgp.RouteSourceUnknown:
+		return pathUnattributed
+	case !haveSummary || states[p.Peer] == frrbgp.StateEstablished:
+		return pathLearned
+	}
+	return pathContradicted
+}
+
+// pathRead is one path for the report. state is the summary's state for the
+// path's peer; a path that names no peer has none, since no summary key is the
+// zero address.
 func pathRead(p frrbgp.RoutePath, kind, state string) frrBGPPathRead {
 	r := frrBGPPathRead{Kind: kind, SessionState: state, PathFrom: p.PathFrom, ASPath: p.ASPath, BGPOrigin: p.Origin, NextHops: make([]string, 0, len(p.NextHops))}
 	if p.Source == frrbgp.RouteSourceLearned {
@@ -253,8 +279,8 @@ func renderFRRBGPWithdrawal(b *strings.Builder, w frrBGPWithdrawal) {
 	b.WriteString("\nPrefix withdrawal (simulated against the recorded BGP table; nothing was sent):\n")
 	fmt.Fprintf(b, "  peer %s withdraws %s at %s (vrf %s, %s)\n", clean(w.Peer), clean(w.Prefix), clean(w.Node), clean(w.VRF), w.Family)
 	fmt.Fprintf(b, "  outcome %s: %s\n", w.Outcome, clean(w.Reason))
-	renderPathReads(b, "removed", w.Removed)
-	renderPathReads(b, "remains", w.Remaining)
+	renderPathReads(b, "  ", "removed", w.Removed)
+	renderPathReads(b, "  ", "remains", w.Remaining)
 	// The summary, when one was read, is the second evidence row.
 	switch {
 	case len(w.Evidence) < 2:
@@ -273,14 +299,17 @@ func renderFRRBGPWithdrawal(b *strings.Builder, w frrBGPWithdrawal) {
 	}
 }
 
-func renderPathReads(b *strings.Builder, label string, paths []frrBGPPathRead) {
+// renderPathReads writes one path list, each line after indent. A path's stale
+// flag is written only when the capture recorded one, and only a session loss
+// sets it.
+func renderPathReads(b *strings.Builder, indent, label string, paths []frrBGPPathRead) {
 	clean := textsafe.Clean
 	if len(paths) == 0 {
-		fmt.Fprintf(b, "  %s: no path\n", label)
+		fmt.Fprintf(b, "%s%s: no path\n", indent, label)
 	}
 	for i, p := range paths {
 		if i == frrBGPLearnedLimit {
-			fmt.Fprintf(b, "  %s: %d more; see --json\n", label, len(paths)-i)
+			fmt.Fprintf(b, "%s%s: %d more; see --json\n", indent, label, len(paths)-i)
 			break
 		}
 		from := "no peer recorded"
@@ -301,6 +330,13 @@ func renderPathReads(b *strings.Builder, label string, paths []frrBGPPathRead) {
 		if hops == "" {
 			hops = "none"
 		}
-		fmt.Fprintf(b, "  %s: %s path from %s, AS path %s, BGP origin %s, next hops %s\n", label, p.Kind, from, path, clean(p.BGPOrigin), hops)
+		stale := ""
+		switch p.StaleFlag {
+		case staleRecordedTrue:
+			stale = ", stale flag recorded true"
+		case staleRecordedFalse:
+			stale = ", stale flag recorded false"
+		}
+		fmt.Fprintf(b, "%s%s: %s path from %s, AS path %s, BGP origin %s, next hops %s%s\n", indent, label, p.Kind, from, path, clean(p.BGPOrigin), hops, stale)
 	}
 }

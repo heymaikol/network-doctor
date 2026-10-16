@@ -107,22 +107,25 @@ func TestWithdrawReportIsByteStable(t *testing.T) {
 	}
 }
 
-// TestWithdrawSkipsMalformedStaleKeys pins what 0317503 does with a stale key
-// FRR does not print: the decoder skips it, so the report is the one for the
-// same table without it.
-func TestWithdrawSkipsMalformedStaleKeys(t *testing.T) {
-	plain := map[string][]string{"10.20.0.0/16": {bgpPath("10.0.1.9", "65009", "IGP", "10.0.1.9"), bgpPath("10.0.1.2", "65002", "IGP", "10.0.1.2")}}
-	run := func(routes map[string][]string) (int, string, string) {
-		manifest := stageSyntheticTable(t, routes, true)
-		code, stdout, stderr := runNetdoc(t, "--import-frr-bgp", manifest, "--withdraw-bgp", "r1:10.0.1.9:10.20.0.0/16", "--json")
-		return code, strings.ReplaceAll(stdout, manifest, "manifest.json"), stderr
-	}
-	_, want, _ := run(plain)
-	for _, key := range []string{`"stale":null`, `"stale":"true"`, `"stale":1`, `"Stale":true`} {
-		odd := map[string][]string{"10.20.0.0/16": {strings.Replace(plain["10.20.0.0/16"][0], "{", "{"+key+",", 1), plain["10.20.0.0/16"][1]}}
-		code, got, stderr := run(odd)
-		if code != 0 || got != want {
-			t.Errorf("%s: exit %d, stderr %q; want the report for the table without it", key, code, stderr)
+// TestBGPImportRefusesMalformedStaleKeys checks the one approved change to what
+// the BGP import accepts since 0317503: a stale key FRR does not print, which the
+// decoder skipped then, is now refused, with or without a simulation. Every
+// other input keeps the reports pinned above.
+func TestBGPImportRefusesMalformedStaleKeys(t *testing.T) {
+	good := bgpPath("10.0.1.2", "65002", "IGP", "10.0.1.2")
+	for key, want := range map[string]string{
+		`"stale":null`:   `route "10.20.0.0/16": stale is null`,
+		`"stale":"true"`: `route "10.20.0.0/16": stale: json: cannot unmarshal string`,
+		`"stale":1`:      `route "10.20.0.0/16": stale: json: cannot unmarshal number`,
+		`"Stale":true`:   `key "Stale" differs from "stale" only in case`,
+	} {
+		odd := strings.Replace(bgpPath("10.0.1.9", "65009", "IGP", "10.0.1.9"), "{", "{"+key+",", 1)
+		manifest := stageSyntheticTable(t, map[string][]string{"10.20.0.0/16": {odd, good}}, true)
+		for _, extra := range [][]string{nil, {"--withdraw-bgp", "r1:10.0.1.9:10.20.0.0/16"}} {
+			code, stdout, stderr := runNetdoc(t, append([]string{"--import-frr-bgp", manifest}, extra...)...)
+			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "netdoc: -import-frr-bgp: captures[2] r1-show_ip_bgp_json.raw: ") || !strings.Contains(stderr, want) {
+				t.Errorf("%s %q: exit %d, stdout %q, stderr %q; want 2 and %q", key, extra, code, stdout, stderr, want)
+			}
 		}
 	}
 }

@@ -87,6 +87,13 @@ func FuzzDecodeRouteCapture(f *testing.F) {
 	f.Add(routeTranscript("r1", routeDoc("10.0.0.1/8", routeOnePath)), "r1")
 	f.Add(routeTranscript("r1", `{"routes":{"10.0.0.0/8":[{"pathFrom":"ext`+"\u202e"+`ernal","path":"65002","origin":"IGP","nexthops":[]}]}} `), "r1")
 	f.Add(routeTranscript("r1", `{"routes":{},"Routes":{}}`), "r1")
+	f.Add(routeTranscript("r1", routeDoc("10.0.0.0/8", `{"stale":true,"peerId":"10.0.1.2","pathFrom":"external","path":"65002","origin":"IGP","nexthops":[]},{"stale":false,"pathFrom":"external","path":"65002","origin":"IGP","nexthops":[]}`)), "r1")
+	f.Add(routeTranscript("r1", routeDoc("10.0.0.0/8", `{"Stale":true,"pathFrom":"external","path":"65002","origin":"IGP","nexthops":[]}`)), "r1")
+	during, err := fs.ReadFile(os.DirFS(routeFixtureRoot), "bgp/session/gr/r1-during-show_ip_bgp_json.raw")
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(during, "r1")
 
 	f.Fuzz(func(t *testing.T, data []byte, node string) {
 		table, err := DecodeRouteCapture(data, node)
@@ -124,6 +131,9 @@ func FuzzDecodeRouteCapture(f *testing.F) {
 				t.Fatalf("prefix %v has no paths", e.Prefix)
 			}
 			for _, p := range e.Paths {
+				if p.Stale != StaleNotRecorded && p.Stale != StaleFalse && p.Stale != StaleTrue {
+					t.Fatalf("prefix %v path stale flag %d is not one of the three values", e.Prefix, p.Stale)
+				}
 				if (p.Source == RouteSourceLearned) != p.Peer.IsValid() {
 					t.Fatalf("prefix %v path source %d with peer %v", e.Prefix, p.Source, p.Peer)
 				}

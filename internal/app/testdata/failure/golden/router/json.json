@@ -1,0 +1,172 @@
+{
+  "source": {
+    "node": "r1",
+    "vrf": "default"
+  },
+  "destination": "10.20.40.8",
+  "expected": {
+    "node": "r1",
+    "vrf": "default",
+    "decision": {
+      "kind": "forward",
+      "basis": "control",
+      "prefix": "10.20.0.0/16",
+      "proven": true,
+      "next_hops": [
+        {
+          "addr": "10.0.12.2"
+        }
+      ],
+      "evidence": [
+        {
+          "source": "control:r1",
+          "collected_at": "2026-10-09T12:00:00Z",
+          "origin": "ospf"
+        }
+      ]
+    },
+    "next": [
+      {
+        "node": "r2",
+        "vrf": "default",
+        "via": {
+          "from": "r1",
+          "vrf": "default",
+          "next_hop": "10.0.12.2",
+          "outcome": "none"
+        },
+        "decision": {
+          "kind": "local",
+          "basis": "configured",
+          "proven": false,
+          "evidence": [
+            {
+              "source": "config:r2",
+              "collected_at": "2026-10-09T12:00:00Z"
+            }
+          ],
+          "reason": "destination is an address on this node"
+        }
+      }
+    ]
+  },
+  "forwarding": {
+    "node": "r1",
+    "vrf": "default",
+    "decision": {
+      "kind": "forward",
+      "basis": "fib",
+      "prefix": "10.20.0.0/16",
+      "proven": true,
+      "next_hops": [
+        {
+          "addr": "10.0.12.2",
+          "interface": "eth1"
+        }
+      ],
+      "evidence": [
+        {
+          "source": "fib:r1",
+          "collected_at": "2026-10-09T12:00:00Z",
+          "origin": "kernel"
+        }
+      ],
+      "agreement": "agrees"
+    },
+    "next": [
+      {
+        "node": "r2",
+        "vrf": "default",
+        "via": {
+          "from": "r1",
+          "vrf": "default",
+          "interface": "eth1",
+          "next_hop": "10.0.12.2",
+          "outcome": "none"
+        },
+        "decision": {
+          "kind": "local",
+          "basis": "configured",
+          "proven": false,
+          "evidence": [
+            {
+              "source": "config:r2",
+              "collected_at": "2026-10-09T12:00:00Z"
+            }
+          ],
+          "reason": "destination is an address on this node"
+        }
+      }
+    ]
+  },
+  "findings": null,
+  "failure_regions": [],
+  "limitations": [],
+  "truncated": false,
+  "failure": {
+    "failure": {
+      "node": "r2"
+    },
+    "source": {
+      "node": "r1",
+      "vrf": "default"
+    },
+    "considered": 3,
+    "unchanged": 2,
+    "affected": [
+      {
+        "destination": "10.20.40.8",
+        "owners": [
+          {
+            "node": "r2",
+            "vrf": "default"
+          }
+        ],
+        "impact": "reachability_lost",
+        "reason": "after the failure, a forwarding branch from the source has no surviving next hop",
+        "after": {
+          "node": "r1",
+          "vrf": "default",
+          "decision": {
+            "kind": "forward",
+            "basis": "fib",
+            "prefix": "10.20.0.0/16",
+            "proven": true,
+            "next_hops": [
+              {
+                "addr": "10.0.12.2",
+                "interface": "eth1"
+              }
+            ],
+            "evidence": [
+              {
+                "source": "fib:r1",
+                "collected_at": "2026-10-09T12:00:00Z",
+                "origin": "kernel"
+              }
+            ]
+          },
+          "next": [
+            {
+              "node": "",
+              "vrf": "",
+              "via": {
+                "from": "r1",
+                "vrf": "default",
+                "interface": "eth1",
+                "next_hop": "10.0.12.2",
+                "outcome": "none"
+              },
+              "decision": {
+                "kind": "failed",
+                "proven": false,
+                "reason": "the segment crosses the simulated failure: router r2 unavailable"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "truncated": false
+  }
+}

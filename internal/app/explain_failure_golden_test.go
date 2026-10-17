@@ -24,6 +24,7 @@ func explainFailureGoldenCases() []struct {
 		{"router", omittedInterfaceTopology, []string{"--fail", "r2"}},
 		{"interface", omittedInterfaceTopology, []string{"--fail", "r1:eth1"}},
 		{"ospf-adjacency", ospfAdjacencyTopology, []string{"--fail-ospf", "r1:eth1:r2"}},
+		{"next-hop", nextHopTopology, []string{"--fail-next-hop", "r1:10.0.1.2"}},
 	}
 }
 

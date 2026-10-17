@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -454,6 +455,202 @@ func TestFailOSPFIsRefusedWhereItCannotApply(t *testing.T) {
 	} {
 		if code, _, errOut := runNetdoc(t, args...); code != 2 || !strings.Contains(errOut, "-fail-ospf") {
 			t.Errorf("netdoc %q = %d, stderr %q; want 2 naming -fail-ospf", args, code, errOut)
+		}
+	}
+}
+
+// nextHopTopology is r1 on one LAN, eth0, with two gateways: r2 at 10.0.1.2
+// and r4 at 10.0.1.4. r1 splits 10.20.0.0/16 over both toward r3, and reaches
+// r2's LAN only through r2 and r4's LAN only through r4.
+const nextHopTopology = `{
+  "version": 1,
+  "source": {"node": "r1", "vrf": "default"},
+  "observations": [
+    {"source": "config:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r1", "vrf": "default",
+     "interfaces": [{"name": "eth0", "addresses": ["10.0.1.1/24"]}]},
+    {"source": "config:r2", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r2", "vrf": "default",
+     "interfaces": [{"name": "eth0", "addresses": ["10.0.1.2/24"]}, {"name": "eth1", "addresses": ["10.0.23.2/30"]}, {"name": "lan", "addresses": ["10.30.0.1/24"]}]},
+    {"source": "config:r4", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r4", "vrf": "default",
+     "interfaces": [{"name": "eth0", "addresses": ["10.0.1.4/24"]}, {"name": "eth1", "addresses": ["10.0.43.4/30"]}, {"name": "lan", "addresses": ["10.40.0.1/24"]}]},
+    {"source": "config:r3", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r3", "vrf": "default",
+     "interfaces": [{"name": "eth0", "addresses": ["10.0.23.3/30"]}, {"name": "eth1", "addresses": ["10.0.43.3/30"]}, {"name": "lan", "addresses": ["10.20.40.8/24"]}]},
+    {"source": "fib:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "fib", "node": "r1", "vrf": "default", "routes_complete": true,
+     "routes": [
+       {"prefix": "10.0.1.0/24", "origin": "kernel", "next_hops": [{"interface": "eth0"}]},
+       {"prefix": "10.20.0.0/16", "origin": "kernel", "next_hops": [{"addr": "10.0.1.2", "interface": "eth0"}, {"addr": "10.0.1.4", "interface": "eth0"}]},
+       {"prefix": "10.30.0.0/24", "origin": "kernel", "next_hops": [{"addr": "10.0.1.2", "interface": "eth0"}]},
+       {"prefix": "10.40.0.0/24", "origin": "kernel", "next_hops": [{"addr": "10.0.1.4", "interface": "eth0"}]}]},
+    {"source": "fib:r2", "collected_at": "2026-10-09T12:00:00Z", "plane": "fib", "node": "r2", "vrf": "default", "routes_complete": true,
+     "routes": [{"prefix": "10.20.0.0/16", "origin": "kernel", "next_hops": [{"addr": "10.0.23.3", "interface": "eth1"}]}]},
+    {"source": "fib:r4", "collected_at": "2026-10-09T12:00:00Z", "plane": "fib", "node": "r4", "vrf": "default", "routes_complete": true,
+     "routes": [{"prefix": "10.20.0.0/16", "origin": "kernel", "next_hops": [{"addr": "10.0.43.3", "interface": "eth1"}]}]}
+  ]
+}`
+
+// linkLocalTopology starts in routing domain blue of r1, which reaches two
+// LANs of r2 through one link-local next hop on two interfaces whose names hold
+// a colon and a percent sign. r1's default domain names the same next hop.
+const linkLocalTopology = `{
+  "version": 1,
+  "source": {"node": "r1", "vrf": "blue"},
+  "observations": [
+    {"source": "config:r1:blue", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r1", "vrf": "blue",
+     "interfaces": [{"name": "Gi0/0:1", "addresses": ["fe80::1/64"]}, {"name": "ve%1", "addresses": ["fe80::1/64"]}]},
+    {"source": "config:r2:blue", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r2", "vrf": "blue",
+     "interfaces": [{"name": "Gi0/1", "addresses": ["fe80::2/64"]}, {"name": "lan", "addresses": ["2001:db8:50::1/64", "2001:db8:60::1/64"]}]},
+    {"source": "fib:r1:blue", "collected_at": "2026-10-09T12:00:00Z", "plane": "fib", "node": "r1", "vrf": "blue", "routes_complete": true,
+     "routes": [
+       {"prefix": "2001:db8:50::/64", "origin": "kernel", "next_hops": [{"addr": "fe80::2", "interface": "Gi0/0:1"}]},
+       {"prefix": "2001:db8:60::/64", "origin": "kernel", "next_hops": [{"addr": "fe80::2", "interface": "ve%1"}]}]},
+    {"source": "fib:r1:default", "collected_at": "2026-10-09T12:00:00Z", "plane": "fib", "node": "r1", "vrf": "default", "routes_complete": true,
+     "routes": [{"prefix": "2001:db8:70::/64", "origin": "kernel", "next_hops": [{"addr": "fe80::2", "interface": "eth9"}]}]}
+  ]
+}`
+
+// explainFailure runs --explain --json with the given failure flags and
+// returns the simulation it reports.
+func explainFailure(t *testing.T, topology, dest string, args ...string) *routepath.Simulation {
+	t.Helper()
+	code, out, errOut := runNetdoc(t, append([]string{"--explain", writeTopology(t, topology), dest, "--json"}, args...)...)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, errOut)
+	}
+	var decoded struct {
+		Failure *routepath.Simulation `json:"failure"`
+	}
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil || decoded.Failure == nil {
+		t.Fatalf("output has no failure: %v\n%s", err, out)
+	}
+	return decoded.Failure
+}
+
+func simImpacts(s *routepath.Simulation) map[string]routepath.Impact {
+	out := map[string]routepath.Impact{}
+	for _, a := range s.Affected {
+		out[a.Destination] = a.Impact
+	}
+	return out
+}
+
+func TestExplainFailNextHopReportsTheGatewayLoss(t *testing.T) {
+	s := explainFailure(t, nextHopTopology, "10.20.40.8", "--fail-next-hop", "r1:10.0.1.2")
+	if want := (routepath.Failure{Node: "r1", VRF: "default", NextHop: "10.0.1.2"}); s.Failure != want {
+		t.Errorf("failure = %+v, want %+v", s.Failure, want)
+	}
+	if s.Gateway == nil || len(s.Gateway.Owners) != 1 || s.Gateway.Owners[0] != (routepath.Start{Node: "r2", VRF: "default"}) {
+		t.Errorf("gateway = %+v, want held by r2 (default)", s.Gateway)
+	}
+	want := map[string]routepath.Impact{"10.0.1.2": routepath.ImpactUnknown, "10.20.40.8": routepath.ImpactUnknown, "10.30.0.1": routepath.ImpactReachabilityLost}
+	if got := simImpacts(s); !reflect.DeepEqual(got, want) {
+		t.Errorf("impacts = %v, want %v", got, want)
+	}
+
+	path := writeTopology(t, nextHopTopology)
+	code, out, errOut := runNetdoc(t, "--explain", path, "10.20.40.8", "--fail-next-hop", "r1:10.0.1.2%eth0")
+	for _, want := range []string{
+		"Failure simulation: next hop 10.0.1.2 on eth0 of r1 (default) unavailable, from r1 (default)",
+		"Next hop: held by r2 (default); recorded in fib:r1.",
+		"reachability_lost 10.30.0.1 (r2 default)",
+	} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Errorf("exit = %d, stderr %q, text lacks %q:\n%s", code, errOut, want, out)
+		}
+	}
+}
+
+func TestExplainFailNextHopReadsVRFAndInterfaceNames(t *testing.T) {
+	for spec, lost := range map[string]string{
+		"r1@blue:fe80::2%Gi0/0:1": "2001:db8:50::1",
+		"r1@blue:fe80::2%ve%1":    "2001:db8:60::1",
+	} {
+		s := explainFailure(t, linkLocalTopology, "2001:db8:50::1", "--fail-next-hop", spec)
+		_, iface, _ := strings.Cut(spec, "%")
+		if want := (routepath.Failure{Node: "r1", VRF: "blue", NextHop: "fe80::2", Interface: iface}); s.Failure != want {
+			t.Errorf("%s: failure = %+v, want %+v", spec, s.Failure, want)
+		}
+		if got := simImpacts(s); !reflect.DeepEqual(got, map[string]routepath.Impact{lost: routepath.ImpactReachabilityLost}) {
+			t.Errorf("%s: impacts = %v, want only %s reachability_lost", spec, got, lost)
+		}
+	}
+}
+
+func TestSplitNextHopKeepsEachDelimiterInItsPlace(t *testing.T) {
+	for _, c := range []struct{ spec, node, vrf, addr, iface string }{
+		{"r1:10.0.1.2", "r1", "", "10.0.1.2", ""},
+		{"r1:10.0.1.2%eth0", "r1", "", "10.0.1.2", "eth0"},
+		{"r1@blue:10.0.1.2", "r1", "blue", "10.0.1.2", ""},
+		{"r1:2001:db8:1::2", "r1", "", "2001:db8:1::2", ""},
+		{"r1@blue:2001:db8:1::2", "r1", "blue", "2001:db8:1::2", ""},
+		{"r1:fe80::1%swp1", "r1", "", "fe80::1", "swp1"},
+		{"r1@blue:fe80::1%swp1", "r1", "blue", "fe80::1", "swp1"},
+		{"r1:10.0.1.2%Gi0/0:1", "r1", "", "10.0.1.2", "Gi0/0:1"},
+		{"r1:10.0.1.2%GigabitEthernet0/0/0.100", "r1", "", "10.0.1.2", "GigabitEthernet0/0/0.100"},
+		{"r1:fe80::1%eth0%1", "r1", "", "fe80::1", "eth0%1"},
+		{"r1:fe80::1%%", "r1", "", "fe80::1", "%"},
+		{"r1@red@x:10.0.1.2", "r1", "red@x", "10.0.1.2", ""},
+		// The address is checked against the file, not here.
+		{"r1:10.0.1.2@x", "r1", "", "10.0.1.2@x", ""},
+	} {
+		node, vrf, addr, iface, ok := splitNextHop(c.spec)
+		if !ok || node != c.node || vrf != c.vrf || addr != c.addr || iface != c.iface {
+			t.Errorf("splitNextHop(%q) = %q %q %q %q %v, want %q %q %q %q", c.spec, node, vrf, addr, iface, ok, c.node, c.vrf, c.addr, c.iface)
+		}
+	}
+	for _, spec := range []string{"", "r1", "r1:", ":10.0.1.2", "@blue:10.0.1.2", "r1@:10.0.1.2", "r1:10.0.1.2%", "r1:%eth0", "r1@blue"} {
+		if _, _, _, _, ok := splitNextHop(spec); ok {
+			t.Errorf("splitNextHop(%q) is ok, want it refused", spec)
+		}
+	}
+}
+
+func TestFailNextHopIsRefusedWhereItCannotApply(t *testing.T) {
+	path := writeTopology(t, nextHopTopology)
+	explain := func(spec string, extra ...string) []string {
+		return append([]string{"--explain", path, "10.20.40.8", "--fail-next-hop", spec}, extra...)
+	}
+	const usage = "netdoc: -fail-next-hop needs -explain and node[@vrf]:address[%interface], and no -fail or -fail-ospf\n"
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--fail-next-hop", "r1:10.0.1.2", "example.com"}, usage},
+		{[]string{"--compare", "--fail-next-hop", "r1:10.0.1.2", "a.ndoc", "b.ndoc"}, usage},
+		{explain(""), usage},
+		{explain("r1:10.0.1.2", "--fail", "r2"), usage},
+		{explain("r1:10.0.1.2", "--fail-ospf", "r1:eth0:r2"), usage},
+		{explain("r1"), `netdoc: -fail-next-hop: "r1" is not node[@vrf]:address[%interface]` + "\n"},
+		{explain("r1:"), `"r1:" is not node[@vrf]:address[%interface]`},
+		{explain(":10.0.1.2"), `":10.0.1.2" is not`},
+		{explain("@blue:10.0.1.2"), `"@blue:10.0.1.2" is not`},
+		{explain("r1@:10.0.1.2"), `"r1@:10.0.1.2" is not`},
+		{explain("r1:10.0.1.2%"), `"r1:10.0.1.2%" is not`},
+		{explain("r1:10.0.1"), `netdoc: -fail-next-hop: next hop "10.0.1" is not an IP address` + "\n"},
+		{explain("r1:010.0.1.2"), `next hop "010.0.1.2" is not an IP address`},
+		{explain("r1:10.0.1.0/24"), `next hop "10.0.1.0/24" is not an IP address`},
+		{explain("r1:[2001:db8::1]"), `next hop "[2001:db8::1]" is not an IP address`},
+		{explain("r1:gw.example"), `next hop "gw.example" is not an IP address`},
+		{explain("r1:fe80::1"), "netdoc: -fail-next-hop: link-local next hop fe80::1 needs an interface: r1:fe80::1%INTERFACE\n"},
+		{explain("r9:10.0.1.2"), `no fib route of node "r9" names next hop 10.0.1.2`},
+		{explain("r1:10.0.1.9"), `no fib route of node "r1" names next hop 10.0.1.9`},
+		{explain("r1@blue:10.0.1.2"), `no fib route of node "r1" in routing domain "blue" names next hop 10.0.1.2`},
+		{explain("r1:10.0.1.2%eth9"), "fib routes of r1 (default) name next hop 10.0.1.2 on eth0, not on eth9"},
+	} {
+		code, out, errOut := runNetdoc(t, c.args...)
+		if code != 2 || out != "" || !strings.Contains(errOut, c.want) {
+			t.Errorf("netdoc %q = %d, stdout %q, stderr %q; want 2 and %q", c.args, code, out, errOut, c.want)
+		}
+	}
+
+	path = writeTopology(t, linkLocalTopology)
+	for spec, want := range map[string]string{
+		"r1@blue:fe80::2":            "link-local next hop fe80::2 needs an interface: r1@blue:fe80::2%INTERFACE",
+		"r1:fe80::2%Gi0/0:1":         "fib routes of node \"r1\" name next hop fe80::2 in routing domains blue, default; name one as r1@VRF:fe80::2",
+		"r1@blue:fe80::2%Gi0/0":      "fib routes of r1 (blue) name next hop fe80::2 on Gi0/0:1, ve%1, not on Gi0/0",
+		"r1@default:fe80::2%Gi0/0:1": "fib routes of r1 (default) name next hop fe80::2 on eth9, not on Gi0/0:1",
+	} {
+		code, _, errOut := runNetdoc(t, "--explain", path, "2001:db8:50::1", "--fail-next-hop", spec)
+		if code != 2 || errOut != "netdoc: -fail-next-hop: "+want+"\n" {
+			t.Errorf("%s: exit %d, stderr %q; want 2 and %q", spec, code, errOut, want)
 		}
 	}
 }

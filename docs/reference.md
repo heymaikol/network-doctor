@@ -1384,7 +1384,11 @@ the two, and a name that identifies a role rather than a person or a machine
 finding summaries, captive-portal URLs, and every
 snapshot nested in an incident. Passwords, bearer or basic credentials,
 cookies, proxy credentials, tokens, and private keys are replaced rather than
-copied.
+copied. A credential value is read to its closing quote or bracket, then on to
+the next space. Where the usual quoting conventions disagree about where a
+quoted value ends, as a doubled quote or a backslash before a quote can make
+them, the later end is used, so a few words after such a value can be
+redacted with it.
 
 Causal-evidence values and counterfactual alternative values are not rewritten
 as text. Each one is whatever the observation or counterfactual variable beside
@@ -1477,7 +1481,11 @@ when working in a particularly sensitive environment. Free-form probe errors
 can originate in operating-system and network libraries; `support-v1` covers
 known identifiers plus credential, URL, path, address, hostname, and
 certificate patterns, but cannot assign meaning to an arbitrary opaque string
-that carries no identifying syntax.
+that carries no identifying syntax. That includes a word a space has already
+separated from its credential key, such as the second word of an unquoted
+passphrase. The one such word a library is known to quote on its own, the
+status code Go's HTTP client reads from a malformed status line, is replaced
+in the error that quotes it.
 
 ## Comparing two snapshots
 

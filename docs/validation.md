@@ -47,6 +47,7 @@ go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/
 go test -run='^$' -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
 go test -run='^$' -fuzz=FuzzEncryptedDNSResponseVerifier -fuzztime=10s ./internal/diagnostic
 go test -run='^$' -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic
+go test -run='^$' -fuzz=FuzzCredentialValue -fuzztime=10s ./internal/snapshot
 go test -run='^$' -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
 go test -run='^$' -fuzz=FuzzDecodeManifest -fuzztime=10s ./internal/frrospf
 go test -run='^$' -fuzz=FuzzDecodeLSDB -fuzztime=10s ./internal/frrospf

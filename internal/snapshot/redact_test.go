@@ -1,10 +1,13 @@
 package snapshot
 
 import (
+	"bufio"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +103,224 @@ func TestSupportSerializationContainsNoSensitiveOriginals(t *testing.T) {
 	for _, retained := range []string{"9.9.9.9", `"sanitized": true`, `"policy": "support-v1"`} {
 		if !strings.Contains(string(data), retained) {
 			t.Errorf("serialized support snapshot lost %q:\n%s", retained, data)
+		}
+	}
+}
+
+// TestSupportRedactsWholeCredentialValues covers credential spellings whose
+// value, or part of it, used to survive support-v1. The first two are the text
+// a loopback SMTP banner and a non-HTTP answer to the HTTP probe put into a
+// support file through a whole headless run. Every secret is a synthetic
+// sentinel, and want, when set, is the sentence that has to survive around it.
+func TestSupportRedactsWholeCredentialValues(t *testing.T) {
+	pinLocalIdentity(t)
+	cases := []struct{ text, want string }{
+		{text: "banner: 220 synth.example ESMTP token=SYNTH_CANARY_A,SYNTH_CANARY_B x-auth-token: Bearer SYNTH_CANARY_A"},
+		{text: `malformed HTTP response "{\"session_token\":\"SYNTH_CANARY_A\"}"`},
+		{text: "token=SYNTH_CANARY_A;SYNTH_CANARY_B, retrying", want: "token=<redacted>, retrying"},
+		{text: `password="SYNTH_CANARY_A SYNTH_CANARY_B" rejected`, want: "password=<redacted> rejected"},
+		{text: "DB_PASSWORD='SYNTH_CANARY_A SYNTH_CANARY_B'"},
+		{text: "token=[SYNTH_CANARY_A, SYNTH_CANARY_B] expired", want: "token=<redacted> expired"},
+		{text: `{"password": "SYNTH_CANARY_A SYNTH_CANARY_B"}`},
+		{text: "token := SYNTH_CANARY_A"},
+		{text: "password:: SYNTH_CANARY_A"},
+		{text: `{"Authorization":"Token SYNTH_CANARY_A"}`},
+		{text: `"Cookie": "sid=SYNTH_CANARY_A; other=SYNTH_CANARY_B"`},
+		{text: "ftp://synthuser:SYNTH_CANARY_A@files.example/"},
+		{text: "postgres://synthuser:SYNTH_CANARY_A@db.example/app"},
+		{text: "redis://:SYNTH_CANARY_A@cache.example:6379"},
+		{text: "-----BEGIN PRIVATE KEY-----SYNTH_CANARY_A"},
+		// A doubled quote, then a space, still inside the value: the banner
+		// of a loopback SMTP server put each of the first three into a file.
+		{text: `token="SYNTH_CANARY_A"" SYNTH_CANARY_B" afterwards`, want: "token=<redacted> afterwards"},
+		{text: `token='SYNTH_CANARY_A'' SYNTH_CANARY_B' afterwards`, want: "token=<redacted> afterwards"},
+		{text: `secret='SYNTH_CANARY_A\'' SYNTH_CANARY_B' afterwards`, want: "secret=<redacted> afterwards"},
+		{text: `password="SYNTH_CANARY_A\"" SYNTH_CANARY_B" afterwards`, want: "password=<redacted> afterwards"},
+		{text: `resolver answered Content-Type "text/plain; token=\"SYNTH_CANARY_A\"\" SYNTH_CANARY_B\" afterwards"`},
+		{text: `resolver answered Content-Type "text/plain; password='SYNTH_CANARY_A\\' SYNTH_CANARY_B' afterwards"`},
+		{text: `resolver answered Content-Type "text/plain; password=\"SYNTH_CANARY_A\\\"\" SYNTH_CANARY_B\" afterwards"`},
+	}
+	for _, test := range cases {
+		s := supportFixture()
+		s.Checks[0].Detail, s.Checks[0].Fix, s.Checks[0].Observed.Attempts[0].Error = test.text, test.text, test.text
+		before := supportFixture()
+		before.CreatedAt, before.OK = "2026-08-25T16:59:55Z", true
+		before.Checks[0].Status, before.Diagnosis.FailedStage = StatusPass, ""
+		before.Checks[0].Detail = test.text
+		s.Incident = &Incident{StartedAt: s.CreatedAt, Passes: 1, Before: &before}
+		sanitized := SanitizeForSupport(s)
+		data, err := Encode(sanitized)
+		if err != nil {
+			t.Fatalf("Encode %q: %v", test.text, err)
+		}
+		profile := profileFixture()
+		profile.Components[0].Snapshot.Checks[0].Detail = test.text
+		profileData, err := EncodeProfile(SanitizeProfileForSupport(profile))
+		if err != nil {
+			t.Fatalf("EncodeProfile %q: %v", test.text, err)
+		}
+		for name, artifact := range map[string][]byte{"snapshot": data, "profile": profileData} {
+			if strings.Contains(string(artifact), "SYNTH_CANARY") {
+				t.Errorf("support %s kept credential material from %q:\n%s", name, test.text, artifact)
+			}
+		}
+		if test.want != "" && sanitized.Checks[0].Detail != test.want {
+			t.Errorf("sanitized %q as %q, want %q", test.text, sanitized.Checks[0].Detail, test.want)
+		}
+	}
+
+	// Every spelling of a key, separator and value above, in combination,
+	// with a sentence after it that has to come through.
+	for _, key := range []string{"token", `"token"`, `\"session_token\"`, "X-Auth-Token", "DB_PASSWORD", "'api-key'"} {
+		for _, separator := range []string{"=", ":", " = ", ": ", ":=", " => ", "==", "::"} {
+			for _, value := range []string{
+				"SYNTH_CANARY_A,SYNTH_CANARY_B", "SYNTH_CANARY_A;SYNTH_CANARY_B",
+				`"SYNTH_CANARY_A SYNTH_CANARY_B"`, `'SYNTH_CANARY_A,SYNTH_CANARY_B'`, `\"SYNTH_CANARY_A SYNTH_CANARY_B\"`,
+				"{SYNTH_CANARY_A, {SYNTH_CANARY_B}}", "[SYNTH_CANARY_A, SYNTH_CANARY_B]",
+				"Bearer SYNTH_CANARY_A", "Basic SYNTH_CANARY_A",
+				// A quote escaped or doubled inside the value, or a word that
+				// goes on past its closing bracket, does not end it there.
+				`"SYNTH_CANARY_A\" SYNTH_CANARY_B"`, `\"SYNTH_CANARY_A\\\" SYNTH_CANARY_B\"`,
+				`'SYNTH_CANARY_A''SYNTH_CANARY_B'`, "(SYNTH_CANARY_A)SYNTH_CANARY_B",
+				// The same, with a space after the doubled or escaped quote.
+				`"SYNTH_CANARY_A"" SYNTH_CANARY_B"`, `'SYNTH_CANARY_A'' SYNTH_CANARY_B'`,
+				`\"SYNTH_CANARY_A\"\" SYNTH_CANARY_B\"`, `'SYNTH_CANARY_A\'' SYNTH_CANARY_B'`,
+				`"SYNTH_CANARY_A\"" SYNTH_CANARY_B"`, `'SYNTH_CANARY_A\\' SYNTH_CANARY_B'`,
+			} {
+				text := key + separator + value + ", retrying"
+				s := supportFixture()
+				s.Checks[0].Detail = text
+				got := SanitizeForSupport(s).Checks[0].Detail
+				if strings.Contains(got, "SYNTH_CANARY") || !strings.HasSuffix(got, ", retrying") {
+					t.Errorf("sanitized %q as %q", text, got)
+				}
+			}
+		}
+	}
+}
+
+// FuzzCredentialValue builds a credential in a format support-v1 documents: a
+// credential-named key, a separator, and a value that is bare, bracketed, or
+// quoted with " or ' under either convention for a quote inside it, a
+// backslash or a doubled quote, optionally inside a Go-quoted string. No part
+// of the secret may survive. The sentence after the value has to as well,
+// unless the value holds its own quote or a backslash, which is where the
+// conventions disagree and the later end is kept.
+func FuzzCredentialValue(f *testing.F) {
+	f.Add(uint8(0), uint8(0), uint8(1), `SYNTH_A" `, "")
+	f.Add(uint8(0), uint8(1), uint8(3), `SYNTH_A' `, "")
+	f.Add(uint8(4), uint8(3), uint8(3), `SYNTH_A\' `, " b")
+	f.Add(uint8(4), uint8(3), uint8(0), `a\" `, ` b"\`)
+	f.Add(uint8(1), uint8(4), uint8(2), "it's ", `\ x`)
+	f.Add(uint8(2), uint8(2), uint8(9), `SYNTH_A" `, "")
+	f.Add(uint8(5), uint8(5), uint8(10), `SYNTH_A' `, "")
+	f.Add(uint8(2), uint8(6), uint8(8), `a\" `, `\\"`)
+	f.Add(uint8(3), uint8(7), uint8(11), `a\' `, "")
+	f.Add(uint8(3), uint8(7), uint8(4), "a, {", "} b")
+	f.Add(uint8(0), uint8(2), uint8(5), "[a] ", " [b]")
+	f.Add(uint8(1), uint8(0), uint8(14), `("x") `, ")")
+	f.Add(uint8(0), uint8(0), uint8(7), "", ",SYNTH_B;c")
+	f.Fuzz(func(t *testing.T, key, separator, form uint8, before, after string) {
+		keys := []string{"token", `"token"`, `"session_token"`, "X-Auth-Token", "DB_PASSWORD", "'api-key'"}
+		separators := []string{"=", ":", " = ", ": ", ":=", " => ", "==", "::"}
+		secret := before + "SYNTH_CANARY" + after
+		value, ambiguous := "", false
+		switch form % 8 {
+		case 0, 1, 2, 3:
+			quote := `"'`[form%8/2 : form%8/2+1]
+			if form%2 == 0 {
+				value = strings.NewReplacer(`\`, `\\`, quote, `\`+quote).Replace(secret)
+			} else {
+				value = strings.ReplaceAll(secret, quote, quote+quote)
+			}
+			value, ambiguous = quote+value+quote, strings.ContainsAny(secret, quote+`\`)
+		case 4, 5, 6:
+			open, closer := "{[("[form%8-4:form%8-3], "}])"[form%8-4:form%8-3]
+			strip := strings.NewReplacer(open, "", closer, "")
+			value = open + strip.Replace(before) + open + "SYNTH_CANARY" + closer + strip.Replace(after) + closer
+		default:
+			value = "SYNTH_CANARY" + strings.Join(strings.Fields(after), "")
+		}
+		text, suffix := keys[int(key)%len(keys)]+separators[int(separator)%len(separators)]+value+", retrying", ", retrying"
+		if form/8%2 == 1 {
+			text, suffix = strconv.Quote(text), `, retrying"`
+		}
+		got := redactCredentialValues(text)
+		if strings.Contains(got, "SYNTH_CANARY") || !ambiguous && !strings.HasSuffix(got, suffix) {
+			t.Fatalf("redacted %q as %q", text, got)
+		}
+	})
+}
+
+// TestSupportRedactsMalformedHTTPStatusCode covers the one net/http error that
+// quotes a server's words without the words before them: a first line with no
+// three-digit status code is reported by its second word alone, so a
+// credential a space split there has lost its key. Each detail is built from
+// net/http itself, the way the HTTP and proxy probes build theirs.
+func TestSupportRedactsMalformedHTTPStatusCode(t *testing.T) {
+	pinLocalIdentity(t)
+	readErr := func(line string) string {
+		_, err := http.ReadResponse(bufio.NewReader(strings.NewReader(line)), nil)
+		if err == nil {
+			t.Fatalf("net/http read %q as a response", line)
+		}
+		return err.Error()
+	}
+	for _, line := range []string{
+		"token=SYNTH_CANARY_A SYNTH_CANARY_B\r\n\r\n",
+		`token="SYNTH_CANARY_A"" SYNTH_CANARY_B" afterwards` + "\r\n\r\n",
+		`password='SYNTH_CANARY_A\' SYNTH_CANARY_B\"' afterwards` + "\r\n\r\n",
+	} {
+		for _, context := range []string{
+			`HTTP response from 127.0.0.1 could not be read: Head "http://127.0.0.1:8080": net/http: HTTP/1.x transport connection broken: `,
+			"no CONNECT response from proxy 127.0.0.1:3128: ",
+		} {
+			text := context + readErr(line)
+			if !strings.Contains(text, `malformed HTTP status code "SYNTH_CANARY_B`) {
+				t.Fatalf("net/http no longer reports %q by its status-code word: %q", line, text)
+			}
+			s := supportFixture()
+			s.Checks[0].Detail = text
+			before := supportFixture()
+			before.CreatedAt, before.OK = "2026-08-25T16:59:55Z", true
+			before.Checks[0].Status, before.Diagnosis.FailedStage = StatusPass, ""
+			before.Checks[0].Detail = text
+			s.Incident = &Incident{StartedAt: s.CreatedAt, Passes: 1, Before: &before}
+			sanitized := SanitizeForSupport(s)
+			data, err := Encode(sanitized)
+			if err != nil {
+				t.Fatalf("Encode %q: %v", text, err)
+			}
+			profile := profileFixture()
+			profile.Components[0].Snapshot.Checks[0].Detail = text
+			profileData, err := EncodeProfile(SanitizeProfileForSupport(profile))
+			if err != nil {
+				t.Fatalf("EncodeProfile %q: %v", text, err)
+			}
+			for name, artifact := range map[string][]byte{"snapshot": data, "profile": profileData} {
+				if strings.Contains(string(artifact), "SYNTH_CANARY") {
+					t.Errorf("support %s kept credential material from %q:\n%s", name, text, artifact)
+				}
+			}
+			// What failed, and where, still reads; only the server's word goes.
+			for _, detail := range []string{sanitized.Checks[0].Detail, sanitized.Incident.Before.Checks[0].Detail} {
+				if !strings.HasPrefix(detail, context[:20]) || !strings.HasSuffix(detail, "malformed HTTP status code <redacted>") {
+					t.Errorf("sanitized %q as %q", text, detail)
+				}
+			}
+			if sanitized.Checks[0].Cause != s.Checks[0].Cause || sanitized.Checks[0].Status != s.Checks[0].Status {
+				t.Errorf("sanitizing %q changed the row's classification", text)
+			}
+		}
+	}
+
+	// The other net/http errors quote a whole line, or its first word, so a
+	// credential in them keeps its key and is left to the credential pass.
+	for _, line := range []string{"SSH-2.0-OpenSSH_9.6\r\n", "XTTP/1.1 200 OK\r\n"} {
+		s := supportFixture()
+		s.Checks[0].Detail = readErr(line)
+		if got := SanitizeForSupport(s).Checks[0].Detail; got != s.Checks[0].Detail {
+			t.Errorf("sanitized %q as %q", s.Checks[0].Detail, got)
 		}
 	}
 }

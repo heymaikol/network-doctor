@@ -21,11 +21,13 @@ var (
 	sharedIPv4Prefix    = netip.MustParsePrefix("100.64.0.0/10")
 	siteLocalIPv6Prefix = netip.MustParsePrefix("fec0::/10")
 
-	credentialHeaderRE = regexp.MustCompile(`(?im)\b(authorization|proxy-authorization|cookie|set-cookie)\s*[:=]\s*[^\r\n]*`)
-	credentialValueRE  = regexp.MustCompile(`(?i)\b([A-Za-z0-9_-]*(?:password|passwd|passphrase|token|secret|api[-_]?key)[A-Za-z0-9_-]*)\s*[:=]\s*[^\s,;]+`)
+	credentialHeaderRE = regexp.MustCompile(`(?im)\b(authorization|proxy-authorization|cookie|set-cookie)\\?["']?\s*[:=]\s*[^\r\n]*`)
+	malformedStatusRE  = regexp.MustCompile(`(malformed HTTP status code )"(?:[^"\\]|\\.)*"`)
+	credentialKeyRE    = regexp.MustCompile(`(?i)\b([A-Za-z0-9_-]*(?:password|passwd|passphrase|token|secret|api[-_]?key)[A-Za-z0-9_-]*)\\?["']?\s*[:=][:=>]*\s*`)
 	authValueRE        = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+`)
-	privateKeyRE       = regexp.MustCompile(`(?is)-----BEGIN [^-\r\n]*PRIVATE KEY-----.*?-----END [^-\r\n]*PRIVATE KEY-----`)
+	privateKeyRE       = regexp.MustCompile(`(?is)-----BEGIN [^-\r\n]*PRIVATE KEY-----.*?(?:-----END [^-\r\n]*PRIVATE KEY-----|$)`)
 	urlTextRE          = regexp.MustCompile(`(?i)\b(?:https?|socks5h?|ssh)://[^\s"'<>\x00-\x1f]+`)
+	urlUserinfoRE      = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^\s/?#"'<>]*@`)
 	ipTextRE           = regexp.MustCompile(`\[[0-9A-Fa-f:.]+(?:%[0-9A-Za-z._-]*[0-9A-Za-z_-])?\](?::[0-9]+)?|[0-9A-Fa-f:.]+(?:%[0-9A-Za-z._-]*[0-9A-Za-z_-])?`)
 	hostTextRE         = regexp.MustCompile(`(?i)\b[a-z0-9](?:[a-z0-9-]{0,62}\.)+(?:[a-z]{2,63}|local|internal|lan|home|test)\b`)
 	identityTextRE     = regexp.MustCompile(`(?i)\b(username|user|hostname|host|machine|ssid)\s*[:=]\s*([^\s,;]+)`)
@@ -1098,11 +1100,25 @@ func (r *redactor) text(value string) string {
 		return ""
 	}
 	scopedInput := strings.Contains(value, "%")
+	// net/http names a response line with no three-digit status code by its
+	// second word alone, quoted. Whatever came before that word, a credential
+	// key among it, is gone, so nothing below could tell a secret there from
+	// a typo. The word is dropped and the error kept, before any other pass
+	// can rewrite part of the quoted word.
+	value = malformedStatusRE.ReplaceAllString(value, "${1}<redacted>")
 	value = r.replaceKnown(value)
+	// A key block cut off before its END line is redacted to the end.
 	value = privateKeyRE.ReplaceAllString(value, "<private-key-redacted>")
+	// A header name still counts in quotes: "Cookie": in JSON, or \"Cookie\":
+	// once a Go error has quoted that JSON again.
 	value = credentialHeaderRE.ReplaceAllString(value, "$1: <redacted>")
-	value = credentialValueRE.ReplaceAllString(value, "$1=<redacted>")
+	// Before the key pass, which would otherwise take the scheme word of
+	// "token=Bearer <credential>" as the whole value and leave the credential.
 	value = authValueRE.ReplaceAllString(value, "$1 <redacted>")
+	value = redactCredentialValues(value)
+	// Userinfo in any scheme, postgres:// and ftp:// among the ones urlTextRE
+	// leaves to the host pattern.
+	value = urlUserinfoRE.ReplaceAllString(value, "$1")
 	value = urlTextRE.ReplaceAllStringFunc(value, r.sanitizeURL)
 	value = r.textAddresses(value, scopedInput)
 	value = hostTextRE.ReplaceAllStringFunc(value, func(host string) string {
@@ -1119,6 +1135,103 @@ func (r *redactor) text(value string) string {
 	value = unixPathRE.ReplaceAllStringFunc(value, func(match string) string { return r.redactPath(match, "/") })
 	value = windowsPathRE.ReplaceAllStringFunc(value, func(match string) string { return r.redactPath(match, `:\`) })
 	return r.failedScopes(value)
+}
+
+// redactCredentialValues replaces the value after every credential-named key.
+// The key is found by pattern, but where its value ends is read here, because
+// no single character class can: a quoted passphrase holds spaces, and an
+// unquoted token can hold a comma or a semicolon. The key itself can be
+// quoted, and its separator spelled with several characters, as in := or =>.
+func redactCredentialValues(value string) string {
+	var b strings.Builder
+	for {
+		loc := credentialKeyRE.FindStringSubmatchIndex(value)
+		if loc == nil {
+			b.WriteString(value)
+			return b.String()
+		}
+		rest := value[loc[1]:]
+		n := credentialValueEnd(rest)
+		if n == 0 {
+			// A key with nothing after its separator names no value.
+			b.WriteString(value[:loc[1]])
+		} else {
+			b.WriteString(value[:loc[0]] + value[loc[2]:loc[3]] + "=<redacted>")
+		}
+		value = rest[n:]
+	}
+}
+
+// credentialValueEnd returns how much of s, which follows a credential key and
+// its separator, is the value. A quoted value runs past its closing quote, one
+// quoted inside a Go-quoted string past its closing \", and a bracketed one
+// past its closing bracket, or to the end of s when it never closes. Every
+// value then runs on to the next whitespace, so a quote used in a way no
+// reading below accepts cannot end it early, and only a "," or ";" that ends
+// the word is left to the sentence around it.
+//
+// Text rarely says which quoting convention it follows, and where two disagree
+// the later end is kept: reading a value as too long costs a few words of the
+// sentence after it, too short the rest of the secret.
+func credentialValueEnd(s string) int {
+	n := 0
+	switch {
+	case strings.HasPrefix(s, `\"`):
+		// Inside a Go-quoted string the value's own backslash is spelled \\.
+		n = max(quotedEnd(s, `\"`, ""), quotedEnd(s, `\"`, `\\`))
+	case s != "" && (s[0] == '"' || s[0] == '\''):
+		n = max(quotedEnd(s, s[:1], ""), quotedEnd(s, s[:1], `\`))
+		if s[0] == '\'' {
+			// Go-quoting leaves ' as it is, so a single-quoted value can sit
+			// inside a Go-quoted string, where its backslash is spelled \\.
+			n = max(n, quotedEnd(s, s[:1], `\\`))
+		}
+	case s != "" && strings.IndexByte("{[(", s[0]) >= 0:
+		n = len(s)
+		closer, depth := "}])"[strings.IndexByte("{[(", s[0])], 0
+		for i := 0; i < len(s); i++ {
+			if s[i] == s[0] {
+				depth++
+			} else if s[i] == closer {
+				if depth--; depth == 0 {
+					n = i + 1
+					break
+				}
+			}
+		}
+	}
+	word := s[n:]
+	if end := strings.IndexAny(word, " \t\n\f\r"); end >= 0 {
+		word = word[:end]
+	}
+	return n + len(strings.TrimRight(word, ",;"))
+}
+
+// quotedEnd reads the value quoted at the start of s under one convention and
+// returns where it ends: past its closing quote, or at the end of s when
+// nothing closes it. A doubled quote is one quote of the value, as SQL, CSV and
+// YAML write it. A non-empty escape is a backslash as the text spells it, and
+// takes the character after it into the value, as JSON and Go write a quote.
+func quotedEnd(s, quote, escape string) int {
+	for i := len(quote); i < len(s); {
+		switch {
+		case escape != "" && strings.HasPrefix(s[i:], escape):
+			i += len(escape)
+			// Go-quoting spells the escaped character \" or \\ as well.
+			if i < len(s) && s[i] == '\\' {
+				i += len(escape)
+			} else {
+				i++
+			}
+		case !strings.HasPrefix(s[i:], quote):
+			i++
+		case strings.HasPrefix(s[i+len(quote):], quote):
+			i += 2 * len(quote)
+		default:
+			return i + len(quote)
+		}
+	}
+	return len(s)
 }
 
 func (r *redactor) redactCertificateHost(match string) string {

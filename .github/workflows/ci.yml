@@ -313,6 +313,8 @@ jobs:
       - if: matrix.shard == 'fuzz'
         run: go test -run='^$' -fuzz=FuzzParseTarget -fuzztime=10s ./internal/diagnostic
       - if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzCredentialValue -fuzztime=10s ./internal/snapshot
+      - if: matrix.shard == 'fuzz'
         run: go test -run='^$' -fuzz=FuzzDecodeMessage -fuzztime=10s ./internal/peer
       - if: matrix.shard == 'fuzz'
         run: go test -run='^$' -fuzz=FuzzDecodeManifest -fuzztime=10s ./internal/frrospf

@@ -17,15 +17,23 @@ import (
 var netnsExecutedScenarios sync.Map
 
 func noteNetnsScenarioExecution(name string, reports ...*Report) {
+	if netnsScenarioExecuted(name, reports...) {
+		netnsExecutedScenarios.Store(name, struct{}{})
+	}
+}
+
+// netnsScenarioExecuted reports whether a run counts toward library coverage:
+// name is a built-in scenario and at least one report holds a test outcome.
+func netnsScenarioExecuted(name string, reports ...*Report) bool {
 	if !slices.Contains(LibraryNames(), name) {
-		return
+		return false
 	}
 	for _, report := range reports {
 		if report != nil && len(report.Tests) > 0 {
-			netnsExecutedScenarios.Store(name, struct{}{})
-			return
+			return true
 		}
 	}
+	return false
 }
 
 func noteNetnsCampaignExecution(name string, result *CampaignResult) {
@@ -68,6 +76,29 @@ func TestMissingNetnsScenarioExecutions(t *testing.T) {
 	want := []string{"future-a", "future-z"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("missing scenarios = %v, want %v", got, want)
+	}
+}
+
+// TestNetnsScenarioExecutedNeedsALibraryRunWithOutcomes tests the predicate, not
+// the recorder, so no case here can mark a scenario covered in this binary.
+func TestNetnsScenarioExecutedNeedsALibraryRunWithOutcomes(t *testing.T) {
+	ran := &Report{Tests: []TestOutcome{{Name: "ran"}}}
+	for _, tc := range []struct {
+		why     string
+		name    string
+		reports []*Report
+		want    bool
+	}{
+		{"library run with an outcome", "proxy-only-network-broken-dns", []*Report{ran}, true},
+		{"one qualifying report among others", "proxy-only-network-http-proxy", []*Report{nil, {}, ran}, true},
+		{"never ran", "proxy-only-network-broken-dns", nil, false},
+		{"no report", "proxy-only-network-broken-dns", []*Report{nil}, false},
+		{"report with no outcomes", "proxy-only-network-http-proxy", []*Report{{}}, false},
+		{"not a library scenario", "proxy-only-network-derived", []*Report{ran}, false},
+	} {
+		if got := netnsScenarioExecuted(tc.name, tc.reports...); got != tc.want {
+			t.Errorf("%s: netnsScenarioExecuted(%q) = %v, want %v", tc.why, tc.name, got, tc.want)
+		}
 	}
 }
 

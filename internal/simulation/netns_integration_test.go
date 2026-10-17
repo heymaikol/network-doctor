@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -2189,37 +2190,73 @@ func TestSOCKS5hRemoteDNSScenario(t *testing.T) {
 }
 
 // proxyOnlyVariant runs the built-in scenario name, a variant of the
-// proxy-only-network control. A case states only what it changes from that control, and the
-// variant's own file has to be exactly the control plus that change, so the
-// shipped file is what runs and the stated change is the only difference.
-// LibraryScenario returns a clone, so the mutations here cannot reach the cached
-// copy the other proxy-only tests read.
+// proxy-only-network control. A case states only what it changes from that
+// control, and the variant's own file has to be exactly the control plus that
+// change, so the shipped file is what runs and the stated change is the only
+// difference. LibraryScenario returns a clone, so the mutations here cannot
+// reach the cached copy the other proxy-only tests read.
 func proxyOnlyVariant(t *testing.T, name string, mutate func(*Scenario)) Report {
 	t.Helper()
 	netdoc, sim := buildBinaries(t)
-	derived, err := LibraryScenario("proxy-only-network")
-	if err != nil {
-		t.Fatal(err)
-	}
 	shipped, err := LibraryScenario(name)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := proxyOnlyVariantDrift(name, shipped, mutate); err != nil {
+		t.Fatal(err)
+	}
+	return runLibraryScenarioDefinition(t, sim, netdoc, name, "-timeout", timedTimeout)
+}
+
+// proxyOnlyVariantDrift returns an error unless shipped, the file for name, is
+// the proxy-only-network control plus mutate. Only the description may differ
+// freely; the name has to be the one requested. It canonicalizes shipped.
+func proxyOnlyVariantDrift(name string, shipped *Scenario, mutate func(*Scenario)) error {
+	derived, err := LibraryScenario("proxy-only-network")
+	if err != nil {
+		return err
+	}
 	canonicalScenarioInput(derived)
-	derived.Name, derived.Description = shipped.Name, shipped.Description
+	derived.Name, derived.Description = name, shipped.Description
 	mutate(derived)
 	// Both sides take the form the simulator reads, and Validate fills the
 	// defaults it would, such as a fault's address family.
 	canonicalScenarioInput(shipped)
 	for _, s := range []*Scenario{derived, shipped} {
 		if err := s.Validate(); err != nil {
-			t.Fatal(err)
+			return err
 		}
 	}
 	if !reflect.DeepEqual(derived, shipped) {
-		t.Fatalf("%s.yaml is not proxy-only-network plus the change this case states:\nderived %+v\nshipped %+v", name, derived, shipped)
+		return fmt.Errorf("%s.yaml is not proxy-only-network plus the change this case states:\nderived %+v\nshipped %+v", name, derived, shipped)
 	}
-	return runLibraryScenarioDefinition(t, sim, netdoc, name, "-timeout", timedTimeout)
+	return nil
+}
+
+// TestProxyOnlyVariantDriftNeedsTheRequestedName pins the drift check's one
+// free field. The control stands in as its own variant with no change, so no
+// fixture is edited: a reworded description passes, a name that differs from
+// the file does not.
+func TestProxyOnlyVariantDriftNeedsTheRequestedName(t *testing.T) {
+	unchanged := func(*Scenario) {}
+	for _, tc := range []struct {
+		why    string
+		edit   func(*Scenario)
+		wantOK bool
+	}{
+		{"unchanged file", unchanged, true},
+		{"reworded description", func(s *Scenario) { s.Description = "reworded" }, true},
+		{"name differs from the file", func(s *Scenario) { s.Name = "proxy-only-network-misnamed" }, false},
+	} {
+		shipped, err := LibraryScenario("proxy-only-network")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tc.edit(shipped)
+		if err := proxyOnlyVariantDrift("proxy-only-network", shipped, unchanged); (err == nil) != tc.wantOK {
+			t.Errorf("%s: drift error = %v, want ok %v", tc.why, err, tc.wantOK)
+		}
+	}
 }
 
 // requireProxyOnlyRun checks what every proxy-only case shares: the run passed,

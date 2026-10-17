@@ -2188,24 +2188,38 @@ func TestSOCKS5hRemoteDNSScenario(t *testing.T) {
 	assertCleanedUp(t, rep)
 }
 
-// proxyOnlyVariant runs one case derived from the built-in proxy-only-network
-// scenario. The blocked topology is written once, in that file, and a case
-// states only what it changes. LibraryScenario returns a clone, so the mutations
-// here cannot reach the cached copy the other proxy-only tests read.
+// proxyOnlyVariant runs the built-in scenario name, a variant of the
+// proxy-only-network control. A case states only what it changes from that control, and the
+// variant's own file has to be exactly the control plus that change, so the
+// shipped file is what runs and the stated change is the only difference.
+// LibraryScenario returns a clone, so the mutations here cannot reach the cached
+// copy the other proxy-only tests read.
 func proxyOnlyVariant(t *testing.T, name string, mutate func(*Scenario)) Report {
 	t.Helper()
 	netdoc, sim := buildBinaries(t)
-	scenario, err := LibraryScenario("proxy-only-network")
+	derived, err := LibraryScenario("proxy-only-network")
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonicalScenarioInput(scenario)
-	scenario.Name = name
-	mutate(scenario)
-	if err := scenario.Validate(); err != nil {
+	shipped, err := LibraryScenario(name)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return runScenarioDefinition(t, sim, netdoc, scenario, "-timeout", timedTimeout)
+	canonicalScenarioInput(derived)
+	derived.Name, derived.Description = shipped.Name, shipped.Description
+	mutate(derived)
+	// Both sides take the form the simulator reads, and Validate fills the
+	// defaults it would, such as a fault's address family.
+	canonicalScenarioInput(shipped)
+	for _, s := range []*Scenario{derived, shipped} {
+		if err := s.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(derived, shipped) {
+		t.Fatalf("%s.yaml is not proxy-only-network plus the change this case states:\nderived %+v\nshipped %+v", name, derived, shipped)
+	}
+	return runLibraryScenarioDefinition(t, sim, netdoc, name, "-timeout", timedTimeout)
 }
 
 // requireProxyOnlyRun checks what every proxy-only case shares: the run passed,
@@ -2317,7 +2331,6 @@ func TestProxyOnlyNetworkBrokenDNSScenario(t *testing.T) {
 	t.Parallel()
 	requireBackend(t)
 	rep := proxyOnlyVariant(t, "proxy-only-network-broken-dns", func(s *Scenario) {
-		s.Description = "The proxy-only network again, with its configured resolver taken away too."
 		s.Tests[0].Name = "generic checks with egress only through the CONNECT proxy and no resolver"
 		// The new half. Both transports port 53 runs on, so nothing survives on a
 		// TCP retry. Scoped to the configured resolver so the public second opinion
@@ -2382,7 +2395,6 @@ func TestProxyOnlyNetworkHTTPProxyScenario(t *testing.T) {
 	t.Parallel()
 	requireBackend(t)
 	rep := proxyOnlyVariant(t, "proxy-only-network-http-proxy", func(s *Scenario) {
-		s.Description = "The proxy-only network, with its CONNECT proxy handed to netdoc only as HTTP_PROXY."
 		s.Tests[0].Name = "generic checks with an HTTP_PROXY-only proxy"
 		// The only change from the control: the variable netdoc is handed the proxy
 		// through. Faults and topology are shared, so nothing else differs.

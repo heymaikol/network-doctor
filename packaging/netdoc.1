@@ -30,7 +30,7 @@ netdoc \- diagnose network connectivity and name the layer where the
 .B netdoc
 .B \-explain
 .I topology.json destination
-.RB [ \-fail " node[:interface] | " \-fail\-ospf " node:interface:neighbor" ]
+.RB [ \-fail " node[:interface] | " \-fail\-ospf " node:interface:neighbor | " \-fail\-next\-hop " node[@vrf]:address[%interface]" ]
 .RI [ \-json ]
 .br
 .B netdoc
@@ -384,6 +384,39 @@ one recorded in several routing domains, exits
 .BR 2 ,
 and so does a combination with
 .BR \-fail .
+Refused without
+.BR \-explain .
+.TP
+.BI \-fail\-next\-hop " node[@vrf]:address[%interface]"
+With
+.BR \-explain ,
+simulate
+.I node
+losing one next hop: every leg of its recorded forwarding table through
+.IR address ,
+in one routing domain, and on
+.I interface
+when one is named. The interface and the node that holds the address stay up,
+and nothing else changes: other next hops on the interface, other routing
+domains, and other nodes that use the same address keep forwarding. The loss
+is simulated, not observed. Only a next hop that a fib row of the node names
+can be selected. The node ends at the first colon and may name a routing
+domain after an at sign, and the interface starts at the first percent sign
+after the colon. These delimiters are a convention of this flag: a node name
+cannot hold a colon or an at sign, a routing domain cannot hold a colon, and
+an interface name may hold either a colon or a percent sign. A link-local
+address needs an interface. Whether the node stops selecting a lost next hop
+beside a surviving one is not in the evidence, so such a destination is
+unknown, never redundancy_lost. A leg that names no interface under a named
+one, and the next hop's own address reached on link from the node, are
+unknown too. A next hop no fib row of the node names, one named in several
+routing domains or on several interfaces without a choice, a malformed
+selector, and a combination with
+.B \-fail
+or
+.B \-fail\-ospf
+exit
+.BR 2 .
 Refused without
 .BR \-explain .
 .TP
@@ -899,7 +932,10 @@ Under
 a destination that is not an IP address, an unreadable or invalid topology
 file, a
 .B \-fail
-the file does not describe, and flags that cannot be combined with it also exit
+the file does not describe, a
+.B \-fail\-next\-hop
+selector that is malformed or that no fib row of its node names, and flags
+that cannot be combined with it also exit
 .BR 2 .
 Under
 .BR \-import\-frr\-ospf ,

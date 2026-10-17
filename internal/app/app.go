@@ -93,6 +93,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	explain := fs.Bool("explain", false, "explain how traffic to a destination should leave a topology file; runs no probes")
 	failSpec := fs.String("fail", "", "with -explain, simulate router `node` or interface node:interface failing in the recorded forwarding; runs no probes")
 	failOSPF := fs.String("fail-ospf", "", "with -explain, simulate losing the OSPF adjacency `node:interface:neighbor` in the recorded forwarding, with the interface still up; runs no probes")
+	failNextHop := fs.String("fail-next-hop", "", "with -explain, simulate one node losing the recorded next hop `node[@vrf]:address[%interface]`, with the interface and the next hop's node still up; runs no probes")
 	importFRR := fs.String("import-frr-ospf", "", "import the FRR OSPF captures named by manifest `file`; runs no probes")
 	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf, write the topology to `file` only when every capture and record is accepted")
 	importBGP := fs.String("import-frr-bgp", "", "import the FRR BGP summary and route captures named by manifest `file`; runs no probes")
@@ -168,6 +169,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if setFlagNames(fs)["fail-ospf"] && (!*explain || *failOSPF == "" || setFlagNames(fs)["fail"]) {
 		fmt.Fprintln(stderr, "netdoc: -fail-ospf needs -explain and node:interface:neighbor, and no -fail")
+		return 2
+	}
+	if setFlagNames(fs)["fail-next-hop"] && (!*explain || *failNextHop == "" || setFlagNames(fs)["fail"] || setFlagNames(fs)["fail-ospf"]) {
+		fmt.Fprintln(stderr, "netdoc: -fail-next-hop needs -explain and node[@vrf]:address[%interface], and no -fail or -fail-ospf")
 		return 2
 	}
 	if liveTwoSided && len(positional) > 1 {
@@ -259,7 +264,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "netdoc: -explain cannot be combined with -compare or -two-sided")
 			return 2
 		}
-		return runExplain(positional, setFlagNames(fs), *jsonOut, *failSpec, *failOSPF, stdout, stderr)
+		return runExplain(positional, setFlagNames(fs), *jsonOut, *failSpec, *failOSPF, *failNextHop, stdout, stderr)
 	}
 	if *compareMode {
 		return runCompare(positional, setFlagNames(fs), *jsonOut, stdout, stderr)

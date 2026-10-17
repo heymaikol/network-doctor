@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -468,6 +469,8 @@ func TestExpandRevealsExactlyTheHiddenRows(t *testing.T) {
 // TestExpandIsPresentationOnly: the action moves no needle outside the view.
 func TestExpandIsPresentationOnly(t *testing.T) {
 	before := blackHoleModel(t)
+	// Held still for the report header's timestamp, as in the theme test.
+	before.now = func() time.Time { return time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC) }
 	summary, verdict := before.diagnose()
 	report := before.report()
 	blamed := before.focusRow()

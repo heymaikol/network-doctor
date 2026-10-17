@@ -388,6 +388,9 @@ func TestThemePickerPreviewAcceptAndCancel(t *testing.T) {
 func TestThemeSelectionLeavesDiagnosticStateAlone(t *testing.T) {
 	m := newModel(mustTarget(t, "example.com:443"), false)
 	m.width, m.height = 100, 40
+	// The report header stamps the clock, so it is held still: two reports
+	// straddling a wall-clock second would differ with no theme to blame.
+	m.now = func() time.Time { return time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC) }
 	doneResults(&m, diagnostic.ProbeDNS)
 	diagnostic.Finalize(m.results)
 	wantResults := maps.Clone(m.results)
@@ -417,7 +420,7 @@ func TestThemeSelectionLeavesDiagnosticStateAlone(t *testing.T) {
 		t.Errorf("theme selection moved the cursor to %d, want %d", m.selected, wantSelected)
 	}
 	if got := m.report(); got != wantReport {
-		t.Error("theme selection changed the exported report")
+		t.Errorf("theme selection changed the exported report:\n%s\nwant\n%s", got, wantReport)
 	}
 }
 

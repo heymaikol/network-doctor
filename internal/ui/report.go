@@ -99,7 +99,7 @@ func osc52Sequence(rep string) string {
 // comes from a subprocess this package launched.
 func (m model) report() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "network-doctor report: %s\n", time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "network-doctor report: %s\n", m.now().UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "version: %s\nos: %s/%s\n", m.version, runtime.GOOS, runtime.GOARCH)
 	b.WriteString("review before sharing: tool output may contain sensitive data\n")
 	if m.target != nil {

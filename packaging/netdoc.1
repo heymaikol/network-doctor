@@ -491,9 +491,10 @@ changes; every outcome rests on that assumption. Each prefix that had such a
 path is rated as
 .B \-withdraw\-bgp
 rates one, so a remaining path whose stale key FRR recorded as true is not
-counted, while one recorded as false still counts. The peer's session state
-is shown as the summary printed it, and a state other than Established is
-not read as a session newly lost. Whether and
+counted; one recorded as false is not excluded by the flag, but still counts
+only if it otherwise qualifies. The peer's session state is shown as the
+summary printed it, and a state other than Established is not read as a
+session newly lost. Whether and
 when the node would remove the paths, for example under graceful restart, is
 unknown, and so is the forwarding impact. It needs
 .BR \-import\-frr\-bgp ,

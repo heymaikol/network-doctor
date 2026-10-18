@@ -143,6 +143,12 @@ type Simulation struct {
 // recomputed and no convergence is predicted. It reads only f and changes
 // nothing in it.
 //
+// Only a node whose own interface is down is taken to stop selecting a next hop
+// through it. A leg cut anywhere else, toward a failed router or onto a down
+// far end, leaves the node's link up, so a destination that keeps another leg
+// there is never rated redundancy_lost: the node may keep hashing flows onto the
+// cut leg.
+//
 // An OSPF adjacency loss leaves its link up, so only OSPF next hops that cross
 // the link are stopped, where Adjacency proves the link's transit dependency on
 // the adjacency, and no destination is rated
@@ -216,6 +222,17 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 		}
 		if a.Impact == ImpactRedundancyLost && w.gw != nil {
 			a.Impact, a.Reason = ImpactUnknown, "every surviving recorded branch delivers, but the recorded route still lists the lost next hop; whether the node stops selecting it while its link stays up is not in the evidence, so traffic hashed onto it may be dropped"
+		}
+		if a.Impact == ImpactRedundancyLost && w.gw == nil && w.adj == nil {
+			var far *Segment
+			walkHops(a.After, func(h *Hop) {
+				if far == nil && h.Decision.Kind == KindFailed && h.Via.From != fail.Node {
+					far = h.Via
+				}
+			})
+			if far != nil {
+				a.Impact, a.Reason = ImpactUnknown, fmt.Sprintf("every surviving recorded branch delivers, but %s (%s) still lists a next hop that crosses the failure on another node; whether %s stops selecting it is not in the evidence, so traffic hashed onto it may be dropped", far.From, far.VRF, far.From)
+			}
 		}
 		if a.Impact == ImpactNone {
 			s.Unchanged++

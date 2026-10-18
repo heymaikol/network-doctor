@@ -162,12 +162,13 @@
     "family": "IPv4 unicast",
     "peer": "10.0.1.9",
     "prefix": "10.40.0.0/16",
-    "outcome": "paths_remain",
-    "reason": "after peer 10.0.1.9 withdraws 10.40.0.0/16, r1's recorded BGP table still lists a path for it from no peer or from another peer; which path FRR would select, and whether it is valid or installed, is not read",
+    "outcome": "unknown",
+    "reason": "of the other paths r1's recorded BGP table lists for 10.40.0.0/16, 1 is recorded stale, and what FRR later does with a stale path is not in the evidence; whether any path for it remains is unknown",
     "removed": [
       {
         "kind": "learned",
         "peer": "10.0.1.9",
+        "stale_flag": "recorded_true",
         "path_from": "external",
         "as_path": "65009",
         "bgp_origin": "IGP",
@@ -181,6 +182,7 @@
         "kind": "learned",
         "peer": "10.0.1.2",
         "session_state": "Established",
+        "stale_flag": "recorded_true",
         "path_from": "external",
         "as_path": "65002",
         "bgp_origin": "IGP",
@@ -272,6 +274,7 @@
     "an empty table is observed empty at collection time; neither it nor a missing capture shows that a route was withdrawn",
     "a prefix withdrawal is simulated against the named node's recorded BGP table only: every path for the prefix that names the peer is removed, and nothing else changes; no UPDATE is sent, no best path is recomputed, and propagation to other routers is not modeled",
     "a remaining path is a candidate FRR listed; whether it is valid, selected, or installed is not read, and no alternate path is invented",
+    "a stale flag is reported as FRR printed it; what set it is not read, and a path recorded stale is not counted as remaining",
     "no_recorded_path means the recorded table lists no other path; a path can still arrive from another peer once the withdrawal propagates, which no capture shows, so no route loss is claimed",
     "the forwarding impact of a withdrawal is always unknown: the import reads no zebra RIB, kernel FIB, or topology, and ties no BGP path to a forwarding entry",
     "other prefixes are not rated: aggregation, conditional advertisement, policy, and next-hop resolution through the withdrawn prefix are not in the evidence"

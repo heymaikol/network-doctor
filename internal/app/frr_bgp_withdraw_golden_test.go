@@ -10,8 +10,10 @@ import (
 // frrBGPWithdrawGoldenDir holds the pinned BGP import and --withdraw-bgp reports.
 // The golden files were written at 0317503, before the route decoder read any
 // stale flag, so a change to either report shows up here. The withdrawal files
-// were rewritten for #374, which stopped calling a state other than Established
-// a disagreement between the captures; the import files are as written.
+// were rewritten for #374, which stopped counting a path recorded stale as
+// remaining, gave every withdrawal path its stale_flag, and stopped calling a
+// state other than Established a disagreement between the captures; the import
+// files are as written.
 const frrBGPWithdrawGoldenDir = "testdata/bgpwithdraw/golden"
 
 // stalePath is bgpPath with a stale key written first, as raw JSON. The value
@@ -96,8 +98,8 @@ func runWithdrawGolden(t *testing.T, c withdrawGoldenCase) (text, js string) {
 
 // TestWithdrawReportIsByteStable pins the BGP import and --withdraw-bgp
 // reports, in text and JSON, for the lab captures and for tables that carry
-// stale flags. Neither report reads the flag, and a later change must not
-// alter either for any input accepted when the files were written.
+// stale flags. The import does not read the flag, and a later change must not
+// alter either report for any input accepted when the files were written.
 func TestWithdrawReportIsByteStable(t *testing.T) {
 	for _, c := range withdrawGoldenCases() {
 		t.Run(c.name, func(t *testing.T) {

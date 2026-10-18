@@ -12,8 +12,8 @@ import (
 	"github.com/heymaikol/network-doctor/internal/textsafe"
 )
 
-// The values of a session-loss path's stale_flag: what the path's stale key
-// recorded, kept as strings so a consumer cannot read an absent key as false.
+// The values of a path's stale_flag: what the path's stale key recorded, kept
+// as strings so a consumer cannot read an absent key as false.
 const (
 	staleRecordedTrue  = "recorded_true"
 	staleRecordedFalse = "recorded_false"
@@ -149,7 +149,7 @@ func failFRRBGPSession(s bgpSession, t frrbgp.RouteTable, tc frrospf.ManifestCap
 		noPeer := false
 		for _, path := range e.Paths {
 			if path.Source == frrbgp.RouteSourceLearned && path.Peer == s.peer {
-				p.Removed = append(p.Removed, sessionPathRead(path, pathLearned, states))
+				p.Removed = append(p.Removed, pathRead(path, pathLearned, states))
 				if path.Stale == frrbgp.StaleTrue {
 					stale++
 				}
@@ -160,7 +160,7 @@ func failFRRBGPSession(s bgpSession, t frrbgp.RouteTable, tc frrospf.ManifestCap
 				unattributed++
 				noPeer = true
 			}
-			p.Remaining = append(p.Remaining, sessionPathRead(path, kind, states))
+			p.Remaining = append(p.Remaining, pathRead(path, kind, states))
 		}
 		switch {
 		case len(p.Removed) > 0:
@@ -216,32 +216,10 @@ func failFRRBGPSession(s bgpSession, t frrbgp.RouteTable, tc frrospf.ManifestCap
 	return out, nil
 }
 
-// sessionPathRead is pathRead with the path's stale flag.
-func sessionPathRead(p frrbgp.RoutePath, kind string, states map[netip.Addr]string) frrBGPPathRead {
-	r := pathRead(p, kind, states[p.Peer])
-	r.StaleFlag = staleFlagNames[p.Stale]
-	return r
-}
-
-// sessionOutcome rates the paths that remain for one prefix. A remaining path
-// counts only when it is learned or from no peer and not recorded stale. Each
-// other path is named in the first group that fits: recorded stale, naming no
-// peer, or from a peer the summary does not show Established. None of the groups
-// claims a cause.
+// sessionOutcome rates the paths that remain for one prefix, grouped by
+// countRemaining. None of the groups claims a cause.
 func sessionOutcome(node, peer string, p frrBGPSessionPrefix) (string, string) {
-	counted, stale, unattributed, notEstablished := 0, 0, 0, 0
-	for _, r := range p.Remaining {
-		switch {
-		case r.StaleFlag == staleRecordedTrue:
-			stale++
-		case r.Kind == pathLearned || r.Kind == pathNoPeer:
-			counted++
-		case r.Kind == pathUnattributed:
-			unattributed++
-		default:
-			notEstablished++
-		}
-	}
+	counted, stale, unattributed, notEstablished := countRemaining(p.Remaining)
 	switch {
 	case counted > 0:
 		return withdrawPathsRemain, fmt.Sprintf("if %s removes peer %s's paths, its recorded table still lists a path for %s from no peer or from another peer, not recorded stale; which path FRR would select, and whether it is valid or installed, is not read", node, peer, p.Prefix)

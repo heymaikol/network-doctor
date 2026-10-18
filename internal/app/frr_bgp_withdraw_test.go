@@ -89,7 +89,22 @@ func runWithdrawJSON(t *testing.T, manifest, spec string) frrBGPWithdrawal {
 	if strings.Contains(text, "disagree") || strings.Contains(w.Reason, "disagree") {
 		t.Errorf("withdrawal calls the captures a disagreement:\n%s", text)
 	}
+	for _, r := range slices.Concat(w.Removed, w.Remaining) {
+		if r.StaleFlag != staleRecordedTrue && r.StaleFlag != staleRecordedFalse && r.StaleFlag != staleNotRecorded {
+			t.Errorf("path %+v has stale_flag %q", r, r.StaleFlag)
+		}
+	}
 	return *w
+}
+
+// withdrawShape is a withdrawal's outcome and the kind, peer, and stale flag of
+// each remaining path.
+func withdrawShape(w frrBGPWithdrawal) string {
+	out := w.Outcome
+	for _, r := range w.Remaining {
+		out += " [" + r.Kind + " " + r.Peer + " " + r.StaleFlag + "]"
+	}
+	return out
 }
 
 // pathPeers lists each path's peer, or its kind when it names none.
@@ -326,6 +341,111 @@ func TestWithdrawReadsEachRemainingPath(t *testing.T) {
 			}
 			if w.PeerOtherPaths != 0 {
 				t.Errorf("peer %s has no path for another prefix, but %d are counted", peer, w.PeerOtherPaths)
+			}
+		})
+	}
+}
+
+// TestWithdrawDoesNotCountStaleSurvivors covers each stale form beside each
+// kind of remaining path, over the steady r1 summary: 10.0.1.2 Established,
+// 10.0.1.3 Active, and no other peer. A path recorded stale never counts as
+// remaining; one recorded not stale, or with no stale key, counts as its kind
+// allows. Tables are hand-written, not FRR output.
+func TestWithdrawDoesNotCountStaleSurvivors(t *testing.T) {
+	p := func(peer string) string { return bgpPath(peer, "65009", "IGP", "10.0.1.9") }
+	sp := func(value, peer string) string { return stalePath(value, peer, "65009", "IGP", "10.0.1.9") }
+	cases := []struct {
+		name    string
+		paths   []string
+		summary bool
+		want    string
+		reason  string
+	}{
+		{"only a stale Established path remains", []string{p("10.0.1.9"), sp("true", "10.0.1.2")}, true,
+			"unknown [learned 10.0.1.2 recorded_true]", "for 10.20.0.0/16, 1 is recorded stale, and what FRR later does with a stale path is not in the evidence; whether"},
+		{"recorded false counts", []string{p("10.0.1.9"), sp("false", "10.0.1.2")}, true,
+			"paths_remain [learned 10.0.1.2 recorded_false]", "from no peer or from another peer, not recorded stale;"},
+		{"no stale key counts", []string{p("10.0.1.9"), p("10.0.1.2")}, true,
+			"paths_remain [learned 10.0.1.2 not_recorded]", "not recorded stale"},
+		{"stale beside a countable path", []string{p("10.0.1.9"), sp("true", "10.0.1.2"), p("(unspec)")}, true,
+			"paths_remain [learned 10.0.1.2 recorded_true] [no_peer  not_recorded]", "not recorded stale"},
+		{"stale local path", []string{p("10.0.1.9"), sp("true", "(unspec)")}, true,
+			"unknown [no_peer  recorded_true]", "1 is recorded stale"},
+		{"stale path that names no peer", []string{p("10.0.1.9"), sp("true", "")}, true,
+			"unknown [unattributed  recorded_true]", "1 is recorded stale"},
+		{"stale path from an Active peer beside one that names no peer", []string{p("10.0.1.9"), sp("true", "10.0.1.3"), p("")}, true,
+			"unknown [contradicted 10.0.1.3 recorded_true] [unattributed  not_recorded]", "1 is recorded stale, and what FRR later does with a stale path is not in the evidence; 1 name no peer, so any of them may be peer 10.0.1.9's own; whether"},
+		{"recorded false from an Active peer", []string{p("10.0.1.9"), sp("false", "10.0.1.3")}, true,
+			"unknown [contradicted 10.0.1.3 recorded_false]", "1 come from peers the summary does not show Established, and the captures do not show why the table lists them;"},
+		{"two stale paths and every other doubt", []string{p("10.0.1.9"), sp("true", "10.0.1.2"), sp("true", "10.0.1.3"), p(""), sp("false", "10.0.1.8")}, true,
+			"unknown [learned 10.0.1.2 recorded_true] [contradicted 10.0.1.3 recorded_true] [unattributed  not_recorded] [contradicted 10.0.1.8 recorded_false]", "2 are recorded stale"},
+		{"stale with no summary", []string{p("10.0.1.9"), sp("true", "10.0.1.2")}, false,
+			"unknown [learned 10.0.1.2 recorded_true]", "1 is recorded stale"},
+		{"recorded false with no summary", []string{p("10.0.1.9"), sp("false", "10.0.1.3")}, false,
+			"paths_remain [learned 10.0.1.3 recorded_false]", "not recorded stale"},
+		{"the withdrawing peer's stale path", []string{sp("true", "10.0.1.9"), p("10.0.1.2")}, true,
+			"paths_remain [learned 10.0.1.2 not_recorded]", "not recorded stale"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			manifest := stageSyntheticTable(t, map[string][]string{"10.20.0.0/16": c.paths}, c.summary)
+			w := runWithdrawJSON(t, manifest, "r1:10.0.1.9:10.20.0.0/16")
+			if got := withdrawShape(w); got != c.want {
+				t.Errorf("withdrawal %q, want %q", got, c.want)
+			}
+			if !strings.Contains(w.Reason, c.reason) {
+				t.Errorf("reason %q, want it to say %q", w.Reason, c.reason)
+			}
+			flag := staleNotRecorded
+			if strings.HasPrefix(c.paths[0], `{"stale":true`) {
+				flag = staleRecordedTrue
+			}
+			if len(w.Removed) != 1 || w.Removed[0].StaleFlag != flag {
+				t.Errorf("removed %+v, want one path with stale_flag %s", w.Removed, flag)
+			}
+		})
+	}
+	routes := map[string][]string{"10.20.0.0/16": {p("10.0.1.9"), sp("true", "10.0.1.2"), sp("false", "10.0.1.3")}}
+	_, text, _ := runNetdoc(t, "--import-frr-bgp", stageSyntheticTable(t, routes, true), "--withdraw-bgp", "r1:10.0.1.9:10.20.0.0/16")
+	for _, want := range []string{
+		"\n  outcome unknown: ",
+		"\n  removed: learned path from peer 10.0.1.9, AS path 65009, BGP origin IGP, next hops 10.0.1.9\n",
+		"\n  remains: learned path from peer 10.0.1.2, session Established, AS path 65009, BGP origin IGP, next hops 10.0.1.9, stale flag recorded true\n",
+		"\n  remains: contradicted path from peer 10.0.1.3, session Active, AS path 65009, BGP origin IGP, next hops 10.0.1.9, stale flag recorded false\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+// TestWithdrawReadsTheGracefulRestartCapture withdraws prefixes from r1's table
+// in the gr arm's during phase: FRR output in which r1's summary shows r2 at
+// 10.0.1.2 Active and the table still lists each of r2's paths, recorded stale.
+// A stale path is not counted as remaining, and the Active state is reported as
+// printed, never as the captures disagreeing.
+func TestWithdrawReadsTheGracefulRestartCapture(t *testing.T) {
+	manifest := stageSessionPhase(t, "gr", "during")
+	for _, c := range []struct{ spec, removed, want, reason, session string }{
+		{"r1:10.0.1.2:10.10.2.0/24", "learned 10.0.1.2 Active recorded_true", "paths_remain [learned 10.0.3.3 not_recorded]", "not recorded stale",
+			"\n  peer 10.0.1.2 session: the summary printed state Active, while the table lists paths from it; the captures do not show why, and the withdrawal is read against the table as recorded\n"},
+		{"r1:10.0.3.3:10.10.2.0/24", "learned 10.0.3.3 Established not_recorded", "unknown [contradicted 10.0.1.2 recorded_true]", "1 is recorded stale",
+			"\n  peer 10.0.3.3 session: the summary printed state Established, and a prefix withdrawal leaves the session as recorded\n"},
+		{"r1:10.0.1.2:10.10.1.0/24", "learned 10.0.1.2 Active recorded_true", "paths_remain [no_peer  not_recorded]", "not recorded stale", "state Active"},
+		{"r1:10.0.1.2:10.10.9.0/24", "learned 10.0.1.2 Active recorded_true", "no_recorded_path", "no route loss is claimed", "state Active"},
+	} {
+		t.Run(c.spec, func(t *testing.T) {
+			w := runWithdrawJSON(t, manifest, c.spec)
+			r := w.Removed[0]
+			if got := withdrawShape(w); got != c.want || len(w.Removed) != 1 || r.Kind+" "+r.Peer+" "+r.SessionState+" "+r.StaleFlag != c.removed {
+				t.Fatalf("withdrawal %q, removed %+v; want %q, %s", got, w.Removed, c.want, c.removed)
+			}
+			if !strings.Contains(w.Reason, c.reason) {
+				t.Errorf("reason %q, want it to say %q", w.Reason, c.reason)
+			}
+			_, text, _ := runNetdoc(t, "--import-frr-bgp", manifest, "--withdraw-bgp", c.spec)
+			if !strings.Contains(text, c.session) {
+				t.Errorf("text lacks %q:\n%s", c.session, text)
 			}
 		})
 	}

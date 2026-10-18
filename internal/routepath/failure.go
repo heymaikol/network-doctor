@@ -149,6 +149,13 @@ type Simulation struct {
 // there is never rated redundancy_lost: the node may keep hashing flows onto the
 // cut leg.
 //
+// A router or interface failure may make OSPF or BGP compute its routes again,
+// and none is computed here. So a destination is rated reachability_lost only
+// when some branch that loses every next hop forwards by no OSPF or BGP route
+// at any node on it, as protocolRows reads them, or when the failed router
+// alone holds the destination, which no recomputed path reaches. Otherwise it
+// is unknown.
+//
 // An OSPF adjacency loss leaves its link up, so only OSPF next hops that cross
 // the link are stopped, where Adjacency proves the link's transit dependency on
 // the adjacency, and no destination is rated
@@ -234,6 +241,12 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 				a.Impact, a.Reason = ImpactUnknown, fmt.Sprintf("every surviving recorded branch delivers, but %s (%s) still lists a next hop that crosses the failure on another node; whether %s stops selecting it is not in the evidence, so traffic hashed onto it may be dropped", far.From, far.VRF, far.From)
 			}
 		}
+		gone := fail.Interface == "" && len(w.owners[d]) > 0 && !slices.ContainsFunc(w.owners[d], func(o state) bool { return o.node != fail.Node })
+		if a.Impact == ImpactReachabilityLost && w.gw == nil && w.adj == nil && !gone {
+			if stands, at := w.protocolLoss(&after, nil); !stands && at != nil {
+				a.Impact, a.Reason = ImpactUnknown, fmt.Sprintf("after the failure, a forwarding branch has no surviving recorded next hop, but %s (%s) holds an OSPF or BGP route toward it, in %s, and no route is recomputed here; whether that protocol computes another path once it learns of the failure is not in the evidence", at.Node, at.VRF, evidenceText(w.protocolRows(at)))
+			}
+		}
 		if a.Impact == ImpactNone {
 			s.Unchanged++
 			continue
@@ -272,6 +285,63 @@ func rate(before, after reach, touched bool) (Impact, string) {
 		return ImpactReachabilityLost, "after the failure, a forwarding branch from the source has no surviving next hop"
 	}
 	return ImpactUnknown, "after the failure, the surviving forwarding does not prove delivery"
+}
+
+// protocolLoss follows each branch from h to a node left with no surviving next
+// hop, as reachOf counts one. It returns true when some such branch forwards by
+// no OSPF or BGP route at any node on it, so its loss stands whatever those
+// protocols compute, and otherwise the first node on such a branch that does.
+// on is that node above h, when there is one.
+func (w *walker) protocolLoss(h, on *Hop) (bool, *Hop) {
+	if on == nil && len(w.protocolRows(h)) > 0 {
+		on = h
+	}
+	if len(h.Next) > 0 && !slices.ContainsFunc(h.Next, func(c Hop) bool { return c.Decision.Kind != KindFailed }) {
+		if reachOf(h, nil) != reachFailed {
+			return false, nil
+		}
+		return on == nil, on
+	}
+	var first *Hop
+	for i := range h.Next {
+		stands, at := w.protocolLoss(&h.Next[i], on)
+		if stands {
+			return true, nil
+		}
+		first = cmp.Or(first, at)
+	}
+	return false, first
+}
+
+// protocolRows lists the rows that tie the forwarding at h to OSPF or BGP: the
+// FIB rows its decision rests on that name either origin, then the
+// control-plane routes of its node and routing domain that cover the
+// destination and name one, since that protocol may install such a route in
+// place of the FIB entry once it learns of the failure. An origin is the name
+// its adapter wrote, so a route another protocol installed under another name
+// is not listed.
+func (w *walker) protocolRows(h *Hop) []Support {
+	if h.Decision.Kind != KindForward {
+		return nil
+	}
+	protocol := func(o string) bool { return o == netmodel.OriginOSPF || o == netmodel.OriginBGP }
+	var out []Support
+	for _, e := range h.Decision.Evidence {
+		if protocol(e.Origin) {
+			out = appendNew(out, e)
+		}
+	}
+	for _, o := range w.obs {
+		if o.Plane != netmodel.PlaneControl || o.Node != h.Node || o.VRF != h.VRF {
+			continue
+		}
+		for _, r := range o.Routes {
+			if r.Prefix.Contains(w.dest) && protocol(r.Origin) {
+				out = appendNew(out, Support{Source: o.Source, CollectedAt: utcText(o.CollectedAt), Origin: r.Origin})
+			}
+		}
+	}
+	return out
 }
 
 // checkFailure refuses a failure the file does not describe, so a mistyped name

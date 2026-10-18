@@ -174,10 +174,11 @@ func TestOSPFAdjacencyLossIsUnknownNeverLost(t *testing.T) {
 	if r := affected(t, s, "10.20.40.8").Reason; !strings.Contains(r, "no SPF is run") {
 		t.Errorf("reason = %q, want it to say no SPF is run", r)
 	}
-	// The same file under an interface failure does report the loss, which is
-	// what tells the two failure types apart.
-	if got := impacts(simulate(t, ospfSingleHomed(), Failure{Node: "r1", Interface: "eth1"})); got["10.20.40.8"] != ImpactReachabilityLost {
-		t.Errorf("interface failure impacts = %v, want 10.20.40.8 reachability_lost", got)
+	// The same file under an interface failure is unknown for the same reason:
+	// OSPF computes its routes again once the link is down, too. A static
+	// route across the link tells the two failure types apart.
+	if got := impacts(simulate(t, ospfSingleHomed(), Failure{Node: "r1", Interface: "eth1"})); got["10.20.40.8"] != ImpactUnknown {
+		t.Errorf("interface failure impacts = %v, want 10.20.40.8 unknown", got)
 	}
 }
 

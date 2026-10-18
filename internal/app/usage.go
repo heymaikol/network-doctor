@@ -64,8 +64,10 @@ forwarding branches, from the source. It recomputes no route and predicts no
 convergence. An interface failure is an administrative down, not a carrier
 loss. Only a node whose own interface is down is taken to stop using a next
 hop through it, so a destination that keeps another next hop at any other
-node is unknown, never redundancy_lost. See Failure simulation in the
-reference.
+node is unknown, never redundancy_lost. A loss on a branch where some node
+holds an OSPF or BGP route to the destination is unknown too, since that
+protocol may compute another path, unless the failed router alone holds the
+destination. See Failure simulation in the reference.
 
 --fail-ospf NODE:INTERFACE:NEIGHBOR simulates losing the OSPF adjacency NODE
 records on INTERFACE toward NEIGHBOR instead. The interface stays up, so only

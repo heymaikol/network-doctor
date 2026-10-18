@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -361,8 +362,10 @@ func TestExplainFailReportsWhatTheFailureCuts(t *testing.T) {
 		t.Fatalf("failure = %+v, want 10.20.40.8 reachability_lost", s)
 	}
 
+	// r1's control plane holds an OSPF route to 10.20.40.8, which may replace
+	// its FIB entry once eth1 is down, so the loss is unknown.
 	code, out, errOut = runNetdoc(t, "--explain", path, "10.20.40.8", "--fail", "r1:eth1")
-	if code != 0 || !strings.Contains(out, "Failure simulation: interface r1 eth1 down, from r1 (default)") || !strings.Contains(out, "reachability_lost 10.20.40.8 (r2 default)") {
+	if code != 0 || !strings.Contains(out, "Failure simulation: interface r1 eth1 down, from r1 (default)") || !strings.Contains(out, "unknown 10.20.40.8 (r2 default)") {
 		t.Errorf("exit = %d, stderr %q, text:\n%s", code, errOut, out)
 	}
 }
@@ -437,6 +440,38 @@ func TestExplainFailOSPFReportsTheAdjacencyLoss(t *testing.T) {
 	code, out, errOut = runNetdoc(t, "--explain", path, "10.20.40.8", "--fail-ospf", "r1:eth1:r2")
 	if code != 0 || !strings.Contains(out, "Failure simulation: OSPF adjacency r1 (default) eth1 to r2 lost, from r1 (default)") || !strings.Contains(out, "unknown 10.20.40.8 (r2 default)") {
 		t.Errorf("exit = %d, stderr %q, text:\n%s", code, errOut, out)
+	}
+}
+
+func TestExplainFailRatesAnOSPFRouteLossLikeFailOSPF(t *testing.T) {
+	// r1 reaches 10.20.40.8 only by its OSPF route across eth1. Taking either
+	// end of the link down makes OSPF compute its routes again, as losing the
+	// adjacency does, so the destination is unknown, never lost. r2 failing
+	// takes the destination with it, which no recomputed path delivers.
+	path := writeTopology(t, ospfAdjacencyTopology)
+	for fail, want := range map[string]routepath.Impact{
+		"r1:eth1": routepath.ImpactUnknown,
+		"r2:eth0": routepath.ImpactUnknown,
+		"r2":      routepath.ImpactReachabilityLost,
+	} {
+		code, out, errOut := runNetdoc(t, "--explain", path, "10.20.40.8", "--fail", fail, "--json")
+		if code != 0 {
+			t.Fatalf("--fail %s exit = %d, want 0; stderr: %s", fail, code, errOut)
+		}
+		var decoded struct {
+			Failure *routepath.Simulation `json:"failure"`
+		}
+		if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+			t.Fatalf("output is not JSON: %v\n%s", err, out)
+		}
+		i := slices.IndexFunc(decoded.Failure.Affected, func(a routepath.Affected) bool { return a.Destination == "10.20.40.8" })
+		if i < 0 || decoded.Failure.Affected[i].Impact != want {
+			t.Errorf("--fail %s affected = %+v, want 10.20.40.8 %s", fail, decoded.Failure.Affected, want)
+		}
+	}
+	code, out, errOut := runNetdoc(t, "--explain", path, "10.20.40.8", "--fail", "r1:eth1")
+	if want := "unknown 10.20.40.8 (r2 default): after the failure, a forwarding branch has no surviving recorded next hop, but r1 (default) holds an OSPF or BGP route toward it, in fib:r1 (ospf)"; code != 0 || !strings.Contains(out, want) {
+		t.Errorf("exit = %d, stderr %q, text lacks %q:\n%s", code, errOut, want, out)
 	}
 }
 

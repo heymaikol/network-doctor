@@ -15,13 +15,15 @@ import (
 // The outcomes of a simulated prefix withdrawal. Each is a reading of the node's
 // recorded BGP table, never of its forwarding.
 const (
-	// withdrawPathsRemain: a path for the prefix remains that FRR recorded from
-	// no peer, or from another peer whose session the summary does not contradict.
+	// withdrawPathsRemain: a path for the prefix remains, not recorded stale, that
+	// FRR recorded from no peer, or from another peer the summary shows
+	// Established or with no summary captured.
 	withdrawPathsRemain = "paths_remain"
 	// withdrawNoRecordedPath: the table records no other path for the prefix.
 	withdrawNoRecordedPath = "no_recorded_path"
-	// withdrawUnknown: the only other paths name no peer, or come from a peer the
-	// summary does not show Established, so whether any remains is unknown.
+	// withdrawUnknown: the only other paths are recorded stale, name no peer, or
+	// come from a peer the summary does not show Established, so whether any
+	// remains is unknown.
 	withdrawUnknown = "unknown"
 )
 
@@ -38,6 +40,7 @@ const (
 var frrBGPWithdrawLimitations = []string{
 	"a prefix withdrawal is simulated against the named node's recorded BGP table only: every path for the prefix that names the peer is removed, and nothing else changes; no UPDATE is sent, no best path is recomputed, and propagation to other routers is not modeled",
 	"a remaining path is a candidate FRR listed; whether it is valid, selected, or installed is not read, and no alternate path is invented",
+	"a stale flag is reported as FRR printed it; what set it is not read, and a path recorded stale is still listed as remaining but not counted toward paths_remain",
 	"no_recorded_path means the recorded table lists no other path; a path can still arrive from another peer once the withdrawal propagates, which no capture shows, so no route loss is claimed",
 	"the forwarding impact of a withdrawal is always unknown: the import reads no zebra RIB, kernel FIB, or topology, and ties no BGP path to a forwarding entry",
 	"other prefixes are not rated: aggregation, conditional advertisement, policy, and next-hop resolution through the withdrawn prefix are not in the evidence",
@@ -96,8 +99,8 @@ type frrBGPWithdrawal struct {
 
 // frrBGPPathRead is one path of the withdrawn prefix. SessionState is the state
 // the node's summary printed for the path's peer; it is absent when the node has
-// no summary, or the summary does not list the peer. StaleFlag is set only by a
-// simulated session loss, so a withdrawal never writes it.
+// no summary, or the summary does not list the peer. StaleFlag is what the
+// path's stale key recorded.
 type frrBGPPathRead struct {
 	Kind         string   `json:"kind"`
 	Peer         string   `json:"peer,omitempty"`
@@ -188,13 +191,13 @@ func withdrawFRRBGP(w bgpWithdraw, t frrbgp.RouteTable, tc frrospf.ManifestCaptu
 					out.PeerOtherPaths++
 				}
 			case fromPeer:
-				out.Removed = append(out.Removed, pathRead(p, pathLearned, states[p.Peer]))
+				out.Removed = append(out.Removed, pathRead(p, pathLearned, states))
 			default:
 				kind := pathKind(p, sum != nil, states)
 				if kind == pathUnattributed {
 					unattributed++
 				}
-				out.Remaining = append(out.Remaining, pathRead(p, kind, states[p.Peer]))
+				out.Remaining = append(out.Remaining, pathRead(p, kind, states))
 			}
 		}
 	}
@@ -209,36 +212,29 @@ func withdrawFRRBGP(w bgpWithdraw, t frrbgp.RouteTable, tc frrospf.ManifestCaptu
 	return out, nil
 }
 
-// withdrawOutcome rates the paths that remain. Only a path from no peer, or from
-// a peer whose recorded session does not contradict the table, counts as
-// remaining. A path that names no peer may be the withdrawing peer's own, and a
-// path from a peer the summary does not show Established may already be gone, so
-// either leaves the outcome unknown when nothing else remains.
+// withdrawOutcome rates the paths that remain, grouped by countRemaining. A
+// path recorded stale may be removed later, a path that names no peer may be
+// the withdrawing peer's own, and the captures do not show why the table lists
+// a path from a peer the summary does not show Established, so each leaves the
+// outcome unknown when nothing else remains. None of the groups claims a cause.
 func withdrawOutcome(w *frrBGPWithdrawal) (string, string) {
-	counted, unattributed, contradicted := 0, 0, 0
-	for _, p := range w.Remaining {
-		switch p.Kind {
-		case pathLearned, pathNoPeer:
-			counted++
-		case pathUnattributed:
-			unattributed++
-		default:
-			contradicted++
-		}
-	}
+	counted, stale, unattributed, notEstablished := countRemaining(w.Remaining)
 	at := fmt.Sprintf("%s's recorded BGP table", w.Node)
 	switch {
 	case counted > 0:
-		return withdrawPathsRemain, fmt.Sprintf("after peer %s withdraws %s, %s still lists a path for it from no peer or from another peer; which path FRR would select, and whether it is valid or installed, is not read", w.Peer, w.Prefix, at)
-	case unattributed+contradicted > 0:
+		return withdrawPathsRemain, fmt.Sprintf("after peer %s withdraws %s, %s still lists a path for it from no peer or from another peer, not recorded stale; which path FRR would select, and whether it is valid or installed, is not read", w.Peer, w.Prefix, at)
+	case stale+unattributed+notEstablished > 0:
 		var why []string
+		if stale > 0 {
+			why = append(why, countOf(stale, "is", "are")+" recorded stale, and what FRR later does with a stale path is not in the evidence")
+		}
 		if unattributed > 0 {
 			why = append(why, fmt.Sprintf("%d name no peer, so any of them may be peer %s's own", unattributed, w.Peer))
 		}
-		if contradicted > 0 {
-			why = append(why, fmt.Sprintf("%d come from peers the summary does not show Established, so the summary and the table disagree about them", contradicted))
+		if notEstablished > 0 {
+			why = append(why, fmt.Sprintf("%d come from peers the summary does not show Established, and the captures do not show why the table lists them", notEstablished))
 		}
-		return withdrawUnknown, fmt.Sprintf("of the other paths %s lists for %s, %s; whether any path for it remains is unknown", at, w.Prefix, strings.Join(why, ", and "))
+		return withdrawUnknown, fmt.Sprintf("of the other paths %s lists for %s, %s; whether any path for it remains is unknown", at, w.Prefix, strings.Join(why, "; "))
 	}
 	return withdrawNoRecordedPath, fmt.Sprintf("after peer %s withdraws %s, %s lists no other path for it; another peer may still send one once the withdrawal propagates, which no capture shows, so no route loss is claimed", w.Peer, w.Prefix, at)
 }
@@ -258,11 +254,31 @@ func pathKind(p frrbgp.RoutePath, haveSummary bool, states map[netip.Addr]string
 	return pathContradicted
 }
 
-// pathRead is one path for the report. state is the summary's state for the
-// path's peer; a path that names no peer has none, since no summary key is the
-// zero address.
-func pathRead(p frrbgp.RoutePath, kind, state string) frrBGPPathRead {
-	r := frrBGPPathRead{Kind: kind, SessionState: state, PathFrom: p.PathFrom, ASPath: p.ASPath, BGPOrigin: p.Origin, NextHops: make([]string, 0, len(p.NextHops))}
+// countRemaining puts each path that remains for a prefix in the first group
+// that fits: recorded stale, counted (learned or from no peer), naming no peer,
+// or from a peer the summary does not show Established. Both simulations call
+// it, so what counts as remaining cannot drift.
+func countRemaining(paths []frrBGPPathRead) (counted, stale, unattributed, notEstablished int) {
+	for _, r := range paths {
+		switch {
+		case r.StaleFlag == staleRecordedTrue:
+			stale++
+		case r.Kind == pathLearned || r.Kind == pathNoPeer:
+			counted++
+		case r.Kind == pathUnattributed:
+			unattributed++
+		default:
+			notEstablished++
+		}
+	}
+	return counted, stale, unattributed, notEstablished
+}
+
+// pathRead is one path for the report, with the state the summary printed for
+// its peer and its stale flag. A path that names no peer has no state, since no
+// summary key is the zero address.
+func pathRead(p frrbgp.RoutePath, kind string, states map[netip.Addr]string) frrBGPPathRead {
+	r := frrBGPPathRead{Kind: kind, SessionState: states[p.Peer], StaleFlag: staleFlagNames[p.Stale], PathFrom: p.PathFrom, ASPath: p.ASPath, BGPOrigin: p.Origin, NextHops: make([]string, 0, len(p.NextHops))}
 	if p.Source == frrbgp.RouteSourceLearned {
 		r.Peer = p.Peer.String()
 	}
@@ -286,9 +302,9 @@ func renderFRRBGPWithdrawal(b *strings.Builder, w frrBGPWithdrawal) {
 	case len(w.Evidence) < 2:
 		fmt.Fprintf(b, "  peer %s session: not captured; the manifest names no summary for %s\n", clean(w.Peer), clean(w.Node))
 	case w.PeerSessionState == "":
-		fmt.Fprintf(b, "  peer %s session: the summary does not list this peer, while the table lists paths from it; the captures disagree, and the withdrawal is read against the table as recorded\n", clean(w.Peer))
+		fmt.Fprintf(b, "  peer %s session: the summary does not list this peer, while the table lists paths from it; the captures do not show why, and the withdrawal is read against the table as recorded\n", clean(w.Peer))
 	case w.PeerSessionState != frrbgp.StateEstablished:
-		fmt.Fprintf(b, "  peer %s session: the summary printed state %s, while the table lists paths from it; the captures disagree, and the withdrawal is read against the table as recorded\n", clean(w.Peer), clean(w.PeerSessionState))
+		fmt.Fprintf(b, "  peer %s session: the summary printed state %s, while the table lists paths from it; the captures do not show why, and the withdrawal is read against the table as recorded\n", clean(w.Peer), clean(w.PeerSessionState))
 	default:
 		fmt.Fprintf(b, "  peer %s session: the summary printed state %s, and a prefix withdrawal leaves the session as recorded\n", clean(w.Peer), clean(w.PeerSessionState))
 	}
@@ -300,8 +316,7 @@ func renderFRRBGPWithdrawal(b *strings.Builder, w frrBGPWithdrawal) {
 }
 
 // renderPathReads writes one path list, each line after indent. A path's stale
-// flag is written only when the capture recorded one, and only a session loss
-// sets it.
+// flag is written only when the capture recorded one.
 func renderPathReads(b *strings.Builder, indent, label string, paths []frrBGPPathRead) {
 	clean := textsafe.Clean
 	if len(paths) == 0 {

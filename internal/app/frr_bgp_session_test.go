@@ -567,21 +567,6 @@ func TestSessionLossLeavesOtherReportsUnchanged(t *testing.T) {
 	}
 }
 
-// TestWithdrawKeepsItsWording pins where the follow-up to the withdrawal starts:
-// it writes no stale flag, and still calls an Active peer beside its paths a
-// disagreement. The golden files hold the bytes.
-func TestWithdrawKeepsItsWording(t *testing.T) {
-	for _, c := range withdrawGoldenCases() {
-		text, js := runWithdrawGolden(t, c)
-		if strings.Contains(js, "stale_flag") || strings.Contains(text, "stale flag") || strings.Contains(text, "session loss (") {
-			t.Errorf("%s: the withdrawal reports a stale flag or a session loss", c.name)
-		}
-		if c.name == "withdraw-stale-active-peer" && !strings.Contains(text, "the captures disagree") {
-			t.Errorf("%s: the withdrawal wording changed:\n%s", c.name, text)
-		}
-	}
-}
-
 // TestSessionLossTextIsBounded checks the text caps: 20 rated prefixes, 20
 // paths per list, and 20 unattributed prefixes, while JSON keeps every one.
 func TestSessionLossTextIsBounded(t *testing.T) {

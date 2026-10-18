@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-10-16" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-10-17" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the
  connection breaks
@@ -461,11 +461,15 @@ from the recorded BGP table of
 .IR node .
 Every path for the prefix that names the peer is removed, and nothing else
 changes: the peer's paths for other prefixes stay, so this is not a session
-loss. The outcome is paths_remain when a path from no peer, or from another
-peer the summary shows Established, is still listed; unknown when the only
-other paths name no peer or come from a peer the summary does not show
-Established; and no_recorded_path when the table lists no other path, which is
-not a route loss, since another peer may still send one. A
+loss. The outcome is paths_remain when a path FRR recorded from no peer
+(peerId (unspec)), or from another peer the summary shows Established (any
+other peer when the manifest names no summary for the node), is still listed
+and not recorded stale; unknown when the only other paths are recorded stale,
+have no peerId or one that is an unspecified address such as 0.0.0.0, so any
+of them may be the withdrawing peer's own, or come from a peer the summary
+does not show Established; and no_recorded_path when
+the table lists no other path, which is not a route loss, since another peer
+may still send one. A
 remaining path is a candidate, not a selected or installed route. The forwarding
 impact is always unknown: no RIB, FIB, or topology is read, and the result is
 never reachability_lost or redundancy_lost. The node ends at the first colon
@@ -488,9 +492,11 @@ attributes to the peer, for every prefix, is removed, and that nothing else
 changes; every outcome rests on that assumption. Each prefix that had such a
 path is rated as
 .B \-withdraw\-bgp
-rates one, except that a remaining path FRR recorded with a stale flag is not
-counted. The peer's session state is shown as the summary printed it, and a
-state other than Established is not read as a session newly lost. Whether and
+rates one, so a remaining path whose stale key FRR recorded as true is not
+counted; one recorded as false is not excluded by the flag, but still counts
+only if it otherwise qualifies. The peer's session state is shown as the
+summary printed it, and a state other than Established is not read as a
+session newly lost. Whether and
 when the node would remove the paths, for example under graceful restart, is
 unknown, and so is the forwarding impact. It needs
 .BR \-import\-frr\-bgp ,

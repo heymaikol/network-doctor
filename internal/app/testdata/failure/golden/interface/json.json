@@ -143,8 +143,8 @@
             "vrf": "default"
           }
         ],
-        "impact": "reachability_lost",
-        "reason": "after the failure, a forwarding branch from the source has no surviving next hop",
+        "impact": "unknown",
+        "reason": "after the failure, a forwarding branch has no surviving recorded next hop, but r1 (default) holds an OSPF or BGP route toward it, in control:r1 (ospf), and no route is recomputed here; whether that protocol computes another path once it learns of the failure is not in the evidence",
         "after": {
           "node": "r1",
           "vrf": "default",

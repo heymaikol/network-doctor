@@ -8,7 +8,8 @@ import (
 // explainFailureGoldenDir holds the pinned --explain reports of each simulated
 // failure. The router, interface, and OSPF adjacency files were written at
 // 6815109, before any other failure kind existed, so a later failure kind must
-// leave them byte for byte as they are.
+// leave them byte for byte as they are. The interface file changed once since,
+// when a loss behind a route that r1's control plane names OSPF became unknown.
 const explainFailureGoldenDir = "testdata/failure/golden"
 
 // explainFailureGoldenCases names each pinned report: the topology it reads

@@ -233,8 +233,9 @@ func TestEveryECMPLegCrossingTheFailureLosesReachability(t *testing.T) {
 
 func TestBranchWithNoSurvivingNextHopIsALoss(t *testing.T) {
 	// The r4 -> r3 link fails. r1 keeps both legs, because neither crosses the
-	// failure, and r4 has no next hop left. Flows hashed to r4 are dropped, so
-	// delivery is not preserved, whatever a protocol would converge to.
+	// failure, and r4 has no next hop left. Flows hashed to r4 are dropped, and
+	// no OSPF or BGP route on that branch may move them, so delivery is not
+	// preserved.
 	s := simulate(t, diamond(), Failure{Node: "r4", Interface: "eth1"})
 	if got := impacts(s)[dest]; got != ImpactReachabilityLost {
 		t.Errorf("%s impact = %s, want reachability_lost", dest, got)

@@ -22,6 +22,6 @@ Recorded FIB only: each node stops using a next hop that crosses the failure, an
 3 destinations considered, 1 unchanged.
   unknown 10.0.12.1 (r1 default): after the failure, the surviving forwarding does not prove delivery
     r1 (default): unknown: r1 (default) holds 10.0.12.1 on eth1, which is down; whether a node still answers for an address on a down interface depends on its platform, which the evidence does not record
-  reachability_lost 10.20.40.8 (r2 default): after the failure, a forwarding branch from the source has no surviving next hop
+  unknown 10.20.40.8 (r2 default): after the failure, a forwarding branch has no surviving recorded next hop, but r1 (default) holds an OSPF or BGP route toward it, in control:r1 (ospf), and no route is recomputed here; whether that protocol computes another path once it learns of the failure is not in the evidence
     r1 (default): forward 10.20.0.0/16 via eth1 10.0.12.2; basis fib; proven; evidence fib:r1 (kernel)
       -> eth1 via 10.0.12.2: failed: the segment crosses the simulated failure: interface r1 eth1 down

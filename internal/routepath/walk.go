@@ -80,6 +80,11 @@ type walker struct {
 	touched bool
 	adj     *Adjacency
 	gw      *Gateway
+	// tunnels are the file's tunnel records. underlay says a walk toward a
+	// tunnel's remote is under way, and nested names a tunnel that walk met.
+	tunnels  []Tunnel
+	underlay bool
+	nested   string
 }
 
 // Explain walks file from its source toward dest, once along the expected
@@ -132,11 +137,12 @@ func OwnersOf(f File, addr netip.Addr) []Start {
 
 func newWalker(f File, dest netip.Addr) *walker {
 	w := &walker{
-		m:      f.Model,
-		dest:   dest,
-		owners: map[netip.Addr][]state{},
-		owned:  map[ownerKey][]owning{},
-		checks: map[checkKey][]Check{},
+		m:       f.Model,
+		dest:    dest,
+		owners:  map[netip.Addr][]state{},
+		owned:   map[ownerKey][]owning{},
+		checks:  map[checkKey][]Check{},
+		tunnels: f.Tunnels,
 	}
 	for _, o := range f.Model.Observations() {
 		if slices.Contains(readPlanes, o.Plane) || o.Plane == netmodel.PlaneIntended {
@@ -305,6 +311,10 @@ func (w *walker) resolve(planes []netmodel.Plane, from state, n netmodel.NextHop
 	if w.fail != nil {
 		if cut, ok := w.sever(from, n, seg, ev); ok {
 			return cut
+		}
+		if t, why := w.tunnelRisk(from, n); why != "" {
+			w.touched = true
+			return Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why, Evidence: []Support{{Source: t.Source, CollectedAt: utcText(t.CollectedAt)}}}}
 		}
 	}
 	target := n.Addr

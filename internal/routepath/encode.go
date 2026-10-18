@@ -58,6 +58,17 @@ func Encode(f File) ([]byte, error) {
 			Kind:        string(b.Kind),
 		})
 	}
+	for _, t := range f.Tunnels {
+		w.Tunnels = append(w.Tunnels, wireTunnel{
+			Source:      t.Source,
+			CollectedAt: utcText(t.CollectedAt),
+			Node:        t.Node,
+			VRF:         t.VRF,
+			Interface:   t.Interface,
+			Remote:      t.Remote.String(),
+			UnderlayVRF: t.UnderlayVRF,
+		})
+	}
 	data, err := json.MarshalIndent(w, "", "  ")
 	if err != nil {
 		return nil, err
@@ -139,14 +150,15 @@ func encodeAttributes(attrs []netmodel.Attribute) []wireAttribute {
 }
 
 // evidence is what Decode must reproduce. Times compare in UTC, because the file
-// holds UTC. Empty lists compare as nil, and boundaries compare sorted, because
-// Decode sorts them.
+// holds UTC. Empty lists compare as nil, and boundaries and tunnels compare
+// sorted, because Decode sorts them.
 type evidence struct {
 	Source     Start
 	SourceAddr netip.Addr
 	Model      []netmodel.Observation
 	Checks     []Check
 	Boundaries []Boundary
+	Tunnels    []Tunnel
 }
 
 func evidenceOf(f File) evidence {
@@ -163,6 +175,11 @@ func evidenceOf(f File) evidence {
 		e.Boundaries = append(e.Boundaries, b)
 	}
 	slices.SortFunc(e.Boundaries, compareBoundaries)
+	for _, t := range f.Tunnels {
+		t.CollectedAt = t.CollectedAt.UTC()
+		e.Tunnels = append(e.Tunnels, t)
+	}
+	slices.SortFunc(e.Tunnels, compareTunnels)
 	return e
 }
 

@@ -186,7 +186,7 @@
     "an empty table is observed empty at collection time; neither it nor a missing capture shows that a route was withdrawn",
     "a prefix withdrawal is simulated against the named node's recorded BGP table only: every path for the prefix that names the peer is removed, and nothing else changes; no UPDATE is sent, no best path is recomputed, and propagation to other routers is not modeled",
     "a remaining path is a candidate FRR listed; whether it is valid, selected, or installed is not read, and no alternate path is invented",
-    "a stale flag is reported as FRR printed it; what set it is not read, and a path recorded stale is not counted as remaining",
+    "a stale flag is reported as FRR printed it; what set it is not read, and a path recorded stale is still listed as remaining but not counted toward paths_remain",
     "no_recorded_path means the recorded table lists no other path; a path can still arrive from another peer once the withdrawal propagates, which no capture shows, so no route loss is claimed",
     "the forwarding impact of a withdrawal is always unknown: the import reads no zebra RIB, kernel FIB, or topology, and ties no BGP path to a forwarding entry",
     "other prefixes are not rated: aggregation, conditional advertisement, policy, and next-hop resolution through the withdrawn prefix are not in the evidence"

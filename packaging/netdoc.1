@@ -462,9 +462,10 @@ from the recorded BGP table of
 Every path for the prefix that names the peer is removed, and nothing else
 changes: the peer's paths for other prefixes stay, so this is not a session
 loss. The outcome is paths_remain when a path from no peer, or from another
-peer the summary shows Established, is still listed and not recorded stale;
-unknown when the only other paths are recorded stale, name no peer, or come
-from a peer the summary does not show Established; and no_recorded_path when
+peer the summary shows Established (any other peer when the manifest names no
+summary for the node), is still listed and not recorded stale; unknown when
+the only other paths are recorded stale, name no peer, or come from a peer
+the summary does not show Established; and no_recorded_path when
 the table lists no other path, which is not a route loss, since another peer
 may still send one. A
 remaining path is a candidate, not a selected or installed route. The forwarding
@@ -489,9 +490,10 @@ attributes to the peer, for every prefix, is removed, and that nothing else
 changes; every outcome rests on that assumption. Each prefix that had such a
 path is rated as
 .B \-withdraw\-bgp
-rates one, so a remaining path FRR recorded with a stale flag is not
-counted. The peer's session state is shown as the summary printed it, and a
-state other than Established is not read as a session newly lost. Whether and
+rates one, so a remaining path whose stale key FRR recorded as true is not
+counted, while one recorded as false still counts. The peer's session state
+is shown as the summary printed it, and a state other than Established is
+not read as a session newly lost. Whether and
 when the node would remove the paths, for example under graceful restart, is
 unknown, and so is the forwarding impact. It needs
 .BR \-import\-frr\-bgp ,

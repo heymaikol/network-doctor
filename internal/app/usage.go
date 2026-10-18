@@ -106,9 +106,9 @@ session is up. Exit 2 means the manifest, a capture, or the output cannot be use
 --withdraw-bgp NODE:PEER:PREFIX adds a simulated withdrawal of PREFIX by PEER,
 read against NODE's recorded BGP table only. Every path for PREFIX from PEER is
 removed and nothing else changes: the peer's other prefixes stay, so it is not a
-session loss. The outcome says whether a path from no peer or from another
-Established peer remains that FRR did not record stale, whether none is
-recorded, or whether that is unknown.
+session loss. The outcome says whether a path not recorded stale remains from
+no peer or from another peer (Established in NODE's summary, or any peer when
+NODE has no summary), whether none is recorded, or whether that is unknown.
 A result of no recorded path is not a route loss: another peer may still send one.
 The forwarding impact is always unknown, because no RIB, FIB, or topology is
 read. A selector the table does not describe exits 2.

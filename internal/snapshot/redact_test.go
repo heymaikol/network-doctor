@@ -126,8 +126,8 @@ func TestSupportRedactsWholeCredentialValues(t *testing.T) {
 		{text: "password:: SYNTH_CANARY_A"},
 		{text: `{"Authorization":"Token SYNTH_CANARY_A"}`},
 		{text: `"Cookie": "sid=SYNTH_CANARY_A; other=SYNTH_CANARY_B"`},
-		{text: "ftp://synthuser:SYNTH_CANARY_A@files.example/"},
-		{text: "postgres://synthuser:SYNTH_CANARY_A@db.example/app"},
+		{text: "ftp://synthuser:SYNTH_CANARY_A@files.example/"},      //nolint:gosec // Synthetic credential for redaction testing.
+		{text: "postgres://synthuser:SYNTH_CANARY_A@db.example/app"}, //nolint:gosec // Synthetic credential for redaction testing.
 		{text: "redis://:SYNTH_CANARY_A@cache.example:6379"},
 		{text: "-----BEGIN PRIVATE KEY-----SYNTH_CANARY_A"},
 		// A doubled quote, then a space, still inside the value: the banner
@@ -260,7 +260,10 @@ func FuzzCredentialValue(f *testing.F) {
 func TestSupportRedactsMalformedHTTPStatusCode(t *testing.T) {
 	pinLocalIdentity(t)
 	readErr := func(line string) string {
-		_, err := http.ReadResponse(bufio.NewReader(strings.NewReader(line)), nil)
+		resp, err := http.ReadResponse(bufio.NewReader(strings.NewReader(line)), nil)
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		if err == nil {
 			t.Fatalf("net/http read %q as a response", line)
 		}

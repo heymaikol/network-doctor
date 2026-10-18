@@ -178,6 +178,9 @@ func Decode(data []byte) (File, error) {
 	declared := map[[3]string]int{}
 	for i, wt := range w.Tunnels {
 		t, err := decodeTunnel(wt)
+		if err == nil {
+			err = tunnelRecorded(m, t)
+		}
 		if err != nil {
 			return File{}, fmt.Errorf("tunnel %d: %w", i, err)
 		}
@@ -203,6 +206,32 @@ func Decode(data []byte) (File, error) {
 // unique.
 func compareTunnels(a, b Tunnel) int {
 	return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.VRF, b.VRF), cmp.Compare(a.Interface, b.Interface))
+}
+
+// tunnelRecorded refuses a tunnel record whose node and routing domain no
+// configured, control, or fib observation describes, or whose interface none of
+// them lists or names on a route's next hop. So a mistyped node, VRF, or
+// interface is never read as a tunnel that no recorded segment rides, which
+// would leave an underlay failure beneath the real tunnel rated none. A record
+// the evidence names but no fib route leaves by is kept: no recorded segment
+// rides it, so it changes no rating. The underlay routing domain and the remote
+// are not checked, because an underlay the evidence cannot walk to the remote
+// already leaves the overlay unknown.
+func tunnelRecorded(m netmodel.Model, t Tunnel) error {
+	domain := false
+	for _, o := range m.Observations() {
+		if o.Node != t.Node || o.VRF != t.VRF || !slices.Contains(readPlanes, o.Plane) {
+			continue
+		}
+		if namesInterface(o, t.Interface) {
+			return nil
+		}
+		domain = true
+	}
+	if !domain {
+		return fmt.Errorf("no configured, control, or fib observation describes %s (%s)", t.Node, t.VRF)
+	}
+	return fmt.Errorf("%s (%s) lists no interface %q and names it on no route", t.Node, t.VRF, t.Interface)
 }
 
 // decodeTunnel reads one tunnel record. The remote must be one unicast address

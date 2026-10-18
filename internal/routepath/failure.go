@@ -380,10 +380,7 @@ func (w *walker) checkFailure(src Start, f Failure) error {
 			continue
 		}
 		node = true
-		iface = iface || slices.ContainsFunc(o.Interfaces, func(i netmodel.Interface) bool { return i.Name == f.Interface }) ||
-			slices.ContainsFunc(o.Routes, func(r netmodel.Route) bool {
-				return slices.ContainsFunc(r.NextHops, func(n netmodel.NextHop) bool { return n.Interface == f.Interface })
-			})
+		iface = iface || namesInterface(o, f.Interface)
 	}
 	switch {
 	case !node:
@@ -392,6 +389,15 @@ func (w *walker) checkFailure(src Start, f Failure) error {
 		return fmt.Errorf("node %q lists no interface %q and names it on no route", f.Node, f.Interface)
 	}
 	return nil
+}
+
+// namesInterface reports whether o lists an interface called name or names it
+// as the interface of a route's next hop.
+func namesInterface(o netmodel.Observation, name string) bool {
+	return slices.ContainsFunc(o.Interfaces, func(i netmodel.Interface) bool { return i.Name == name }) ||
+		slices.ContainsFunc(o.Routes, func(r netmodel.Route) bool {
+			return slices.ContainsFunc(r.NextHops, func(n netmodel.NextHop) bool { return n.Interface == name })
+		})
 }
 
 // adjacency reads the control-plane OSPF neighbor records that name the lost

@@ -70,13 +70,23 @@ func tunnelRecord(node, vrf, iface, remote, underlay string) Tunnel {
 // r1wg0 is the record that ties r1's wg0 to r5's underlay endpoint.
 var r1wg0 = tunnelRecord("r1", "default", "wg0", "10.0.25.1", "default")
 
+// The file goes through Encode, which decodes what it writes, so every record a
+// test simulates passes the decoder's checks.
 func simulateTunnels(t *testing.T, obs []netmodel.Observation, tunnels []Tunnel, src Start, fail Failure) Simulation {
 	t.Helper()
 	m, err := netmodel.New(obs...)
 	if err != nil {
 		t.Fatalf("netmodel.New: %v", err)
 	}
-	s, err := Simulate(File{Source: src, Model: m, Tunnels: tunnels}, fail)
+	data, err := Encode(File{Source: src, Model: m, Tunnels: tunnels})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	f, err := Decode(data)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	s, err := Simulate(f, fail)
 	if err != nil {
 		t.Fatalf("Simulate(%+v): %v", fail, err)
 	}
@@ -187,9 +197,11 @@ func TestFailureOffTheUnderlayLeavesTheOverlayUnchanged(t *testing.T) {
 // domain is another interface, and a walk in another domain never rides it.
 func TestTunnelRecordStaysInItsRoutingDomain(t *testing.T) {
 	fail := Failure{Node: "r2"}
+	obs := append(without(tunnelTopology(), "config:r1:blue"),
+		configured("r1", "blue", []netmodel.Interface{ifc("eth3", "10.0.14.1/30"), {Name: "wg0"}}))
 	blue := tunnelRecord("r1", "blue", "wg0", "10.0.25.1", "default")
-	got := impacts(simulateTunnels(t, tunnelTopology(), []Tunnel{blue}, fromR1, fail))
-	if want := withOverlay(t, tunnelTopology(), fromR1, fail, nil); !reflect.DeepEqual(got, want) {
+	got := impacts(simulateTunnels(t, obs, []Tunnel{blue}, fromR1, fail))
+	if want := withOverlay(t, obs, fromR1, fail, nil); !reflect.DeepEqual(got, want) {
 		t.Errorf("record in blue: impacts = %v, want %v", got, want)
 	}
 	fromBlue := Start{Node: "r1", VRF: "blue"}
@@ -309,6 +321,30 @@ func TestNextHopWithNoInterfaceMayRideTheTunnel(t *testing.T) {
 	want := withOverlay(t, obs, fromR1, fail, map[string]Impact{overlayDest: ImpactUnknown, tunnelPeer: ImpactUnknown})
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("impacts = %v, want %v", got, want)
+	}
+}
+
+// A record that names an interface its node and routing domain do not record
+// matches no segment, so the overlay over the real wg0 would read none under an
+// underlay failure. The decoder refuses it instead.
+func TestUnmatchedTunnelRecordIsRefused(t *testing.T) {
+	m, err := netmodel.New(tunnelTopology()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		tunnel Tunnel
+		want   string
+	}{
+		{tunnelRecord("r1", "default", "wgo", "10.0.25.1", "default"), `r1 (default) lists no interface "wgo"`},
+		{tunnelRecord("r1", "blue", "wg0", "10.0.25.1", "default"), `r1 (blue) lists no interface "wg0"`},
+		{tunnelRecord("r2", "default", "wg0", "10.0.25.1", "default"), `r2 (default) lists no interface "wg0"`},
+		{tunnelRecord("r9", "default", "wg0", "10.0.25.1", "default"), "no configured, control, or fib observation describes r9 (default)"},
+	} {
+		_, err := Encode(File{Source: fromR1, Model: m, Tunnels: []Tunnel{c.tunnel}})
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("record %s (%s) %s: error = %v, want it to say %q", c.tunnel.Node, c.tunnel.VRF, c.tunnel.Interface, err, c.want)
+		}
 	}
 }
 

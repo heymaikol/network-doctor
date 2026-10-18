@@ -70,8 +70,8 @@ func populatedFile(t *testing.T) File {
 			{Provenance: netmodel.Provenance{Source: "config r1", CollectedAt: at}, Node: "r1", VRF: "default", Kind: BoundaryStatefulFirewall},
 		},
 		Tunnels: []Tunnel{
-			{Provenance: netmodel.Provenance{Source: "config r2", CollectedAt: at}, Node: "r2", VRF: "default", Interface: "wg0", Remote: netip.MustParseAddr("2001:db8::1"), UnderlayVRF: "transit"},
-			{Provenance: netmodel.Provenance{Source: "config r1", CollectedAt: at}, Node: "r1", VRF: "default", Interface: "wg0", Remote: netip.MustParseAddr("10.0.1.2"), UnderlayVRF: "default"},
+			{Provenance: netmodel.Provenance{Source: "config r2", CollectedAt: at}, Node: "r2", VRF: "default", Interface: "e2", Remote: netip.MustParseAddr("2001:db8::1"), UnderlayVRF: "transit"},
+			{Provenance: netmodel.Provenance{Source: "config r1", CollectedAt: at}, Node: "r1", VRF: "default", Interface: "e2", Remote: netip.MustParseAddr("10.0.1.2"), UnderlayVRF: "default"},
 		},
 	}
 }

@@ -106,6 +106,11 @@ func TestDecodeRefusesMalformedFiles(t *testing.T) {
 		{"tunnel broadcast remote", withTunnels(tunnelTo("255.255.255.255")), "multipoint"},
 		{"duplicate tunnel", withTunnels(tunnelRow, tunnelRow), "declares r1 (default) wg0 again"},
 		{"conflicting tunnel remotes", withTunnels(tunnelRow, tunnelTo("10.0.26.1")), "declares r1 (default) wg0 again"},
+		{"misspelled tunnel interface", withTunnels(strings.Replace(tunnelRow, `"wg0"`, `"wgo"`, 1)), `r1 (default) lists no interface "wgo" and names it on no route`},
+		{"tunnel interface only intended", withTunnels(strings.Replace(tunnelRow, `"wg0"`, `"wg9"`, 1)), `r1 (default) lists no interface "wg9"`},
+		{"tunnel on a node without the interface", withTunnels(strings.Replace(tunnelRow, `"node": "r1"`, `"node": "r2"`, 1)), `r2 (default) lists no interface "wg0"`},
+		{"tunnel in an unrecorded routing domain", withTunnels(strings.Replace(tunnelRow, `"vrf": "default"`, `"vrf": "green"`, 1)), "no configured, control, or fib observation describes r1 (green)"},
+		{"tunnel on an unrecorded node", withTunnels(strings.Replace(tunnelRow, `"node": "r1"`, `"node": "r9"`, 1)), "no configured, control, or fib observation describes r9 (default)"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -127,23 +132,34 @@ func tunnelTo(remote string) string {
 	return strings.Replace(tunnelRow, `"remote": "10.0.25.1"`, `"remote": "`+remote+`"`, 1)
 }
 
-// withTunnels is threeRoutersFile with these tunnel rows.
+// tunnelEvidence records the interfaces the tunnel rows name: r1 lists wg0 in
+// two routing domains, r3 names it only on a FIB next hop, and wg9 is only
+// intended.
+const tunnelEvidence = `
+    {"source": "config:r1-wg0", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r1", "vrf": "default", "interfaces": [{"name": "wg0"}]},
+    {"source": "config:r1-blue", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r1", "vrf": "blue", "interfaces": [{"name": "wg0"}]},
+    {"source": "intent:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "intended", "node": "r1", "vrf": "default", "interfaces": [{"name": "wg9"}]},
+    {"source": "fib:r3", "collected_at": "2026-10-09T12:00:00Z", "plane": "fib", "node": "r3", "vrf": "default",
+     "routes": [{"prefix": "10.50.0.0/24", "origin": "static", "next_hops": [{"interface": "wg0"}]}]},`
+
+// withTunnels is threeRoutersFile with tunnelEvidence and these tunnel rows.
 func withTunnels(rows ...string) string {
-	return strings.Replace(threeRoutersFile, `"checks": [`, `"tunnels": [`+strings.Join(rows, ", ")+`], "checks": [`, 1)
+	return strings.NewReplacer(`"observations": [`, `"observations": [`+tunnelEvidence,
+		`"checks": [`, `"tunnels": [`+strings.Join(rows, ", ")+`], "checks": [`).Replace(threeRoutersFile)
 }
 
 func TestDecodeReadsTunnels(t *testing.T) {
-	other := strings.NewReplacer(`"source": "config:r1"`, `"source": "config:r2"`, `"node": "r1"`, `"node": "r2"`, `"remote": "10.0.25.1"`, `"remote": "2001:db8::5"`, `"underlay_vrf": "default"`, `"underlay_vrf": "transit"`).Replace(tunnelRow)
+	other := strings.NewReplacer(`"source": "config:r1"`, `"source": "config:r3"`, `"node": "r1"`, `"node": "r3"`, `"remote": "10.0.25.1"`, `"remote": "2001:db8::5"`, `"underlay_vrf": "default"`, `"underlay_vrf": "transit"`).Replace(tunnelRow)
 	f, err := Decode([]byte(withTunnels(other, tunnelRow)))
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
 	want := []Tunnel{
 		{Provenance: netmodel.Provenance{Source: "config:r1", CollectedAt: t0}, Node: "r1", VRF: "default", Interface: "wg0", Remote: addr("10.0.25.1"), UnderlayVRF: "default"},
-		{Provenance: netmodel.Provenance{Source: "config:r2", CollectedAt: t0}, Node: "r2", VRF: "default", Interface: "wg0", Remote: addr("2001:db8::5"), UnderlayVRF: "transit"},
+		{Provenance: netmodel.Provenance{Source: "config:r3", CollectedAt: t0}, Node: "r3", VRF: "default", Interface: "wg0", Remote: addr("2001:db8::5"), UnderlayVRF: "transit"},
 	}
 	if !reflect.DeepEqual(f.Tunnels, want) {
-		t.Errorf("tunnels = %+v, want %+v in node order with their provenance", f.Tunnels, want)
+		t.Errorf("tunnels = %+v, want %+v in node order with their provenance, r3's wg0 recorded by a next hop alone", f.Tunnels, want)
 	}
 	// The same interface name in another routing domain is another interface.
 	blue := strings.Replace(tunnelRow, `"vrf": "default"`, `"vrf": "blue"`, 1)

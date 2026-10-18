@@ -51,6 +51,18 @@ type structuralFailureCase struct {
 	// partial. The same prediction, from evidence that no longer proves its
 	// forwarding, must rate dest unknown, whatever the dials showed.
 	partial string
+	// fail, when set, is the failure predicted instead of the fault itself,
+	// for a fault wider than the failure. Only what the source can observe of
+	// the fault is then graded, never that the two are the same event.
+	fail *routepath.Failure
+	// unaffected, when set, is a destination that must be predicted none and
+	// be delivered both before and after the fault.
+	unaffected string
+	// kept, when set, is node, prefix, then gateway: after the fault, the
+	// node's route to the prefix must still list the gateway with no dead or
+	// linkdown flag, so nothing in the node's table stops it selecting the
+	// gateway, and every held address in the prefix must be predicted unknown.
+	kept [3]string
 }
 
 // diamondScenario is r1 with two paths to r3's LAN, one through r2 and one
@@ -138,6 +150,54 @@ tests:
 expect: {verdict: ok}
 `
 
+// sharedLANScenario is r1 on one LAN, s1, with two gateways: r2 at 10.73.1.2
+// and r4 at 10.73.1.4. Each holds a LAN of its own and reaches r3's LAN, and r3
+// routes s1 back through r4 only, so a reply never depends on r2.
+const sharedLANScenario = `
+name: structural-failure-shared-lan
+topology:
+  segments:
+    - {name: s1, subnet: 10.73.1.0/24}
+    - {name: s23, subnet: 10.73.23.0/24}
+    - {name: s43, subnet: 10.73.43.0/24}
+    - {name: lan2, subnet: 10.73.20.0/24}
+    - {name: lan3, subnet: 10.73.30.0/24}
+    - {name: lan4, subnet: 10.73.40.0/24}
+  nodes:
+    - name: r1
+      role: client
+      interfaces:
+        - {segment: s1, address: 10.73.1.1/24}
+    - name: r2
+      role: router
+      interfaces:
+        - {segment: s1, address: 10.73.1.2/24}
+        - {segment: s23, address: 10.73.23.2/24}
+        - {segment: lan2, address: 10.73.20.1/24}
+    - name: r4
+      role: router
+      interfaces:
+        - {segment: s1, address: 10.73.1.4/24}
+        - {segment: s43, address: 10.73.43.4/24}
+        - {segment: lan4, address: 10.73.40.1/24}
+    - name: r3
+      interfaces:
+        - {segment: s23, address: 10.73.23.3/24}
+        - {segment: s43, address: 10.73.43.3/24}
+        - {segment: lan3, address: 10.73.30.1/24}
+  routes:
+    - {node: r1, destination: 10.73.20.0/24, via: 10.73.1.2}
+    - {node: r1, destination: 10.73.40.0/24, via: 10.73.1.4}
+    - {node: r2, destination: 10.73.30.0/24, via: 10.73.23.3}
+    - {node: r4, destination: 10.73.30.0/24, via: 10.73.43.3}
+    - {node: r3, destination: 10.73.1.0/24, via: 10.73.43.4}
+faults:
+  - {type: link_down, node: r2, segment: s1}
+tests:
+  - {name: unused, node: r1}
+expect: {verdict: ok}
+`
+
 var structuralFailureCases = []structuralFailureCase{{
 	// Both legs are in r1's FIB, so nothing has to reconverge: the kernel
 	// marks the s12 leg dead and keeps forwarding on the other one.
@@ -166,12 +226,28 @@ var structuralFailureCases = []structuralFailureCase{{
 	name:     "far end of the only link",
 	scenario: fmt.Sprintf(singleHomedScenario, "s12"),
 	dest:     "10.72.30.1", impact: routepath.ImpactReachabilityLost, delivered: false,
+}, {
+	// r2's end of s1 goes down. That is a wider fault than the one predicted:
+	// r2 loses s1 for every neighbor, and its own address there, not just its
+	// role as r1's next hop. So only what r1 observes is graded. r1's link
+	// keeps its carrier through the segment bridge and r4 still answers on
+	// it, so from r1 a next hop stops answering on a link that stays up, and
+	// r1's table keeps listing it.
+	name:      "gateway lost on a shared LAN",
+	scenario:  sharedLANScenario,
+	multipath: []string{"r1", "10.73.30.0/24", "10.73.1.2", "10.73.1.4"},
+	fail:      &routepath.Failure{Node: "r1", NextHop: "10.73.1.2"},
+	dest:      "10.73.20.1", impact: routepath.ImpactReachabilityLost, delivered: false,
+	unaffected: "10.73.40.1",
+	kept:       [3]string{"r1", "10.73.30.0/24", "10.73.1.2"},
+	partial:    "r1",
 }}
 
 // TestStructuralFailureAgainstLiveFaults holds the --explain --fail simulation
 // to a real network. Each case builds namespaces, reads every node's kernel
 // addresses and main table into a topology file, and simulates the scenario's
-// one link_down fault from that file alone. Then it injects the fault and dials
+// one link_down fault, or the narrower failure the case names, from that file
+// alone. Then it injects the fault and dials
 // every destination the simulation considered, from the source, before and
 // after. The prediction is graded against those dials and the kernel's own
 // route selection, never against the scenario: the YAML only builds the
@@ -239,6 +315,9 @@ func runStructuralFailureCase(t *testing.T, c structuralFailureCase) {
 	obs := kernelObservations(ctx, t, e)
 	file := topologyFile(t, src.node.Name, obs)
 	fail := routepath.Failure{Node: fault.Node, Interface: fault.Segment}
+	if c.fail != nil {
+		fail = *c.fail
+	}
 	sim, err := routepath.Simulate(file, fail)
 	if err != nil {
 		t.Fatal(err)
@@ -286,6 +365,14 @@ func runStructuralFailureCase(t *testing.T, c structuralFailureCase) {
 	if got := cmp.Or(rated[c.dest].Impact, routepath.ImpactNone); got != c.impact || after[c.dest] != c.delivered {
 		t.Errorf("%s: predicted %s and delivered %t after the fault, want %s and %t: the case no longer exercises what it is for",
 			c.dest, got, after[c.dest], c.impact, c.delivered)
+	}
+	if d := c.unaffected; d != "" {
+		if got := cmp.Or(rated[d].Impact, routepath.ImpactNone); got != routepath.ImpactNone || !before[d] || !after[d] {
+			t.Errorf("%s: predicted %s and delivered %t then %t, want none and delivered both times", d, got, before[d], after[d])
+		}
+	}
+	if c.kept[0] != "" {
+		checkKept(ctx, t, e, c.kept, dests, rated)
 	}
 
 	if c.partial == "" {
@@ -345,6 +432,45 @@ func disagreement(ctx context.Context, e *netnsEnv, src *nodeProc, a routepath.A
 		}
 	}
 	return ""
+}
+
+// checkKept requires that a node still lists a gateway in its route to a prefix
+// after the fault, with no dead or linkdown flag, and that every held address
+// in the prefix is predicted unknown: nothing in the table stops the node
+// selecting the gateway, and whether something else does is not in the file.
+// The route lookup and the gateway's neighbor entry are logged, not graded. A
+// lookup with no source address is one hash selection, under a seed the file
+// does not record, and a dial's own lookup may hash differently, so it shows
+// what the kernel selects for that lookup, never which leg a flow took.
+func checkKept(ctx context.Context, t *testing.T, e *netnsEnv, kept [3]string, dests []string, rated map[string]routepath.Affected) {
+	t.Helper()
+	node, prefix, gateway := kept[0], netip.MustParsePrefix(kept[1]), kept[2]
+	var routes []kernelRoute
+	kernelJSON(ctx, t, e, node, &routes, "ip", "-4", "-j", "route", "show", "table", "main")
+	i := slices.IndexFunc(routes, func(r kernelRoute) bool { return r.Dst == prefix.String() })
+	if i < 0 {
+		t.Fatalf("%s holds no route to %s after the fault", node, prefix)
+	}
+	hops := routes[i].Nexthops
+	if len(hops) == 0 {
+		hops = []kernelHop{routes[i].kernelHop}
+	}
+	if j := slices.IndexFunc(hops, func(h kernelHop) bool { return h.Gateway == gateway }); j < 0 ||
+		slices.Contains(hops[j].Flags, "dead") || slices.Contains(hops[j].Flags, "linkdown") {
+		t.Errorf("%s no longer lists %s as a usable next hop of %s after the fault: %+v", node, gateway, prefix, hops)
+	}
+	neigh := e.Exec(ctx, node, []string{"ip", "-4", "neigh", "show", gateway}, nil)
+	t.Logf("%s neighbor entry for %s after the fault: %s", node, gateway, strings.TrimSpace(string(neigh.Stdout)))
+	for _, d := range dests {
+		if !prefix.Contains(netip.MustParseAddr(d)) {
+			continue
+		}
+		if got := cmp.Or(rated[d].Impact, routepath.ImpactNone); got != routepath.ImpactUnknown {
+			t.Errorf("%s: predicted %s, want unknown while %s keeps %s in its route", d, got, node, gateway)
+		}
+		res := e.Exec(ctx, node, []string{"ip", "-4", "route", "get", d}, nil)
+		t.Logf("%s ip route get %s after the fault, one lookup selection: %s", node, d, strings.TrimSpace(string(res.Stdout)))
+	}
 }
 
 // delivers reports whether some branch of a walk still ends at the destination.

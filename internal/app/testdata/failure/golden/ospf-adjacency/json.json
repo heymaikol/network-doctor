@@ -1,0 +1,180 @@
+{
+  "source": {
+    "node": "r1",
+    "vrf": "default"
+  },
+  "destination": "10.20.40.8",
+  "expected": {
+    "node": "r1",
+    "vrf": "default",
+    "decision": {
+      "kind": "unknown",
+      "basis": "control",
+      "proven": false,
+      "reason": "no complete table and no matching route for this node"
+    }
+  },
+  "forwarding": {
+    "node": "r1",
+    "vrf": "default",
+    "decision": {
+      "kind": "forward",
+      "basis": "fib",
+      "prefix": "10.20.0.0/16",
+      "proven": true,
+      "next_hops": [
+        {
+          "addr": "10.0.12.2",
+          "interface": "eth1"
+        }
+      ],
+      "evidence": [
+        {
+          "source": "fib:r1",
+          "collected_at": "2026-10-09T12:00:00Z",
+          "origin": "ospf"
+        }
+      ],
+      "agreement": "unknown"
+    },
+    "next": [
+      {
+        "node": "r2",
+        "vrf": "default",
+        "via": {
+          "from": "r1",
+          "vrf": "default",
+          "interface": "eth1",
+          "next_hop": "10.0.12.2",
+          "outcome": "none"
+        },
+        "decision": {
+          "kind": "local",
+          "basis": "configured",
+          "proven": false,
+          "evidence": [
+            {
+              "source": "config:r2",
+              "collected_at": "2026-10-09T12:00:00Z"
+            }
+          ],
+          "reason": "destination is an address on this node"
+        }
+      }
+    ]
+  },
+  "findings": null,
+  "failure_regions": [],
+  "limitations": [
+    "r1 (default): expected route unknown; no complete table and no matching route for this node (expected walk)"
+  ],
+  "truncated": false,
+  "failure": {
+    "failure": {
+      "node": "r1",
+      "interface": "eth1",
+      "vrf": "default",
+      "ospf_neighbor": "r2"
+    },
+    "adjacency": {
+      "neighbor_addr": "10.0.12.2",
+      "remote_interface": "eth0",
+      "proven": true,
+      "evidence": [
+        {
+          "source": "frr:r1",
+          "collected_at": "2026-10-09T12:00:00Z"
+        }
+      ]
+    },
+    "source": {
+      "node": "r1",
+      "vrf": "default"
+    },
+    "considered": 3,
+    "unchanged": 2,
+    "affected": [
+      {
+        "destination": "10.20.40.8",
+        "owners": [
+          {
+            "node": "r2",
+            "vrf": "default"
+          }
+        ],
+        "impact": "unknown",
+        "reason": "after the adjacency loss, a forwarding branch has no surviving recorded next hop; OSPF recomputes its routes after the loss, and no SPF is run here, so whether another path takes over is unknown",
+        "after": {
+          "node": "r1",
+          "vrf": "default",
+          "decision": {
+            "kind": "forward",
+            "basis": "fib",
+            "prefix": "10.20.0.0/16",
+            "proven": true,
+            "next_hops": [
+              {
+                "addr": "10.0.12.2",
+                "interface": "eth1"
+              }
+            ],
+            "evidence": [
+              {
+                "source": "fib:r1",
+                "collected_at": "2026-10-09T12:00:00Z",
+                "origin": "ospf"
+              }
+            ]
+          },
+          "next": [
+            {
+              "node": "",
+              "vrf": "",
+              "via": {
+                "from": "r1",
+                "vrf": "default",
+                "interface": "eth1",
+                "next_hop": "10.0.12.2",
+                "outcome": "none"
+              },
+              "decision": {
+                "kind": "failed",
+                "proven": false,
+                "reason": "the segment crosses the simulated failure: OSPF adjacency r1 (default) eth1 to r2 lost"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "truncated": false
+  },
+  "ospf": {
+    "findings": [
+      {
+        "kind": "neighbor_state",
+        "strength": "reported",
+        "node": "r1",
+        "vrf": "default",
+        "interface": "eth1",
+        "peer": "r2",
+        "peer_interface": "eth0",
+        "detail": "reports state full",
+        "limit": "FULL is the reporter's own claim. It does not prove that the link carries traffic or that the destination is reachable.",
+        "evidence": [
+          {
+            "source": "frr:r1",
+            "collected_at": "2026-10-09T12:00:00Z",
+            "plane": "control",
+            "node": "r1",
+            "vrf": "default",
+            "interface": "eth1",
+            "peer": "r2",
+            "peer_interface": "eth0",
+            "state": "Full"
+          }
+        ]
+      }
+    ]
+  }
+}

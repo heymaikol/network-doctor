@@ -74,11 +74,12 @@ type walker struct {
 	truncated bool
 	notes     []string
 	// fail is the simulated failure, and touched says a walk met it. adj is
-	// what the evidence says about a lost OSPF adjacency. All are unset outside
-	// Simulate.
+	// what the evidence says about a lost OSPF adjacency, and gw about a lost
+	// next hop. All are unset outside Simulate.
 	fail    *Failure
 	touched bool
 	adj     *Adjacency
+	gw      *Gateway
 }
 
 // Explain walks file from its source toward dest, once along the expected

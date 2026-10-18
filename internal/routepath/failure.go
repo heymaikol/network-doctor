@@ -25,16 +25,26 @@ const (
 // in every routing domain that lists it. With an OSPFNeighbor as well, only the
 // OSPF adjacency of Node on Interface toward that neighbor is lost, in routing
 // domain VRF, and the interface stays up. Simulate fills an empty VRF from the
-// neighbor records that name the adjacency.
+// neighbor records that name the adjacency. With a NextHop instead, only the
+// FIB legs of Node in routing domain VRF through that gateway address are lost,
+// on Interface when it is set, and the interface and the gateway's node stay
+// up. Simulate fills an empty VRF from the FIB rows that name the next hop.
 type Failure struct {
 	Node         string `json:"node"`
 	Interface    string `json:"interface,omitempty"`
 	VRF          string `json:"vrf,omitempty"`
 	OSPFNeighbor string `json:"ospf_neighbor,omitempty"`
+	NextHop      string `json:"next_hop,omitempty"`
 }
 
 func (f Failure) String() string {
 	switch {
+	case f.NextHop != "":
+		on := ""
+		if f.Interface != "" {
+			on = " on " + f.Interface
+		}
+		return "next hop " + f.NextHop + on + " of " + f.Node + " (" + f.VRF + ") unavailable"
 	case f.OSPFNeighbor != "":
 		return "OSPF adjacency " + f.Node + " (" + f.VRF + ") " + f.Interface + " to " + f.OSPFNeighbor + " lost"
 	case f.Interface == "":
@@ -65,6 +75,15 @@ type Adjacency struct {
 	Reason          string    `json:"reason,omitempty"`
 	Evidence        []Support `json:"evidence"`
 	addr            netip.Addr
+}
+
+// Gateway is what the recorded FIB says about a lost next hop. Owners are the
+// modeled routing domains that hold its address, and may be empty. Evidence
+// lists the FIB rows that name it, which are what make it selectable.
+type Gateway struct {
+	Owners   []Start   `json:"owners"`
+	Evidence []Support `json:"evidence"`
+	addr     netip.Addr
 }
 
 // Impact says what a failure does to delivery of one destination from the
@@ -98,15 +117,16 @@ type Affected struct {
 }
 
 // Simulation is what one failure does to forwarding from the source. Adjacency
-// is set for an OSPF adjacency loss only. Considered counts the destinations
-// walked, Unchanged those with no impact, and Affected lists the rest in
-// address order. Truncated says a bound cut the output short: skipped says a
+// is set for an OSPF adjacency loss only, and Gateway for a next-hop loss only.
+// Considered counts the destinations walked, Unchanged those with no impact,
+// and Affected lists the rest in address order. Truncated says a bound cut the output short: skipped says a
 // destination went unconsidered, stopped says a walk was stopped by a bound of
 // its own, and an Affected with no After says its walk was omitted after it was
 // rated.
 type Simulation struct {
 	Failure    Failure    `json:"failure"`
 	Adjacency  *Adjacency `json:"adjacency,omitempty"`
+	Gateway    *Gateway   `json:"gateway,omitempty"`
 	Source     Start      `json:"source"`
 	Considered int        `json:"considered"`
 	Unchanged  int        `json:"unchanged"`
@@ -128,14 +148,23 @@ type Simulation struct {
 // the adjacency, and no destination is rated
 // reachability_lost: OSPF recomputes its routes after the loss, and no SPF is
 // run here.
+//
+// A next-hop loss leaves the interface and the gateway's node up, so nothing
+// tells the node to stop selecting the lost leg beside a surviving one, and no
+// destination is rated redundancy_lost: whether flows hashed onto the lost leg
+// move is not in the evidence.
 func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	w := newWalker(f, netip.Addr{})
-	if fail.OSPFNeighbor != "" {
-		var err error
-		if fail, w.adj, err = w.adjacency(fail); err != nil {
-			return Simulation{}, err
-		}
-	} else if err := w.checkFailure(f.Source, fail); err != nil {
+	var err error
+	switch {
+	case fail.NextHop != "":
+		fail, w.gw, err = w.gateway(fail)
+	case fail.OSPFNeighbor != "":
+		fail, w.adj, err = w.adjacency(fail)
+	default:
+		err = w.checkFailure(f.Source, fail)
+	}
+	if err != nil {
 		return Simulation{}, err
 	}
 	var dests []netip.Addr
@@ -153,7 +182,7 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	slices.SortFunc(owned, netip.Addr.Compare)
 	dests = append(dests, owned...)
 
-	s := Simulation{Failure: fail, Adjacency: w.adj, Source: f.Source, Affected: []Affected{}}
+	s := Simulation{Failure: fail, Adjacency: w.adj, Gateway: w.gw, Source: f.Source, Affected: []Affected{}}
 	if len(dests) > maxDestinations {
 		dests, s.skipped = dests[:maxDestinations], true
 	}
@@ -184,6 +213,9 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 		a.Impact, a.Reason = rate(reachOf(&before, nil), reachOf(&after, nil), w.touched)
 		if a.Impact == ImpactReachabilityLost && w.adj != nil {
 			a.Impact, a.Reason = ImpactUnknown, "after the adjacency loss, a forwarding branch has no surviving recorded next hop; OSPF recomputes its routes after the loss, and no SPF is run here, so whether another path takes over is unknown"
+		}
+		if a.Impact == ImpactRedundancyLost && w.gw != nil {
+			a.Impact, a.Reason = ImpactUnknown, "every surviving recorded branch delivers, but the recorded route still lists the lost next hop; whether the node stops selecting it while its link stays up is not in the evidence, so traffic hashed onto it may be dropped"
 		}
 		if a.Impact == ImpactNone {
 			s.Unchanged++
@@ -368,6 +400,91 @@ func (w *walker) adjacency(f Failure) (Failure, *Adjacency, error) {
 	return f, adj, nil
 }
 
+// gateway reads the FIB rows of the failure's node that name its next hop, and
+// returns the failure with its routing domain filled in and its address in
+// canonical form. Only FIB rows count, since the simulation walks only the FIB.
+// It refuses a next hop no FIB row of the node names, so a mistyped address
+// never reads as a loss that affects nothing, and one named in several routing
+// domains or on several interfaces when the failure does not choose one. A
+// link-local address names a neighbor only together with its link, so it needs
+// an interface.
+func (w *walker) gateway(f Failure) (Failure, *Gateway, error) {
+	a, err := netip.ParseAddr(f.NextHop)
+	switch {
+	case f.Node == "":
+		return f, nil, errors.New("a next-hop loss needs a node and a next-hop address")
+	case f.OSPFNeighbor != "":
+		return f, nil, errors.New("a next-hop loss names no OSPF neighbor")
+	case err != nil || a.Zone() != "":
+		return f, nil, fmt.Errorf("next hop %q is not an IP address", f.NextHop)
+	}
+	a = a.Unmap()
+	f.NextHop = a.String()
+	node := f.Node
+	if f.VRF != "" {
+		node += "@" + f.VRF
+	}
+	if a.IsLinkLocalUnicast() && f.Interface == "" {
+		return f, nil, fmt.Errorf("link-local next hop %s needs an interface: %s:%s%%INTERFACE", a, node, a)
+	}
+	names := func(n netmodel.NextHop) bool { return n.Addr == a }
+	var vrfs []string
+	for _, o := range w.obs {
+		if o.Plane == netmodel.PlaneFIB && o.Node == f.Node && (f.VRF == "" || o.VRF == f.VRF) && !slices.Contains(vrfs, o.VRF) &&
+			slices.ContainsFunc(o.Routes, func(r netmodel.Route) bool { return slices.ContainsFunc(r.NextHops, names) }) {
+			vrfs = append(vrfs, o.VRF)
+		}
+	}
+	switch {
+	case len(vrfs) == 0 && f.VRF != "":
+		return f, nil, fmt.Errorf("no fib route of node %q in routing domain %q names next hop %s", f.Node, f.VRF, a)
+	case len(vrfs) == 0:
+		return f, nil, fmt.Errorf("no fib route of node %q names next hop %s", f.Node, a)
+	case len(vrfs) > 1:
+		slices.Sort(vrfs)
+		return f, nil, fmt.Errorf("fib routes of node %q name next hop %s in routing domains %s; name one as %s@VRF:%s", f.Node, a, strings.Join(vrfs, ", "), f.Node, a)
+	}
+	f.VRF = vrfs[0]
+
+	gw := &Gateway{Owners: []Start{}, addr: a}
+	var ifaces []string
+	for _, o := range w.obs {
+		if o.Plane != netmodel.PlaneFIB || o.Node != f.Node || o.VRF != f.VRF {
+			continue
+		}
+		for _, r := range o.Routes {
+			for _, n := range r.NextHops {
+				if n.Addr != a {
+					continue
+				}
+				if n.Interface != "" {
+					ifaces = appendNew(ifaces, n.Interface)
+				}
+				if f.Interface == "" || n.Interface == f.Interface {
+					gw.Evidence = appendNew(gw.Evidence, Support{Source: o.Source, CollectedAt: utcText(o.CollectedAt)})
+				}
+			}
+		}
+	}
+	slices.Sort(ifaces)
+	at := fmt.Sprintf("%s (%s)", f.Node, f.VRF)
+	switch {
+	case f.Interface != "" && len(gw.Evidence) == 0:
+		on := "on no named interface"
+		if len(ifaces) > 0 {
+			on = "on " + strings.Join(ifaces, ", ")
+		}
+		return f, nil, fmt.Errorf("fib routes of %s name next hop %s %s, not on %s", at, a, on, f.Interface)
+	case f.Interface == "" && len(ifaces) > 1:
+		return f, nil, fmt.Errorf("fib routes of %s name next hop %s on %s; name one as %s%%INTERFACE", at, a, strings.Join(ifaces, ", "), a)
+	}
+	gw.Evidence = sortSupports(gw.Evidence)
+	for _, o := range w.owners[a] {
+		gw.Owners = append(gw.Owners, Start{Node: o.node, VRF: o.vrf})
+	}
+	return f, gw, nil
+}
+
 func ospfRecord(attrs []netmodel.Attribute) bool {
 	return slices.ContainsFunc(attrs, func(a netmodel.Attribute) bool { return strings.HasPrefix(a.Key, "ospf.") })
 }
@@ -459,13 +576,47 @@ func (w *walker) severAdjacency(at state, n netmodel.NextHop, seg *Segment, ev [
 	return Hop{Via: seg, Decision: Decision{Kind: KindFailed, Reason: "the segment crosses the simulated failure: " + f.String()}}, true
 }
 
+// severGateway says what a lost next hop does to the segment that leaves at
+// through n. Only the failure's node and routing domain lose it, and only on
+// the named interface when there is one: the same address on another node, in
+// another routing domain, or on another link is another next hop. A leg that
+// names no interface may or may not be the one on the named interface. An
+// on-link leg to the gateway's own address is unknown, since whether the
+// gateway still answers for itself once it stops forwarding is not recorded.
+func (w *walker) severGateway(at state, n netmodel.NextHop, seg *Segment) (Hop, bool) {
+	f := w.fail
+	target := n.Addr
+	if !target.IsValid() {
+		target = w.dest
+	}
+	why := ""
+	switch {
+	case at != (state{f.Node, f.VRF}) || target != w.gw.addr:
+		return Hop{}, false
+	case f.Interface != "" && n.Interface != "" && n.Interface != f.Interface:
+		return Hop{}, false
+	case f.Interface != "" && n.Interface == "":
+		why = fmt.Sprintf("%s (%s) names no interface for next hop %s, so whether it is the lost next hop on %s is unknown", at.node, at.vrf, target, f.Interface)
+	case !n.Addr.IsValid():
+		why = fmt.Sprintf("%s is the lost next hop's own address, on link from %s (%s); whether it still answers once it stops forwarding is not in the evidence", target, at.node, at.vrf)
+	}
+	w.touched = true
+	if why != "" {
+		return Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why}}, true
+	}
+	return Hop{Via: seg, Decision: Decision{Kind: KindFailed, Reason: "the segment crosses the simulated failure: " + f.String()}}, true
+}
+
 // sever says what the failure does to the segment that leaves at through n,
 // whose decision rests on ev. It returns the leaf that takes the place of the
 // walk past the segment, and false when the segment does not cross the failure.
 // A segment whose crossing the evidence cannot decide ends in an unknown leaf.
 func (w *walker) sever(at state, n netmodel.NextHop, seg *Segment, ev []Support) (Hop, bool) {
 	f := w.fail
-	if w.adj != nil {
+	switch {
+	case w.gw != nil:
+		return w.severGateway(at, n, seg)
+	case w.adj != nil:
 		return w.severAdjacency(at, n, seg, ev)
 	}
 	target := n.Addr
@@ -510,9 +661,10 @@ func (w *walker) sever(at state, n netmodel.NextHop, seg *Segment, ev []Support)
 // evidence does not record: Linux keeps the address local and delivers what
 // reaches it another way, where many routers withdraw it. When another
 // interface of at holds the destination too, which one delivers it is not in
-// the evidence either.
+// the evidence either. A lost next hop or OSPF adjacency leaves its interface
+// up, so neither makes an address on it unknown here.
 func (w *walker) heldOnFailure(at state) string {
-	if w.fail == nil || w.adj != nil || w.fail.Interface == "" || w.fail.Node != at.node {
+	if w.fail == nil || w.adj != nil || w.gw != nil || w.fail.Interface == "" || w.fail.Node != at.node {
 		return ""
 	}
 	names := w.ownerIfaces(at.node, at.vrf, w.dest)
@@ -536,7 +688,20 @@ func (s Simulation) Text() string {
 	}
 	line("")
 	line("Failure simulation: %s, from %s (%s)", s.Failure, s.Source.Node, s.Source.VRF)
-	if a := s.Adjacency; a != nil {
+	if g := s.Gateway; g != nil {
+		f := s.Failure
+		on := ""
+		if f.Interface != "" {
+			on = " on " + f.Interface
+		}
+		line("Recorded FIB only: %s (%s) loses next hop %s%s, and nothing else changes: the interface stays up, so other next hops and on-link destinations on it keep forwarding, and every other node keeps its forwarding through the address. The loss is simulated, not observed. No route is recomputed. Convergence is not predicted.", f.Node, f.VRF, f.NextHop, on)
+		line("Whether %s (%s) stops selecting a next hop that stops forwarding while its link stays up is not in the evidence, so a destination that keeps another recorded next hop is unknown, never redundancy_lost.", f.Node, f.VRF)
+		owners := make([]string, len(g.Owners))
+		for i, o := range g.Owners {
+			owners[i] = o.Node + " (" + o.VRF + ")"
+		}
+		line("Next hop: held by %s; recorded in %s.", cmp.Or(strings.Join(owners, ", "), "no modeled node"), evidenceText(g.Evidence))
+	} else if a := s.Adjacency; a != nil {
 		line("Recorded FIB only: each node stops using an OSPF next hop that crosses the adjacency's link. The link stays up, so connected and static routes across it keep forwarding. No SPF is run, so a destination left with no recorded next hop is unknown, never lost. Convergence is not predicted.")
 		line("Adjacency: neighbor address %s, remote interface %s, evidence %s.", cmp.Or(a.NeighborAddr, "unknown"), cmp.Or(a.RemoteInterface, "unreported"), evidenceText(a.Evidence))
 		if a.Proven {

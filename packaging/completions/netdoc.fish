@@ -23,6 +23,7 @@ complete -c netdoc -o two-sided -l two-sided -d 'Localize two saved snapshots, o
 complete -c netdoc -o explain -l explain -d 'Explain how traffic to a destination should leave a topology file; runs no probes'
 complete -c netdoc -o fail -l fail -r -f -d 'With --explain, simulate a router or node:interface failing; runs no probes'
 complete -c netdoc -o fail-ospf -l fail-ospf -r -f -d 'With --explain, simulate losing the OSPF adjacency node:interface:neighbor; runs no probes'
+complete -c netdoc -o fail-next-hop -l fail-next-hop -r -f -d 'With --explain, simulate one node losing next hop node[@vrf]:address[%interface]; runs no probes'
 # The two route files are topology JSON for side A and side B of offline
 # --two-sided, so they take file completion and are refused with --via.
 complete -c netdoc -o route-a -l route-a -r -F -d 'Add the routing context of a topology file to side A of offline --two-sided'

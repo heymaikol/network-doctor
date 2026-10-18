@@ -1,0 +1,31 @@
+Destination 10.20.40.8 from r1 (default)
+
+Expected (control plane, then configured):
+  r1 (default): unknown: no complete table and no matching route for this node
+
+Forwarding (FIB):
+  r1 (default): forward 10.20.0.0/16 via eth1 10.0.12.2; basis fib; proven; evidence fib:r1 (ospf); no comparable control decision
+    -> eth1 via 10.0.12.2: r2 (default): local: the destination is an address on this node; basis configured; unproven; evidence config:r2
+
+Findings:
+  none
+
+Failure regions (a recorded failure lies in one candidate segment; no hop is named):
+  none
+
+Limitations:
+  - r1 (default): expected route unknown; no complete table and no matching route for this node (expected walk)
+
+Failure simulation: OSPF adjacency r1 (default) eth1 to r2 lost, from r1 (default)
+Recorded FIB only: each node stops using an OSPF next hop that crosses the adjacency's link. The link stays up, so connected and static routes across it keep forwarding. No SPF is run, so a destination left with no recorded next hop is unknown, never lost. Convergence is not predicted.
+Adjacency: neighbor address 10.0.12.2, remote interface eth0, evidence frr:r1.
+Transit dependency proven: the link is point-to-point and the neighbor is full, so once the adjacency is gone SPF cannot use the link as a transit edge (RFC 2328 12.4.1.1, 16.1), and each recorded OSPF next hop across it is removed. This assumes the records are current. It does not prove what the FIB holds after the loss, and the link's stub network may still be advertised.
+3 destinations considered, 2 unchanged.
+  unknown 10.20.40.8 (r2 default): after the adjacency loss, a forwarding branch has no surviving recorded next hop; OSPF recomputes its routes after the loss, and no SPF is run here, so whether another path takes over is unknown
+    r1 (default): forward 10.20.0.0/16 via eth1 10.0.12.2; basis fib; proven; evidence fib:r1 (ospf)
+      -> eth1 via 10.0.12.2: failed: the segment crosses the simulated failure: OSPF adjacency r1 (default) eth1 to r2 lost
+
+OSPF (from recorded evidence for every node in the file; nothing was probed):
+  neighbor_state [reported] r1 eth1 to r2 eth0 (vrf default): reports state full
+    evidence: frr:r1 at 2026-10-09T12:00:00Z (control plane, vrf default): r1 eth1 to r2 eth0, state Full
+    limit: FULL is the reporter's own claim. It does not prove that the link carries traffic or that the destination is reachable.

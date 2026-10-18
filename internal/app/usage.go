@@ -21,6 +21,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --compare before.ndoc after.ndoc [--json]
        netdoc --explain topology.json DEST [--fail NODE[:INTERFACE]] [--json]
        netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR [--json]
+       netdoc --explain topology.json DEST --fail-next-hop NODE[@VRF]:ADDRESS[%INTERFACE] [--json]
        netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
        netdoc --import-frr-bgp manifest.json [--json]
        netdoc --import-frr-bgp manifest.json --withdraw-bgp NODE:PEER:PREFIX [--json]
@@ -70,6 +71,14 @@ neighbor full at one address. That is the recorded structure, not the FIB after
 the loss. Where the records do not prove it, or a route is from BGP, the result
 is unknown. No SPF is run, so a
 destination left with no recorded next hop is unknown too, never lost.
+
+--fail-next-hop NODE[@VRF]:ADDRESS[%INTERFACE] simulates NODE losing one next
+hop instead: every leg of its recorded FIB through ADDRESS, in one routing
+domain, and on INTERFACE when one is named. The interface and the node that
+holds ADDRESS stay up, and nothing else changes. Only a next hop that a fib row
+of NODE names can be selected. Whether NODE stops selecting a lost next hop
+beside a surviving one is not in the file, so such a destination is unknown,
+never redundancy_lost.
 
 --import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each
 one, and reports every capture and every neighbor record. With LSDB captures, it

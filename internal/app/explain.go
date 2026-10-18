@@ -20,7 +20,7 @@ import (
 // explanation, including one that says the path is broken, and 2 when the
 // input cannot be read, the destination is not an address, or the failure to
 // simulate is not in the file.
-func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, failOSPF string, stdout, stderr io.Writer) int {
+func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, failOSPF, failNextHop string, stdout, stderr io.Writer) int {
 	if rejectRunFlags("explain", setFlags, stderr) {
 		return 2
 	}
@@ -66,7 +66,15 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, fa
 		}
 		flag, failure = "fail-ospf", routepath.Failure{Node: node, Interface: rest[:cut], OSPFNeighbor: rest[cut+1:]}
 	}
-	if fail != "" || failOSPF != "" {
+	if failNextHop != "" {
+		node, vrf, addr, iface, ok := splitNextHop(failNextHop)
+		if !ok {
+			fmt.Fprintf(stderr, "netdoc: -fail-next-hop: %q is not node[@vrf]:address[%%interface]\n", failNextHop)
+			return 2
+		}
+		flag, failure = "fail-next-hop", routepath.Failure{Node: node, VRF: vrf, NextHop: addr, Interface: iface}
+	}
+	if fail != "" || failOSPF != "" || failNextHop != "" {
 		s, err := routepath.Simulate(file, failure, dest)
 		if err != nil {
 			fmt.Fprintf(stderr, "netdoc: -%s: %s\n", flag, textsafe.Clean(err.Error()))
@@ -92,10 +100,23 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, fa
 	return 0
 }
 
+// splitNextHop splits a -fail-next-hop selector. The node ends at the first
+// colon, so an IPv6 address keeps its colons, and a routing domain follows the
+// node after the first at sign. The interface starts at the first percent sign
+// after the colon, so an interface name may hold colons and percent signs, and
+// a node name may hold neither a colon nor an at sign. The address is checked
+// by routepath, which reads it against the file.
+func splitNextHop(s string) (node, vrf, addr, iface string, ok bool) {
+	head, rest, colon := strings.Cut(s, ":")
+	node, vrf, at := strings.Cut(head, "@")
+	addr, iface, pct := strings.Cut(rest, "%")
+	return node, vrf, addr, iface, colon && node != "" && (!at || vrf != "") && addr != "" && (!pct || iface != "")
+}
+
 // explainOutput is the --explain JSON object. Its failure field is present only
-// with -fail or -fail-ospf, and its ospf field only when the topology holds OSPF
-// evidence that yields a finding, so any other run encodes the same bytes as
-// routepath.Explanation.JSON.
+// with -fail, -fail-ospf, or -fail-next-hop, and its ospf field only when the
+// topology holds OSPF evidence that yields a finding, so any other run encodes
+// the same bytes as routepath.Explanation.JSON.
 type explainOutput struct {
 	routepath.Explanation
 	Failure *routepath.Simulation `json:"failure,omitempty"`

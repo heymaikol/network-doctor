@@ -112,10 +112,35 @@ func TestRedundantPathSurvivesALinkFailureOnTheAlternate(t *testing.T) {
 	}
 }
 
-func TestRedundantPathSurvivesARouterFailure(t *testing.T) {
+func TestRouterFailureBesideASurvivingLegIsUnknown(t *testing.T) {
+	// r2 failing takes no interface of r1 down, so nothing in r1's FIB stops
+	// it hashing flows to 10.0.12.2. The r4 branch still delivers, so neither
+	// redundancy_lost nor a loss is proven.
 	s := simulate(t, diamond(), Failure{Node: "r2"})
-	if got := impacts(s); !reflect.DeepEqual(got, map[string]Impact{dest: ImpactRedundancyLost}) {
-		t.Fatalf("impacts = %v, want only %s redundancy_lost", got, dest)
+	if got := impacts(s); !reflect.DeepEqual(got, map[string]Impact{dest: ImpactUnknown}) {
+		t.Fatalf("impacts = %v, want only %s unknown", got, dest)
+	}
+	if a := affected(t, s, dest); !strings.Contains(a.Reason, "r1 (default) still lists a next hop that crosses the failure on another node") {
+		t.Errorf("reason = %q, want it to name r1 and the leg it keeps", a.Reason)
+	}
+}
+
+func TestFarEndOnASharedLANLeavesTheUpstreamLegUnknown(t *testing.T) {
+	// r2 eth0 is down, and r1's eth0 on the same LAN stays up, so r1 keeps
+	// both gateways of its ECMP route. Each destination is rated on its own
+	// walk: r2's LAN, which only 10.0.1.2 leads to, is lost, and r4's is not
+	// touched.
+	s := simulate(t, gatewayLAN(), Failure{Node: "r2", Interface: "eth0"})
+	want := map[string]Impact{"10.0.1.2": ImpactReachabilityLost, dest: ImpactUnknown, "10.30.0.1": ImpactReachabilityLost}
+	if got := impacts(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("impacts = %v, want %v", got, want)
+	}
+	why := "unknown 10.20.40.8 (r3 default): every surviving recorded branch delivers, but r1 (default) still lists a next hop that crosses the failure on another node"
+	if !strings.Contains(s.Text(), why) {
+		t.Errorf("text lacks %q:\n%s", why, s.Text())
+	}
+	if js, _ := json.Marshal(s); !strings.Contains(string(js), `"reason":"`+strings.TrimPrefix(why, "unknown 10.20.40.8 (r3 default): ")) {
+		t.Errorf("JSON lacks the reason:\n%s", js)
 	}
 }
 

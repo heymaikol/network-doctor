@@ -116,8 +116,8 @@ func TestNextHopLossCutsOnlyThatGateway(t *testing.T) {
 }
 
 func TestNextHopLossNeverRatesRedundancyLost(t *testing.T) {
-	if got := impacts(simulate(t, diamond(), Failure{Node: "r2"}))[dest]; got != ImpactRedundancyLost {
-		t.Fatalf("router r2 unavailable: %s = %s, want redundancy_lost", dest, got)
+	if got := impacts(simulate(t, diamond(), Failure{Node: "r1", Interface: "eth1"}))[dest]; got != ImpactRedundancyLost {
+		t.Fatalf("interface r1 eth1 down: %s = %s, want redundancy_lost", dest, got)
 	}
 	s := simulate(t, diamond(), Failure{Node: "r1", NextHop: "10.0.12.2"})
 	if got := impacts(s); !reflect.DeepEqual(got, map[string]Impact{dest: ImpactUnknown}) {

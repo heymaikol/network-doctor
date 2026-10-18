@@ -61,7 +61,11 @@ file's format is documented under Route path explanation in the reference.
 removes that router or interface from the recorded forwarding and lists the
 destinations that lose redundancy, or lose reachability on some or all of their
 forwarding branches, from the source. It recomputes no route and predicts no
-convergence. See Failure simulation in the reference.
+convergence. An interface failure is an administrative down, not a carrier
+loss. Only a node whose own interface is down is taken to stop using a next
+hop through it, so a destination that keeps another next hop at any other
+node is unknown, never redundancy_lost. See Failure simulation in the
+reference.
 
 --fail-ospf NODE:INTERFACE:NEIGHBOR simulates losing the OSPF adjacency NODE
 records on INTERFACE toward NEIGHBOR instead. The interface stays up, so only

@@ -241,6 +241,34 @@ var structuralFailureCases = []structuralFailureCase{{
 	unaffected: "10.73.40.1",
 	kept:       [3]string{"r1", "10.73.30.0/24", "10.73.1.2"},
 	partial:    "r1",
+}, {
+	// The same fault, predicted as itself: r2 s1 administratively down. The
+	// down interface is r2's, not r1's, and r1's link keeps its carrier through
+	// the segment bridge, so r1's ECMP route keeps the r2 leg with no flag and
+	// may still hash flows onto it. r3's LAN is then unknown, never
+	// redundancy_lost, while r2's own LAN, which only r2 leads to, is lost.
+	name:      "far end on a shared LAN leaves the upstream leg selectable",
+	scenario:  sharedLANScenario,
+	multipath: []string{"r1", "10.73.30.0/24", "10.73.1.2", "10.73.1.4"},
+	dest:      "10.73.20.1", impact: routepath.ImpactReachabilityLost, delivered: false,
+	unaffected: "10.73.40.1",
+	kept:       [3]string{"r1", "10.73.30.0/24", "10.73.1.2"},
+}, {
+	// Both of r2's interfaces go down, predicted as router r2 unavailable.
+	// That is not a powered-off router: r2 keeps its addresses, and nothing
+	// here cuts power or carrier. Only what r1 observes is graded. r1's s12
+	// link keeps its carrier through the segment bridge, so r1's ECMP route
+	// keeps the r2 leg with no flag, and r3's LAN is unknown. The replaced
+	// fault line must match, or r1's own s12 leg goes dead and kept fails.
+	name: "router behind a bridge leaves the upstream leg selectable",
+	scenario: strings.Replace(fmt.Sprintf(diamondScenario, ""),
+		"  - {type: link_down, node: r1, segment: s12}",
+		"  - {type: link_down, node: r2, segment: s12}\n  - {type: link_down, node: r2, segment: s23}", 1),
+	multipath: []string{"r1", "10.71.30.0/24", "10.71.12.2", "10.71.14.4"},
+	fail:      &routepath.Failure{Node: "r2"},
+	dest:      "10.71.12.2", impact: routepath.ImpactReachabilityLost, delivered: false,
+	unaffected: "10.71.14.4",
+	kept:       [3]string{"r1", "10.71.30.0/24", "10.71.12.2"},
 }}
 
 // TestStructuralFailureAgainstLiveFaults holds the --explain --fail simulation

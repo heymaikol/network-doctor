@@ -24,29 +24,36 @@ const frrBcastDir = "../../testdata/frr/10.7.0/bcast"
 // path. Each test edits its own copy, never the committed fixtures.
 func stageFRRBcast(t *testing.T) (dir, manifest string) {
 	t.Helper()
-	dir = t.TempDir()
-	specs := []struct{ stem, file, label, node, command string }{
+	return stageFRR(t, frrBcastDir, []frrStage{
 		{"r1-show_ip_ospf_interface_json", "r1-interface.json", "r1 interface", "r1", "show ip ospf interface json"},
 		{"r1-show_ip_ospf_neighbor_detail_json", "r1-neighbor.json", "r1 neighbor detail", "r1", "show ip ospf neighbor detail json"},
 		{"r2-show_ip_ospf_interface_json", "r2-interface.json", "r2 interface", "r2", "show ip ospf interface json"},
 		{"r2-show_ip_ospf_neighbor_detail_json", "r2-neighbor.json", "r2 neighbor detail", "r2", "show ip ospf neighbor detail json"},
-	}
+	})
+}
+
+// frrStage is one committed capture, by its stem in src, and the manifest
+// entry stageFRR writes for it.
+type frrStage struct{ stem, file, label, node, command string }
+
+// stageFRR copies each capture from src into a new directory, unframed, and
+// writes a manifest that names every one with r1 as the source node.
+func stageFRR(t *testing.T, src string, specs []frrStage) (dir, manifest string) {
+	t.Helper()
+	dir = t.TempDir()
 	var captures []any
 	for _, s := range specs {
-		raw, err := os.ReadFile(filepath.Join(frrBcastDir, s.stem+".raw"))
+		// #nosec G304 -- src and s.stem name a committed capture from the caller's own table.
+		raw, err := os.ReadFile(filepath.Join(src, s.stem+".raw"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		lines := strings.Split(strings.TrimRight(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n"), "\n")
-		if len(lines) < 3 || lines[0] != s.command {
-			t.Fatalf("%s: echoed command is not %q", s.stem, s.command)
-		}
-		payload := strings.Join(lines[1:len(lines)-1], "\n") + "\n"
-		// #nosec G703 -- s.file is a literal name from this test's own table.
-		if err := os.WriteFile(filepath.Join(dir, s.file), []byte(payload), 0o600); err != nil {
+		// #nosec G703 -- s.file is a literal name from the caller's own table.
+		if err := os.WriteFile(filepath.Join(dir, s.file), []byte(unframeFRR(t, s.stem, s.command, raw)), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		stamp, err := os.ReadFile(filepath.Join(frrBcastDir, s.stem+".collected_at"))
+		// #nosec G304 -- as above, for the capture's stamp.
+		stamp, err := os.ReadFile(filepath.Join(src, s.stem+".collected_at"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,6 +66,17 @@ func stageFRRBcast(t *testing.T) (dir, manifest string) {
 	manifest = filepath.Join(dir, "manifest.json")
 	writeFRRJSON(t, manifest, map[string]any{"version": 1, "source_node": "r1", "captures": captures})
 	return dir, manifest
+}
+
+// unframeFRR drops the echoed command and the prompt from a vty transcript,
+// as the frrospf fixtures do, and returns the output with LF line ends.
+func unframeFRR(t *testing.T, name, command string, raw []byte) string {
+	t.Helper()
+	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n"), "\n")
+	if len(lines) < 3 || lines[0] != command {
+		t.Fatalf("%s: echoed command is not %q", name, command)
+	}
+	return strings.Join(lines[1:len(lines)-1], "\n") + "\n"
 }
 
 func writeFRRJSON(t *testing.T, path string, v any) {

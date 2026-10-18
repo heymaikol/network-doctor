@@ -1,0 +1,54 @@
+show ip ospf neighbor detail json
+{
+  "neighbors":{
+    "1.1.1.1":[
+      {
+        "ifaceAddress":"10.0.5.1",
+        "areaId":"0.0.0.0",
+        "ifaceName":"e6",
+        "localIfaceAddress":"10.0.5.2",
+        "nbrPriority":1,
+        "nbrState":"Full/-",
+        "role":"DROther",
+        "stateChangeCounter":5,
+        "lsaRetransmissions":2,
+        "lastPrgrsvChangeMsec":39342,
+        "optionsCounter":2,
+        "optionsList":"*|-|-|-|-|-|E|-",
+        "routerDeadIntervalTimerDueMsec":30657,
+        "nonHelloDeadTimerResets":0,
+        "databaseSummaryListCounter":0,
+        "linkStateRequestListCounter":0,
+        "linkStateRetransmissionListCounter":0,
+        "threadInactivityTimer":"on",
+        "threadLinkStateRequestRetransmission":"on",
+        "grHelperStatus":"None"
+      }
+    ],
+    "2.2.2.2":[
+      {
+        "ifaceAddress":"10.0.7.1",
+        "areaId":"0.0.0.0",
+        "ifaceName":"e8",
+        "localIfaceAddress":"10.0.7.2",
+        "nbrPriority":1,
+        "nbrState":"Full/-",
+        "role":"DROther",
+        "stateChangeCounter":5,
+        "lsaRetransmissions":0,
+        "lastPrgrsvChangeMsec":34342,
+        "optionsCounter":2,
+        "optionsList":"*|-|-|-|-|-|E|-",
+        "routerDeadIntervalTimerDueMsec":31708,
+        "nonHelloDeadTimerResets":0,
+        "databaseSummaryListCounter":0,
+        "linkStateRequestListCounter":0,
+        "linkStateRetransmissionListCounter":0,
+        "threadInactivityTimer":"on",
+        "threadLinkStateRequestRetransmission":"on",
+        "grHelperStatus":"None"
+      }
+    ]
+  }
+}
+r3> 

@@ -68,6 +68,7 @@ committed.
 | `secp2/` | `secondary/` with `ip ospf passive 10.0.2.1` on e1, so the secondary address is passive. The Full adjacency on the primary is kept. The e1 record holds `timerPassiveIface` true and `timerHelloInMsecs` together, and its `bdrAddress` 10.0.1.1 lies outside 10.0.2.0/24. |
 | `down1/` | The broadcast adjacency of `bcast/`, then `ip link set e1 down` on r1 and a 5-second wait before the dump. r1 e1 is absent from the all-interface listing. See the section below. |
 | `zebra-rib/` | The steady run's zebra RIB capture (R) between E and D, with the ospfd A, B, E, and D captures of the same bracket, from two isolated routers the operator recorded on 2026-10-12 UTC. The files were copied from the operator's original run. See `zebra-rib/README.md`. |
+| `adjacency/` | Three routers over point-to-point links, before and after r1 loses one OSPF adjacency while its link stays up. Arms `ecmp`, `single`, and `backup`, with kernel tables and r1's probes. See the adjacency section below. |
 
 ## Area and secondary-address captures
 
@@ -122,6 +123,62 @@ The routes the captures hold:
 `ospfd-version.txt` is the output of `ospfd --version`. `r1-ospfd.conf` and
 `r2-ospfd.conf` are the configurations that ran. The `.raw` files are FRR output
 read from the vty, with nothing edited.
+
+## OSPF adjacency-loss runs
+
+`adjacency/` holds one run of `lab/ospf-adjacency.sh` per arm, taken on
+2026-10-18 UTC. It is the live evidence for `--fail-ospf`. Every link is a veth
+pair set to `ip ospf network point-to-point` in area 0.0.0.0:
+
+- r1 e1 10.0.1.1/24 to r2 e2 10.0.1.2/24, and r1 e3 10.0.3.1/24 to r2 e4 10.0.3.2/24.
+- r1 e5 10.0.5.1/24 to r3 e6 10.0.5.2/24.
+- `backup` only: r2 e7 10.0.7.1/24 to r3 e8 10.0.7.2/24, at `ip ospf cost 100` on both ends.
+
+r2 holds the passive OSPF stub 10.10.2.1/24 and r3 holds 10.10.3.1/24. r3 also
+holds 10.30.0.1/24, which no OSPF network statement covers, and r1 reaches it by
+a kernel route added with `proto static` via 10.0.5.2 on e5.
+
+The fault is a tc `clsact` filter on one r1 interface that drops IP protocol 89
+in both directions. No link, address, route, or daemon is touched, so the link
+stays up and only OSPF packets on it are lost. Each neighbor then leaves Full
+once its dead interval, 40 seconds by default, runs out. In each run the polls
+first saw both ends out of Full about 48 seconds after the fault. The polls are
+several seconds apart, so that bounds the time; it does not measure it.
+
+| Arm | Lost adjacency | What r1's kernel table shows after the fault |
+| --- | --- | --- |
+| `ecmp` | r1 e1 to r2 | 10.10.2.0/24 goes from two next hops, via e1 and e3, to the one via e3. |
+| `single` | r1 e5 to r3 | 10.10.3.0/24 is gone, and r1 cannot reach 10.10.3.1. The static route to 10.30.0.0/24 and the connected route on e5 stay. |
+| `backup` | r1 e5 to r3 | 10.10.3.0/24 moves from e5 to e1 and e3, a path through r2 that no row before the fault holds. |
+
+Each run captures, before and after the fault and on every node, the
+neighbor-detail, interface, and OSPF route output, and `ip -j` output for the
+IPv4 addresses, the main table, and the links. Before and after, r1 runs `ip -j
+route get` and a three-packet ping for every IPv4 address any node holds, in
+`r1-<phase>-probes.json`. `r1-after-tc_ingress.json` and `r1-after-tc_egress.json`
+hold the filters with their drop counters. `events.log` holds each fault command and when each
+wait settled. A wait settles when the neighbor states it needs hold, and then
+when all three main tables stay unchanged over five polls two seconds apart.
+`SHA256SUMS` covers each arm's files. The poll outputs are not committed.
+
+`TestFRRAdjacencyLossAgainstLiveRuns` in `internal/app` predicts each arm from
+the captures before the fault only. The neighbor and interface captures go
+through `--import-frr-ospf --write-topology`. No netdoc adapter reads `ip -j`,
+so the test adds each node's addresses and main table as `fib` rows by hand. It
+writes protocol `kernel` as origin `connected`, keeps `static` and `ospf`, and
+marks each table complete, since the lab installs no policy rule. Then it runs
+`--explain --fail-ospf` and grades every destination against the run's
+observations after the fault. A destination rated `none` must keep its delivery.
+For `redundancy_lost`, the surviving first hops of the walk must be exactly the
+next hops r1 installed after the fault, and r1's route lookup must select one.
+`reachability_lost` fails the test. `unknown` claims nothing, so the test only
+logs what r1 installed. In `single`, the destination was lost. In `backup`, it
+was delivered over the path SPF found.
+
+The captures are not simultaneous, and a ping follows one ECMP leg, so delivery
+shows that one leg works, not every leg. A route lookup is one hash selection,
+not the leg a flow took. The runs measure no convergence time, and netdoc
+predicts none.
 
 ## Socket paths
 
@@ -238,3 +295,15 @@ keys, and, where checked, the remote graceful-restart mode match the phase. Fiel
 FRR may change when another path goes, such as `bestpath`, are never matched.
 Each arm's 2026-10-16 UTC run finished with DONE, and its captures are preserved
 in `bgp/session/`. CI does not run the lab; the tests read the preserved captures.
+
+The OSPF adjacency-loss lab is `lab/ospf-adjacency.sh`. It takes `ARM`, which is
+`ecmp`, `single`, or `backup`, as described in the adjacency section above:
+
+    SCRATCH="$SCRATCH" ARM=ecmp unshare -Urnm bash testdata/frr/10.7.0/lab/ospf-adjacency.sh
+
+It writes to `$SCRATCH/run/ospf-adjacency-$ARM`, which must not exist, and never
+removes anything. Each arm takes about three minutes. It also needs `tc` from
+`iproute2` and `ping`. Each wait is bounded, and a run that times out names the
+wait that ran out, exits 1, and never prints `DONE`. Copy each arm's files,
+other than `poll-*.last`, into `adjacency/<arm>/` by hand. CI does not run the
+lab; the test reads the preserved captures.

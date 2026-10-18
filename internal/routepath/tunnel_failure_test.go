@@ -1,0 +1,322 @@
+package routepath
+
+import (
+	"maps"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/heymaikol/network-doctor/internal/netmodel"
+)
+
+// The overlay destinations: r5's LAN, which r1 reaches only over wg0, and r5's
+// end of the tunnel subnet.
+const (
+	overlayDest = "10.50.0.1"
+	tunnelPeer  = "172.16.0.2"
+)
+
+// tunnelTopology is r1 with three egresses in its default domain: eth0 to r2,
+// eth2 to r3, and wg0, a tunnel whose far end is r5. r1 reaches r5's
+// underlay endpoint 10.0.25.1 only through r2. r2 also holds 10.60.0.1, a
+// physical route from r1 over the same egress, and r3 holds 10.70.0.1, an
+// unrelated route on the same node and domain. r1 in domain blue reaches
+// 10.80.0.1 on r4.
+func tunnelTopology() []netmodel.Observation {
+	return []netmodel.Observation{
+		configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.12.1/30"), ifc("eth2", "10.0.13.1/30"), ifc("wg0", "172.16.0.1/30")}),
+		configured("r1", "blue", []netmodel.Interface{ifc("eth3", "10.0.14.1/30")}),
+		configured("r2", "default", []netmodel.Interface{ifc("eth0", "10.0.12.2/30"), ifc("eth1", "10.0.25.2/30"), ifc("lan2", "10.60.0.1/24")}),
+		configured("r3", "default", []netmodel.Interface{ifc("eth0", "10.0.13.2/30"), ifc("lan", "10.70.0.1/24")}),
+		configured("r4", "blue", []netmodel.Interface{ifc("eth0", "10.0.14.2/30"), ifc("lan", "10.80.0.1/24")}),
+		configured("r5", "default", []netmodel.Interface{ifc("eth0", "10.0.25.1/30"), ifc("wg0", "172.16.0.2/30"), ifc("lan", "10.50.0.1/24")}),
+		table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.0.12.0/30", "kernel", onLink("eth0")),
+			route("10.0.13.0/30", "kernel", onLink("eth2")),
+			route("172.16.0.0/30", "kernel", onLink("wg0")),
+			route("10.0.25.0/30", "static", nh("10.0.12.2", "eth0")),
+			route("10.60.0.0/24", "static", nh("10.0.12.2", "eth0")),
+			route("10.70.0.0/24", "static", nh("10.0.13.2", "eth2")),
+			route("10.50.0.0/24", "static", nh("172.16.0.2", "wg0"))),
+		table(netmodel.PlaneFIB, "r1", "blue", true,
+			route("10.0.14.0/30", "kernel", onLink("eth3")),
+			route("10.80.0.0/24", "static", nh("10.0.14.2", "eth3"))),
+		table(netmodel.PlaneFIB, "r2", "default", true,
+			route("10.0.12.0/30", "kernel", onLink("eth0")),
+			route("10.0.25.0/30", "kernel", onLink("eth1")),
+			route("10.60.0.0/24", "kernel", onLink("lan2"))),
+		table(netmodel.PlaneFIB, "r3", "default", true,
+			route("10.0.13.0/30", "kernel", onLink("eth0")),
+			route("10.70.0.0/24", "kernel", onLink("lan"))),
+		table(netmodel.PlaneFIB, "r4", "blue", true, route("10.80.0.0/24", "kernel", onLink("lan"))),
+		table(netmodel.PlaneFIB, "r5", "default", true,
+			route("10.0.25.0/30", "kernel", onLink("eth0")),
+			route("172.16.0.0/30", "kernel", onLink("wg0")),
+			route("10.50.0.0/24", "kernel", onLink("lan"))),
+	}
+}
+
+func tunnelRecord(node, vrf, iface, remote, underlay string) Tunnel {
+	return Tunnel{
+		Provenance:  netmodel.Provenance{Source: "tunnels:" + node, CollectedAt: t0},
+		Node:        node,
+		VRF:         vrf,
+		Interface:   iface,
+		Remote:      addr(remote),
+		UnderlayVRF: underlay,
+	}
+}
+
+// r1wg0 is the record that ties r1's wg0 to r5's underlay endpoint.
+var r1wg0 = tunnelRecord("r1", "default", "wg0", "10.0.25.1", "default")
+
+func simulateTunnels(t *testing.T, obs []netmodel.Observation, tunnels []Tunnel, src Start, fail Failure) Simulation {
+	t.Helper()
+	m, err := netmodel.New(obs...)
+	if err != nil {
+		t.Fatalf("netmodel.New: %v", err)
+	}
+	s, err := Simulate(File{Source: src, Model: m, Tunnels: tunnels}, fail)
+	if err != nil {
+		t.Fatalf("Simulate(%+v): %v", fail, err)
+	}
+	return s
+}
+
+// withOverlay is the ratings of the same failure without tunnel records, with
+// the overlay destinations overridden, so a test asserts that nothing else moves.
+func withOverlay(t *testing.T, obs []netmodel.Observation, src Start, fail Failure, overlay map[string]Impact) map[string]Impact {
+	t.Helper()
+	want := impacts(simulateTunnels(t, obs, nil, src, fail))
+	maps.Copy(want, overlay)
+	for d, i := range want {
+		if i == ImpactNone {
+			delete(want, d)
+		}
+	}
+	return want
+}
+
+// leafOf returns the first leaf below h that left r1 by iface.
+func leafOf(h *Hop, iface string) *Hop {
+	var out *Hop
+	walkHops(h, func(x *Hop) {
+		if out == nil && x.Via != nil && x.Via.From == "r1" && x.Via.Interface == iface && x.Node == "" {
+			out = x
+		}
+	})
+	return out
+}
+
+// The pinned F2 baseline: with no tunnel record, nothing ties wg0 to an
+// underlay, so the walk treats it as a wire and an underlay failure leaves the
+// overlay unchanged. Files without tunnels keep this.
+func TestWithoutTunnelRecordsTheOverlayReadsAsAWire(t *testing.T) {
+	for _, fail := range []Failure{{Node: "r2"}, {Node: "r2", Interface: "eth1"}, {Node: "r1", Interface: "eth0"}} {
+		got := impacts(simulateTunnels(t, tunnelTopology(), nil, fromR1, fail))
+		for _, d := range []string{overlayDest, tunnelPeer} {
+			if i, ok := got[d]; ok {
+				t.Errorf("%s: %s = %s, want none: no record ties wg0 to an underlay", fail, d, i)
+			}
+		}
+		if got["10.0.25.1"] != ImpactReachabilityLost {
+			t.Errorf("%s: underlay endpoint = %s, want reachability_lost", fail, got["10.0.25.1"])
+		}
+	}
+}
+
+func TestUnderlayFailureLeavesTheOverlayUnknown(t *testing.T) {
+	for _, fail := range []Failure{{Node: "r2"}, {Node: "r2", Interface: "eth1"}, {Node: "r1", Interface: "eth0"}} {
+		s := simulateTunnels(t, tunnelTopology(), []Tunnel{r1wg0}, fromR1, fail)
+		want := withOverlay(t, tunnelTopology(), fromR1, fail, map[string]Impact{overlayDest: ImpactUnknown, tunnelPeer: ImpactUnknown})
+		if got := impacts(s); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: impacts = %v, want %v", fail, got, want)
+			continue
+		}
+		leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
+		if leaf == nil || leaf.Decision.Kind != KindUnknown {
+			t.Fatalf("%s: wg0 leaf = %+v, want an unknown leaf in place of the walk past the tunnel", fail, leaf)
+		}
+		if !strings.Contains(leaf.Decision.Reason, "10.0.25.1") || !strings.Contains(leaf.Decision.Reason, "meets the failure") {
+			t.Errorf("%s: reason = %q, want it to name the remote and the underlay meeting the failure", fail, leaf.Decision.Reason)
+		}
+		if ev := leaf.Decision.Evidence; len(ev) != 1 || ev[0].Source != "tunnels:r1" {
+			t.Errorf("%s: evidence = %+v, want the tunnel record's source", fail, ev)
+		}
+	}
+}
+
+// An underlay loss alone never makes the overlay lost, even where the
+// underlay is certainly cut and only static routes are involved.
+func TestUnderlayFailureNeverClaimsAnOverlayLoss(t *testing.T) {
+	s := simulateTunnels(t, tunnelTopology(), []Tunnel{r1wg0}, fromR1, Failure{Node: "r1", Interface: "eth0"})
+	for _, a := range s.Affected {
+		if (a.Destination == overlayDest || a.Destination == tunnelPeer) && a.Impact == ImpactReachabilityLost {
+			t.Errorf("%s = reachability_lost from the underlay alone", a.Destination)
+		}
+	}
+}
+
+// A tunnel interface going down is a link failure, and the record does not
+// soften it.
+func TestTunnelInterfaceDownIsStillALoss(t *testing.T) {
+	for _, fail := range []Failure{{Node: "r1", Interface: "wg0"}, {Node: "r5", Interface: "wg0"}} {
+		got := impacts(simulateTunnels(t, tunnelTopology(), []Tunnel{r1wg0}, fromR1, fail))
+		want := withOverlay(t, tunnelTopology(), fromR1, fail, nil)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: impacts = %v, want %v", fail, got, want)
+		}
+		if got[overlayDest] != ImpactReachabilityLost {
+			t.Errorf("%s: overlay = %s, want reachability_lost", fail, got[overlayDest])
+		}
+	}
+}
+
+func TestFailureOffTheUnderlayLeavesTheOverlayUnchanged(t *testing.T) {
+	fail := Failure{Node: "r3"}
+	got := impacts(simulateTunnels(t, tunnelTopology(), []Tunnel{r1wg0}, fromR1, fail))
+	if want := withOverlay(t, tunnelTopology(), fromR1, fail, nil); !reflect.DeepEqual(got, want) {
+		t.Errorf("impacts = %v, want %v", got, want)
+	}
+	if _, ok := got[overlayDest]; ok {
+		t.Errorf("overlay = %s, want none: the underlay does not cross r3", got[overlayDest])
+	}
+}
+
+// A record names one routing domain. The same interface name in another
+// domain is another interface, and a walk in another domain never rides it.
+func TestTunnelRecordStaysInItsRoutingDomain(t *testing.T) {
+	fail := Failure{Node: "r2"}
+	blue := tunnelRecord("r1", "blue", "wg0", "10.0.25.1", "default")
+	got := impacts(simulateTunnels(t, tunnelTopology(), []Tunnel{blue}, fromR1, fail))
+	if want := withOverlay(t, tunnelTopology(), fromR1, fail, nil); !reflect.DeepEqual(got, want) {
+		t.Errorf("record in blue: impacts = %v, want %v", got, want)
+	}
+	fromBlue := Start{Node: "r1", VRF: "blue"}
+	got = impacts(simulateTunnels(t, tunnelTopology(), []Tunnel{r1wg0}, fromBlue, fail))
+	if want := withOverlay(t, tunnelTopology(), fromBlue, fail, nil); !reflect.DeepEqual(got, want) {
+		t.Errorf("walk from blue: impacts = %v, want %v", got, want)
+	}
+}
+
+func TestUnprovenUnderlayIsUnknown(t *testing.T) {
+	partial := without(tunnelTopology(), "fib:r2:default")
+	partial = append(partial, table(netmodel.PlaneFIB, "r2", "default", false,
+		route("10.0.25.0/30", "kernel", onLink("eth1")),
+		route("10.60.0.0/24", "kernel", onLink("lan2"))))
+	cases := []struct {
+		name    string
+		obs     []netmodel.Observation
+		tunnel  Tunnel
+		because string
+	}{
+		{"partial underlay FIB", partial, r1wg0, "does not prove delivery"},
+		{"remote no node holds", tunnelTopology(), tunnelRecord("r1", "default", "wg0", "10.0.25.9", "default"), "does not prove delivery"},
+		{"underlay domain with no table", tunnelTopology(), tunnelRecord("r1", "default", "wg0", "10.0.25.1", "transit"), "does not prove delivery"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// r3 is not on the underlay, so only the unproven underlay can
+			// make the overlay unknown.
+			s := simulateTunnels(t, c.obs, []Tunnel{c.tunnel}, fromR1, Failure{Node: "r3"})
+			a := affected(t, s, overlayDest)
+			if a.Impact != ImpactUnknown {
+				t.Fatalf("overlay = %s, want unknown", a.Impact)
+			}
+			if leaf := leafOf(a.After, "wg0"); leaf == nil || !strings.Contains(leaf.Decision.Reason, c.because) {
+				t.Errorf("wg0 leaf = %+v, want a reason saying it %s", leaf, c.because)
+			}
+			if got := impacts(s)["10.70.0.1"]; got != ImpactReachabilityLost {
+				t.Errorf("unrelated route = %s, want reachability_lost as without the record", got)
+			}
+		})
+	}
+}
+
+// An underlay that rides the tunnel itself is recursive. It is unknown, and
+// the check ends instead of following the tunnel again.
+func TestUnderlayThroughTheTunnelIsUnknown(t *testing.T) {
+	looped := without(tunnelTopology(), "fib:r1:default")
+	looped = append(looped, table(netmodel.PlaneFIB, "r1", "default", true,
+		route("10.0.12.0/30", "kernel", onLink("eth0")),
+		route("10.0.13.0/30", "kernel", onLink("eth2")),
+		route("172.16.0.0/30", "kernel", onLink("wg0")),
+		route("10.0.25.0/30", "static", nh("172.16.0.2", "wg0")),
+		route("10.70.0.0/24", "static", nh("10.0.13.2", "eth2")),
+		route("10.50.0.0/24", "static", nh("172.16.0.2", "wg0"))))
+	for name, c := range map[string]struct {
+		obs    []netmodel.Observation
+		tunnel Tunnel
+	}{
+		"underlay route over the tunnel": {looped, r1wg0},
+		"remote is the overlay peer":     {tunnelTopology(), tunnelRecord("r1", "default", "wg0", "172.16.0.2", "default")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := simulateTunnels(t, c.obs, []Tunnel{c.tunnel}, fromR1, Failure{Node: "r3"})
+			a := affected(t, s, overlayDest)
+			leaf := leafOf(a.After, "wg0")
+			if a.Impact != ImpactUnknown || leaf == nil || !strings.Contains(leaf.Decision.Reason, "rides a tunnel") {
+				t.Fatalf("overlay = %s, wg0 leaf = %+v, want unknown because the underlay rides a tunnel", a.Impact, leaf)
+			}
+			if s.Truncated {
+				t.Error("simulation truncated; the recursive underlay should end at once, not exhaust a bound")
+			}
+		})
+	}
+}
+
+// A record names one remote. Overlay traffic over the same interface to a
+// node that does not hold that remote contradicts it, as a multipoint
+// interface would, so that destination is unknown rather than rated by the
+// one remote. A destination behind the recorded peer keeps its rating.
+func TestMultipointTunnelIsNotReadAsOneRemote(t *testing.T) {
+	obs := without(tunnelTopology(), "config:r1:default", "fib:r1:default")
+	obs = append(obs,
+		configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.12.1/30"), ifc("eth2", "10.0.13.1/30"), ifc("wg0", "172.16.0.1/29")}),
+		configured("r6", "default", []netmodel.Interface{ifc("wg0", "172.16.0.3/29"), ifc("lan", "10.66.0.1/24")}),
+		table(netmodel.PlaneFIB, "r1", "default", true,
+			route("10.0.12.0/30", "kernel", onLink("eth0")),
+			route("10.0.13.0/30", "kernel", onLink("eth2")),
+			route("10.0.25.0/30", "static", nh("10.0.12.2", "eth0")),
+			route("10.70.0.0/24", "static", nh("10.0.13.2", "eth2")),
+			route("10.50.0.0/24", "static", nh("172.16.0.2", "wg0")),
+			route("10.66.0.0/24", "static", nh("172.16.0.3", "wg0"))),
+		table(netmodel.PlaneFIB, "r6", "default", true, route("10.66.0.0/24", "kernel", onLink("lan"))))
+	s := simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"})
+	a := affected(t, s, "10.66.0.1")
+	if leaf := leafOf(a.After, "wg0"); a.Impact != ImpactUnknown || leaf == nil || !strings.Contains(leaf.Decision.Reason, "one remote") {
+		t.Fatalf("10.66.0.1 = %s, wg0 leaf = %+v, want unknown because the record names one remote", a.Impact, leaf)
+	}
+	if got := impacts(s)[overlayDest]; got != "" {
+		t.Errorf("overlay to the recorded peer = %s, want none", got)
+	}
+}
+
+// A next hop that names no interface may leave by the tunnel. It is unknown
+// when the tunnel's underlay meets the failure, unless it goes to a node other
+// than the one holding the remote, which a single-remote tunnel cannot reach.
+func TestNextHopWithNoInterfaceMayRideTheTunnel(t *testing.T) {
+	obs := without(tunnelTopology(), "fib:r1:default")
+	obs = append(obs, table(netmodel.PlaneFIB, "r1", "default", true,
+		route("10.0.12.0/30", "kernel", onLink("eth0")),
+		route("10.0.13.0/30", "kernel", onLink("eth2")),
+		route("172.16.0.0/30", "kernel", onLink("wg0")),
+		route("10.0.25.0/30", "static", nh("10.0.12.2", "eth0")),
+		route("10.70.0.0/24", "static", nh("10.0.13.2", "")),
+		route("10.50.0.0/24", "static", nh("172.16.0.2", ""))))
+	fail := Failure{Node: "r2"}
+	got := impacts(simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, fail))
+	want := withOverlay(t, obs, fromR1, fail, map[string]Impact{overlayDest: ImpactUnknown, tunnelPeer: ImpactUnknown})
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("impacts = %v, want %v", got, want)
+	}
+}
+
+func TestTunnelReasonReachesTheText(t *testing.T) {
+	txt := simulateTunnels(t, tunnelTopology(), []Tunnel{r1wg0}, fromR1, Failure{Node: "r2"}).Text()
+	for _, want := range []string{"unknown " + overlayDest, "tunnel r1 (default) wg0", "evidence tunnels:r1"} {
+		if !strings.Contains(txt, want) {
+			t.Errorf("text lacks %q:\n%s", want, txt)
+		}
+	}
+}

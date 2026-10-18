@@ -31,6 +31,7 @@ type wireFile struct {
 	Observations []wireObservation `json:"observations"`
 	Checks       []wireCheck       `json:"checks"`
 	Boundaries   []wireBoundary    `json:"boundaries"`
+	Tunnels      []wireTunnel      `json:"tunnels,omitempty"`
 }
 
 type wireStart struct {
@@ -45,6 +46,16 @@ type wireBoundary struct {
 	Node        string `json:"node"`
 	VRF         string `json:"vrf"`
 	Kind        string `json:"kind"`
+}
+
+type wireTunnel struct {
+	Source      string `json:"source"`
+	CollectedAt string `json:"collected_at"`
+	Node        string `json:"node"`
+	VRF         string `json:"vrf"`
+	Interface   string `json:"interface"`
+	Remote      string `json:"remote"`
+	UnderlayVRF string `json:"underlay_vrf"`
 }
 
 type wireObservation struct {
@@ -163,12 +174,72 @@ func Decode(data []byte) (File, error) {
 		bounds = append(bounds, b)
 	}
 	slices.SortFunc(bounds, compareBoundaries)
+	var tunnels []Tunnel
+	declared := map[[3]string]int{}
+	for i, wt := range w.Tunnels {
+		t, err := decodeTunnel(wt)
+		if err != nil {
+			return File{}, fmt.Errorf("tunnel %d: %w", i, err)
+		}
+		k := [3]string{t.Node, t.VRF, t.Interface}
+		if j, ok := declared[k]; ok {
+			return File{}, fmt.Errorf("tunnel %d declares %s (%s) %s again, after tunnel %d; a record names the one remote of a single-remote tunnel, so a second one is a multipoint or conflicting mapping", i, t.Node, t.VRF, t.Interface, j)
+		}
+		declared[k] = i
+		tunnels = append(tunnels, t)
+	}
+	slices.SortFunc(tunnels, compareTunnels)
 	return File{
 		Source:     Start{Node: w.Source.Node, VRF: w.Source.VRF},
 		SourceAddr: srcAddr,
 		Model:      m,
 		Checks:     checks,
 		Boundaries: bounds,
+		Tunnels:    tunnels,
+	}, nil
+}
+
+// compareTunnels orders tunnels by the interface they name, which Decode keeps
+// unique.
+func compareTunnels(a, b Tunnel) int {
+	return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.VRF, b.VRF), cmp.Compare(a.Interface, b.Interface))
+}
+
+// decodeTunnel reads one tunnel record. The remote must be one unicast address
+// another node can hold, spelled the way the model stores it, so a record never
+// names a group, a link-scoped neighbor, or a loopback address.
+func decodeTunnel(w wireTunnel) (Tunnel, error) {
+	at, err := parseTime(w.CollectedAt)
+	if err != nil {
+		return Tunnel{}, err
+	}
+	if w.Source == "" || w.Node == "" || w.VRF == "" || w.Interface == "" || w.Remote == "" || w.UnderlayVRF == "" {
+		return Tunnel{}, errors.New("needs source, node, vrf, interface, remote, and underlay_vrf")
+	}
+	r, err := netip.ParseAddr(w.Remote)
+	switch {
+	case err != nil:
+		return Tunnel{}, fmt.Errorf("remote %q: %w", w.Remote, err)
+	case r.Zone() != "":
+		return Tunnel{}, fmt.Errorf("remote %s names a zone, and a tunnel's remote is not tied to one link", r)
+	case r.Is4In6():
+		return Tunnel{}, fmt.Errorf("remote %s is an IPv4-mapped IPv6 address; write it as %s", r, r.Unmap())
+	case r.IsUnspecified():
+		return Tunnel{}, fmt.Errorf("remote %s is unspecified", r)
+	case r.IsLoopback():
+		return Tunnel{}, fmt.Errorf("remote %s is a loopback address", r)
+	case r.IsLinkLocalUnicast():
+		return Tunnel{}, fmt.Errorf("remote %s is link-local, which names a neighbor only together with its link", r)
+	case r.IsMulticast() || r == netip.AddrFrom4([4]byte{255, 255, 255, 255}):
+		return Tunnel{}, fmt.Errorf("remote %s is a group address; a multipoint tunnel is not supported", r)
+	}
+	return Tunnel{
+		Provenance:  netmodel.Provenance{Source: w.Source, CollectedAt: at},
+		Node:        w.Node,
+		VRF:         w.VRF,
+		Interface:   w.Interface,
+		Remote:      r,
+		UnderlayVRF: w.UnderlayVRF,
 	}, nil
 }
 

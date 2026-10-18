@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/heymaikol/network-doctor/internal/netmodel"
 )
 
 const threeRoutersFile = `{
@@ -85,6 +87,25 @@ func TestDecodeRefusesMalformedFiles(t *testing.T) {
 		{"bad source address", strings.Replace(base, `"node": "r1", "vrf": "default"},`, `"node": "r1", "vrf": "default", "address": "10.0.12.x"},`, 1), `source" address`},
 		{"bad boundary kind", strings.Replace(base, `"checks": [`, `"boundaries": [{"source": "policy:r2", "collected_at": "2026-10-09T12:00:00Z", "node": "r2", "vrf": "default", "kind": "proxy"}], "checks": [`, 1), `kind "proxy"`},
 		{"boundary without provenance", strings.Replace(base, `"checks": [`, `"boundaries": [{"collected_at": "2026-10-09T12:00:00Z", "node": "r2", "vrf": "default", "kind": "nat"}], "checks": [`, 1), "needs source"},
+		{"tunnel without source", withTunnels(strings.Replace(tunnelRow, `"source": "config:r1", `, "", 1)), "needs source"},
+		{"tunnel without node", withTunnels(strings.Replace(tunnelRow, `"node": "r1", `, "", 1)), "needs source"},
+		{"tunnel without vrf", withTunnels(strings.Replace(tunnelRow, `"vrf": "default", `, "", 1)), "needs source"},
+		{"tunnel without interface", withTunnels(strings.Replace(tunnelRow, `"interface": "wg0", `, "", 1)), "needs source"},
+		{"tunnel without remote", withTunnels(strings.Replace(tunnelRow, `"remote": "10.0.25.1", `, "", 1)), "needs source"},
+		{"tunnel without underlay vrf", withTunnels(strings.Replace(tunnelRow, `, "underlay_vrf": "default"`, "", 1)), "needs source"},
+		{"tunnel bad time", withTunnels(strings.Replace(tunnelRow, "2026-10-09T12:00:00Z", "yesterday", 1)), "collected_at"},
+		{"tunnel unknown field", withTunnels(strings.Replace(tunnelRow, `"remote": `, `"peers": 2, "remote": `, 1)), "unknown field"},
+		{"tunnel hostname remote", withTunnels(tunnelTo("vpn.example")), `remote "vpn.example"`},
+		{"tunnel prefix remote", withTunnels(tunnelTo("10.0.25.1/32")), `remote "10.0.25.1/32"`},
+		{"tunnel zoned remote", withTunnels(tunnelTo("fe80::1%eth0")), "zone"},
+		{"tunnel mapped remote", withTunnels(tunnelTo("::ffff:10.0.25.1")), "IPv4-mapped"},
+		{"tunnel unspecified remote", withTunnels(tunnelTo("0.0.0.0")), "unspecified"},
+		{"tunnel loopback remote", withTunnels(tunnelTo("::1")), "loopback"},
+		{"tunnel link-local remote", withTunnels(tunnelTo("fe80::1")), "link-local"},
+		{"tunnel multicast remote", withTunnels(tunnelTo("239.1.1.1")), "multipoint"},
+		{"tunnel broadcast remote", withTunnels(tunnelTo("255.255.255.255")), "multipoint"},
+		{"duplicate tunnel", withTunnels(tunnelRow, tunnelRow), "declares r1 (default) wg0 again"},
+		{"conflicting tunnel remotes", withTunnels(tunnelRow, tunnelTo("10.0.26.1")), "declares r1 (default) wg0 again"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -96,6 +117,38 @@ func TestDecodeRefusesMalformedFiles(t *testing.T) {
 				t.Errorf("error = %q, want it to mention %q", err, c.want)
 			}
 		})
+	}
+}
+
+const tunnelRow = `{"source": "config:r1", "collected_at": "2026-10-09T12:00:00Z", "node": "r1", "vrf": "default", "interface": "wg0", "remote": "10.0.25.1", "underlay_vrf": "default"}`
+
+// tunnelTo is tunnelRow with another remote.
+func tunnelTo(remote string) string {
+	return strings.Replace(tunnelRow, `"remote": "10.0.25.1"`, `"remote": "`+remote+`"`, 1)
+}
+
+// withTunnels is threeRoutersFile with these tunnel rows.
+func withTunnels(rows ...string) string {
+	return strings.Replace(threeRoutersFile, `"checks": [`, `"tunnels": [`+strings.Join(rows, ", ")+`], "checks": [`, 1)
+}
+
+func TestDecodeReadsTunnels(t *testing.T) {
+	other := strings.NewReplacer(`"source": "config:r1"`, `"source": "config:r2"`, `"node": "r1"`, `"node": "r2"`, `"remote": "10.0.25.1"`, `"remote": "2001:db8::5"`, `"underlay_vrf": "default"`, `"underlay_vrf": "transit"`).Replace(tunnelRow)
+	f, err := Decode([]byte(withTunnels(other, tunnelRow)))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	want := []Tunnel{
+		{Provenance: netmodel.Provenance{Source: "config:r1", CollectedAt: t0}, Node: "r1", VRF: "default", Interface: "wg0", Remote: addr("10.0.25.1"), UnderlayVRF: "default"},
+		{Provenance: netmodel.Provenance{Source: "config:r2", CollectedAt: t0}, Node: "r2", VRF: "default", Interface: "wg0", Remote: addr("2001:db8::5"), UnderlayVRF: "transit"},
+	}
+	if !reflect.DeepEqual(f.Tunnels, want) {
+		t.Errorf("tunnels = %+v, want %+v in node order with their provenance", f.Tunnels, want)
+	}
+	// The same interface name in another routing domain is another interface.
+	blue := strings.Replace(tunnelRow, `"vrf": "default"`, `"vrf": "blue"`, 1)
+	if _, err := Decode([]byte(withTunnels(tunnelRow, blue))); err != nil {
+		t.Errorf("one interface name in two routing domains: %v", err)
 	}
 }
 

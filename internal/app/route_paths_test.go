@@ -276,6 +276,12 @@ func TestRouteBindingOutcomes(t *testing.T) {
 			o["collected_at"] = "2025-12-30T00:00:00Z"
 		}
 	})
+	staleTunnel := editTopology(t, symmetricTopology, func(doc map[string]any) {
+		doc["tunnels"] = []any{map[string]any{
+			"source": "r1-tunnels", "collected_at": "2025-12-30T00:00:00Z", "node": "r1", "vrf": "default",
+			"interface": "eth1", "remote": "198.51.100.2", "underlay_vrf": "default",
+		}}
+	})
 	twoOwners := editTopology(t, symmetricTopology, func(doc map[string]any) {
 		doc["observations"] = append(doc["observations"].([]any), map[string]any{
 			"source": "r9-control", "collected_at": "2026-01-02T03:00:00Z", "plane": "control", "node": "r9", "vrf": "default",
@@ -300,6 +306,7 @@ func TestRouteBindingOutcomes(t *testing.T) {
 		{name: "partial return stays unknown", topo: partial, side: "a", status: compare.RouteBound, assess: "unknown"},
 		{name: "source owned by two nodes", topo: twoOwners, side: "a", status: compare.RouteUnbound, reason: "several nodes"},
 		{name: "rows outside the window", topo: stale, side: "a", status: compare.RouteUnbound, reason: "more than 24 hours"},
+		{name: "tunnel row outside the window", topo: staleTunnel, side: "a", status: compare.RouteUnbound, reason: "more than 24 hours"},
 		{name: "source this side did not record", topo: symmetric, side: "a", status: compare.RouteUnbound, reason: "not the source this side recorded",
 			editA: func(s *snapshot.Snapshot) {
 				o := targetCheck(s)

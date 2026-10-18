@@ -37,6 +37,20 @@ type Failure struct {
 	NextHop      string `json:"next_hop,omitempty"`
 }
 
+// Tunnel is one recorded tunnel interface: Interface of Node in routing domain
+// VRF sends its overlay traffic, encapsulated, to Remote, which Node looks up in
+// routing domain UnderlayVRF. A record names one remote, so it describes a
+// single-remote tunnel only. It was recorded elsewhere, and nothing here checks
+// it against a device.
+type Tunnel struct {
+	netmodel.Provenance
+	Node        string
+	VRF         string
+	Interface   string
+	Remote      netip.Addr
+	UnderlayVRF string
+}
+
 func (f Failure) String() string {
 	switch {
 	case f.NextHop != "":
@@ -166,6 +180,11 @@ type Simulation struct {
 // tells the node to stop selecting the lost leg beside a surviving one, and no
 // destination is rated redundancy_lost: whether flows hashed onto the lost leg
 // move is not in the evidence.
+//
+// A segment that rides a recorded tunnel also depends on the tunnel's
+// underlay, as tunnelRisk reads it. Where the failure may disrupt that
+// underlay, the segment is unknown, never cut, so an underlay loss alone never
+// makes a destination reachability_lost.
 func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	w := newWalker(f, netip.Addr{})
 	var err error
@@ -740,6 +759,83 @@ func (w *walker) sever(at state, n netmodel.NextHop, seg *Segment, ev []Support)
 		return Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why}}, true
 	}
 	return Hop{Via: seg, Decision: Decision{Kind: KindFailed, Reason: "the segment crosses the simulated failure: " + f.String()}}, true
+}
+
+// tunnelRisk says why the failure may disrupt a recorded tunnel that the
+// segment leaving from through n rides, and returns "" when none does or the
+// tunnel's underlay is proven to avoid the failure. The segment rides a tunnel
+// when it leaves by the recorded interface, or names no interface at the
+// tunnel's node and routing domain, unless it goes to a node other than the
+// one holding the remote, which a single-remote tunnel does not reach. A
+// segment that leaves by the interface toward such another node contradicts
+// the record, as a multipoint interface would. A tunnel met during an
+// underlay walk is not followed, which keeps the check from recursing.
+func (w *walker) tunnelRisk(from state, n netmodel.NextHop) (Tunnel, string) {
+	target := n.Addr
+	if !target.IsValid() {
+		target = w.dest
+	}
+	for _, t := range w.tunnels {
+		if t.Node != from.node || t.VRF != from.vrf || (n.Interface != "" && n.Interface != t.Interface) {
+			continue
+		}
+		at := fmt.Sprintf("tunnel %s (%s) %s", t.Node, t.VRF, t.Interface)
+		peer, remote := w.owners[target], w.owners[t.Remote]
+		other := len(peer) == 1 && len(remote) == 1 && peer[0].node != remote[0].node
+		var why string
+		switch {
+		case other && n.Interface == "":
+			continue
+		case w.underlay:
+			w.nested = cmp.Or(w.nested, at)
+			why = at
+		case other:
+			why = fmt.Sprintf("%s carries traffic for %s, which %s (%s) holds, but its record names remote %s, which %s (%s) holds; a record names one remote, so a multipoint tunnel is not modeled", at, target, peer[0].node, peer[0].vrf, t.Remote, remote[0].node, remote[0].vrf)
+		default:
+			why = w.underlayRisk(t, at)
+		}
+		if why == "" {
+			continue
+		}
+		if n.Interface == "" {
+			why = fmt.Sprintf("%s (%s) names no interface for next hop %s, so it may leave by %s; %s", from.node, from.vrf, n.Addr, at, why)
+		}
+		return t, why
+	}
+	return Tunnel{}, ""
+}
+
+// underlayRisk walks the recorded FIB from the tunnel's node, in its underlay
+// routing domain, toward its remote with the failure applied, and says why the
+// tunnel may not survive the failure. The walk spends the current walk's node
+// budget, so it stays inside the simulation's bounds. A walk that never meets
+// the failure is the same walk without it, so one walk decides: the underlay
+// avoids the failure only when it never meets it and proves delivery to the
+// remote. An underlay the failure certainly cuts still leaves the tunnel
+// unknown, never lost, because an endpoint may move and a routing protocol may
+// restore the underlay, and the evidence records neither.
+func (w *walker) underlayRisk(t Tunnel, at string) string {
+	dest, touched, notes := w.dest, w.touched, w.notes
+	w.dest, w.touched, w.underlay, w.nested = t.Remote, false, true, ""
+	h := w.walk(forwardingPlanes, state{t.Node, t.UnderlayVRF}, nil, nil)
+	met, nested := w.touched, w.nested
+	w.dest, w.touched, w.notes, w.underlay, w.nested = dest, touched, notes, false, ""
+	path := fmt.Sprintf("from %s (%s) to remote %s", t.Node, t.UnderlayVRF, t.Remote)
+	switch {
+	case nested != "":
+		return fmt.Sprintf("the underlay of %s, %s, rides a tunnel itself, %s, and a tunnel inside an underlay is not followed", at, path, nested)
+	case met:
+		cut := ""
+		walkHops(&h, func(x *Hop) {
+			if cut == "" && x.Decision.Kind == KindFailed {
+				cut = " at " + segText(*x.Via)
+			}
+		})
+		return fmt.Sprintf("the underlay of %s, %s, meets the failure%s; whether the tunnel stays usable is not in the evidence, since an endpoint may move and a routing protocol may restore the underlay", at, path, cut)
+	case reachOf(&h, nil) != reachOK:
+		return fmt.Sprintf("the recorded underlay of %s, %s, does not prove delivery, so whether it crosses the failure is unknown", at, path)
+	}
+	return ""
 }
 
 // heldOnFailure says why delivery is unknown when the destination is an address

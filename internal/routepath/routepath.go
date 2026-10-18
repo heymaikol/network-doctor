@@ -73,6 +73,8 @@ type File struct {
 	Model      netmodel.Model
 	Checks     []Check
 	Boundaries []Boundary
+	// Tunnels tie tunnel interfaces to their underlays. Only Simulate reads them.
+	Tunnels []Tunnel
 }
 
 // Kind says what happens to the destination at one node.

@@ -391,6 +391,11 @@ func rowsWithin(at time.Time, f routepath.File) bool {
 			return false
 		}
 	}
+	for _, t := range f.Tunnels {
+		if !near(t.CollectedAt) {
+			return false
+		}
+	}
 	return true
 }
 

@@ -12,7 +12,7 @@ import (
 
 // populatedFile uses every field version 1 can carry: known and unknown metrics,
 // a discard route, next hops with and without an address, attributes on each
-// row, checks with and without a next hop, out-of-order boundaries, a source
+// row, checks with and without a next hop, out-of-order boundaries and tunnels, a source
 // address, and a time that is not in UTC.
 func populatedFile(t *testing.T) File {
 	t.Helper()
@@ -69,6 +69,10 @@ func populatedFile(t *testing.T) File {
 			{Provenance: netmodel.Provenance{Source: "config r2", CollectedAt: at}, Node: "r2", VRF: "default", Kind: BoundaryNAT},
 			{Provenance: netmodel.Provenance{Source: "config r1", CollectedAt: at}, Node: "r1", VRF: "default", Kind: BoundaryStatefulFirewall},
 		},
+		Tunnels: []Tunnel{
+			{Provenance: netmodel.Provenance{Source: "config r2", CollectedAt: at}, Node: "r2", VRF: "default", Interface: "wg0", Remote: netip.MustParseAddr("2001:db8::1"), UnderlayVRF: "transit"},
+			{Provenance: netmodel.Provenance{Source: "config r1", CollectedAt: at}, Node: "r1", VRF: "default", Interface: "wg0", Remote: netip.MustParseAddr("10.0.1.2"), UnderlayVRF: "default"},
+		},
 	}
 }
 
@@ -87,6 +91,20 @@ func TestEncodeRoundTripsEveryFieldVersionOneCarries(t *testing.T) {
 	}
 	if back.Source != f.Source || back.SourceAddr != f.SourceAddr {
 		t.Errorf("source = %+v %v, want %+v %v", back.Source, back.SourceAddr, f.Source, f.SourceAddr)
+	}
+}
+
+// A file with no tunnels is written without the key, so builds that predate it
+// still read what Encode writes for them.
+func TestEncodeLeavesAnEmptyTunnelListOut(t *testing.T) {
+	f := populatedFile(t)
+	f.Tunnels = nil
+	data, err := Encode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "tunnels") {
+		t.Errorf("Encode wrote a tunnels key for a file with none:\n%s", data)
 	}
 }
 
@@ -236,10 +254,11 @@ func TestEncodeCoversEveryFieldOfTheModel(t *testing.T) {
 		"netmodel.NextHop":     {netmodel.NextHop{}, 2},
 		"netmodel.Attribute":   {netmodel.Attribute{}, 2},
 		"netmodel.Provenance":  {netmodel.Provenance{}, 2},
-		"routepath.File":       {File{}, 5},
+		"routepath.File":       {File{}, 6},
 		"routepath.Start":      {Start{}, 2},
 		"routepath.Check":      {Check{}, 7},
 		"routepath.Boundary":   {Boundary{}, 4},
+		"routepath.Tunnel":     {Tunnel{}, 6},
 	}
 	for name, tc := range want {
 		if got := reflect.TypeOf(tc.value).NumField(); got != tc.count {

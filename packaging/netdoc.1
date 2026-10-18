@@ -464,8 +464,9 @@ changes: the peer's paths for other prefixes stay, so this is not a session
 loss. The outcome is paths_remain when a path from no peer, or from another
 peer the summary shows Established, is still listed and not recorded stale;
 unknown when the only other paths are recorded stale, name no peer, or come
-from a peer the summary does not show Established; and no_recorded_path when the table lists no other path, which is
-not a route loss, since another peer may still send one. A
+from a peer the summary does not show Established; and no_recorded_path when
+the table lists no other path, which is not a route loss, since another peer
+may still send one. A
 remaining path is a candidate, not a selected or installed route. The forwarding
 impact is always unknown: no RIB, FIB, or topology is read, and the result is
 never reachability_lost or redundancy_lost. The node ends at the first colon

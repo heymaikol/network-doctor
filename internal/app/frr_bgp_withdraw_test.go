@@ -83,6 +83,12 @@ func runWithdrawJSON(t *testing.T, manifest, spec string) frrBGPWithdrawal {
 	if !slices.Equal(rep.Limitations[len(rep.Limitations)-len(frrBGPWithdrawLimitations):], frrBGPWithdrawLimitations) {
 		t.Errorf("limitations do not end with the withdrawal limitations: %q", rep.Limitations)
 	}
+	// A state other than Established beside the peer's paths, or a path from such
+	// a peer, is reported as observed, never as the captures disagreeing.
+	_, text, _ := runNetdoc(t, "--import-frr-bgp", manifest, "--withdraw-bgp", spec)
+	if strings.Contains(text, "disagree") || strings.Contains(w.Reason, "disagree") {
+		t.Errorf("withdrawal calls the captures a disagreement:\n%s", text)
+	}
 	return *w
 }
 
@@ -282,9 +288,9 @@ func TestWithdrawReadsEachRemainingPath(t *testing.T) {
 		{"alternate from a peer the summary shows Active", "10.0.1.9", []string{bgpPath("10.0.1.9", "65009", "IGP", "10.0.1.9"), bgpPath("10.0.1.3", "65003", "IGP", "10.0.1.3")}, true,
 			withdrawUnknown, []string{"contradicted 10.0.1.3"}, []string{"Active"}, "1 come from peers the summary does not show Established"},
 		{"alternate from a peer the summary does not list", "10.0.1.9", []string{bgpPath("10.0.1.9", "65009", "IGP", "10.0.1.9"), bgpPath("10.0.1.8", "65008", "IGP", "10.0.1.8")}, true,
-			withdrawUnknown, []string{"contradicted 10.0.1.8"}, []string{""}, "the summary and the table disagree"},
+			withdrawUnknown, []string{"contradicted 10.0.1.8"}, []string{""}, "and the captures do not show why the table lists them"},
 		{"both kinds of doubt", "10.0.1.9", []string{bgpPath("10.0.1.9", "65009", "IGP", "10.0.1.9"), bgpPath("", "65009", "IGP", "10.0.1.9"), bgpPath("10.0.1.3", "65003", "IGP", "10.0.1.3")}, true,
-			withdrawUnknown, []string{"unattributed ", "contradicted 10.0.1.3"}, []string{"", "Active"}, "1 name no peer, so any of them may be peer 10.0.1.9's own, and 1 come from peers"},
+			withdrawUnknown, []string{"unattributed ", "contradicted 10.0.1.3"}, []string{"", "Active"}, "1 name no peer, so any of them may be peer 10.0.1.9's own; 1 come from peers"},
 		{"alternate with no summary captured", "10.0.1.9", []string{bgpPath("10.0.1.9", "65009", "IGP", "10.0.1.9"), bgpPath("10.0.1.3", "65003", "IGP", "10.0.1.3")}, false,
 			withdrawPathsRemain, []string{"learned 10.0.1.3"}, []string{""}, "still lists a path"},
 		{"mixed sources and origins", "10.0.1.9", []string{bgpPath("", "65008", "EGP", "10.0.1.8"), bgpPath("10.0.1.9", "65009", "IGP", "10.0.1.9"), bgpPath("10.0.1.3", "65003", "incomplete", "10.0.1.3"), bgpPath("(unspec)", "", "incomplete", "0.0.0.0")}, true,
@@ -371,8 +377,8 @@ func TestWithdrawIsNotASessionLoss(t *testing.T) {
 // rests on the paths that remain.
 func TestWithdrawingPeerSessionIsReportedNotJudged(t *testing.T) {
 	for _, c := range []struct{ peer, state, text string }{
-		{"10.0.1.3", "Active", "session: the summary printed state Active, while the table lists paths from it; the captures disagree"},
-		{"10.0.1.7", "", "session: the summary does not list this peer, while the table lists paths from it; the captures disagree"},
+		{"10.0.1.3", "Active", "session: the summary printed state Active, while the table lists paths from it; the captures do not show why"},
+		{"10.0.1.7", "", "session: the summary does not list this peer, while the table lists paths from it; the captures do not show why"},
 	} {
 		routes := map[string][]string{"10.20.0.0/16": {bgpPath(c.peer, "65003", "IGP", c.peer), bgpPath("10.0.1.2", "65002", "IGP", "10.0.1.2")}}
 		manifest := stageSyntheticTable(t, routes, true)

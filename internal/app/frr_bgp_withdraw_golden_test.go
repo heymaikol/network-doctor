@@ -9,7 +9,9 @@ import (
 
 // frrBGPWithdrawGoldenDir holds the pinned BGP import and --withdraw-bgp reports.
 // The golden files were written at 0317503, before the route decoder read any
-// stale flag, so a change to either report shows up here.
+// stale flag, so a change to either report shows up here. The withdrawal files
+// were rewritten for #374, which stopped calling a state other than Established
+// a disagreement between the captures; the import files are as written.
 const frrBGPWithdrawGoldenDir = "testdata/bgpwithdraw/golden"
 
 // stalePath is bgpPath with a stale key written first, as raw JSON. The value

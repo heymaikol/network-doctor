@@ -210,10 +210,11 @@ func withdrawFRRBGP(w bgpWithdraw, t frrbgp.RouteTable, tc frrospf.ManifestCaptu
 }
 
 // withdrawOutcome rates the paths that remain. Only a path from no peer, or from
-// a peer whose recorded session does not contradict the table, counts as
-// remaining. A path that names no peer may be the withdrawing peer's own, and a
-// path from a peer the summary does not show Established may already be gone, so
-// either leaves the outcome unknown when nothing else remains.
+// a peer the summary shows Established or with no summary captured, counts as
+// remaining. A path that names no peer may be the withdrawing peer's own, and
+// the captures do not show why the table lists a path from a peer the summary
+// does not show Established, so either leaves the outcome unknown when nothing
+// else remains. None of the groups claims a cause.
 func withdrawOutcome(w *frrBGPWithdrawal) (string, string) {
 	counted, unattributed, contradicted := 0, 0, 0
 	for _, p := range w.Remaining {
@@ -236,9 +237,9 @@ func withdrawOutcome(w *frrBGPWithdrawal) (string, string) {
 			why = append(why, fmt.Sprintf("%d name no peer, so any of them may be peer %s's own", unattributed, w.Peer))
 		}
 		if contradicted > 0 {
-			why = append(why, fmt.Sprintf("%d come from peers the summary does not show Established, so the summary and the table disagree about them", contradicted))
+			why = append(why, fmt.Sprintf("%d come from peers the summary does not show Established, and the captures do not show why the table lists them", contradicted))
 		}
-		return withdrawUnknown, fmt.Sprintf("of the other paths %s lists for %s, %s; whether any path for it remains is unknown", at, w.Prefix, strings.Join(why, ", and "))
+		return withdrawUnknown, fmt.Sprintf("of the other paths %s lists for %s, %s; whether any path for it remains is unknown", at, w.Prefix, strings.Join(why, "; "))
 	}
 	return withdrawNoRecordedPath, fmt.Sprintf("after peer %s withdraws %s, %s lists no other path for it; another peer may still send one once the withdrawal propagates, which no capture shows, so no route loss is claimed", w.Peer, w.Prefix, at)
 }
@@ -286,9 +287,9 @@ func renderFRRBGPWithdrawal(b *strings.Builder, w frrBGPWithdrawal) {
 	case len(w.Evidence) < 2:
 		fmt.Fprintf(b, "  peer %s session: not captured; the manifest names no summary for %s\n", clean(w.Peer), clean(w.Node))
 	case w.PeerSessionState == "":
-		fmt.Fprintf(b, "  peer %s session: the summary does not list this peer, while the table lists paths from it; the captures disagree, and the withdrawal is read against the table as recorded\n", clean(w.Peer))
+		fmt.Fprintf(b, "  peer %s session: the summary does not list this peer, while the table lists paths from it; the captures do not show why, and the withdrawal is read against the table as recorded\n", clean(w.Peer))
 	case w.PeerSessionState != frrbgp.StateEstablished:
-		fmt.Fprintf(b, "  peer %s session: the summary printed state %s, while the table lists paths from it; the captures disagree, and the withdrawal is read against the table as recorded\n", clean(w.Peer), clean(w.PeerSessionState))
+		fmt.Fprintf(b, "  peer %s session: the summary printed state %s, while the table lists paths from it; the captures do not show why, and the withdrawal is read against the table as recorded\n", clean(w.Peer), clean(w.PeerSessionState))
 	default:
 		fmt.Fprintf(b, "  peer %s session: the summary printed state %s, and a prefix withdrawal leaves the session as recorded\n", clean(w.Peer), clean(w.PeerSessionState))
 	}

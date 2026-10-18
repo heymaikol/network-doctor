@@ -37,7 +37,7 @@ Prefix withdrawal (simulated against the recorded BGP table; nothing was sent):
   outcome paths_remain: after peer 10.0.1.9 withdraws 10.40.0.0/16, r1's recorded BGP table still lists a path for it from no peer or from another peer; which path FRR would select, and whether it is valid or installed, is not read
   removed: learned path from peer 10.0.1.9, AS path 65009, BGP origin IGP, next hops 10.0.1.9
   remains: learned path from peer 10.0.1.2, session Established, AS path 65002, BGP origin IGP, next hops 10.0.1.2
-  peer 10.0.1.9 session: the summary does not list this peer, while the table lists paths from it; the captures disagree, and the withdrawal is read against the table as recorded
+  peer 10.0.1.9 session: the summary does not list this peer, while the table lists paths from it; the captures do not show why, and the withdrawal is read against the table as recorded
   not withdrawn: the peer's learned paths for other prefixes (2); a prefix withdrawal is not a session loss
   forwarding impact unknown: the capture is FRR's BGP table, not zebra's RIB or the kernel FIB; which path FRR selected and whether any was installed are not read, so what forwarding does after the withdrawal is unknown
   evidence: r1 bgp table, collected 2026-10-13T01:22:30Z

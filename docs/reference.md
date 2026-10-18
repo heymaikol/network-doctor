@@ -2232,16 +2232,16 @@ The simulation removes every path for PREFIX in NODE's table whose `peerId` is P
 
 - `learned`: from another peer that NODE's summary shows `Established`, or from any other peer when the manifest names no summary for NODE.
 - `no_peer`: FRR recorded no peer (`"peerId": "(unspec)"`), as for a prefix the router originates itself.
-- `contradicted`: from a peer that NODE's summary lists in another state, or does not list. The table and the summary disagree about that path.
+- `contradicted`: from a peer that NODE's summary lists in another state, or does not list. This means only that the summary does not show that path's peer `Established`; the report does not call it a disagreement.
 - `unattributed`: its `peerId` is absent or an unspecified address, so it may be PEER's own path.
 
 The `outcome` rates the prefix at NODE only:
 
 - `paths_remain`: at least one `learned` or `no_peer` path remains. It is a candidate FRR listed. Whether it is valid, which path FRR would select, and whether it would be installed are not read.
-- `unknown`: the only paths left are `contradicted` or `unattributed`.
+- `unknown`: the only paths left are `contradicted` or `unattributed`. The reason names each group without claiming a cause: paths that name no peer, since any of them may be PEER's own, and paths from peers the summary does not show `Established`, since the captures do not show why the table lists them.
 - `no_recorded_path`: the table lists no other path for the prefix. Another peer may still send one once the withdrawal propagates, which no capture shows, so this is not reported as a route loss.
 
-A prefix withdrawal is not a session loss. The report counts PEER's learned paths for other prefixes as `peer_other_paths` and leaves them in place, and it shows PEER's state as NODE's summary printed it. A state other than `Established`, or a summary that does not list PEER, is shown as a disagreement between the captures and does not change the outcome. Other prefixes are not rated, because aggregation, conditional advertisement, policy, and next hops that resolve through the withdrawn prefix are not in the evidence.
+A prefix withdrawal is not a session loss. The report counts PEER's learned paths for other prefixes as `peer_other_paths` and leaves them in place, and it shows PEER's state as NODE's summary printed it. A state other than `Established`, or a summary that does not list PEER, is reported as observed, with a note that the captures do not show why the table lists PEER's paths. It is not called a disagreement between the captures, and it does not change the outcome. Other prefixes are not rated, because aggregation, conditional advertisement, policy, and next hops that resolve through the withdrawn prefix are not in the evidence.
 
 `forwarding_impact` is always `unknown`. The capture is FRR's BGP table: the import reads no zebra RIB, kernel FIB, or topology, and it ties no BGP path to a forwarding entry, so a withdrawal is never rated `reachability_lost` or `redundancy_lost`. `--explain` reads no BGP table, and `--withdraw-bgp` cannot be combined with it.
 
@@ -2266,7 +2266,7 @@ It needs `--import-frr-bgp`, not `--explain`. A topology file records forwarding
 
 The node ends at the first colon and the peer is the rest, so the peer may be an IPv6 address. A zone is refused. The peer is matched exactly against each path's `peerId` and the summary's peer keys, so `::ffff:10.0.1.2` does not match `10.0.1.2`.
 
-Each prefix with at least one path from PEER is rated. Its other paths have the [withdrawal's kinds](#simulated-prefix-withdrawal): `learned`, `no_peer`, `contradicted`, and `unattributed`. Here `contradicted` means only that the summary does not show that path's peer Established; the report does not call it a disagreement. Each path also carries `stale_flag`, what its `stale` key recorded: `recorded_true`, `recorded_false`, or `not_recorded`. The flag never changes a kind.
+Each prefix with at least one path from PEER is rated. Its other paths have the [withdrawal's kinds](#simulated-prefix-withdrawal): `learned`, `no_peer`, `contradicted`, and `unattributed`. Each path also carries `stale_flag`, what its `stale` key recorded: `recorded_true`, `recorded_false`, or `not_recorded`. The flag never changes a kind.
 
 - `paths_remain`: at least one remaining path is `learned` or `no_peer` and not `recorded_true`. It is a candidate FRR listed. Whether it is valid, which path FRR would select, and whether it would be installed are not read.
 - `unknown`: paths remain, but none counts. The reason names each group without claiming a cause: paths recorded stale, since what FRR later does with them is not in the evidence; paths that name no peer, since any of them may be PEER's own; and paths from peers the summary does not show Established. A path is named in the first group that fits.

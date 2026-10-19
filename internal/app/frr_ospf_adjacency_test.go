@@ -2,6 +2,8 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -65,8 +67,8 @@ var adjacencyArms = []struct {
 // Then --explain --fail-ospf runs on that file, and every destination it
 // considers is graded against what the run observed after the fault: r1's
 // pings, its route lookups, and its main table. The arm's own claims, that the
-// adjacency left Full on both ends while both interfaces stayed up and the
-// filter dropped OSPF packets, are checked from the captures too.
+// adjacency left Full on both ends while both interfaces stayed up and both
+// drop filters dropped OSPF packets, are checked from the captures too.
 func TestFRRAdjacencyLossAgainstLiveRuns(t *testing.T) {
 	for _, arm := range adjacencyArms {
 		t.Run(arm.arm, func(t *testing.T) {
@@ -394,7 +396,7 @@ type ipLink struct {
 // checkAdjacencyFault checks that the run injected what the arm says: r1's
 // adjacency on iface and peer's on peerIface were Full before the fault and
 // are not Full after it, both interfaces stayed up with carrier in both
-// phases, and the filter dropped OSPF packets each way.
+// phases, and both of r1's drop filters dropped OSPF packets.
 func checkAdjacencyFault(t *testing.T, src, iface, peer, peerIface string) {
 	t.Helper()
 	for _, end := range [][2]string{{"r1", iface}, {peer, peerIface}} {
@@ -428,30 +430,154 @@ func checkAdjacencyFault(t *testing.T, src, iface, peer, peerIface string) {
 			}
 		}
 	}
+	var captures [][]tcFilter
 	for _, dir := range []string{"ingress", "egress"} {
-		// The u32 key matches the protocol byte, 8 bytes into the IPv4 header,
-		// against 0x59, which is 89, OSPF.
-		var filters []struct {
-			Options struct {
-				Match struct {
-					Value string
-					Mask  string
-					Off   int
+		var fs []tcFilter
+		readJSONFile(t, filepath.Join(src, "r1-after-tc_"+dir+".json"), &fs)
+		captures = append(captures, fs)
+	}
+	if why := ospfDropsDisagree(captures...); why != "" {
+		t.Errorf("r1 OSPF drop filters on %s: %s", iface, why)
+	}
+}
+
+// tcFilter is the part of one "tc -s -j filter show" row read here. The rows
+// without actions are u32 hash tables.
+type tcFilter struct {
+	Options struct {
+		Fh    string
+		Match struct {
+			Value, Mask string
+			Off         int
+		}
+		Actions []tcAction
+	}
+}
+
+type tcAction struct {
+	Kind          string
+	ControlAction struct{ Type string } `json:"control_action"`
+	Index         int
+	Stats         struct{ Drops int }
+}
+
+// ospfDropsDisagree says how r1's filter captures fail to show the lab's two
+// OSPF drop filters each dropping packets, or returns "". u32 keeps one set of
+// hash tables per qdisc, so a dump of either clsact direction lists both
+// filters, in hash tables 800: and 801:. The ingress and egress captures are
+// that one listing taken twice and do not say which filter serves which
+// direction, so no capture is read as one direction's. Each capture must hold
+// exactly two actions, each the only action on its own filter, with its own
+// index, matching IP protocol 89, dropping, and with a positive drop count, and
+// both captures must put each action on the same filter.
+func ospfDropsDisagree(captures ...[]tcFilter) string {
+	var first map[int]string
+	for _, fs := range captures {
+		on := map[int]string{}
+		for _, f := range fs {
+			o := f.Options
+			for _, a := range o.Actions {
+				switch {
+				// The u32 key matches the protocol byte, 8 bytes into the IPv4
+				// header, against 0x59, which is 89, OSPF.
+				case o.Match.Value != "590000" || o.Match.Mask != "ff0000" || o.Match.Off != 8:
+					return "filter " + o.Fh + " does not match IP protocol 89"
+				case a.Kind != "gact" || a.ControlAction.Type != "drop":
+					return fmt.Sprintf("filter %s acts by %s %s, not a drop", o.Fh, a.Kind, a.ControlAction.Type)
+				case a.Index <= 0 || o.Fh == "":
+					return fmt.Sprintf("action %d on filter %q has no index or no filter", a.Index, o.Fh)
+				case on[a.Index] != "":
+					return fmt.Sprintf("action %d is on filters %s and %s", a.Index, on[a.Index], o.Fh)
+				case slices.Contains(slices.Collect(maps.Values(on)), o.Fh):
+					return "filter " + o.Fh + " holds more than one action"
+				case a.Stats.Drops <= 0:
+					return fmt.Sprintf("action %d on filter %s dropped nothing", a.Index, o.Fh)
 				}
-				Actions []struct{ Stats struct{ Drops int } }
+				on[a.Index] = o.Fh
 			}
 		}
-		readJSONFile(t, filepath.Join(src, "r1-after-tc_"+dir+".json"), &filters)
-		drops := 0
-		for _, f := range filters {
-			if m := f.Options.Match; m.Value == "590000" && m.Mask == "ff0000" && m.Off == 8 {
-				for _, a := range f.Options.Actions {
-					drops += a.Stats.Drops
-				}
+		switch {
+		case len(on) != 2:
+			return fmt.Sprintf("a capture holds %d drop actions, want the 2 the lab installs", len(on))
+		case first == nil:
+			first = on
+		case !maps.Equal(on, first):
+			return fmt.Sprintf("the captures put the actions on filters %v and %v, so which action is which is ambiguous", first, on)
+		}
+	}
+	return ""
+}
+
+// TestFRRAdjacencyDropCheckRefusesGaps edits fresh copies of the ecmp arm's
+// filter captures in each way they could fail to show both OSPF drop filters
+// at work, and ospfDropsDisagree must refuse every one. The check once summed
+// the drops of every OSPF action, so a filter that dropped nothing passed
+// whenever the other one dropped.
+func TestFRRAdjacencyDropCheckRefusesGaps(t *testing.T) {
+	read := func() [][]tcFilter {
+		var c [][]tcFilter
+		for _, dir := range []string{"ingress", "egress"} {
+			var fs []tcFilter
+			readJSONFile(t, filepath.Join(frrAdjacencyDir, "ecmp", "r1-after-tc_"+dir+".json"), &fs)
+			c = append(c, fs)
+		}
+		return c
+	}
+	if why := ospfDropsDisagree(read()...); why != "" {
+		t.Fatalf("the committed captures are refused: %s", why)
+	}
+	filter := func(fs []tcFilter, index int) *tcFilter {
+		for i := range fs {
+			if slices.ContainsFunc(fs[i].Options.Actions, func(a tcAction) bool { return a.Index == index }) {
+				return &fs[i]
 			}
 		}
-		if drops == 0 {
-			t.Errorf("r1 %s filter on %s dropped no OSPF packet", dir, iface)
+		t.Fatalf("no filter holds action %d", index)
+		return nil
+	}
+	// both makes one edit to each capture, so the two still agree and only the
+	// check of each capture on its own can refuse it.
+	both := func(edit func(fs []tcFilter)) func(c [][]tcFilter) {
+		return func(c [][]tcFilter) {
+			for _, fs := range c {
+				edit(fs)
+			}
+		}
+	}
+	edits := map[string]func(c [][]tcFilter){
+		"action 1 has no index":         both(func(fs []tcFilter) { filter(fs, 1).Options.Actions[0].Index = 0 }),
+		"action 1 has no filter handle": both(func(fs []tcFilter) { filter(fs, 1).Options.Fh = "" }),
+		"action 2 renumbered to 1":      both(func(fs []tcFilter) { filter(fs, 2).Options.Actions[0].Index = 1 }),
+		"both actions on one filter":    both(func(fs []tcFilter) { filter(fs, 2).Options.Fh = filter(fs, 1).Options.Fh }),
+		"action 2 missing":              both(func(fs []tcFilter) { filter(fs, 2).Options.Actions = nil }),
+		"action 2 matches TCP":          both(func(fs []tcFilter) { filter(fs, 2).Options.Match.Value = "060000" }),
+		"action 2 passes":               both(func(fs []tcFilter) { filter(fs, 2).Options.Actions[0].ControlAction.Type = "pass" }),
+		"a third filter repeats action 1": func(c [][]tcFilter) {
+			for i := range c {
+				f := *filter(c[i], 1)
+				f.Options.Fh = "802::800"
+				c[i] = append(c[i], f)
+			}
+		},
+		"egress swaps the two filters": func(c [][]tcFilter) {
+			f1, f2 := filter(c[1], 1), filter(c[1], 2)
+			f1.Options.Fh, f2.Options.Fh = f2.Options.Fh, f1.Options.Fh
+		},
+	}
+	for i, dir := range []string{"ingress", "egress"} {
+		for _, index := range []int{1, 2} {
+			edits[fmt.Sprintf("%s capture action %d dropped nothing", dir, index)] = func(c [][]tcFilter) {
+				filter(c[i], index).Options.Actions[0].Stats.Drops = 0
+			}
+		}
+	}
+	for name, edit := range edits {
+		c := read()
+		edit(c)
+		if why := ospfDropsDisagree(c...); why == "" {
+			t.Errorf("%s: accepted", name)
+		} else {
+			t.Logf("%s: %s", name, why)
 		}
 	}
 }

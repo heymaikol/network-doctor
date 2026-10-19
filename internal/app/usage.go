@@ -87,7 +87,9 @@ domain, and on INTERFACE when one is named. The interface and the node that
 holds ADDRESS stay up, and nothing else changes. Only a next hop that a fib row
 of NODE names can be selected. Whether NODE stops selecting a lost next hop
 beside a surviving one is not in the file, so such a destination is unknown,
-never redundancy_lost.
+never redundancy_lost. It removes the recorded FIB next hop directly, simulates
+no OSPF adjacency or BGP session loss, and assumes no protocol computes its
+routes again.
 
 --import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each
 one, and reports every capture and every neighbor record. With LSDB captures, it

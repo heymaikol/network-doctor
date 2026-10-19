@@ -525,6 +525,49 @@ func TestBGPUnderlayKeepsItsStructuralReasons(t *testing.T) {
 	}
 }
 
+// Under --fail r5:lan the tunnel's remote holds the overlay destination on its
+// down lan interface, and the BGP-selected underlay leaves the walk at the tunnel.
+// The leaf keeps the BGP route and says, conditionally, what the remote holds,
+// with the rows that show it. Ratings and counts are those of the BGP rule alone.
+func TestBGPUnderlayKeepsTheRemoteDownInterface(t *testing.T) {
+	obs := underlayBy("r1", netmodel.OriginBGP)
+	fail := Failure{Node: "r5", Interface: "lan"}
+	s := simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, fail)
+	want := withOverlay(t, obs, fromR1, fail, map[string]Impact{overlayDest: ImpactUnknown, tunnelPeer: ImpactUnknown})
+	if got := impacts(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("impacts = %v, want %v", got, want)
+	}
+	if s.Considered != 14 || s.Unchanged != 14-len(want) || s.Truncated {
+		t.Errorf("considered %d, unchanged %d, truncated %t; want 14, %d, false", s.Considered, s.Unchanged, s.Truncated, 14-len(want))
+	}
+	leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
+	if leaf == nil || leaf.Decision.Kind != KindUnknown {
+		t.Fatalf("wg0 leaf = %+v, want an unknown leaf", leaf)
+	}
+	const bgpRoute = "forwards by BGP route 10.0.25.0/30 at r1 (default), in fib:r1:default (bgp)"
+	const remoteHolds = "if the traffic crosses the tunnel, r5 (default) holds 10.50.0.1 on lan, which is down"
+	if !strings.Contains(leaf.Decision.Reason, bgpRoute) || !strings.Contains(leaf.Decision.Reason, remoteHolds) {
+		t.Errorf("reason = %q, want it to name the BGP route and the remote's down interface", leaf.Decision.Reason)
+	}
+	var sources []string
+	for _, e := range leaf.Decision.Evidence {
+		sources = append(sources, e.Source)
+	}
+	if want := []string{"config:r5:default", "tunnels:r1"}; !slices.Equal(sources, want) {
+		t.Errorf("evidence sources = %v, want %v", sources, want)
+	}
+	if !strings.Contains(s.Text(), remoteHolds) {
+		t.Errorf("text lacks the remote's down interface:\n%s", s.Text())
+	}
+	if b, err := json.Marshal(s); err != nil || !strings.Contains(string(b), remoteHolds) {
+		t.Errorf("json lacks the remote's down interface: %v\n%s", err, b)
+	}
+	other := simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"})
+	if leaf := leafOf(affected(t, other, overlayDest).After, "wg0"); leaf == nil || strings.Contains(leaf.Decision.Reason, "if the traffic crosses") {
+		t.Errorf("under r3, wg0 leaf = %+v, want no remote interface: the failure is not on the remote", leaf)
+	}
+}
+
 // A BGP underlay longer than maxDepth stops before it proves delivery. The
 // overlay is unknown for that reason, the unproven one, and not for the BGP
 // route its first hop selects, since a walk cut short says nothing about it.

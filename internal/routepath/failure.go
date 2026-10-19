@@ -917,6 +917,30 @@ func (w *walker) heldOnFailure(at state) string {
 	return fmt.Sprintf("%s (%s) holds %s on %s, which is down; whether a node still answers for an address on a down interface depends on its platform, which the evidence does not record", at.node, at.vrf, w.dest, w.fail.Interface)
 }
 
+// beyondTunnel says what the failure does to the destination at the node that
+// the tunnel's remote names, when the overlay reaches it past the tunnel. A walk
+// that ends at an unknown tunnel leaf never reaches that node, so its own down
+// interface is said here, conditionally, since the underlay may not carry the
+// traffic. The rows that place the destination there are its evidence. A
+// multipoint tunnel names no node beyond itself, so it gets none. A destination
+// that is the remote's own address is what the underlay reaches first, so it has
+// no beyond to report.
+func (w *walker) beyondTunnel(t Tunnel, n netmodel.NextHop) (string, []Support) {
+	target := n.Addr
+	if !target.IsValid() {
+		target = w.dest
+	}
+	peer, remote := w.owners[target], w.owners[t.Remote]
+	if w.dest == t.Remote || len(peer) != 1 || len(remote) != 1 || peer[0].node != remote[0].node {
+		return "", nil
+	}
+	why := w.heldOnFailure(peer[0])
+	if why == "" {
+		return "", nil
+	}
+	return why, ownSupports(w.owned[ownerKey{w.dest, peer[0]}])
+}
+
 // Text renders the simulation for a person. Every line passes through
 // textsafe.Clean, because names come from the file.
 func (s Simulation) Text() string {

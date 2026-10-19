@@ -877,11 +877,18 @@ func (w *walker) underlayRisk(t Tunnel, at string) string {
 		return fmt.Sprintf("the underlay of %s, %s, rides a tunnel itself, %s, and a tunnel inside an underlay is not followed", at, path, nested)
 	case met:
 		cut := ""
+		var unknown *Hop
 		walkHops(&h, func(x *Hop) {
 			if cut == "" && x.Decision.Kind == KindFailed {
 				cut = " at " + segText(*x.Via)
 			}
+			if unknown == nil && x.Decision.Kind == KindUnknown && x.Via != nil {
+				unknown = x
+			}
 		})
+		if cut == "" && w.adj != nil && unknown != nil {
+			return fmt.Sprintf("the underlay of %s, %s, is unknown, not proven cut, at %s: %s; whether the tunnel stays usable is not in the evidence, since an endpoint may move and a routing protocol may restore the underlay", at, path, segText(*unknown.Via), unknown.Decision.Reason)
+		}
 		return fmt.Sprintf("the underlay of %s, %s, meets the failure%s; whether the tunnel stays usable is not in the evidence, since an endpoint may move and a routing protocol may restore the underlay", at, path, cut)
 	case reachOf(&h, nil) != reachOK:
 		return fmt.Sprintf("the recorded underlay of %s, %s, does not prove delivery, so whether it crosses the failure is unknown", at, path)

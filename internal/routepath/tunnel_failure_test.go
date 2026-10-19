@@ -504,22 +504,23 @@ func TestBGPUnderlayKeepsItsStructuralReasons(t *testing.T) {
 		ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth2"}, ospfNeighbor("eth2", "r3", "eth0", "10.0.13.2", "Full")))
 	bgpUnderlay := underlayBy("r1", netmodel.OriginBGP)
 	cases := []struct {
-		name    string
-		obs     []netmodel.Observation
-		fail    Failure
-		because string
+		name     string
+		obs      []netmodel.Observation
+		fail     Failure
+		because  string
+		unwanted string
 	}{
-		{"underlay cut at r2", bgpUnderlay, Failure{Node: "r2"}, "meets the failure"},
-		{"underlay not proven", partial, Failure{Node: "r3"}, "does not prove delivery"},
-		{"--fail-ospf on the underlay adjacency", adjacency, Failure{Node: "r1", Interface: "eth2", OSPFNeighbor: "r3"}, "meets the failure"},
-		{"--fail-next-hop on the underlay gateway", bgpUnderlay, Failure{Node: "r1", Interface: "eth0", NextHop: "10.0.12.2"}, "meets the failure"},
+		{"underlay cut at r2", bgpUnderlay, Failure{Node: "r2"}, "meets the failure", ""},
+		{"underlay not proven", partial, Failure{Node: "r3"}, "does not prove delivery", ""},
+		{"--fail-ospf on the underlay adjacency", adjacency, Failure{Node: "r1", Interface: "eth2", OSPFNeighbor: "r3"}, "is unknown, not proven cut, at r1 (default) eth0 via 10.0.12.2", "meets the failure"},
+		{"--fail-next-hop on the underlay gateway", bgpUnderlay, Failure{Node: "r1", Interface: "eth0", NextHop: "10.0.12.2"}, "meets the failure", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := simulateTunnels(t, c.obs, []Tunnel{r1wg0}, fromR1, c.fail)
 			leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
-			if leaf == nil || !strings.Contains(leaf.Decision.Reason, c.because) || strings.Contains(leaf.Decision.Reason, "by BGP route") {
-				t.Errorf("wg0 leaf = %+v, want its reason to say %q and not name a BGP route", leaf, c.because)
+			if leaf == nil || !strings.Contains(leaf.Decision.Reason, c.because) || strings.Contains(leaf.Decision.Reason, "by BGP route") || (c.unwanted != "" && strings.Contains(leaf.Decision.Reason, c.unwanted)) {
+				t.Errorf("wg0 leaf = %+v, want its reason to say %q, not %q, and not name a BGP route", leaf, c.because, c.unwanted)
 			}
 		})
 	}

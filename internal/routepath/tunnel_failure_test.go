@@ -460,6 +460,38 @@ func TestBGPUnderlayRuleIsConfined(t *testing.T) {
 	}
 }
 
+// A next-hop loss off a BGP-selected underlay gives the same output as the loss
+// over a static underlay. The BGP rule reads router and interface failures only,
+// so removing the gateway guard turns the overlay unknown and fails this test.
+func TestBGPUnderlayRuleSparesANextHopLoss(t *testing.T) {
+	fail := Failure{Node: "r1", NextHop: "10.0.13.2"}
+	got := simulateTunnels(t, underlayBy("r1", netmodel.OriginBGP), []Tunnel{r1wg0}, fromR1, fail)
+	want := simulateTunnels(t, tunnelTopology(), []Tunnel{r1wg0}, fromR1, fail)
+	if got.Text() != want.Text() {
+		t.Errorf("text differs from the static underlay:\n%s\nwant:\n%s", got.Text(), want.Text())
+	}
+	gotJSON, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("json differs from the static underlay:\n%s\nwant:\n%s", gotJSON, wantJSON)
+	}
+	if got.Failure.VRF != "default" || got.Gateway == nil || len(got.Gateway.Evidence) != 1 {
+		t.Errorf("failure %+v, gateway %+v; want the default VRF filled in and one FIB row naming the gateway", got.Failure, got.Gateway)
+	}
+	if got.Considered != 14 || got.Unchanged != 12 || got.Truncated {
+		t.Errorf("considered %d, unchanged %d, truncated %t; want 14, 12, false", got.Considered, got.Unchanged, got.Truncated)
+	}
+	if d, ok := impacts(got)[overlayDest]; ok {
+		t.Errorf("overlay = %s, want none: the gateway is off the underlay", d)
+	}
+}
+
 // The failures the BGP rule leaves to their own reasons: an underlay the
 // failure cuts or does not prove keeps that reason, and a lost adjacency or
 // next hop that cuts the underlay keeps the one it already gave.

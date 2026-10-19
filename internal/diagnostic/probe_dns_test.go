@@ -495,20 +495,72 @@ func TestPublicDNSReplayIgnoresUnverifiedReplies(t *testing.T) {
 	}
 }
 
-// Cancelling the caller's context ends a lost query the same way a deadline
-// does, and must keep the answer that already arrived.
+// watchedDNSConn is a lostDNSConn that reports when it delivers a reply. Go
+// closes a query's connection only after reading its reply, and the observer
+// verifies that reply inside the read, so Close runs after the answer is recorded.
+type watchedDNSConn struct {
+	lostDNSConn
+	delivered bool
+	onAnswer  func()
+}
+
+func (c *watchedDNSConn) Read(p []byte) (int, error) {
+	answered := len(c.reply) > 0
+	n, err := c.lostDNSConn.Read(p)
+	c.delivered = c.delivered || answered
+	return n, err
+}
+
+func (c *watchedDNSConn) Close() error {
+	if c.delivered {
+		c.onAnswer()
+	}
+	return c.lostDNSConn.Close()
+}
+
+// Cancelling the caller's context ends a lost AAAA query the same way a deadline
+// does, and must keep the A answer that already arrived. The cancel waits for
+// both events: the AAAA query was dropped, and the A answer was read and
+// verified. Go starts the two queries on separate goroutines, so either can
+// come first. The timeout is a backstop for a run where an event never happens.
 func TestPublicDNSCallerCancellationKeepsAnAnswer(t *testing.T) {
 	resolvers := PublicDNSCandidates(DefaultPublicDNS, true)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	time.AfterFunc(50*time.Millisecond, cancel)
-	ops := &netops{lookupPublicIP: func(ctx context.Context, host, server string) ([]net.IP, []string, error) {
-		return lookupIPPublicWithDial(ctx, host, func(dctx context.Context, _, _ string) (net.Conn, error) {
-			conn := &publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, mutate: dropQueries([]uint16{dnsTypeAAAA}, nil)}
-			return lostDNSConn{conn, dctx}, nil
+	var lost, answered atomic.Int32
+	finish := func() {
+		if lost.Load() > 0 && answered.Load() > 0 {
+			cancel()
+		}
+	}
+	drop := dropQueries([]uint16{dnsTypeAAAA}, nil)
+	mutate := func(msg []byte) []byte {
+		reply := drop(msg)
+		if reply == nil {
+			lost.Add(1)
+			finish()
+		}
+		return reply
+	}
+	ops := &netops{lookupPublicIP: func(lctx context.Context, host, server string) ([]net.IP, []string, error) {
+		return lookupIPPublicWithDial(lctx, host, func(dctx context.Context, _, _ string) (net.Conn, error) {
+			if dctx.Err() != nil {
+				return nil, dctx.Err()
+			}
+			return &watchedDNSConn{
+				lostDNSConn: lostDNSConn{&publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, mutate: mutate}, dctx},
+				onAnswer: func() {
+					answered.Add(1)
+					finish()
+				},
+			}, nil
 		}, server)
 	}}
 	r := ops.publicDNSProbe("netdoc.test.", nil, resolvers[:1])(ctx, nil)
+	if !errors.Is(ctx.Err(), context.Canceled) || answered.Load() != 1 || lost.Load() < 1 {
+		t.Fatalf("ctx.Err()=%v answered=%d lost=%d: the cancel must follow one verified answer and a lost AAAA reply",
+			ctx.Err(), answered.Load(), lost.Load())
+	}
 	if r.Status != StatusPass || len(r.Addrs) != 1 || r.Addrs[0].String() != splitDNSAnswerA {
 		t.Fatalf("cancelled lookup result = %s %v (%s), want PASS with %s", r.Status, r.Addrs, r.Detail, splitDNSAnswerA)
 	}

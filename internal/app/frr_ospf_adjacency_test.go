@@ -116,7 +116,7 @@ func TestFRRAdjacencyLossAgainstLiveRuns(t *testing.T) {
 			}
 
 			checkAdjacencyFault(t, src, arm.iface, arm.peer, arm.peerIface)
-			before, after := probes(t, src, "before"), probes(t, src, "after")
+			before, after := probes(t, src, "before", dests), probes(t, src, "after", dests)
 			table := kernelTable(t, filepath.Join(src, "r1-after-ip_route.json"))
 			rated := map[string]routepath.Affected{}
 			for _, a := range sim.Affected {
@@ -127,11 +127,7 @@ func TestFRRAdjacencyLossAgainstLiveRuns(t *testing.T) {
 				if !ok {
 					a.Impact = routepath.ImpactNone
 				}
-				b, okb := before[d]
-				f, oka := after[d]
-				if !okb || !oka {
-					t.Fatalf("%s: probed before %t and after %t, want both: the run is missing data", d, okb, oka)
-				}
+				b, f := before[d], after[d]
 				t.Logf("%-10s predicted %-16s delivered before %-5t after %-5t %s", d, a.Impact, b.delivered, f.delivered, a.Reason)
 				if !b.delivered {
 					t.Errorf("%s: not delivered before the fault, so the run grades nothing for it", d)
@@ -366,24 +362,58 @@ type labProbe struct {
 	selected  kernelLeg
 }
 
-func probes(t *testing.T, src, phase string) map[string]labProbe {
+func probes(t *testing.T, src, phase string, dests []string) map[string]labProbe {
 	t.Helper()
+	path := filepath.Join(src, "r1-"+phase+"-probes.json")
+	// #nosec G304 -- path names a committed capture.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := parseProbes(raw, dests)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	return out
+}
+
+// parseProbes reads r1's probes, which must cover each of dests exactly once.
+// The lab writes a null ping_exit when ping ran out its timeout, and Python
+// reports a negative one when a signal ended it. Neither ping completed, so
+// either fails the parse instead of reading as a lost destination. A ping that
+// completed with a nonzero exit got no reply, which is a failed delivery.
+func parseProbes(raw []byte, dests []string) (map[string]labProbe, error) {
 	var rows []struct {
 		Destination string          `json:"destination"`
 		PingExit    *int            `json:"ping_exit"`
 		RouteGet    json.RawMessage `json:"route_get"`
 	}
-	readJSONFile(t, filepath.Join(src, "r1-"+phase+"-probes.json"), &rows)
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
 	out := map[string]labProbe{}
 	for _, r := range rows {
-		p := labProbe{delivered: r.PingExit != nil && *r.PingExit == 0}
+		switch _, dup := out[r.Destination]; {
+		case !slices.Contains(dests, r.Destination):
+			return nil, fmt.Errorf("a probe names %q, which no node holds", r.Destination)
+		case dup:
+			return nil, fmt.Errorf("%s is probed twice", r.Destination)
+		case r.PingExit == nil || *r.PingExit < 0:
+			return nil, fmt.Errorf("%s: the ping did not complete, so it observed nothing", r.Destination)
+		}
+		p := labProbe{delivered: *r.PingExit == 0}
 		var sel []ipHop
 		if json.Unmarshal(r.RouteGet, &sel) == nil && len(sel) == 1 {
 			p.selected = kernelLeg{sel[0].Gateway, sel[0].Dev}
 		}
 		out[r.Destination] = p
 	}
-	return out
+	for _, d := range dests {
+		if _, ok := out[d]; !ok {
+			return nil, fmt.Errorf("%s is never probed", d)
+		}
+	}
+	return out, nil
 }
 
 // ipLink is the part of one "ip -j link" row read here.
@@ -579,5 +609,46 @@ func TestFRRAdjacencyDropCheckRefusesGaps(t *testing.T) {
 		} else {
 			t.Logf("%s: %s", name, why)
 		}
+	}
+}
+
+// TestFRRAdjacencyProbesRefuseIncompleteEvidence edits fresh copies of the
+// single arm's probes after the fault, where the ping to 10.10.3.1 completed
+// with exit 2, Network is unreachable. A null or missing ping_exit once read
+// as a lost destination, so a ping that timed out passed as the loss the arm
+// pins.
+func TestFRRAdjacencyProbesRefuseIncompleteEvidence(t *testing.T) {
+	src := filepath.Join(frrAdjacencyDir, "single")
+	var dests []string
+	for _, n := range []string{"r1", "r2", "r3"} {
+		dests = append(dests, heldIPv4(t, filepath.Join(src, n+"-before-ip_addr.json"))...)
+	}
+	// #nosec G304 -- src names a committed capture.
+	raw, err := os.ReadFile(filepath.Join(src, "r1-after-probes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseProbes(raw, dests)
+	if err != nil || got["10.10.3.1"].delivered || !got["10.30.0.1"].delivered {
+		t.Fatalf("the committed probes read as %+v (%v), want 10.10.3.1 lost and 10.30.0.1 delivered", got, err)
+	}
+	for _, c := range []struct{ name, old, new string }{
+		{"null ping_exit", `"ping_exit": 2,`, `"ping_exit": null,`},
+		{"no ping_exit", `"ping_exit": 2,`, ``},
+		{"ping ended by a signal", `"ping_exit": 2,`, `"ping_exit": -9,`},
+		{"destination probed twice", "{\n  \"destination\": \"10.30.0.1\",", "{\"destination\": \"10.10.3.1\", \"ping_exit\": 0},\n {\n  \"destination\": \"10.30.0.1\","},
+		{"probe with no destination", "{\n  \"destination\": \"10.30.0.1\",", "{\"ping_exit\": 0},\n {\n  \"destination\": \"10.30.0.1\","},
+	} {
+		if strings.Count(string(raw), c.old) != 1 {
+			t.Fatalf("%s: %s does not occur once", c.name, c.old)
+		}
+		if _, err := parseProbes([]byte(strings.Replace(string(raw), c.old, c.new, 1)), dests); err == nil {
+			t.Errorf("%s: accepted", c.name)
+		} else {
+			t.Logf("%s: %v", c.name, err)
+		}
+	}
+	if _, err := parseProbes(raw, append(dests, "10.99.0.1")); err == nil {
+		t.Error("a destination with no probe: accepted")
 	}
 }

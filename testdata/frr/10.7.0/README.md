@@ -157,7 +157,8 @@ Each run captures, before and after the fault and on every node, the
 neighbor-detail, interface, and OSPF route output, and `ip -j` output for the
 IPv4 addresses, the main table, and the links. Before and after, r1 runs `ip -j
 route get` and a three-packet ping for every IPv4 address any node holds, in
-`r1-<phase>-probes.json`. `r1-after-tc_ingress.json` and
+`r1-<phase>-probes.json`. A ping that did not finish within its 10 second
+timeout has a null `ping_exit`. `r1-after-tc_ingress.json` and
 `r1-after-tc_egress.json` hold the filters with their drop counters. On the
 kernel these runs used, both files list both filters, in u32 hash tables `800:`
 and `801:`, so neither file shows which filter serves which direction.
@@ -180,10 +181,13 @@ next hops r1 installed after the fault, and r1's route lookup must select one.
 logs what r1 installed. In `single`, the destination was lost. In `backup`, it
 was delivered over the path SPF found.
 
-The test requires each tc file to hold two drop actions, each on its own filter
-matching IP protocol 89, with its own index and a positive drop count, and
-requires both files to agree on them. It does not claim that either filter
-dropped in a given direction.
+The test refuses a probe set that misses a held address, repeats one, names an
+address no node holds, or holds a ping that did not finish, since that ping
+observed nothing. A ping that finished with a nonzero exit is a failed
+delivery. It also requires each tc file to hold two drop actions, each on its
+own filter matching IP protocol 89, with its own index and a positive drop
+count, and requires both files to agree on them. It does not claim that either
+filter dropped in a given direction.
 
 The captures are not simultaneous, and a ping follows one ECMP leg, so delivery
 shows that one leg works, not every leg. A route lookup is one hash selection,

@@ -460,6 +460,38 @@ func TestBGPUnderlayRuleIsConfined(t *testing.T) {
 	}
 }
 
+// A next-hop loss off a BGP-selected underlay gives the same output as the loss
+// over a static underlay. The BGP rule reads router and interface failures only,
+// so removing the gateway guard turns the overlay unknown and fails this test.
+func TestBGPUnderlayRuleSparesANextHopLoss(t *testing.T) {
+	fail := Failure{Node: "r1", NextHop: "10.0.13.2"}
+	got := simulateTunnels(t, underlayBy("r1", netmodel.OriginBGP), []Tunnel{r1wg0}, fromR1, fail)
+	want := simulateTunnels(t, tunnelTopology(), []Tunnel{r1wg0}, fromR1, fail)
+	if got.Text() != want.Text() {
+		t.Errorf("text differs from the static underlay:\n%s\nwant:\n%s", got.Text(), want.Text())
+	}
+	gotJSON, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("json differs from the static underlay:\n%s\nwant:\n%s", gotJSON, wantJSON)
+	}
+	if got.Failure.VRF != "default" || got.Gateway == nil || len(got.Gateway.Evidence) != 1 {
+		t.Errorf("failure %+v, gateway %+v; want the default VRF filled in and one FIB row naming the gateway", got.Failure, got.Gateway)
+	}
+	if got.Considered != 14 || got.Unchanged != 12 || got.Truncated {
+		t.Errorf("considered %d, unchanged %d, truncated %t; want 14, 12, false", got.Considered, got.Unchanged, got.Truncated)
+	}
+	if d, ok := impacts(got)[overlayDest]; ok {
+		t.Errorf("overlay = %s, want none: the gateway is off the underlay", d)
+	}
+}
+
 // The failures the BGP rule leaves to their own reasons: an underlay the
 // failure cuts or does not prove keeps that reason, and a lost adjacency or
 // next hop that cuts the underlay keeps the one it already gave.
@@ -470,26 +502,107 @@ func TestBGPUnderlayKeepsItsStructuralReasons(t *testing.T) {
 		route("10.60.0.0/24", "kernel", onLink("lan2"))))
 	adjacency := append(underlayBy("r1", netmodel.OriginBGP),
 		ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth2"}, ospfNeighbor("eth2", "r3", "eth0", "10.0.13.2", "Full")))
+	kernelAdjacency := append(editFIB(tunnelTopology(), "r1", "default", func(rs []netmodel.Route) []netmodel.Route {
+		for i := range rs {
+			if rs[i].Prefix == pfx("10.0.25.0/30") {
+				rs[i] = route("10.0.25.0/30", "kernel", nh("10.0.13.2", "eth2"))
+			}
+		}
+		return rs
+	}), ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth2"}, ospfNeighbor("eth2", "r3", "eth0", "10.0.13.2", "Full")))
 	bgpUnderlay := underlayBy("r1", netmodel.OriginBGP)
 	cases := []struct {
-		name    string
-		obs     []netmodel.Observation
-		fail    Failure
-		because string
+		name     string
+		obs      []netmodel.Observation
+		fail     Failure
+		because  string
+		unwanted string
 	}{
-		{"underlay cut at r2", bgpUnderlay, Failure{Node: "r2"}, "meets the failure"},
-		{"underlay not proven", partial, Failure{Node: "r3"}, "does not prove delivery"},
-		{"--fail-ospf on the underlay adjacency", adjacency, Failure{Node: "r1", Interface: "eth2", OSPFNeighbor: "r3"}, "meets the failure"},
-		{"--fail-next-hop on the underlay gateway", bgpUnderlay, Failure{Node: "r1", Interface: "eth0", NextHop: "10.0.12.2"}, "meets the failure"},
+		{"underlay cut at r2", bgpUnderlay, Failure{Node: "r2"}, "meets the failure", ""},
+		{"underlay not proven", partial, Failure{Node: "r3"}, "does not prove delivery", ""},
+		{"--fail-ospf on the underlay adjacency", adjacency, Failure{Node: "r1", Interface: "eth2", OSPFNeighbor: "r3"}, "is unknown, not proven cut, at r1 (default) eth0 via 10.0.12.2", "meets the failure"},
+		{"--fail-ospf on a kernel underlay adjacency", kernelAdjacency, Failure{Node: "r1", Interface: "eth2", OSPFNeighbor: "r3"}, "is unknown, not proven cut, at r1 (default) eth2 via 10.0.13.2: r1 (default) forwards by origin kernel", "meets the failure"},
+		{"--fail-next-hop on the underlay gateway", bgpUnderlay, Failure{Node: "r1", Interface: "eth0", NextHop: "10.0.12.2"}, "meets the failure", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := simulateTunnels(t, c.obs, []Tunnel{r1wg0}, fromR1, c.fail)
 			leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
-			if leaf == nil || !strings.Contains(leaf.Decision.Reason, c.because) || strings.Contains(leaf.Decision.Reason, "by BGP route") {
-				t.Errorf("wg0 leaf = %+v, want its reason to say %q and not name a BGP route", leaf, c.because)
+			if leaf == nil || !strings.Contains(leaf.Decision.Reason, c.because) || strings.Contains(leaf.Decision.Reason, "by BGP route") || (c.unwanted != "" && strings.Contains(leaf.Decision.Reason, c.unwanted)) {
+				t.Errorf("wg0 leaf = %+v, want its reason to say %q, not %q, and not name a BGP route", leaf, c.because, c.unwanted)
 			}
 		})
+	}
+}
+
+// Under --fail-ospf, an underlay branch that is unknown for another reason must
+// not hide the segment the lost adjacency made unknown. The first branch reaches
+// a router with a partial FIB, and the second has no interface, so only the lost
+// adjacency makes it unknown. The reason names that second segment.
+func TestUnderlayNamesTheLostAdjacencySegment(t *testing.T) {
+	obs := editFIB(without(tunnelTopology(), "fib:r2:default"), "r1", "default", func(rs []netmodel.Route) []netmodel.Route {
+		for i := range rs {
+			if rs[i].Prefix == pfx("10.0.25.0/30") {
+				rs[i] = route("10.0.25.0/30", "kernel", nh("10.0.12.2", "eth0"), nh("10.0.13.2", ""))
+			}
+		}
+		return rs
+	})
+	obs = append(obs,
+		table(netmodel.PlaneFIB, "r2", "default", false,
+			route("10.0.25.0/30", "kernel", onLink("eth1")),
+			route("10.60.0.0/24", "kernel", onLink("lan2"))),
+		ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth2"}, ospfNeighbor("eth2", "r3", "eth0", "10.0.13.2", "Full")))
+	s := simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, Failure{Node: "r1", VRF: "default", Interface: "eth2", OSPFNeighbor: "r3"})
+	leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
+	if leaf == nil || !strings.Contains(leaf.Decision.Reason, "via 10.0.13.2: r1 (default) names no interface for next hop 10.0.13.2") {
+		t.Errorf("wg0 leaf = %+v, want the reason to name the lost adjacency's segment", leaf)
+	}
+	if leaf != nil && strings.Contains(leaf.Decision.Reason, "FIB for this node is partial") {
+		t.Errorf("reason names the partial FIB branch: %q", leaf.Decision.Reason)
+	}
+}
+
+// Under --fail r5:lan the tunnel's remote holds the overlay destination on its
+// down lan interface, and the BGP-selected underlay leaves the walk at the tunnel.
+// The leaf keeps the BGP route and says, conditionally, what the remote holds,
+// with the rows that show it. Ratings and counts are those of the BGP rule alone.
+func TestBGPUnderlayKeepsTheRemoteDownInterface(t *testing.T) {
+	obs := underlayBy("r1", netmodel.OriginBGP)
+	fail := Failure{Node: "r5", Interface: "lan"}
+	s := simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, fail)
+	want := withOverlay(t, obs, fromR1, fail, map[string]Impact{overlayDest: ImpactUnknown, tunnelPeer: ImpactUnknown})
+	if got := impacts(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("impacts = %v, want %v", got, want)
+	}
+	if s.Considered != 14 || s.Unchanged != 14-len(want) || s.Truncated {
+		t.Errorf("considered %d, unchanged %d, truncated %t; want 14, %d, false", s.Considered, s.Unchanged, s.Truncated, 14-len(want))
+	}
+	leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
+	if leaf == nil || leaf.Decision.Kind != KindUnknown {
+		t.Fatalf("wg0 leaf = %+v, want an unknown leaf", leaf)
+	}
+	const bgpRoute = "forwards by BGP route 10.0.25.0/30 at r1 (default), in fib:r1:default (bgp)"
+	const remoteHolds = "if the traffic crosses the tunnel, r5 (default) holds 10.50.0.1 on lan, which is down"
+	if !strings.Contains(leaf.Decision.Reason, bgpRoute) || !strings.Contains(leaf.Decision.Reason, remoteHolds) {
+		t.Errorf("reason = %q, want it to name the BGP route and the remote's down interface", leaf.Decision.Reason)
+	}
+	var sources []string
+	for _, e := range leaf.Decision.Evidence {
+		sources = append(sources, e.Source)
+	}
+	if want := []string{"config:r5:default", "tunnels:r1"}; !slices.Equal(sources, want) {
+		t.Errorf("evidence sources = %v, want %v", sources, want)
+	}
+	if !strings.Contains(s.Text(), remoteHolds) {
+		t.Errorf("text lacks the remote's down interface:\n%s", s.Text())
+	}
+	if b, err := json.Marshal(s); err != nil || !strings.Contains(string(b), remoteHolds) {
+		t.Errorf("json lacks the remote's down interface: %v\n%s", err, b)
+	}
+	other := simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"})
+	if leaf := leafOf(affected(t, other, overlayDest).After, "wg0"); leaf == nil || strings.Contains(leaf.Decision.Reason, "if the traffic crosses") {
+		t.Errorf("under r3, wg0 leaf = %+v, want no remote interface: the failure is not on the remote", leaf)
 	}
 }
 

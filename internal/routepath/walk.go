@@ -73,11 +73,13 @@ type walker struct {
 	budget    int
 	truncated bool
 	notes     []string
-	// fail is the simulated failure, and touched says a walk met it. adj is
-	// what the evidence says about a lost OSPF adjacency, and gw about a lost
-	// next hop. All are unset outside Simulate.
+	// fail is the simulated failure, and touched says a walk met it. lost is the
+	// first unknown hop a lost OSPF adjacency made in that walk. adj is what the
+	// evidence says about a lost OSPF adjacency, and gw about a lost next hop.
+	// All are unset outside Simulate.
 	fail    *Failure
 	touched bool
+	lost    *Hop
 	adj     *Adjacency
 	gw      *Gateway
 	// tunnels are the file's tunnel records. underlay says a walk toward a
@@ -314,7 +316,12 @@ func (w *walker) resolve(planes []netmodel.Plane, from state, n netmodel.NextHop
 		}
 		if t, why := w.tunnelRisk(from, n); why != "" {
 			w.touched = true
-			return Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why, Evidence: []Support{{Source: t.Source, CollectedAt: utcText(t.CollectedAt)}}}}
+			beyond, rows := w.beyondTunnel(t, n)
+			if beyond != "" {
+				why += "; if the traffic crosses the tunnel, " + beyond
+			}
+			ev := sortSupports(append([]Support{{Source: t.Source, CollectedAt: utcText(t.CollectedAt)}}, rows...))
+			return Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why, Evidence: ev}}
 		}
 	}
 	target := n.Addr

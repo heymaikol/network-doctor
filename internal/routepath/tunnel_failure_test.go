@@ -526,6 +526,34 @@ func TestBGPUnderlayKeepsItsStructuralReasons(t *testing.T) {
 	}
 }
 
+// Under --fail-ospf, an underlay branch that is unknown for another reason must
+// not hide the segment the lost adjacency made unknown. The first branch reaches
+// a router with a partial FIB, and the second has no interface, so only the lost
+// adjacency makes it unknown. The reason names that second segment.
+func TestBGPUnderlayNamesTheLostAdjacencySegment(t *testing.T) {
+	obs := editFIB(without(tunnelTopology(), "fib:r2:default"), "r1", "default", func(rs []netmodel.Route) []netmodel.Route {
+		for i := range rs {
+			if rs[i].Prefix == pfx("10.0.25.0/30") {
+				rs[i] = route("10.0.25.0/30", "kernel", nh("10.0.12.2", "eth0"), nh("10.0.13.2", ""))
+			}
+		}
+		return rs
+	})
+	obs = append(obs,
+		table(netmodel.PlaneFIB, "r2", "default", false,
+			route("10.0.25.0/30", "kernel", onLink("eth1")),
+			route("10.60.0.0/24", "kernel", onLink("lan2"))),
+		ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth2"}, ospfNeighbor("eth2", "r3", "eth0", "10.0.13.2", "Full")))
+	s := simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, Failure{Node: "r1", VRF: "default", Interface: "eth2", OSPFNeighbor: "r3"})
+	leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
+	if leaf == nil || !strings.Contains(leaf.Decision.Reason, "via 10.0.13.2: r1 (default) names no interface for next hop 10.0.13.2") {
+		t.Errorf("wg0 leaf = %+v, want the reason to name the lost adjacency's segment", leaf)
+	}
+	if leaf != nil && strings.Contains(leaf.Decision.Reason, "FIB for this node is partial") {
+		t.Errorf("reason names the partial FIB branch: %q", leaf.Decision.Reason)
+	}
+}
+
 // Under --fail r5:lan the tunnel's remote holds the overlay destination on its
 // down lan interface, and the BGP-selected underlay leaves the walk at the tunnel.
 // The leaf keeps the BGP route and says, conditionally, what the remote holds,

@@ -680,7 +680,11 @@ func (w *walker) severAdjacency(at state, n netmodel.NextHop, seg *Segment, ev [
 	slices.Sort(origins)
 	unknown := func(why string) (Hop, bool) {
 		w.touched = true
-		return Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why}}, true
+		h := Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why}}
+		if w.lost == nil {
+			w.lost = &h
+		}
+		return h, true
 	}
 	if slices.Contains(origins, netmodel.OriginBGP) {
 		return unknown(fmt.Sprintf("%s (%s) forwards by a BGP route; whether its session or next-hop resolution runs over the lost adjacency is not in the evidence, and BGP withdrawal is not modeled", at.node, at.vrf))
@@ -866,27 +870,23 @@ func (w *walker) tunnelRisk(from state, n netmodel.NextHop) (Tunnel, string) {
 // interface failure, an underlay that selects a BGP route is not avoided either,
 // for the reason Simulate gives the ordinary walk.
 func (w *walker) underlayRisk(t Tunnel, at string) string {
-	dest, touched, notes := w.dest, w.touched, w.notes
-	w.dest, w.touched, w.underlay, w.nested = t.Remote, false, true, ""
+	dest, touched, notes, lost := w.dest, w.touched, w.notes, w.lost
+	w.dest, w.touched, w.lost, w.underlay, w.nested = t.Remote, false, nil, true, ""
 	h := w.walk(forwardingPlanes, state{t.Node, t.UnderlayVRF}, nil, nil)
-	met, nested := w.touched, w.nested
-	w.dest, w.touched, w.notes, w.underlay, w.nested = dest, touched, notes, false, ""
+	met, nested, unknown := w.touched, w.nested, w.lost
+	w.dest, w.touched, w.notes, w.lost, w.underlay, w.nested = dest, touched, notes, lost, false, ""
 	path := fmt.Sprintf("from %s (%s) to remote %s", t.Node, t.UnderlayVRF, t.Remote)
 	switch {
 	case nested != "":
 		return fmt.Sprintf("the underlay of %s, %s, rides a tunnel itself, %s, and a tunnel inside an underlay is not followed", at, path, nested)
 	case met:
 		cut := ""
-		var unknown *Hop
 		walkHops(&h, func(x *Hop) {
 			if cut == "" && x.Decision.Kind == KindFailed {
 				cut = " at " + segText(*x.Via)
 			}
-			if unknown == nil && x.Decision.Kind == KindUnknown && x.Via != nil {
-				unknown = x
-			}
 		})
-		if cut == "" && w.adj != nil && unknown != nil {
+		if cut == "" && w.adj != nil && unknown != nil && unknown.Via != nil {
 			return fmt.Sprintf("the underlay of %s, %s, is unknown, not proven cut, at %s: %s; whether the tunnel stays usable is not in the evidence, since an endpoint may move and a routing protocol may restore the underlay", at, path, segText(*unknown.Via), unknown.Decision.Reason)
 		}
 		return fmt.Sprintf("the underlay of %s, %s, meets the failure%s; whether the tunnel stays usable is not in the evidence, since an endpoint may move and a routing protocol may restore the underlay", at, path, cut)

@@ -73,11 +73,13 @@ type walker struct {
 	budget    int
 	truncated bool
 	notes     []string
-	// fail is the simulated failure, and touched says a walk met it. adj is
-	// what the evidence says about a lost OSPF adjacency, and gw about a lost
-	// next hop. All are unset outside Simulate.
+	// fail is the simulated failure, and touched says a walk met it. lost is the
+	// first unknown hop a lost OSPF adjacency made in that walk. adj is what the
+	// evidence says about a lost OSPF adjacency, and gw about a lost next hop.
+	// All are unset outside Simulate.
 	fail    *Failure
 	touched bool
+	lost    *Hop
 	adj     *Adjacency
 	gw      *Gateway
 	// tunnels are the file's tunnel records. underlay says a walk toward a

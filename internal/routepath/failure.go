@@ -193,7 +193,8 @@ type Simulation struct {
 // A segment that rides a recorded tunnel also depends on the tunnel's
 // underlay, as tunnelRisk reads it. Where the failure may disrupt that
 // underlay, the segment is unknown, never cut, so an underlay loss alone never
-// makes a destination reachability_lost.
+// makes a destination reachability_lost. An underlay that selects a BGP route
+// counts as disrupted under the same rule as the ordinary walk.
 func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	w := newWalker(f, netip.Addr{})
 	var err error
@@ -861,7 +862,9 @@ func (w *walker) tunnelRisk(from state, n netmodel.NextHop) (Tunnel, string) {
 // avoids the failure only when it never meets it and proves delivery to the
 // remote. An underlay the failure certainly cuts still leaves the tunnel
 // unknown, never lost, because an endpoint may move and a routing protocol may
-// restore the underlay, and the evidence records neither.
+// restore the underlay, and the evidence records neither. Under a router or
+// interface failure, an underlay that selects a BGP route is not avoided either,
+// for the reason Simulate gives the ordinary walk.
 func (w *walker) underlayRisk(t Tunnel, at string) string {
 	dest, touched, notes := w.dest, w.touched, w.notes
 	w.dest, w.touched, w.underlay, w.nested = t.Remote, false, true, ""
@@ -882,6 +885,11 @@ func (w *walker) underlayRisk(t Tunnel, at string) string {
 		return fmt.Sprintf("the underlay of %s, %s, meets the failure%s; whether the tunnel stays usable is not in the evidence, since an endpoint may move and a routing protocol may restore the underlay", at, path, cut)
 	case reachOf(&h, nil) != reachOK:
 		return fmt.Sprintf("the recorded underlay of %s, %s, does not prove delivery, so whether it crosses the failure is unknown", at, path)
+	}
+	if w.gw == nil && w.adj == nil {
+		if hop, rows := bgpForwarding(&h); hop != nil {
+			return fmt.Sprintf("the underlay of %s, %s, forwards by BGP route %s at %s (%s), in %s; the file records no BGP session, peer, or next-hop resolution for that route, so whether the failure disrupts it is not in the evidence, and BGP withdrawal is not modeled", at, path, hop.Decision.Prefix, hop.Node, hop.VRF, evidenceText(rows))
+		}
 	}
 	return ""
 }

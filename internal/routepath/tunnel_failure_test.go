@@ -1,8 +1,11 @@
 package routepath
 
 import (
+	"encoding/json"
+	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -354,5 +357,185 @@ func TestTunnelReasonReachesTheText(t *testing.T) {
 		if !strings.Contains(txt, want) {
 			t.Errorf("text lacks %q:\n%s", want, txt)
 		}
+	}
+}
+
+// editFIB returns obs with edit applied to the routes of node's FIB table in
+// vrf. It copies what it edits, so the caller's observations are unchanged.
+func editFIB(obs []netmodel.Observation, node, vrf string, edit func([]netmodel.Route) []netmodel.Route) []netmodel.Observation {
+	out := slices.Clone(obs)
+	for i := range out {
+		if out[i].Source == "fib:"+node+":"+vrf {
+			out[i].Routes = edit(slices.Clone(out[i].Routes))
+		}
+	}
+	return out
+}
+
+// underlayBy is the tunnel topology with node's row for r5's underlay endpoint,
+// 10.0.25.1, set to origin. No other row changes.
+func underlayBy(node, origin string) []netmodel.Observation {
+	return editFIB(tunnelTopology(), node, "default", func(rs []netmodel.Route) []netmodel.Route {
+		for i := range rs {
+			if rs[i].Prefix == pfx("10.0.25.0/30") {
+				rs[i].Origin = origin
+			}
+		}
+		return rs
+	})
+}
+
+func addFIB(obs []netmodel.Observation, node, vrf string, r netmodel.Route) []netmodel.Observation {
+	return editFIB(obs, node, vrf, func(rs []netmodel.Route) []netmodel.Route { return append(rs, r) })
+}
+
+// A recorded underlay that forwards by a BGP route is a control-plane
+// dependency that the file does not record, so an unrelated router failure
+// cannot leave the overlay none.
+func TestBGPUnderlayIsUnknown(t *testing.T) {
+	for _, c := range []struct {
+		name, node string
+		unchanged  int
+	}{{"selected at the source", "r1", 8}, {"selected further along", "r2", 9}} {
+		t.Run(c.name, func(t *testing.T) {
+			obs := underlayBy(c.node, netmodel.OriginBGP)
+			fail := Failure{Node: "r3"}
+			s := simulateTunnels(t, obs, []Tunnel{r1wg0}, fromR1, fail)
+			want := withOverlay(t, obs, fromR1, fail, map[string]Impact{overlayDest: ImpactUnknown, tunnelPeer: ImpactUnknown})
+			if got := impacts(s); !reflect.DeepEqual(got, want) {
+				t.Fatalf("impacts = %v, want %v", got, want)
+			}
+			if s.Considered != 14 || s.Unchanged != c.unchanged || s.Truncated {
+				t.Errorf("considered %d, unchanged %d, truncated %t, want 14, %d, false", s.Considered, s.Unchanged, s.Truncated, c.unchanged)
+			}
+			leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
+			if leaf == nil || leaf.Decision.Kind != KindUnknown {
+				t.Fatalf("wg0 leaf = %+v, want an unknown leaf", leaf)
+			}
+			reason := "the underlay of tunnel r1 (default) wg0, from r1 (default) to remote 10.0.25.1, forwards by BGP route 10.0.25.0/30 at " + c.node + " (default), in fib:" + c.node + ":default (bgp); the file records no BGP session, peer, or next-hop resolution for that route, so whether the failure disrupts it is not in the evidence, and BGP withdrawal is not modeled"
+			if leaf.Decision.Reason != reason {
+				t.Errorf("reason = %q, want %q", leaf.Decision.Reason, reason)
+			}
+			if !strings.Contains(s.Text(), reason) {
+				t.Errorf("text lacks the reason:\n%s", s.Text())
+			}
+			if b, err := json.Marshal(s); err != nil || !strings.Contains(string(b), reason) {
+				t.Errorf("json lacks the reason: %v\n%s", err, b)
+			}
+		})
+	}
+}
+
+// The BGP rule reads an underlay walk that selects a bgp row under a router or
+// interface failure. Each other case keeps the rating the same record-free walk
+// gives, since the tunnel's only effect is through its underlay.
+func TestBGPUnderlayRuleIsConfined(t *testing.T) {
+	bgp := netmodel.OriginBGP
+	cases := []struct {
+		name    string
+		obs     []netmodel.Observation
+		tunnels []Tunnel
+		src     Start
+		fail    Failure
+	}{
+		{"static and connected underlay", tunnelTopology(), []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"}},
+		{"OSPF underlay", underlayBy("r1", netmodel.OriginOSPF), []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"}},
+		{"BGP in another routing domain", addFIB(tunnelTopology(), "r1", "blue", route("10.0.25.0/30", bgp, nh("10.0.14.2", "eth3"))), []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"}},
+		{"BGP on a node off the underlay", addFIB(tunnelTopology(), "r3", "default", route("10.0.25.0/30", bgp, nh("10.0.13.1", "eth0"))), []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"}},
+		{"BGP for another prefix", addFIB(tunnelTopology(), "r1", "default", route("10.99.0.0/16", bgp, nh("10.0.12.2", "eth0"))), []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"}},
+		{"BGP shadowed by the underlay's static route", addFIB(tunnelTopology(), "r1", "default", route("10.0.0.0/8", bgp, nh("10.0.12.2", "eth0"))), []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"}},
+		{"BGP only on the control plane", append(tunnelTopology(), table(netmodel.PlaneControl, "r1", "default", true, route("10.0.25.0/30", bgp, nh("10.0.12.2", "eth0")))), []Tunnel{r1wg0}, fromR1, Failure{Node: "r3"}},
+		{"no tunnel record", underlayBy("r1", bgp), nil, fromR1, Failure{Node: "r3"}},
+		{"walk from another routing domain", underlayBy("r1", bgp), []Tunnel{r1wg0}, Start{Node: "r1", VRF: "blue"}, Failure{Node: "r3"}},
+		{"tunnel interface down at its node", underlayBy("r1", bgp), []Tunnel{r1wg0}, fromR1, Failure{Node: "r1", Interface: "wg0"}},
+		{"tunnel interface down at its far end", underlayBy("r1", bgp), []Tunnel{r1wg0}, fromR1, Failure{Node: "r5", Interface: "wg0"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			want := withOverlay(t, c.obs, c.src, c.fail, nil)
+			if got := impacts(simulateTunnels(t, c.obs, c.tunnels, c.src, c.fail)); !reflect.DeepEqual(got, want) {
+				t.Errorf("impacts = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// The failures the BGP rule leaves to their own reasons: an underlay the
+// failure cuts or does not prove keeps that reason, and a lost adjacency or
+// next hop that cuts the underlay keeps the one it already gave.
+func TestBGPUnderlayKeepsItsStructuralReasons(t *testing.T) {
+	partial := without(underlayBy("r1", netmodel.OriginBGP), "fib:r2:default")
+	partial = append(partial, table(netmodel.PlaneFIB, "r2", "default", false,
+		route("10.0.25.0/30", "kernel", onLink("eth1")),
+		route("10.60.0.0/24", "kernel", onLink("lan2"))))
+	adjacency := append(underlayBy("r1", netmodel.OriginBGP),
+		ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth2"}, ospfNeighbor("eth2", "r3", "eth0", "10.0.13.2", "Full")))
+	bgpUnderlay := underlayBy("r1", netmodel.OriginBGP)
+	cases := []struct {
+		name    string
+		obs     []netmodel.Observation
+		fail    Failure
+		because string
+	}{
+		{"underlay cut at r2", bgpUnderlay, Failure{Node: "r2"}, "meets the failure"},
+		{"underlay not proven", partial, Failure{Node: "r3"}, "does not prove delivery"},
+		{"--fail-ospf on the underlay adjacency", adjacency, Failure{Node: "r1", Interface: "eth2", OSPFNeighbor: "r3"}, "meets the failure"},
+		{"--fail-next-hop on the underlay gateway", bgpUnderlay, Failure{Node: "r1", Interface: "eth0", NextHop: "10.0.12.2"}, "meets the failure"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := simulateTunnels(t, c.obs, []Tunnel{r1wg0}, fromR1, c.fail)
+			leaf := leafOf(affected(t, s, overlayDest).After, "wg0")
+			if leaf == nil || !strings.Contains(leaf.Decision.Reason, c.because) || strings.Contains(leaf.Decision.Reason, "by BGP route") {
+				t.Errorf("wg0 leaf = %+v, want its reason to say %q and not name a BGP route", leaf, c.because)
+			}
+		})
+	}
+}
+
+// A BGP underlay longer than maxDepth stops before it proves delivery. The
+// overlay is unknown for that reason, the unproven one, and not for the BGP
+// route its first hop selects, since a walk cut short says nothing about it.
+func TestTruncatedBGPUnderlayIsUnproven(t *testing.T) {
+	const hops = maxDepth + 8
+	var obs []netmodel.Observation
+	for k := 0; k <= hops; k++ {
+		node := fmt.Sprintf("u%d", k)
+		var ifaces []netmodel.Interface
+		var routes []netmodel.Route
+		if k > 0 {
+			ifaces = append(ifaces, ifc("in", fmt.Sprintf("10.1.%d.2/24", k)))
+		}
+		if k < hops {
+			ifaces = append(ifaces, ifc("out", fmt.Sprintf("10.1.%d.1/24", k+1)))
+			origin := "kernel"
+			if k == 0 {
+				origin = netmodel.OriginBGP
+			}
+			routes = append(routes, route("10.9.0.0/16", origin, nh(fmt.Sprintf("10.1.%d.2", k+1), "out")))
+		} else {
+			ifaces = append(ifaces, ifc("lan", "10.9.0.1/16"))
+		}
+		obs = append(obs, configured(node, "transit", ifaces), table(netmodel.PlaneFIB, node, "transit", true, routes...))
+	}
+	obs = append(obs,
+		configured("u0", "default", []netmodel.Interface{ifc("wg0", "172.16.0.1/30")}),
+		table(netmodel.PlaneFIB, "u0", "default", true, route("10.50.0.0/24", netmodel.OriginStatic, onLink("wg0"))),
+		configured(fmt.Sprintf("u%d", hops), "default", []netmodel.Interface{ifc("lan", "10.50.0.1/24")}),
+		configured("x", "default", []netmodel.Interface{ifc("eth0", "10.77.0.1/24")}))
+	src := Start{Node: "u0", VRF: "default"}
+	s := simulateTunnels(t, obs, []Tunnel{tunnelRecord("u0", "default", "wg0", "10.9.0.1", "transit")}, src, Failure{Node: "x"})
+	a := affected(t, s, overlayDest)
+	if a.Impact != ImpactUnknown {
+		t.Fatalf("overlay = %s, want unknown", a.Impact)
+	}
+	var leaf *Hop
+	walkHops(a.After, func(x *Hop) {
+		if leaf == nil && x.Node == "" && x.Via != nil && x.Via.Interface == "wg0" {
+			leaf = x
+		}
+	})
+	if leaf == nil || !strings.Contains(leaf.Decision.Reason, "does not prove delivery") || strings.Contains(leaf.Decision.Reason, "BGP route") {
+		t.Errorf("wg0 leaf = %+v, want the unproven reason and no BGP route", leaf)
 	}
 }

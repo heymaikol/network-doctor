@@ -30,7 +30,9 @@ from the vty, and `.gitattributes` marks them `-text` so git does not rewrite
 the line endings. The tests unframe them by dropping the echo and the prompt
 and converting CRLF to LF. A fixture whose echo does not match the declared
 command fails the test. `zebra-rib/` is the exception: its tests check the framing as
-written and do not convert CRLF.
+written and do not convert CRLF. Because of the CR bytes, `git diff --check`
+reports trailing whitespace on every `.raw` capture line. That report is
+expected, and the captures must not be rewritten to silence it.
 
 ## Scenarios
 

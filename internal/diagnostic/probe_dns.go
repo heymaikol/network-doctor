@@ -114,6 +114,10 @@ func answeredWithoutDNS(ctx context.Context, host string) bool {
 	return err == nil && len(ips) > 0
 }
 
+// answeredWithoutDNSCheck is answeredWithoutDNS behind a variable, so a test can
+// force the local answer that the hosts-file guard reads.
+var answeredWithoutDNSCheck = answeredWithoutDNS
+
 // lookupIPPublicWithDial bypasses the configured resolver for a second opinion.
 // Unavailability is reported as N/A by publicDNSProbe, never as a failure.
 //
@@ -140,7 +144,7 @@ func lookupIPPublicWithDial(ctx context.Context, host string, dial func(context.
 			ips, err = kept, nil
 		}
 	}
-	if err == nil && len(ips) > 0 && answeredWithoutDNS(ctx, host) {
+	if err == nil && len(ips) > 0 && answeredWithoutDNSCheck(ctx, host) {
 		return nil, targets.snapshot(), errHostsFileAnswer
 	}
 	if err != nil {

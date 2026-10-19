@@ -565,3 +565,21 @@ func TestPublicDNSCallerCancellationKeepsAnAnswer(t *testing.T) {
 		t.Fatalf("cancelled lookup result = %s %v (%s), want PASS with %s", r.Status, r.Addrs, r.Detail, splitDNSAnswerA)
 	}
 }
+
+// The hosts-file guard covers an address the replay hands back, not only one
+// the first lookup returns. Forcing the local answer makes the guard refuse the
+// replayed A address, which must not be credited to the public server.
+func TestPublicDNSReplayKeepsTheHostsFileGuard(t *testing.T) {
+	previous := answeredWithoutDNSCheck
+	t.Cleanup(func() { answeredWithoutDNSCheck = previous })
+	answeredWithoutDNSCheck = func(context.Context, string) bool { return true }
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	drop := dropQueries([]uint16{dnsTypeAAAA}, nil)
+	ips, _, err := lookupIPPublicWithDial(ctx, "netdoc.test.", func(dctx context.Context, _, _ string) (net.Conn, error) {
+		return lostDNSConn{&publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, mutate: drop}, dctx}, nil
+	}, "8.8.8.8")
+	if !errors.Is(err, errHostsFileAnswer) || len(ips) != 0 {
+		t.Fatalf("ips=%v err=%v, want errHostsFileAnswer and no addresses", ips, err)
+	}
+}

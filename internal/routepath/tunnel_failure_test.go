@@ -502,6 +502,14 @@ func TestBGPUnderlayKeepsItsStructuralReasons(t *testing.T) {
 		route("10.60.0.0/24", "kernel", onLink("lan2"))))
 	adjacency := append(underlayBy("r1", netmodel.OriginBGP),
 		ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth2"}, ospfNeighbor("eth2", "r3", "eth0", "10.0.13.2", "Full")))
+	kernelAdjacency := append(editFIB(tunnelTopology(), "r1", "default", func(rs []netmodel.Route) []netmodel.Route {
+		for i := range rs {
+			if rs[i].Prefix == pfx("10.0.25.0/30") {
+				rs[i] = route("10.0.25.0/30", "kernel", nh("10.0.13.2", "eth2"))
+			}
+		}
+		return rs
+	}), ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth2"}, ospfNeighbor("eth2", "r3", "eth0", "10.0.13.2", "Full")))
 	bgpUnderlay := underlayBy("r1", netmodel.OriginBGP)
 	cases := []struct {
 		name     string
@@ -513,6 +521,7 @@ func TestBGPUnderlayKeepsItsStructuralReasons(t *testing.T) {
 		{"underlay cut at r2", bgpUnderlay, Failure{Node: "r2"}, "meets the failure", ""},
 		{"underlay not proven", partial, Failure{Node: "r3"}, "does not prove delivery", ""},
 		{"--fail-ospf on the underlay adjacency", adjacency, Failure{Node: "r1", Interface: "eth2", OSPFNeighbor: "r3"}, "is unknown, not proven cut, at r1 (default) eth0 via 10.0.12.2", "meets the failure"},
+		{"--fail-ospf on a kernel underlay adjacency", kernelAdjacency, Failure{Node: "r1", Interface: "eth2", OSPFNeighbor: "r3"}, "is unknown, not proven cut, at r1 (default) eth2 via 10.0.13.2: r1 (default) forwards by origin kernel", "meets the failure"},
 		{"--fail-next-hop on the underlay gateway", bgpUnderlay, Failure{Node: "r1", Interface: "eth0", NextHop: "10.0.12.2"}, "meets the failure", ""},
 	}
 	for _, c := range cases {
@@ -530,7 +539,7 @@ func TestBGPUnderlayKeepsItsStructuralReasons(t *testing.T) {
 // not hide the segment the lost adjacency made unknown. The first branch reaches
 // a router with a partial FIB, and the second has no interface, so only the lost
 // adjacency makes it unknown. The reason names that second segment.
-func TestBGPUnderlayNamesTheLostAdjacencySegment(t *testing.T) {
+func TestUnderlayNamesTheLostAdjacencySegment(t *testing.T) {
 	obs := editFIB(without(tunnelTopology(), "fib:r2:default"), "r1", "default", func(rs []netmodel.Route) []netmodel.Route {
 		for i := range rs {
 			if rs[i].Prefix == pfx("10.0.25.0/30") {

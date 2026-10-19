@@ -63,6 +63,9 @@ type structuralFailureCase struct {
 	// linkdown flag, so nothing in the node's table stops it selecting the
 	// gateway, and every held address in the prefix must be predicted unknown.
 	kept [3]string
+	// ipv6, when set, builds the whole topology on IPv6 addresses, so every
+	// held address and every destination is graded over IPv6.
+	ipv6 bool
 }
 
 // diamondScenario is r1 with two paths to r3's LAN, one through r2 and one
@@ -104,6 +107,52 @@ topology:
     - {node: r4, destination: 10.71.30.0/24, via: 10.71.43.3}
     - {node: r3, destination: 10.71.12.0/24, via: 10.71.23.2}
     - {node: r3, destination: 10.71.14.0/24, via: 10.71.43.4}
+%s
+faults:
+  - {type: link_down, node: r1, segment: s12}
+# The schema requires a test. netdoc is not run here.
+tests:
+  - {name: unused, node: r1}
+expect: {verdict: ok}
+`
+
+// diamondScenarioIPv6 is diamondScenario with every address and prefix on IPv6.
+// The %s slot takes r1's routes, as it does there.
+const diamondScenarioIPv6 = `
+name: structural-failure-diamond-ipv6
+topology:
+  segments:
+    - {name: s12, ipv6: 2001:db8:71:12::/64}
+    - {name: s14, ipv6: 2001:db8:71:14::/64}
+    - {name: s23, ipv6: 2001:db8:71:23::/64}
+    - {name: s43, ipv6: 2001:db8:71:43::/64}
+    - {name: lan3, ipv6: 2001:db8:71:30::/64}
+  nodes:
+    - name: r1
+      role: client
+      interfaces:
+        - {segment: s12, ipv6: 2001:db8:71:12::1/64}
+        - {segment: s14, ipv6: 2001:db8:71:14::1/64}
+    - name: r2
+      role: router
+      interfaces:
+        - {segment: s12, ipv6: 2001:db8:71:12::2/64}
+        - {segment: s23, ipv6: 2001:db8:71:23::2/64}
+    - name: r4
+      role: router
+      interfaces:
+        - {segment: s14, ipv6: 2001:db8:71:14::4/64}
+        - {segment: s43, ipv6: 2001:db8:71:43::4/64}
+    - name: r3
+      interfaces:
+        - {segment: s23, ipv6: 2001:db8:71:23::3/64}
+        - {segment: s43, ipv6: 2001:db8:71:43::3/64}
+        - {segment: lan3, ipv6: 2001:db8:71:30::1/64}
+  routes:
+    - {node: r2, destination: 2001:db8:71:30::/64, via: 2001:db8:71:23::3}
+    - {node: r4, destination: 2001:db8:71:30::/64, via: 2001:db8:71:43::3}
+    - {node: r3, destination: 2001:db8:71:12::/64, via: 2001:db8:71:23::2}
+    - {node: r3, destination: 2001:db8:71:14::/64, via: 2001:db8:71:43::4}
 %s
 faults:
   - {type: link_down, node: r1, segment: s12}
@@ -206,6 +255,15 @@ var structuralFailureCases = []structuralFailureCase{{
 	multipath: []string{"r1", "10.71.30.0/24", "10.71.12.2", "10.71.14.4"},
 	dest:      "10.71.30.1", impact: routepath.ImpactRedundancyLost, delivered: true,
 	partial: "r4",
+}, {
+	// The same ECMP case on IPv6 addresses. The kernel's IPv6 routes and the
+	// dials must show what the IPv4 case shows.
+	name:      "ipv6 ecmp alternate survives the source link",
+	scenario:  fmt.Sprintf(diamondScenarioIPv6, ""),
+	multipath: []string{"r1", "2001:db8:71:30::/64", "2001:db8:71:12::2", "2001:db8:71:14::4"},
+	dest:      "2001:db8:71:30::1", impact: routepath.ImpactRedundancyLost, delivered: true,
+	partial: "r4",
+	ipv6:    true,
 }, {
 	// The kernel deletes the metric 10 route with its link and starts using the
 	// metric 20 one, a path no recorded branch holds. The file cannot record
@@ -351,13 +409,21 @@ func runStructuralFailureCase(t *testing.T, c structuralFailureCase) {
 		t.Fatal(err)
 	}
 	dests := heldAddresses(obs)
+	for _, d := range dests {
+		if netip.MustParseAddr(d).Is6() != c.ipv6 {
+			t.Fatalf("%s is held as the wrong address family for this case (ipv6 %t)", d, c.ipv6)
+		}
+	}
 	if sim.Considered != len(dests) || sim.Truncated {
 		t.Fatalf("simulation considered %d destinations (truncated %t), want all %d held", sim.Considered, sim.Truncated, len(dests))
 	}
+	awaitSettled(ctx, t, e)
 	before := map[string]bool{}
 	for _, d := range dests {
 		before[d] = dialDelivers(ctx, t, src, d)
 	}
+	nodes := slices.Compact([]string{src.node.Name, fault.Node})
+	logMainTables(ctx, t, e, nodes, "before the fault")
 
 	if _, err := e.ApplyFaults(ctx, s.Faults); err != nil {
 		t.Fatal(err)
@@ -370,11 +436,7 @@ func runStructuralFailureCase(t *testing.T, c structuralFailureCase) {
 	for _, d := range dests {
 		after[d] = dialDelivers(ctx, t, src, d)
 	}
-	for _, node := range slices.Compact([]string{src.node.Name, fault.Node}) {
-		if table := e.Exec(ctx, node, []string{"ip", "-4", "route", "show"}, nil); table.ExitCode == 0 {
-			t.Logf("%s main table after the fault:\n%s", node, table.Stdout)
-		}
-	}
+	logMainTables(ctx, t, e, nodes, "after the fault")
 
 	rated := map[string]routepath.Affected{}
 	for _, a := range sim.Affected {
@@ -438,11 +500,12 @@ func disagreement(ctx context.Context, e *netnsEnv, src *nodeProc, a routepath.A
 		if !before || !after {
 			return fmt.Sprintf("delivery went from %t to %t", before, after)
 		}
-		res := e.Exec(ctx, src.node.Name, []string{"ip", "-4", "route", "get", a.Destination}, nil)
+		dest := netip.MustParseAddr(a.Destination)
+		res := e.Exec(ctx, src.node.Name, []string{"ip", ipFlag(dest), "route", "get", a.Destination}, nil)
 		if res.Err != nil || res.ExitCode != 0 {
 			return "the kernel selects no route for it: " + execResultError(res).Error()
 		}
-		selected, err := parseRouteGet(res.Stdout, src, "ipv4")
+		selected, err := parseRouteGet(res.Stdout, src, addressFamily(dest))
 		if err != nil {
 			return err.Error()
 		}
@@ -473,8 +536,9 @@ func disagreement(ctx context.Context, e *netnsEnv, src *nodeProc, a routepath.A
 func checkKept(ctx context.Context, t *testing.T, e *netnsEnv, kept [3]string, dests []string, rated map[string]routepath.Affected) {
 	t.Helper()
 	node, prefix, gateway := kept[0], netip.MustParsePrefix(kept[1]), kept[2]
+	flag := ipFlag(prefix.Addr())
 	var routes []kernelRoute
-	kernelJSON(ctx, t, e, node, &routes, "ip", "-4", "-j", "route", "show", "table", "main")
+	kernelJSON(ctx, t, e, node, &routes, "ip", flag, "-j", "route", "show", "table", "main")
 	i := slices.IndexFunc(routes, func(r kernelRoute) bool { return r.Dst == prefix.String() })
 	if i < 0 {
 		t.Fatalf("%s holds no route to %s after the fault", node, prefix)
@@ -487,7 +551,7 @@ func checkKept(ctx context.Context, t *testing.T, e *netnsEnv, kept [3]string, d
 		slices.Contains(hops[j].Flags, "dead") || slices.Contains(hops[j].Flags, "linkdown") {
 		t.Errorf("%s no longer lists %s as a usable next hop of %s after the fault: %+v", node, gateway, prefix, hops)
 	}
-	neigh := e.Exec(ctx, node, []string{"ip", "-4", "neigh", "show", gateway}, nil)
+	neigh := e.Exec(ctx, node, []string{"ip", flag, "neigh", "show", gateway}, nil)
 	t.Logf("%s neighbor entry for %s after the fault: %s", node, gateway, strings.TrimSpace(string(neigh.Stdout)))
 	for _, d := range dests {
 		if !prefix.Contains(netip.MustParseAddr(d)) {
@@ -496,7 +560,7 @@ func checkKept(ctx context.Context, t *testing.T, e *netnsEnv, kept [3]string, d
 		if got := cmp.Or(rated[d].Impact, routepath.ImpactNone); got != routepath.ImpactUnknown {
 			t.Errorf("%s: predicted %s, want unknown while %s keeps %s in its route", d, got, node, gateway)
 		}
-		res := e.Exec(ctx, node, []string{"ip", "-4", "route", "get", d}, nil)
+		res := e.Exec(ctx, node, []string{"ip", ipFlag(netip.MustParseAddr(d)), "route", "get", d}, nil)
 		t.Logf("%s ip route get %s after the fault, one lookup selection: %s", node, d, strings.TrimSpace(string(res.Stdout)))
 	}
 }
@@ -521,13 +585,49 @@ func dialDelivers(ctx context.Context, t *testing.T, from *nodeProc, dest string
 	return outcome == FamilyStateReachable || outcome == TargetStateRefused
 }
 
+// awaitSettled waits until no node holds a tentative address. The kernel runs a
+// duplicate address check on every link-local address when its link comes up,
+// and the first dials of a case can start inside that window.
+func awaitSettled(ctx context.Context, t *testing.T, e *netnsEnv) {
+	t.Helper()
+	for _, np := range e.nodes {
+		for {
+			res := e.Exec(ctx, np.node.Name, []string{"ip", "-6", "addr", "show", "tentative"}, nil)
+			if res.Err != nil || res.ExitCode != 0 {
+				t.Fatalf("%s: list tentative addresses: %v", np.node.Name, execResultError(res))
+			}
+			if strings.TrimSpace(string(res.Stdout)) == "" {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatalf("%s still holds tentative addresses: %v\n%s", np.node.Name, ctx.Err(), res.Stdout)
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+	}
+}
+
+// logMainTables logs each named node's IPv4 and IPv6 main tables, so the case
+// output shows the kernel state on both sides of the fault.
+func logMainTables(ctx context.Context, t *testing.T, e *netnsEnv, nodes []string, when string) {
+	t.Helper()
+	for _, node := range nodes {
+		for _, flag := range []string{"-4", "-6"} {
+			if table := e.Exec(ctx, node, []string{"ip", flag, "route", "show"}, nil); table.ExitCode == 0 {
+				t.Logf("%s main table %s (ip %s):\n%s", node, when, flag, table.Stdout)
+			}
+		}
+	}
+}
+
 // addMultipath installs one ECMP route through Env.Exec, the way the PMTU
 // remediation test adds its clamp, so the scenario schema gains nothing. Each
 // gateway's leg leaves by the interface on its subnet.
 func addMultipath(ctx context.Context, t *testing.T, e *netnsEnv, node, dest string, vias ...string) {
 	t.Helper()
 	np := e.byName[node]
-	argv := []string{"ip", "-4", "route", "add", dest}
+	argv := []string{"ip", ipFlag(netip.MustParsePrefix(dest).Addr()), "route", "add", dest}
 	for _, via := range vias {
 		segment, _ := nodeSegmentForAddress(np.node, netip.MustParseAddr(via))
 		argv = append(argv, "nexthop", "via", via, "dev", np.interfaceForSegment(segment).iface)
@@ -554,14 +654,15 @@ type kernelHop struct {
 	Flags   []string `json:"flags"`
 }
 
-// kernelObservations reads every node's IPv4 addresses and main table out of
-// its own namespace, after the network is built and before any fault, as one
-// complete fib observation per node. Kernel device names become logical
+// kernelObservations reads every node's IPv4 and IPv6 addresses and main tables
+// out of its own namespace, after the network is built and before any fault, as
+// one complete fib observation per node. Kernel device names become logical
 // segment names, the mapping the route evidence already uses, so a failure
 // names an interface the way the scenario does. Loopback is on no segment and
-// is left out. Nothing here reads the scenario's routes. The tables are
-// complete because the backend adds no policy rule, so the main table is the
-// one every lookup ends in.
+// is left out. Link-local addresses and routes are left out too: a destination
+// needs its zone to be dialed, and the walk carries no zone for one. Nothing
+// here reads the scenario's routes. The tables are complete because the backend
+// adds no policy rule, so the main table is the one every lookup ends in.
 func kernelObservations(ctx context.Context, t *testing.T, e *netnsEnv) []netmodel.Observation {
 	t.Helper()
 	at := time.Now().UTC()
@@ -579,77 +680,108 @@ func kernelObservations(ctx context.Context, t *testing.T, e *netnsEnv) []netmod
 			Provenance: netmodel.Provenance{Source: "kernel:" + np.node.Name, CollectedAt: at},
 			Plane:      netmodel.PlaneFIB, Node: np.node.Name, VRF: "default", RoutesComplete: true,
 		}
-		var links []struct {
-			Ifname   string `json:"ifname"`
-			AddrInfo []struct {
-				Local     string `json:"local"`
-				Prefixlen int    `json:"prefixlen"`
-			} `json:"addr_info"`
-		}
-		kernelJSON(ctx, t, e, np.node.Name, &links, "ip", "-4", "-j", "addr", "show")
-		for _, l := range links {
-			name := segment(l.Ifname)
-			if name == "" {
-				continue
-			}
-			i := netmodel.Interface{Name: name}
-			for _, a := range l.AddrInfo {
-				addr, err := netip.ParseAddr(a.Local)
-				if err != nil {
-					t.Fatalf("%s %s: %v", np.node.Name, name, err)
+		for _, flag := range []string{"-4", "-6"} {
+			var links []kernelLink
+			kernelJSON(ctx, t, e, np.node.Name, &links, "ip", flag, "-j", "addr", "show")
+			for _, l := range links {
+				name := segment(l.Ifname)
+				if name == "" {
+					continue
 				}
-				i.Addresses = append(i.Addresses, netip.PrefixFrom(addr, a.Prefixlen))
-			}
-			o.Interfaces = append(o.Interfaces, i)
-		}
-		var routes []kernelRoute
-		kernelJSON(ctx, t, e, np.node.Name, &routes, "ip", "-4", "-j", "route", "show", "table", "main")
-		for _, r := range routes {
-			if r.Type != "" && r.Type != "unicast" {
-				t.Fatalf("%s holds a %s route to %s, which these topologies never install", np.node.Name, r.Type, r.Dst)
-			}
-			prefix := netip.MustParsePrefix("0.0.0.0/0")
-			if r.Dst != "default" {
-				var err error
-				if prefix, err = parseRoutePrefix(r.Dst); err != nil {
-					t.Fatalf("%s route %q: %v", np.node.Name, r.Dst, err)
+				i := slices.IndexFunc(o.Interfaces, func(x netmodel.Interface) bool { return x.Name == name })
+				if i < 0 {
+					o.Interfaces = append(o.Interfaces, netmodel.Interface{Name: name})
+					i = len(o.Interfaces) - 1
 				}
-			}
-			route := netmodel.Route{Prefix: prefix, Origin: cmp.Or(r.Protocol, "boot"), Metric: r.Metric, MetricKnown: true}
-			hops := r.Nexthops
-			if len(hops) == 0 {
-				hops = []kernelHop{r.kernelHop}
-			}
-			for _, h := range hops {
-				name := segment(h.Dev)
-				if name == "" || slices.Contains(h.Flags, "dead") || slices.Contains(h.Flags, "linkdown") {
-					t.Fatalf("%s route %s leaves by %q with flags %v before any fault", np.node.Name, r.Dst, h.Dev, h.Flags)
-				}
-				hop := netmodel.NextHop{Interface: name}
-				if h.Gateway != "" {
-					addr, err := netip.ParseAddr(h.Gateway)
+				for _, a := range l.AddrInfo {
+					addr, err := netip.ParseAddr(a.Local)
 					if err != nil {
-						t.Fatalf("%s route %s: %v", np.node.Name, r.Dst, err)
+						t.Fatalf("%s %s: %v", np.node.Name, name, err)
 					}
-					hop.Addr = addr
+					if addr.IsLinkLocalUnicast() {
+						continue
+					}
+					o.Interfaces[i].Addresses = append(o.Interfaces[i].Addresses, netip.PrefixFrom(addr, a.Prefixlen))
 				}
-				route.NextHops = append(route.NextHops, hop)
 			}
-			// The model holds one route per prefix and origin, so of two
-			// metrics the file keeps the one the kernel forwards by. The
-			// other cannot be recorded, so the table is no longer complete.
-			if i := slices.IndexFunc(o.Routes, func(r netmodel.Route) bool { return r.Prefix == route.Prefix && r.Origin == route.Origin }); i >= 0 {
-				if route.Metric < o.Routes[i].Metric {
-					o.Routes[i] = route
+		}
+		for _, flag := range []string{"-4", "-6"} {
+			def := "0.0.0.0/0"
+			if flag == "-6" {
+				def = "::/0"
+			}
+			var routes []kernelRoute
+			kernelJSON(ctx, t, e, np.node.Name, &routes, "ip", flag, "-j", "route", "show", "table", "main")
+			for _, r := range routes {
+				if r.Type != "" && r.Type != "unicast" {
+					t.Fatalf("%s holds a %s route to %s, which these topologies never install", np.node.Name, r.Type, r.Dst)
 				}
-				o.RoutesComplete = false
-				continue
+				prefix := netip.MustParsePrefix(def)
+				if r.Dst != "default" {
+					var err error
+					if prefix, err = parseRoutePrefix(r.Dst); err != nil {
+						t.Fatalf("%s route %q: %v", np.node.Name, r.Dst, err)
+					}
+				}
+				// Every link carries its own fe80::/64 route. Those share one
+				// prefix and origin across interfaces, and no destination is
+				// link-local, so they are left out with the addresses.
+				if prefix.Addr().IsLinkLocalUnicast() {
+					continue
+				}
+				route := netmodel.Route{Prefix: prefix, Origin: cmp.Or(r.Protocol, "boot"), Metric: r.Metric, MetricKnown: true}
+				hops := r.Nexthops
+				if len(hops) == 0 {
+					hops = []kernelHop{r.kernelHop}
+				}
+				for _, h := range hops {
+					name := segment(h.Dev)
+					if name == "" || slices.Contains(h.Flags, "dead") || slices.Contains(h.Flags, "linkdown") {
+						t.Fatalf("%s route %s leaves by %q with flags %v before any fault", np.node.Name, r.Dst, h.Dev, h.Flags)
+					}
+					hop := netmodel.NextHop{Interface: name}
+					if h.Gateway != "" {
+						addr, err := netip.ParseAddr(h.Gateway)
+						if err != nil {
+							t.Fatalf("%s route %s: %v", np.node.Name, r.Dst, err)
+						}
+						hop.Addr = addr
+					}
+					route.NextHops = append(route.NextHops, hop)
+				}
+				// The model holds one route per prefix and origin, so of two
+				// metrics the file keeps the one the kernel forwards by. The
+				// other cannot be recorded, so the table is no longer complete.
+				if i := slices.IndexFunc(o.Routes, func(r netmodel.Route) bool { return r.Prefix == route.Prefix && r.Origin == route.Origin }); i >= 0 {
+					if route.Metric < o.Routes[i].Metric {
+						o.Routes[i] = route
+					}
+					o.RoutesComplete = false
+					continue
+				}
+				o.Routes = append(o.Routes, route)
 			}
-			o.Routes = append(o.Routes, route)
 		}
 		out = append(out, o)
 	}
 	return out
+}
+
+// kernelLink is the part of one `ip -j addr show` row the topology file needs.
+type kernelLink struct {
+	Ifname   string `json:"ifname"`
+	AddrInfo []struct {
+		Local     string `json:"local"`
+		Prefixlen int    `json:"prefixlen"`
+	} `json:"addr_info"`
+}
+
+// ipFlag is the ip command's address-family flag for addr.
+func ipFlag(addr netip.Addr) string {
+	if addr.Is6() {
+		return "-6"
+	}
+	return "-4"
 }
 
 func kernelJSON(ctx context.Context, t *testing.T, e *netnsEnv, node string, into any, argv ...string) {

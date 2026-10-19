@@ -1,0 +1,167 @@
+[
+ {
+  "destination": "10.0.1.1",
+  "collected_at": "2026-10-18T20:28:55.078290Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "type": "local",
+    "dst": "10.0.1.1",
+    "dev": "lo",
+    "prefsrc": "10.0.1.1",
+    "flags": [],
+    "uid": 0,
+    "cache": [
+     "local"
+    ]
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.0.1.1 (10.0.1.1) 56(84) bytes of data.\n64 bytes from 10.0.1.1: icmp_seq=1 ttl=64 time=0.020 ms\n64 bytes from 10.0.1.1: icmp_seq=2 ttl=64 time=0.028 ms\n64 bytes from 10.0.1.1: icmp_seq=3 ttl=64 time=0.028 ms\n\n--- 10.0.1.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 409ms\nrtt min/avg/max/mdev = 0.020/0.025/0.028/0.003 ms\n"
+ },
+ {
+  "destination": "10.0.1.2",
+  "collected_at": "2026-10-18T20:28:55.490632Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "dst": "10.0.1.2",
+    "dev": "e1",
+    "prefsrc": "10.0.1.1",
+    "flags": [],
+    "uid": 0,
+    "cache": []
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.0.1.2 (10.0.1.2) 56(84) bytes of data.\n64 bytes from 10.0.1.2: icmp_seq=1 ttl=64 time=0.027 ms\n64 bytes from 10.0.1.2: icmp_seq=2 ttl=64 time=0.039 ms\n64 bytes from 10.0.1.2: icmp_seq=3 ttl=64 time=0.037 ms\n\n--- 10.0.1.2 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 412ms\nrtt min/avg/max/mdev = 0.027/0.034/0.039/0.005 ms\n"
+ },
+ {
+  "destination": "10.0.3.1",
+  "collected_at": "2026-10-18T20:28:55.906542Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "type": "local",
+    "dst": "10.0.3.1",
+    "dev": "lo",
+    "prefsrc": "10.0.3.1",
+    "flags": [],
+    "uid": 0,
+    "cache": [
+     "local"
+    ]
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.0.3.1 (10.0.3.1) 56(84) bytes of data.\n64 bytes from 10.0.3.1: icmp_seq=1 ttl=64 time=0.015 ms\n64 bytes from 10.0.3.1: icmp_seq=2 ttl=64 time=0.024 ms\n64 bytes from 10.0.3.1: icmp_seq=3 ttl=64 time=0.027 ms\n\n--- 10.0.3.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 412ms\nrtt min/avg/max/mdev = 0.015/0.022/0.027/0.005 ms\n"
+ },
+ {
+  "destination": "10.0.3.2",
+  "collected_at": "2026-10-18T20:28:56.322556Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "dst": "10.0.3.2",
+    "dev": "e3",
+    "prefsrc": "10.0.3.1",
+    "flags": [],
+    "uid": 0,
+    "cache": []
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.0.3.2 (10.0.3.2) 56(84) bytes of data.\n64 bytes from 10.0.3.2: icmp_seq=1 ttl=64 time=0.037 ms\n64 bytes from 10.0.3.2: icmp_seq=2 ttl=64 time=0.037 ms\n64 bytes from 10.0.3.2: icmp_seq=3 ttl=64 time=0.027 ms\n\n--- 10.0.3.2 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 412ms\nrtt min/avg/max/mdev = 0.027/0.033/0.037/0.004 ms\n"
+ },
+ {
+  "destination": "10.0.5.1",
+  "collected_at": "2026-10-18T20:28:56.738460Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "type": "local",
+    "dst": "10.0.5.1",
+    "dev": "lo",
+    "prefsrc": "10.0.5.1",
+    "flags": [],
+    "uid": 0,
+    "cache": [
+     "local"
+    ]
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.0.5.1 (10.0.5.1) 56(84) bytes of data.\n64 bytes from 10.0.5.1: icmp_seq=1 ttl=64 time=0.015 ms\n64 bytes from 10.0.5.1: icmp_seq=2 ttl=64 time=0.030 ms\n64 bytes from 10.0.5.1: icmp_seq=3 ttl=64 time=0.029 ms\n\n--- 10.0.5.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 412ms\nrtt min/avg/max/mdev = 0.015/0.024/0.030/0.006 ms\n"
+ },
+ {
+  "destination": "10.0.5.2",
+  "collected_at": "2026-10-18T20:28:57.154548Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "dst": "10.0.5.2",
+    "dev": "e5",
+    "prefsrc": "10.0.5.1",
+    "flags": [],
+    "uid": 0,
+    "cache": []
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.0.5.2 (10.0.5.2) 56(84) bytes of data.\n64 bytes from 10.0.5.2: icmp_seq=1 ttl=64 time=0.025 ms\n64 bytes from 10.0.5.2: icmp_seq=2 ttl=64 time=0.040 ms\n64 bytes from 10.0.5.2: icmp_seq=3 ttl=64 time=0.048 ms\n\n--- 10.0.5.2 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 412ms\nrtt min/avg/max/mdev = 0.025/0.037/0.048/0.009 ms\n"
+ },
+ {
+  "destination": "10.10.2.1",
+  "collected_at": "2026-10-18T20:28:57.570581Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "dst": "10.10.2.1",
+    "gateway": "10.0.3.2",
+    "dev": "e3",
+    "prefsrc": "10.0.3.1",
+    "flags": [],
+    "uid": 0,
+    "cache": []
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.10.2.1 (10.10.2.1) 56(84) bytes of data.\n64 bytes from 10.10.2.1: icmp_seq=1 ttl=64 time=0.030 ms\n64 bytes from 10.10.2.1: icmp_seq=2 ttl=64 time=0.040 ms\n64 bytes from 10.10.2.1: icmp_seq=3 ttl=64 time=0.037 ms\n\n--- 10.10.2.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 412ms\nrtt min/avg/max/mdev = 0.030/0.035/0.040/0.004 ms\n"
+ },
+ {
+  "destination": "10.10.3.1",
+  "collected_at": "2026-10-18T20:28:57.986543Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "dst": "10.10.3.1",
+    "gateway": "10.0.5.2",
+    "dev": "e5",
+    "prefsrc": "10.0.5.1",
+    "flags": [],
+    "uid": 0,
+    "cache": []
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.10.3.1 (10.10.3.1) 56(84) bytes of data.\n64 bytes from 10.10.3.1: icmp_seq=1 ttl=64 time=0.023 ms\n64 bytes from 10.10.3.1: icmp_seq=2 ttl=64 time=0.036 ms\n64 bytes from 10.10.3.1: icmp_seq=3 ttl=64 time=0.037 ms\n\n--- 10.10.3.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 412ms\nrtt min/avg/max/mdev = 0.023/0.032/0.037/0.006 ms\n"
+ },
+ {
+  "destination": "10.30.0.1",
+  "collected_at": "2026-10-18T20:28:58.402538Z",
+  "route_get_exit": 0,
+  "route_get": [
+   {
+    "dst": "10.30.0.1",
+    "gateway": "10.0.5.2",
+    "dev": "e5",
+    "prefsrc": "10.0.5.1",
+    "flags": [],
+    "uid": 0,
+    "cache": []
+   }
+  ],
+  "ping_exit": 0,
+  "ping_output": "PING 10.30.0.1 (10.30.0.1) 56(84) bytes of data.\n64 bytes from 10.30.0.1: icmp_seq=1 ttl=64 time=0.025 ms\n64 bytes from 10.30.0.1: icmp_seq=2 ttl=64 time=0.037 ms\n64 bytes from 10.30.0.1: icmp_seq=3 ttl=64 time=0.034 ms\n\n--- 10.30.0.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 413ms\nrtt min/avg/max/mdev = 0.025/0.032/0.037/0.005 ms\n"
+ }
+]

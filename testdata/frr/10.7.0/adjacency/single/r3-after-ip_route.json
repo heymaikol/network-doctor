@@ -1,0 +1,1 @@
+[{"dst":"10.0.5.0/24","dev":"e6","protocol":"kernel","scope":"link","prefsrc":"10.0.5.2","flags":[]},{"dst":"10.10.3.0/24","dev":"stub3","protocol":"kernel","scope":"link","prefsrc":"10.10.3.1","flags":[]},{"dst":"10.30.0.0/24","dev":"static3","protocol":"kernel","scope":"link","prefsrc":"10.30.0.1","flags":[]}]

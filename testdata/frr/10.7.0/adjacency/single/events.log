@@ -1,0 +1,7 @@
+2026-10-18T20:29:19.349293815Z before: neighbor states hold after ~20s
+2026-10-18T20:29:27.385922525Z before: main tables unchanged over five polls
+2026-10-18T20:29:59.713783023Z r1: tc qdisc add dev e5 clsact
+2026-10-18T20:29:59.716249504Z r1: tc filter add dev e5 ingress protocol ip pref 1 u32 match ip protocol 89 0xff action drop
+2026-10-18T20:29:59.719024908Z r1: tc filter add dev e5 egress protocol ip pref 1 u32 match ip protocol 89 0xff action drop
+2026-10-18T20:30:47.334558885Z after: neighbor states hold after ~48s
+2026-10-18T20:30:55.412180077Z after: main tables unchanged over five polls

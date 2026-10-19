@@ -268,13 +268,13 @@ func offPath(at1, at4 string) []netmodel.Observation {
 	return []netmodel.Observation{
 		configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.14.1/30"), ifc("eth9", "10.0.19.1/30")}),
 		configured("rr", "default", []netmodel.Interface{ifc("eth0", "10.0.19.2/30")}),
-		configured("r4", "default", []netmodel.Interface{ifc("eth0", "10.0.14.4/30"), ifc("eth1", "10.0.43.4/30"), ifc("lan", "10.40.0.1/24")}),
+		configured("r4", "default", []netmodel.Interface{ifc("eth0", "10.0.14.2/30"), ifc("eth1", "10.0.43.2/30"), ifc("lan", "10.40.0.1/24")}),
 		configured("r3", "default", []netmodel.Interface{ifc("eth0", "10.0.43.3/30"), ifc("lan", "10.20.40.8/24")}),
 		ospfControl("frr:r1", "r1", "default", "point-to-point", []string{"eth9"}, ospfNeighbor("eth9", "rr", "eth0", "10.0.19.2", "Full")),
 		table(netmodel.PlaneFIB, "r1", "default", true,
 			route("10.0.14.0/30", netmodel.OriginConnected, onLink("eth0")),
-			route("10.20.0.0/16", at1, nh("10.0.14.4", "eth0")),
-			route("10.40.0.0/24", netmodel.OriginStatic, nh("10.0.14.4", "eth0"))),
+			route("10.20.0.0/16", at1, nh("10.0.14.2", "eth0")),
+			route("10.40.0.0/24", netmodel.OriginStatic, nh("10.0.14.2", "eth0"))),
 		table(netmodel.PlaneFIB, "r4", "default", true, route("10.20.0.0/16", at4, nh("10.0.43.3", "eth1"))),
 	}
 }
@@ -295,6 +295,10 @@ func TestBGPForwardingOffTheFailureIsUnknown(t *testing.T) {
 	// and a failure that takes the whole router or interface away must not
 	// say more.
 	obs := offPath(netmodel.OriginBGP, netmodel.OriginBGP)
+	// The connected control below is a delivery, not a missing route.
+	if h := explainFrom(t, obs, nil, fromR1, "10.0.14.2").Forwarding; h.Decision.Evidence[0].Origin != netmodel.OriginConnected || len(h.Next) != 1 || h.Next[0].Decision.Kind != KindLocal {
+		t.Fatalf("forwarding to 10.0.14.2 = %+v, want r1's connected route delivering at r4", h)
+	}
 	for _, fail := range []Failure{{Node: "rr"}, {Node: "r1", Interface: "eth9"}, {Node: "r1", Interface: "eth9", OSPFNeighbor: "rr"}} {
 		t.Run(fail.String(), func(t *testing.T) {
 			s := simulate(t, obs, fail)
@@ -307,8 +311,8 @@ func TestBGPForwardingOffTheFailureIsUnknown(t *testing.T) {
 			if _, ok := got["10.40.0.1"]; ok {
 				t.Errorf("impacts = %v, want 10.40.0.1, which r1 forwards by a static route, unchanged", got)
 			}
-			if _, ok := got["10.0.14.4"]; ok {
-				t.Errorf("impacts = %v, want 10.0.14.4, which r1 reaches by a connected route, unchanged", got)
+			if _, ok := got["10.0.14.2"]; ok {
+				t.Errorf("impacts = %v, want 10.0.14.2, which r1 reaches by a connected route, unchanged", got)
 			}
 			if s.Considered != 8 || s.Unchanged+len(s.Affected) != s.Considered {
 				t.Errorf("considered %d, unchanged %d, affected %d, want 8 considered and the rest adding up", s.Considered, s.Unchanged, len(s.Affected))
@@ -378,8 +382,8 @@ func TestBGPRowsOffTheSelectedRouteChangeNothing(t *testing.T) {
 		obs := without(offPath(netmodel.OriginStatic, netmodel.OriginStatic), "fib:r1:default")
 		return append(obs, table(netmodel.PlaneFIB, "r1", "default", true, append([]netmodel.Route{
 			route("10.0.14.0/30", netmodel.OriginConnected, onLink("eth0")),
-			route("10.20.0.0/16", netmodel.OriginStatic, nh("10.0.14.4", "eth0")),
-			route("10.40.0.0/24", netmodel.OriginStatic, nh("10.0.14.4", "eth0"))}, routes...)...))
+			route("10.20.0.0/16", netmodel.OriginStatic, nh("10.0.14.2", "eth0")),
+			route("10.40.0.0/24", netmodel.OriginStatic, nh("10.0.14.2", "eth0"))}, routes...)...))
 	}
 	cases := map[string][]netmodel.Observation{
 		"on a node off the walk": append(offPath(netmodel.OriginStatic, netmodel.OriginStatic),
@@ -387,10 +391,10 @@ func TestBGPRowsOffTheSelectedRouteChangeNothing(t *testing.T) {
 		"in another routing domain": append(offPath(netmodel.OriginStatic, netmodel.OriginStatic),
 			configured("r1", "blue", []netmodel.Interface{ifc("eth3", "10.0.92.1/30")}),
 			table(netmodel.PlaneFIB, "r1", "blue", true, route("10.20.0.0/16", netmodel.OriginBGP, nh("10.0.92.2", "eth3")))),
-		"for another prefix":           r1(route("10.99.0.0/16", netmodel.OriginBGP, nh("10.0.14.4", "eth0"))),
-		"shadowed by the static route": r1(route("10.0.0.0/8", netmodel.OriginBGP, nh("10.0.14.4", "eth0"))),
+		"for another prefix":           r1(route("10.99.0.0/16", netmodel.OriginBGP, nh("10.0.14.2", "eth0"))),
+		"shadowed by the static route": r1(route("10.0.0.0/8", netmodel.OriginBGP, nh("10.0.14.2", "eth0"))),
 		"only on the control plane": append(offPath(netmodel.OriginStatic, netmodel.OriginStatic),
-			table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", netmodel.OriginBGP, nh("10.0.14.4", "eth0")))),
+			table(netmodel.PlaneControl, "r1", "default", true, route("10.20.0.0/16", netmodel.OriginBGP, nh("10.0.14.2", "eth0")))),
 	}
 	for name, obs := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -452,7 +456,7 @@ func TestBGPUncertaintyLeavesNextHopLossAlone(t *testing.T) {
 	if a := affected(t, s, dest); a.Impact != ImpactUnknown || !strings.Contains(a.Reason, "still lists the lost next hop") {
 		t.Errorf("%s %s: %q, want unknown for the kept leg", dest, a.Impact, a.Reason)
 	}
-	s = simulate(t, offPath(netmodel.OriginBGP, netmodel.OriginBGP), Failure{Node: "r1", NextHop: "10.0.14.4"})
+	s = simulate(t, offPath(netmodel.OriginBGP, netmodel.OriginBGP), Failure{Node: "r1", NextHop: "10.0.14.2"})
 	if got := impacts(s); got[dest] != ImpactReachabilityLost {
 		t.Errorf("impacts = %v, want %s reachability_lost", got, dest)
 	}
@@ -462,7 +466,7 @@ func TestBGPUncertaintyTextAndJSONAgree(t *testing.T) {
 	// Two FIB rows of r1 agree on the BGP route, so both are named, in a fixed
 	// order whatever order the file gives.
 	obs := append(offPath(netmodel.OriginBGP, netmodel.OriginStatic),
-		tableFrom("frr:r1:fib", netmodel.PlaneFIB, "r1", "default", false, route("10.20.0.0/16", netmodel.OriginBGP, nh("10.0.14.4", "eth0"))))
+		tableFrom("frr:r1:fib", netmodel.PlaneFIB, "r1", "default", false, route("10.20.0.0/16", netmodel.OriginBGP, nh("10.0.14.2", "eth0"))))
 	s := simulate(t, obs, Failure{Node: "rr"})
 	reason := bgpReason(offTheWalk, "r1", "fib:r1:default (bgp), frr:r1:fib (bgp)")
 	if got := affected(t, s, dest).Reason; got != reason {

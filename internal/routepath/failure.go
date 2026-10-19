@@ -107,9 +107,11 @@ type Impact string
 const (
 	// ImpactNone: no recorded forwarding branch crosses the failure, and the
 	// forwarding before it is proven, so nothing the evidence shows changes.
+	// Under a router or interface failure, no hop forwards by BGP.
 	ImpactNone Impact = "none"
 	// ImpactRedundancyLost: delivery was proven, some branches cross the
-	// failure, and every branch that survives still delivers.
+	// failure, and every branch that survives still delivers. Under a router
+	// or interface failure, no surviving hop forwards by BGP.
 	ImpactRedundancyLost Impact = "redundancy_lost"
 	// ImpactReachabilityLost: delivery was proven, and after the failure some
 	// branch from the source ends with no surviving next hop.
@@ -169,6 +171,13 @@ type Simulation struct {
 // at any node on it, as protocolRows reads them, or when the failed router
 // alone holds the destination, which no recomputed path reaches. Otherwise it
 // is unknown.
+//
+// Nor is BGP session state in the file, so a router or interface failure may
+// make BGP withdraw or change a route whose forwarding never meets the failure.
+// A destination that would be none or redundancy_lost is unknown when some hop
+// that still forwards toward it selects a route with FIB rows of origin bgp, as
+// bgpForwarding reads them. OSPF needs no such guard: removing an element
+// leaves the cost of every path that avoids it unchanged.
 //
 // An OSPF adjacency loss leaves its link up, so only OSPF next hops that cross
 // the link are stopped, where Adjacency proves the link's transit dependency on
@@ -260,6 +269,15 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 				a.Impact, a.Reason = ImpactUnknown, fmt.Sprintf("every surviving recorded branch delivers, but %s (%s) still lists a next hop that crosses the failure on another node; whether %s stops selecting it is not in the evidence, so traffic hashed onto it may be dropped", far.From, far.VRF, far.From)
 			}
 		}
+		if (a.Impact == ImpactNone || a.Impact == ImpactRedundancyLost) && w.gw == nil && w.adj == nil {
+			if at, rows := bgpForwarding(a.After); at != nil {
+				claim := "no recorded forwarding branch crosses the failure"
+				if a.Impact == ImpactRedundancyLost {
+					claim = "every surviving recorded branch delivers"
+				}
+				a.Impact, a.Reason = ImpactUnknown, fmt.Sprintf("%s, but %s (%s) forwards toward it by BGP route %s, in %s; the file records no BGP session, peer, or next-hop resolution for that route, so whether the failure disrupts it is not in the evidence, and BGP withdrawal is not modeled", claim, at.Node, at.VRF, at.Decision.Prefix, evidenceText(rows))
+			}
+		}
 		gone := fail.Interface == "" && len(w.owners[d]) > 0 && !slices.ContainsFunc(w.owners[d], func(o state) bool { return o.node != fail.Node })
 		if a.Impact == ImpactReachabilityLost && w.gw == nil && w.adj == nil && !gone {
 			if stands, at := w.protocolLoss(&after, nil); !stands && at != nil {
@@ -330,6 +348,30 @@ func (w *walker) protocolLoss(h, on *Hop) (bool, *Hop) {
 		first = cmp.Or(first, at)
 	}
 	return false, first
+}
+
+// bgpForwarding returns the first hop of the walk h, in walk order, whose
+// selected FIB route has rows of origin bgp, and those rows. Only the route a
+// hop forwards by counts, so a BGP route for another prefix, a shadowed one, one
+// in another routing domain or on a node off the walk, and a control-plane one
+// forward none of the walk.
+func bgpForwarding(h *Hop) (*Hop, []Support) {
+	var at *Hop
+	var rows []Support
+	walkHops(h, func(x *Hop) {
+		if at != nil || x.Decision.Kind != KindForward {
+			return
+		}
+		for _, e := range x.Decision.Evidence {
+			if e.Origin == netmodel.OriginBGP {
+				rows = append(rows, e)
+			}
+		}
+		if len(rows) > 0 {
+			at = x
+		}
+	})
+	return at, rows
 }
 
 // protocolRows lists the rows that tie the forwarding at h to OSPF or BGP: the

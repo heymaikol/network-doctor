@@ -117,13 +117,13 @@ func answeredWithoutDNS(ctx context.Context, host string) bool {
 // lookupIPPublicWithDial bypasses the configured resolver for a second opinion.
 // Unavailability is reported as N/A by publicDNSProbe, never as a failure.
 //
-// A returned answer is one the public server provably supplied. Only a success
-// needs the check: an empty answer, an NXDOMAIN, and a transport failure all
-// mean the hosts file had nothing to add, because a hit there would have
-// replaced them. So the guard runs on the one outcome that could be a local
-// override, and hands back errHostsFileAnswer rather than addresses the server
-// may never have sent. The targets survive either way: they are what this run
-// tried, which is true whoever answered.
+// A returned answer is one the public server provably supplied. A lookup that
+// fails after one family's reply verified still holds that reply, so it is
+// replayed the same way lookupIPWithDial does. Replay can also reach a hosts-file
+// answer, so the guard runs on whatever is returned: an answer the machine gives
+// without DNS is refused as errHostsFileAnswer rather than credited to the
+// server. The targets survive either way: they are what this run tried, which is
+// true whoever answered.
 func lookupIPPublicWithDial(ctx context.Context, host string, dial func(context.Context, string, string) (net.Conn, error), server string) ([]net.IP, []string, error) {
 	var targets resolverTargetRecorder
 	var responses dnsResponses
@@ -135,6 +135,11 @@ func lookupIPPublicWithDial(ctx context.Context, host string, dial func(context.
 		},
 	}
 	ips, err := r.LookupIP(ctx, "ip", host)
+	if err != nil {
+		if kept := responses.replay(ctx, host); len(kept) > 0 {
+			ips, err = kept, nil
+		}
+	}
 	if err == nil && len(ips) > 0 && answeredWithoutDNS(ctx, host) {
 		return nil, targets.snapshot(), errHostsFileAnswer
 	}

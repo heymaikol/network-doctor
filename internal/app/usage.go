@@ -67,7 +67,10 @@ hop through it, so a destination that keeps another next hop at any other
 node is unknown, never redundancy_lost. A loss on a branch where some node
 holds an OSPF or BGP route to the destination is unknown too, since that
 protocol may compute another path, unless the failed router alone holds the
-destination. See Failure simulation in the reference.
+destination. A destination that would be unchanged, or keep only delivering
+branches, is unknown when a node on its walk forwards by a BGP route, since the
+file records no BGP session or next-hop resolution the failure could break.
+See Failure simulation in the reference.
 
 --fail-ospf NODE:INTERFACE:NEIGHBOR simulates losing the OSPF adjacency NODE
 records on INTERFACE toward NEIGHBOR instead. The interface stays up, so only

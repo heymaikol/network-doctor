@@ -210,7 +210,9 @@ Each one gets a sentence here and a complete contract in the reference.
 - **Failure simulation.** Add `--fail NODE`, `--fail NODE:INTERFACE`,
   `--fail-ospf`, or `--fail-next-hop` to `--explain` to see which destinations
   lose redundancy or reachability if a recorded router, interface, OSPF
-  adjacency, or next hop goes away. It walks the recorded tables only: no route
+  adjacency, or next hop goes away. `--sources` runs the same failure from several
+  sources and summarizes the affected nodes and routing domains. It walks the
+  recorded tables only: no route
   is recomputed, no convergence time is predicted, and missing evidence is
   reported as unknown. A `tunnels` entry in the file names the underlay that
   carries a tunnel, so an underlay failure is reported against that tunnel.

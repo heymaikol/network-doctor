@@ -1,4 +1,4 @@
-.TH NETDOC 1 "2026-10-17" "network-doctor" "User Commands"
+.TH NETDOC 1 "2026-10-20" "network-doctor" "User Commands"
 .SH NAME
 netdoc \- diagnose network connectivity and name the layer where the
  connection breaks
@@ -31,6 +31,7 @@ netdoc \- diagnose network connectivity and name the layer where the
 .B \-explain
 .I topology.json destination
 .RB [ \-fail " node[:interface] | " \-fail\-ospf " node:interface:neighbor | " \-fail\-next\-hop " node[@vrf]:address[%interface]" ]
+.RB [ \-sources " list | all" ]
 .RI [ \-json ]
 .br
 .B netdoc
@@ -419,6 +420,37 @@ exit
 .BR 2 .
 Refused without
 .BR \-explain .
+.TP
+.BI \-sources " list"
+With
+.BR \-explain
+and one of
+.BR \-fail ,
+.BR \-fail\-ospf ,
+or
+.BR \-fail\-next\-hop ,
+simulate that failure from each source in
+.IR list ,
+a comma-separated set of
+.I node[@vrf]
+names, or from every modeled node when
+.I list
+is
+.BR all .
+Each source gets the ratings its own single-source run gives. The affected
+nodes and routing domains are counted by the recorded owner of each destination,
+and a destination that no modeled node holds is counted as unowned. Under
+.BR all ,
+the failed router is left out of the sources, because nothing leaves a failed
+source. The list is refused when it names the failed router, and a list
+that names a node in several routing domains needs one as
+.IR node@vrf .
+A run simulates at most 64 sources, and each keeps the bounds of a single
+simulation. The walks listed for all sources share one listing bound. A run that
+stops early says so.
+Refused without
+.BR \-explain ,
+or without one of the failure flags.
 .TP
 .BI \-import\-frr\-ospf " manifest.json"
 Import the FRR OSPF captures that the manifest names, and report every capture
@@ -940,8 +972,10 @@ file, a
 .B \-fail
 the file does not describe, a
 .B \-fail\-next\-hop
-selector that is malformed or that no fib row of its node names, and flags
-that cannot be combined with it also exit
+selector that is malformed or that no fib row of its node names, a
+.B \-sources
+list that names a node the file does not model, names one ambiguously, or names
+the failed router, and flags that cannot be combined with them also exit
 .BR 2 .
 Under
 .BR \-import\-frr\-ospf ,

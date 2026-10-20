@@ -1,0 +1,32 @@
+Destination 10.20.40.8 from r1 (default)
+
+Expected (control plane, then configured):
+  r1 (default): forward 10.20.0.0/16 via  10.0.12.2; basis control; proven; evidence control:r1 (ospf)
+    ->  via 10.0.12.2: r2 (default): local: the destination is an address on this node; basis configured; unproven; evidence config:r2
+
+Forwarding (FIB):
+  r1 (default): forward 10.20.0.0/16 via eth1 10.0.12.2; basis fib; proven; evidence fib:r1 (kernel); agrees with control
+    -> eth1 via 10.0.12.2: r2 (default): local: the destination is an address on this node; basis configured; unproven; evidence config:r2
+
+Findings:
+  none
+
+Failure regions (a recorded failure lies in one candidate segment; no hop is named):
+  none
+
+Limitations:
+  none
+
+Failure simulation across 1 source: router r2 unavailable
+Recorded FIB only: every source is simulated over the recorded forwarding table, and no route is recomputed. Owners come only from recorded interface rows. Convergence is not predicted.
+Blast radius: 1 affected node, 1 affected routing domain, 1 affected rating (reachability_lost 1, redundancy_lost 0, unknown 0), 0 unowned, 2 unchanged.
+Affected nodes: r2.
+Affected routing domains: r2 (default).
+Excluded source r2 (default): router r2 is the source; nothing leaves a failed source.
+
+Failure simulation: router r2 unavailable, from r1 (default)
+Recorded FIB only: each node stops using a next hop that crosses the failure, and no route is recomputed. Convergence is not predicted.
+3 destinations considered, 2 unchanged.
+  reachability_lost 10.20.40.8 (r2 default): after the failure, a forwarding branch from the source has no surviving next hop
+    r1 (default): forward 10.20.0.0/16 via eth1 10.0.12.2; basis fib; proven; evidence fib:r1 (kernel)
+      -> eth1 via 10.0.12.2: failed: the segment crosses the simulated failure: router r2 unavailable

@@ -20,7 +20,7 @@ import (
 // explanation, including one that says the path is broken, and 2 when the
 // input cannot be read, the destination is not an address, or the failure to
 // simulate is not in the file.
-func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, failOSPF, failNextHop string, stdout, stderr io.Writer) int {
+func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, failOSPF, failNextHop, sources string, stdout, stderr io.Writer) int {
 	if rejectRunFlags("explain", setFlags, stderr) {
 		return 2
 	}
@@ -45,6 +45,7 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, fa
 	}
 	result := routepath.Explain(file, dest)
 	var sim *routepath.Simulation
+	var blast *routepath.Blast
 	simText := ""
 	flag, failure := "fail", routepath.Failure{}
 	if fail != "" {
@@ -75,16 +76,30 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, fa
 		flag, failure = "fail-next-hop", routepath.Failure{Node: node, VRF: vrf, NextHop: addr, Interface: iface}
 	}
 	if fail != "" || failOSPF != "" || failNextHop != "" {
-		s, err := routepath.Simulate(file, failure, dest)
-		if err != nil {
-			fmt.Fprintf(stderr, "netdoc: -%s: %s\n", flag, textsafe.Clean(err.Error()))
-			return 2
+		if sources != "" {
+			all, named, err := parseSources(file, sources)
+			if err != nil {
+				fmt.Fprintf(stderr, "netdoc: -sources: %s\n", textsafe.Clean(err.Error()))
+				return 2
+			}
+			b, err := routepath.SimulateBlast(file, failure, all, named, dest)
+			if err != nil {
+				fmt.Fprintf(stderr, "netdoc: -%s: %s\n", flag, textsafe.Clean(err.Error()))
+				return 2
+			}
+			blast, simText = &b, b.Text()
+		} else {
+			s, err := routepath.Simulate(file, failure, dest)
+			if err != nil {
+				fmt.Fprintf(stderr, "netdoc: -%s: %s\n", flag, textsafe.Clean(err.Error()))
+				return 2
+			}
+			sim, simText = &s, s.Text()
 		}
-		sim, simText = &s, s.Text()
 	}
 	report := ospf.Analyze(file.Model)
 	if jsonOut {
-		out := explainOutput{Explanation: result, Failure: sim}
+		out := explainOutput{Explanation: result, Failure: sim, Blast: blast}
 		if len(report.Findings) > 0 {
 			out.OSPF = &report
 		}
@@ -113,13 +128,45 @@ func splitNextHop(s string) (node, vrf, addr, iface string, ok bool) {
 	return node, vrf, addr, iface, colon && node != "" && (!at || vrf != "") && addr != "" && (!pct || iface != "")
 }
 
+// parseSources reads a -sources selector: all, or a comma-separated list of
+// node[@vrf] names, each resolved against the file. all stands alone, and an
+// empty name is refused, so a node that is itself called all is named as all@VRF.
+// Errors here are selector errors only; the failure is simulated afterward, and
+// its errors name the failure flag. The empty-file check repeats the one in
+// SimulateBlast, so an unresolved all still reports under -sources.
+func parseSources(file routepath.File, selector string) (all bool, named []routepath.Start, err error) {
+	if selector == "all" {
+		if len(routepath.ModeledSources(file)) == 0 {
+			return false, nil, errors.New("the file models no routing domain to simulate from")
+		}
+		return true, nil, nil
+	}
+	for _, item := range strings.Split(selector, ",") {
+		node, vrf, at := strings.Cut(item, "@")
+		switch {
+		case item == "all":
+			return false, nil, errors.New("all stands alone; it cannot be listed with other sources")
+		case node == "" || at && vrf == "":
+			return false, nil, fmt.Errorf("%q is not node[@vrf] or all", item)
+		}
+		start, err := routepath.ResolveSource(file, node, vrf)
+		if err != nil {
+			return false, nil, err
+		}
+		named = append(named, start)
+	}
+	return false, named, nil
+}
+
 // explainOutput is the --explain JSON object. Its failure field is present only
-// with -fail, -fail-ospf, or -fail-next-hop, and its ospf field only when the
+// with -fail, -fail-ospf, or -fail-next-hop, and its blast field only with
+// -sources, in place of failure. Its ospf field is present only when the
 // topology holds OSPF evidence that yields a finding, so any other run encodes
 // the same bytes as routepath.Explanation.JSON.
 type explainOutput struct {
 	routepath.Explanation
 	Failure *routepath.Simulation `json:"failure,omitempty"`
+	Blast   *routepath.Blast      `json:"blast,omitempty"`
 	OSPF    *ospf.Report          `json:"ospf,omitempty"`
 }
 

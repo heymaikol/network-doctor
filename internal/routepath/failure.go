@@ -154,10 +154,11 @@ type Simulation struct {
 
 // Simulate removes one router or interface from the recorded FIB and compares
 // forwarding from the source before and after, for every address an interface
-// in the file holds and for each extra destination. Each node stops using a next
-// hop whose segment crosses the failure, and nothing else changes: no route is
-// recomputed and no convergence is predicted. It reads only f and changes
-// nothing in it.
+// in the file holds and for each extra destination. An extra destination that
+// carries a zone is refused, since no walk here knows the link a zone names.
+// Each node stops using a next hop whose segment crosses the failure, and
+// nothing else changes: no route is recomputed and no convergence is predicted.
+// It reads only f and changes nothing in it.
 //
 // Only a node whose own interface is down is taken to stop selecting a next hop
 // through it. A leg cut anywhere else, toward a failed router or onto a down
@@ -211,7 +212,10 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	}
 	var dests []netip.Addr
 	for _, d := range extra {
-		if d = d.WithZone("").Unmap(); !slices.Contains(dests, d) {
+		if d.Zone() != "" {
+			return Simulation{}, fmt.Errorf("destination %s carries a zone, and no walk here names the link it is on", d)
+		}
+		if d = d.Unmap(); !slices.Contains(dests, d) {
 			dests = append(dests, d)
 		}
 	}

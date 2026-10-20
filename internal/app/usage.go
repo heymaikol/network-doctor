@@ -22,6 +22,9 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --explain topology.json DEST [--fail NODE[:INTERFACE]] [--json]
        netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR [--json]
        netdoc --explain topology.json DEST --fail-next-hop NODE[@VRF]:ADDRESS[%INTERFACE] [--json]
+       netdoc --explain topology.json DEST --fail NODE[:INTERFACE] --sources LIST|all [--json]
+       netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR --sources LIST|all [--json]
+       netdoc --explain topology.json DEST --fail-next-hop NODE[@VRF]:ADDRESS[%INTERFACE] --sources LIST|all [--json]
        netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
        netdoc --import-frr-bgp manifest.json [--json]
        netdoc --import-frr-bgp manifest.json --withdraw-bgp NODE:PEER:PREFIX [--json]
@@ -90,6 +93,17 @@ beside a surviving one is not in the file, so such a destination is unknown,
 never redundancy_lost. It removes the recorded FIB next hop directly, simulates
 no OSPF adjacency or BGP session loss, and assumes no protocol computes its
 routes again.
+
+--sources LIST, with one failure flag, simulates that failure from each source
+in LIST, a comma-separated set of NODE[@VRF] names, or from every modeled node
+with all. Each source gets the same ratings its own single-source run gives. The
+affected nodes and routing domains are then counted by the recorded owner of
+each destination, and a destination no modeled node holds is counted as
+unowned. Under all, the failed router is excluded from the sources, since
+nothing leaves a failed source; a named failed router exits 2. A run simulates
+at most 64 sources, and each keeps the bounds of a single simulation. The walks
+listed for all sources share one listing bound. A run that stops early says so.
+It runs no probe.
 
 --import-frr-ospf reads the FRR OSPF captures that a manifest names, checks each
 one, and reports every capture and every neighbor record. With LSDB captures, it

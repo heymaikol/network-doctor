@@ -1,0 +1,741 @@
+{
+  "source": {
+    "node": "r1",
+    "vrf": "default"
+  },
+  "destination": "10.20.40.8",
+  "expected": {
+    "node": "r1",
+    "vrf": "default",
+    "decision": {
+      "kind": "unknown",
+      "basis": "control",
+      "proven": false,
+      "reason": "no complete table and no matching route for this node"
+    }
+  },
+  "forwarding": {
+    "node": "r1",
+    "vrf": "default",
+    "decision": {
+      "kind": "forward",
+      "basis": "fib",
+      "prefix": "10.20.0.0/16",
+      "proven": true,
+      "next_hops": [
+        {
+          "addr": "10.0.1.2",
+          "interface": "eth0"
+        },
+        {
+          "addr": "10.0.1.4",
+          "interface": "eth0"
+        }
+      ],
+      "evidence": [
+        {
+          "source": "fib:r1",
+          "collected_at": "2026-10-09T12:00:00Z",
+          "origin": "kernel"
+        }
+      ],
+      "agreement": "unknown"
+    },
+    "next": [
+      {
+        "node": "r2",
+        "vrf": "default",
+        "via": {
+          "from": "r1",
+          "vrf": "default",
+          "interface": "eth0",
+          "next_hop": "10.0.1.2",
+          "outcome": "none"
+        },
+        "decision": {
+          "kind": "forward",
+          "basis": "fib",
+          "prefix": "10.20.0.0/16",
+          "proven": true,
+          "next_hops": [
+            {
+              "addr": "10.0.23.3",
+              "interface": "eth1"
+            }
+          ],
+          "evidence": [
+            {
+              "source": "fib:r2",
+              "collected_at": "2026-10-09T12:00:00Z",
+              "origin": "kernel"
+            }
+          ],
+          "agreement": "unknown"
+        },
+        "next": [
+          {
+            "node": "r3",
+            "vrf": "default",
+            "via": {
+              "from": "r2",
+              "vrf": "default",
+              "interface": "eth1",
+              "next_hop": "10.0.23.3",
+              "outcome": "none"
+            },
+            "decision": {
+              "kind": "local",
+              "basis": "configured",
+              "proven": false,
+              "evidence": [
+                {
+                  "source": "config:r3",
+                  "collected_at": "2026-10-09T12:00:00Z"
+                }
+              ],
+              "reason": "destination is an address on this node"
+            }
+          }
+        ]
+      },
+      {
+        "node": "r4",
+        "vrf": "default",
+        "via": {
+          "from": "r1",
+          "vrf": "default",
+          "interface": "eth0",
+          "next_hop": "10.0.1.4",
+          "outcome": "none"
+        },
+        "decision": {
+          "kind": "forward",
+          "basis": "fib",
+          "prefix": "10.20.0.0/16",
+          "proven": true,
+          "next_hops": [
+            {
+              "addr": "10.0.43.3",
+              "interface": "eth1"
+            }
+          ],
+          "evidence": [
+            {
+              "source": "fib:r4",
+              "collected_at": "2026-10-09T12:00:00Z",
+              "origin": "kernel"
+            }
+          ],
+          "agreement": "unknown"
+        },
+        "next": [
+          {
+            "node": "r3",
+            "vrf": "default",
+            "via": {
+              "from": "r4",
+              "vrf": "default",
+              "interface": "eth1",
+              "next_hop": "10.0.43.3",
+              "outcome": "none"
+            },
+            "decision": {
+              "kind": "local",
+              "basis": "configured",
+              "proven": false,
+              "evidence": [
+                {
+                  "source": "config:r3",
+                  "collected_at": "2026-10-09T12:00:00Z"
+                }
+              ],
+              "reason": "destination is an address on this node"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "findings": null,
+  "failure_regions": [],
+  "limitations": [
+    "r1 (default): expected route unknown; no complete table and no matching route for this node (expected walk)"
+  ],
+  "truncated": false,
+  "blast": {
+    "failure": {
+      "node": "r1",
+      "vrf": "default",
+      "next_hop": "10.0.1.2"
+    },
+    "scope": "Recorded FIB only: every source is simulated over the recorded forwarding table, and no route is recomputed. Owners come only from recorded interface rows. Convergence is not predicted.",
+    "summary": {
+      "unchanged": 30,
+      "ratings": {
+        "reachability_lost": 1,
+        "redundancy_lost": 0,
+        "unknown": 9
+      },
+      "unowned": {
+        "reachability_lost": 0,
+        "redundancy_lost": 0,
+        "unknown": 0
+      },
+      "nodes": [
+        {
+          "node": "r1",
+          "counts": {
+            "reachability_lost": 0,
+            "redundancy_lost": 0,
+            "unknown": 1
+          }
+        },
+        {
+          "node": "r2",
+          "counts": {
+            "reachability_lost": 1,
+            "redundancy_lost": 0,
+            "unknown": 4
+          }
+        },
+        {
+          "node": "r3",
+          "counts": {
+            "reachability_lost": 0,
+            "redundancy_lost": 0,
+            "unknown": 1
+          }
+        },
+        {
+          "node": "r4",
+          "counts": {
+            "reachability_lost": 0,
+            "redundancy_lost": 0,
+            "unknown": 3
+          }
+        }
+      ],
+      "domains": [
+        {
+          "node": "r1",
+          "vrf": "default",
+          "counts": {
+            "reachability_lost": 0,
+            "redundancy_lost": 0,
+            "unknown": 1
+          }
+        },
+        {
+          "node": "r2",
+          "vrf": "default",
+          "counts": {
+            "reachability_lost": 1,
+            "redundancy_lost": 0,
+            "unknown": 4
+          }
+        },
+        {
+          "node": "r3",
+          "vrf": "default",
+          "counts": {
+            "reachability_lost": 0,
+            "redundancy_lost": 0,
+            "unknown": 1
+          }
+        },
+        {
+          "node": "r4",
+          "vrf": "default",
+          "counts": {
+            "reachability_lost": 0,
+            "redundancy_lost": 0,
+            "unknown": 3
+          }
+        }
+      ]
+    },
+    "truncated": false,
+    "skipped": 0,
+    "excluded": [],
+    "sources": [
+      {
+        "failure": {
+          "node": "r1",
+          "vrf": "default",
+          "next_hop": "10.0.1.2"
+        },
+        "gateway": {
+          "owners": [
+            {
+              "node": "r2",
+              "vrf": "default"
+            }
+          ],
+          "evidence": [
+            {
+              "source": "fib:r1",
+              "collected_at": "2026-10-09T12:00:00Z"
+            }
+          ]
+        },
+        "source": {
+          "node": "r1",
+          "vrf": "default"
+        },
+        "considered": 10,
+        "unchanged": 7,
+        "affected": [
+          {
+            "destination": "10.0.1.2",
+            "owners": [
+              {
+                "node": "r2",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "after the failure, the surviving forwarding does not prove delivery",
+            "after": {
+              "node": "r1",
+              "vrf": "default",
+              "decision": {
+                "kind": "forward",
+                "basis": "fib",
+                "prefix": "10.0.1.0/24",
+                "proven": true,
+                "next_hops": [
+                  {
+                    "interface": "eth0"
+                  }
+                ],
+                "evidence": [
+                  {
+                    "source": "fib:r1",
+                    "collected_at": "2026-10-09T12:00:00Z",
+                    "origin": "kernel"
+                  }
+                ]
+              },
+              "next": [
+                {
+                  "node": "",
+                  "vrf": "",
+                  "via": {
+                    "from": "r1",
+                    "vrf": "default",
+                    "interface": "eth0",
+                    "outcome": "none"
+                  },
+                  "decision": {
+                    "kind": "unknown",
+                    "proven": false,
+                    "reason": "10.0.1.2 is the lost next hop's own address, on link from r1 (default); whether it still answers once it stops forwarding is not in the evidence"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "destination": "10.20.40.8",
+            "owners": [
+              {
+                "node": "r3",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "every surviving recorded branch delivers, but the recorded route still lists the lost next hop; whether the node stops selecting it while its link stays up is not in the evidence, so traffic hashed onto it may be dropped",
+            "after": {
+              "node": "r1",
+              "vrf": "default",
+              "decision": {
+                "kind": "forward",
+                "basis": "fib",
+                "prefix": "10.20.0.0/16",
+                "proven": true,
+                "next_hops": [
+                  {
+                    "addr": "10.0.1.2",
+                    "interface": "eth0"
+                  },
+                  {
+                    "addr": "10.0.1.4",
+                    "interface": "eth0"
+                  }
+                ],
+                "evidence": [
+                  {
+                    "source": "fib:r1",
+                    "collected_at": "2026-10-09T12:00:00Z",
+                    "origin": "kernel"
+                  }
+                ]
+              },
+              "next": [
+                {
+                  "node": "",
+                  "vrf": "",
+                  "via": {
+                    "from": "r1",
+                    "vrf": "default",
+                    "interface": "eth0",
+                    "next_hop": "10.0.1.2",
+                    "outcome": "none"
+                  },
+                  "decision": {
+                    "kind": "failed",
+                    "proven": false,
+                    "reason": "the segment crosses the simulated failure: next hop 10.0.1.2 of r1 (default) unavailable"
+                  }
+                },
+                {
+                  "node": "r4",
+                  "vrf": "default",
+                  "via": {
+                    "from": "r1",
+                    "vrf": "default",
+                    "interface": "eth0",
+                    "next_hop": "10.0.1.4",
+                    "outcome": "none"
+                  },
+                  "decision": {
+                    "kind": "forward",
+                    "basis": "fib",
+                    "prefix": "10.20.0.0/16",
+                    "proven": true,
+                    "next_hops": [
+                      {
+                        "addr": "10.0.43.3",
+                        "interface": "eth1"
+                      }
+                    ],
+                    "evidence": [
+                      {
+                        "source": "fib:r4",
+                        "collected_at": "2026-10-09T12:00:00Z",
+                        "origin": "kernel"
+                      }
+                    ]
+                  },
+                  "next": [
+                    {
+                      "node": "r3",
+                      "vrf": "default",
+                      "via": {
+                        "from": "r4",
+                        "vrf": "default",
+                        "interface": "eth1",
+                        "next_hop": "10.0.43.3",
+                        "outcome": "none"
+                      },
+                      "decision": {
+                        "kind": "local",
+                        "basis": "configured",
+                        "proven": false,
+                        "evidence": [
+                          {
+                            "source": "config:r3",
+                            "collected_at": "2026-10-09T12:00:00Z"
+                          }
+                        ],
+                        "reason": "destination is an address on this node"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "destination": "10.30.0.1",
+            "owners": [
+              {
+                "node": "r2",
+                "vrf": "default"
+              }
+            ],
+            "impact": "reachability_lost",
+            "reason": "after the failure, a forwarding branch from the source has no surviving next hop",
+            "after": {
+              "node": "r1",
+              "vrf": "default",
+              "decision": {
+                "kind": "forward",
+                "basis": "fib",
+                "prefix": "10.30.0.0/24",
+                "proven": true,
+                "next_hops": [
+                  {
+                    "addr": "10.0.1.2",
+                    "interface": "eth0"
+                  }
+                ],
+                "evidence": [
+                  {
+                    "source": "fib:r1",
+                    "collected_at": "2026-10-09T12:00:00Z",
+                    "origin": "kernel"
+                  }
+                ]
+              },
+              "next": [
+                {
+                  "node": "",
+                  "vrf": "",
+                  "via": {
+                    "from": "r1",
+                    "vrf": "default",
+                    "interface": "eth0",
+                    "next_hop": "10.0.1.2",
+                    "outcome": "none"
+                  },
+                  "decision": {
+                    "kind": "failed",
+                    "proven": false,
+                    "reason": "the segment crosses the simulated failure: next hop 10.0.1.2 of r1 (default) unavailable"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "truncated": false
+      },
+      {
+        "failure": {
+          "node": "r1",
+          "vrf": "default",
+          "next_hop": "10.0.1.2"
+        },
+        "gateway": {
+          "owners": [
+            {
+              "node": "r2",
+              "vrf": "default"
+            }
+          ],
+          "evidence": [
+            {
+              "source": "fib:r1",
+              "collected_at": "2026-10-09T12:00:00Z"
+            }
+          ]
+        },
+        "source": {
+          "node": "r2",
+          "vrf": "default"
+        },
+        "considered": 10,
+        "unchanged": 10,
+        "affected": [],
+        "truncated": false
+      },
+      {
+        "failure": {
+          "node": "r1",
+          "vrf": "default",
+          "next_hop": "10.0.1.2"
+        },
+        "gateway": {
+          "owners": [
+            {
+              "node": "r2",
+              "vrf": "default"
+            }
+          ],
+          "evidence": [
+            {
+              "source": "fib:r1",
+              "collected_at": "2026-10-09T12:00:00Z"
+            }
+          ]
+        },
+        "source": {
+          "node": "r3",
+          "vrf": "default"
+        },
+        "considered": 10,
+        "unchanged": 3,
+        "affected": [
+          {
+            "destination": "10.0.1.1",
+            "owners": [
+              {
+                "node": "r1",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "the recorded forwarding does not prove delivery before the failure, so the path may cross it",
+            "after": {
+              "node": "r3",
+              "vrf": "default",
+              "decision": {
+                "kind": "unknown",
+                "basis": "fib",
+                "proven": false,
+                "reason": "no complete table and no matching route for this node"
+              }
+            }
+          },
+          {
+            "destination": "10.0.1.2",
+            "owners": [
+              {
+                "node": "r2",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "the recorded forwarding does not prove delivery before the failure, so the path may cross it",
+            "after": {
+              "node": "r3",
+              "vrf": "default",
+              "decision": {
+                "kind": "unknown",
+                "basis": "fib",
+                "proven": false,
+                "reason": "no complete table and no matching route for this node"
+              }
+            }
+          },
+          {
+            "destination": "10.0.1.4",
+            "owners": [
+              {
+                "node": "r4",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "the recorded forwarding does not prove delivery before the failure, so the path may cross it",
+            "after": {
+              "node": "r3",
+              "vrf": "default",
+              "decision": {
+                "kind": "unknown",
+                "basis": "fib",
+                "proven": false,
+                "reason": "no complete table and no matching route for this node"
+              }
+            }
+          },
+          {
+            "destination": "10.0.23.2",
+            "owners": [
+              {
+                "node": "r2",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "the recorded forwarding does not prove delivery before the failure, so the path may cross it",
+            "after": {
+              "node": "r3",
+              "vrf": "default",
+              "decision": {
+                "kind": "unknown",
+                "basis": "fib",
+                "proven": false,
+                "reason": "no complete table and no matching route for this node"
+              }
+            }
+          },
+          {
+            "destination": "10.0.43.4",
+            "owners": [
+              {
+                "node": "r4",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "the recorded forwarding does not prove delivery before the failure, so the path may cross it",
+            "after": {
+              "node": "r3",
+              "vrf": "default",
+              "decision": {
+                "kind": "unknown",
+                "basis": "fib",
+                "proven": false,
+                "reason": "no complete table and no matching route for this node"
+              }
+            }
+          },
+          {
+            "destination": "10.30.0.1",
+            "owners": [
+              {
+                "node": "r2",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "the recorded forwarding does not prove delivery before the failure, so the path may cross it",
+            "after": {
+              "node": "r3",
+              "vrf": "default",
+              "decision": {
+                "kind": "unknown",
+                "basis": "fib",
+                "proven": false,
+                "reason": "no complete table and no matching route for this node"
+              }
+            }
+          },
+          {
+            "destination": "10.40.0.1",
+            "owners": [
+              {
+                "node": "r4",
+                "vrf": "default"
+              }
+            ],
+            "impact": "unknown",
+            "reason": "the recorded forwarding does not prove delivery before the failure, so the path may cross it",
+            "after": {
+              "node": "r3",
+              "vrf": "default",
+              "decision": {
+                "kind": "unknown",
+                "basis": "fib",
+                "proven": false,
+                "reason": "no complete table and no matching route for this node"
+              }
+            }
+          }
+        ],
+        "truncated": false
+      },
+      {
+        "failure": {
+          "node": "r1",
+          "vrf": "default",
+          "next_hop": "10.0.1.2"
+        },
+        "gateway": {
+          "owners": [
+            {
+              "node": "r2",
+              "vrf": "default"
+            }
+          ],
+          "evidence": [
+            {
+              "source": "fib:r1",
+              "collected_at": "2026-10-09T12:00:00Z"
+            }
+          ]
+        },
+        "source": {
+          "node": "r4",
+          "vrf": "default"
+        },
+        "considered": 10,
+        "unchanged": 10,
+        "affected": [],
+        "truncated": false
+      }
+    ]
+  }
+}

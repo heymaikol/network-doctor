@@ -84,6 +84,7 @@ _arguments \
   '(--fail -fail)'{--fail,-fail}='[with --explain, simulate a router or node\:interface failing; runs no probes]:node or node\:interface:' \
   '(--fail-ospf -fail-ospf)'{--fail-ospf,-fail-ospf}='[with --explain, simulate losing the OSPF adjacency node\:interface\:neighbor; runs no probes]:node\:interface\:neighbor:' \
   '(--fail-next-hop -fail-next-hop)'{--fail-next-hop,-fail-next-hop}='[with --explain, simulate one node losing one recorded next hop; runs no probes]:node[@vrf]\:address[%%interface]:' \
+  '(--sources -sources)'{--sources,-sources}='[with --explain and a failure flag, simulate that failure from each listed node or from all modeled nodes; runs no probes]:node[@vrf] list or all:' \
   '(--import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-ospf,-import-frr-ospf}'=[import the FRR OSPF captures a manifest names; runs no probes]:manifest:_files' \
   '(--import-frr-bgp -import-frr-bgp --import-frr-ospf -import-frr-ospf --write-topology -write-topology --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-bgp,-import-frr-bgp}'=[import the FRR BGP summary and route captures a manifest names; runs no probes]:manifest:_files' \
   '(--withdraw-bgp -withdraw-bgp --fail-bgp-session -fail-bgp-session)'{--withdraw-bgp,-withdraw-bgp}='[with --import-frr-bgp, simulate a peer withdrawing a prefix from the recorded BGP table of one node]:node\:peer\:prefix:' \

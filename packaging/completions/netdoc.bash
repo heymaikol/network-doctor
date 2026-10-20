@@ -40,7 +40,7 @@ _netdoc() {
             compopt -o nospace 2>/dev/null
             return
             ;;
-        -timeout | --timeout | -peer-listen | --peer-listen | -fail | --fail | -fail-ospf | --fail-ospf | -fail-next-hop | --fail-next-hop | -withdraw-bgp | --withdraw-bgp | -fail-bgp-session | --fail-bgp-session)
+        -timeout | --timeout | -peer-listen | --peer-listen | -fail | --fail | -fail-ospf | --fail-ospf | -fail-next-hop | --fail-next-hop | -withdraw-bgp | --withdraw-bgp | -fail-bgp-session | --fail-bgp-session | -sources | --sources)
             # These values have nothing useful to enumerate.
             return
             ;;
@@ -119,6 +119,7 @@ _netdoc() {
         -fail --fail
         -fail-ospf --fail-ospf
         -fail-next-hop --fail-next-hop
+        -sources --sources
         -import-frr-ospf --import-frr-ospf
         -import-frr-bgp --import-frr-bgp
         -withdraw-bgp --withdraw-bgp

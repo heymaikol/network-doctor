@@ -538,7 +538,7 @@ func TestFishKeepsNonPathValuesOffFileCompletion(t *testing.T) {
 	// filenames. Kept as one list so a new non-path option has to opt out.
 	noFiles := []string{
 		"profile", "check", "skip", "via",
-		"peer-listen", "iface", "public-dns", "keys", "timeout",
+		"peer-listen", "iface", "public-dns", "keys", "timeout", "sources",
 	}
 	for _, flag := range noFiles {
 		declaration := regexp.MustCompile(`(?m)^complete -c netdoc -o ` + flag + `[^\n]* -f`).FindString(fish)
@@ -604,7 +604,7 @@ func TestCompletionsHandleAttachedFlagValues(t *testing.T) {
 	// Every flag that takes a value, so a new one cannot be added without '='.
 	for _, name := range []string{
 		"save", "support", "profile", "peer-listen", "via", "iface",
-		"public-dns", "check", "skip", "keys", "timeout",
+		"public-dns", "check", "skip", "keys", "timeout", "sources",
 	} {
 		if !regexp.MustCompile(`\{--` + name + `,-` + name + `\}=`).Match(zsh) {
 			t.Errorf("packaging/completions/netdoc.zsh: --%s must be declared with '=' so --%s=value completes", name, name)

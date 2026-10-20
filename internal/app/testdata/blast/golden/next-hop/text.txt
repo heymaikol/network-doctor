@@ -1,0 +1,75 @@
+Destination 10.20.40.8 from r1 (default)
+
+Expected (control plane, then configured):
+  r1 (default): unknown: no complete table and no matching route for this node
+
+Forwarding (FIB):
+  r1 (default): forward 10.20.0.0/16 via eth0 10.0.1.2 or eth0 10.0.1.4; basis fib; proven; evidence fib:r1 (kernel); no comparable control decision
+    -> eth0 via 10.0.1.2: r2 (default): forward 10.20.0.0/16 via eth1 10.0.23.3; basis fib; proven; evidence fib:r2 (kernel); no comparable control decision
+      -> eth1 via 10.0.23.3: r3 (default): local: the destination is an address on this node; basis configured; unproven; evidence config:r3
+    -> eth0 via 10.0.1.4: r4 (default): forward 10.20.0.0/16 via eth1 10.0.43.3; basis fib; proven; evidence fib:r4 (kernel); no comparable control decision
+      -> eth1 via 10.0.43.3: r3 (default): local: the destination is an address on this node; basis configured; unproven; evidence config:r3
+
+Findings:
+  none
+
+Failure regions (a recorded failure lies in one candidate segment; no hop is named):
+  none
+
+Limitations:
+  - r1 (default): expected route unknown; no complete table and no matching route for this node (expected walk)
+
+Failure simulation across 4 sources: next hop 10.0.1.2 of r1 (default) unavailable
+Recorded FIB only: every source is simulated over the recorded forwarding table, and no route is recomputed. Owners come only from recorded interface rows. Convergence is not predicted.
+Blast radius: 4 affected nodes, 4 affected routing domains, 10 affected ratings (reachability_lost 1, redundancy_lost 0, unknown 9), 0 unowned, 30 unchanged.
+Affected nodes: r1, r2, r3, r4.
+Affected routing domains: r1 (default), r2 (default), r3 (default), r4 (default).
+
+Failure simulation: next hop 10.0.1.2 of r1 (default) unavailable, from r1 (default)
+Recorded FIB only: r1 (default) loses next hop 10.0.1.2, and nothing else changes: the interface stays up, so other next hops and on-link destinations on it keep forwarding, and every other node keeps its forwarding through the address. The loss is simulated, not observed. No route is recomputed. Convergence is not predicted.
+Whether r1 (default) stops selecting a next hop that stops forwarding while its link stays up is not in the evidence, so a destination that keeps another recorded next hop is unknown, never redundancy_lost.
+Next hop: held by r2 (default); recorded in fib:r1.
+10 destinations considered, 7 unchanged.
+  unknown 10.0.1.2 (r2 default): after the failure, the surviving forwarding does not prove delivery
+    r1 (default): forward 10.0.1.0/24 via eth0; basis fib; proven; evidence fib:r1 (kernel)
+      -> eth0 on-link: unknown: 10.0.1.2 is the lost next hop's own address, on link from r1 (default); whether it still answers once it stops forwarding is not in the evidence
+  unknown 10.20.40.8 (r3 default): every surviving recorded branch delivers, but the recorded route still lists the lost next hop; whether the node stops selecting it while its link stays up is not in the evidence, so traffic hashed onto it may be dropped
+    r1 (default): forward 10.20.0.0/16 via eth0 10.0.1.2 or eth0 10.0.1.4; basis fib; proven; evidence fib:r1 (kernel)
+      -> eth0 via 10.0.1.2: failed: the segment crosses the simulated failure: next hop 10.0.1.2 of r1 (default) unavailable
+      -> eth0 via 10.0.1.4: r4 (default): forward 10.20.0.0/16 via eth1 10.0.43.3; basis fib; proven; evidence fib:r4 (kernel)
+        -> eth1 via 10.0.43.3: r3 (default): local: the destination is an address on this node; basis configured; unproven; evidence config:r3
+  reachability_lost 10.30.0.1 (r2 default): after the failure, a forwarding branch from the source has no surviving next hop
+    r1 (default): forward 10.30.0.0/24 via eth0 10.0.1.2; basis fib; proven; evidence fib:r1 (kernel)
+      -> eth0 via 10.0.1.2: failed: the segment crosses the simulated failure: next hop 10.0.1.2 of r1 (default) unavailable
+
+Failure simulation: next hop 10.0.1.2 of r1 (default) unavailable, from r2 (default)
+Recorded FIB only: r1 (default) loses next hop 10.0.1.2, and nothing else changes: the interface stays up, so other next hops and on-link destinations on it keep forwarding, and every other node keeps its forwarding through the address. The loss is simulated, not observed. No route is recomputed. Convergence is not predicted.
+Whether r1 (default) stops selecting a next hop that stops forwarding while its link stays up is not in the evidence, so a destination that keeps another recorded next hop is unknown, never redundancy_lost.
+Next hop: held by r2 (default); recorded in fib:r1.
+10 destinations considered, 10 unchanged.
+
+Failure simulation: next hop 10.0.1.2 of r1 (default) unavailable, from r3 (default)
+Recorded FIB only: r1 (default) loses next hop 10.0.1.2, and nothing else changes: the interface stays up, so other next hops and on-link destinations on it keep forwarding, and every other node keeps its forwarding through the address. The loss is simulated, not observed. No route is recomputed. Convergence is not predicted.
+Whether r1 (default) stops selecting a next hop that stops forwarding while its link stays up is not in the evidence, so a destination that keeps another recorded next hop is unknown, never redundancy_lost.
+Next hop: held by r2 (default); recorded in fib:r1.
+10 destinations considered, 3 unchanged.
+  unknown 10.0.1.1 (r1 default): the recorded forwarding does not prove delivery before the failure, so the path may cross it
+    r3 (default): unknown: no complete table and no matching route for this node
+  unknown 10.0.1.2 (r2 default): the recorded forwarding does not prove delivery before the failure, so the path may cross it
+    r3 (default): unknown: no complete table and no matching route for this node
+  unknown 10.0.1.4 (r4 default): the recorded forwarding does not prove delivery before the failure, so the path may cross it
+    r3 (default): unknown: no complete table and no matching route for this node
+  unknown 10.0.23.2 (r2 default): the recorded forwarding does not prove delivery before the failure, so the path may cross it
+    r3 (default): unknown: no complete table and no matching route for this node
+  unknown 10.0.43.4 (r4 default): the recorded forwarding does not prove delivery before the failure, so the path may cross it
+    r3 (default): unknown: no complete table and no matching route for this node
+  unknown 10.30.0.1 (r2 default): the recorded forwarding does not prove delivery before the failure, so the path may cross it
+    r3 (default): unknown: no complete table and no matching route for this node
+  unknown 10.40.0.1 (r4 default): the recorded forwarding does not prove delivery before the failure, so the path may cross it
+    r3 (default): unknown: no complete table and no matching route for this node
+
+Failure simulation: next hop 10.0.1.2 of r1 (default) unavailable, from r4 (default)
+Recorded FIB only: r1 (default) loses next hop 10.0.1.2, and nothing else changes: the interface stays up, so other next hops and on-link destinations on it keep forwarding, and every other node keeps its forwarding through the address. The loss is simulated, not observed. No route is recomputed. Convergence is not predicted.
+Whether r1 (default) stops selecting a next hop that stops forwarding while its link stays up is not in the evidence, so a destination that keeps another recorded next hop is unknown, never redundancy_lost.
+Next hop: held by r2 (default); recorded in fib:r1.
+10 destinations considered, 10 unchanged.

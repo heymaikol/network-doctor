@@ -36,8 +36,8 @@ as a failure.
 ### Route path explanation
 
 `--explain` takes a topology file and an IP address and reports two paths. The
-expected path comes from the control plane, and the forwarding path comes from
-the FIB. Where the two disagree, the explanation says so.
+expected path reads the control plane, then configured observations, and the
+forwarding path reads the FIB. Where the two disagree, the explanation says so.
 
 ```sh
 netdoc --explain topology.json 10.20.40.8

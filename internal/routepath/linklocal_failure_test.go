@@ -79,8 +79,8 @@ func TestLinkLocalAddressOnTwoNodesIsNeverLost(t *testing.T) {
 	for _, fail := range []Failure{{Node: "r2"}, {Node: "r2", Interface: "eth0"}, {Node: "r3", Interface: "eth0"}} {
 		got := impacts(simulate(t, obs, fail))
 		for _, d := range []string{"2001:db8:20::1", "2001:db8:30::1"} {
-			if i, ok := got[d]; ok && i != ImpactUnknown {
-				t.Errorf("%s: %s = %s, want unknown: the next hop is owned by two nodes", fail, d, i)
+			if i, ok := got[d]; !ok || i != ImpactUnknown {
+				t.Errorf("%s: %s = %q, want unknown: the next hop is owned by two nodes", fail, d, i)
 			}
 		}
 	}

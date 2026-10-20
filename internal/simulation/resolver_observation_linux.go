@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // Only the final test on each node is compared with final evidence. The name

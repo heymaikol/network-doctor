@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/heymaikol/network-doctor/internal/report"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // agree holds one response to the fact that its two artifacts describe one run.

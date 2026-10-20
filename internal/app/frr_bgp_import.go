@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/frrbgp"
-	"github.com/heymaikol/network-doctor/internal/frrospf"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/frrbgp"
+	"github.com/heymaikol/network-doctor/v2/internal/frrospf"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // frrBGPReportVersion is the version of the --import-frr-bgp JSON report. It is

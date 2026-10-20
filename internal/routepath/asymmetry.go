@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // AsymmetryAssessment says what the forward and return routes of one flow show.

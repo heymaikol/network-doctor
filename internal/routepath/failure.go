@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // maxDestinations bounds how many destinations one simulation considers, and
@@ -154,10 +154,11 @@ type Simulation struct {
 
 // Simulate removes one router or interface from the recorded FIB and compares
 // forwarding from the source before and after, for every address an interface
-// in the file holds and for each extra destination. Each node stops using a next
-// hop whose segment crosses the failure, and nothing else changes: no route is
-// recomputed and no convergence is predicted. It reads only f and changes
-// nothing in it.
+// in the file holds and for each extra destination. An extra destination that
+// carries a zone is refused, since no walk here knows the link a zone names.
+// Each node stops using a next hop whose segment crosses the failure, and
+// nothing else changes: no route is recomputed and no convergence is predicted.
+// It reads only f and changes nothing in it.
 //
 // Only a node whose own interface is down is taken to stop selecting a next hop
 // through it. A leg cut anywhere else, toward a failed router or onto a down
@@ -211,7 +212,10 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	}
 	var dests []netip.Addr
 	for _, d := range extra {
-		if d = d.WithZone("").Unmap(); !slices.Contains(dests, d) {
+		if d.Zone() != "" {
+			return Simulation{}, fmt.Errorf("destination %s carries a zone, and no walk here names the link it is on", d)
+		}
+		if d = d.Unmap(); !slices.Contains(dests, d) {
 			dests = append(dests, d)
 		}
 	}
@@ -680,7 +684,11 @@ func (w *walker) severAdjacency(at state, n netmodel.NextHop, seg *Segment, ev [
 	slices.Sort(origins)
 	unknown := func(why string) (Hop, bool) {
 		w.touched = true
-		return Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why}}, true
+		h := Hop{Via: seg, Decision: Decision{Kind: KindUnknown, Reason: why}}
+		if w.lost == nil {
+			w.lost = &h
+		}
+		return h, true
 	}
 	if slices.Contains(origins, netmodel.OriginBGP) {
 		return unknown(fmt.Sprintf("%s (%s) forwards by a BGP route; whether its session or next-hop resolution runs over the lost adjacency is not in the evidence, and BGP withdrawal is not modeled", at.node, at.vrf))
@@ -866,11 +874,11 @@ func (w *walker) tunnelRisk(from state, n netmodel.NextHop) (Tunnel, string) {
 // interface failure, an underlay that selects a BGP route is not avoided either,
 // for the reason Simulate gives the ordinary walk.
 func (w *walker) underlayRisk(t Tunnel, at string) string {
-	dest, touched, notes := w.dest, w.touched, w.notes
-	w.dest, w.touched, w.underlay, w.nested = t.Remote, false, true, ""
+	dest, touched, notes, lost := w.dest, w.touched, w.notes, w.lost
+	w.dest, w.touched, w.lost, w.underlay, w.nested = t.Remote, false, nil, true, ""
 	h := w.walk(forwardingPlanes, state{t.Node, t.UnderlayVRF}, nil, nil)
-	met, nested := w.touched, w.nested
-	w.dest, w.touched, w.notes, w.underlay, w.nested = dest, touched, notes, false, ""
+	met, nested, unknown := w.touched, w.nested, w.lost
+	w.dest, w.touched, w.notes, w.lost, w.underlay, w.nested = dest, touched, notes, lost, false, ""
 	path := fmt.Sprintf("from %s (%s) to remote %s", t.Node, t.UnderlayVRF, t.Remote)
 	switch {
 	case nested != "":
@@ -882,6 +890,9 @@ func (w *walker) underlayRisk(t Tunnel, at string) string {
 				cut = " at " + segText(*x.Via)
 			}
 		})
+		if cut == "" && w.adj != nil && unknown != nil && unknown.Via != nil {
+			return fmt.Sprintf("the underlay of %s, %s, is unknown, not proven cut, at %s: %s; whether the tunnel stays usable is not in the evidence, since an endpoint may move and a routing protocol may restore the underlay", at, path, segText(*unknown.Via), unknown.Decision.Reason)
+		}
 		return fmt.Sprintf("the underlay of %s, %s, meets the failure%s; whether the tunnel stays usable is not in the evidence, since an endpoint may move and a routing protocol may restore the underlay", at, path, cut)
 	case reachOf(&h, nil) != reachOK:
 		return fmt.Sprintf("the recorded underlay of %s, %s, does not prove delivery, so whether it crosses the failure is unknown", at, path)
@@ -915,6 +926,30 @@ func (w *walker) heldOnFailure(at state) string {
 		return fmt.Sprintf("%s (%s) holds %s on %s, so which one delivers it with %s down is unknown", at.node, at.vrf, w.dest, strings.Join(names, ", "), w.fail.Interface)
 	}
 	return fmt.Sprintf("%s (%s) holds %s on %s, which is down; whether a node still answers for an address on a down interface depends on its platform, which the evidence does not record", at.node, at.vrf, w.dest, w.fail.Interface)
+}
+
+// beyondTunnel says what the failure does to the destination at the node that
+// the tunnel's remote names, when the overlay reaches it past the tunnel. A walk
+// that ends at an unknown tunnel leaf never reaches that node, so its own down
+// interface is said here, conditionally, since the underlay may not carry the
+// traffic. The rows that place the destination there are its evidence. A
+// multipoint tunnel names no node beyond itself, so it gets none. A destination
+// that is the remote's own address is what the underlay reaches first, so it has
+// no beyond to report.
+func (w *walker) beyondTunnel(t Tunnel, n netmodel.NextHop) (string, []Support) {
+	target := n.Addr
+	if !target.IsValid() {
+		target = w.dest
+	}
+	peer, remote := w.owners[target], w.owners[t.Remote]
+	if w.dest == t.Remote || len(peer) != 1 || len(remote) != 1 || peer[0].node != remote[0].node {
+		return "", nil
+	}
+	why := w.heldOnFailure(peer[0])
+	if why == "" {
+		return "", nil
+	}
+	return why, ownSupports(w.owned[ownerKey{w.dest, peer[0]}])
 }
 
 // Text renders the simulation for a person. Every line passes through

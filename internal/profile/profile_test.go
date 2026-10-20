@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/report"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 func TestBuiltinRegistry(t *testing.T) {

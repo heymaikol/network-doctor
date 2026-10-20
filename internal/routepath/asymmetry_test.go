@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // twoPathNet is one flow from h1 (10.0.1.10) to srv (10.20.40.8). The forward

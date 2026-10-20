@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // withOSPF is threeRouters with each router's control plane naming its link

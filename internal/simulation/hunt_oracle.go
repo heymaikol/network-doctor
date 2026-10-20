@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"slices"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // A hunt false negative means exactly one thing: the simulator independently

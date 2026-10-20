@@ -30,7 +30,7 @@ func TestLabHasNoLiveNetworkOrClockFallback(t *testing.T) {
 		}
 		for _, imp := range f.Imports {
 			name, _ := strconv.Unquote(imp.Path.Value)
-			if !slices.Contains([]string{"crypto/sha256", "io", "encoding/json", "maps", "context", "errors", "fmt", "reflect", "slices", "strings", "sync", "time", "net", "net/netip", "strconv", "hash/fnv", "github.com/heymaikol/network-doctor/internal/compare", "github.com/heymaikol/network-doctor/internal/diagnostic", "github.com/heymaikol/network-doctor/internal/snapshot"}, name) {
+			if !slices.Contains([]string{"crypto/sha256", "io", "encoding/json", "maps", "context", "errors", "fmt", "reflect", "slices", "strings", "sync", "time", "net", "net/netip", "strconv", "hash/fnv", "github.com/heymaikol/network-doctor/v2/internal/compare", "github.com/heymaikol/network-doctor/v2/internal/diagnostic", "github.com/heymaikol/network-doctor/v2/internal/snapshot"}, name) {
 				t.Errorf("%s imports %s; audit offline boundary", path, name)
 			}
 		}

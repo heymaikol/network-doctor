@@ -7,7 +7,7 @@ package main
 import (
 	"os"
 
-	"github.com/heymaikol/network-doctor/internal/app"
+	"github.com/heymaikol/network-doctor/v2/internal/app"
 )
 
 // version is injected at build time with -ldflags "-X main.version=...".

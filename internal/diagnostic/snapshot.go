@@ -3,7 +3,7 @@ package diagnostic
 import (
 	"reflect"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // BuildSnapshot converts one finished run into the portable .ndoc artifact.

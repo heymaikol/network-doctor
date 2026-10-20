@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
 )
 
 var lsdbStart = time.Date(2026, 10, 11, 2, 35, 26, 550000000, time.UTC)

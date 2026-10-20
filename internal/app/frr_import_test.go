@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/frrospf"
-	"github.com/heymaikol/network-doctor/internal/routepath"
+	"github.com/heymaikol/network-doctor/v2/internal/frrospf"
+	"github.com/heymaikol/network-doctor/v2/internal/routepath"
 )
 
 // frrBcastDir holds the genuine broadcast-lab captures. Each .raw file is a vtysh

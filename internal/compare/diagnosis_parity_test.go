@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // diagnosedRun is one valid artifact carrying every machine-readable field a

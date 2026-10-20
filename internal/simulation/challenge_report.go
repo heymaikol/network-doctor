@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // The three screens of a challenge: the briefing, which must not narrow the

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // gatewayLAN is r1 on one LAN, eth0, with two gateways: r2 at 10.0.1.2 and r4 at

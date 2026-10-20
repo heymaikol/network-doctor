@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 var errReplayedAttempt = errors.New("recorded connection attempt failed")

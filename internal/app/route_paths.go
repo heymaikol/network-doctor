@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/compare"
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/routepath"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/routepath"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // routeFiles names the optional topology file for each side of an offline

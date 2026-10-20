@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
 )
 
 // fakeBackend and fakeEnv stand in for a real backend so the lifecycle

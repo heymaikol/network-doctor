@@ -21,13 +21,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/compare"
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/incident"
-	"github.com/heymaikol/network-doctor/internal/peer"
-	"github.com/heymaikol/network-doctor/internal/report"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
-	"github.com/heymaikol/network-doctor/internal/ui"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/incident"
+	"github.com/heymaikol/network-doctor/v2/internal/peer"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/ui"
 )
 
 func TestVersionString(t *testing.T) {

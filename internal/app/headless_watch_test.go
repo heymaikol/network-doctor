@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
-	"github.com/heymaikol/network-doctor/internal/ui"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/ui"
 )
 
 // fakeLink is the network under a headless Watch test. While down, the target's

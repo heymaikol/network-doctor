@@ -29,7 +29,7 @@ package routepath
 import (
 	"net/netip"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // Start is the node and routing domain where traffic to the destination leaves.

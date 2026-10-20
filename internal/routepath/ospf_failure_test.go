@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // ospfNeighbor is one control-plane OSPF neighbor record. An empty state or

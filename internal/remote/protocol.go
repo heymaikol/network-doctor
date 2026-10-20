@@ -25,9 +25,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/report"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // Protocol is the version of the request/response exchange in this file.

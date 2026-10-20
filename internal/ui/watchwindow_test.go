@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // tuiSlowClock is a fake clock that a probe may advance from its own goroutine.

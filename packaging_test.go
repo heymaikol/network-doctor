@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/app"
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/profile"
-	"github.com/heymaikol/network-doctor/internal/ui"
+	"github.com/heymaikol/network-doctor/v2/internal/app"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/profile"
+	"github.com/heymaikol/network-doctor/v2/internal/ui"
 	"gopkg.in/yaml.v3"
 )
 

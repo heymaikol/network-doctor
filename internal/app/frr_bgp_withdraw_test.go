@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/frrbgp"
-	"github.com/heymaikol/network-doctor/internal/frrospf"
+	"github.com/heymaikol/network-doctor/v2/internal/frrbgp"
+	"github.com/heymaikol/network-doctor/v2/internal/frrospf"
 )
 
 // withdrawLab is the three-router withdrawal run described in

@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/frrospf"
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/ospf"
-	"github.com/heymaikol/network-doctor/internal/routepath"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/frrospf"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/routepath"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // frrAggregateLimit bounds all capture files of one import together. Each file

@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // Status is a probe's five-state outcome. Warn = degraded but functional

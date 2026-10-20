@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/simulation"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/simulation"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // `netdoc-sim triage` hunts the known-good baselines at fixed seeds, proves

@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/term"
-	"github.com/heymaikol/network-doctor/internal/peer"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/peer"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 type peerListenList []string

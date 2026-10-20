@@ -14,7 +14,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/heymaikol/network-doctor/internal/simulation"
+	"github.com/heymaikol/network-doctor/v2/internal/simulation"
 	"golang.org/x/sys/unix"
 )
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/heymaikol/network-doctor/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
 )
 
 // LabFuzzVersion versions this experimental construction algorithm. Artifacts

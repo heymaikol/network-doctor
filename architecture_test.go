@@ -49,7 +49,7 @@ func TestPackageLayering(t *testing.T) {
 		"internal/simulation": 2,
 		"internal/ui":         3,
 	}
-	const internalPrefix = "github.com/heymaikol/network-doctor/internal/"
+	const internalPrefix = "github.com/heymaikol/network-doctor/v2/internal/"
 
 	files := make(map[string]int)
 	edges := make(map[string]bool)

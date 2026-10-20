@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // The attribute keys this package reads. Any other ospf.* key marks a record as

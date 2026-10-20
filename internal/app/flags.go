@@ -5,7 +5,7 @@ import (
 	"flag"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 type probeList []diagnostic.ProbeID

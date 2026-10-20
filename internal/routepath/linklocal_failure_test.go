@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // linkLocalLine is r1 -- r2 -- r3 on IPv6 link-local next hops. r2 and r3 each

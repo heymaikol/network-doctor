@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/incident"
+	"github.com/heymaikol/network-doctor/v2/internal/incident"
 )
 
 func TestRealWatchPathMTUFaultAndRecovery(t *testing.T) {

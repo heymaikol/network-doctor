@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/simulation"
+	"github.com/heymaikol/network-doctor/v2/internal/simulation"
 )
 
 // pinClock fixes what "today" is, so the daily tests do not depend on the date

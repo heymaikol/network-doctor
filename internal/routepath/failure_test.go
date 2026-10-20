@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // diamond is r1 with two equal paths to r3, one through r2 and one through r4.

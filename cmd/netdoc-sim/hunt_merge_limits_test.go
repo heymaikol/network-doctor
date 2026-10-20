@@ -25,7 +25,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/simulation"
+	"github.com/heymaikol/network-doctor/v2/internal/simulation"
 )
 
 // completeShardJSON is one whole hunt as a single shard: shard 0 of 1 owns

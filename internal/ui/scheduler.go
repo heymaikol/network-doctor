@@ -8,7 +8,7 @@ import (
 	"maps"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // scheduleStep drains ready work and propagates skips synchronously. The queue,

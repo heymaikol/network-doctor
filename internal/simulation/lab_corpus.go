@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/heymaikol/network-doctor/internal/compare"
-	d "github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	d "github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 const labHost = "app.test"

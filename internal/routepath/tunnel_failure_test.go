@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // The overlay destinations: r5's LAN, which r1 reaches only over wg0, and r5's

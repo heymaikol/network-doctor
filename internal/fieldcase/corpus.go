@@ -14,7 +14,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 const (

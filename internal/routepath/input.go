@@ -11,7 +11,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // FileVersion is the topology file format this build reads. A file must state

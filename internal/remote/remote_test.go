@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/report"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // The stand-in ssh is this test binary, re-executed. TestMain answers before

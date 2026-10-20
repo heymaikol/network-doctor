@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
 )
 
 // Interface facts. An interface record can state five facts about one OSPF

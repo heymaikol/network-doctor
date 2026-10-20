@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // mutualLinkE1E2 declares the e1 to e2 link between r1 and r2 from both ends, in

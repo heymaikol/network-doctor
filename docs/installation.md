@@ -109,12 +109,16 @@ Prebuilt binaries are on the
 Windows ships as a `.zip`, the rest as bare binaries. With Go 1.27 or newer:
 
 ```sh
-go install github.com/heymaikol/network-doctor/cmd/netdoc@latest
+go install github.com/heymaikol/network-doctor/v2/cmd/netdoc@latest
 ```
 
 That entrypoint exists so the installed command is named `netdoc`. A plain
-`go install github.com/heymaikol/network-doctor@latest` would name it
+`go install github.com/heymaikol/network-doctor/v2@latest` would name it
 `network-doctor` instead, which is the same program under a different name.
+
+The path without `/v2` only serves v1 releases, so the old
+`github.com/heymaikol/network-doctor/cmd/netdoc@latest` command keeps installing
+v1.
 
 To build from a clone:
 

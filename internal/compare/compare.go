@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // Schema is the identity of the machine-readable comparison, versioned on its

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/routepath"
+	"github.com/heymaikol/network-doctor/v2/internal/routepath"
 )
 
 // frrAdjacencyDir holds the live FRR OSPF adjacency-loss runs of

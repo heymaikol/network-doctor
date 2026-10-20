@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // v6Of moves an IPv4 address into 2001:db8::/96, keeping its 32 IPv4 bits as the

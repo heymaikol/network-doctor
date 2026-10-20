@@ -11,10 +11,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/heymaikol/network-doctor/internal/incident"
+	"github.com/heymaikol/network-doctor/v2/internal/incident"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	ndoc "github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	ndoc "github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // recordWatchPass records one finished watch pass. Each also takes the run's

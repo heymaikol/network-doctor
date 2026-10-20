@@ -6,9 +6,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/heymaikol/network-doctor/internal/compare"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // runCompare reports what changed between two saved snapshots. It opens no

@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // WriteJSON prints the machine-readable result, unless the byte budget this

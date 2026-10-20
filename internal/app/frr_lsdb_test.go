@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/frrospf"
-	"github.com/heymaikol/network-doctor/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/frrospf"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
 )
 
 // frrLSDBDir holds the recorded OSPF LSDB lab, one directory per scenario. Each

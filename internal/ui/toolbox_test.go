@@ -5,7 +5,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // Toolbox mode with no chain run exits 0.

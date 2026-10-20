@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // FuzzDecodeSummary feeds arbitrary transcripts to Decode. A refusal must be an

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/frrbgp"
-	"github.com/heymaikol/network-doctor/internal/frrospf"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/frrbgp"
+	"github.com/heymaikol/network-doctor/v2/internal/frrospf"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // The outcomes of a simulated prefix withdrawal. Each is a reading of the node's

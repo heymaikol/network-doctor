@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // Text renders the human report: what the two runs were, one row per check,

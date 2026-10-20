@@ -125,7 +125,7 @@ roots, and the `netdoc-sim` Linux-only rule are in
 Grab a prebuilt binary from the [latest release](https://github.com/heymaikol/network-doctor/releases/latest) (Windows ships as a `.zip`, the rest as bare binaries), or install with Go 1.27+:
 
 ```sh
-go install github.com/heymaikol/network-doctor/cmd/netdoc@latest
+go install github.com/heymaikol/network-doctor/v2/cmd/netdoc@latest
 ```
 
 Check what you are running with `netdoc --version`. Releases carry a signed

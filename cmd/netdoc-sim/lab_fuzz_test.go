@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/simulation"
+	"github.com/heymaikol/network-doctor/v2/internal/simulation"
 )
 
 func TestLabFuzzCLI(t *testing.T) {

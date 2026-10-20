@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/remote"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/remote"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // timeoutContractCases are the values the whole contract is argued over, used

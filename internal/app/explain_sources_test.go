@@ -151,6 +151,44 @@ func TestSourcesRefusesBadSelections(t *testing.T) {
 	}
 }
 
+// TestSourcesReportsEachFailureUnderItsOwnFlag checks that a failure target
+// refused during a -sources run names its own flag, and that a source selector
+// refused before the run still names -sources.
+func TestSourcesReportsEachFailureUnderItsOwnFlag(t *testing.T) {
+	omitted := writeTopology(t, omittedInterfaceTopology)
+	ospf := writeTopology(t, ospfAdjacencyTopology)
+	hop := writeTopology(t, nextHopTopology)
+	empty := writeTopology(t, `{"version": 1, "source": {"node": "r1", "vrf": "default"}, "observations": []}`)
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"bad -fail", []string{"--explain", omitted, "10.20.40.8", "--fail", "nosuch", "--sources", "r1"},
+			`netdoc: -fail: no configured, control, or fib observation describes node "nosuch"` + "\n"},
+		{"named failed router", []string{"--explain", omitted, "10.20.40.8", "--fail", "r2", "--sources", "r2"},
+			"netdoc: -fail: router r2 is the source; nothing leaves a failed source\n"},
+		{"empty file all", []string{"--explain", empty, "10.20.40.8", "--fail", "r1", "--sources", "all"},
+			"netdoc: -sources: the file models no routing domain to simulate from\n"},
+		{"bad -fail-ospf", []string{"--explain", ospf, "10.20.40.8", "--fail-ospf", "r1:eth1:nosuch", "--sources", "r2,r1"},
+			`netdoc: -fail-ospf: no control-plane OSPF neighbor record on node "r1" interface "eth1" names neighbor "nosuch"` + "\n"},
+		{"bad -fail-next-hop", []string{"--explain", hop, "10.20.40.8", "--fail-next-hop", "r1:10.9.9.9", "--sources", "r2"},
+			`netdoc: -fail-next-hop: no fib route of node "r1" names next hop 10.9.9.9` + "\n"},
+		{"unknown source", []string{"--explain", omitted, "10.20.40.8", "--fail", "r2", "--sources", "nosuch"},
+			`netdoc: -sources: no modeled node "nosuch"` + "\n"},
+		{"malformed source", []string{"--explain", omitted, "10.20.40.8", "--fail", "r2", "--sources", "r1,"},
+			`netdoc: -sources: "" is not node[@vrf] or all` + "\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			code, out, stderr := runNetdoc(t, c.args...)
+			if code != 2 || out != "" || stderr != c.want {
+				t.Errorf("exit %d, stdout %q, stderr %q; want exit 2, no stdout, stderr %q", code, out, stderr, c.want)
+			}
+		})
+	}
+}
+
 func joinOrNone(xs []string) string {
 	if len(xs) == 0 {
 		return "none"

@@ -220,6 +220,33 @@ func TestBlastCapsTheSourceCount(t *testing.T) {
 	}
 }
 
+// TestBlastRefusesAFailedNamedSourceBeyondTheCap names every source, with the
+// failed router last in canonical order, past the cap. The cap must not drop
+// the refusal, or the run reads as a success that skipped the failed source.
+func TestBlastRefusesAFailedNamedSourceBeyondTheCap(t *testing.T) {
+	var obs []netmodel.Observation
+	for i := range maxBlastSources + 2 {
+		obs = append(obs, configured(fmt.Sprintf("n%02d", i), "default", []netmodel.Interface{ifc("eth0", fmt.Sprintf("10.2.%d.1/24", i))}))
+	}
+	f := blastFile(t, obs)
+	fail := Failure{Node: "n65"}
+	t.Run("named", func(t *testing.T) {
+		_, err := SimulateBlast(f, fail, false, ModeledSources(f))
+		if err == nil || !strings.Contains(err.Error(), "nothing leaves a failed source") {
+			t.Errorf("err = %v, want the failed source refused", err)
+		}
+	})
+	t.Run("all excludes it without spending the cap", func(t *testing.T) {
+		b, err := SimulateBlast(f, fail, true, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b.Excluded) != 1 || b.Excluded[0].Source.Node != "n65" || len(b.Sources) != maxBlastSources || b.Skipped != 1 {
+			t.Errorf("excluded %+v, simulated %d, skipped %d; want n65 alone, %d, and 1", b.Excluded, len(b.Sources), b.Skipped, maxBlastSources)
+		}
+	})
+}
+
 // TestBlastSummaryCountsEachOwnerOnce pins the accounting: a node counts a
 // rating once, a routing domain once per domain that holds it, and an unowned
 // rating only as unowned.

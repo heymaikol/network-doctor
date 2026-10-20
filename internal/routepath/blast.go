@@ -125,7 +125,8 @@ func ResolveSource(f File, node, vrf string) (Start, error) {
 // by owner. With all, the sources are every modeled routing domain. A domain on
 // the failed router is then excluded and listed, since nothing leaves a failed
 // source. Otherwise the named sources are simulated, and naming the failed
-// router is refused, as Simulate refuses it. Each source runs Simulate unchanged,
+// router is refused, as Simulate refuses it, before the source cap applies, so
+// a refused source past the cap is not skipped. Each source runs Simulate unchanged,
 // so its ratings and every bound on its destinations and node visits are its own.
 // The run's work is therefore up to maxBlastSources simulations, and the source
 // count is the only bound the run adds.
@@ -143,8 +144,12 @@ func SimulateBlast(f File, fail Failure, all bool, named []Start, extra ...netip
 	b := Blast{Scope: blastScope, Excluded: []Excluded{}, Sources: []Simulation{}}
 	var rated []Start
 	for _, s := range sources {
-		if all && removesSource(fail, s) {
-			b.Excluded = append(b.Excluded, Excluded{Source: s, Reason: "router " + s.Node + " is the source; nothing leaves a failed source"})
+		if removesSource(fail, s) {
+			reason := "router " + s.Node + " is the source; nothing leaves a failed source"
+			if !all {
+				return Blast{}, errors.New(reason)
+			}
+			b.Excluded = append(b.Excluded, Excluded{Source: s, Reason: reason})
 			continue
 		}
 		rated = append(rated, s)

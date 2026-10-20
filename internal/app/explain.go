@@ -77,9 +77,14 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, fa
 	}
 	if fail != "" || failOSPF != "" || failNextHop != "" {
 		if sources != "" {
-			b, err := simulateSources(file, failure, sources, dest)
+			all, named, err := parseSources(file, sources)
 			if err != nil {
 				fmt.Fprintf(stderr, "netdoc: -sources: %s\n", textsafe.Clean(err.Error()))
+				return 2
+			}
+			b, err := routepath.SimulateBlast(file, failure, all, named, dest)
+			if err != nil {
+				fmt.Fprintf(stderr, "netdoc: -%s: %s\n", flag, textsafe.Clean(err.Error()))
 				return 2
 			}
 			blast, simText = &b, b.Text()
@@ -123,30 +128,34 @@ func splitNextHop(s string) (node, vrf, addr, iface string, ok bool) {
 	return node, vrf, addr, iface, colon && node != "" && (!at || vrf != "") && addr != "" && (!pct || iface != "")
 }
 
-// simulateSources runs the failure from the sources a -sources selector names:
-// all, or a comma-separated list of node[@vrf] names, each resolved against the
-// file. all stands alone, and an empty name is refused, so a node that is itself
-// called all is named as all@VRF.
-func simulateSources(file routepath.File, fail routepath.Failure, selector string, dest netip.Addr) (routepath.Blast, error) {
+// parseSources reads a -sources selector: all, or a comma-separated list of
+// node[@vrf] names, each resolved against the file. all stands alone, and an
+// empty name is refused, so a node that is itself called all is named as all@VRF.
+// Errors here are selector errors only; the failure is simulated afterward, and
+// its errors name the failure flag. The empty-file check repeats the one in
+// SimulateBlast, so an unresolved all still reports under -sources.
+func parseSources(file routepath.File, selector string) (all bool, named []routepath.Start, err error) {
 	if selector == "all" {
-		return routepath.SimulateBlast(file, fail, true, nil, dest)
+		if len(routepath.ModeledSources(file)) == 0 {
+			return false, nil, errors.New("the file models no routing domain to simulate from")
+		}
+		return true, nil, nil
 	}
-	var named []routepath.Start
 	for _, item := range strings.Split(selector, ",") {
 		node, vrf, at := strings.Cut(item, "@")
 		switch {
 		case item == "all":
-			return routepath.Blast{}, errors.New("all stands alone; it cannot be listed with other sources")
+			return false, nil, errors.New("all stands alone; it cannot be listed with other sources")
 		case node == "" || at && vrf == "":
-			return routepath.Blast{}, fmt.Errorf("%q is not node[@vrf] or all", item)
+			return false, nil, fmt.Errorf("%q is not node[@vrf] or all", item)
 		}
 		start, err := routepath.ResolveSource(file, node, vrf)
 		if err != nil {
-			return routepath.Blast{}, err
+			return false, nil, err
 		}
 		named = append(named, start)
 	}
-	return routepath.SimulateBlast(file, fail, false, named, dest)
+	return false, named, nil
 }
 
 // explainOutput is the --explain JSON object. Its failure field is present only

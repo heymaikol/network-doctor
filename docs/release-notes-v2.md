@@ -131,11 +131,21 @@ side's own run. It never changes where the failure is placed. See
   address family after the other family answered, the answer is kept instead of
   failing the whole lookup. This applies to the system resolver (#365) and to the public
   second-opinion resolver (#394).
-- **SSH aliases ignore later `Match` blocks.** An address in a `Match` block no
-  longer attaches to the `Host` alias before it, and a later `Host` block is
-  still read (#345).
-- **`--` ends option parsing.** Arguments after `--` are read as operands, so a
-  target that starts with `-` can be named (f0f220f).
+- **LAN map names from SSH config.** An address in a `Match` block no longer
+  takes the `Host` alias before it, so the names the LAN view shows from
+  `~/.ssh/config` stay correct. A later `Host` block is still read (#345).
+- **`--` ends option parsing.** Arguments after `--` are read as operands, not
+  options. A flag-like argument after the marker is refused as an extra argument
+  instead of being applied (f0f220f).
+- **Watch reuses passing checks.** In `--watch` without `--profile`, and in the
+  TUI, a passing check can reuse its measurement from an earlier pass for up to a
+  minute, so a stable pass runs only the checks it cannot reuse. On Linux, a
+  route, address, link, policy-rule, or nexthop change refuses reuse, and any
+  other platform relies on the minute alone. A pass that reused a check and then
+  finds a changed status, cause, or route is discarded, and the next pass
+  measures every check. After a failing pass, every check runs. With `--profile`, every
+  pass runs every check. The TUI labels each reused check with the time it was
+  measured. See [Usage details](reference.md#usage-details).
 - **Tunnel underlay reasons name the unknown segment.** When an underlay walk
   is unknown rather than cut, the tunnel's reason names that segment, instead of
   saying the underlay meets the failure (#397).
@@ -178,6 +188,13 @@ see a different result for the same network:
 
 The changes above affect verdicts and causes. They do not affect command-line
 syntax or the snapshot and report formats.
+
+### Output values
+
+- **Watch JSON.** With `--watch --json`, a reused check reports `ms` as `0`,
+  because it was not measured on that pass. A script that reads `ms` as the
+  check's own duration sees `0` for those rows. The stream has no reuse marker
+  yet, so the value is the only sign. The one-shot report is unchanged.
 
 ## Installation and upgrade
 

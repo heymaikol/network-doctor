@@ -16,13 +16,13 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/heymaikol/network-doctor/internal/compare"
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/peer"
-	"github.com/heymaikol/network-doctor/internal/profile"
-	"github.com/heymaikol/network-doctor/internal/remote"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
-	"github.com/heymaikol/network-doctor/internal/ui"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/peer"
+	"github.com/heymaikol/network-doctor/v2/internal/profile"
+	"github.com/heymaikol/network-doctor/v2/internal/remote"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/ui"
 )
 
 // version is what -version reports and what artifacts stamp. Run sets it

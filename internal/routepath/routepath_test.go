@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 var t0 = time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)

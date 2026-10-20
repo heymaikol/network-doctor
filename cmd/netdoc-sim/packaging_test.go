@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/simulation"
+	"github.com/heymaikol/network-doctor/v2/internal/simulation"
 )
 
 // The man page, three completion files, and rendered usage expose copies of

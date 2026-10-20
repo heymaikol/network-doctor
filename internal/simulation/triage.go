@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // Triage turns hunt findings into GitHub issues. A finding earns an issue only

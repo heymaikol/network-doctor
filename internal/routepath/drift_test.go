@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // intent is a complete intended table for one node in the default domain.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/profile"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/profile"
 )
 
 // printUsage writes the full help text: usage line, the target grammar

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // This is also the coverage-counter fixture for a local profile component

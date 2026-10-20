@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
 )
 
 // lsdbCapture loads one bracket capture of the LSDB lab. role is A or D for the

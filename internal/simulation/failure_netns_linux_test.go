@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/routepath"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/routepath"
 )
 
 // structuralFailureDirector is set only on the copy of this test binary that

@@ -15,12 +15,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/profile"
-	"github.com/heymaikol/network-doctor/internal/report"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
-	"github.com/heymaikol/network-doctor/internal/ui"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/profile"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/ui"
 )
 
 // runProfile executes each finite component plan through the ordinary

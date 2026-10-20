@@ -37,7 +37,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"gopkg.in/yaml.v3"
 )
 
@@ -58,8 +58,8 @@ func buildBinaries(t *testing.T) (netdoc, sim string) {
 	netdoc = filepath.Join(dir, "netdoc")
 	sim = filepath.Join(dir, "netdoc-sim")
 	for out, pkg := range map[string]string{
-		netdoc: "github.com/heymaikol/network-doctor",
-		sim:    "github.com/heymaikol/network-doctor/cmd/netdoc-sim",
+		netdoc: "github.com/heymaikol/network-doctor/v2",
+		sim:    "github.com/heymaikol/network-doctor/v2/cmd/netdoc-sim",
 	} {
 		cmd := exec.Command("go", "build", "-o", out, pkg)
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")

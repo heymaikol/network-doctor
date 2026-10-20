@@ -3,7 +3,7 @@ package simulation
 import (
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // routeCase is a finished two-test run whose client independently could not

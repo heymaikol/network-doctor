@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/profile"
-	"github.com/heymaikol/network-doctor/internal/remote"
-	"github.com/heymaikol/network-doctor/internal/report"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/profile"
+	"github.com/heymaikol/network-doctor/v2/internal/remote"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 func TestProfileCLIValidationAndDiscovery(t *testing.T) {

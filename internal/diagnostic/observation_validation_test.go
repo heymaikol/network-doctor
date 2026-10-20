@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // Start with the same real builder as the published golden, plus a kernel

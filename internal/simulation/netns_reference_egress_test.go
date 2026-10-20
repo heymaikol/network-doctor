@@ -10,7 +10,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // The healthy scenario stands up netdoc's own reference infrastructure as real

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // The six families this file covers are the ones a person is most likely to

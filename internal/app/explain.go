@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/ospf"
-	"github.com/heymaikol/network-doctor/internal/routepath"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/routepath"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // runExplain explains how traffic to one destination should leave the network

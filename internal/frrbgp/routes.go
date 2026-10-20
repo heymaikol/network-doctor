@@ -14,7 +14,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // CommandRoute is the one route-table command this package reads. The transcript

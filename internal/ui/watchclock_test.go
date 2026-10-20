@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/heymaikol/network-doctor/internal/diagnostic"
+import "github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 
 // These tests run Watch on fake clocks. On Windows the session would otherwise
 // read the real unbiased counter, which advances in real time and would show a

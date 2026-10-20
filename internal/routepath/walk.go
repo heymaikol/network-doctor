@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // maxDepth bounds how many hops one walk follows, and maxStates bounds how many

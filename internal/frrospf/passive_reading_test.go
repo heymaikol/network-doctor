@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
 )
 
 // TestPassiveInterfaceExplainsMissingNeighbor imports the passive lab, where r1

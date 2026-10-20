@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // maxDestinations bounds how many destinations one simulation considers, and

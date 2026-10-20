@@ -35,7 +35,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // splitDNSFixture is a two-resolver DNS network for the real Go resolver.

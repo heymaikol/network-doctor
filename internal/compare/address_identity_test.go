@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // One address has more than one spelling, and an artifact records whichever one

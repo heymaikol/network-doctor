@@ -9,8 +9,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	ndoc "github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	ndoc "github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // tuiLink is the network under a TUI Watch test. While down, the target's TCP

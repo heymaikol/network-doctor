@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/compare"
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/remote"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/remote"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 func resultsWithTargetStatus(probes []diagnostic.Probe, status string) map[diagnostic.ProbeID]diagnostic.ProbeResult {

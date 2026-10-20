@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // lineBy is the single-homed line with r1's FIB routes of origin at1 and r2's

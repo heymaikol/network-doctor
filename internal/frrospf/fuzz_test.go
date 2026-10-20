@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/ospf"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // FuzzImportNeighborDetail feeds arbitrary neighbor-detail output for r1, next

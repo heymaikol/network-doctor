@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // Timeline-aware suggestion codes. Stable identifiers, like the rest.

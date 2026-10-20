@@ -1,5 +1,5 @@
 // The go install entrypoint: go install
-// github.com/heymaikol/network-doctor/cmd/netdoc@latest must put a binary
+// github.com/heymaikol/network-doctor/v2/cmd/netdoc@latest must put a binary
 // named netdoc on the PATH, and that binary must be this CLI, not a second
 // implementation. The name follows from the last element of the import path,
 // so the test builds the package the same way go install would and checks
@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/app"
+	"github.com/heymaikol/network-doctor/v2/internal/app"
 )
 
 func TestCmdNetdocBuildsTheSameCLI(t *testing.T) {

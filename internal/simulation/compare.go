@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // Diagnosis is the simulator's narrow view of a netdoc report. It is also

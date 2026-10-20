@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
 )
 
 // stageFRRLab stages the broadcast manifest, then replaces each of its four

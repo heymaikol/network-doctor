@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/ospf"
-	"github.com/heymaikol/network-doctor/internal/routepath"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/routepath"
 )
 
 // explainTopology is a two-router path whose FIB route fails on the segment r1

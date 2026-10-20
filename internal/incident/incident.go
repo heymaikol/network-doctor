@@ -31,8 +31,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/compare"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // Retention. A watch session runs for as long as someone leaves it running, so

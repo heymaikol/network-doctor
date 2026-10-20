@@ -372,3 +372,214 @@ func TestPublicDNSResponseSurvivesLaterTimeout(t *testing.T) {
 		})
 	}
 }
+
+// dropQueries loses the reply to each query type in lost and answers those in
+// nodata with NOERROR and no records. Every other reply passes through.
+func dropQueries(lost, nodata []uint16) func([]byte) []byte {
+	return func(msg []byte) []byte {
+		end, _ := skipDNSName(msg, dnsHeaderLen)
+		qtype := binary.BigEndian.Uint16(msg[end:])
+		if slices.Contains(lost, qtype) {
+			return nil
+		}
+		if slices.Contains(nodata, qtype) {
+			clear(msg[6:8])
+			return msg[:end+4]
+		}
+		return msg
+	}
+}
+
+// The public lookup has the shape the system lookup had before PR #365: Go
+// returns neither family until both settle, so a lost datagram discarded the
+// answer the public resolver had already sent for the other family.
+func TestPublicDNSKeepsAnAnswerWhenTheOtherFamilyIsLost(t *testing.T) {
+	resolvers := PublicDNSCandidates(DefaultPublicDNS, true)
+	both := []uint16{dnsTypeA, dnsTypeAAAA}
+	for _, tc := range []struct {
+		name      string
+		resolvers []string
+		mutate    func([]byte) []byte
+		rcode     uint16
+		asked     int
+		want      Status
+		addrs     []string
+		detail    string
+	}{
+		{"a lost AAAA query keeps the A answer", resolvers[:1], dropQueries([]uint16{dnsTypeAAAA}, nil), 0, 1, StatusPass, []string{splitDNSAnswerA}, "(via " + resolvers[0] + ")"},
+		{"a lost A query keeps the AAAA answer", resolvers[:1], dropQueries([]uint16{dnsTypeA}, nil), 0, 1, StatusPass, []string{splitDNSAnswer6}, "(via " + resolvers[0] + ")"},
+		{"automatic resolvers keep the first answer without fallback", resolvers, dropQueries([]uint16{dnsTypeAAAA}, nil), 0, 1, StatusPass, []string{splitDNSAnswerA}, "(via " + resolvers[0] + ")"},
+		{"a lost A query beside an empty AAAA answer is not a second opinion", resolvers[:1], dropQueries([]uint16{dnsTypeA}, []uint16{dnsTypeAAAA}), 0, 1, StatusNA, nil, "answered"},
+		{"a SERVFAIL on A keeps its rcode beside a lost AAAA query", resolvers[:1], dropQueries([]uint16{dnsTypeAAAA}, nil), dnsRcodeServFail, 1, StatusNA, nil, "SERVFAIL"},
+		{"NXDOMAIN on A beside a lost AAAA query", resolvers[:1], dropQueries([]uint16{dnsTypeAAAA}, nil), dnsRcodeNXDom, 1, StatusNA, nil, "answered"},
+		{"both families lost is unavailable", resolvers[:1], dropQueries(both, nil), 0, 1, StatusNA, nil, "unavailable"},
+		{"both families lost falls back to the next resolver", resolvers, dropQueries(both, nil), 0, 2, StatusNA, nil, "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Well inside any resolv.conf timeout, so only the probe budget can end a lost query.
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			deadline, _ := ctx.Deadline()
+			var asked []string
+			var late atomic.Int32
+			ops := &netops{lookupPublicIP: func(ctx context.Context, host, server string) ([]net.IP, []string, error) {
+				asked = append(asked, server)
+				return lookupIPPublicWithDial(ctx, host, func(dctx context.Context, _, _ string) (net.Conn, error) {
+					// An expired lookup's dial is refused, as net.Dialer refuses it, so
+					// nothing leaves. Only a dial that ignores the deadline is a leak.
+					if dctx.Err() != nil {
+						return nil, dctx.Err()
+					}
+					if time.Now().After(deadline) {
+						late.Add(1)
+					}
+					conn := &publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, rcode: tc.rcode, mutate: tc.mutate}
+					return lostDNSConn{conn, dctx}, nil
+				}, server)
+			}}
+			r := ops.publicDNSProbe("netdoc.test.", nil, tc.resolvers)(ctx, nil)
+			var got []string
+			for _, ip := range r.Addrs {
+				got = append(got, ip.String())
+			}
+			var wantTargets []string
+			for _, ip := range tc.resolvers[:tc.asked] {
+				wantTargets = append(wantTargets, publicDNSServer(ip))
+			}
+			if r.Status != tc.want || !slices.Equal(got, tc.addrs) || r.DNSNotFound ||
+				!strings.Contains(r.Detail, tc.detail) || len(asked) != tc.asked ||
+				r.resolver != tc.resolvers[tc.asked-1] || !slices.Equal(r.ResolverTargets, wantTargets) {
+				t.Fatalf("result = %s %v (%s) resolver=%s targets=%v asked=%v, want %s %v (%s) resolver=%s targets=%v asked=%d",
+					r.Status, got, r.Detail, r.resolver, r.ResolverTargets, asked,
+					tc.want, tc.addrs, tc.detail, tc.resolvers[tc.asked-1], wantTargets, tc.asked)
+			}
+			if n := late.Load(); n != 0 {
+				t.Errorf("%d resolver dials began after the probe deadline", n)
+			}
+		})
+	}
+}
+
+// Replay may only use responses that verified for the query asked. A reply that
+// fails verification must not become an address, even beside a lost AAAA query.
+func TestPublicDNSReplayIgnoresUnverifiedReplies(t *testing.T) {
+	resolvers := PublicDNSCandidates(DefaultPublicDNS, true)
+	for _, tc := range []struct {
+		name   string
+		damage func([]byte)
+	}{
+		{"wrong ID", func(msg []byte) { msg[0] ^= 1 }},
+		{"wrong question", func(msg []byte) { msg[13] ^= 1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mutate := func(msg []byte) []byte {
+				end, _ := skipDNSName(msg, dnsHeaderLen)
+				if binary.BigEndian.Uint16(msg[end:]) == dnsTypeAAAA {
+					return nil
+				}
+				tc.damage(msg)
+				return msg
+			}
+			ops := &netops{lookupPublicIP: func(ctx context.Context, host, server string) ([]net.IP, []string, error) {
+				return lookupIPPublicWithDial(ctx, host, func(dctx context.Context, _, _ string) (net.Conn, error) {
+					return lostDNSConn{&publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, mutate: mutate}, dctx}, nil
+				}, server)
+			}}
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			r := ops.publicDNSProbe("netdoc.test.", nil, resolvers[:1])(ctx, nil)
+			if r.Status != StatusNA || len(r.Addrs) != 0 {
+				t.Fatalf("unverified reply became an answer: %+v", r)
+			}
+		})
+	}
+}
+
+// watchedDNSConn is a lostDNSConn that reports when it delivers a reply. Go
+// closes a query's connection only after reading its reply, and the observer
+// verifies that reply inside the read, so Close runs after the answer is recorded.
+type watchedDNSConn struct {
+	lostDNSConn
+	delivered bool
+	onAnswer  func()
+}
+
+func (c *watchedDNSConn) Read(p []byte) (int, error) {
+	answered := len(c.reply) > 0
+	n, err := c.lostDNSConn.Read(p)
+	c.delivered = c.delivered || answered
+	return n, err
+}
+
+func (c *watchedDNSConn) Close() error {
+	if c.delivered {
+		c.onAnswer()
+	}
+	return c.lostDNSConn.Close()
+}
+
+// Cancelling the caller's context ends a lost AAAA query the same way a deadline
+// does, and must keep the A answer that already arrived. The cancel waits for
+// both events: the AAAA query was dropped, and the A answer was read and
+// verified. Go starts the two queries on separate goroutines, so either can
+// come first. The timeout is a backstop for a run where an event never happens.
+func TestPublicDNSCallerCancellationKeepsAnAnswer(t *testing.T) {
+	resolvers := PublicDNSCandidates(DefaultPublicDNS, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var lost, answered atomic.Int32
+	finish := func() {
+		if lost.Load() > 0 && answered.Load() > 0 {
+			cancel()
+		}
+	}
+	drop := dropQueries([]uint16{dnsTypeAAAA}, nil)
+	mutate := func(msg []byte) []byte {
+		reply := drop(msg)
+		if reply == nil {
+			lost.Add(1)
+			finish()
+		}
+		return reply
+	}
+	ops := &netops{lookupPublicIP: func(lctx context.Context, host, server string) ([]net.IP, []string, error) {
+		return lookupIPPublicWithDial(lctx, host, func(dctx context.Context, _, _ string) (net.Conn, error) {
+			if dctx.Err() != nil {
+				return nil, dctx.Err()
+			}
+			return &watchedDNSConn{
+				lostDNSConn: lostDNSConn{&publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, mutate: mutate}, dctx},
+				onAnswer: func() {
+					answered.Add(1)
+					finish()
+				},
+			}, nil
+		}, server)
+	}}
+	r := ops.publicDNSProbe("netdoc.test.", nil, resolvers[:1])(ctx, nil)
+	if !errors.Is(ctx.Err(), context.Canceled) || answered.Load() != 1 || lost.Load() < 1 {
+		t.Fatalf("ctx.Err()=%v answered=%d lost=%d: the cancel must follow one verified answer and a lost AAAA reply",
+			ctx.Err(), answered.Load(), lost.Load())
+	}
+	if r.Status != StatusPass || len(r.Addrs) != 1 || r.Addrs[0].String() != splitDNSAnswerA {
+		t.Fatalf("cancelled lookup result = %s %v (%s), want PASS with %s", r.Status, r.Addrs, r.Detail, splitDNSAnswerA)
+	}
+}
+
+// The hosts-file guard covers an address the replay hands back, not only one
+// the first lookup returns. Forcing the local answer makes the guard refuse the
+// replayed A address, which must not be credited to the public server.
+func TestPublicDNSReplayKeepsTheHostsFileGuard(t *testing.T) {
+	previous := answeredWithoutDNSCheck
+	t.Cleanup(func() { answeredWithoutDNSCheck = previous })
+	answeredWithoutDNSCheck = func(context.Context, string) bool { return true }
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	drop := dropQueries([]uint16{dnsTypeAAAA}, nil)
+	ips, _, err := lookupIPPublicWithDial(ctx, "netdoc.test.", func(dctx context.Context, _, _ string) (net.Conn, error) {
+		return lostDNSConn{&publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, mutate: drop}, dctx}, nil
+	}, "8.8.8.8")
+	if !errors.Is(err, errHostsFileAnswer) || len(ips) != 0 {
+		t.Fatalf("ips=%v err=%v, want errHostsFileAnswer and no addresses", ips, err)
+	}
+}

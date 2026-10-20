@@ -21,9 +21,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
-	"github.com/heymaikol/network-doctor/internal/ospf"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // Version is the one FRRouting release this package reads. A capture declares

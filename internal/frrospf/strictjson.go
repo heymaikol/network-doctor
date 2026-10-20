@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // maxDepth bounds object and array nesting. FRR's OSPF output nests about four

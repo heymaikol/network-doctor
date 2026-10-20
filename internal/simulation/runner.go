@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/report"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/report"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // Options tune one simulation run.

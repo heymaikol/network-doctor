@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // EvidenceComparison compares one explicitly named dimension, never whole

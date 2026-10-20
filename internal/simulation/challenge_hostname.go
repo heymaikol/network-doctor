@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // The name the player is asked about.

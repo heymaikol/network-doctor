@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/heymaikol/network-doctor/internal/simulation"
+	"github.com/heymaikol/network-doctor/v2/internal/simulation"
 )
 
 func runLab(ctx context.Context, args []string, out, errOut io.Writer) int {

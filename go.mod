@@ -1,4 +1,4 @@
-module github.com/heymaikol/network-doctor
+module github.com/heymaikol/network-doctor/v2
 
 go 1.27.0
 

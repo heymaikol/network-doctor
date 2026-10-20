@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/frrospf"
+	"github.com/heymaikol/network-doctor/v2/internal/frrospf"
 )
 
 // frrBGPRouteEntry is the manifest entry for the show ip bgp json capture of node. The

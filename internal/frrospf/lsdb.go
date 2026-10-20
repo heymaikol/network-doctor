@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/heymaikol/network-doctor/internal/ospf"
+	"github.com/heymaikol/network-doctor/v2/internal/ospf"
 )
 
 // The three commands behind the LSDB comparison. A node that has any of them

@@ -32,7 +32,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/simulation"
+	"github.com/heymaikol/network-doctor/v2/internal/simulation"
 )
 
 const (

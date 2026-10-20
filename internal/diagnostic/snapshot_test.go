@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // goldenSnapshot is the fixture this package writes and internal/snapshot

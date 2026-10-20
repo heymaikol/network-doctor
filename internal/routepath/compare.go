@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/heymaikol/network-doctor/internal/netmodel"
+	"github.com/heymaikol/network-doctor/v2/internal/netmodel"
 )
 
 // compareWalks sets the agreement on each forwarding hop that the FIB decided,

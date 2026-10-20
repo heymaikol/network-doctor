@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/heymaikol/network-doctor/internal/frrbgp"
+	"github.com/heymaikol/network-doctor/v2/internal/frrbgp"
 )
 
 // sessionLab holds the three session-loss runs described in "Session-loss

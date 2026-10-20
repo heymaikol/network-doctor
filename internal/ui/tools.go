@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // Tool is a drill-down adapter: a bounded external command keyed to a hotkey.

@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // cancelGrace is how long Wait tolerates a killed ssh's pipes staying open.

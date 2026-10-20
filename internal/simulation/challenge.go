@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // Challenge Mode is the human-facing counterpart to the hunt. The simulator

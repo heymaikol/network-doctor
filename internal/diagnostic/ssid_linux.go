@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/heymaikol/network-doctor/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // siocgiwessid is the wireless-extensions ioctl that reads an interface's

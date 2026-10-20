@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/diagnostic"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // snapshotWriteFile is stubbed in tests that need the write itself to fail.

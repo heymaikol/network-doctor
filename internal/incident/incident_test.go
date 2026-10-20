@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/heymaikol/network-doctor/internal/compare"
-	"github.com/heymaikol/network-doctor/internal/snapshot"
+	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 func observed(at time.Time, health Health, iface string) snapshot.Snapshot {

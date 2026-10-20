@@ -218,10 +218,11 @@ Each one gets a sentence here and a complete contract in the reference.
 - **FRR OSPF and BGP import.** `--import-frr-ospf` and `--import-frr-bgp` read
   FRR output you captured earlier, named by a manifest. They report OSPF
   adjacencies and areas, and BGP sessions. A BGP route-table capture adds the
-  learned routes, and the import contacts no router. `--import-frr-ospf --write-topology` writes a topology file for
-  `--explain`, only when the whole import is accepted. The BGP withdrawal and
-  session-loss simulations rate prefixes in the imported table and leave the
-  forwarding impact unknown. [FRR OSPF import](docs/reference.md#frr-ospf-import),
+  learned routes, and the import contacts no router.
+  `--import-frr-ospf --write-topology` writes a topology file for `--explain`,
+  only when the whole import is accepted. The BGP withdrawal and session-loss
+  simulations rate prefixes in the imported table and leave the forwarding impact
+  unknown. [FRR OSPF import](docs/reference.md#frr-ospf-import),
   [FRR BGP summary import](docs/reference.md#frr-bgp-summary-import).
 - **Route context for two-sided diagnosis.** `--route-a` and `--route-b` add a
   topology file's routing context to an offline `--two-sided` reading. The

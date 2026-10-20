@@ -1,9 +1,9 @@
 # Network Doctor v2.0.0 release notes
 
-> **Planned release, not yet published.** v2.0.0 has no tag and no release
-> yet. These notes describe what is merged to `main` since v1.19.4. The v2
-> Go module path arrives with a separate change that has not merged, so the
-> path shown in the upgrade section does not resolve yet.
+> These notes cover Network Doctor v2.0.0 and the changes since v1.19.4. The v2
+> module path is `github.com/heymaikol/network-doctor/v2`. The install command
+> for that path resolves once the `v2.0.0` tag is available to Go's module
+> proxy. See [Go module path](#go-module-path).
 
 Network Doctor v2.0.0 adds offline routing analysis. You record a topology,
 or capture FRR output, and `netdoc` explains how traffic should leave the
@@ -209,9 +209,9 @@ syntax or the snapshot and report formats.
 ### Upgrading from v1.19.4
 
 Existing installs keep working. Homebrew, Scoop, COPR, the `.deb`, `.rpm`, and
-`.apk` packages, and prebuilt binaries keep their current install and upgrade
-paths. The v1 `go install` path keeps installing v1 releases. See
-[Installation details](installation.md).
+`.apk` packages, and prebuilt binaries keep their existing install commands. Each
+channel offers v2.0.0 when it publishes that release. The v1 `go install` path
+keeps installing v1 releases. See [Installation details](installation.md).
 
 Snapshots from v1.19.4 remain readable. If you script against a verdict, check
 the verdict-affecting changes above before you treat a new result as a
@@ -220,7 +220,7 @@ regression.
 ### Go module path
 
 Go requires a module at major version 2 or later to carry the major version in
-its module path. Once the v2 change merges, the module path is
+its module path. The module path for v2.0.0 is
 `github.com/heymaikol/network-doctor/v2`. The path without `/v2` stays
 associated with v1 releases, so the v1 command keeps installing v1:
 
@@ -234,11 +234,12 @@ The v2 command is:
 go install github.com/heymaikol/network-doctor/v2/cmd/netdoc@latest
 ```
 
-This v2 command resolves once the `v2.0.0` tag exists in the Git repository and
-Go's module proxy can fetch it. Creating the GitHub Release page is a separate
-step, and `go install` does not depend on it. Until the tag exists, Go reports
-`no matching versions for query "latest"`. Use the v1 command above until then.
-The v2 path arrives with a separate change that has not merged.
+This v2 command resolves to the newest v2 release that Go's module proxy can
+fetch. The proxy reads the Git tag, so the command works once the `v2.0.0` tag
+is available. Creating the GitHub Release page is a separate step, and
+`go install` does not depend on it. Until the tag is available, Go reports
+`no matching versions for query "latest"`. The v1 command above always installs
+v1 releases.
 
 ## Supported platforms
 

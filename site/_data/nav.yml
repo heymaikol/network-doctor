@@ -18,6 +18,8 @@
       url: /wiki/Troubleshooting-and-FAQ/
     - title: Network Doctor reference
       url: /docs/reference/
+    - title: v2.0.0 release notes
+      url: /docs/release-notes-v2/
 
 - title: Simulator and Challenge Mode
   items:

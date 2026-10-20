@@ -200,6 +200,35 @@ Each one gets a sentence here and a complete contract in the reference.
   and `--skip` accept, `--no-reference-egress` drops every check that would
   contact netdoc's own reference services, and `--iface` binds probe traffic to
   one interface or address. [Flag semantics](docs/reference.md#usage-details).
+- **Route path explanation.** `--explain` reads a topology file you record and
+  says how traffic to one IP address should leave that network, and where the
+  forwarding table disagrees with the control plane. It also reports whether the
+  return route retraces the forward route, and where intended routes differ from
+  the forwarding table. Nothing is discovered: the file is the evidence, and no
+  router is contacted. [Route path explanation](docs/reference.md#route-path-explanation),
+  [asymmetry](docs/reference.md#asymmetry), [drift](docs/reference.md#drift).
+- **Failure simulation.** Add `--fail NODE`, `--fail NODE:INTERFACE`,
+  `--fail-ospf`, or `--fail-next-hop` to `--explain` to see which destinations
+  lose redundancy or reachability if a recorded router, interface, OSPF
+  adjacency, or next hop goes away. It walks the recorded tables only: no route
+  is recomputed, no convergence time is predicted, and missing evidence is
+  reported as unknown. A `tunnels` entry in the file names the underlay that
+  carries a tunnel, so an underlay failure is reported against that tunnel.
+  [Failure simulation](docs/reference.md#failure-simulation).
+- **FRR OSPF and BGP import.** `--import-frr-ospf` and `--import-frr-bgp` read
+  FRR output you captured earlier, named by a manifest. They report OSPF
+  adjacencies and areas, and BGP sessions. A BGP route-table capture adds the
+  learned routes, and the import contacts no router.
+  `--import-frr-ospf --write-topology` writes a topology file for `--explain`,
+  only when the whole import is accepted. The BGP withdrawal and session-loss
+  simulations rate prefixes in the imported table and leave the forwarding impact
+  unknown. [FRR OSPF import](docs/reference.md#frr-ospf-import),
+  [FRR BGP summary import](docs/reference.md#frr-bgp-summary-import).
+- **Route context for two-sided diagnosis.** `--route-a` and `--route-b` add a
+  topology file's routing context to an offline `--two-sided` reading. The
+  context counts only when the file belongs to that side's own run, and it never
+  changes where the failure is placed.
+  [Route context](docs/reference.md#route-context-from-topology-files).
 
 ## Challenge Mode
 

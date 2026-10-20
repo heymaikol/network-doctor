@@ -74,11 +74,18 @@ netdoc --explain topology.json 10.20.40.8 --fail-ospf r1:eth1:r2
 netdoc --explain topology.json 10.20.40.8 --fail-next-hop r1:10.0.1.2
 ```
 
-Each affected destination gets one impact: `none`, `redundancy_lost`,
-`reachability_lost`, or `unknown`. The simulation removes the failed element
-from the recorded forwarding. It recomputes no route, runs no SPF, and predicts
-no convergence time. For a router or interface failure, a destination that a
-routing protocol could re-route is reported as `unknown` rather than as lost.
+Each destination gets one impact: `none`, `redundancy_lost`,
+`reachability_lost`, or `unknown`. A destination with impact `none` is counted
+as unchanged and is not listed. Every other destination appears in the affected
+list. The simulation removes the failed element from the recorded forwarding.
+It recomputes no route, runs no SPF, and predicts no convergence time.
+
+When a branch loses every recorded next hop, and a node on that branch holds a
+recorded OSPF or BGP route to the destination, the impact is `unknown`, not
+`reachability_lost`. The recorded evidence does not show whether that protocol
+would take over the cut forwarding, so the simulator cannot prove a loss. It
+does not predict rerouting. A destination held only by the failed router stays
+`reachability_lost`.
 
 A `tunnels` entry in the topology file names the underlay that carries a
 tunnel. With it, an underlay failure is reported against that tunnel. Without
@@ -103,9 +110,10 @@ That file is the input `--explain` reads. See
 
 ### FRR BGP import
 
-`--import-frr-bgp` reads BGP summary and route captures from FRR. It reports
-each router's sessions, with each state as FRR printed it, and the prefixes
-learned from each peer. Two simulations apply to the imported table only:
+`--import-frr-bgp` reads BGP summary captures from FRR. It reports each router's
+sessions, with each state as FRR printed it. When the manifest also names a
+`show ip bgp json` route table for a router, the import adds that router's
+learned routes. Two simulations apply to the imported table only:
 
 ```sh
 netdoc --import-frr-bgp manifest.json --withdraw-bgp r1:192.0.2.2:198.51.100.0/24
@@ -226,10 +234,11 @@ The v2 command is:
 go install github.com/heymaikol/network-doctor/v2/cmd/netdoc@latest
 ```
 
-This v2 command cannot resolve until v2.0.0 is published. Until then, Go
-reports `no matching versions for query "latest"`. Use the v1 command above
-until the v2 release exists. The v2 path arrives with a separate change that
-has not merged.
+This v2 command resolves once the `v2.0.0` tag exists in the Git repository and
+Go's module proxy can fetch it. Creating the GitHub Release page is a separate
+step, and `go install` does not depend on it. Until the tag exists, Go reports
+`no matching versions for query "latest"`. Use the v1 command above until then.
+The v2 path arrives with a separate change that has not merged.
 
 ## Supported platforms
 

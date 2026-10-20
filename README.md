@@ -217,8 +217,8 @@ Each one gets a sentence here and a complete contract in the reference.
   [Failure simulation](docs/reference.md#failure-simulation).
 - **FRR OSPF and BGP import.** `--import-frr-ospf` and `--import-frr-bgp` read
   FRR output you captured earlier, named by a manifest. They report OSPF
-  adjacencies and areas, and BGP sessions and learned routes, without contacting
-  a router. `--import-frr-ospf --write-topology` writes a topology file for
+  adjacencies and areas, and BGP sessions. A BGP route-table capture adds the
+  learned routes, and the import contacts no router. `--import-frr-ospf --write-topology` writes a topology file for
   `--explain`, only when the whole import is accepted. The BGP withdrawal and
   session-loss simulations rate prefixes in the imported table and leave the
   forwarding impact unknown. [FRR OSPF import](docs/reference.md#frr-ospf-import),

@@ -1,0 +1,109 @@
+import refusals:
+rules proven: r1 r2 r3 r4
+tunnels recorded:
+  r1 default gre1 remote 10.71.30.1 underlay default
+  r3 default gre1 remote 10.71.14.1 underlay default
+inert fallbacks:
+  r1 erspan0 (erspan) from 2026-10-21T19:31:06.185133112Z until 2026-10-21T19:31:06.192141706Z, by ip-link-r1, ip-addr-r1, ip-route4-r1, ip-route6-r1, ip-rule-r1
+  r1 gre0 (gre) from 2026-10-21T19:31:06.185133112Z until 2026-10-21T19:31:06.192141706Z, by ip-link-r1, ip-addr-r1, ip-route4-r1, ip-route6-r1, ip-rule-r1
+  r1 gretap0 (gretap) from 2026-10-21T19:31:06.185133112Z until 2026-10-21T19:31:06.192141706Z, by ip-link-r1, ip-addr-r1, ip-route4-r1, ip-route6-r1, ip-rule-r1
+  r1 tunl0 (ipip) from 2026-10-21T19:31:06.185133112Z until 2026-10-21T19:31:06.192141706Z, by ip-link-r1, ip-addr-r1, ip-route4-r1, ip-route6-r1, ip-rule-r1
+  r2 erspan0 (erspan) from 2026-10-21T19:31:06.194206357Z until 2026-10-21T19:31:06.203056788Z, by ip-link-r2, ip-addr-r2, ip-route4-r2, ip-route6-r2, ip-rule-r2
+  r2 gre0 (gre) from 2026-10-21T19:31:06.194206357Z until 2026-10-21T19:31:06.203056788Z, by ip-link-r2, ip-addr-r2, ip-route4-r2, ip-route6-r2, ip-rule-r2
+  r2 gretap0 (gretap) from 2026-10-21T19:31:06.194206357Z until 2026-10-21T19:31:06.203056788Z, by ip-link-r2, ip-addr-r2, ip-route4-r2, ip-route6-r2, ip-rule-r2
+  r2 tunl0 (ipip) from 2026-10-21T19:31:06.194206357Z until 2026-10-21T19:31:06.203056788Z, by ip-link-r2, ip-addr-r2, ip-route4-r2, ip-route6-r2, ip-rule-r2
+  r3 erspan0 (erspan) from 2026-10-21T19:31:06.223267161Z until 2026-10-21T19:31:06.237029039Z, by ip-link-r3, ip-addr-r3, ip-route4-r3, ip-route6-r3, ip-rule-r3
+  r3 gre0 (gre) from 2026-10-21T19:31:06.223267161Z until 2026-10-21T19:31:06.237029039Z, by ip-link-r3, ip-addr-r3, ip-route4-r3, ip-route6-r3, ip-rule-r3
+  r3 gretap0 (gretap) from 2026-10-21T19:31:06.223267161Z until 2026-10-21T19:31:06.237029039Z, by ip-link-r3, ip-addr-r3, ip-route4-r3, ip-route6-r3, ip-rule-r3
+  r3 tunl0 (ipip) from 2026-10-21T19:31:06.223267161Z until 2026-10-21T19:31:06.237029039Z, by ip-link-r3, ip-addr-r3, ip-route4-r3, ip-route6-r3, ip-rule-r3
+  r4 erspan0 (erspan) from 2026-10-21T19:31:06.205137697Z until 2026-10-21T19:31:06.219011794Z, by ip-link-r4, ip-addr-r4, ip-route4-r4, ip-route6-r4, ip-rule-r4
+  r4 gre0 (gre) from 2026-10-21T19:31:06.205137697Z until 2026-10-21T19:31:06.219011794Z, by ip-link-r4, ip-addr-r4, ip-route4-r4, ip-route6-r4, ip-rule-r4
+  r4 gretap0 (gretap) from 2026-10-21T19:31:06.205137697Z until 2026-10-21T19:31:06.219011794Z, by ip-link-r4, ip-addr-r4, ip-route4-r4, ip-route6-r4, ip-rule-r4
+  r4 tunl0 (ipip) from 2026-10-21T19:31:06.205137697Z until 2026-10-21T19:31:06.219011794Z, by ip-link-r4, ip-addr-r4, ip-route4-r4, ip-route6-r4, ip-rule-r4
+unproven: 0
+without a usable capture: []
+path before the fault at 2026-10-21T19:31:06Z
+  r1 route get 10.71.30.1 from 10.71.14.1: 10.71.30.1 from 10.71.14.1 via 10.71.14.4 dev ne5de4331 uid 0 \    cache
+  r3 route get 10.71.14.1 from 10.71.30.1: 10.71.14.1 from 10.71.30.1 via 10.71.43.4 dev ne5de4337 uid 0 \    cache
+  r1 outer route get 10.71.30.1 from 10.71.14.1 oif ne5de4331: exit 0 10.71.30.1 from 10.71.14.1 via 10.71.14.4 dev ne5de4331 uid 0 \    cache
+  r1 gre1:
+    6: gre1@ne5de4331: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1476 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+        link/gre 10.71.14.1 peer 10.71.30.1
+        RX:  bytes packets errors dropped  missed   mcast           
+                96       2      0       0       0       0 
+        RX errors:  length    crc   frame    fifo overrun
+                         0      0       0       0       0 
+        TX:  bytes packets errors dropped carrier collsns           
+               116       2      0       0       0       0 
+        TX errors: aborted   fifo  window heartbt transns
+                         0      0       0       0       0 
+  r1 ne5de4331:
+    59: ne5de4331@if60: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+        link/ether aa:af:f3:f7:7f:1d brd ff:ff:ff:ff:ff:ff link-netnsid 0
+        RX:  bytes packets errors dropped  missed   mcast           
+              1982      23      0       0       0       0 
+        RX errors:  length    crc   frame    fifo overrun
+                         0      0       0       0       0 
+        TX:  bytes packets errors dropped carrier collsns           
+               734       9      0       0       0       0 
+        TX errors: aborted   fifo  window heartbt transns
+                         0      0       0       0       2 
+  r3 gre1:
+    6: gre1@ne5de4337: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1476 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+        link/gre 10.71.30.1 peer 10.71.14.1
+        RX:  bytes packets errors dropped  missed   mcast           
+                60       1      0       0       0       0 
+        RX errors:  length    crc   frame    fifo overrun
+                         0      0       0       0       0 
+        TX:  bytes packets errors dropped carrier collsns           
+                96       2      0       0       0       0 
+        TX errors: aborted   fifo  window heartbt transns
+                         0      0       0       0       0 
+path after the fault at 2026-10-21T19:31:06Z
+  r1 route get 10.71.30.1 from 10.71.14.1: 10.71.30.1 from 10.71.14.1 via 10.71.14.4 dev ne5de4331 uid 0 \    cache
+  r3 route get 10.71.14.1 from 10.71.30.1: 10.71.14.1 from 10.71.30.1 via 10.71.43.4 dev ne5de4337 uid 0 \    cache
+  r1 outer route get 10.71.30.1 from 10.71.14.1 oif ne5de4331: exit 0 10.71.30.1 from 10.71.14.1 via 10.71.14.4 dev ne5de4331 uid 0 \    cache
+  r1 gre1:
+    6: gre1@ne5de4331: <POINTOPOINT,NOARP> mtu 1476 qdisc noqueue state DOWN mode DEFAULT group default qlen 1000
+        link/gre 10.71.14.1 peer 10.71.30.1
+        RX:  bytes packets errors dropped  missed   mcast           
+                96       2      0       0       0       0 
+        RX errors:  length    crc   frame    fifo overrun
+                         0      0       0       0       0 
+        TX:  bytes packets errors dropped carrier collsns           
+               116       2      0       0       0       0 
+        TX errors: aborted   fifo  window heartbt transns
+                         0      0       0       0       0 
+  r1 ne5de4331:
+    59: ne5de4331@if60: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+        link/ether aa:af:f3:f7:7f:1d brd ff:ff:ff:ff:ff:ff link-netnsid 0
+        RX:  bytes packets errors dropped  missed   mcast           
+              2036      24      0       0       0       0 
+        RX errors:  length    crc   frame    fifo overrun
+                         0      0       0       0       0 
+        TX:  bytes packets errors dropped carrier collsns           
+               808      10      0       0       0       0 
+        TX errors: aborted   fifo  window heartbt transns
+                         0      0       0       0       2 
+  r3 gre1:
+    6: gre1@ne5de4337: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1476 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+        link/gre 10.71.30.1 peer 10.71.14.1
+        RX:  bytes packets errors dropped  missed   mcast           
+                60       1      0       0       0       0 
+        RX errors:  length    crc   frame    fifo overrun
+                         0      0       0       0       0 
+        TX:  bytes packets errors dropped carrier collsns           
+                96       2      0       0       0       0 
+        TX errors: aborted   fifo  window heartbt transns
+                         0      0       0       0       0 
+10.71.12.1   recorded none              without record none              dialed before true  after true
+10.71.12.2   recorded none              without record none              dialed before true  after true
+10.71.14.1   recorded none              without record none              dialed before true  after true
+10.71.14.4   recorded none              without record none              dialed before true  after true
+10.71.23.2   recorded none              without record none              dialed before false after false
+10.71.23.3   recorded none              without record none              dialed before false after false
+10.71.30.1   recorded none              without record none              dialed before true  after true
+10.71.43.3   recorded none              without record none              dialed before false after false
+10.71.43.4   recorded none              without record none              dialed before false after false
+172.31.0.1   recorded unknown           without record unknown           dialed before true  after true
+172.31.0.2   recorded reachability_lost without record reachability_lost dialed before true  after false

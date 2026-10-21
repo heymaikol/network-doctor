@@ -26,6 +26,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR --sources LIST|all [--json]
        netdoc --explain topology.json DEST --fail-next-hop NODE[@VRF]:ADDRESS[%INTERFACE] --sources LIST|all [--json]
        netdoc --import-frr-ospf manifest.json [--write-topology topology.json] [--json]
+       netdoc --import-tunnels manifest.json [--write-topology topology.json] [--json]
        netdoc --import-frr-bgp manifest.json [--json]
        netdoc --import-frr-bgp manifest.json --withdraw-bgp NODE:PEER:PREFIX [--json]
        netdoc --import-frr-bgp manifest.json --fail-bgp-session NODE:PEER [--json]
@@ -118,6 +119,24 @@ network is healthy. Exit 1 means something was refused or left unmapped. With
 by hard link, so it never replaces an existing file, and a filesystem without
 hard links refuses the write. The format is documented under FRR OSPF import in
 the reference.
+
+--import-tunnels reads the tunnel captures that a manifest names and adds the
+tunnels they prove to the base topology the manifest names. It is headless and
+runs no probe. Each capture is "ip -d -j link", "ip -j rule show", "ip -j addr show",
+"ip -4 -j route show table all", "ip -6 -j route show table all", or "wg show all
+dump" output for one node. Exit 0 means every modeled node has a
+usable capture and no candidate was refused or left unproven; a complete import
+writes the base topology with its tunnel records added. Exit 1 means the import
+is incomplete, so nothing is written: something was refused or left unproven, or
+a modeled node has no usable capture. Exit 2 means the manifest, the base
+topology, or a capture cannot be used. A gre device is recorded only when its
+node's IPv4 rules are the kernel default set, and an ipip device is refused unless it is an inert kernel fallback. A
+kernel fallback device is listed as inert only when the address and route captures
+show it inert, and is refused otherwise. A
+WireGuard endpoint is reported as unproven. With
+--write-topology FILE, a complete import is written, and the file is never
+replaced. The format is documented under Tunnel import from captures in the
+reference.
 
 --import-frr-bgp reads the FRR BGP summary captures that a manifest names and
 reports each router's ID, local AS, and peer sessions, with each state as FRR

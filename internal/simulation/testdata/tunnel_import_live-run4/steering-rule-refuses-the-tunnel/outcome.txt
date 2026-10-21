@@ -1,0 +1,25 @@
+import refusals:
+  r1 erspan0: has kind "erspan", which the import does not read; it is not an inert fallback: node r1: a rule has a key the import does not read, so it cannot be a kernel default rule
+  r1 gre0: remote any is a multipoint tunnel, which names no single remote; it is not an inert fallback: node r1: a rule has a key the import does not read, so it cannot be a kernel default rule
+  r1 gre1: the underlay routing table is not proven: node r1: a rule has a key the import does not read, so it cannot be a kernel default rule
+  r1 gretap0: has kind "gretap", which the import does not read; it is not an inert fallback: node r1: a rule has a key the import does not read, so it cannot be a kernel default rule
+  r1 tunl0: remote any is a multipoint tunnel, which names no single remote; it is not an inert fallback: node r1: a rule has a key the import does not read, so it cannot be a kernel default rule
+  r1 rules: a rule has a key the import does not read, so it cannot be a kernel default rule
+rules proven: r2 r3 r4
+tunnels recorded:
+  r3 default gre1 remote 10.71.14.1 underlay default
+inert fallbacks:
+  r2 erspan0 (erspan) from 2026-10-21T19:31:08.925704339Z until 2026-10-21T19:31:08.950046447Z, by ip-link-r2, ip-addr-r2, ip-route4-r2, ip-route6-r2, ip-rule-r2
+  r2 gre0 (gre) from 2026-10-21T19:31:08.925704339Z until 2026-10-21T19:31:08.950046447Z, by ip-link-r2, ip-addr-r2, ip-route4-r2, ip-route6-r2, ip-rule-r2
+  r2 gretap0 (gretap) from 2026-10-21T19:31:08.925704339Z until 2026-10-21T19:31:08.950046447Z, by ip-link-r2, ip-addr-r2, ip-route4-r2, ip-route6-r2, ip-rule-r2
+  r2 tunl0 (ipip) from 2026-10-21T19:31:08.925704339Z until 2026-10-21T19:31:08.950046447Z, by ip-link-r2, ip-addr-r2, ip-route4-r2, ip-route6-r2, ip-rule-r2
+  r3 erspan0 (erspan) from 2026-10-21T19:31:08.989326559Z until 2026-10-21T19:31:09.016192017Z, by ip-link-r3, ip-addr-r3, ip-route4-r3, ip-route6-r3, ip-rule-r3
+  r3 gre0 (gre) from 2026-10-21T19:31:08.989326559Z until 2026-10-21T19:31:09.016192017Z, by ip-link-r3, ip-addr-r3, ip-route4-r3, ip-route6-r3, ip-rule-r3
+  r3 gretap0 (gretap) from 2026-10-21T19:31:08.989326559Z until 2026-10-21T19:31:09.016192017Z, by ip-link-r3, ip-addr-r3, ip-route4-r3, ip-route6-r3, ip-rule-r3
+  r3 tunl0 (ipip) from 2026-10-21T19:31:08.989326559Z until 2026-10-21T19:31:09.016192017Z, by ip-link-r3, ip-addr-r3, ip-route4-r3, ip-route6-r3, ip-rule-r3
+  r4 erspan0 (erspan) from 2026-10-21T19:31:08.956004344Z until 2026-10-21T19:31:08.981781983Z, by ip-link-r4, ip-addr-r4, ip-route4-r4, ip-route6-r4, ip-rule-r4
+  r4 gre0 (gre) from 2026-10-21T19:31:08.956004344Z until 2026-10-21T19:31:08.981781983Z, by ip-link-r4, ip-addr-r4, ip-route4-r4, ip-route6-r4, ip-rule-r4
+  r4 gretap0 (gretap) from 2026-10-21T19:31:08.956004344Z until 2026-10-21T19:31:08.981781983Z, by ip-link-r4, ip-addr-r4, ip-route4-r4, ip-route6-r4, ip-rule-r4
+  r4 tunl0 (ipip) from 2026-10-21T19:31:08.956004344Z until 2026-10-21T19:31:08.981781983Z, by ip-link-r4, ip-addr-r4, ip-route4-r4, ip-route6-r4, ip-rule-r4
+unproven: 0
+without a usable capture: []

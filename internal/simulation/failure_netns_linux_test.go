@@ -659,16 +659,21 @@ type kernelHop struct {
 // one complete fib observation per node. Kernel device names become logical
 // segment names, the mapping the route evidence already uses, so a failure
 // names an interface the way the scenario does. Loopback is on no segment and
-// is left out. Link-local addresses and routes are left out too: a destination
-// needs its zone to be dialed, and the walk carries no zone for one. Nothing
-// here reads the scenario's routes. The tables are complete because the backend
+// is left out. Each name in tunnels is a device on no segment, so it keeps its
+// own name, and an observed route through it names the tunnel the way the
+// import record does. Link-local addresses and routes are left out too: a
+// destination needs its zone to be dialed, and the walk carries no zone for one.
+// Nothing here reads the scenario's routes. The tables are complete because the backend
 // adds no policy rule, so the main table is the one every lookup ends in.
-func kernelObservations(ctx context.Context, t *testing.T, e *netnsEnv) []netmodel.Observation {
+func kernelObservations(ctx context.Context, t *testing.T, e *netnsEnv, tunnels ...string) []netmodel.Observation {
 	t.Helper()
 	at := time.Now().UTC()
 	var out []netmodel.Observation
 	for _, np := range e.nodes {
 		segment := func(dev string) string {
+			if slices.Contains(tunnels, dev) {
+				return dev
+			}
 			for _, iface := range np.ifaces {
 				if iface.iface == dev {
 					return iface.logical.Segment

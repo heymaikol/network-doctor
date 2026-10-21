@@ -1,0 +1,1 @@
+[{"priority":0,"src":"all","table":"local"},{"priority":32765,"src":"all","dst":"10.71.30.1","table":"100"},{"priority":32766,"src":"all","table":"main"},{"priority":32767,"src":"all","table":"default"}]

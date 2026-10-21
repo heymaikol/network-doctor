@@ -57,7 +57,7 @@ _netdoc_wants_snapshots() {
 # spec up front keeps the ordinary case exactly the single `:target:` it has
 # always been, and the flags keep coming back.
 local -a _netdoc_rest
-if (( ${words[(I)(--import-frr-ospf|-import-frr-ospf|--import-frr-bgp|-import-frr-bgp)]} )); then
+if (( ${words[(I)(--import-frr-ospf|-import-frr-ospf|--import-tunnels|-import-tunnels|--import-frr-bgp|-import-frr-bgp)]} )); then
   _netdoc_rest=()
 elif (( ${words[(I)(--explain|-explain)]} )); then
   _netdoc_rest=( ':topology file:_files' ':destination:' )
@@ -85,11 +85,12 @@ _arguments \
   '(--fail-ospf -fail-ospf)'{--fail-ospf,-fail-ospf}='[with --explain, simulate losing the OSPF adjacency node\:interface\:neighbor; runs no probes]:node\:interface\:neighbor:' \
   '(--fail-next-hop -fail-next-hop)'{--fail-next-hop,-fail-next-hop}='[with --explain, simulate one node losing one recorded next hop; runs no probes]:node[@vrf]\:address[%%interface]:' \
   '(--sources -sources)'{--sources,-sources}='[with --explain and a failure flag, simulate that failure from each listed node or from all modeled nodes; runs no probes]:node[@vrf] list or all:' \
-  '(--import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-ospf,-import-frr-ospf}'=[import the FRR OSPF captures a manifest names; runs no probes]:manifest:_files' \
-  '(--import-frr-bgp -import-frr-bgp --import-frr-ospf -import-frr-ospf --write-topology -write-topology --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-bgp,-import-frr-bgp}'=[import the FRR BGP summary and route captures a manifest names; runs no probes]:manifest:_files' \
+  '(--import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp --import-tunnels -import-tunnels --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-ospf,-import-frr-ospf}'=[import the FRR OSPF captures a manifest names; runs no probes]:manifest:_files' \
+  '(--import-tunnels -import-tunnels --import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp --write-topology -write-topology --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-tunnels,-import-tunnels}'=[import the tunnel captures a manifest names onto its base topology; runs no probes]:manifest:_files' \
+  '(--import-frr-bgp -import-frr-bgp --import-frr-ospf -import-frr-ospf --import-tunnels -import-tunnels --write-topology -write-topology --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-bgp,-import-frr-bgp}'=[import the FRR BGP summary and route captures a manifest names; runs no probes]:manifest:_files' \
   '(--withdraw-bgp -withdraw-bgp --fail-bgp-session -fail-bgp-session)'{--withdraw-bgp,-withdraw-bgp}='[with --import-frr-bgp, simulate a peer withdrawing a prefix from the recorded BGP table of one node]:node\:peer\:prefix:' \
   '(--fail-bgp-session -fail-bgp-session --withdraw-bgp -withdraw-bgp)'{--fail-bgp-session,-fail-bgp-session}='[with --import-frr-bgp, simulate losing the BGP session node\:peer in the recorded BGP table of one node]:node\:peer:' \
-  '(--write-topology -write-topology)'{--write-topology,-write-topology}'=[with --import-frr-ospf, write the topology of a complete import to a file]:file:_files' \
+  '(--write-topology -write-topology)'{--write-topology,-write-topology}'=[with --import-frr-ospf or --import-tunnels, write the topology of a complete import to a file]:file:_files' \
   '(--route-a -route-a)'{--route-a,-route-a}'=[add the routing context of a topology file to side A of offline --two-sided]:topology file:_files' \
   '(--route-b -route-b)'{--route-b,-route-b}'=[add the routing context of a topology file to side B of offline --two-sided]:topology file:_files' \
   '*'{--peer-listen,-peer-listen}='[listen for an authenticated peer on an exact IP\:port]:address:' \

@@ -246,21 +246,11 @@ func decodeTunnel(w wireTunnel) (Tunnel, error) {
 		return Tunnel{}, errors.New("needs source, node, vrf, interface, remote, and underlay_vrf")
 	}
 	r, err := netip.ParseAddr(w.Remote)
-	switch {
-	case err != nil:
+	if err != nil {
 		return Tunnel{}, fmt.Errorf("remote %q: %w", w.Remote, err)
-	case r.Zone() != "":
-		return Tunnel{}, fmt.Errorf("remote %s names a zone, and a tunnel's remote is not tied to one link", r)
-	case r.Is4In6():
-		return Tunnel{}, fmt.Errorf("remote %s is an IPv4-mapped IPv6 address; write it as %s", r, r.Unmap())
-	case r.IsUnspecified():
-		return Tunnel{}, fmt.Errorf("remote %s is unspecified", r)
-	case r.IsLoopback():
-		return Tunnel{}, fmt.Errorf("remote %s is a loopback address", r)
-	case r.IsLinkLocalUnicast():
-		return Tunnel{}, fmt.Errorf("remote %s is link-local, which names a neighbor only together with its link", r)
-	case r.IsMulticast() || r == netip.AddrFrom4([4]byte{255, 255, 255, 255}):
-		return Tunnel{}, fmt.Errorf("remote %s is a group address; a multipoint tunnel is not supported", r)
+	}
+	if err := checkRemote(r); err != nil {
+		return Tunnel{}, err
 	}
 	return Tunnel{
 		Provenance:  netmodel.Provenance{Source: w.Source, CollectedAt: at},
@@ -270,6 +260,27 @@ func decodeTunnel(w wireTunnel) (Tunnel, error) {
 		Remote:      r,
 		UnderlayVRF: w.UnderlayVRF,
 	}, nil
+}
+
+// checkRemote refuses a tunnel remote that is not one unicast address another node
+// can hold, spelled the way the model stores it. It serves decodeTunnel and the
+// WireGuard endpoint of the import, so both read the same address rules.
+func checkRemote(r netip.Addr) error {
+	switch {
+	case r.Zone() != "":
+		return fmt.Errorf("remote %s names a zone, and a tunnel's remote is not tied to one link", r)
+	case r.Is4In6():
+		return fmt.Errorf("remote %s is an IPv4-mapped IPv6 address; write it as %s", r, r.Unmap())
+	case r.IsUnspecified():
+		return fmt.Errorf("remote %s is unspecified", r)
+	case r.IsLoopback():
+		return fmt.Errorf("remote %s is a loopback address", r)
+	case r.IsLinkLocalUnicast():
+		return fmt.Errorf("remote %s is link-local, which names a neighbor only together with its link", r)
+	case r.IsMulticast() || r == netip.AddrFrom4([4]byte{255, 255, 255, 255}):
+		return fmt.Errorf("remote %s is a group address; a multipoint tunnel is not supported", r)
+	}
+	return nil
 }
 
 func decodeBoundary(w wireBoundary) (Boundary, error) {

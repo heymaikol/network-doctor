@@ -226,6 +226,13 @@ Each one gets a sentence here and a complete contract in the reference.
   simulations rate prefixes in the imported table and leave the forwarding impact
   unknown. [FRR OSPF import](docs/reference.md#frr-ospf-import),
   [FRR BGP summary import](docs/reference.md#frr-bgp-summary-import).
+- **Tunnel import, offline.** `--import-tunnels` reads `ip -d -j link`,
+  `ip -j rule show`, `ip -j addr show`, `ip -4 -j route show table all`,
+  `ip -6 -j route show table all`, and `wg show all dump` captures and adds the tunnels they prove to a base
+  topology. A GRE tunnel is recorded only when its node's IPv4 policy rules are
+  the kernel default set. A kernel fallback device is listed as inert when its
+  captures show it inert, and refused otherwise. IPIP is refused unless it is an inert kernel fallback, and WireGuard endpoints are reported
+  unproven. [Tunnel import from captures](docs/reference.md#tunnel-import-from-captures).
 - **Route context for two-sided diagnosis.** `--route-a` and `--route-b` add a
   topology file's routing context to an offline `--two-sided` reading. The
   context counts only when the file belongs to that side's own run, and it never

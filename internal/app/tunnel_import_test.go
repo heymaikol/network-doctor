@@ -77,7 +77,7 @@ func TestTunnelImportWritesACompleteBaseUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(out)
+	got, err := os.ReadFile(filepath.Clean(out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestTunnelImportWritesTheRecordedTunnel(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, want 0; stdout %q stderr %q", code, stdout, stderr)
 	}
-	got, err := os.ReadFile(out)
+	got, err := os.ReadFile(filepath.Clean(out))
 	if err != nil {
 		t.Fatal(err)
 	}

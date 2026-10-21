@@ -143,6 +143,7 @@ func TestTunnelImportAgainstLiveNamespaces(t *testing.T) {
 	}
 	t.Parallel()
 	requireBackend(t)
+	requireIPIPFallback(t)
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -405,6 +406,24 @@ func addGRE(ctx context.Context, t *testing.T, e *netnsEnv, node, local, remote,
 			t.Fatalf("%s: %s: %v", node, strings.Join(argv, " "), execResultError(res))
 		}
 	}
+}
+
+// requireIPIPFallback stops the live tunnel import cases unless the ipip kernel
+// module is loaded. The kernel creates the tunl0 fallback device in a network
+// namespace only while that module is loaded, and every case expects tunl0 on each
+// node. Without the module the cases fail on the missing device rather than on the
+// import, so this names what is missing instead. It fails under RequireNetnsEnv and
+// skips otherwise.
+func requireIPIPFallback(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat("/sys/module/ipip"); err == nil {
+		return
+	}
+	const msg = "the ipip kernel module is not loaded, so new namespaces get no tunl0 fallback device; run: sudo modprobe ipip"
+	if os.Getenv(RequireNetnsEnv) != "" {
+		t.Fatalf("%s is set, so these tests must run, but %s", RequireNetnsEnv, msg)
+	}
+	t.Skip(msg)
 }
 
 // steerR1 installs the policy rule the import must refuse: lookups for the

@@ -42,7 +42,7 @@ func writeTunnelEvidence(dir string, captures []routepath.TunnelCapture, base []
 	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	var meta []tunnelEvidenceEntry
@@ -80,7 +80,7 @@ func writeTunnelEvidence(dir string, captures []routepath.TunnelCapture, base []
 		if e.IsDir() {
 			return fmt.Errorf("%s holds a directory, %s, which the manifest cannot cover", dir, e.Name())
 		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		b, err := os.ReadFile(filepath.Clean(filepath.Join(dir, e.Name())))
 		if err != nil {
 			return err
 		}
@@ -91,13 +91,12 @@ func writeTunnelEvidence(dir string, captures []routepath.TunnelCapture, base []
 
 // writeNewFile creates path with data, failing if it already exists.
 func writeNewFile(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
+		return errors.Join(err, f.Close())
 	}
 	return f.Close()
 }
@@ -196,7 +195,7 @@ func TestWriteTunnelEvidenceMetadataRoundTrips(t *testing.T) {
 // used twice is refused rather than overwriting its file.
 func TestWriteTunnelEvidenceRefusesAnExistingCase(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "old.json"), []byte("kept\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "old.json"), []byte("kept\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeTunnelEvidence(dir, nil, nil, ""); err == nil {
@@ -207,7 +206,7 @@ func TestWriteTunnelEvidenceRefusesAnExistingCase(t *testing.T) {
 	}
 
 	empty := filepath.Join(t.TempDir(), "case")
-	if err := os.MkdirAll(empty, 0o755); err != nil {
+	if err := os.MkdirAll(empty, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeTunnelEvidence(empty, nil, nil, ""); err != nil {
@@ -239,7 +238,7 @@ func readTestSums(t *testing.T, dir string) map[string]string {
 
 func readTestFile(t *testing.T, path string) string {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatal(err)
 	}

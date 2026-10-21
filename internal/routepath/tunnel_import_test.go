@@ -84,7 +84,7 @@ func wgOK(name string) []string {
 // readImportFixture reads one recorded capture from testdata/tunnel_import.
 func readImportFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "tunnel_import", name))
+	data, err := os.ReadFile(filepath.Clean(filepath.Join("testdata", "tunnel_import", name)))
 	if err != nil {
 		t.Fatal(err)
 	}

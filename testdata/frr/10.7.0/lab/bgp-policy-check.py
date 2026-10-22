@@ -7,19 +7,23 @@
 # A json file is the echoed CMD, CRLF, one strict JSON object, CRLF, and PROMPT with nothing after
 # it. Duplicate keys, NaN, and Infinity fail. A text file ends with CRLF and PROMPT and holds no
 # "% ", which FRR prints for a rejected line. Exit 0 only if the file and every TERM pass; exit 1
-# if one does not; exit 2 for a usage error. A TERM is op:arg, and only these ops are read:
+# if one does not; exit 2 for a usage error, and for a text file that passes its framing but has no
+# TERM. A TERM is op:arg, only these ops are read, and a TERM with an empty arg fails:
 #   json  est:ADDR            a dict under key ADDR has a direct value "Established".
 #         key:NAME            a key NAME is present at some depth.
 #         paths:PREFIX=ID,ID  routes[PREFIX] lists exactly these peerId values, as a sorted multiset.
 #         best:PREFIX=ID,ID   exactly these peerId values are on PREFIX's paths with "bestpath": true.
 #         weight:PREFIX=ID=N  a path of PREFIX from peerId ID has "weight": N.
 #         absent:PREFIX       routes has no key PREFIX.
-#   text  has:TEXT            TEXT appears in the file.
-#         lacks:TEXT          TEXT does not appear in the file.
+#   text  has:TEXT            TEXT appears in the file as a whole token: no letter, digit, "_",
+#                             ".", "/", or "-" touches either end of it.
+#         lacks:TEXT          TEXT does not appear in the file, as a substring.
 #         inaf:TEXT           a line, stripped, equals TEXT and lies between a line
 #                             "address-family ipv4 unicast" and the next "exit-address-family".
+#                             Any other "address-family" line ends that part.
 # Any other op fails. Other fields are never read.
 import json
+import re
 import sys
 
 
@@ -56,6 +60,8 @@ def paths_of(d, prefix):
 
 
 def json_term(d, op, arg):
+    if not arg:
+        return False
     if op == "est":
         return any(isinstance(v, dict) and "Established" in v.values() for v in find(d, arg))
     if op == "key":
@@ -78,16 +84,19 @@ def json_term(d, op, arg):
 
 
 def text_term(t, op, arg):
+    if not arg:
+        return False
     if op == "has":
-        return arg in t
+        # Whole token only: permit 10 does not match permit 100, nor R3-IN match R3-IN-old.
+        return re.search(r"(?<![\w./-])" + re.escape(arg) + r"(?![\w./-])", t) is not None
     if op == "lacks":
         return arg not in t
     if op == "inaf":
         inside = False
         for line in t.split("\n"):
             s = line.strip()
-            if s == "address-family ipv4 unicast":
-                inside = True
+            if s.startswith("address-family "):
+                inside = s == "address-family ipv4 unicast"
             elif s == "exit-address-family":
                 inside = False
             elif inside and s == arg:
@@ -122,6 +131,8 @@ def main(argv):
         prompt, terms = argv[3], argv[4:]
         if not raw.endswith(b"\r\n" + prompt.encode()) or b"% " in raw:
             sys.exit(1)
+        if not terms:
+            sys.exit(2)
         t = raw.decode("utf-8")
         ok = all(text_term(t, *split(term)) for term in terms)
     sys.exit(0 if ok else 1)

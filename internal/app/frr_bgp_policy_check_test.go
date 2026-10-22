@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -199,6 +200,268 @@ func TestPolicyCheckReadsTranscriptsAsText(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if code := policyText(t, c.file, "r1# ", c.terms); code != c.want {
+				t.Errorf("exit %d, want %d", code, c.want)
+			}
+		})
+	}
+}
+
+// policyBeforeConfig and policyAfterConfig are the CFG terms that lab/bgp-policy.sh checks r1's
+// running configuration against, before and after the change. They are copied from the script.
+var policyBeforeConfig = []string{
+	"has:router bgp 65001",
+	"inaf:network 10.10.1.0/24",
+	"lacks:route-map R3-IN",
+	"lacks:neighbor 10.0.3.3 route-map R3-IN in",
+}
+
+var policyAfterConfig = []string{
+	"has:router bgp 65001",
+	"inaf:network 10.10.1.0/24",
+	"has:ip prefix-list P10-2 seq 5 permit 10.10.2.0/24",
+	"has:route-map R3-IN permit 10",
+	"has:match ip address prefix-list P10-2",
+	"has:set weight 100",
+	"has:route-map R3-IN permit 20",
+	"inaf:neighbor 10.0.3.3 route-map R3-IN in",
+}
+
+// policyBinding is the line that binds R3-IN inbound under the IPv4 unicast family of r1.
+const policyBinding = "  neighbor 10.0.3.3 route-map R3-IN in\r\n"
+
+// policyAfterConfigBody is a hand-written running configuration with the change applied, laid out
+// the way FRR prints a running configuration. It is not FRR output, and that layout is not verified
+// against FRR 10.7.0. It is the positive control for the negative cases below.
+const policyAfterConfigBody = "r1# show running-config\r\n" +
+	"hostname r1\r\n" +
+	"router bgp 65001\r\n" +
+	" bgp router-id 1.1.1.1\r\n" +
+	" neighbor 10.0.1.2 remote-as 65002\r\n" +
+	" neighbor 10.0.3.3 remote-as 65003\r\n" +
+	" address-family ipv4 unicast\r\n" +
+	"  network 10.10.1.0/24\r\n" +
+	"  neighbor 10.0.1.2 activate\r\n" +
+	"  neighbor 10.0.3.3 activate\r\n" +
+	policyBinding +
+	" exit-address-family\r\n" +
+	"!\r\n" +
+	"ip prefix-list P10-2 seq 5 permit 10.10.2.0/24\r\n" +
+	"!\r\n" +
+	"route-map R3-IN permit 10\r\n" +
+	" match ip address prefix-list P10-2\r\n" +
+	" set weight 100\r\n" +
+	"!\r\n" +
+	"route-map R3-IN permit 20\r\n" +
+	"!\r\n" +
+	"end\r\n" +
+	"r1# "
+
+// policyEchoBody is a hand-written transcript of the policy change on r1. Each command is echoed
+// after its prompt, and nothing else is printed, so it holds the requested commands and no
+// configuration output. The first line is bare, as in the committed shutdown transcript.
+const policyEchoBody = "enable\r\n" +
+	"r1# configure terminal\r\n" +
+	"r1(config)# ip prefix-list P10-2 seq 5 permit 10.10.2.0/24\r\n" +
+	"r1(config)# route-map R3-IN permit 10\r\n" +
+	"r1(config-route-map)# match ip address prefix-list P10-2\r\n" +
+	"r1(config-route-map)# set weight 100\r\n" +
+	"r1(config-route-map)# exit\r\n" +
+	"r1(config)# route-map R3-IN permit 20\r\n" +
+	"r1(config-route-map)# exit\r\n" +
+	"r1(config)# router bgp 65001\r\n" +
+	"r1(config-router)# address-family ipv4 unicast\r\n" +
+	"r1(config-router-af)# neighbor 10.0.3.3 route-map R3-IN in\r\n" +
+	"r1(config-router-af)# exit-address-family\r\n" +
+	"r1(config-router)# exit\r\n" +
+	"r1(config)# end\r\n" +
+	"r1# clear ip bgp 10.0.3.3 soft in\r\n" +
+	"r1# "
+
+// policyEdit returns body with its one occurrence of old replaced by repl. It fails the test when
+// old does not occur exactly once, so an edit that did not apply cannot pass as a clean case.
+func policyEdit(t *testing.T, body, old, repl string) string {
+	t.Helper()
+	if n := strings.Count(body, old); n != 1 {
+		t.Fatalf("%q occurs %d times in the body, want 1", old, n)
+	}
+	return strings.Replace(body, old, repl, 1)
+}
+
+// TestPolicyCheckAcceptsPolicyConfigBody is the positive control. The hand-written body with the
+// change applied passes every after-change CFG term, and the before-change terms refuse it. Without
+// this case, the negative cases could pass only because their terms can never match.
+func TestPolicyCheckAcceptsPolicyConfigBody(t *testing.T) {
+	file := writePolicyFixture(t, "after-config.raw", policyAfterConfigBody)
+	if code := policyText(t, file, "r1# ", policyAfterConfig); code != 0 {
+		t.Errorf("the after-change body fails the after-change terms: exit %d, want 0", code)
+	}
+	if code := policyText(t, file, "r1# ", policyBeforeConfig); code != 1 {
+		t.Errorf("the after-change body passes the before-change terms: exit %d, want 1", code)
+	}
+}
+
+// TestPolicyCheckRefusesMutatedPolicyConfig edits one part of the positive control. Each edit must
+// fail the after-change terms. The old checker already refused every case, so these pin behavior
+// that was already right.
+func TestPolicyCheckRefusesMutatedPolicyConfig(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		body string
+	}{
+		{"a missing binding", policyEdit(t, policyAfterConfigBody, policyBinding, "")},
+		{"a binding for another peer", policyEdit(t, policyAfterConfigBody, policyBinding, "  neighbor 10.0.1.2 route-map R3-IN in\r\n")},
+		{"a binding in the other direction", policyEdit(t, policyAfterConfigBody, "route-map R3-IN in\r\n", "route-map R3-IN out\r\n")},
+		{"no route-map definition", policyEdit(t, policyAfterConfigBody, "route-map R3-IN permit 10\r\n match ip address prefix-list P10-2\r\n set weight 100\r\n", "")},
+		{"no weight set", policyEdit(t, policyAfterConfigBody, " set weight 100\r\n", " set weight 0\r\n")},
+		{"a prefix list for another prefix", policyEdit(t, policyAfterConfigBody, "permit 10.10.2.0/24", "permit 10.10.9.0/24")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			file := writePolicyFixture(t, "mutant.raw", c.body)
+			if code := policyText(t, file, "r1# ", policyAfterConfig); code != 1 {
+				t.Errorf("exit %d, want 1", code)
+			}
+		})
+	}
+}
+
+// TestPolicyCheckRefusesWrongFamily checks a binding under the wrong family or peer. The bodies are
+// hand-written, not FRR output. The first two rows were already refused by the old checker. The nested row is a malformed transcript: an ipv6
+// family opened inside the ipv4 family with no exit. The old checker read that binding as still
+// inside ipv4, so it passed.
+func TestPolicyCheckRefusesWrongFamily(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		body string
+	}{
+		{"a binding in ipv6 only", "router bgp 65001\r\n address-family ipv6 unicast\r\n  neighbor 10.0.3.3 route-map R3-IN in\r\n exit-address-family\r\nend\r\nr1# "},
+		{"a binding for another peer in ipv4", "router bgp 65001\r\n address-family ipv4 unicast\r\n  neighbor 10.0.1.2 route-map R3-IN in\r\n exit-address-family\r\nend\r\nr1# "},
+		{"an ipv6 family nested in ipv4 with no exit", "router bgp 65001\r\n address-family ipv4 unicast\r\n address-family ipv6 unicast\r\n  neighbor 10.0.3.3 route-map R3-IN in\r\n exit-address-family\r\nend\r\nr1# "},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			file := writePolicyFixture(t, "family.raw", c.body)
+			if code := policyText(t, file, "r1# ", []string{"inaf:neighbor 10.0.3.3 route-map R3-IN in"}); code != 1 {
+				t.Errorf("exit %d, want 1", code)
+			}
+		})
+	}
+}
+
+// TestPolicyCheckRefusesPrefixOfLongerToken checks that has: matches whole tokens. The old checker
+// read a longer number or name as the shorter one: permit 10 in permit 100, weight 100 in weight
+// 1000, and R3-IN in R3-IN-old. The bodies are hand-written, not FRR output. The last two rows are
+// positive cases that check only that "," and ":" end a token. The real layout of show route-map
+// and show ip prefix-list output is not verified against FRR 10.7.0.
+func TestPolicyCheckRefusesPrefixOfLongerToken(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		body string
+		term string
+		want int
+	}{
+		{"permit 10 inside permit 100", policyEdit(t, policyAfterConfigBody, "route-map R3-IN permit 10\r\n", "route-map R3-IN permit 100\r\n"), "has:route-map R3-IN permit 10", 1},
+		{"weight 100 inside weight 1000", policyEdit(t, policyAfterConfigBody, " set weight 100\r\n", " set weight 1000\r\n"), "has:set weight 100", 1},
+		{"R3-IN inside R3-IN-old", "route-map R3-IN-old permit 10\r\nr1# ", "has:route-map R3-IN", 1},
+		{"R3-IN before a comma", "route-map R3-IN, permit, sequence 10\r\nr1# ", "has:R3-IN", 0},
+		{"P10-2 before a colon", "ip prefix-list P10-2: 1 entries\r\nr1# ", "has:P10-2", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			file := writePolicyFixture(t, "token.raw", c.body)
+			if code := policyText(t, file, "r1# ", []string{c.term}); code != c.want {
+				t.Errorf("exit %d, want %d", code, c.want)
+			}
+		})
+	}
+}
+
+// TestPolicyCheckRefusesEmptyTerms checks that a term with an empty arg fails. The old checker let an
+// empty has: match every file, an empty inaf: match any blank line inside a family, and an empty
+// absent: pass on the committed table. The text bodies are hand-written, not FRR output.
+func TestPolicyCheckRefusesEmptyTerms(t *testing.T) {
+	framed := writePolicyFixture(t, "framed.raw", "enable\r\nr1# ")
+	blank := writePolicyFixture(t, "blank.raw", "address-family ipv4 unicast\r\n\r\n exit-address-family\r\nend\r\nr1# ")
+	table := withdrawLab + "/r1-before-show_ip_bgp_json.raw"
+	if code := policyText(t, framed, "r1# ", []string{"has:"}); code != 1 {
+		t.Errorf("has: with no arg: exit %d, want 1", code)
+	}
+	if code := policyText(t, blank, "r1# ", []string{"inaf:"}); code != 1 {
+		t.Errorf("inaf: with no arg: exit %d, want 1", code)
+	}
+	if code := policyJSON(t, table, "show ip bgp json", "r1> ", []string{"absent:"}); code != 1 {
+		t.Errorf("absent: with no arg: exit %d, want 1", code)
+	}
+}
+
+// TestPolicyCheckRequiresTextTerm checks that a text transcript with no TERM exits 2, a usage error,
+// because its framing alone is not a check. A transcript that breaks the framing still exits 1 first.
+// The bodies are hand-written.
+func TestPolicyCheckRequiresTextTerm(t *testing.T) {
+	framed := writePolicyFixture(t, "framed.raw", "enable\r\nr1# ")
+	rejected := writePolicyFixture(t, "rejected.raw", "enable\r\nr1# \r\n% Unknown command.\r\nr1# ")
+	if code := policyText(t, framed, "r1# ", nil); code != 2 {
+		t.Errorf("framed text with no TERM: exit %d, want 2", code)
+	}
+	if code := policyText(t, rejected, "r1# ", nil); code != 1 {
+		t.Errorf("rejected text with no TERM: exit %d, want 1", code)
+	}
+}
+
+// TestPolicyCheckRefusesIncompleteTranscripts checks transcripts that end early or hold an error line.
+// Each one fails the framing or the "% " rule, even where its terms would otherwise match. The error
+// row is hand-written, not FRR output.
+func TestPolicyCheckRefusesIncompleteTranscripts(t *testing.T) {
+	cut := strings.Index(policyAfterConfigBody, "route-map R3-IN permit 20")
+	for _, c := range []struct {
+		name string
+		body string
+	}{
+		{"an empty file", ""},
+		{"a file cut before its prompt", strings.TrimSuffix(policyAfterConfigBody, "r1# ")},
+		{"a file cut inside a line", policyAfterConfigBody[:cut+len("route-map R3-IN")]},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			file := writePolicyFixture(t, "incomplete.raw", c.body)
+			if code := policyText(t, file, "r1# ", policyAfterConfig); code != 1 {
+				t.Errorf("exit %d, want 1", code)
+			}
+		})
+	}
+	t.Run("an error line inside a matching family", func(t *testing.T) {
+		body := "router bgp 65001\r\n address-family ipv4 unicast\r\n  neighbor 10.0.3.3 route-map R3-IN in\r\n% Unknown command.\r\n exit-address-family\r\nend\r\nr1# "
+		file := writePolicyFixture(t, "rejected-family.raw", body)
+		if code := policyText(t, file, "r1# ", []string{"inaf:neighbor 10.0.3.3 route-map R3-IN in"}); code != 1 {
+			t.Errorf("exit %d, want 1", code)
+		}
+	})
+}
+
+// TestPolicyCheckRefusesEchoOnlyTranscripts checks transcripts that echo the requested commands and
+// print no configuration. The configuration terms must not pass on the echo. policy() checks only
+// that the change was sent and not rejected, so its acceptance terms do pass on the echo. That is not
+// configuration proof, and the configuration comes from the after-change running configuration.
+// The old checker already refused every row but the last, so those rows pin behavior that was right.
+// The last row pins only that the echo passes the acceptance terms. The bodies are hand-written, not
+// FRR output.
+func TestPolicyCheckRefusesEchoOnlyTranscripts(t *testing.T) {
+	captxt := "terminal length 0\r\nr1> enable\r\nr1# show running-config\r\nr1# "
+	route := "terminal length 0\r\nr1> enable\r\nr1# show route-map\r\nr1# "
+	prefix := "terminal length 0\r\nr1> enable\r\nr1# show ip prefix-list\r\nr1# "
+	for _, c := range []struct {
+		name  string
+		body  string
+		terms []string
+		want  int
+	}{
+		{"running configuration before the change", captxt, policyBeforeConfig, 1},
+		{"running configuration after the change", captxt, policyAfterConfig, 1},
+		{"route map", route, []string{"has:R3-IN"}, 1},
+		{"prefix list", prefix, []string{"has:P10-2"}, 1},
+		// The echoed family line keeps its prompt, so inaf: never opens the family for the echoed binding.
+		{"policy change, binding inside the family", policyEchoBody, []string{"inaf:neighbor 10.0.3.3 route-map R3-IN in"}, 1},
+		{"policy change, acceptance terms", policyEchoBody, []string{"has:set weight 100", "has:clear ip bgp 10.0.3.3 soft in"}, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			file := writePolicyFixture(t, "echo.raw", c.body)
+			if code := policyText(t, file, "r1# ", c.terms); code != c.want {
 				t.Errorf("exit %d, want %d", code, c.want)
 			}
 		})

@@ -118,3 +118,85 @@ iBGP, route reflection, add-path, multipath, policy, recursive next hops, hold
 timer or BFD detection, long-lived graceful restart, or timing. The kernel route
 captures are context: netdoc reads none of them, and no forwarding conclusion is
 drawn from the BGP table.
+
+## Live FIB evidence (opt-in, not yet captured)
+
+`lab/bgp-withdraw.sh` and `lab/bgp-session.sh` take an opt-in `ZEBRA_VTY_PORT`.
+Set, each phase adds r1's zebra route table (`show ip route json`) with a
+`.collected_at` stamp, and the run writes `SHA256SUMS` once every daemon has
+exited. The withdraw run also adds r1's kernel IPv4 routes (`ip -j -4 route
+show`) and an `events.log` line before each deletion. The session runs already
+take the kernel routes, with or without the opt-in. Unset, the runs write the
+files they wrote before. The repo holds no run of this opt-in and no zebra
+capture of any BGP phase, so nothing here is FIB evidence yet.
+
+Run each command from `lab/` with the header's conditions: `SCRATCH` holds
+`frr-root/` from the FRR 10.7.0 RPM, `BGPD_VTY_PORT` and `ZEBRA_VTY_PORT` are
+distinct free ports, and the output directory does not exist.
+
+```sh
+SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> unshare -Urnm bash bgp-withdraw.sh
+SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> ARM=plain unshare -Urnm bash bgp-session.sh
+SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> ARM=gr unshare -Urnm bash bgp-session.sh
+SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> ARM=admin unshare -Urnm bash bgp-session.sh
+```
+
+Outputs are `$SCRATCH/run/bgp-withdraw` and `$SCRATCH/run/bgp-session-<arm>`.
+Check a finished run with `cd <output> && sha256sum -c --strict SHA256SUMS`.
+The phases are withdraw: before, after1, after2; plain: before, after; gr:
+before, during, expired; admin: before, after. Each phase adds
+`r1-<phase>-show_ip_route_json.raw` with its `.collected_at` file, and the
+withdraw run also writes `r1-<phase>-ip_route.json` with its `.collected_at`.
+
+### Evidence still to obtain
+
+1. Zebra route tables for each BGP phase of all four runs. No zebra field is
+   verified for a BGP route. The repo's zebra captures are OSPF only: neither R
+   capture under `zebra-rib/steady/` holds a `"protocol": "bgp"` entry.
+2. Zebra's vty port and prompt. `lsdb.sh` says the repo never proves them. The
+   opt-in writes `hostname rN` and binds zebra to `ZEBRA_VTY_PORT`, but a live
+   run decides. A prompt other than `r1> ` fails the first zebra capture, and
+   the `.raw.failed` file is kept.
+3. Kernel routes from a withdrawal run. `bgp/withdraw` holds none. The session
+   fixtures hold kernel captures, and `session/plain` shows `"protocol":"bgp"`
+   routes, but no kernel capture was taken alongside a zebra capture.
+4. Provenance for each new run: the FRR build, the host, and the operator's
+   record of the run. The steady R capture's operator record is the model.
+
+### Join rules for a later stage (not implemented)
+
+A BGP path may be credited with an installed forwarding entry only when every
+rule holds in the same phase:
+
+- FRR's table lists the prefix with exactly one `bestpath` path from the named
+  peer, and that path is `valid`. The `valid`, `bestpath`, and
+  `selectionReason` keys are FRR's, and the repo's session captures show them.
+  The decoder does not read them yet.
+- The path is not stale.
+- Zebra's entry for the prefix has `protocol` `bgp`, its install indicators
+  are set, and its next hop is the path's next hop. The next hop must be
+  unique to that path, and the entry must not be recursive or unresolved.
+- The kernel shows a `proto bgp` route for the prefix with the same gateway.
+
+Refuse the join, and keep `forwarding_impact` unknown with the reason, when:
+
+- a next hop is shared by more than one path for the prefix, or the prefix
+  has multipath;
+- a next hop is recursive or unresolved;
+- an install indicator is missing, or a field is absent from the capture;
+- the path is stale, or it has no peer (`(unspec)`).
+
+Prefix plus next hop plus `proto bgp` does not prove the selected path. The
+join needs FRR's `bestpath` on the path itself.
+
+### Limits of this lab
+
+- Recursion is not exercised. Each peer next hop here is directly connected on
+  r1 (10.0.1.2 on e1, 10.0.3.3 on e3). Recursion needs a separate arm in a
+  later stage.
+- 10.10.1.0/24 is also connected on r1 (stub1), so a kernel route for it cannot
+  be credited to BGP. Locally originated paths (`(unspec)`) have no peer to join.
+- Install is asynchronous. Zebra and kernel captures taken after the BGP table
+  settles can lag it. The stamps record order, not simultaneity.
+- The lab has no policy and no route reflector, and r2 and r3 do not peer with
+  each other, so nothing propagates beyond r1.

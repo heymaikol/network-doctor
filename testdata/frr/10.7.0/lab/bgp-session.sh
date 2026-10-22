@@ -31,6 +31,14 @@
 # addresses), the stale key, and the remote graceful-restart mode are matched. Fields FRR may
 # change when another path goes, such as bestpath, selectionReason, or version, are kept in the
 # captures and never matched.
+# ZEBRA_VTY_PORT, when set, adds zebra evidence to every phase. Zebra runs on that port at 127.0.0.1
+# with a config that names its router, so its prompt is "r1> " and the port queried is the port
+# bound. Each phase adds r1-<phase>-show_ip_route_json.raw (zebra's unfiltered route table) with a
+# .collected_at stamp, and zebra-version.txt is written. The port must be 1 to 65535 and not 179
+# (bgpd BGP), 2604 (ospfd), or BGPD_VTY_PORT. SHA256SUMS lists the run's files once every daemon has
+# exited. Unset, the run writes the files described above and no others, and the zebra configs stay
+# empty. The zebra capture is checked for framing and one JSON object only: no zebra field is read,
+# because none has been verified for BGP routes.
 # A failed capture is kept as .raw.failed with no .collected_at. The run exits 1, and DONE is never printed.
 set -u
 S=${SCRATCH:?set SCRATCH to a directory holding frr-root/ (see README)}
@@ -43,6 +51,15 @@ fi
 if [[ $A != plain && $A != gr && $A != admin ]]; then
   echo "bgp-session.sh: ARM must be plain, gr, or admin, not '$A'" >&2
   exit 2
+fi
+# Unset ZEBRA_VTY_PORT leaves the legacy run. Set, the port is checked here, before any file is touched.
+ZP=
+if [[ -n ${ZEBRA_VTY_PORT+set} ]]; then
+  ZP=${ZEBRA_VTY_PORT-}
+  if ! [[ $ZP =~ ^[1-9][0-9]{0,4}$ ]] || (( ZP > 65535 )) || (( ZP == 179 || ZP == 2604 || ZP == P )); then
+    echo "bgp-session.sh: ZEBRA_VTY_PORT must be 1 to 65535 and not 179 (bgpd BGP), 2604 (ospfd), or BGPD_VTY_PORT, not '$ZP'" >&2
+    exit 2
+  fi
 fi
 HERE=$(cd "$(dirname "$0")" && pwd)
 TCP=$HERE/tcpvty2.py
@@ -166,7 +183,13 @@ router bgp 65003
   neighbor 10.0.3.1 activate
  exit-address-family
 CONF
-: > "$OUT/r1-zebra.conf" && : > "$OUT/r2-zebra.conf" && : > "$OUT/r3-zebra.conf" || fail "could not write zebra configs"
+# Unset ZEBRA_VTY_PORT keeps the empty zebra configs. Set, each names its router, so zebra's prompt
+# is "rN> ", the form lsdb.sh writes.
+if [[ -n $ZP ]]; then
+  for n in 1 2 3; do printf 'hostname r%s\nline vty\n no login\n' "$n" > "$OUT/r$n-zebra.conf" || fail "could not write zebra configs"; done
+else
+  : > "$OUT/r1-zebra.conf" && : > "$OUT/r2-zebra.conf" && : > "$OUT/r3-zebra.conf" || fail "could not write zebra configs"
+fi
 
 alive() {
   local f=$1 i pid
@@ -184,16 +207,18 @@ start() {
   mkdir -p "$sock" || return 1
   local -a at=()
   if [[ $ns != self ]]; then at=(nsenter -t "$ns" -n); fi
+  local -a zopt=()
+  if [[ -n $ZP ]]; then zopt=(-P "$ZP" -A 127.0.0.1); fi
   "${at[@]}" "$FRR/zebra" -d -f "$OUT/$node-zebra.conf" -i "$sock/zebra.pid" -z "$sock/zserv.api" \
-    --vty_socket "$sock" -u root -g root >> "$OUT/$node-daemons.log" 2>&1 || return 1
+    --vty_socket "$sock" "${zopt[@]}" -u root -g root >> "$OUT/$node-daemons.log" 2>&1 || return 1
   "${at[@]}" "$FRR/bgpd" -d -f "$OUT/$node-bgpd.conf" -i "$sock/bgpd.pid" -z "$sock/zserv.api" \
     --vty_socket "$sock" -P "$P" -A 127.0.0.1 -u root -g root >> "$OUT/$node-daemons.log" 2>&1 || return 1
   alive "$sock/zebra.pid" && alive "$sock/bgpd.pid"
 }
 
-# query CMD FILE: one raw bgpd vty query on r1 into FILE.
+# query CMD FILE [PORT]: one raw vty query on r1 into FILE. PORT defaults to bgpd's.
 query() {
-  timeout 30 python3 -I "$TCP" "$P" "$1" > "$2" 2> "$2.err"
+  timeout 30 python3 -I "$TCP" "${3:-$P}" "$1" > "$2" 2> "$2.err"
 }
 
 # BGPOK FILE CMD NODE REQ...: exit 0 only if FILE is the echoed CMD, CRLF, one strict JSON object,
@@ -287,15 +312,15 @@ for r in sys.argv[4:]:
     if not good: sys.exit(1)
 '
 
-# cap PHASE CMD REQ...: one r1 capture into $OUT/r1-PHASE-CMD.raw, checked by BGPOK. A capture that
-# fails is kept as .raw.failed with no .collected_at. The UTC stamp is taken before the vty
-# connects and is written only after the checks pass.
-cap() {
-  local phase=$1 cmd=$2 base rc at
-  shift 2
+# capture PORT PHASE CMD REQ...: one r1 capture on vty PORT into $OUT/r1-PHASE-CMD.raw, checked by
+# BGPOK. A capture that fails is kept as .raw.failed with no .collected_at. The UTC stamp is taken
+# before the vty connects and is written only after the checks pass.
+capture() {
+  local port=$1 phase=$2 cmd=$3 base rc at
+  shift 3
   base="$OUT/r1-$phase-${cmd// /_}"
   at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || return 1
-  query "$cmd" "$base.raw"; rc=$?
+  query "$cmd" "$base.raw" "$port"; rc=$?
   if (( rc == 0 )) && python3 -I -c "$BGPOK" "$base.raw" "$cmd" r1 "$@" 2>/dev/null; then
     rm -f "$base.raw.err"
     if printf '%s\n' "$at" > "$base.collected_at"; then return 0; fi
@@ -305,6 +330,10 @@ cap() {
   echo "bgp-session.sh: capture r1 $phase $cmd failed (vty, framing, JSON, or content check)" >&2
   return 1
 }
+# cap PHASE CMD REQ...: a capture on bgpd's vty port.
+cap() { capture "$P" "$@"; }
+# zcap PHASE: r1's zebra route table on ZEBRA_VTY_PORT. Only framing and one JSON object are checked.
+zcap() { capture "$ZP" "$1" "show ip route json"; }
 
 # kernel PHASE: r1's IPv4 kernel routes as ip -j prints them, into $OUT/r1-PHASE-ip_route.json.
 # They are lab context: only that the output is one JSON array is checked.
@@ -343,11 +372,35 @@ settle() {
   cap "$phase" "show ip bgp json" "${TAB[@]}" || fail "r1 $phase table capture failed"
   cap "$phase" "$NB" "${NBR[@]}" || fail "r1 $phase neighbor capture failed"
   kernel "$phase" || fail "r1 $phase kernel route capture failed"
+  if [[ -n $ZP ]]; then zcap "$phase" || fail "r1 $phase zebra route capture failed"; fi
 }
 
 # event TEXT: one line in events.log with the UTC time.
 event() {
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "$1" >> "$OUT/events.log" || fail "could not write events.log"
+}
+
+# sums: under ZEBRA_VTY_PORT, after stop has sent SIGTERM, waits up to 10 seconds for every daemon
+# to exit, so no log can still grow. It then writes SHA256SUMS for the run's files in byte order,
+# leaving out the poll and error files, and checks the file it wrote.
+sums() {
+  local i pid live f
+  local -a names=()
+  for ((i = 0; i < 100; i++)); do
+    live=0
+    for pid in $(cat /run/frr/r1/*.pid /run/frr/r2/*.pid /run/frr/r3/*.pid 2>/dev/null); do
+      if kill -0 "$pid" 2>/dev/null; then live=1; fi
+    done
+    (( live )) || break
+    sleep 0.1
+  done
+  (( live == 0 )) || fail "a daemon outlived SIGTERM, so its logs may still change; no SHA256SUMS written"
+  local LC_ALL=C
+  for f in "$OUT"/*; do
+    case ${f##*/} in poll-*.last | *.err) ;; *) names+=("${f##*/}") ;; esac
+  done
+  (cd "$OUT" && sha256sum -- "${names[@]}" > SHA256SUMS && sha256sum -c --strict SHA256SUMS > /dev/null) \
+    || fail "could not write or check SHA256SUMS"
 }
 
 # VTYCFG PORT LINE...: send each line to r1's bgpd vty over TCP and print the bytes it returns.
@@ -417,4 +470,5 @@ else
 fi
 echo "--- stopping"
 stop
+if [[ -n $ZP ]]; then sums; fi
 echo DONE

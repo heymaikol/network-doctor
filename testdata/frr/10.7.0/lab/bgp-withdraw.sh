@@ -23,6 +23,14 @@
 # and "r1> ", and its content shows the phase's expected state: both sessions Established, and
 # for each prefix the exact set of peerId values FRR lists, or the prefix absent. Only the
 # session state, the route keys, and peerId are matched.
+# ZEBRA_VTY_PORT, when set, adds evidence to every phase: r1's zebra "show ip route json" on that
+# port, and r1's kernel "ip -j -4 route show" (lab context, one JSON array), each with a .collected_at
+# stamp. Zebra runs on the port at 127.0.0.1 with a config that names its router, so its prompt is
+# "r1> ". Also written: zebra-version.txt, events.log with a line before each deletion, and SHA256SUMS
+# once every daemon has exited. The port must be 1 to 65535 and not 179 (bgpd BGP), 2604 (ospfd), or
+# BGPD_VTY_PORT. Unset, the run writes the files described above and no others. The zebra capture is
+# checked for framing and one JSON object only: no zebra field is read, because none has been verified
+# for BGP routes.
 # A failed capture is kept as .raw.failed with no .collected_at. The run exits 1, and DONE is never printed.
 set -u
 S=${SCRATCH:?set SCRATCH to a directory holding frr-root/ (see README)}
@@ -30,6 +38,15 @@ P=${BGPD_VTY_PORT-}
 if ! [[ $P =~ ^[1-9][0-9]{0,4}$ ]] || (( P > 65535 )) || (( P == 2604 || P == 2601 || P == 179 )); then
   echo "bgp-withdraw.sh: BGPD_VTY_PORT must be 1 to 65535 and not 2604 (ospfd), 2601 (zebra), or 179 (bgpd BGP), not '$P'" >&2
   exit 2
+fi
+# Unset ZEBRA_VTY_PORT leaves the legacy run. Set, the port is checked here, before any file is touched.
+ZP=
+if [[ -n ${ZEBRA_VTY_PORT+set} ]]; then
+  ZP=${ZEBRA_VTY_PORT-}
+  if ! [[ $ZP =~ ^[1-9][0-9]{0,4}$ ]] || (( ZP > 65535 )) || (( ZP == 179 || ZP == 2604 || ZP == P )); then
+    echo "bgp-withdraw.sh: ZEBRA_VTY_PORT must be 1 to 65535 and not 179 (bgpd BGP), 2604 (ospfd), or BGPD_VTY_PORT, not '$ZP'" >&2
+    exit 2
+  fi
 fi
 HERE=$(cd "$(dirname "$0")" && pwd)
 TCP=$HERE/tcpvty2.py
@@ -149,7 +166,13 @@ router bgp 65003
   neighbor 10.0.3.1 activate
  exit-address-family
 CONF
-: > "$OUT/r1-zebra.conf" && : > "$OUT/r2-zebra.conf" && : > "$OUT/r3-zebra.conf" || fail "could not write zebra configs"
+# Unset ZEBRA_VTY_PORT keeps the empty zebra configs. Set, each names its router, so zebra's prompt
+# is "rN> ", the form lsdb.sh writes.
+if [[ -n $ZP ]]; then
+  for n in 1 2 3; do printf 'hostname r%s\nline vty\n no login\n' "$n" > "$OUT/r$n-zebra.conf" || fail "could not write zebra configs"; done
+else
+  : > "$OUT/r1-zebra.conf" && : > "$OUT/r2-zebra.conf" && : > "$OUT/r3-zebra.conf" || fail "could not write zebra configs"
+fi
 
 alive() {
   local f=$1 i pid
@@ -167,16 +190,18 @@ start() {
   mkdir -p "$sock" || return 1
   local -a at=()
   if [[ $ns != self ]]; then at=(nsenter -t "$ns" -n); fi
+  local -a zopt=()
+  if [[ -n $ZP ]]; then zopt=(-P "$ZP" -A 127.0.0.1); fi
   "${at[@]}" "$FRR/zebra" -d -f "$OUT/$node-zebra.conf" -i "$sock/zebra.pid" -z "$sock/zserv.api" \
-    --vty_socket "$sock" -u root -g root >> "$OUT/$node-daemons.log" 2>&1 || return 1
+    --vty_socket "$sock" "${zopt[@]}" -u root -g root >> "$OUT/$node-daemons.log" 2>&1 || return 1
   "${at[@]}" "$FRR/bgpd" -d -f "$OUT/$node-bgpd.conf" -i "$sock/bgpd.pid" -z "$sock/zserv.api" \
     --vty_socket "$sock" -P "$P" -A 127.0.0.1 -u root -g root >> "$OUT/$node-daemons.log" 2>&1 || return 1
   alive "$sock/zebra.pid" && alive "$sock/bgpd.pid"
 }
 
-# query CMD FILE: one raw bgpd vty query on r1 into FILE.
+# query CMD FILE [PORT]: one raw vty query on r1 into FILE. PORT defaults to bgpd's.
 query() {
-  timeout 30 python3 -I "$TCP" "$P" "$1" > "$2" 2> "$2.err"
+  timeout 30 python3 -I "$TCP" "${3:-$P}" "$1" > "$2" 2> "$2.err"
 }
 
 # BGPOK FILE CMD NODE REQ...: exit 0 only if FILE is the echoed CMD, CRLF, one strict JSON object,
@@ -221,15 +246,15 @@ for r in sys.argv[4:]:
     if not good: sys.exit(1)
 '
 
-# cap PHASE CMD REQ...: one r1 capture into $OUT/r1-PHASE-CMD.raw, checked by BGPOK. A capture that
-# fails is kept as .raw.failed with no .collected_at. The UTC stamp is taken before the vty
-# connects and is written only after the checks pass.
-cap() {
-  local phase=$1 cmd=$2 base rc at
-  shift 2
+# capture PORT PHASE CMD REQ...: one r1 capture on vty PORT into $OUT/r1-PHASE-CMD.raw, checked by
+# BGPOK. A capture that fails is kept as .raw.failed with no .collected_at. The UTC stamp is taken
+# before the vty connects and is written only after the checks pass.
+capture() {
+  local port=$1 phase=$2 cmd=$3 base rc at
+  shift 3
   base="$OUT/r1-$phase-${cmd// /_}"
   at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || return 1
-  query "$cmd" "$base.raw"; rc=$?
+  query "$cmd" "$base.raw" "$port"; rc=$?
   if (( rc == 0 )) && python3 -I -c "$BGPOK" "$base.raw" "$cmd" r1 "$@" 2>/dev/null; then
     rm -f "$base.raw.err"
     if printf '%s\n' "$at" > "$base.collected_at"; then return 0; fi
@@ -238,6 +263,56 @@ cap() {
   mv -f "$base.raw" "$base.raw.failed" 2>/dev/null
   echo "bgp-withdraw.sh: capture r1 $phase $cmd failed (vty, framing, JSON, or content check)" >&2
   return 1
+}
+# cap PHASE CMD REQ...: a capture on bgpd's vty port.
+cap() { capture "$P" "$@"; }
+# zcap PHASE: r1's zebra route table on ZEBRA_VTY_PORT. Only framing and one JSON object are checked.
+zcap() { capture "$ZP" "$1" "show ip route json"; }
+
+# kernel PHASE: r1's IPv4 kernel routes as ip -j prints them, into $OUT/r1-PHASE-ip_route.json.
+# They are lab context: only that the output is one JSON array is checked. Under ZEBRA_VTY_PORT
+# only, since the legacy run takes no kernel capture.
+kernel() {
+  local base="$OUT/r1-$1-ip_route" at
+  at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || return 1
+  if ip -j -4 route show > "$base.json" 2> "$base.json.err" \
+    && python3 -I -c 'import json,sys; sys.exit(0 if isinstance(json.load(open(sys.argv[1])),list) else 1)' "$base.json"; then
+    rm -f "$base.json.err"
+    printf '%s\n' "$at" > "$base.collected_at" && return 0
+  fi
+  mv -f "$base.json" "$base.json.failed" 2>/dev/null
+  echo "bgp-withdraw.sh: kernel route capture $1 failed" >&2
+  return 1
+}
+
+# event TEXT: under ZEBRA_VTY_PORT, one line in events.log with the UTC time. Unset, nothing is written.
+event() {
+  if [[ -n $ZP ]]; then
+    printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "$1" >> "$OUT/events.log" || fail "could not write events.log"
+  fi
+}
+
+# sums: under ZEBRA_VTY_PORT, after stop has sent SIGTERM, waits up to 10 seconds for every daemon
+# to exit, so no log can still grow. It then writes SHA256SUMS for the run's files in byte order,
+# leaving out the poll and error files, and checks the file it wrote.
+sums() {
+  local i pid live f
+  local -a names=()
+  for ((i = 0; i < 100; i++)); do
+    live=0
+    for pid in $(cat /run/frr/r1/*.pid /run/frr/r2/*.pid /run/frr/r3/*.pid 2>/dev/null); do
+      if kill -0 "$pid" 2>/dev/null; then live=1; fi
+    done
+    (( live )) || break
+    sleep 0.1
+  done
+  (( live == 0 )) || fail "a daemon outlived SIGTERM, so its logs may still change; no SHA256SUMS written"
+  local LC_ALL=C
+  for f in "$OUT"/*; do
+    case ${f##*/} in poll-*.last | *.err) ;; *) names+=("${f##*/}") ;; esac
+  done
+  (cd "$OUT" && sha256sum -- "${names[@]}" > SHA256SUMS && sha256sum -c --strict SHA256SUMS > /dev/null) \
+    || fail "could not write or check SHA256SUMS"
 }
 
 # settle PHASE REQ...: poll r1's summary and table for up to 120 seconds until both sessions are
@@ -260,6 +335,10 @@ settle() {
   echo "$phase: settled after ~$((SECONDS - t0))s; taking captures"
   cap "$phase" "show ip bgp summary json" "${SUM[@]}" || fail "r1 $phase summary capture failed"
   cap "$phase" "show ip bgp json" "$@" || fail "r1 $phase table capture failed"
+  if [[ -n $ZP ]]; then
+    kernel "$phase" || fail "r1 $phase kernel route capture failed"
+    zcap "$phase" || fail "r1 $phase zebra route capture failed"
+  fi
 }
 
 started=1
@@ -270,13 +349,16 @@ echo "daemons started"
 
 settle before paths:10.10.1.0/24='(unspec)',10.0.1.2 paths:10.10.2.0/24=10.0.1.2,10.0.3.3 \
   paths:10.10.3.0/24=10.0.3.3 paths:10.10.9.0/24=10.0.1.2
+event "r2: ip addr del 10.10.2.2/24"
 in_r2 ip addr del 10.10.2.2/24 dev stub2 || fail "r2 could not delete 10.10.2.2/24"
 settle after1 paths:10.10.1.0/24='(unspec)',10.0.1.2 paths:10.10.2.0/24=10.0.3.3 \
   paths:10.10.3.0/24=10.0.3.3 paths:10.10.9.0/24=10.0.1.2
+event "r2: ip addr del 10.10.9.2/24 and 10.10.1.2/24"
 { in_r2 ip addr del 10.10.9.2/24 dev stub2 && in_r2 ip addr del 10.10.1.2/24 dev stub2; } \
   || fail "r2 could not delete 10.10.9.2/24 and 10.10.1.2/24"
 settle after2 paths:10.10.1.0/24='(unspec)' paths:10.10.2.0/24=10.0.3.3 \
   paths:10.10.3.0/24=10.0.3.3 absent:10.10.9.0/24
 echo "--- killing"
 stop
+if [[ -n $ZP ]]; then sums; fi
 echo DONE

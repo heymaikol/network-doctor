@@ -165,9 +165,9 @@ func runCaptureFunc(t *testing.T, fn, fixture, stubRC string, args ...string) (i
 	if err := os.Mkdir(out, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	harness := filepath.Join(dir, "harness.sh")
 	body := policyStub + labFunc(t, string(script), "cap") + labFunc(t, string(script), "captxt") + policyDispatch
-	if err := os.WriteFile(harness, []byte(body), 0o600); err != nil {
+	harness, err := createPolicyFixture(openRoot(t, dir), "harness.sh", body)
+	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(bash, append([]string{harness, fn}, args...)...) //nolint:gosec // G204: bash runs a harness this test wrote; its arguments are test data.

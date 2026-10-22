@@ -244,7 +244,7 @@ func runTunnelImportCase(t *testing.T, c tunnelImportCase) {
 	if !before[tunnelOverlay] {
 		t.Fatalf("the overlay %s is not up before the fault", tunnelOverlay)
 	}
-	tunnelPathState(ctx, t, e, &outcome, "before the fault")
+	tunnelPathState(ctx, t, e, &outcome, "gre1", "before the fault")
 
 	// The same file with no tunnel record is the answer the simulation gives when
 	// the import is not believed. Both answers are graded.
@@ -272,7 +272,7 @@ func runTunnelImportCase(t *testing.T, c tunnelImportCase) {
 	for _, d := range dests {
 		after[d] = dialDelivers(ctx, t, src, d)
 	}
-	tunnelPathState(ctx, t, e, &outcome, "after the fault")
+	tunnelPathState(ctx, t, e, &outcome, "gre1", "after the fault")
 
 	sim, err := routepath.Simulate(written, c.fault)
 	if err != nil {
@@ -330,13 +330,13 @@ func impactOr(rated map[string]routepath.Affected, dest string) routepath.Impact
 }
 
 // tunnelPathState logs what the kernel does with the tunnel at one moment: the
-// route each direction takes, the lookup r1's outer packets make with gre1's
-// pinned device as oif, and the full link counters of gre1 on both ends and of
-// the pinned leg. Plain routes and the counters of shared links also carry the
-// dials' own traffic, so the gre1 counters and the pinned lookup are the ones read
-// as the tunnel's. The lines also go to the outcome, so the evidence holds them
-// beside each dial.
-func tunnelPathState(ctx context.Context, t *testing.T, e *netnsEnv, outcome *strings.Builder, when string) {
+// route each direction takes, the lookup r1's outer packets make with the tunnel's
+// pinned device as oif, and the full link counters of the tunnel device on both ends
+// and of the pinned leg. Plain routes and the counters of shared links also carry the
+// dials' own traffic, so the tunnel device's counters and the pinned lookup are the
+// ones read as the tunnel's. The lines also go to the outcome, so the evidence holds
+// them beside each dial.
+func tunnelPathState(ctx context.Context, t *testing.T, e *netnsEnv, outcome *strings.Builder, tunnel, when string) {
 	t.Helper()
 	var lines []string
 	for _, route := range []struct {
@@ -362,9 +362,9 @@ func tunnelPathState(ctx context.Context, t *testing.T, e *netnsEnv, outcome *st
 	for _, dev := range []struct {
 		node, name string
 	}{
-		{"r1", "gre1"},
+		{"r1", tunnel},
 		{"r1", pinned},
-		{"r3", "gre1"},
+		{"r3", tunnel},
 	} {
 		res := e.Exec(ctx, dev.node, []string{"ip", "-s", "-s", "link", "show", "dev", dev.name}, nil)
 		if res.Err != nil || res.ExitCode != 0 {

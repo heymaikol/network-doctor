@@ -1030,3 +1030,135 @@ func TestNonFallbackKindsAreRefusedWhateverTheRules(t *testing.T) {
 		}
 	}
 }
+
+
+func TestWireGuardUnderlayAttribution(t *testing.T) {
+	m := importModel(t)
+	rgOK := func(dst, dev string) string {
+		return fmt.Sprintf(`[{"dst":%q,"dev":%q,"flags":[],"cache":[]}]`, dst, dev)
+	}
+	routeGetCap := func(source, node, dst, dev string) TunnelCapture {
+		return TunnelCapture{
+			Source:      source,
+			Node:        node,
+			Command:     TunnelCommandRouteGetPrefix + dst,
+			CollectedAt: t0,
+			Data:        []byte(rgOK(dst, dev)),
+		}
+	}
+
+	t.Run("wireguard underlay proven emits tunnel record", func(t *testing.T) {
+		caps := []TunnelCapture{
+			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
+			ruleCapture("ip-rule-r1", "r1", defaultRules),
+			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
+			routeGetCap("ip-route-get-r1", "r1", "10.0.25.1", "eth0"),
+		}
+		imp, err := ImportTunnels(m, caps)
+		if err != nil {
+			t.Fatalf("ImportTunnels: %v", err)
+		}
+		if len(imp.Refused) != 0 || len(imp.Unproven) != 0 || len(imp.Tunnels) != 1 {
+			t.Fatalf("tunnels = %+v, unproven = %+v, refused = %+v; want 1 tunnel record", imp.Tunnels, imp.Unproven, imp.Refused)
+		}
+		tun := imp.Tunnels[0]
+		if tun.Node != "r1" || tun.VRF != "default" || tun.Interface != "wg0" || tun.Remote != addr("10.0.25.1") || tun.UnderlayVRF != "default" {
+			t.Errorf("tun = %+v, want r1 default wg0 remote 10.0.25.1 underlay default", tun)
+		}
+	})
+
+	t.Run("wireguard underlay egress device missing in link capture", func(t *testing.T) {
+		caps := []TunnelCapture{
+			linkCapture("ip-link-r1", "r1", jsonWG0),
+			ruleCapture("ip-rule-r1", "r1", defaultRules),
+			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
+			routeGetCap("ip-route-get-r1", "r1", "10.0.25.1", "eth0"),
+		}
+		imp, err := ImportTunnels(m, caps)
+		if err != nil {
+			t.Fatalf("ImportTunnels: %v", err)
+		}
+		if !refusedFor(imp, "is not in the link capture") {
+			t.Errorf("refusals = %+v, want egress device not in link capture", imp.Refused)
+		}
+	})
+
+	t.Run("wireguard underlay rules steered", func(t *testing.T) {
+		steeredRules := `[{"priority":0,"src":"all","table":"local"},{"priority":100,"src":"all","table":"100"},{"priority":32766,"src":"all","table":"main"},{"priority":32767,"src":"all","table":"default"}]`
+		caps := []TunnelCapture{
+			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
+			ruleCapture("ip-rule-r1", "r1", steeredRules),
+			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
+			routeGetCap("ip-route-get-r1", "r1", "10.0.25.1", "eth0"),
+		}
+		imp, err := ImportTunnels(m, caps)
+		if err != nil {
+			t.Fatalf("ImportTunnels: %v", err)
+		}
+		if !refusedFor(imp, "the underlay routing table is not proven") {
+			t.Errorf("refusals = %+v, want underlay table not proven", imp.Refused)
+		}
+	})
+
+	t.Run("wireguard route get destination mismatch", func(t *testing.T) {
+		caps := []TunnelCapture{
+			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
+			ruleCapture("ip-rule-r1", "r1", defaultRules),
+			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
+			routeGetCap("ip-route-get-r1", "r1", "10.0.25.1", "eth0"),
+		}
+		// Modify command data to hold different dst
+		caps[3].Data = []byte(rgOK("10.0.25.2", "eth0"))
+		imp, err := ImportTunnels(m, caps)
+		if err != nil {
+			t.Fatalf("ImportTunnels: %v", err)
+		}
+		if !refusedFor(imp, "does not match peer endpoint") {
+			t.Errorf("refusals = %+v, want destination does not match peer endpoint", imp.Refused)
+		}
+	})
+
+	t.Run("wireguard route get unreachable", func(t *testing.T) {
+		caps := []TunnelCapture{
+			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
+			ruleCapture("ip-rule-r1", "r1", defaultRules),
+			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
+			{
+				Source:      "ip-route-get-r1",
+				Node:        "r1",
+				Command:     TunnelCommandRouteGetPrefix + "10.0.25.1",
+				CollectedAt: t0,
+				Data:        []byte(`[{"dst":"10.0.25.1","type":"unreachable","flags":[]}]`),
+			},
+		}
+		imp, err := ImportTunnels(m, caps)
+		if err != nil {
+			t.Fatalf("ImportTunnels: %v", err)
+		}
+		if !refusedFor(imp, "route lookup is unreachable") {
+			t.Errorf("refusals = %+v, want route lookup is unreachable", imp.Refused)
+		}
+	})
+
+	t.Run("wireguard route get ambiguous multipath", func(t *testing.T) {
+		caps := []TunnelCapture{
+			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
+			ruleCapture("ip-rule-r1", "r1", defaultRules),
+			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
+			{
+				Source:      "ip-route-get-r1",
+				Node:        "r1",
+				Command:     TunnelCommandRouteGetPrefix + "10.0.25.1",
+				CollectedAt: t0,
+				Data:        []byte(`[{"dst":"10.0.25.1","dev":"eth0","nexthops":[{"dev":"eth0"},{"dev":"eth1"}]}]`),
+			},
+		}
+		imp, err := ImportTunnels(m, caps)
+		if err != nil {
+			t.Fatalf("ImportTunnels: %v", err)
+		}
+		if !refusedFor(imp, "route lookup has multiple nexthops") {
+			t.Errorf("refusals = %+v, want multiple nexthops refusal", imp.Refused)
+		}
+	})
+}

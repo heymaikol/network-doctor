@@ -234,6 +234,9 @@ The TUI saves up to 50 recent targets between sessions in `$XDG_CONFIG_HOME/netd
 | `--explain`: a destination that is not an IP address, an unreadable or invalid topology file, a `--fail` that names a node or interface the file does not describe, a `--fail-ospf` that names an adjacency no control-plane OSPF neighbor record holds or that is recorded in several routing domains, or a flag that cannot be combined with it | `2` |
 | `--import-frr-ospf`: every capture accepted and every neighbor record mapped; this is not a health result | `0` |
 | `--import-frr-ospf`: a capture refused or a neighbor record left unmapped; with `--write-topology`, nothing is written | `1` |
+| `--import-tunnels`: every modeled node has a usable `ip -d -j link` capture, and no candidate is refused or left unproven; with `--write-topology`, the base topology is written | `0` |
+| `--import-tunnels`: a candidate refused or left unproven, such as a gre or ipip device or a WireGuard endpoint, or a modeled node with no usable capture; with `--write-topology`, nothing is written | `1` |
+| `--import-tunnels`: an invalid manifest, an unreadable or unsafe base topology or capture, a flag that cannot be combined with it, or a topology that cannot be written | `2` |
 | `--import-frr-ospf`: an invalid manifest, an unsafe or unreadable capture, a flag that cannot be combined with it, or a topology that cannot be written | `2` |
 | `--import-frr-bgp`: every capture valid; this is not a health result, and an Active or Idle peer is reported as observed | `0` |
 | `--import-frr-bgp`: an invalid manifest, a capture or transcript that cannot be used, a manifest that names another command, FRR version, VRF, or `source_node`, a flag that cannot be combined with it, a `--withdraw-bgp` selector that is malformed or that the node's route table does not describe, a `--fail-bgp-session` selector that is malformed or that names a peer neither capture of the node names, or output that cannot be written | `2` |
@@ -2212,6 +2215,43 @@ The report lists these, so a reader does not take the topology for the whole net
 - Neighbors and routes are never claimed complete.
 - An LSDB finding does not establish a cause, a failure, or a forwarding state. A passing guard does not establish that OSPF is healthy.
 - A record that is not mapped keeps its state, address, and reason in the report, so the reader sees what FRR reported and why it was not used.
+
+## Tunnel import from captures
+
+`--import-tunnels` reads the tunnel captures a manifest names and adds the tunnels they prove to the base topology the manifest names. It is offline. It runs no probe and contacts no device, so the captures are the only evidence.
+
+```sh
+netdoc --import-tunnels manifest.json [--write-topology topology.json] [--json]
+```
+
+The manifest is JSON with `"version": 1`, a `"topology"` that names the base topology file, and a `"captures"` array. Each capture names its `file`, a `source` label, a `node`, a `command`, and a `collected_at` time with an offset. The `command` is one of six:
+
+- `ip -d -j link`: one node's device list from `ip -d -j link`. It is the only source of device kinds, masters, and underlay devices, so a node needs exactly one.
+- `ip -j rule show`: one node's IPv4 policy rules. The command lists IPv4 rules only, which is the family a gre device's outer packet uses. A gre device needs its node's rules. A node has at most one capture of them, and two are refused.
+- `ip -j addr show`: one node's addresses. It is read only to show whether a kernel fallback device has an address. It never proves a tunnel. A node has at most one capture of it, and a node with a fallback device needs one.
+- `ip -4 -j route show table all` and `ip -6 -j route show table all`: one node's IPv4 and IPv6 routes, in every table. They are read only to show whether a route names a kernel fallback device. A node has at most one capture of each, and a node with a fallback device needs one of each.
+- `wg show all dump`: that node's WireGuard dump.
+
+Paths are relative to the manifest's directory. A symbolic link, a path that climbs out of that directory, and two captures of one file are refused.
+
+What the import does with each device:
+
+- A `gre` device is recorded only when its underlay routing table is proven. The device and its underlay device must sit in the default routing domain, the device must carry no fwmark, and the node's `ip -j rule show` capture must list exactly the kernel default IPv4 rules: priority `0` to `local`, `32766` to `main`, and `32767` to `default`, each listed once and selecting source `all`. Each rule must carry its `priority`, `src`, and `table` keys exactly once, spelled exactly so. A rule with a key missing, repeated, or spelled in another case, or with a `null` or non-integer priority, refuses the capture rather than being read around. Those rules send every IPv4 lookup to the main table, so the table is known without any other fact. Any other rule, a missing or repeated rules capture, a VRF, or a mark refuses the device. The record keeps the source and collection time of both captures it rests on, the `ip -d -j link` capture and the `ip -j rule show` capture.
+- An `ipip` device is refused, since no ipip underlay has been validated live, unless it is the kernel fallback `tunl0` listed as inert below.
+- A kernel fallback device (`gre0`, `gretap0`, `erspan0`, or `tunl0`) is listed under inert devices, and makes no record, only when all of these hold. Its link type, zero link address, and info data are exactly what the kernel gives an inactive fallback of its kind, with `netns-immutable` set and no other info data attribute. It is down, has no address, and is neither enslaved nor linked to another device or namespace. No route on IPv4 or IPv6 names it, directly or through a nexthop, and no route uses a nexthop object. The node's policy rules are the kernel default set. The node needs one address capture and one capture of each route command, and the address capture must list the same devices, indices, link addresses, and up states as the `ip -d -j link` capture. Every capture of the node must have a collection time, and all of them must fall within 250 milliseconds of one another, from the earliest to the latest. A wider spread refuses the node's fallbacks. The bound narrows the window in which a change could go unseen, but the captures are not one atomic snapshot, so a change inside the window is not excluded. Any other fallback is refused with the reason, and so is every fallback of a node whose evidence is missing or contradictory.
+- A WireGuard interface is reported as unproven. Its endpoint is shown, but no capture shows the routing table the endpoint is looked up in, so the interface is never written. A WireGuard device that no usable dump names is refused.
+- A device of kind `vrf`, `bridge`, `bond`, `vlan`, `macvlan`, `ipvlan`, `veth`, or `dummy`, and a plain `ether` or `loopback` device with no kind, is accepted and carries nothing into the topology. Any other kind is refused by kind, unless it is a kernel fallback listed above as inert. A name is never read as a kind.
+- A capture of a node the base topology does not describe is refused, so a mistyped node name is never a clean import.
+- Keys in a dump are never kept, so none reaches the report, the topology, or an error.
+- A device, address, or route object is refused when any key repeats in it, at any depth. It is also refused when a key the import reads is spelled in another case, such as `IFNAME` for `ifname`. Otherwise a key the import does not read is left alone, whatever its spelling. A policy rule is stricter: a key it does not read refuses the capture.
+
+Every modeled node of the base topology needs a usable `ip -d -j link` capture. A node is modeled when the base holds a configured, control, or FIB observation for it. Intended and observed observations do not make a node modeled. A node with no capture, or whose capture is refused, leaves the import incomplete. A capture that shows no device inventory, such as JSON `null` or `[]`, is refused, so it never reads as a node with no devices.
+
+Exit `0` means every modeled node has a usable capture and no candidate was refused or left unproven. A complete import writes the base topology with its tunnel records added. The kernel creates fallback tunnel devices (`gre0`, `gretap0`, `erspan0`, and `tunl0`) once their modules load. The lab saw them in every fresh network namespace; real hosts were not tested. A node whose fallbacks are all inert completes an import, and each one is listed as inert. A fallback that is not inert is refused, so such a node never completes an import, and `--write-topology` writes no file. Exit `1` means the import is incomplete: something was refused or left unproven, or a modeled node has no usable capture. With `--write-topology` nothing is written. Exit `2` means the manifest, the base topology, a capture, or the output cannot be used.
+
+`--write-topology FILE` publishes a complete import by hard link, so it never replaces an existing file. A path that already exists is refused, and that includes the base topology's own path.
+
+`--json` prints one report object. Its fields are `version`, `manifest`, `base_topology`, `complete`, `tunnels`, `unproven`, `refused`, `inert_fallbacks`, `nodes_without_capture`, `not_imported`, `limitations`, and `topology`. The `topology` object holds `requested`, `written`, `path`, and `reason`. `nodes_without_capture` lists each modeled node with no usable capture, including one whose capture was refused; that refusal is also under `refused`. `inert_fallbacks` lists each kernel fallback device the captures show inert, with its `node`, `interface`, `kind`, the `sources` that show it, and the `from` and `until` collection times that bound them. An inert device is a fact about the captures, and it is never a record in the topology. The text output reports the same results.
 
 ## FRR BGP summary import
 

@@ -62,7 +62,7 @@ func DecodeManifest(data []byte) (Manifest, error) {
 	if len(data) > MaxManifestBytes {
 		return Manifest{}, fmt.Errorf("manifest exceeds %d bytes", MaxManifestBytes)
 	}
-	if err := checkUniqueKeys(data); err != nil {
+	if err := CheckUniqueKeys(data); err != nil {
 		return Manifest{}, fmt.Errorf("invalid manifest: %w", err)
 	}
 	m, err := decodeManifestObject(data)
@@ -77,7 +77,7 @@ func decodeManifestObject(data []byte) (Manifest, error) {
 	if err := json.Unmarshal(data, &top); err != nil || top == nil {
 		return Manifest{}, errors.New("manifest is not a JSON object")
 	}
-	if err := exactKeys(top, "manifest", "version", "source_node", "captures"); err != nil {
+	if err := ExactKeys(top, "manifest", "version", "source_node", "captures"); err != nil {
 		return Manifest{}, err
 	}
 
@@ -89,7 +89,7 @@ func decodeManifestObject(data []byte) (Manifest, error) {
 	m.Version = version
 
 	if raw, ok := top["source_node"]; ok {
-		node, err := plainText(raw, `"source_node"`)
+		node, err := PlainText(raw, `"source_node"`)
 		if err != nil {
 			return Manifest{}, err
 		}
@@ -148,7 +148,7 @@ func decodeManifestCapture(i int, raw json.RawMessage) (ManifestCapture, error) 
 	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
 		return ManifestCapture{}, fmt.Errorf("%s is not an object", where)
 	}
-	if err := exactKeys(obj, where, "file", "source", "node", "vrf", "frr_version", "command", "collected_at"); err != nil {
+	if err := ExactKeys(obj, where, "file", "source", "node", "vrf", "frr_version", "command", "collected_at"); err != nil {
 		return ManifestCapture{}, err
 	}
 	field := func(key string) (string, error) {
@@ -156,7 +156,7 @@ func decodeManifestCapture(i int, raw json.RawMessage) (ManifestCapture, error) 
 		if !ok {
 			return "", fmt.Errorf("%s needs %q", where, key)
 		}
-		return plainText(v, fmt.Sprintf("%s %q", where, key))
+		return PlainText(v, fmt.Sprintf("%s %q", where, key))
 	}
 	var c ManifestCapture
 	var err error
@@ -253,10 +253,10 @@ func checkLSDBCounts(m Manifest) error {
 	return nil
 }
 
-// plainText reads one JSON string that must be non-empty and free of control and
+// PlainText reads one JSON string that must be non-empty and free of control and
 // invisible characters. null, numbers, and objects are refused, not treated as
 // empty.
-func plainText(raw json.RawMessage, what string) (string, error) {
+func PlainText(raw json.RawMessage, what string) (string, error) {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return "", fmt.Errorf("%s is null; it must be a string", what)
 	}
@@ -273,10 +273,10 @@ func plainText(raw json.RawMessage, what string) (string, error) {
 	return s, nil
 }
 
-// exactKeys refuses any key that is not one of allowed. A key that differs from
+// ExactKeys refuses any key that is not one of allowed. A key that differs from
 // an allowed one only in case is named as such, since encoding/json would match
 // it silently.
-func exactKeys(obj map[string]json.RawMessage, where string, allowed ...string) error {
+func ExactKeys(obj map[string]json.RawMessage, where string, allowed ...string) error {
 	for _, key := range slices.Sorted(maps.Keys(obj)) {
 		if slices.Contains(allowed, key) {
 			continue
@@ -291,11 +291,11 @@ func exactKeys(obj map[string]json.RawMessage, where string, allowed ...string) 
 	return nil
 }
 
-// checkUniqueKeys walks the whole document once. It refuses a repeated key in any
+// CheckUniqueKeys walks the whole document once. It refuses a repeated key in any
 // object, nesting past maxManifestDepth, a truncated or empty document, and data
 // after the object. encoding/json keeps the last of two equal keys, so a repeat
 // would otherwise change the manifest silently.
-func checkUniqueKeys(data []byte) error {
+func CheckUniqueKeys(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	if err := walkValue(dec, 0); err != nil {
 		if errors.Is(err, io.EOF) {

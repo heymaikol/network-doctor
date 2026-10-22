@@ -1,0 +1,13 @@
+[
+  {"ifindex":1,"ifname":"lo","flags":["LOOPBACK","UP","LOWER_UP"],"mtu":65536,"operstate":"UNKNOWN","link_type":"loopback","address":"00:00:00:00:00:00"},
+  {"ifindex":2,"ifname":"eth0","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":1500,"operstate":"UP","link_type":"ether","address":"02:00:00:00:12:01"},
+  {"ifindex":3,"ifname":"eth2","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":1500,"operstate":"UP","link_type":"ether","address":"02:00:00:00:13:01"},
+  {"ifindex":4,"ifname":"wg0","flags":["POINTOPOINT","NOARP","UP","LOWER_UP"],"mtu":1420,"operstate":"UNKNOWN","link_type":"none","linkinfo":{"info_kind":"wireguard"}},
+  {"ifindex":5,"ifname":"tun0","flags":["POINTOPOINT","NOARP","UP","LOWER_UP"],"mtu":1400,"operstate":"UNKNOWN","link_type":"none"},
+  {"ifindex":6,"ifname":"gre1","flags":["NOARP","UP","LOWER_UP"],"mtu":1476,"operstate":"UNKNOWN","link_type":"gre","link":"eth0","link_index":2,"address":"0.0.0.0","broadcast":"0.0.0.0","linkinfo":{"info_kind":"gre","info_data":{"ikey":"0.0.0.0","okey":"0.0.0.0","local":"10.0.12.1","remote":"10.0.25.1","ttl":"inherit","tos":"inherit","pmtudisc":true}}},
+  {"ifindex":7,"ifname":"gre2","flags":["NOARP","UP","LOWER_UP"],"mtu":1476,"operstate":"UNKNOWN","link_type":"gre","link":"eth0","link_index":2,"address":"0.0.0.0","broadcast":"0.0.0.0","linkinfo":{"info_kind":"gre","info_data":{"ikey":"0.0.0.0","okey":"0.0.0.0","local":"10.0.12.1","remote":"any","ttl":"inherit","tos":"inherit","pmtudisc":true}}},
+  {"ifindex":8,"ifname":"gre5","flags":["UP"],"mtu":1500,"operstate":"UP","link_type":"ether","address":"02:00:00:00:55:01","linkinfo":{"info_kind":"bridge"}},
+  {"ifindex":10,"ifname":"wg1","flags":["POINTOPOINT","NOARP","UP","LOWER_UP"],"mtu":1420,"operstate":"UNKNOWN","link_type":"none","linkinfo":{"info_kind":"wireguard"}},
+  {"ifindex":11,"ifname":"wg2","flags":["POINTOPOINT","NOARP","UP","LOWER_UP"],"mtu":1420,"operstate":"UNKNOWN","link_type":"none","linkinfo":{"info_kind":"wireguard"}},
+  {"ifindex":12,"ifname":"wg3","flags":["POINTOPOINT","NOARP","UP","LOWER_UP"],"mtu":1420,"operstate":"UNKNOWN","link_type":"none","linkinfo":{"info_kind":"wireguard"}}
+]

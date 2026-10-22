@@ -123,6 +123,50 @@ func completionFixture(t *testing.T) string {
 	return dir
 }
 
+// TestZshCompletionOffersWriteTopologyWithImportTunnels checks that --write-topology
+// completes beside --import-tunnels in both spellings, and that --import-tunnels
+// completes after --write-topology. The import writes a topology only with both
+// flags, so each order must reach the other flag.
+func TestZshCompletionOffersWriteTopologyWithImportTunnels(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("zpty needs a pseudo-terminal")
+	}
+
+	// zsh redraws only the text it inserts after what is already on the line, so a
+	// completed --write-topology= shows on the screen as its tail, "topology=".
+	cases := []struct {
+		name string
+		line string
+		want string
+	}{
+		{
+			name: "long write-topology after import-tunnels",
+			line: "netdoc --import-tunnels manifest.json --write-",
+			want: "topology=",
+		},
+		{
+			name: "short write-topology after import-tunnels",
+			line: "netdoc --import-tunnels manifest.json -write-",
+			want: "topology=",
+		},
+		{
+			name: "import-tunnels after write-topology",
+			line: "netdoc --write-topology out.json --import-",
+			want: "--import-tunnels",
+		},
+	}
+
+	fixture := completionFixture(t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := completionMatches(t, fixture, tc.line)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("%q offered no %s\n%s", tc.line, tc.want, got)
+			}
+		})
+	}
+}
+
 func TestZshCompletionOffersSnapshotsOnlyWhereTheyAreRead(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("zpty needs a pseudo-terminal")

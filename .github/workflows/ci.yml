@@ -243,6 +243,13 @@ jobs:
       - if: matrix.shard == 'coverage'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       #
+      # The tunnel import cases expect the tunl0 fallback device, which the kernel
+      # gives each new namespace only while the ipip module is loaded. The coverage
+      # run failed on the runner without it.
+      - if: matrix.shard == 'coverage'
+        name: Load the ipip module
+        run: sudo modprobe ipip
+      #
       # Each scenario builds its own namespaces under a random run id, so the
       # runs are independent and -parallel decides how many stand at once. Most
       # of a run is spent waiting on probe deadlines rather than on CPU, so four

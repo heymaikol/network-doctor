@@ -41,6 +41,12 @@ netdoc \- diagnose network connectivity and name the layer where the
 .RI [ \-json ]
 .br
 .B netdoc
+.B \-import\-tunnels
+.I manifest.json
+.RB [ \-write\-topology " file" ]
+.RI [ \-json ]
+.br
+.B netdoc
 .BI \-import\-frr\-bgp " manifest.json"
 .RI [ \-json ]
 .br
@@ -462,8 +468,24 @@ not mean the network is healthy. Exit 1 means a capture was refused or a
 neighbor record was left unmapped. Exit 2 means the input or the output cannot
 be used. The manifest format and the report are described in the reference.
 .TP
+.BI \-import\-tunnels " manifest.json"
+Import the tunnel captures that the manifest names onto the base topology it
+names, and report each tunnel, each unproven WireGuard endpoint, and each
+refused candidate. Each capture is "ip \-d \-j link", "ip \-j rule show", "ip
+\-j addr show", "ip \-4 \-j route show table all", "ip \-6 \-j route show table
+all", or "wg show all dump" output for one node. The rules capture proves a GRE
+tunnel's underlay routing table. The address and route captures show whether a
+kernel fallback device is inert, and never prove a tunnel. The import is
+headless: it runs no probe and contacts no device. Exit 0 means every modeled
+node has a usable capture and no candidate was refused or left unproven; a
+complete import writes the base topology with its tunnel records added. Exit 1
+means the import is incomplete: something was refused or left unproven, or a
+modeled node has no usable capture. Exit 2 means the input or the output cannot
+be used. The manifest format and the report are described in the reference.
+.TP
 .BI \-write\-topology " file"
-Used with \-import\-frr\-ospf, write the imported topology to
+Used with \-import\-frr\-ospf or \-import\-tunnels, write the
+imported topology to
 .I file
 in the \-explain format. The file is written only when every capture was
 accepted and every neighbor record was mapped; an incomplete import writes

@@ -40,7 +40,9 @@ complete -c netdoc -n '__fish_seen_argument -o explain -l explain; and test (__f
 # --import-frr-ospf takes a manifest and --write-topology the file to write,
 # so both are paths, and neither takes a target.
 complete -c netdoc -o import-frr-ospf -l import-frr-ospf -r -F -d 'Import the FRR OSPF captures a manifest names; runs no probes'
-complete -c netdoc -o write-topology -l write-topology -r -F -d 'With --import-frr-ospf, write the topology of a complete import to a file'
+complete -c netdoc -o write-topology -l write-topology -r -F -d 'With --import-frr-ospf or --import-tunnels, write the topology of a complete import to a file'
+# --import-tunnels takes a manifest, so it is a path, and it takes no target.
+complete -c netdoc -o import-tunnels -l import-tunnels -r -F -d 'Import the tunnel captures a manifest names onto its base topology; runs no probes'
 # --import-frr-bgp takes a manifest, so it is a path, and it takes no target.
 complete -c netdoc -o import-frr-bgp -l import-frr-bgp -r -F -d 'Import the FRR BGP summary and route captures a manifest names; runs no probes'
 complete -c netdoc -o withdraw-bgp -l withdraw-bgp -r -f -d 'With --import-frr-bgp, simulate a peer withdrawing a prefix from the recorded BGP table of one node'

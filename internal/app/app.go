@@ -96,7 +96,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	failNextHop := fs.String("fail-next-hop", "", "with -explain, simulate one node losing the recorded next hop `node[@vrf]:address[%interface]`, with the interface and the next hop's node still up; runs no probes")
 	sourcesSpec := fs.String("sources", "", "with -explain and a failure flag, simulate that failure from each source in a comma-separated `list` of node[@vrf], or from every modeled node with all; runs no probes")
 	importFRR := fs.String("import-frr-ospf", "", "import the FRR OSPF captures named by manifest `file`; runs no probes")
-	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf, write the topology to `file` only when every capture and record is accepted")
+	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf or -import-tunnels, write the topology to `file` only when every capture and record is accepted")
+	importTunnels := fs.String("import-tunnels", "", "import the tunnel captures named by manifest `file` onto the base topology it names; runs no probes")
 	importBGP := fs.String("import-frr-bgp", "", "import the FRR BGP summary and route captures named by manifest `file`; runs no probes")
 	failBGPSession := fs.String("fail-bgp-session", "", "with -import-frr-bgp, simulate losing the BGP session `node:peer` in one node's recorded BGP table, assuming every path from the peer is removed; the forwarding impact stays unknown")
 	withdrawBGP := fs.String("withdraw-bgp", "", "with -import-frr-bgp, simulate peer withdrawing a prefix from one node's recorded BGP table, as `node:peer:prefix`; the forwarding impact stays unknown")
@@ -196,6 +197,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// BGP import reads a manifest flag alone.
 	importSet := setFlagNames(fs)["import-frr-ospf"] || setFlagNames(fs)["write-topology"]
 	bgpSet := setFlagNames(fs)["import-frr-bgp"]
+	tunnelSet := setFlagNames(fs)["import-tunnels"]
 	// A simulated withdrawal reads only the BGP import's route tables, so it is
 	// refused in every other mode, the way -fail is refused outside -explain.
 	if setFlagNames(fs)["withdraw-bgp"] && (!bgpSet || *withdrawBGP == "") {
@@ -207,7 +209,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "netdoc: -fail-bgp-session needs -import-frr-bgp and node:peer, and no -withdraw-bgp")
 		return 2
 	}
-	if importSet || bgpSet {
+	if importSet || bgpSet || tunnelSet {
 		allowed = 0
 	}
 	if len(positional) > allowed {
@@ -220,6 +222,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// rather than answered by whichever flag is checked first.
 	// The BGP check comes first: it refuses the OSPF flags by name, and the OSPF
 	// runner would otherwise answer a BGP combination with its own message.
+	if tunnelSet {
+		return runTunnelImport(setFlagNames(fs), *importTunnels, *writeTopology, *jsonOut, stdout, stderr)
+	}
 	if bgpSet {
 		return runFRRBGPImport(setFlagNames(fs), *importBGP, *withdrawBGP, *failBGPSession, *jsonOut, stdout, stderr)
 	}

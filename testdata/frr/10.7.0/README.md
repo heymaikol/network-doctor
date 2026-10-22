@@ -310,6 +310,26 @@ FRR may change when another path goes, such as `bestpath`, are never matched.
 Each arm's 2026-10-16 UTC run finished with DONE, and its captures are preserved
 in `bgp/session/`. CI does not run the lab; the tests read the preserved captures.
 
+The BGP policy lab is `lab/bgp-policy.sh`. It takes the same `BGPD_VTY_PORT` and
+runs the withdrawal lab's three routers. On r1 it applies one inbound route map to
+the neighbor 10.0.3.3, which sets the weight of r3's path for 10.10.2.0/24 to 100,
+so that path becomes bestpath. It captures r1's summary, table, neighbor, and running
+configuration before and after the change, and keeps the vty transcript of the change,
+`events.log`, and `SHA256SUMS`:
+
+    SCRATCH="$SCRATCH" BGPD_VTY_PORT=<port> unshare -Urnm bash testdata/frr/10.7.0/lab/bgp-policy.sh
+
+It writes to `$SCRATCH/run/bgp-policy`, which must not exist, and never removes
+anything. Its checks are in `lab/bgp-policy-check.py`. The lab runs that file, and
+`internal/app/frr_bgp_policy_check_test.go` runs it over committed FRR output and
+over edited copies. No capture of this lab is committed yet, so this repository holds
+no policy evidence. The text forms of `show running-config`, `show route-map`, and
+`show ip prefix-list` are not verified against FRR 10.7.0. The run's own checks read
+them, and a mismatch fails the run with that capture kept as `.raw.failed`. To keep a
+run, copy its files other than `poll-*.last` and the `.err` files into `bgp/policy/`
+by hand, as the other captures were kept, and check `SHA256SUMS` with `sha256sum -c`.
+A grading test over that directory belongs to the change that commits it.
+
 The OSPF adjacency-loss lab is `lab/ospf-adjacency.sh`. It takes `ARM`, which is
 `ecmp`, `single`, or `backup`, as described in the adjacency section above:
 

@@ -181,24 +181,32 @@ func (r *TunnelImport) proveFallbackEvidence(node string, set linkSet, addrCaps,
 	if r6Head != "" {
 		ev.fail(r6Head + ", so its IPv6 routes are not shown")
 	}
-	if ev.reason != "" {
-		return ev
+	// Each capture supplied alone is read even when another is missing, so a malformed
+	// one is refused rather than passed over. The heads above name what is missing;
+	// the parses below add what is wrong with what is there.
+	var addrs map[string]ipAddr
+	var routes4, routes6 []ipRoute
+	var err error
+	if addrHead == "" {
+		addrs, err = parseIPAddr(addrCap.Data)
+		if err != nil {
+			r.refuse(addrCap.Source, addrCap.Node, "", err.Error())
+			ev.fail(fmt.Sprintf("node %s has an unusable ip -j addr show capture, so its addresses are not shown", node))
+		}
 	}
-
-	addrs, err := parseIPAddr(addrCap.Data)
-	if err != nil {
-		r.refuse(addrCap.Source, addrCap.Node, "", err.Error())
-		ev.fail(fmt.Sprintf("node %s has an unusable ip -j addr show capture, so its addresses are not shown", node))
+	if r4Head == "" {
+		routes4, err = parseRoutes(r4Cap.Data, TunnelCommandRoute4)
+		if err != nil {
+			r.refuse(r4Cap.Source, r4Cap.Node, "", err.Error())
+			ev.fail(fmt.Sprintf("node %s has an unusable ip -4 -j route show table all capture, so its IPv4 routes are not shown", node))
+		}
 	}
-	routes4, err4 := parseRoutes(r4Cap.Data, TunnelCommandRoute4)
-	if err4 != nil {
-		r.refuse(r4Cap.Source, r4Cap.Node, "", err4.Error())
-		ev.fail(fmt.Sprintf("node %s has an unusable ip -4 -j route show table all capture, so its IPv4 routes are not shown", node))
-	}
-	routes6, err6 := parseRoutes(r6Cap.Data, TunnelCommandRoute6)
-	if err6 != nil {
-		r.refuse(r6Cap.Source, r6Cap.Node, "", err6.Error())
-		ev.fail(fmt.Sprintf("node %s has an unusable ip -6 -j route show table all capture, so its IPv6 routes are not shown", node))
+	if r6Head == "" {
+		routes6, err = parseRoutes(r6Cap.Data, TunnelCommandRoute6)
+		if err != nil {
+			r.refuse(r6Cap.Source, r6Cap.Node, "", err.Error())
+			ev.fail(fmt.Sprintf("node %s has an unusable ip -6 -j route show table all capture, so its IPv6 routes are not shown", node))
+		}
 	}
 	if ev.reason != "" {
 		return ev

@@ -217,6 +217,39 @@ func TestTunnelImportWritesNothingWhenIncomplete(t *testing.T) {
 	}
 }
 
+// oneNodeTopology is a base of r1 alone, so the captures of r1 are the whole import.
+const oneNodeTopology = `{
+  "version": 1,
+  "source": {"node": "r1", "vrf": "default"},
+  "observations": [
+    {"source": "config:r1", "collected_at": "2026-10-09T12:00:00Z", "plane": "configured", "node": "r1", "vrf": "default",
+     "interfaces": [{"name": "eth1", "addresses": ["10.0.12.1/30"]}]}
+  ]
+}`
+
+// TestTunnelImportWritesNothingBesideAMalformedCapture gives r1 only ordinary devices
+// and a malformed IPv4 route capture, with no address or IPv6 route capture. The
+// malformed capture is refused, so the import is incomplete and writes no file.
+func TestTunnelImportWritesNothingBesideAMalformedCapture(t *testing.T) {
+	dir, manifest := writeTunnelFiles(t, map[string]string{
+		"base.json":     oneNodeTopology,
+		"links.json":    tunnelLinks,
+		"routes4.json":  `{}`,
+		"manifest.json": tunnelManifestText("base.json", tunnelEntry("links.json", "ip-link-r1", "r1", "ip -d -j link"), tunnelEntry("routes4.json", "ip-route4-r1", "r1", "ip -4 -j route show table all")),
+	})
+	out := filepath.Join(dir, "out.json")
+	code, stdout, stderr := runTunnel(t, manifest, "--write-topology", out)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1; stdout %q stderr %q", code, stdout, stderr)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("an incomplete import left a topology file behind")
+	}
+	if !strings.Contains(stdout, "is not ip -4 -j route show table all output") || !strings.Contains(stdout, "not written: the import is incomplete") {
+		t.Errorf("text report lacks the refusal or the reason no file was written:\n%s", stdout)
+	}
+}
+
 // TestTunnelImportRefusesFlagsItCannotUse names each setting the import does not
 // accept, and an argument with no place to go. Each is refused with exit 2.
 func TestTunnelImportRefusesFlagsItCannotUse(t *testing.T) {

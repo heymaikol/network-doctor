@@ -124,16 +124,17 @@ var tunnelImportCases = []tunnelImportCase{{
 }}
 
 // TestTunnelImportAgainstLiveNamespaces builds the diamond with a GRE tunnel,
-// captures each node's device list and IPv4 rules with the two commands an
-// operator would run, and imports them. The import must refuse the fallback
-// devices on every node, record the tunnel only when its underlay is proven, and
-// the simulation of the proven record must never claim a loss the kernel
-// contradicts.
+// captures each node's devices, addresses, routes, and rules with the commands an
+// operator would run, and imports them. The import records the tunnel only when
+// its underlay is proven, and the simulation of the proven record must never claim
+// a loss the kernel contradicts.
 //
-// The completeness gate refuses this import, since every node holds fallback
-// devices. The cases therefore read the records the import proved through the
-// same Encode and Decode a written topology takes, and assert the gate's refusal
-// on its own. Nothing here writes a topology.
+// Inert fallbacks are accepted. A non-steering case must pass the completeness
+// gate: no refusal, no unproven record, and no uncovered node. The records it
+// proved are read back through the same Encode and Decode a written topology
+// takes. The steering case must not pass the gate. Its steering rule refuses r1's
+// fallbacks, rules, and gre device, so the case checks those refusals and the
+// gate's refusal, and writes no topology.
 func TestTunnelImportAgainstLiveNamespaces(t *testing.T) {
 	if *tunnelImportDirector {
 		for _, c := range tunnelImportCases {

@@ -32,6 +32,17 @@ func importModel(t *testing.T) netmodel.Model {
 	return m
 }
 
+// oneNodeModel models r1 alone, with one configured interface, so an import of r1's
+// captures is the whole import and its completeness is r1's alone.
+func oneNodeModel(t *testing.T) netmodel.Model {
+	t.Helper()
+	m, err := netmodel.New(configured("r1", "default", []netmodel.Interface{ifc("eth0", "10.0.12.1/30")}))
+	if err != nil {
+		t.Fatalf("netmodel.New: %v", err)
+	}
+	return m
+}
+
 // The device objects the rows share. Each is the shape ip -d -j link prints,
 // with the keys the importer reads and the rest left out.
 const (

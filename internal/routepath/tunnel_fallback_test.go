@@ -542,6 +542,79 @@ func TestFallbackWithoutAddressListingIsRefused(t *testing.T) {
 	}
 }
 
+// TestMalformedCaptureIsRefusedBesideAMissingOne gives a node with only ordinary
+// devices one malformed fallback capture while another is missing. No device is a
+// fallback, so only the malformed capture can draw a refusal, and it must. The
+// complete set and the set that omits the address and IPv6 captures are accepted.
+func TestMalformedCaptureIsRefusedBesideAMissingOne(t *testing.T) {
+	ordinary := fbBase()
+	ordinary.links = []string{fbLo, fbETH0}
+	ordinary.addrs = []string{fbAddrLo, fbAddrETH0}
+	// set returns the node's captures with each command in replace given new data,
+	// and without the commands in omit.
+	set := func(replace map[string]string, omit ...string) []TunnelCapture {
+		var out []TunnelCapture
+		for _, tc := range ordinary.captures() {
+			if slices.Contains(omit, tc.Command) {
+				continue
+			}
+			if data, ok := replace[tc.Command]; ok {
+				tc.Data = []byte(data)
+			}
+			out = append(out, tc)
+		}
+		return out
+	}
+	cases := []struct {
+		name    string
+		caps    []TunnelCapture
+		source  string
+		reason  string
+		refused bool
+	}{
+		{name: "ipv4 routes malformed beside no address or ipv6 capture",
+			caps: set(map[string]string{cmdRoute4: "{}"}, cmdAddr, cmdRoute6), source: "ip-route4-r1",
+			reason: "is not ip -4 -j route show table all output", refused: true},
+		{name: "address malformed beside no ipv4 or ipv6 capture",
+			caps: set(map[string]string{cmdAddr: "{}"}, cmdRoute4, cmdRoute6), source: "ip-addr-r1",
+			reason: "is not ip -j addr show output", refused: true},
+		{name: "ipv6 routes malformed beside no address or ipv4 capture",
+			caps: set(map[string]string{cmdRoute6: "{}"}, cmdAddr, cmdRoute4), source: "ip-route6-r1",
+			reason: "is not ip -6 -j route show table all output", refused: true},
+		{name: "valid ipv4 routes beside no address or ipv6 capture",
+			caps: set(nil, cmdAddr, cmdRoute6)},
+		{name: "every capture valid",
+			caps: set(nil)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := oneNodeModel(t)
+			imp, err := ImportTunnels(m, c.caps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !c.refused {
+				if len(imp.Refused) != 0 || len(imp.Uncovered) != 0 || len(imp.Unproven) != 0 {
+					t.Fatalf("refused %+v, uncovered %v, unproven %+v; want a complete import", imp.Refused, imp.Uncovered, imp.Unproven)
+				}
+				if _, err := MergeTunnelImport(File{Model: m}, imp); err != nil {
+					t.Fatalf("MergeTunnelImport refused a complete import: %v", err)
+				}
+				return
+			}
+			if len(imp.Refused) != 1 {
+				t.Fatalf("refused %+v, want the one malformed capture refused", imp.Refused)
+			}
+			if got := imp.Refused[0]; got.Source != c.source || got.Interface != "" || got.Reason != c.reason {
+				t.Errorf("refusal %+v, want source %s, no interface, reason %q", got, c.source, c.reason)
+			}
+			if _, err := MergeTunnelImport(File{Model: m}, imp); err == nil || !strings.Contains(err.Error(), "the import is incomplete") {
+				t.Errorf("MergeTunnelImport: %v, want the import to be incomplete", err)
+			}
+		})
+	}
+}
+
 // TestEvidenceReadersRefuseNulls checks that a null where iproute2 never prints one is
 // refused, not read as zero or empty. A null array is no capture, so it is refused
 // rather than taken for an empty inventory. An empty array is what the kernel prints

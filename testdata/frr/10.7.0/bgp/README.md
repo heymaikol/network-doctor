@@ -127,12 +127,13 @@ Set, each phase adds r1's zebra route table (`show ip route json`) with a
 exited. The withdraw run also adds r1's kernel IPv4 routes (`ip -j -4 route
 show`) and an `events.log` line before each deletion. The session runs already
 take the kernel routes, with or without the opt-in. Unset, the runs write the
-files they wrote before. The repo holds no run of this opt-in and no zebra
-capture of any BGP phase, so nothing here is FIB evidence yet.
+files they wrote before, and no `SHA256SUMS`. The repo holds no run of this
+opt-in and no zebra capture of any BGP phase, so nothing here is FIB evidence yet.
 
 Run each command from `lab/` with the header's conditions: `SCRATCH` holds
 `frr-root/` from the FRR 10.7.0 RPM, `BGPD_VTY_PORT` and `ZEBRA_VTY_PORT` are
-distinct free ports, and the output directory does not exist.
+distinct free ports, neither 179 nor 2604, and `BGPD_VTY_PORT` is not 2601 (zebra's
+default). The output directory does not exist.
 
 ```sh
 SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> unshare -Urnm bash bgp-withdraw.sh
@@ -142,11 +143,43 @@ SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> ARM=admin unshare -Urn
 ```
 
 Outputs are `$SCRATCH/run/bgp-withdraw` and `$SCRATCH/run/bgp-session-<arm>`.
-Check a finished run with `cd <output> && sha256sum -c --strict SHA256SUMS`.
+Verify a finished run as described under Operator run requirements below.
 The phases are withdraw: before, after1, after2; plain: before, after; gr:
 before, during, expired; admin: before, after. Each phase adds
 `r1-<phase>-show_ip_route_json.raw` with its `.collected_at` file, and the
 withdraw run also writes `r1-<phase>-ip_route.json` with its `.collected_at`.
+
+### Operator run requirements
+
+Run these only from a controlled shell, after reading both scripts. Do not run
+them in CI or from an automated agent. They need Linux with unprivileged user
+namespaces, `unshare`, `nsenter`, `ip -j`, `python3`, `sha256sum`, and `timeout`.
+Record the FRR build, the host, and the date in an operator note beside the run.
+
+A run counts as evidence only if all of these hold:
+
+1. It printed `DONE` and exited 0. A run that exits nonzero, or prints no
+   `DONE`, is not evidence, even if a manifest exists.
+2. `cd <output> && sha256sum -c --strict SHA256SUMS` exits 0, with `OK` on each
+   line.
+3. The manifest is complete. The `diff` below prints nothing, which means the
+   directory and the manifest list the same names, so no file was added after the
+   manifest was written:
+
+   ```sh
+   cd <output>
+   diff <(LC_ALL=C ls -1A | grep -Ev '^(SHA256SUMS|poll-.*\.last|.*\.err)$') \
+     <(awk '{print $2}' SHA256SUMS | LC_ALL=C sort)
+   ```
+
+   `sha256sum -c` checks only the listed files. It does not catch an unlisted one.
+4. No `*.failed` file exists, and each phase capture, `r1-<phase>-*.raw` or
+   `r1-<phase>-ip_route.json`, has a `.collected_at` beside it. The admin run's
+   `r1-shutdown.raw` is the vty transcript of the shutdown, not a capture, and has
+   no stamp.
+
+A legacy run, without `ZEBRA_VTY_PORT`, writes no `SHA256SUMS` and no zebra
+capture. It is not FIB evidence.
 
 ### Evidence still to obtain
 
@@ -162,6 +195,45 @@ withdraw run also writes `r1-<phase>-ip_route.json` with its `.collected_at`.
    routes, but no kernel capture was taken alongside a zebra capture.
 4. Provenance for each new run: the FRR build, the host, and the operator's
    record of the run. The steady R capture's operator record is the model.
+5. A producer for the recursive resolution identity (see Missing evidence
+   producers).
+6. A producer for the mapping from a BGP path to its installed entry (see
+   Missing evidence producers).
+
+### Known unknowns
+
+These are not verified, and no existing run resolves them:
+
+- Zebra's vty port and prompt. A prompt other than `r1> ` fails the first zebra
+  capture, keeps `.raw.failed`, and exits 1.
+- Zebra's fields. The zebra capture is checked for framing and one JSON object
+  only. No selection, install, protocol, or next-hop field is read, and which keys
+  carry those for BGP routes is unverified.
+- Kernel routes are context only. The capture records no resolution for a next
+  hop, and a `proto bgp` line does not show that BGP installed it.
+- Order is not simultaneity. The zebra and kernel captures come after the BGP
+  captures, and nothing checks them against the BGP table again.
+- Graceful-restart timing. In `gr` `during`, the zebra and kernel captures
+  (`r1-during-show_ip_route_json.raw` and `r1-during-ip_route.json`) are `during`
+  captures only if their `.collected_at` is less than 30 seconds after the
+  `r2: SIGKILL bgpd` line in `events.log`, the configured restart time. Otherwise,
+  they may show paths that the restart timer has already removed. The committed
+  `session/gr/r1-during-ip_route.json` is a kernel capture of that kind, so the
+  rule applies to it too. No zebra capture of a BGP phase is committed.
+
+### Missing evidence producers
+
+These are gaps. No lab command captures them, and nothing here implements them:
+
+- The recursive resolution identity: the zebra or kernel route that resolves each
+  BGP next hop, such as 10.0.1.2. Neither BGP script queries zebra for a next hop
+  or runs `ip route get`. A candidate, unverified: `ip -j -4 route get <next hop>`.
+  Before using it, verify that its output names the resolving route. Until a producer exists, a next hop is not tied to a resolving route, and a route
+  is never matched by its gateway alone.
+- The mapping from a BGP path to its installed zebra entry. The join rules below
+  are a target. They are not implemented, and `forwarding_impact` stays unknown.
+- A future producer must be checked against live FRR 10.7.0 output before its
+  fields are read.
 
 ### Join rules for a later stage (not implemented)
 

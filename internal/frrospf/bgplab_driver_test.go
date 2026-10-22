@@ -391,3 +391,45 @@ func TestLabBGPSumsRunsAfterTheLastStop(t *testing.T) {
 		}
 	}
 }
+
+// TestLabBGPStartArgvHoldsWithoutZebraPort starts r1's daemons with stubs that record their argv.
+// With ZP empty, which an unset ZEBRA_VTY_PORT leaves, the argv must be the legacy argv, with no -P
+// or -A on zebra. With ZP set, only zebra's argv gains -P and -A, and bgpd's argv does not change.
+// ZP is set directly here: the test does not check how a script derives ZP from ZEBRA_VTY_PORT.
+func TestLabBGPStartArgvHoldsWithoutZebraPort(t *testing.T) {
+	const stub = "#!/bin/sh\necho \"$(basename \"$0\") $*\" >> \"$ARGV_LOG\"\n"
+	for _, name := range labBGPScripts {
+		script := labBGPText(t, name)
+		for _, c := range []struct{ name, zp, zebra string }{
+			{"unset", "", "-u root -g root"},
+			{"set", "2651", "-P 2651 -A 127.0.0.1 -u root -g root"},
+		} {
+			t.Run(name+" zebra port "+c.name, func(t *testing.T) {
+				frr := t.TempDir()
+				for _, bin := range []string{"zebra", "bgpd"} {
+					if err := os.WriteFile(filepath.Join(frr, bin), []byte(stub), 0o755); err != nil { //nolint:gosec // G306: the stub must be executable to run; it lives in t.TempDir.
+						t.Fatal(err)
+					}
+				}
+				out := labBGPOutDir(t, nil)
+				argv := filepath.Join(t.TempDir(), "argv.log")
+				r := labBGPHarness(t, script, []string{"start"},
+					"ZP="+c.zp+"\nmkdir() { :; }\nalive() { return 0; }",
+					"start r1 self",
+					"FRR="+frr, "OUT="+out, "P=2650", "ARGV_LOG="+argv)
+				if r.code != 0 {
+					t.Fatalf("start exit %d; stderr %q", r.code, r.stderr)
+				}
+				got, err := os.ReadFile(argv) //nolint:gosec // G304: a path this test built under its temp dir.
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := "zebra -d -f " + out + "/r1-zebra.conf -i /run/frr/r1/zebra.pid -z /run/frr/r1/zserv.api --vty_socket /run/frr/r1 " + c.zebra + "\n" +
+					"bgpd -d -f " + out + "/r1-bgpd.conf -i /run/frr/r1/bgpd.pid -z /run/frr/r1/zserv.api --vty_socket /run/frr/r1 -P 2650 -A 127.0.0.1 -u root -g root\n"
+				if string(got) != want {
+					t.Errorf("daemon argv:\n%s want:\n%s", got, want)
+				}
+			})
+		}
+	}
+}

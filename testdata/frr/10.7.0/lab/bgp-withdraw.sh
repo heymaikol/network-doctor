@@ -68,8 +68,14 @@ mkdir -p "$S/run" && mkdir "$OUT" || fail "$OUT already exists or could not be c
 "$FRR/bgpd" --version > "$OUT/bgpd-version.txt" 2>&1 || fail "bgpd --version failed"
 "$FRR/zebra" --version > "$OUT/zebra-version.txt" 2>&1 || fail "zebra --version failed"
 
+# STOPPED holds the pids that stop signaled. sums waits on them, not on the pid files, so it does not
+# depend on when a daemon removes its pid file.
+STOPPED=
 stop() {
-  if (( started )); then cat /run/frr/r1/*.pid /run/frr/r2/*.pid /run/frr/r3/*.pid 2>/dev/null | xargs -r kill 2>/dev/null; fi
+  if (( started )); then
+    STOPPED=$(cat /run/frr/r1/*.pid /run/frr/r2/*.pid /run/frr/r3/*.pid 2>/dev/null)
+    xargs -r kill <<< "$STOPPED" 2>/dev/null
+  fi
   started=0
   if [[ -n $R2 ]]; then kill "$R2" 2>/dev/null; R2=; fi
   if [[ -n $R3 ]]; then kill "$R3" 2>/dev/null; R3=; fi
@@ -280,6 +286,7 @@ kernel() {
     rm -f "$base.json.err"
     printf '%s\n' "$at" > "$base.collected_at" && return 0
   fi
+  rm -f "$base.collected_at"
   mv -f "$base.json" "$base.json.failed" 2>/dev/null
   echo "bgp-withdraw.sh: kernel route capture $1 failed" >&2
   return 1
@@ -292,15 +299,15 @@ event() {
   fi
 }
 
-# sums: under ZEBRA_VTY_PORT, after stop has sent SIGTERM, waits up to 10 seconds for every daemon
-# to exit, so no log can still grow. It then writes SHA256SUMS for the run's files in byte order,
-# leaving out the poll and error files, and checks the file it wrote.
+# sums: under ZEBRA_VTY_PORT, after stop has sent SIGTERM, waits up to 10 seconds for each pid stop
+# signaled to exit, so no log can still grow. It then writes SHA256SUMS for the run's files in byte
+# order, leaving out the poll and error files, and checks the file it wrote.
 sums() {
   local i pid live f
   local -a names=()
   for ((i = 0; i < 100; i++)); do
     live=0
-    for pid in $(cat /run/frr/r1/*.pid /run/frr/r2/*.pid /run/frr/r3/*.pid 2>/dev/null); do
+    for pid in $STOPPED; do
       if kill -0 "$pid" 2>/dev/null; then live=1; fi
     done
     (( live )) || break

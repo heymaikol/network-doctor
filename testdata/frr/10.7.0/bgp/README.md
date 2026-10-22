@@ -165,8 +165,9 @@ withdraw run also writes `r1-<phase>-ip_route.json` with its `.collected_at`.
 
 ### Join rules for a later stage (not implemented)
 
-A BGP path may be credited with an installed forwarding entry only when every
-rule holds in the same phase:
+A BGP path can be considered for crediting with an installed forwarding entry
+only when every rule holds in the same phase. Each rule is necessary. Together
+they are still not sufficient:
 
 - FRR's table lists the prefix with exactly one `bestpath` path from the named
   peer, and that path is `valid`. The `valid`, `bestpath`, and
@@ -186,8 +187,10 @@ Refuse the join, and keep `forwarding_impact` unknown with the reason, when:
 - an install indicator is missing, or a field is absent from the capture;
 - the path is stale, or it has no peer (`(unspec)`).
 
-Prefix plus next hop plus `proto bgp` does not prove the selected path. The
-join needs FRR's `bestpath` on the path itself.
+Prefix plus next hop plus `proto bgp` does not prove the selected path, and
+`bestpath` on the path does not show that the installed entry came from it.
+Until a direct mapping from the path to its installed entry is present,
+`forwarding_impact` stays unknown.
 
 ### Limits of this lab
 

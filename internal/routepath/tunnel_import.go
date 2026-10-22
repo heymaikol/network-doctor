@@ -24,16 +24,19 @@ import (
 // policy rules only, which is the family a gre device's outer packet uses. The
 // address and route forms never prove a tunnel. They show only whether a kernel
 // fallback device is inert, so the device is not refused for its own kind.
+// The "ip -j route get" form proves the underlay routing lookup of a WireGuard
+// endpoint to an egress device.
 const (
-	TunnelCommandIPLink    = "ip -d -j link"
-	TunnelCommandRules     = "ip -j rule show"
-	TunnelCommandAddr      = "ip -j addr show"
-	TunnelCommandRoute4    = "ip -4 -j route show table all"
-	TunnelCommandRoute6    = "ip -6 -j route show table all"
-	TunnelCommandWireGuard = "wg show all dump"
+	TunnelCommandIPLink         = "ip -d -j link"
+	TunnelCommandRules          = "ip -j rule show"
+	TunnelCommandAddr           = "ip -j addr show"
+	TunnelCommandRoute4         = "ip -4 -j route show table all"
+	TunnelCommandRoute6         = "ip -6 -j route show table all"
+	TunnelCommandWireGuard      = "wg show all dump"
+	TunnelCommandRouteGetPrefix = "ip -j route get "
 )
 
-// tunnelCommands lists every command the importer reads, in the order a refusal
+// tunnelCommands lists every exact command the importer reads, in the order a refusal
 // names them.
 var tunnelCommands = []string{TunnelCommandIPLink, TunnelCommandRules, TunnelCommandAddr, TunnelCommandRoute4, TunnelCommandRoute6, TunnelCommandWireGuard}
 
@@ -43,7 +46,30 @@ func tunnelCommandList() string {
 	for i, c := range tunnelCommands {
 		quoted[i] = fmt.Sprintf("%q", c)
 	}
-	return strings.Join(quoted[:len(quoted)-1], ", ") + ", and " + quoted[len(quoted)-1]
+	return strings.Join(quoted[:len(quoted)-1], ", ") + ", " + quoted[len(quoted)-1] + ", and \"ip -j route get <endpoint>\""
+}
+
+// isRouteGetCommand reports whether command is a valid "ip -j route get <endpoint>"
+// command, and returns the target endpoint address if valid.
+func isRouteGetCommand(command string) (netip.Addr, bool) {
+	if !strings.HasPrefix(command, TunnelCommandRouteGetPrefix) {
+		return netip.Addr{}, false
+	}
+	target := strings.TrimPrefix(command, TunnelCommandRouteGetPrefix)
+	a, err := netip.ParseAddr(target)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return a, true
+}
+
+// isReadCommand reports whether command is one the import reads.
+func isReadCommand(command string) bool {
+	if slices.Contains(tunnelCommands, command) {
+		return true
+	}
+	_, ok := isRouteGetCommand(command)
+	return ok
 }
 
 // Import limits. A capture is read whole, so its size is bounded before it is
@@ -139,8 +165,9 @@ type TunnelRefusal struct {
 // table, so the table is known without any other fact. Any other rule, a second
 // rules capture, or a missing one refuses every gre device of that node. An ipip
 // device is refused, since no ipip underlay has been run live. A WireGuard
-// interface is never a record. Its dump shows the endpoint, but no capture shows
-// the routing domain the endpoint is looked up in, so it is listed in Unproven.
+// interface is recorded when its endpoint's underlay lookup is proven by an
+// ip -j route get capture under the default domain, default rules, and with no fwmark.
+// An endpoint with no route get capture is listed in Unproven.
 // Every other candidate is refused with its reason. Nothing is inferred from an
 // interface name. An error means the import itself is malformed, not that a
 // capture is.
@@ -165,12 +192,12 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 	}
 
 	var out TunnelImport
-	var ipLinks, wgDumps, ruleCaps, addrCaps, route4Caps, route6Caps []TunnelCapture
+	var ipLinks, wgDumps, ruleCaps, addrCaps, route4Caps, route6Caps, routeGetCaps []TunnelCapture
 	for _, c := range sorted {
 		switch {
 		case len(c.Data) > MaxTunnelCaptureBytes:
 			out.refuse(c.Source, c.Node, "", fmt.Sprintf("is larger than %d bytes", MaxTunnelCaptureBytes))
-		case !slices.Contains(tunnelCommands, c.Command):
+		case !isReadCommand(c.Command):
 			out.refuse(c.Source, c.Node, "", fmt.Sprintf("command %q is not one the import reads; it reads %s", c.Command, tunnelCommandList()))
 		case c.Node == "":
 			out.refuse(c.Source, c.Node, "", "has no node")
@@ -186,6 +213,8 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 			route4Caps = append(route4Caps, c)
 		case c.Command == TunnelCommandRoute6:
 			route6Caps = append(route6Caps, c)
+		case strings.HasPrefix(c.Command, TunnelCommandRouteGetPrefix):
+			routeGetCaps = append(routeGetCaps, c)
 		default:
 			wgDumps = append(wgDumps, c)
 		}
@@ -266,6 +295,18 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 		ev.window = append(ev.window, rulesByNode[node]...)
 		ev.checkWindow(node)
 		evidence[node] = ev
+	}
+
+	// Index route get captures by (node, destination IP).
+	routeGetsByNodeDest := map[[2]string][]TunnelCapture{}
+	for _, c := range routeGetCaps {
+		if _, ok := sets[c.Node]; !ok {
+			out.refuse(c.Source, c.Node, "", fmt.Sprintf("needs one usable ip -d -j link capture of node %s in this import", c.Node))
+			continue
+		}
+		dst, _ := isRouteGetCommand(c.Command)
+		k := [2]string{c.Node, dst.String()}
+		routeGetsByNodeDest[k] = append(routeGetsByNodeDest[k], c)
 	}
 
 	// Each dump that parses gives a fact about every interface it lists. The dumps
@@ -384,7 +425,26 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 				continue
 			}
 			kept = f.capture.Source
-			out.Unproven = append(out.Unproven, u)
+
+			// Check for an underlay proof from route get captures
+			rgList := routeGetsByNodeDest[[2]string{u.Node, u.Remote.String()}]
+			if len(rgList) == 0 {
+				out.Unproven = append(out.Unproven, u)
+				continue
+			}
+			if len(rgList) > 1 {
+				for _, rc := range rgList {
+					out.refuse(rc.Source, rc.Node, k[1], fmt.Sprintf("node %s has %d route get captures for endpoint %s; the import needs one", rc.Node, len(rgList), u.Remote))
+				}
+				continue
+			}
+			rgCap := rgList[0]
+			tun, err := proveWGUnderlay(sets[k[0]], u, rgCap, rules[k[0]])
+			if err != nil {
+				out.refuse(rgCap.Source, rgCap.Node, k[1], err.Error())
+				continue
+			}
+			out.Tunnels = append(out.Tunnels, tun)
 		}
 	}
 
@@ -404,6 +464,102 @@ func compareUnproven(a, b UnprovenTunnel) int {
 
 func compareRefusals(a, b TunnelRefusal) int {
 	return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.Node, b.Node), cmp.Compare(a.Interface, b.Interface), cmp.Compare(a.Reason, b.Reason))
+}
+
+// proveWGUnderlay verifies the routing lookup proof of a single-peer WireGuard device.
+func proveWGUnderlay(set linkSet, u UnprovenTunnel, rgCap TunnelCapture, rules ruleState) (Tunnel, error) {
+	if u.VRF != "default" {
+		return Tunnel{}, errors.New("the tunnel is enslaved to a vrf, which the import does not validate")
+	}
+	if rules.reason != "" {
+		return Tunnel{}, fmt.Errorf("the underlay routing table is not proven: %s", rules.reason)
+	}
+	rg, err := parseRouteGet(rgCap.Data, u.Remote)
+	if err != nil {
+		return Tunnel{}, err
+	}
+	underlayDev, ok := set.links[rg.dev]
+	if !ok {
+		return Tunnel{}, fmt.Errorf("the route lookup egress device %q is not in the link capture", rg.dev)
+	}
+	underlayVRF, err := vrfOf(set.links, underlayDev.Name, "the underlay device")
+	if err != nil {
+		return Tunnel{}, err
+	}
+	if underlayVRF != "default" {
+		return Tunnel{}, errors.New("the underlay device is enslaved to a vrf, which the import does not validate")
+	}
+	return Tunnel{
+		Provenance:  netmodel.Provenance{Source: set.capture.Source, CollectedAt: set.capture.CollectedAt},
+		Node:        u.Node,
+		VRF:         u.VRF,
+		Interface:   u.Interface,
+		Remote:      u.Remote,
+		UnderlayVRF: underlayVRF,
+	}, nil
+}
+
+// ipRouteGet is one route decision of ip -j route get.
+type ipRouteGet struct {
+	dev string
+	dst netip.Addr
+}
+
+// parseRouteGet reads one ip -j route get array. It requires exactly one route object,
+// matching the requested destination, with a single egress device.
+func parseRouteGet(data []byte, wantDst netip.Addr) (ipRouteGet, error) {
+	elems, err := readObjects(data, "ip -j route get")
+	if err != nil {
+		return ipRouteGet{}, err
+	}
+	if len(elems) != 1 {
+		return ipRouteGet{}, fmt.Errorf("lists %d route get objects; the import needs exactly one", len(elems))
+	}
+	raw := elems[0]
+	obj, err := object(raw)
+	if err != nil {
+		return ipRouteGet{}, err
+	}
+	if err := checkKeyCase(obj, "dst", "dev", "gateway", "prefsrc", "table", "protocol", "flags", "uid", "cache", "type", "error", "nexthops"); err != nil {
+		return ipRouteGet{}, err
+	}
+	if errRaw, hasErr := obj["error"]; hasErr {
+		var errStr string
+		if json.Unmarshal(errRaw, &errStr) == nil && errStr != "" {
+			return ipRouteGet{}, fmt.Errorf("route lookup returned error: %s", errStr)
+		}
+	}
+	var t struct {
+		Dst      string `json:"dst"`
+		Dev      string `json:"dev"`
+		Type     string `json:"type"`
+		Nexthops []struct {
+			Dev string `json:"dev"`
+		} `json:"nexthops"`
+	}
+	if err := json.Unmarshal(raw, &t); err != nil {
+		return ipRouteGet{}, errors.New("has a route field of the wrong type")
+	}
+	if routeTypesWithoutDevice[t.Type] {
+		return ipRouteGet{}, fmt.Errorf("route lookup is %s", t.Type)
+	}
+	if len(t.Nexthops) > 0 {
+		return ipRouteGet{}, errors.New("route lookup has multiple nexthops, so the underlay route is ambiguous")
+	}
+	if t.Dev == "" {
+		return ipRouteGet{}, errors.New("route lookup names no egress device")
+	}
+	if !validIfaceName(t.Dev) {
+		return ipRouteGet{}, fmt.Errorf("egress device %q is not a valid Linux interface name", t.Dev)
+	}
+	dstAddr, err := netip.ParseAddr(t.Dst)
+	if err != nil {
+		return ipRouteGet{}, fmt.Errorf("dst %q is not an IP address", t.Dst)
+	}
+	if dstAddr != wantDst {
+		return ipRouteGet{}, fmt.Errorf("route lookup destination %s does not match peer endpoint %s", dstAddr, wantDst)
+	}
+	return ipRouteGet{dev: t.Dev, dst: dstAddr}, nil
 }
 
 // linkSet is the one ip -d -j link capture a node has in an import, with its

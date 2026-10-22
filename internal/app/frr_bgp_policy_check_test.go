@@ -3,9 +3,12 @@ package app
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -47,15 +50,22 @@ var policyAfterTable = []string{
 	"weight:10.10.3.0/24=10.0.3.3=0",
 }
 
-// runPolicyCheck runs the checker on args and returns its exit status: 0 when the file and every
-// term pass, 1 when one does not, and 2 for a usage error.
-func runPolicyCheck(t *testing.T, args []string) int {
+// runPolicyCheck runs the checker on args, with transcript as its stdin, and returns its exit status:
+// 0 when the input and every term pass, 1 when one does not, and 2 for a usage error. Any stderr
+// output fails the test: a malformed input must end in an exit status, not a traceback.
+func runPolicyCheck(t *testing.T, transcript string, args []string) int {
 	t.Helper()
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 is not on PATH, so the policy checker cannot run")
 	}
 	cmd := exec.Command("python3", slices.Concat([]string{"-I", policyCheck}, args)...) //nolint:gosec // G204: python3 is the host interpreter the lab uses, and the arguments are test data.
+	cmd.Stdin = strings.NewReader(transcript)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	err := cmd.Run()
+	if stderr.Len() > 0 {
+		t.Errorf("the checker wrote to stderr, want none: %q", stderr.String())
+	}
 	if err == nil {
 		return 0
 	}
@@ -66,38 +76,139 @@ func runPolicyCheck(t *testing.T, args []string) int {
 	return exit.ExitCode()
 }
 
-// policyJSON checks file as a JSON capture of cmd from r1, which ends at prompt, against terms.
-func policyJSON(t *testing.T, file, cmd, prompt string, terms []string) int {
+// policyJSON checks body as a JSON capture of cmd from r1, which ends at prompt, against terms.
+func policyJSON(t *testing.T, body, cmd, prompt string, terms []string) int {
 	t.Helper()
-	return runPolicyCheck(t, slices.Concat([]string{file, "json", cmd, prompt}, terms))
+	return runPolicyCheck(t, body, slices.Concat([]string{"json", cmd, prompt}, terms))
 }
 
-// policyText checks file as a text transcript that ends at prompt, against terms.
-func policyText(t *testing.T, file, prompt string, terms []string) int {
+// policyText checks body as a text transcript that ends at prompt, against terms.
+func policyText(t *testing.T, body, prompt string, terms []string) int {
 	t.Helper()
-	return runPolicyCheck(t, slices.Concat([]string{file, "text", prompt}, terms))
+	return runPolicyCheck(t, body, slices.Concat([]string{"text", prompt}, terms))
 }
 
-// writePolicyFixture writes body to a new file and returns its path. Each caller says that its
-// body is hand-written, not FRR output.
-func writePolicyFixture(t *testing.T, name, body string) string {
+// readCommitted returns the bytes of name, a committed FRR output file in dir. It reads through an
+// os.Root, so name cannot leave dir.
+func readCommitted(t *testing.T, dir, name string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+	raw, err := openRoot(t, dir).ReadFile(name)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return string(raw)
+}
+
+// createPolicyFixture creates name in root as a new 0600 file holding body, and returns its path.
+// name must be one local path element, and O_EXCL refuses a name that already exists. Both rules
+// keep the file inside root and keep an existing fixture from being replaced.
+func createPolicyFixture(root *os.Root, name, body string) (string, error) {
+	if !filepath.IsLocal(name) || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("fixture name %q is not one local path element", name)
+	}
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.WriteString(body); err != nil {
+		_ = f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	return filepath.Join(root.Name(), name), nil
+}
+
+// TestPolicyFixtureStaysInItsDirectory checks that no rejected name creates a file outside the
+// fixture directory. That directory sits inside parent, so an escaped file would show up in parent.
+// Each name must fail, and no file may appear in parent or in the fixture directory.
+func TestPolicyFixtureStaysInItsDirectory(t *testing.T) {
+	parentDir := t.TempDir()
+	parent := openRoot(t, parentDir)
+	if err := parent.Mkdir("fixtures", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixtures := openRoot(t, filepath.Join(parentDir, "fixtures"))
+	if err := fixtures.Mkdir("nested", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"../escape.raw",
+		"nested/../../escape.raw",
+		filepath.Join(parentDir, "absolute.raw"),
+		"nested/x.raw",
+		`a\b.raw`,
+		"..",
+		"",
+	} {
+		if _, err := createPolicyFixture(fixtures, name, "x\r\n"); err == nil {
+			t.Errorf("createPolicyFixture(%q) succeeded, want an error", name)
+		}
+	}
+	for _, c := range []struct {
+		root *os.Root
+		dir  string
+		want []string
+	}{
+		{parent, ".", []string{"fixtures"}},
+		{fixtures, ".", []string{"nested"}},
+		{fixtures, "nested", nil},
+	} {
+		entries, err := fs.ReadDir(c.root.FS(), c.dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, e := range entries {
+			got = append(got, e.Name())
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s lists %q, want %q", c.dir, got, c.want)
+		}
+	}
+}
+
+// TestPolicyFixtureNeverOverwrites checks that a name already in use fails and leaves that file
+// unchanged. A new fixture is private, mode 0600, and its returned path names the file it wrote.
+func TestPolicyFixtureNeverOverwrites(t *testing.T) {
+	dir := t.TempDir()
+	root := openRoot(t, dir)
+	path, err := createPolicyFixture(root, "keep.raw", "precious\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "keep.raw"); path != want {
+		t.Errorf("createPolicyFixture returned %q, want %q", path, want)
+	}
+	if _, err := createPolicyFixture(root, "keep.raw", "replaced\r\n"); err == nil {
+		t.Error("createPolicyFixture overwrote keep.raw, want an error")
+	}
+	got, err := root.ReadFile("keep.raw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "precious\r\n" {
+		t.Errorf("keep.raw holds %q after the refused write, want the original body", got)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := root.Stat("keep.raw")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("fixture mode %v, want 0600", info.Mode().Perm())
+		}
+	}
 }
 
 // TestPolicyCheckAcceptsCommittedFRROutput runs the checker over FRR output that is already
 // committed: the withdrawal run's before table, a neighbor capture, and the admin arm's shutdown
 // transcript. Each one passes the terms that describe it.
 func TestPolicyCheckAcceptsCommittedFRROutput(t *testing.T) {
-	const (
-		table    = withdrawLab + "/r1-before-show_ip_bgp_json.raw"
-		neighbor = "../../testdata/frr/10.7.0/bgp/session/plain/r1-before-show_ip_bgp_neighbors_10.0.1.2_json.raw"
-		shutdown = "../../testdata/frr/10.7.0/bgp/session/admin/r1-shutdown.raw"
-	)
+	table := readCommitted(t, withdrawLab, "r1-before-show_ip_bgp_json.raw")
+	neighbor := readCommitted(t, sessionLab+"plain", "r1-before-show_ip_bgp_neighbors_10.0.1.2_json.raw")
+	shutdown := readCommitted(t, sessionLab+"admin", "r1-shutdown.raw")
 	if code := policyJSON(t, table, "show ip bgp json", "r1> ", policyBeforeTable); code != 0 {
 		t.Errorf("the before table fails its terms: exit %d, want 0", code)
 	}
@@ -112,7 +223,7 @@ func TestPolicyCheckAcceptsCommittedFRROutput(t *testing.T) {
 // TestPolicyCheckRefusesTermsTheTableDoesNotShow checks that each term the committed table does
 // not meet fails it. The after-change terms are included, since the before table cannot meet them.
 func TestPolicyCheckRefusesTermsTheTableDoesNotShow(t *testing.T) {
-	table := withdrawLab + "/r1-before-show_ip_bgp_json.raw"
+	table := readCommitted(t, withdrawLab, "r1-before-show_ip_bgp_json.raw")
 	for _, c := range []struct {
 		name  string
 		terms []string
@@ -144,13 +255,13 @@ func TestPolicyCheckRefusesMalformedJSONCaptures(t *testing.T) {
 	if bytes.Equal(dup, raw) {
 		t.Fatal("the duplicate key was not inserted")
 	}
-	table := withdrawLab + "/r1-before-show_ip_bgp_json.raw"
-	duplicate := writePolicyFixture(t, "duplicate.raw", string(dup))
-	nan := writePolicyFixture(t, "nan.raw", "show ip bgp json\r\n{\"routes\": {}, \"x\": NaN}\r\nr1> ")
-	plain := writePolicyFixture(t, "plain.raw", "show ip bgp json\r\n{\"routes\": {}}\r\nr1> ")
+	table := string(raw)
+	duplicate := string(dup)
+	nan := "show ip bgp json\r\n{\"routes\": {}, \"x\": NaN}\r\nr1> "
+	plain := "show ip bgp json\r\n{\"routes\": {}}\r\nr1> "
 	for _, c := range []struct {
 		name   string
-		file   string
+		body   string
 		cmd    string
 		prompt string
 		want   int
@@ -162,7 +273,77 @@ func TestPolicyCheckRefusesMalformedJSONCaptures(t *testing.T) {
 		{"the wrong echoed command", table, "show ip bgp summary json", "r1> ", 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if code := policyJSON(t, c.file, c.cmd, c.prompt, nil); code != c.want {
+			if code := policyJSON(t, c.body, c.cmd, c.prompt, nil); code != c.want {
+				t.Errorf("exit %d, want %d", code, c.want)
+			}
+		})
+	}
+}
+
+// policyMaxBytes is the checker's input ceiling, MAX_BYTES in bgp-policy-check.py.
+const policyMaxBytes = 1 << 20
+
+// TestPolicyCheckTakesStdinNotPath checks that the checker takes no file path. Arguments shaped the
+// old way, with a path before json, are a usage error. Empty input fails in both modes, so a capture
+// that never arrived cannot pass.
+func TestPolicyCheckTakesStdinNotPath(t *testing.T) {
+	body := "show ip bgp json\r\n{\"routes\": {}}\r\nr1> "
+	if code := runPolicyCheck(t, body, []string{"capture.raw", "json", "show ip bgp json", "r1> "}); code != 2 {
+		t.Errorf("a leading path: exit %d, want 2", code)
+	}
+	if code := policyJSON(t, "", "show ip bgp json", "r1> ", nil); code != 1 {
+		t.Errorf("empty json input: exit %d, want 1", code)
+	}
+	if code := policyText(t, "", "r1# ", []string{"has:R3-IN"}); code != 1 {
+		t.Errorf("empty text input: exit %d, want 1", code)
+	}
+}
+
+// paddedJSONCapture returns a JSON capture of exactly size bytes: the command, CRLF, an object with
+// spaces before its closing brace, CRLF, and the r1 prompt. size must be at least the unpadded length.
+func paddedJSONCapture(size int) string {
+	capture := func(pad int) string {
+		return "show ip bgp json\r\n{\"routes\": {}" + strings.Repeat(" ", pad) + "}\r\nr1> "
+	}
+	return capture(size - len(capture(0)))
+}
+
+// TestPolicyCheckBoundsInput checks the input ceiling at its edge. A valid capture of exactly
+// policyMaxBytes passes, and one byte more fails, though its framing and JSON are the same.
+func TestPolicyCheckBoundsInput(t *testing.T) {
+	if code := policyJSON(t, paddedJSONCapture(policyMaxBytes), "show ip bgp json", "r1> ", []string{"key:routes"}); code != 0 {
+		t.Errorf("a capture of policyMaxBytes: exit %d, want 0", code)
+	}
+	if code := policyJSON(t, paddedJSONCapture(policyMaxBytes+1), "show ip bgp json", "r1> ", []string{"key:routes"}); code != 1 {
+		t.Errorf("a capture of policyMaxBytes+1: exit %d, want 1", code)
+	}
+}
+
+// TestPolicyCheckRefusesMalformedInputWithoutTraceback checks inputs that frame correctly but do not
+// parse, or that hold a value a term must not match. Each exits with a status and writes nothing to
+// stderr, which runPolicyCheck enforces. Python compares a bool or a float with the integer 1 as
+// equal, so "weight": true and "weight": 1.0 must not match weight 1. The integer row is the control.
+func TestPolicyCheckRefusesMalformedInputWithoutTraceback(t *testing.T) {
+	deep := strings.Repeat(`{"a":`, 5000) + "1" + strings.Repeat("}", 5000)
+	weight := func(value string) string {
+		return "show ip bgp json\r\n{\"routes\": {\"10.10.2.0/24\": [{\"peerId\": \"10.0.1.2\", \"weight\": " + value + "}]}}\r\nr1> "
+	}
+	weightTerm := []string{"weight:10.10.2.0/24=10.0.1.2=1"}
+	for _, c := range []struct {
+		name  string
+		body  string
+		terms []string
+		want  int
+	}{
+		{"a truncated object with the framing intact", "show ip bgp json\r\n{\"routes\": {\"10.10.1.0/24\": [\r\nr1> ", nil, 1},
+		{"invalid UTF-8 in a string", "show ip bgp json\r\n{\"routes\": {}, \"x\": \"\xff\"}\r\nr1> ", nil, 1},
+		{"nesting too deep to parse", "show ip bgp json\r\n" + deep + "\r\nr1> ", []string{"absent:10.10.1.0/24"}, 1},
+		{"weight true, against weight 1", weight("true"), weightTerm, 1},
+		{"weight 1.0, against weight 1", weight("1.0"), weightTerm, 1},
+		{"weight 1, against weight 1 (control)", weight("1"), weightTerm, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if code := policyJSON(t, c.body, "show ip bgp json", "r1> ", c.terms); code != c.want {
 				t.Errorf("exit %d, want %d", code, c.want)
 			}
 		})
@@ -174,19 +355,19 @@ func TestPolicyCheckRefusesMalformedJSONCaptures(t *testing.T) {
 // whether the binding is inside the IPv4 unicast address family, and whether an empty
 // configuration can pass the anchors that a before phase requires.
 func TestPolicyCheckReadsTranscriptsAsText(t *testing.T) {
-	const shutdown = "../../testdata/frr/10.7.0/bgp/session/admin/r1-shutdown.raw"
-	rejected := writePolicyFixture(t, "rejected.raw", "enable\r\nr1# configure terminal\r\nr1(config)# route-map R3-IN permit 10\r\n% Unknown command.\r\nr1(config)# end\r\nr1# ")
-	noPrompt := writePolicyFixture(t, "noprompt.raw", "enable\r\nr1# end\r\n")
-	inside := writePolicyFixture(t, "inside.raw", "router bgp 65001\r\n address-family ipv4 unicast\r\n  neighbor 10.0.3.3 route-map R3-IN in\r\n exit-address-family\r\nend\r\nr1# ")
-	outside := writePolicyFixture(t, "outside.raw", "router bgp 65001\r\n neighbor 10.0.3.3 route-map R3-IN in\r\n address-family ipv4 unicast\r\n exit-address-family\r\nend\r\nr1# ")
+	shutdown := readCommitted(t, sessionLab+"admin", "r1-shutdown.raw")
+	rejected := "enable\r\nr1# configure terminal\r\nr1(config)# route-map R3-IN permit 10\r\n% Unknown command.\r\nr1(config)# end\r\nr1# "
+	noPrompt := "enable\r\nr1# end\r\n"
+	inside := "router bgp 65001\r\n address-family ipv4 unicast\r\n  neighbor 10.0.3.3 route-map R3-IN in\r\n exit-address-family\r\nend\r\nr1# "
+	outside := "router bgp 65001\r\n neighbor 10.0.3.3 route-map R3-IN in\r\n address-family ipv4 unicast\r\n exit-address-family\r\nend\r\nr1# "
 	// An empty configuration passes every "lacks" term, so the before phase also anchors on r1's own
 	// lines. Those anchors must fail here.
-	empty := writePolicyFixture(t, "empty.raw", "enable\r\nr1# show running-config\r\nr1# ")
+	empty := "enable\r\nr1# show running-config\r\nr1# "
 	binding := []string{"inaf:neighbor 10.0.3.3 route-map R3-IN in"}
 	anchors := []string{"has:router bgp 65001", "inaf:network 10.10.1.0/24"}
 	for _, c := range []struct {
 		name  string
-		file  string
+		body  string
 		terms []string
 		want  int
 	}{
@@ -199,7 +380,7 @@ func TestPolicyCheckReadsTranscriptsAsText(t *testing.T) {
 		{"binding absent from the committed shutdown transcript", shutdown, []string{"has:neighbor 10.0.3.3 route-map R3-IN in"}, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if code := policyText(t, c.file, "r1# ", c.terms); code != c.want {
+			if code := policyText(t, c.body, "r1# ", c.terms); code != c.want {
 				t.Errorf("exit %d, want %d", code, c.want)
 			}
 		})
@@ -291,11 +472,10 @@ func policyEdit(t *testing.T, body, old, repl string) string {
 // change applied passes every after-change CFG term, and the before-change terms refuse it. Without
 // this case, the negative cases could pass only because their terms can never match.
 func TestPolicyCheckAcceptsPolicyConfigBody(t *testing.T) {
-	file := writePolicyFixture(t, "after-config.raw", policyAfterConfigBody)
-	if code := policyText(t, file, "r1# ", policyAfterConfig); code != 0 {
+	if code := policyText(t, policyAfterConfigBody, "r1# ", policyAfterConfig); code != 0 {
 		t.Errorf("the after-change body fails the after-change terms: exit %d, want 0", code)
 	}
-	if code := policyText(t, file, "r1# ", policyBeforeConfig); code != 1 {
+	if code := policyText(t, policyAfterConfigBody, "r1# ", policyBeforeConfig); code != 1 {
 		t.Errorf("the after-change body passes the before-change terms: exit %d, want 1", code)
 	}
 }
@@ -316,8 +496,7 @@ func TestPolicyCheckRefusesMutatedPolicyConfig(t *testing.T) {
 		{"a prefix list for another prefix", policyEdit(t, policyAfterConfigBody, "permit 10.10.2.0/24", "permit 10.10.9.0/24")},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			file := writePolicyFixture(t, "mutant.raw", c.body)
-			if code := policyText(t, file, "r1# ", policyAfterConfig); code != 1 {
+			if code := policyText(t, c.body, "r1# ", policyAfterConfig); code != 1 {
 				t.Errorf("exit %d, want 1", code)
 			}
 		})
@@ -338,8 +517,7 @@ func TestPolicyCheckRefusesWrongFamily(t *testing.T) {
 		{"an ipv6 family nested in ipv4 with no exit", "router bgp 65001\r\n address-family ipv4 unicast\r\n address-family ipv6 unicast\r\n  neighbor 10.0.3.3 route-map R3-IN in\r\n exit-address-family\r\nend\r\nr1# "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			file := writePolicyFixture(t, "family.raw", c.body)
-			if code := policyText(t, file, "r1# ", []string{"inaf:neighbor 10.0.3.3 route-map R3-IN in"}); code != 1 {
+			if code := policyText(t, c.body, "r1# ", []string{"inaf:neighbor 10.0.3.3 route-map R3-IN in"}); code != 1 {
 				t.Errorf("exit %d, want 1", code)
 			}
 		})
@@ -365,8 +543,7 @@ func TestPolicyCheckRefusesPrefixOfLongerToken(t *testing.T) {
 		{"P10-2 before a colon", "ip prefix-list P10-2: 1 entries\r\nr1# ", "has:P10-2", 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			file := writePolicyFixture(t, "token.raw", c.body)
-			if code := policyText(t, file, "r1# ", []string{c.term}); code != c.want {
+			if code := policyText(t, c.body, "r1# ", []string{c.term}); code != c.want {
 				t.Errorf("exit %d, want %d", code, c.want)
 			}
 		})
@@ -377,9 +554,9 @@ func TestPolicyCheckRefusesPrefixOfLongerToken(t *testing.T) {
 // empty has: match every file, an empty inaf: match any blank line inside a family, and an empty
 // absent: pass on the committed table. The text bodies are hand-written, not FRR output.
 func TestPolicyCheckRefusesEmptyTerms(t *testing.T) {
-	framed := writePolicyFixture(t, "framed.raw", "enable\r\nr1# ")
-	blank := writePolicyFixture(t, "blank.raw", "address-family ipv4 unicast\r\n\r\n exit-address-family\r\nend\r\nr1# ")
-	table := withdrawLab + "/r1-before-show_ip_bgp_json.raw"
+	framed := "enable\r\nr1# "
+	blank := "address-family ipv4 unicast\r\n\r\n exit-address-family\r\nend\r\nr1# "
+	table := readCommitted(t, withdrawLab, "r1-before-show_ip_bgp_json.raw")
 	if code := policyText(t, framed, "r1# ", []string{"has:"}); code != 1 {
 		t.Errorf("has: with no arg: exit %d, want 1", code)
 	}
@@ -395,8 +572,8 @@ func TestPolicyCheckRefusesEmptyTerms(t *testing.T) {
 // because its framing alone is not a check. A transcript that breaks the framing still exits 1 first.
 // The bodies are hand-written.
 func TestPolicyCheckRequiresTextTerm(t *testing.T) {
-	framed := writePolicyFixture(t, "framed.raw", "enable\r\nr1# ")
-	rejected := writePolicyFixture(t, "rejected.raw", "enable\r\nr1# \r\n% Unknown command.\r\nr1# ")
+	framed := "enable\r\nr1# "
+	rejected := "enable\r\nr1# \r\n% Unknown command.\r\nr1# "
 	if code := policyText(t, framed, "r1# ", nil); code != 2 {
 		t.Errorf("framed text with no TERM: exit %d, want 2", code)
 	}
@@ -419,16 +596,14 @@ func TestPolicyCheckRefusesIncompleteTranscripts(t *testing.T) {
 		{"a file cut inside a line", policyAfterConfigBody[:cut+len("route-map R3-IN")]},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			file := writePolicyFixture(t, "incomplete.raw", c.body)
-			if code := policyText(t, file, "r1# ", policyAfterConfig); code != 1 {
+			if code := policyText(t, c.body, "r1# ", policyAfterConfig); code != 1 {
 				t.Errorf("exit %d, want 1", code)
 			}
 		})
 	}
 	t.Run("an error line inside a matching family", func(t *testing.T) {
 		body := "router bgp 65001\r\n address-family ipv4 unicast\r\n  neighbor 10.0.3.3 route-map R3-IN in\r\n% Unknown command.\r\n exit-address-family\r\nend\r\nr1# "
-		file := writePolicyFixture(t, "rejected-family.raw", body)
-		if code := policyText(t, file, "r1# ", []string{"inaf:neighbor 10.0.3.3 route-map R3-IN in"}); code != 1 {
+		if code := policyText(t, body, "r1# ", []string{"inaf:neighbor 10.0.3.3 route-map R3-IN in"}); code != 1 {
 			t.Errorf("exit %d, want 1", code)
 		}
 	})
@@ -460,8 +635,7 @@ func TestPolicyCheckRefusesEchoOnlyTranscripts(t *testing.T) {
 		{"policy change, acceptance terms", policyEchoBody, []string{"has:set weight 100", "has:clear ip bgp 10.0.3.3 soft in"}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			file := writePolicyFixture(t, "echo.raw", c.body)
-			if code := policyText(t, file, "r1# ", c.terms); code != c.want {
+			if code := policyText(t, c.body, "r1# ", c.terms); code != c.want {
 				t.Errorf("exit %d, want %d", code, c.want)
 			}
 		})

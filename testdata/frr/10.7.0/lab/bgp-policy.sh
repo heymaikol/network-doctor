@@ -228,7 +228,7 @@ cap() {
   base="$OUT/r1-$phase-${cmd// /_}"
   at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || return 1
   query "$cmd" "$base.raw"; rc=$?
-  if (( rc == 0 )) && python3 -I "$CHECK" "$base.raw" json "$cmd" "r1> " "$@" 2>/dev/null; then
+  if (( rc == 0 )) && python3 -I "$CHECK" json "$cmd" "r1> " "$@" < "$base.raw" 2>/dev/null; then
     rm -f "$base.raw.err"
     if printf '%s\n' "$at" > "$base.collected_at"; then return 0; fi
     rm -f "$base.collected_at"
@@ -247,7 +247,7 @@ captxt() {
   base="$OUT/r1-$phase-$name"
   at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || return 1
   vtyrun "$base.raw" "terminal length 0" "enable" "$line" || rc=$?
-  if (( rc == 0 )) && python3 -I "$CHECK" "$base.raw" text "r1# " "$@" 2>/dev/null; then
+  if (( rc == 0 )) && python3 -I "$CHECK" text "r1# " "$@" < "$base.raw" 2>/dev/null; then
     rm -f "$base.raw.err"
     if printf '%s\n' "$at" > "$base.collected_at"; then return 0; fi
     rm -f "$base.collected_at"
@@ -274,7 +274,7 @@ policy() {
   at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || return 1
   event "r1: route-map R3-IN permit 10 (prefix-list P10-2, set weight 100) and permit 20; neighbor 10.0.3.3 route-map R3-IN in; clear ip bgp 10.0.3.3 soft in"
   vtyrun "$base.raw" "${POLICY[@]}" || rc=$?
-  if (( rc == 0 )) && python3 -I "$CHECK" "$base.raw" text "r1# " "has:set weight 100" "has:clear ip bgp 10.0.3.3 soft in" 2>/dev/null; then
+  if (( rc == 0 )) && python3 -I "$CHECK" text "r1# " "has:set weight 100" "has:clear ip bgp 10.0.3.3 soft in" < "$base.raw" 2>/dev/null; then
     rm -f "$base.raw.err"
     if printf '%s\n' "$at" > "$base.collected_at"; then return 0; fi
     rm -f "$base.collected_at"
@@ -291,9 +291,9 @@ settle() {
   local phase=$1 limit=$2 step=$3 t0=$SECONDS ok=0
   while (( SECONDS - t0 < limit )); do
     if query "show ip bgp summary json" "$OUT/poll-r1-summary.last" \
-      && python3 -I "$CHECK" "$OUT/poll-r1-summary.last" json "show ip bgp summary json" "r1> " "${SUM[@]}" 2>/dev/null \
+      && python3 -I "$CHECK" json "show ip bgp summary json" "r1> " "${SUM[@]}" < "$OUT/poll-r1-summary.last" 2>/dev/null \
       && query "show ip bgp json" "$OUT/poll-r1-table.last" \
-      && python3 -I "$CHECK" "$OUT/poll-r1-table.last" json "show ip bgp json" "r1> " "${TAB[@]}" 2>/dev/null; then
+      && python3 -I "$CHECK" json "show ip bgp json" "r1> " "${TAB[@]}" < "$OUT/poll-r1-table.last" 2>/dev/null; then
       ok=1
       break
     fi

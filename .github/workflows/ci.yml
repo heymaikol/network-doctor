@@ -247,8 +247,10 @@ jobs:
       # gives each new namespace only while the ipip module is loaded. The coverage
       # run failed on the runner without it.
       - if: matrix.shard == 'coverage'
-        name: Load the ipip module
-        run: sudo modprobe ipip
+        name: Load the ipip and wireguard modules
+        run: |
+          sudo modprobe ipip
+          sudo modprobe wireguard
       #
       # Each scenario builds its own namespaces under a random run id, so the
       # runs are independent and -parallel decides how many stand at once. Most

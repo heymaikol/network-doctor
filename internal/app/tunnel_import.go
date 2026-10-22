@@ -41,7 +41,7 @@ var tunnelNotImported = []string{
 	"routes: the route captures are read only to show whether a route names a kernel fallback device; no route is written to the topology",
 	"policy rules: the IPv4 rules are read only to prove they are the kernel default set; any other rule, a second rules capture, or a missing one refuses every gre device of its node and each kernel fallback gre0, gretap0, erspan0, or tunl0 of it, since a record or an inert fallback needs those rules; a gretap, erspan, or ipip device that is not an inert fallback is refused by its kind whatever its rules, though a rules problem may be added to that reason; IPv6 rules are not read, since a gre device's outer packet is IPv4; WireGuard is not affected, since its endpoint does not depend on the rules",
 	"ipip devices: refused, since no ipip underlay has been validated live, except the kernel fallback tunl0 when its captures show it inert",
-	"WireGuard: each endpoint is reported as unproven, and a WireGuard device is never written to the topology",
+	"WireGuard: an endpoint is reported as unproven unless its routing lookup is proven by an ip -j route get capture under the default domain, default rules, and with no fwmark",
 	"devices of a kind the import does not read: refused by kind, never skipped and never read from their names, except a kernel fallback that its captures show inert",
 	"keys: never kept; no key reaches the report, the topology, or an error",
 }

@@ -144,55 +144,24 @@ func TestTunnelImportAgainstLiveNamespaces(t *testing.T) {
 	}
 	t.Parallel()
 	requireBackend(t)
-	requireIPIPFallback(t)
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	args := []string{"-test.run=^TestTunnelImportAgainstLiveNamespaces$", "-test.v", "-tunnel-import-director"}
-	if *tunnelImportEvidence != "" {
-		args = append(args, "-tunnel-import-evidence", *tunnelImportEvidence)
-	}
-	var log bytes.Buffer
-	code, err := LaunchDirector(context.Background(), self, args, nil, &log, &log)
-	if err != nil || code != 0 {
-		t.Fatalf("director exit %d (%v):\n%s", code, err, log.String())
-	}
-	// A director that matched no test exits 0 too, so each case has to be seen
-	// passing, or a renamed test would pass here having run nothing.
+	requireIPIPModule(t, "new namespaces get no tunl0 fallback device")
+	var names []string
 	for _, c := range tunnelImportCases {
-		if name := strings.ReplaceAll(c.name, " ", "_"); !strings.Contains(log.String(), "--- PASS: TestTunnelImportAgainstLiveNamespaces/"+name) {
-			t.Errorf("case %q did not run in the director:\n%s", c.name, log.String())
-		}
+		names = append(names, c.name)
 	}
-	t.Log(log.String())
+	launchTunnelDirector(context.Background(), t, "TestTunnelImportAgainstLiveNamespaces", "tunnel-import-director", names)
 }
 
 func runTunnelImportCase(t *testing.T, c tunnelImportCase) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	s, err := ParseScenario(strings.NewReader(tunnelScenario(c.segment)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	env, err := DefaultBackend(false, nil).Prepare(ctx, s, NewID())
-	if env != nil {
-		defer func() {
-			if info := env.Cleanup(context.Background(), false); !info.Done || len(info.Errors) > 0 {
-				t.Errorf("cleanup: done=%t errors=%v", info.Done, info.Errors)
-			}
-		}()
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	e := env.(*netnsEnv)
+	e, s := startTunnelDiamond(ctx, t, c.segment)
 	src := e.byName[s.Client().Name]
 	// The scenario routes r1 nowhere past its links, so r1 gets the ECMP underlay
 	// route to r3's LAN that the tunnel's remote is looked up in.
 	addMultipath(ctx, t, e, "r1", "10.71.30.0/24", "10.71.12.2", "10.71.14.4")
-	addGRE(ctx, t, e, "r1", "10.71.14.1", "10.71.30.1", "172.31.0.1/30", e.byName["r1"].interfaceForSegment("s14").iface)
-	addGRE(ctx, t, e, "r3", "10.71.30.1", "10.71.14.1", tunnelOverlay+"/30", e.byName["r3"].interfaceForSegment("s43").iface)
+	addTunnel(ctx, t, e, "r1", "gre", "gre1", "10.71.14.1", "10.71.30.1", "172.31.0.1/30", e.byName["r1"].interfaceForSegment("s14").iface)
+	addTunnel(ctx, t, e, "r3", "gre", "gre1", "10.71.30.1", "10.71.14.1", tunnelOverlay+"/30", e.byName["r3"].interfaceForSegment("s43").iface)
 	awaitSettled(ctx, t, e)
 
 	// The model is read before any steering rule, so the import's underlay proof
@@ -264,10 +233,7 @@ func runTunnelImportCase(t *testing.T, c tunnelImportCase) {
 	if c.segment != "" {
 		device = e.byName["r1"].interfaceForSegment(c.segment).iface
 	}
-	link := e.Exec(ctx, "r1", []string{"ip", "-o", "link", "show", "dev", device}, nil)
-	if link.Err != nil || link.ExitCode != 0 || parseLinkUp(string(link.Stdout)) {
-		t.Fatalf("r1 %s is not down in the kernel after the fault: %s %v", device, link.Stdout, execResultError(link))
-	}
+	requireLinkDown(ctx, t, e, "r1", device)
 	after := map[string]bool{}
 	for _, d := range dests {
 		after[d] = dialDelivers(ctx, t, src, d)
@@ -278,23 +244,7 @@ func runTunnelImportCase(t *testing.T, c tunnelImportCase) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sim.Considered != len(dests) || sim.Truncated {
-		t.Fatalf("simulation considered %d destinations (truncated %t), want all %d held", sim.Considered, sim.Truncated, len(dests))
-	}
-	rated := ratedAffected(sim)
-	bareRated := ratedAffected(bare)
-	for _, d := range dests {
-		a, ok := rated[d]
-		if !ok {
-			a.Impact = routepath.ImpactNone
-		}
-		line := fmt.Sprintf("%-12s recorded %-17s without record %-17s dialed before %-5t after %t", d, a.Impact, impactOr(bareRated, d), before[d], after[d])
-		t.Log(line)
-		outcome.WriteString(line + "\n")
-		if why := disagreement(ctx, e, src, a, before[d], after[d]); why != "" {
-			t.Errorf("%s: predicted %s, but %s (%s)", d, a.Impact, why, a.Reason)
-		}
-	}
+	rated, bareRated := gradeTunnelDestinations(ctx, t, e, src, dests, sim, bare, before, after, &outcome)
 	if got := impactOr(rated, tunnelOverlay); got != c.impact || after[tunnelOverlay] != c.delivered {
 		t.Errorf("%s: predicted %s and delivered %t after the fault, want %s and %t: the case no longer exercises what it is for",
 			tunnelOverlay, got, after[tunnelOverlay], c.impact, c.delivered)
@@ -327,6 +277,31 @@ func ratedAffected(sim routepath.Simulation) map[string]routepath.Affected {
 // impactOr is the impact rated for dest, or none when the simulation rated nothing.
 func impactOr(rated map[string]routepath.Affected, dest string) routepath.Impact {
 	return cmp.Or(rated[dest].Impact, routepath.ImpactNone)
+}
+
+// gradeTunnelDestinations grades the rating of each held destination against the dials
+// before and after the fault, and logs one line per destination to outcome. It returns
+// the ratings from sim, which has the tunnel record, and from bare, which does not.
+func gradeTunnelDestinations(ctx context.Context, t *testing.T, e *netnsEnv, src *nodeProc, dests []string, sim, bare routepath.Simulation, before, after map[string]bool, outcome *strings.Builder) (rated, bareRated map[string]routepath.Affected) {
+	t.Helper()
+	if sim.Considered != len(dests) || sim.Truncated {
+		t.Fatalf("simulation considered %d destinations (truncated %t), want all %d held", sim.Considered, sim.Truncated, len(dests))
+	}
+	rated = ratedAffected(sim)
+	bareRated = ratedAffected(bare)
+	for _, d := range dests {
+		a, ok := rated[d]
+		if !ok {
+			a.Impact = routepath.ImpactNone
+		}
+		line := fmt.Sprintf("%-12s recorded %-17s without record %-17s dialed before %-5t after %t", d, a.Impact, impactOr(bareRated, d), before[d], after[d])
+		t.Log(line)
+		outcome.WriteString(line + "\n")
+		if why := disagreement(ctx, e, src, a, before[d], after[d]); why != "" {
+			t.Errorf("%s: predicted %s, but %s (%s)", d, a.Impact, why, a.Reason)
+		}
+	}
+	return rated, bareRated
 }
 
 // tunnelPathState logs what the kernel does with the tunnel at one moment: the
@@ -393,38 +368,95 @@ func tunnelScenario(segment string) string {
 	return strings.Replace(fmt.Sprintf(diamondScenario, ""), "faults:\n  - {type: link_down, node: r1, segment: s12}", faults, 1)
 }
 
-// addGRE creates a gre device on node, pinned by dev to the segment interface that
-// carries its outer packets, and gives it its overlay address. Each command runs
-// through Env.Exec, the way the other live cases build their topology.
-func addGRE(ctx context.Context, t *testing.T, e *netnsEnv, node, local, remote, overlay, dev string) {
+// addTunnel creates a tunnel device of the given kind and name on node, pinned by dev
+// to the segment interface that carries its outer packets, and gives it its overlay
+// address. The commands come from tunnelLinkArgv and run through Env.Exec, the way the
+// other live cases build their topology.
+func addTunnel(ctx context.Context, t *testing.T, e *netnsEnv, node, kind, name, local, remote, overlay, dev string) {
 	t.Helper()
-	for _, argv := range [][]string{
-		{"ip", "link", "add", "gre1", "type", "gre", "local", local, "remote", remote, "dev", dev},
-		{"ip", "addr", "add", overlay, "dev", "gre1"},
-		{"ip", "link", "set", "dev", "gre1", "up"},
-	} {
+	for _, argv := range tunnelLinkArgv(kind, name, local, remote, overlay, dev) {
 		if res := e.Exec(ctx, node, argv, nil); res.Err != nil || res.ExitCode != 0 {
 			t.Fatalf("%s: %s: %v", node, strings.Join(argv, " "), execResultError(res))
 		}
 	}
 }
 
-// requireIPIPFallback stops the live tunnel import cases unless the ipip kernel
-// module is loaded. The kernel creates the tunl0 fallback device in a network
-// namespace only while that module is loaded, and every case expects tunl0 on each
-// node. Without the module the cases fail on the missing device rather than on the
-// import, so this names what is missing instead. It fails under RequireNetnsEnv and
-// skips otherwise.
-func requireIPIPFallback(t *testing.T) {
+// requireIPIPModule stops the live tunnel cases unless the ipip kernel module is loaded.
+// The kernel creates the tunl0 fallback device in a network namespace only while that
+// module is loaded, and creating an ipip device needs it too. Without the module the
+// cases fail on a missing device rather than on what they check, so this names what is
+// missing instead. consequence says what the missing module stops. It fails under
+// RequireNetnsEnv and skips otherwise.
+func requireIPIPModule(t *testing.T, consequence string) {
 	t.Helper()
 	if _, err := os.Stat("/sys/module/ipip"); err == nil {
 		return
 	}
-	const msg = "the ipip kernel module is not loaded, so new namespaces get no tunl0 fallback device; run: sudo modprobe ipip"
+	msg := fmt.Sprintf("the ipip kernel module is not loaded, so %s; run: sudo modprobe ipip", consequence)
 	if os.Getenv(RequireNetnsEnv) != "" {
 		t.Fatalf("%s is set, so these tests must run, but %s", RequireNetnsEnv, msg)
 	}
 	t.Skip(msg)
+}
+
+// launchTunnelDirector runs the named cases of one live tunnel test in a director: a
+// copy of this test binary that runs only test, under the director flag. It fails unless
+// the director exits 0 and each case is seen passing. A director that matched no test
+// exits 0 too, so a renamed test would otherwise pass here having run nothing.
+func launchTunnelDirector(ctx context.Context, t *testing.T, test, director string, names []string) {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"-test.run=^" + test + "$", "-test.v", "-" + director}
+	if *tunnelImportEvidence != "" {
+		args = append(args, "-tunnel-import-evidence", *tunnelImportEvidence)
+	}
+	var log bytes.Buffer
+	code, err := LaunchDirector(ctx, self, args, nil, &log, &log)
+	if err != nil || code != 0 {
+		t.Fatalf("director exit %d (%v):\n%s", code, err, log.String())
+	}
+	for _, name := range names {
+		if got := strings.ReplaceAll(name, " ", "_"); !strings.Contains(log.String(), "--- PASS: "+test+"/"+got) {
+			t.Errorf("case %q did not run in the director:\n%s", name, log.String())
+		}
+	}
+	t.Log(log.String())
+}
+
+// startTunnelDiamond prepares the diamond with the tunnel scenario for segment, which is
+// the fault a case takes down, or no fault when segment is empty. It registers the
+// environment's cleanup with t, so the cleanup runs when the case ends, as the deferred
+// cleanup it replaces did.
+func startTunnelDiamond(ctx context.Context, t *testing.T, segment string) (*netnsEnv, *Scenario) {
+	t.Helper()
+	s, err := ParseScenario(strings.NewReader(tunnelScenario(segment)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := DefaultBackend(false, nil).Prepare(ctx, s, NewID())
+	if env != nil {
+		t.Cleanup(func() {
+			if info := env.Cleanup(context.Background(), false); !info.Done || len(info.Errors) > 0 {
+				t.Errorf("cleanup: done=%t errors=%v", info.Done, info.Errors)
+			}
+		})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env.(*netnsEnv), s
+}
+
+// requireLinkDown fails unless the kernel shows dev on node down, as a fault leaves it.
+func requireLinkDown(ctx context.Context, t *testing.T, e *netnsEnv, node, dev string) {
+	t.Helper()
+	link := e.Exec(ctx, node, []string{"ip", "-o", "link", "show", "dev", dev}, nil)
+	if link.Err != nil || link.ExitCode != 0 || parseLinkUp(string(link.Stdout)) {
+		t.Fatalf("%s %s is not down in the kernel after the fault: %s %v", node, dev, link.Stdout, execResultError(link))
+	}
 }
 
 // steerR1 installs the policy rule the import must refuse: lookups for the

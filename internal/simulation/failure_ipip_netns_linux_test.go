@@ -3,14 +3,12 @@
 package simulation
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"maps"
 	"net/netip"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -44,29 +42,14 @@ func TestIPIPAcceptanceAgainstLiveNamespaces(t *testing.T) {
 	}
 	t.Parallel()
 	requireBackend(t)
-	requireIPIPModule(t)
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireIPIPModule(t, "ip link add type ipip cannot create a tunnel")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	args := []string{"-test.run=^TestIPIPAcceptanceAgainstLiveNamespaces$", "-test.v", "-ipip-acceptance-director"}
-	if *tunnelImportEvidence != "" {
-		args = append(args, "-tunnel-import-evidence", *tunnelImportEvidence)
-	}
-	var log bytes.Buffer
-	code, err := LaunchDirector(ctx, self, args, nil, &log, &log)
-	if err != nil || code != 0 {
-		t.Fatalf("director exit %d (%v):\n%s", code, err, log.String())
-	}
-	// A director that matched no test exits 0 too, so each case has to be seen passing.
+	var names []string
 	for _, c := range ipipAcceptanceCases {
-		if name := strings.ReplaceAll(c.name, " ", "_"); !strings.Contains(log.String(), "--- PASS: TestIPIPAcceptanceAgainstLiveNamespaces/"+name) {
-			t.Errorf("case %q did not run in the director:\n%s", c.name, log.String())
-		}
+		names = append(names, c.name)
 	}
-	t.Log(log.String())
+	launchTunnelDirector(ctx, t, "TestIPIPAcceptanceAgainstLiveNamespaces", "ipip-acceptance-director", names)
 }
 
 // runIPIPAcceptanceCase runs one case in its own namespaces: it builds the diamond with
@@ -75,28 +58,13 @@ func TestIPIPAcceptanceAgainstLiveNamespaces(t *testing.T) {
 func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	s, err := ParseScenario(strings.NewReader(tunnelScenario(c.segment)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	env, err := DefaultBackend(false, nil).Prepare(ctx, s, NewID())
-	if env != nil {
-		defer func() {
-			if info := env.Cleanup(context.Background(), false); !info.Done || len(info.Errors) > 0 {
-				t.Errorf("cleanup: done=%t errors=%v", info.Done, info.Errors)
-			}
-		}()
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	e := env.(*netnsEnv)
+	e, s := startTunnelDiamond(ctx, t, c.segment)
 	src := e.byName[s.Client().Name]
 	// The scenario routes r1 nowhere past its links, so r1 gets the ECMP underlay route to
 	// r3's LAN that the tunnel's remote is looked up in, as the GRE case does.
 	addMultipath(ctx, t, e, "r1", "10.71.30.0/24", "10.71.12.2", "10.71.14.4")
-	addIPIP(ctx, t, e, "r1", "10.71.14.1", ipipRemoteR1, "172.32.0.1/30", e.byName["r1"].interfaceForSegment("s14").iface)
-	addIPIP(ctx, t, e, "r3", "10.71.30.1", ipipRemoteR3, ipipOverlay+"/30", e.byName["r3"].interfaceForSegment("s43").iface)
+	addTunnel(ctx, t, e, "r1", "ipip", ipipDevice, "10.71.14.1", ipipRemoteR1, "172.32.0.1/30", e.byName["r1"].interfaceForSegment("s14").iface)
+	addTunnel(ctx, t, e, "r3", "ipip", ipipDevice, "10.71.30.1", ipipRemoteR3, ipipOverlay+"/30", e.byName["r3"].interfaceForSegment("s43").iface)
 	awaitSettled(ctx, t, e)
 
 	// The model and the captures are read before any fault, so the import and the dials
@@ -159,10 +127,7 @@ func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 	} else if res := e.Exec(ctx, "r1", []string{"ip", "link", "set", "dev", ipipDevice, "down"}, nil); res.Err != nil || res.ExitCode != 0 {
 		t.Fatalf("bring r1 %s down: %v", ipipDevice, execResultError(res))
 	}
-	link := e.Exec(ctx, "r1", []string{"ip", "-o", "link", "show", "dev", device}, nil)
-	if link.Err != nil || link.ExitCode != 0 || parseLinkUp(string(link.Stdout)) {
-		t.Fatalf("r1 %s is not down in the kernel after the fault: %s %v", device, link.Stdout, execResultError(link))
-	}
+	requireLinkDown(ctx, t, e, "r1", device)
 	if c.segment != "" {
 		// A link lost underneath leaves the tunnel's own device administratively up. If the
 		// device went down too, the case no longer isolates the underlay.
@@ -181,23 +146,7 @@ func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sim.Considered != len(dests) || sim.Truncated {
-		t.Fatalf("simulation considered %d destinations (truncated %t), want all %d held", sim.Considered, sim.Truncated, len(dests))
-	}
-	rated := ratedAffected(sim)
-	bareRated := ratedAffected(bare)
-	for _, d := range dests {
-		a, ok := rated[d]
-		if !ok {
-			a.Impact = routepath.ImpactNone
-		}
-		line := fmt.Sprintf("%-12s recorded %-17s without record %-17s dialed before %-5t after %t", d, a.Impact, impactOr(bareRated, d), before[d], after[d])
-		t.Log(line)
-		outcome.WriteString(line + "\n")
-		if why := disagreement(ctx, e, src, a, before[d], after[d]); why != "" {
-			t.Errorf("%s: predicted %s, but %s (%s)", d, a.Impact, why, a.Reason)
-		}
-	}
+	rated, bareRated := gradeTunnelDestinations(ctx, t, e, src, dests, sim, bare, before, after, &outcome)
 	if got := impactOr(rated, ipipOverlay); got != c.impact || after[ipipOverlay] != c.delivered {
 		t.Errorf("%s: predicted %s and delivered %t after the fault, want %s and %t", ipipOverlay, got, after[ipipOverlay], c.impact, c.delivered)
 	}
@@ -215,38 +164,6 @@ func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 		dir = ipipEvidenceDir(root, c.name)
 	}
 	keepTunnelEvidence(t, dir, captures, file, outcome.String())
-}
-
-// requireIPIPModule stops the live IPIP cases unless the ipip kernel module is loaded.
-// Creating an ipip device needs the module, and the cases cannot load it themselves, so
-// they name what is missing rather than fail on the device command. It fails under
-// RequireNetnsEnv and skips otherwise.
-func requireIPIPModule(t *testing.T) {
-	t.Helper()
-	if _, err := os.Stat("/sys/module/ipip"); err == nil {
-		return
-	}
-	const msg = "the ipip kernel module is not loaded, so ip link add type ipip cannot create a tunnel; run: sudo modprobe ipip"
-	if os.Getenv(RequireNetnsEnv) != "" {
-		t.Fatalf("%s is set, so these tests must run, but %s", RequireNetnsEnv, msg)
-	}
-	t.Skip(msg)
-}
-
-// addIPIP creates an ipip device on node, pinned by dev to the segment interface that
-// carries its outer packets, and gives it its overlay address. It is addGRE with the
-// ipip kind, run through the same Env.Exec calls.
-func addIPIP(ctx context.Context, t *testing.T, e *netnsEnv, node, local, remote, overlay, dev string) {
-	t.Helper()
-	for _, argv := range [][]string{
-		{"ip", "link", "add", ipipDevice, "type", "ipip", "local", local, "remote", remote, "dev", dev},
-		{"ip", "addr", "add", overlay, "dev", ipipDevice},
-		{"ip", "link", "set", "dev", ipipDevice, "up"},
-	} {
-		if res := e.Exec(ctx, node, argv, nil); res.Err != nil || res.ExitCode != 0 {
-			t.Fatalf("%s: %s: %v", node, strings.Join(argv, " "), execResultError(res))
-		}
-	}
 }
 
 // checkIPIPRefusal asserts what the production importer does with the two configured

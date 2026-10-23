@@ -231,7 +231,7 @@ Each one gets a sentence here and a complete contract in the reference.
   `ip -6 -j route show table all`, and `wg show all dump` captures and adds the tunnels they prove to a base
   topology. A GRE tunnel is recorded only when its node's IPv4 policy rules are
   the kernel default set. A kernel fallback device is listed as inert when its
-  captures show it inert, and refused otherwise. IPIP is refused unless it is an inert kernel fallback, and WireGuard endpoints are reported
+  captures show it inert, and refused otherwise. IPIP is refused unless it is an inert kernel fallback, and a single-peer IPv4 WireGuard endpoint is recorded only when an `ip -j route get` capture proves its underlay, and is otherwise reported
   unproven. [Tunnel import from captures](docs/reference.md#tunnel-import-from-captures).
 - **Route context for two-sided diagnosis.** `--route-a` and `--route-b` add a
   topology file's routing context to an offline `--two-sided` reading. The

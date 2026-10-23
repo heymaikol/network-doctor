@@ -102,24 +102,31 @@ func readImportFixture(t *testing.T, name string) []byte {
 	return data
 }
 
-// fixtureCaptures is the recorded r1 ip -d -j link capture, its IPv4 rules, and its
-// WireGuard dump.
+// fixtureCaptures is the recorded r1 ip -d -j link capture, its IPv4 rules, its
+// WireGuard dump, and the route lookup of the wg0 endpoint. The lookup is the last
+// capture, so fixtureCaptures(t)[:3] is the same import with wg0's endpoint unproven.
 func fixtureCaptures(t *testing.T) []TunnelCapture {
 	t.Helper()
 	return []TunnelCapture{
 		{Source: "ip-link-r1", Node: "r1", Command: TunnelCommandIPLink, CollectedAt: t0, Data: readImportFixture(t, "r1-ip-link.json")},
 		{Source: "wg-r1", Node: "r1", Command: TunnelCommandWireGuard, CollectedAt: t0.Add(time.Minute), Data: readImportFixture(t, "r1-wg-show-all-dump.txt")},
 		{Source: "ip-rule-r1", Node: "r1", Command: TunnelCommandRules, CollectedAt: t0, Data: readImportFixture(t, "r1-ip-rule.json")},
+		{Source: "ip-route-get-r1", Node: "r1", Command: TunnelCommandRouteGetPrefix + "10.0.25.1", CollectedAt: t0.Add(2 * time.Minute), Data: readImportFixture(t, "r1-ip-route-get.json")},
 	}
 }
 
-// renderImport is the text form pinned by the golden file: each record, each
-// unproven endpoint, and each refusal, in the order ImportTunnels returns them.
+// renderImport is the text form pinned by the golden file: each record, the
+// evidence behind each WireGuard record, each unproven endpoint, and each refusal,
+// in the order ImportTunnels returns them.
 func renderImport(imp TunnelImport) string {
 	var b strings.Builder
 	for _, r := range imp.Tunnels {
 		fmt.Fprintf(&b, "tunnel %s (%s) %s remote %s underlay %s source %s at %s\n",
 			r.Node, r.VRF, r.Interface, r.Remote, r.UnderlayVRF, r.Source, r.CollectedAt.UTC().Format(time.RFC3339))
+	}
+	for _, w := range imp.WireGuard {
+		fmt.Fprintf(&b, "wireguard %s %s egress %s device %s endpoint %s lookup %s rules %s\n",
+			w.Node, w.Interface, w.Egress, stamp(w.Device), stamp(w.Endpoint), stamp(w.Lookup), stamp(w.Rules))
 	}
 	for _, u := range imp.Unproven {
 		fmt.Fprintf(&b, "unproven %s (%s) %s remote %s device %s at %s endpoint %s at %s: underlay not shown\n",
@@ -133,6 +140,11 @@ func renderImport(imp TunnelImport) string {
 		fmt.Fprintf(&b, "uncovered %s\n", n)
 	}
 	return b.String()
+}
+
+// stamp prints a capture's source and collection time the way the golden file pins them.
+func stamp(p netmodel.Provenance) string {
+	return p.Source + " at " + p.CollectedAt.UTC().Format(time.RFC3339)
 }
 
 // assertImportGolden fails when got differs from the golden file at path.
@@ -316,22 +328,36 @@ func TestWireGuardEndpointIsUnproven(t *testing.T) {
 }
 
 // TestTunnelImportFixtureGolden imports the recorded fixtures and pins the result
-// byte for byte: the GRE record, the WireGuard endpoint that stays unproven, and
-// every refusal with its reason.
+// byte for byte, in two forms. With the endpoint's route lookup, the GRE record and
+// the WireGuard record are written, and the WireGuard evidence names the dump, the
+// lookup, the rules, and the device capture it rests on. Without the lookup, the
+// WireGuard endpoint stays unproven and nothing is written for it. Every refusal
+// carries its reason in both.
 func TestTunnelImportFixtureGolden(t *testing.T) {
-	imp, err := ImportTunnels(importModel(t), fixtureCaptures(t))
-	if err != nil {
-		t.Fatalf("ImportTunnels: %v", err)
+	for _, c := range []struct {
+		golden   string
+		captures []TunnelCapture
+	}{
+		{"golden.txt", fixtureCaptures(t)},
+		{"golden-unproven.txt", fixtureCaptures(t)[:3]},
+	} {
+		t.Run(c.golden, func(t *testing.T) {
+			imp, err := ImportTunnels(importModel(t), c.captures)
+			if err != nil {
+				t.Fatalf("ImportTunnels: %v", err)
+			}
+			assertNoSecret(t, imp)
+			assertImportGolden(t, filepath.Join("testdata", "tunnel_import", c.golden), renderImport(imp))
+		})
 	}
-	assertNoSecret(t, imp)
-	assertImportGolden(t, filepath.Join("testdata", "tunnel_import", "golden.txt"), renderImport(imp))
 }
 
 // TestTunnelImportIsDeterministic gives the same captures in the opposite order.
 // The import, and the topology file it encodes to, must not change.
 func TestTunnelImportIsDeterministic(t *testing.T) {
 	forward := fixtureCaptures(t)
-	reversed := []TunnelCapture{forward[2], forward[1], forward[0]}
+	reversed := slices.Clone(forward)
+	slices.Reverse(reversed)
 	a, err := ImportTunnels(importModel(t), forward)
 	if err != nil {
 		t.Fatalf("ImportTunnels: %v", err)
@@ -405,14 +431,22 @@ func TestImportedFactsKeepTheirOwnSourceAndTime(t *testing.T) {
 			}
 		}
 	}
+	for _, w := range imp.WireGuard {
+		for _, p := range []netmodel.Provenance{w.Device, w.Endpoint, w.Lookup, w.Rules} {
+			if !fromCapture(p) {
+				t.Errorf("wireguard %s fact from %s at %s matches no capture of the import", w.Interface, p.Source, p.CollectedAt.Format(time.RFC3339))
+			}
+		}
+	}
 }
 
-// TestUnderlayUnknownWireGuardIsNotEncoded imports the fixtures and encodes the
-// records. The WireGuard endpoint has no proven underlay routing domain, so the
-// topology file must not carry it as a tunnel observed by a source.
+// TestUnderlayUnknownWireGuardIsNotEncoded imports the fixtures without the endpoint's
+// route lookup and encodes the records. The WireGuard endpoint has no proven underlay
+// routing domain, so the topology file must not carry it as a tunnel observed by a
+// source.
 func TestUnderlayUnknownWireGuardIsNotEncoded(t *testing.T) {
 	m := importModel(t)
-	imp, err := ImportTunnels(m, fixtureCaptures(t))
+	imp, err := ImportTunnels(m, fixtureCaptures(t)[:3])
 	if err != nil {
 		t.Fatalf("ImportTunnels: %v", err)
 	}
@@ -1029,136 +1063,4 @@ func TestNonFallbackKindsAreRefusedWhateverTheRules(t *testing.T) {
 			}
 		}
 	}
-}
-
-
-func TestWireGuardUnderlayAttribution(t *testing.T) {
-	m := importModel(t)
-	rgOK := func(dst, dev string) string {
-		return fmt.Sprintf(`[{"dst":%q,"dev":%q,"flags":[],"cache":[]}]`, dst, dev)
-	}
-	routeGetCap := func(source, node, dst, dev string) TunnelCapture {
-		return TunnelCapture{
-			Source:      source,
-			Node:        node,
-			Command:     TunnelCommandRouteGetPrefix + dst,
-			CollectedAt: t0,
-			Data:        []byte(rgOK(dst, dev)),
-		}
-	}
-
-	t.Run("wireguard underlay proven emits tunnel record", func(t *testing.T) {
-		caps := []TunnelCapture{
-			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
-			ruleCapture("ip-rule-r1", "r1", defaultRules),
-			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
-			routeGetCap("ip-route-get-r1", "r1", "10.0.25.1", "eth0"),
-		}
-		imp, err := ImportTunnels(m, caps)
-		if err != nil {
-			t.Fatalf("ImportTunnels: %v", err)
-		}
-		if len(imp.Refused) != 0 || len(imp.Unproven) != 0 || len(imp.Tunnels) != 1 {
-			t.Fatalf("tunnels = %+v, unproven = %+v, refused = %+v; want 1 tunnel record", imp.Tunnels, imp.Unproven, imp.Refused)
-		}
-		tun := imp.Tunnels[0]
-		if tun.Node != "r1" || tun.VRF != "default" || tun.Interface != "wg0" || tun.Remote != addr("10.0.25.1") || tun.UnderlayVRF != "default" {
-			t.Errorf("tun = %+v, want r1 default wg0 remote 10.0.25.1 underlay default", tun)
-		}
-	})
-
-	t.Run("wireguard underlay egress device missing in link capture", func(t *testing.T) {
-		caps := []TunnelCapture{
-			linkCapture("ip-link-r1", "r1", jsonWG0),
-			ruleCapture("ip-rule-r1", "r1", defaultRules),
-			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
-			routeGetCap("ip-route-get-r1", "r1", "10.0.25.1", "eth0"),
-		}
-		imp, err := ImportTunnels(m, caps)
-		if err != nil {
-			t.Fatalf("ImportTunnels: %v", err)
-		}
-		if !refusedFor(imp, "is not in the link capture") {
-			t.Errorf("refusals = %+v, want egress device not in link capture", imp.Refused)
-		}
-	})
-
-	t.Run("wireguard underlay rules steered", func(t *testing.T) {
-		steeredRules := `[{"priority":0,"src":"all","table":"local"},{"priority":100,"src":"all","table":"100"},{"priority":32766,"src":"all","table":"main"},{"priority":32767,"src":"all","table":"default"}]`
-		caps := []TunnelCapture{
-			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
-			ruleCapture("ip-rule-r1", "r1", steeredRules),
-			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
-			routeGetCap("ip-route-get-r1", "r1", "10.0.25.1", "eth0"),
-		}
-		imp, err := ImportTunnels(m, caps)
-		if err != nil {
-			t.Fatalf("ImportTunnels: %v", err)
-		}
-		if !refusedFor(imp, "the underlay routing table is not proven") {
-			t.Errorf("refusals = %+v, want underlay table not proven", imp.Refused)
-		}
-	})
-
-	t.Run("wireguard route get destination mismatch", func(t *testing.T) {
-		caps := []TunnelCapture{
-			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
-			ruleCapture("ip-rule-r1", "r1", defaultRules),
-			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
-			routeGetCap("ip-route-get-r1", "r1", "10.0.25.1", "eth0"),
-		}
-		// Modify command data to hold different dst
-		caps[3].Data = []byte(rgOK("10.0.25.2", "eth0"))
-		imp, err := ImportTunnels(m, caps)
-		if err != nil {
-			t.Fatalf("ImportTunnels: %v", err)
-		}
-		if !refusedFor(imp, "does not match peer endpoint") {
-			t.Errorf("refusals = %+v, want destination does not match peer endpoint", imp.Refused)
-		}
-	})
-
-	t.Run("wireguard route get unreachable", func(t *testing.T) {
-		caps := []TunnelCapture{
-			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
-			ruleCapture("ip-rule-r1", "r1", defaultRules),
-			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
-			{
-				Source:      "ip-route-get-r1",
-				Node:        "r1",
-				Command:     TunnelCommandRouteGetPrefix + "10.0.25.1",
-				CollectedAt: t0,
-				Data:        []byte(`[{"dst":"10.0.25.1","type":"unreachable","flags":[]}]`),
-			},
-		}
-		imp, err := ImportTunnels(m, caps)
-		if err != nil {
-			t.Fatalf("ImportTunnels: %v", err)
-		}
-		if !refusedFor(imp, "route lookup is unreachable") {
-			t.Errorf("refusals = %+v, want route lookup is unreachable", imp.Refused)
-		}
-	})
-
-	t.Run("wireguard route get ambiguous multipath", func(t *testing.T) {
-		caps := []TunnelCapture{
-			linkCapture("ip-link-r1", "r1", jsonEth0, jsonWG0),
-			ruleCapture("ip-rule-r1", "r1", defaultRules),
-			dumpCapture("wg-r1", "r1", wgOK("wg0")...),
-			{
-				Source:      "ip-route-get-r1",
-				Node:        "r1",
-				Command:     TunnelCommandRouteGetPrefix + "10.0.25.1",
-				CollectedAt: t0,
-				Data:        []byte(`[{"dst":"10.0.25.1","dev":"eth0","nexthops":[{"dev":"eth0"},{"dev":"eth1"}]}]`),
-			},
-		}
-		imp, err := ImportTunnels(m, caps)
-		if err != nil {
-			t.Fatalf("ImportTunnels: %v", err)
-		}
-		if !refusedFor(imp, "route lookup has multiple nexthops") {
-			t.Errorf("refusals = %+v, want multiple nexthops refusal", imp.Refused)
-		}
-	})
 }

@@ -2235,6 +2235,8 @@ The manifest is JSON with `"version": 1`, a `"topology"` that names the base top
 
 Paths are relative to the manifest's directory. A symbolic link, a path that climbs out of that directory, and two captures of one file are refused.
 
+Original `wg show all dump` files contain interface private keys and peer preshared keys; treat them as sensitive. Optional live-test evidence export redacts those fields while retaining the dump's tab-separated rows and columns.
+
 What the import does with each device:
 
 - A `gre` device is recorded only when its underlay routing table is proven. The device and its underlay device must sit in the default routing domain, the device must carry no fwmark, and the node's `ip -j rule show` capture must list exactly the kernel default IPv4 rules: priority `0` to `local`, `32766` to `main`, and `32767` to `default`, each listed once and selecting source `all`. Each rule must carry its `priority`, `src`, and `table` keys exactly once, spelled exactly so. A rule with a key missing, repeated, or spelled in another case, or with a `null` or non-integer priority, refuses the capture rather than being read around. Those rules send every IPv4 lookup to the main table, so the table is known without any other fact. Any other rule, a missing or repeated rules capture, a VRF, or a mark refuses the device. The record keeps the source and collection time of both captures it rests on, the `ip -d -j link` capture and the `ip -j rule show` capture.

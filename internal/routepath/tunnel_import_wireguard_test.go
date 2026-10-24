@@ -22,15 +22,19 @@ const (
 // shows.
 var lookupAt = t0.Add(2 * time.Minute)
 
-// routeGetBody is the ip -j route get output for dst leaving by dev. extra is
-// spliced into the object after its last key, for the fields a case adds.
+// routeGetBody is the ip -j route get fibmatch output for dst leaving by dev.
+// extra is spliced into the object after its last key, for the fields a case adds.
 func routeGetBody(dst, dev, extra string) string {
-	return fmt.Sprintf(`[{"dst":%q,"dev":%q,"flags":[],"cache":[]%s}]`, dst, dev, extra)
+	devField := ""
+	if dev != "" {
+		devField = fmt.Sprintf(`,"dev":%q`, dev)
+	}
+	return fmt.Sprintf(`[{"dst":%q%s,"flags":[],"cache":[]%s}]`, dst, devField, extra)
 }
 
 // routeGetCapture is one ip -j route get capture of node for endpoint, holding body.
 func routeGetCapture(source, node, endpoint, body string) TunnelCapture {
-	return TunnelCapture{Source: source, Node: node, Command: TunnelCommandRouteGetPrefix + endpoint, CollectedAt: lookupAt, Data: []byte(body)}
+	return TunnelCapture{Source: source, Node: node, Command: TunnelCommandRouteGetFibmatchPrefix + endpoint, CollectedAt: lookupAt, Data: []byte(body)}
 }
 
 // wgRow is one WireGuard import. Zero fields take the proven shape: r1 holds eth0
@@ -48,6 +52,9 @@ type wgRow struct {
 	// want lists text each refusal set must contain, one entry per expected
 	// refusal. A row with no want must record the tunnel.
 	want []string
+	// unproven says the lookup is ambiguous, so the endpoint must remain listed as
+	// unproven alongside the refusal that names the unusable FIB capture.
+	unproven bool
 }
 
 // captures builds the row's captures in the order the import reads them.
@@ -92,7 +99,11 @@ func (r wgRow) run(t *testing.T) TunnelImport {
 		}
 		return imp
 	}
-	if len(imp.Tunnels) != 0 || len(imp.WireGuard) != 0 || len(imp.Unproven) != 0 {
+	wantUnproven := 0
+	if r.unproven {
+		wantUnproven = 1
+	}
+	if len(imp.Tunnels) != 0 || len(imp.WireGuard) != 0 || len(imp.Unproven) != wantUnproven {
 		t.Errorf("tunnels = %+v, evidence = %+v, unproven = %+v; want none, since the proof does not hold", imp.Tunnels, imp.WireGuard, imp.Unproven)
 	}
 	var reasons []string
@@ -145,9 +156,16 @@ func TestWireGuardUnderlayProof(t *testing.T) {
 			want: []string{"leaves through the tunnel's own device"}},
 		{name: "egress device is not in the link capture", links: []string{jsonWG0}, want: []string{"is not in the link capture"}},
 		{name: "destination differs from the endpoint", lookup: routeGetBody("10.0.25.2", "eth0", ""),
-			want: []string{"does not match peer endpoint"}},
-		{name: "ambiguous multipath", lookup: routeGetBody("10.0.25.1", "eth0", `,"nexthops":[{"dev":"eth0"},{"dev":"eth1"}]`),
-			want: []string{"multiple nexthops"}},
+			want: []string{"does not cover the peer endpoint"}},
+		{name: "ECMP FIB route", lookup: routeGetBody("10.0.25.0/24", "", `,"nexthops":[{"gateway":"10.0.12.2","dev":"eth0","weight":1},{"gateway":"10.0.13.2","dev":"eth1","weight":1}]`),
+			want: []string{"multiple nexthops"}, unproven: true},
+		{name: "unresolved nexthop object", lookup: routeGetBody("10.0.25.0/24", "", `,"nhid":7`),
+			want: []string{"nexthop object"}, unproven: true},
+		{name: "single FIB nexthop", lookup: routeGetBody("10.0.25.0/24", "", `,"nexthops":[{"gateway":"10.0.12.2","dev":"eth0","weight":1}]`)},
+		{name: "single FIB nexthop references unresolved object", lookup: routeGetBody("10.0.25.0/24", "", `,"nexthops":[{"nhid":7}]`),
+			want: []string{"nexthop object"}, unproven: true},
+		{name: "single FIB nexthop is linkdown", lookup: routeGetBody("10.0.25.0/24", "", `,"nexthops":[{"dev":"eth0","flags":["linkdown"]}]`),
+			want: []string{"nexthop is marked dead or linkdown"}},
 		{name: "nexthops is not a list", lookup: routeGetBody("10.0.25.1", "eth0", `,"nexthops":{}`),
 			want: []string{"nexthops field that is not a list"}},
 		{name: "lookup is marked linkdown", lookup: `[{"dst":"10.0.25.1","dev":"eth0","flags":["linkdown"],"cache":[]}]`,
@@ -158,12 +176,12 @@ func TestWireGuardUnderlayProof(t *testing.T) {
 		{name: "egress name is not an interface name", lookup: routeGetBody("10.0.25.1", "a/b", ""),
 			want: []string{"not a valid Linux interface name"}},
 		{name: "two route objects", lookup: `[{"dst":"10.0.25.1","dev":"eth0"},{"dst":"10.0.25.1","dev":"eth1"}]`,
-			want: []string{"lists 2 route get objects"}},
-		{name: "empty list", lookup: `[]`, want: []string{"lists 0 route get objects"}},
+			want: []string{"lists 2 FIB route objects"}},
+		{name: "empty list", lookup: `[]`, want: []string{"lists 0 FIB route objects"}},
 		{name: "not json", lookup: `eth0`, want: []string{"is not valid JSON"}},
 		{name: "key differs only in case", lookup: `[{"dst":"10.0.25.1","Dev":"eth0"}]`, want: []string{"differs from \"dev\" only in case"}},
 		{name: "dst is not a string", lookup: `[{"dst":10,"dev":"eth0"}]`, want: []string{"dst field that is not a string"}},
-		{name: "dst is not an address", lookup: `[{"dst":"endpoint","dev":"eth0"}]`, want: []string{"dst is not an IP address"}},
+		{name: "dst is not an address or prefix", lookup: `[{"dst":"endpoint","dev":"eth0"}]`, want: []string{"does not cover the peer endpoint"}},
 	}
 	// A route type other than unicast is not a lookup that sends the endpoint's
 	// packets out of a device, or not one a tunnel can rest on.
@@ -247,13 +265,16 @@ func TestWireGuardLookupCommandsAreRefused(t *testing.T) {
 	for _, command := range []string{
 		"ip -j route get",
 		"ip -j route get ",
+		"ip -j route get 10.0.25.1",
+		"ip -j route get fibmatch",
+		"ip -j route get fibmatch ",
 		"ip -j route get example.com",
-		"ip -j route get 10.0.25.1 oif eth0",
-		"ip -j route get 10.0.25.1/32",
-		"ip -j route get 010.0.25.1",
-		"ip -j route get fe80::1%eth0",
-		"ip -j route get 2001:DB8::1",
-		"ip -j route get  10.0.25.1",
+		"ip -j route get fibmatch 10.0.25.1 oif eth0",
+		"ip -j route get fibmatch 10.0.25.1/32",
+		"ip -j route get fibmatch 010.0.25.1",
+		"ip -j route get fibmatch fe80::1%eth0",
+		"ip -j route get fibmatch 2001:DB8::1",
+		"ip -j route get fibmatch  10.0.25.1",
 		"ip -j -6 route get 2001:db8::1",
 	} {
 		t.Run(command, func(t *testing.T) {

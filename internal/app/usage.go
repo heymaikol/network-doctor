@@ -133,8 +133,9 @@ topology, or a capture cannot be used. A gre device is recorded only when its
 node's IPv4 rules are the kernel default set, and an ipip device is refused unless it is an inert kernel fallback. A
 kernel fallback device is listed as inert only when the address and route captures
 show it inert, and is refused otherwise. A
-single-peer IPv4 WireGuard endpoint is recorded only when an ip -j route get
-fibmatch capture proves a unique underlay, and is otherwise reported as unproven. With
+single-peer IPv4 WireGuard endpoint with no matching ip -j route get fibmatch
+capture is reported as unproven. Ambiguous or unresolved nexthops also leave the
+endpoint unproven and the lookup capture refused. With
 --write-topology FILE, a complete import is written, and the file is never
 replaced. The format is documented under Tunnel import from captures in the
 reference.

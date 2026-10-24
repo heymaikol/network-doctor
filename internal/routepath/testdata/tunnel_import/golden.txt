@@ -1,6 +1,6 @@
 tunnel r1 (default) gre1 remote 10.0.25.1 underlay default source ip-link-r1 at 2026-10-09T12:00:00Z
 tunnel r1 (default) wg0 remote 10.0.25.1 underlay default source ip-link-r1 at 2026-10-09T12:00:00Z
-wireguard r1 wg0 egress eth0 device ip-link-r1 at 2026-10-09T12:00:00Z endpoint wg-r1 at 2026-10-09T12:01:00Z lookup ip-route-get-r1 at 2026-10-09T12:02:00Z rules ip-rule-r1 at 2026-10-09T12:00:00Z
+wireguard r1 wg0 egress eth0 device ip-link-r1 at 2026-10-09T12:00:00Z endpoint wg-r1 at 2026-10-09T12:01:00Z lookup ip-route-fibmatch-r1 at 2026-10-09T12:02:00Z rules ip-rule-r1 at 2026-10-09T12:00:00Z
 refused ip-link-r1 r1 gre2: remote any is a multipoint tunnel, which names no single remote; it is not an inert fallback: node r1 has no ip -j addr show capture, so its addresses are not shown
 refused ip-link-r1 r1 tun0: has no kind and link type "none", which the import does not read
 refused wg-r1 r1 wg1: has 2 peers; a single-remote tunnel needs exactly one

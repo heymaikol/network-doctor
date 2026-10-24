@@ -614,7 +614,7 @@ func TestTunnelReportNamesTheCapturesBehindAWireGuardRecord(t *testing.T) {
 	}
 	if wg.EndpointSource != "wg-r1" || wg.EndpointCollectedAt != stampText(at.Add(time.Minute)) ||
 		wg.LookupSource != "ip-route-get-r1" || wg.LookupCollectedAt != stampText(at.Add(2*time.Minute)) ||
-		wg.LookupCommand != routepath.TunnelCommandRouteGetPrefix+"10.0.25.1" || wg.EgressInterface != "eth0" {
+		wg.LookupCommand != routepath.TunnelCommandRouteGetFibmatchPrefix+"10.0.25.1" || wg.EgressInterface != "eth0" {
 		t.Errorf("wireguard record = %+v, want the dump, the lookup, and the egress device named", wg)
 	}
 	raw, err := json.Marshal(r)

@@ -60,8 +60,10 @@ type ipAddr struct {
 	Addrs   int // how many addresses the device lists
 }
 
-// parseIPAddr reads one ip -j addr show array. Each device must give its index,
-// flags, link address, and address list, since the fallback check needs all four.
+// parseIPAddr reads one ip -j addr show array. Each device must give its name,
+// index, flags, and address list, since the fallback check needs those. A device
+// with no link address, such as a WireGuard interface, omits the address key, and
+// is read with an empty link address; a null address is still refused.
 func parseIPAddr(data []byte) (map[string]ipAddr, error) {
 	elems, err := readObjects(data, TunnelCommandAddr)
 	if err != nil {
@@ -80,19 +82,27 @@ func parseIPAddr(data []byte) (map[string]ipAddr, error) {
 			Name     string             `json:"ifname"`
 			Index    *int               `json:"ifindex"`
 			Flags    []string           `json:"flags"`
-			Address  *string            `json:"address"`
 			AddrInfo *[]json.RawMessage `json:"addr_info"`
 		}
 		if err := json.Unmarshal(raw, &e); err != nil {
 			return nil, errors.New("has a device field of the wrong type")
 		}
-		if e.Name == "" || e.Index == nil || e.Flags == nil || e.Address == nil || e.AddrInfo == nil {
-			return nil, errors.New("lists a device without its name, index, flags, link address, or address list")
+		address := ""
+		if rawAddr, ok := obj["address"]; ok {
+			if string(bytes.TrimSpace(rawAddr)) == "null" {
+				return nil, errors.New("has a device field of the wrong type")
+			}
+			if err := json.Unmarshal(rawAddr, &address); err != nil {
+				return nil, errors.New("has a device field of the wrong type")
+			}
+		}
+		if e.Name == "" || e.Index == nil || e.Flags == nil || e.AddrInfo == nil {
+			return nil, errors.New("lists a device without its name, index, flags, or address list")
 		}
 		if _, dup := out[e.Name]; dup {
 			return nil, errors.New("lists an interface twice")
 		}
-		out[e.Name] = ipAddr{Index: *e.Index, Address: *e.Address, Up: slices.Contains(e.Flags, "UP"), Addrs: len(*e.AddrInfo)}
+		out[e.Name] = ipAddr{Index: *e.Index, Address: address, Up: slices.Contains(e.Flags, "UP"), Addrs: len(*e.AddrInfo)}
 	}
 	return out, nil
 }

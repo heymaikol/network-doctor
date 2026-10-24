@@ -39,9 +39,9 @@ var tunnelImportFlags = map[string]bool{"import-tunnels": true, "write-topology"
 var tunnelNotImported = []string{
 	"base topology: kept as it is; the import adds tunnel records to it and changes nothing else",
 	"routes: the route captures are read only to show whether a route names a kernel fallback device; no route is written to the topology",
-	"policy rules: the IPv4 rules are read only to prove they are the kernel default set; any other rule, a second rules capture, or a missing one refuses every gre device of its node and each kernel fallback gre0, gretap0, erspan0, or tunl0 of it, since a record or an inert fallback needs those rules; a gretap, erspan, or ipip device that is not an inert fallback is refused by its kind whatever its rules, though a rules problem may be added to that reason; IPv6 rules are not read, since a gre device's outer packet is IPv4; WireGuard is not affected, since its endpoint does not depend on the rules",
+	"policy rules: the IPv4 rules are read only to prove they are the kernel default set; any other rule, a second rules capture, or a missing one refuses every gre device of its node and each kernel fallback gre0, gretap0, erspan0, or tunl0 of it, since a record or an inert fallback needs those rules; a gretap, erspan, or ipip device that is not an inert fallback is refused by its kind whatever its rules, though a rules problem may be added to that reason; IPv6 rules are not read, since a gre device's outer packet is IPv4; a WireGuard record needs the same default rules, and an IPv6 WireGuard endpoint is refused because its rules are not read",
 	"ipip devices: refused, since no ipip underlay has been validated live, except the kernel fallback tunl0 when its captures show it inert",
-	"WireGuard: each endpoint is reported as unproven, and a WireGuard device is never written to the topology",
+	"WireGuard: an endpoint is recorded only when one ip -j route get fibmatch capture of it shows a single unicast route out of the main table, through an underlay device in the default domain that is neither the tunnel itself nor a VRF, under the kernel default IPv4 rules and with no fwmark; multiple nexthops or an unresolved nexthop object leave it unproven; an endpoint with no such capture is reported as unproven; an IPv6 endpoint, and any FIB route capture that is malformed, duplicated, or not used, is refused",
 	"devices of a kind the import does not read: refused by kind, never skipped and never read from their names, except a kernel fallback that its captures show inert",
 	"keys: never kept; no key reaches the report, the topology, or an error",
 }
@@ -52,6 +52,7 @@ var tunnelLimitations = []string{
 	"a gre device is recorded only in the default routing domain, with no fwmark, under the kernel default IPv4 rules; a record names the underlay device's own domain, not a route the kernel chose",
 	"the kernel creates fallback tunnel devices (gre0, gretap0, erspan0, tunl0) once their modules load; the lab saw them in every fresh network namespace, and real hosts were not tested; a fallback is listed inert only when its captures show it down, unaddressed, unrouted, and unsteered, and any other fallback is refused, so the import is incomplete and --write-topology writes no file",
 	"a fallback's captures must be collected within 250 ms of one another; that narrows the window in which a change could go unseen, but the captures are not one atomic snapshot, so a change inside the window is not excluded",
+	"a WireGuard record rests on four captures, the device list, the dump, the endpoint lookup, and the rules, each reported with its own source and time; the lookup is one recorded decision, and a later routing change is not excluded",
 	"the captures are one recorded moment; netdoc does not check them against a live device",
 }
 
@@ -408,6 +409,14 @@ type tunnelRecord struct {
 	CollectedAt      string `json:"collected_at"`
 	RulesSource      string `json:"rules_source"`
 	RulesCollectedAt string `json:"rules_collected_at"`
+	// The fields below are set only for a WireGuard record, and name the dump and
+	// the endpoint lookup it rests on beside the device and rules captures above.
+	EndpointSource      string `json:"endpoint_source,omitempty"`
+	EndpointCollectedAt string `json:"endpoint_collected_at,omitempty"`
+	LookupCommand       string `json:"lookup_command,omitempty"`
+	LookupSource        string `json:"lookup_source,omitempty"`
+	LookupCollectedAt   string `json:"lookup_collected_at,omitempty"`
+	EgressInterface     string `json:"egress_interface,omitempty"`
 }
 
 type tunnelUnproven struct {
@@ -457,13 +466,17 @@ func buildTunnelReport(manifestPath string, m tunnelManifest, imp routepath.Tunn
 	for _, p := range imp.Rules {
 		rules[p.Node] = p.Rules
 	}
+	proofs := map[[2]string]routepath.WireGuardProof{}
+	for _, w := range imp.WireGuard {
+		proofs[[2]string{w.Node, w.Interface}] = w
+	}
 	for _, t := range imp.Tunnels {
 		p := rules[t.Node]
 		rulesAt := ""
 		if !p.CollectedAt.IsZero() {
 			rulesAt = stampText(p.CollectedAt)
 		}
-		r.Tunnels = append(r.Tunnels, tunnelRecord{
+		rec := tunnelRecord{
 			Node:             t.Node,
 			VRF:              t.VRF,
 			Interface:        t.Interface,
@@ -474,7 +487,16 @@ func buildTunnelReport(manifestPath string, m tunnelManifest, imp routepath.Tunn
 			CollectedAt:      stampText(t.CollectedAt),
 			RulesSource:      p.Source,
 			RulesCollectedAt: rulesAt,
-		})
+		}
+		if w, ok := proofs[[2]string{t.Node, t.Interface}]; ok {
+			rec.EndpointSource = w.Endpoint.Source
+			rec.EndpointCollectedAt = stampText(w.Endpoint.CollectedAt)
+			rec.LookupCommand = routepath.TunnelCommandRouteGetFibmatchPrefix + t.Remote.String()
+			rec.LookupSource = w.Lookup.Source
+			rec.LookupCollectedAt = stampText(w.Lookup.CollectedAt)
+			rec.EgressInterface = w.Egress
+		}
+		r.Tunnels = append(r.Tunnels, rec)
 	}
 	for _, u := range imp.Unproven {
 		r.Unproven = append(r.Unproven, tunnelUnproven{
@@ -519,6 +541,9 @@ func renderTunnelText(r tunnelReport) string {
 	line("Tunnel records: %d", len(r.Tunnels))
 	for _, t := range r.Tunnels {
 		line("  tunnel %s (%s) %s remote %s underlay %s source %s at %s rules %s at %s", t.Node, t.VRF, t.Interface, t.Remote, t.UnderlayVRF, t.Source, t.CollectedAt, t.RulesSource, t.RulesCollectedAt)
+		if t.LookupSource != "" {
+			line("    wireguard dump %s at %s, lookup %s at %s leaving by %s", t.EndpointSource, t.EndpointCollectedAt, t.LookupSource, t.LookupCollectedAt, t.EgressInterface)
+		}
 	}
 	line("Inert fallbacks: %d", len(r.Inert))
 	for _, d := range r.Inert {

@@ -41,7 +41,7 @@ var tunnelNotImported = []string{
 	"routes: the route captures are read only to show whether a route names a kernel fallback device; no route is written to the topology",
 	"policy rules: the IPv4 rules are read only to prove they are the kernel default set; any other rule, a second rules capture, or a missing one refuses every gre device of its node and each kernel fallback gre0, gretap0, erspan0, or tunl0 of it, since a record or an inert fallback needs those rules; a gretap, erspan, or ipip device that is not an inert fallback is refused by its kind whatever its rules, though a rules problem may be added to that reason; IPv6 rules are not read, since a gre device's outer packet is IPv4; a WireGuard record needs the same default rules, and an IPv6 WireGuard endpoint is refused because its rules are not read",
 	"ipip devices: refused, since no ipip underlay has been validated live, except the kernel fallback tunl0 when its captures show it inert",
-	"WireGuard: an endpoint is recorded only when one ip -j route get capture of it shows a single unicast route out of the main table, through an underlay device in the default domain that is neither the tunnel itself nor a VRF, under the kernel default IPv4 rules and with no fwmark; an endpoint with no such capture is reported as unproven; an IPv6 endpoint, and any route get capture that is malformed, duplicated, or not used, is refused",
+	"WireGuard: an endpoint is recorded only when one ip -j route get fibmatch capture of it shows a single unicast route out of the main table, through an underlay device in the default domain that is neither the tunnel itself nor a VRF, under the kernel default IPv4 rules and with no fwmark; multiple nexthops or an unresolved nexthop object leave it unproven; an endpoint with no such capture is reported as unproven; an IPv6 endpoint, and any FIB route capture that is malformed, duplicated, or not used, is refused",
 	"devices of a kind the import does not read: refused by kind, never skipped and never read from their names, except a kernel fallback that its captures show inert",
 	"keys: never kept; no key reaches the report, the topology, or an error",
 }
@@ -491,7 +491,7 @@ func buildTunnelReport(manifestPath string, m tunnelManifest, imp routepath.Tunn
 		if w, ok := proofs[[2]string{t.Node, t.Interface}]; ok {
 			rec.EndpointSource = w.Endpoint.Source
 			rec.EndpointCollectedAt = stampText(w.Endpoint.CollectedAt)
-			rec.LookupCommand = routepath.TunnelCommandRouteGetPrefix + t.Remote.String()
+			rec.LookupCommand = routepath.TunnelCommandRouteGetFibmatchPrefix + t.Remote.String()
 			rec.LookupSource = w.Lookup.Source
 			rec.LookupCollectedAt = stampText(w.Lookup.CollectedAt)
 			rec.EgressInterface = w.Egress

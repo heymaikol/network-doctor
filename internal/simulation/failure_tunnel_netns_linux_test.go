@@ -85,6 +85,9 @@ type tunnelImportCase struct {
 	// wg builds the tunnel as a WireGuard device wg1 over a plain underlay route,
 	// instead of the pinned gre1 device over an ECMP route.
 	wg bool
+	// ecmp replaces the WireGuard endpoint route with two paths and checks the
+	// full FIB capture leaves that endpoint unproven.
+	ecmp bool
 }
 
 // device is the name of the tunnel device the case builds on r1 and r3.
@@ -153,8 +156,8 @@ func TestTunnelImportAgainstLiveNamespaces(t *testing.T) {
 	runTunnelImportDirector(t, "TestTunnelImportAgainstLiveNamespaces", tunnelImportCases, requireIPIPFallback)
 }
 
-// wireGuardImportCases are the two faults the WireGuard underlay attribution of #406
-// is graded on, in a diamond whose underlay route from r1 to r3 is one plain route
+// wireGuardImportCases cover the two #406 fault grades and the live ECMP proof
+// refusal, in a diamond whose underlay route from r1 to r3 is one plain route
 // over s14, so the endpoint lookup the import reads names the only leg the tunnel can
 // use. Without a record the overlay is not predicted lost by an underlay fault, and
 // the dial contradicts that, so the record's effect is the unknown it adds.
@@ -177,6 +180,10 @@ var wireGuardImportCases = []tunnelImportCase{{
 	impact:     routepath.ImpactReachabilityLost,
 	delivered:  false,
 	unaffected: "10.71.14.4",
+}, {
+	name: "wireguard ECMP route remains unproven",
+	wg:   true,
+	ecmp: true,
 }}
 
 // TestWireGuardImportAgainstLiveNamespaces builds the diamond with a WireGuard
@@ -252,6 +259,12 @@ func runTunnelImportCase(t *testing.T, c tunnelImportCase) {
 	src := e.byName[s.Client().Name]
 	if c.wg {
 		addWireGuardOverlay(ctx, t, e)
+		if c.ecmp {
+			if res := e.Exec(ctx, "r1", []string{"ip", "route", "del", "10.71.30.0/24"}, nil); res.Err != nil || res.ExitCode != 0 {
+				t.Fatalf("r1: remove single-path endpoint route: %v", execResultError(res))
+			}
+			addMultipath(ctx, t, e, "r1", "10.71.30.0/24", "10.71.12.2", "10.71.14.4")
+		}
 	} else {
 		// The scenario routes r1 nowhere past its links, so r1 gets the ECMP underlay
 		// route to r3's LAN that the tunnel's remote is looked up in.
@@ -276,6 +289,26 @@ func runTunnelImportCase(t *testing.T, c tunnelImportCase) {
 	imp, err := routepath.ImportTunnels(file.Model, captures)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if c.ecmp {
+		ordinary := e.Exec(ctx, "r1", []string{"ip", "-j", "route", "get", wireGuardEndpoints["r1"]}, nil)
+		if ordinary.Err != nil || ordinary.ExitCode != 0 {
+			t.Fatalf("r1: ordinary route get: %v", execResultError(ordinary))
+		}
+		if err := checkWireGuardECMP(t, e, imp, captures, ordinary.Stdout); err != nil {
+			t.Fatal(err)
+		}
+		if _, mergeErr := routepath.MergeTunnelImport(file, imp); mergeErr == nil || !strings.Contains(mergeErr.Error(), "the import is incomplete") {
+			t.Fatalf("MergeTunnelImport = %v, want incomplete because the ECMP endpoint is unproven", mergeErr)
+		}
+		outcome := "ordinary route get: " + strings.TrimSpace(string(ordinary.Stdout)) + "\n"
+		for _, capture := range captures {
+			if capture.Node == "r1" && capture.Command == routepath.TunnelCommandRouteGetFibmatchPrefix+wireGuardEndpoints["r1"] {
+				outcome += "fibmatch route: " + strings.TrimSpace(string(capture.Data)) + "\n"
+			}
+		}
+		keepTunnelEvidence(t, dir, captures, file, outcome)
+		return
 	}
 	checkTunnelImport(ctx, t, e, imp, c)
 	_, mergeErr := routepath.MergeTunnelImport(file, imp)
@@ -700,6 +733,62 @@ func checkWireGuardEvidence(t *testing.T, e *netnsEnv, imp routepath.TunnelImpor
 	}
 }
 
+// checkWireGuardECMP uses the ordinary lookup to show the kernel selected one
+// device, then checks that fibmatch exposed both FIB paths and the importer did not
+// mistake the selected device for a unique underlay.
+func checkWireGuardECMP(t *testing.T, e *netnsEnv, imp routepath.TunnelImport, captures []routepath.TunnelCapture, ordinary []byte) error {
+	t.Helper()
+	var selected []struct {
+		Dev      string            `json:"dev"`
+		Nexthops []json.RawMessage `json:"nexthops"`
+	}
+	if err := json.Unmarshal(ordinary, &selected); err != nil || len(selected) != 1 || selected[0].Dev == "" || len(selected[0].Nexthops) != 0 {
+		return fmt.Errorf("ordinary route get = %s; want one resolved device with no full nexthop list (decode error %v)", ordinary, err)
+	}
+	wantDevices := []string{
+		e.byName["r1"].interfaceForSegment("s12").iface,
+		e.byName["r1"].interfaceForSegment("s14").iface,
+	}
+	if !slices.Contains(wantDevices, selected[0].Dev) {
+		return fmt.Errorf("ordinary route get selected %q, want one of %v", selected[0].Dev, wantDevices)
+	}
+	var fib []struct {
+		Nexthops []struct {
+			Dev string `json:"dev"`
+		} `json:"nexthops"`
+	}
+	var fibSource string
+	for _, c := range captures {
+		if c.Node == "r1" && c.Command == routepath.TunnelCommandRouteGetFibmatchPrefix+wireGuardEndpoints["r1"] {
+			fibSource = c.Source
+			if err := json.Unmarshal(c.Data, &fib); err != nil {
+				return fmt.Errorf("fibmatch output %s is not JSON: %w", c.Data, err)
+			}
+		}
+	}
+	if fibSource == "" || len(fib) != 1 || len(fib[0].Nexthops) != 2 {
+		return fmt.Errorf("fibmatch output = %+v; want the complete route with two nexthops", fib)
+	}
+	fibDevices := []string{fib[0].Nexthops[0].Dev, fib[0].Nexthops[1].Dev}
+	slices.Sort(fibDevices)
+	slices.Sort(wantDevices)
+	if !slices.Equal(fibDevices, wantDevices) {
+		return fmt.Errorf("fibmatch devices = %v, want %v", fibDevices, wantDevices)
+	}
+	if len(imp.Unproven) != 1 || imp.Unproven[0].Node != "r1" || imp.Unproven[0].Interface != "wg1" {
+		return fmt.Errorf("unproven endpoints = %+v; want r1 wg1", imp.Unproven)
+	}
+	if len(imp.Tunnels) != 1 || imp.Tunnels[0].Node != "r3" || imp.Tunnels[0].Interface != "wg1" {
+		return fmt.Errorf("tunnel records = %+v; want only r3 wg1", imp.Tunnels)
+	}
+	if !slices.ContainsFunc(imp.Refused, func(r routepath.TunnelRefusal) bool {
+		return r.Source == fibSource && strings.Contains(r.Reason, "multiple nexthops")
+	}) {
+		return fmt.Errorf("refusals = %+v; want the ECMP FIB capture refused by source %s", imp.Refused, fibSource)
+	}
+	return nil
+}
+
 // tunnelImportSummary states what the import decided, read from the import
 // itself. It heads each outcome, so the evidence records the decision the captures
 // produced rather than the one a case expected.
@@ -819,7 +908,7 @@ func wireGuardCaptures(ctx context.Context, t *testing.T, e *netnsEnv) []routepa
 			argv          []string
 		}{
 			{"wg", routepath.TunnelCommandWireGuard, []string{"wg", "show", "all", "dump"}},
-			{"ip-route-get", routepath.TunnelCommandRouteGetPrefix + wireGuardEndpoints[node], []string{"ip", "-j", "route", "get", wireGuardEndpoints[node]}},
+			{"ip-route-fibmatch", routepath.TunnelCommandRouteGetFibmatchPrefix + wireGuardEndpoints[node], []string{"ip", "-j", "route", "get", "fibmatch", wireGuardEndpoints[node]}},
 		} {
 			if got := strings.Join(c.argv, " "); got != c.command {
 				t.Fatalf("%s: argv %q does not match the command %q the import reads", node, got, c.command)

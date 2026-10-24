@@ -111,7 +111,7 @@ func fixtureCaptures(t *testing.T) []TunnelCapture {
 		{Source: "ip-link-r1", Node: "r1", Command: TunnelCommandIPLink, CollectedAt: t0, Data: readImportFixture(t, "r1-ip-link.json")},
 		{Source: "wg-r1", Node: "r1", Command: TunnelCommandWireGuard, CollectedAt: t0.Add(time.Minute), Data: readImportFixture(t, "r1-wg-show-all-dump.txt")},
 		{Source: "ip-rule-r1", Node: "r1", Command: TunnelCommandRules, CollectedAt: t0, Data: readImportFixture(t, "r1-ip-rule.json")},
-		{Source: "ip-route-get-r1", Node: "r1", Command: TunnelCommandRouteGetPrefix + "10.0.25.1", CollectedAt: t0.Add(2 * time.Minute), Data: readImportFixture(t, "r1-ip-route-get.json")},
+		{Source: "ip-route-fibmatch-r1", Node: "r1", Command: TunnelCommandRouteGetFibmatchPrefix + "10.0.25.1", CollectedAt: t0.Add(2 * time.Minute), Data: readImportFixture(t, "r1-ip-route-fibmatch.json")},
 	}
 }
 

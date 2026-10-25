@@ -129,11 +129,14 @@ usable capture and no candidate was refused or left unproven; a complete import
 writes the base topology with its tunnel records added. Exit 1 means the import
 is incomplete, so nothing is written: something was refused or left unproven, or
 a modeled node has no usable capture. Exit 2 means the manifest, the base
-topology, or a capture cannot be used. A gre device is recorded only when its
-node's IPv4 rules are the kernel default set, and an ipip device is refused unless it is an inert kernel fallback. A
+topology, or a capture cannot be used. A GRE or configured IPv4 IPIP device is recorded only
+in the default routing domain, without a fwmark, under the kernel default IPv4
+rules, with its underlay device shown. Multipoint and IPv6 remotes are refused. A
 kernel fallback device is listed as inert only when the address and route captures
 show it inert, and is refused otherwise. A
-WireGuard endpoint is reported as unproven. With
+single-peer IPv4 WireGuard endpoint with no matching ip -j route get fibmatch
+capture is reported as unproven. Ambiguous or unresolved nexthops also leave the
+endpoint unproven and the lookup capture refused. With
 --write-topology FILE, a complete import is written, and the file is never
 replaced. The format is documented under Tunnel import from captures in the
 reference.

@@ -1,0 +1,11 @@
+tunnel r1 (default) gre1 remote 10.0.25.1 underlay default source ip-link-r1 at 2026-10-09T12:00:00Z
+unproven r1 (default) wg0 remote 10.0.25.1 device ip-link-r1 at 2026-10-09T12:00:00Z endpoint wg-r1 at 2026-10-09T12:01:00Z: underlay not shown
+refused ip-link-r1 r1 gre2: remote any is a multipoint tunnel, which names no single remote; it is not an inert fallback: node r1 has no ip -j addr show capture, so its addresses are not shown
+refused ip-link-r1 r1 tun0: has no kind and link type "none", which the import does not read
+refused wg-r1 r1 wg1: has 2 peers; a single-remote tunnel needs exactly one
+refused wg-r1 r1 wg2: has a fwmark, which steers the endpoint lookup by policy rule that the capture does not record
+refused wg-r1 r1 wg3: its peer names no endpoint, so no remote is proven
+uncovered r2
+uncovered r3
+uncovered r4
+uncovered r5

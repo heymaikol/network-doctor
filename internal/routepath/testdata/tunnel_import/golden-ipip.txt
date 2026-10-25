@@ -1,0 +1,1 @@
+tunnel r1 (default) ipip1 remote 10.0.25.1 underlay default source ip-link-r1 at 2026-10-09T12:00:00Z

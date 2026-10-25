@@ -1,0 +1,17 @@
+{
+  "source_commit": "24a86ca5d2f4e20d0de25777bd7ec2cc7228139c",
+  "kernel": "7.2.11-200.fc44.x86_64",
+  "iproute2": "ip utility, iproute2-6.17.0, libbpf 1.6.3",
+  "go": "go version go1.27.0 linux/amd64",
+  "environment": {
+    "NETDOC_SIM_REQUIRE_NETNS": "1",
+    "GOTMPDIR": "<writable build temporary directory>"
+  },
+  "command": "go test -tags netns_integration -count=1 -v -timeout 10m -run '^(TestIPIPAcceptanceAgainstLiveNamespaces|TestTunnelImportAgainstLiveNamespaces|TestWireGuardImportAgainstLiveNamespaces)$' ./internal/simulation -args -tunnel-import-evidence <new empty directory>",
+  "results": {
+    "IPIP": "PASS (both cases)",
+    "GRE": "PASS (four cases)",
+    "WireGuard": "PASS (three cases)"
+  },
+  "production_import": "Configured IPIP still refused in this evidence run; the test constructed simulator records from live kernel captures."
+}

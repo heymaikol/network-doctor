@@ -21,19 +21,22 @@ import (
 // WireGuard form is "wg show all dump", not "wg show <interface> dump": the all
 // form prints the interface name on every line, so the source shows the
 // interface rather than the caller declaring it. The rules form lists the IPv4
-// policy rules only, which is the family a gre device's outer packet uses. The
+// policy rules only, which is the family a GRE or IPIP device's outer packet uses. The
 // address and route forms never prove a tunnel. They show only whether a kernel
 // fallback device is inert, so the device is not refused for its own kind.
+// The "ip -j route get fibmatch" form shows the complete FIB route for a WireGuard
+// endpoint, including its full nexthop set.
 const (
-	TunnelCommandIPLink    = "ip -d -j link"
-	TunnelCommandRules     = "ip -j rule show"
-	TunnelCommandAddr      = "ip -j addr show"
-	TunnelCommandRoute4    = "ip -4 -j route show table all"
-	TunnelCommandRoute6    = "ip -6 -j route show table all"
-	TunnelCommandWireGuard = "wg show all dump"
+	TunnelCommandIPLink                 = "ip -d -j link"
+	TunnelCommandRules                  = "ip -j rule show"
+	TunnelCommandAddr                   = "ip -j addr show"
+	TunnelCommandRoute4                 = "ip -4 -j route show table all"
+	TunnelCommandRoute6                 = "ip -6 -j route show table all"
+	TunnelCommandWireGuard              = "wg show all dump"
+	TunnelCommandRouteGetFibmatchPrefix = "ip -j route get fibmatch "
 )
 
-// tunnelCommands lists every command the importer reads, in the order a refusal
+// tunnelCommands lists every exact command the importer reads, in the order a refusal
 // names them.
 var tunnelCommands = []string{TunnelCommandIPLink, TunnelCommandRules, TunnelCommandAddr, TunnelCommandRoute4, TunnelCommandRoute6, TunnelCommandWireGuard}
 
@@ -43,7 +46,32 @@ func tunnelCommandList() string {
 	for i, c := range tunnelCommands {
 		quoted[i] = fmt.Sprintf("%q", c)
 	}
-	return strings.Join(quoted[:len(quoted)-1], ", ") + ", and " + quoted[len(quoted)-1]
+	return strings.Join(quoted[:len(quoted)-1], ", ") + ", " + quoted[len(quoted)-1] + ", and \"ip -j route get fibmatch <endpoint>\""
+}
+
+// isRouteGetFibmatchCommand reports whether command is an "ip -j route get fibmatch <endpoint>"
+// command, and returns the endpoint address if it is. The endpoint must be written
+// the way netip prints it, with no zone, so that one address has one command and a
+// capture is never matched to an endpoint by a spelling accident.
+func isRouteGetFibmatchCommand(command string) (netip.Addr, bool) {
+	target, found := strings.CutPrefix(command, TunnelCommandRouteGetFibmatchPrefix)
+	if !found {
+		return netip.Addr{}, false
+	}
+	a, err := netip.ParseAddr(target)
+	if err != nil || a.Zone() != "" || a.String() != target {
+		return netip.Addr{}, false
+	}
+	return a, true
+}
+
+// isReadCommand reports whether command is one the import reads.
+func isReadCommand(command string) bool {
+	if slices.Contains(tunnelCommands, command) {
+		return true
+	}
+	_, ok := isRouteGetFibmatchCommand(command)
+	return ok
 }
 
 // Import limits. A capture is read whole, so its size is bounded before it is
@@ -79,11 +107,35 @@ type TunnelCapture struct {
 // are in a fixed order.
 type TunnelImport struct {
 	Tunnels   []Tunnel
+	WireGuard []WireGuardProof
 	Rules     []RulesProof
 	Unproven  []UnprovenTunnel
 	Refused   []TunnelRefusal
 	Uncovered []string
 	Inert     []InertDevice
+}
+
+// errIPv6Endpoint is the refusal for an IPv6 WireGuard endpoint. The rules capture
+// lists IPv4 policy rules only, so nothing the import reads shows which table an
+// IPv6 lookup ends in, and a route get capture cannot stand in for that.
+const errIPv6Endpoint = "its peer endpoint is IPv6, and the import reads IPv4 policy rules only, so the routing table of its lookup is not proven"
+
+var errAmbiguousFibRoute = errors.New("the full FIB route has multiple nexthops, so its underlay is not unique")
+var errUnresolvedNexthop = errors.New("the full FIB route names a nexthop object whose complete path is not captured")
+
+// WireGuardProof is the evidence behind one WireGuard Tunnel record: the captures
+// that show the device, its peer endpoint, the routing lookup of that endpoint, and
+// the node's policy rules, each with its own source and collection time. Egress is
+// the underlay device the lookup named. The Tunnel record itself keeps the format
+// every record has, so this is where the reporting finds what the record rests on.
+type WireGuardProof struct {
+	Node      string
+	Interface string
+	Egress    string
+	Device    netmodel.Provenance
+	Endpoint  netmodel.Provenance
+	Lookup    netmodel.Provenance
+	Rules     netmodel.Provenance
 }
 
 // InertDevice is a kernel-created fallback device the captures show inactive: down,
@@ -139,8 +191,9 @@ type TunnelRefusal struct {
 // table, so the table is known without any other fact. Any other rule, a second
 // rules capture, or a missing one refuses every gre device of that node. An ipip
 // device is refused, since no ipip underlay has been run live. A WireGuard
-// interface is never a record. Its dump shows the endpoint, but no capture shows
-// the routing domain the endpoint is looked up in, so it is listed in Unproven.
+// interface is recorded when its endpoint's underlay lookup is proven by an
+// ip -j route get fibmatch capture under the default domain, default rules, and with
+// no fwmark. An endpoint with no usable full FIB capture is listed in Unproven.
 // Every other candidate is refused with its reason. Nothing is inferred from an
 // interface name. An error means the import itself is malformed, not that a
 // capture is.
@@ -165,12 +218,12 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 	}
 
 	var out TunnelImport
-	var ipLinks, wgDumps, ruleCaps, addrCaps, route4Caps, route6Caps []TunnelCapture
+	var ipLinks, wgDumps, ruleCaps, addrCaps, route4Caps, route6Caps, routeGetCaps []TunnelCapture
 	for _, c := range sorted {
 		switch {
 		case len(c.Data) > MaxTunnelCaptureBytes:
 			out.refuse(c.Source, c.Node, "", fmt.Sprintf("is larger than %d bytes", MaxTunnelCaptureBytes))
-		case !slices.Contains(tunnelCommands, c.Command):
+		case !isReadCommand(c.Command):
 			out.refuse(c.Source, c.Node, "", fmt.Sprintf("command %q is not one the import reads; it reads %s", c.Command, tunnelCommandList()))
 		case c.Node == "":
 			out.refuse(c.Source, c.Node, "", "has no node")
@@ -186,6 +239,8 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 			route4Caps = append(route4Caps, c)
 		case c.Command == TunnelCommandRoute6:
 			route6Caps = append(route6Caps, c)
+		case strings.HasPrefix(c.Command, TunnelCommandRouteGetFibmatchPrefix):
+			routeGetCaps = append(routeGetCaps, c)
 		default:
 			wgDumps = append(wgDumps, c)
 		}
@@ -268,6 +323,24 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 		evidence[node] = ev
 	}
 
+	// Index fibmatch captures by (node, endpoint). A capture of a node with no
+	// usable link capture proves nothing, so it is refused here. used marks each
+	// capture that has been accepted into a proof or refused for a reason of its
+	// own, and every capture still unmarked after the dumps are read is refused
+	// below, so none disappears silently.
+	routeGets := map[[2]string][]int{}
+	used := make([]bool, len(routeGetCaps))
+	for i, c := range routeGetCaps {
+		if _, ok := sets[c.Node]; !ok {
+			out.refuse(c.Source, c.Node, "", fmt.Sprintf("needs one usable ip -d -j link capture of node %s in this import", c.Node))
+			used[i] = true
+			continue
+		}
+		dst, _ := isRouteGetFibmatchCommand(c.Command)
+		k := [2]string{c.Node, dst.String()}
+		routeGets[k] = append(routeGets[k], i)
+	}
+
 	// Each dump that parses gives a fact about every interface it lists. The dumps
 	// of one node must agree on each interface they both name. When they do not,
 	// every dump naming that interface is refused, so source order never settles
@@ -319,10 +392,6 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 				w, err := tunnelFromLink(s.capture, s.links, l)
 				if err != nil {
 					out.refuse(s.capture.Source, s.capture.Node, name, err.Error())
-					continue
-				}
-				if kind == "ipip" {
-					out.refuse(s.capture.Source, s.capture.Node, name, "is an ipip device, which the import does not record: no ipip underlay has been validated live")
 					continue
 				}
 				if _, marked := l.Info.Data["fwmark"]; marked {
@@ -384,12 +453,63 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 				continue
 			}
 			kept = f.capture.Source
-			out.Unproven = append(out.Unproven, u)
+
+			// The endpoint's underlay proof comes from the fibmatch capture of
+			// that endpoint. With none, the endpoint stays unproven. An IPv6
+			// endpoint is refused outright, with its captures: the node's rules
+			// are read for IPv4 only, so no capture here can prove its table.
+			idx := routeGets[[2]string{u.Node, u.Remote.String()}]
+			if !u.Remote.Is4() {
+				out.refuse(f.capture.Source, f.capture.Node, k[1], errIPv6Endpoint)
+				for _, i := range idx {
+					rc := routeGetCaps[i]
+					out.refuse(rc.Source, rc.Node, k[1], errIPv6Endpoint)
+					used[i] = true
+				}
+				continue
+			}
+			if len(idx) == 0 {
+				out.Unproven = append(out.Unproven, u)
+				continue
+			}
+			if len(idx) > 1 {
+				for _, i := range idx {
+					if !used[i] {
+						rc := routeGetCaps[i]
+						out.refuse(rc.Source, rc.Node, k[1], fmt.Sprintf("node %s has %d route get captures for endpoint %s; the import needs one", rc.Node, len(idx), u.Remote))
+						used[i] = true
+					}
+				}
+				continue
+			}
+			used[idx[0]] = true
+			rgCap := routeGetCaps[idx[0]]
+			tun, proof, err := proveWGUnderlay(sets[k[0]], u, rgCap, rules[k[0]])
+			if err != nil {
+				if errors.Is(err, errAmbiguousFibRoute) || errors.Is(err, errUnresolvedNexthop) {
+					out.Unproven = append(out.Unproven, u)
+				}
+				out.refuse(rgCap.Source, rgCap.Node, k[1], err.Error())
+				continue
+			}
+			out.Tunnels = append(out.Tunnels, tun)
+			out.WireGuard = append(out.WireGuard, proof)
+		}
+	}
+
+	// A route get capture no interface used is refused with the reason, whether its
+	// endpoint matches no interface, the interface was refused before its lookup was
+	// read, or the interface is not a single-peer WireGuard device.
+	for i, c := range routeGetCaps {
+		if !used[i] {
+			dst, _ := isRouteGetFibmatchCommand(c.Command)
+			out.refuse(c.Source, c.Node, "", fmt.Sprintf("is not used: no wireguard interface of node %s is reported with endpoint %s, so the lookup proves nothing", c.Node, dst))
 		}
 	}
 
 	slices.SortFunc(out.Tunnels, compareTunnels)
 	slices.SortFunc(out.Unproven, compareUnproven)
+	slices.SortFunc(out.WireGuard, compareWireGuard)
 	slices.SortFunc(out.Refused, compareRefusals)
 	return out, nil
 }
@@ -402,8 +522,217 @@ func compareUnproven(a, b UnprovenTunnel) int {
 	return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.VRF, b.VRF), cmp.Compare(a.Interface, b.Interface), cmp.Compare(a.Endpoint.Source, b.Endpoint.Source))
 }
 
+// compareWireGuard orders the evidence by node, then interface, as the records are.
+func compareWireGuard(a, b WireGuardProof) int {
+	return cmp.Or(cmp.Compare(a.Node, b.Node), cmp.Compare(a.Interface, b.Interface))
+}
+
 func compareRefusals(a, b TunnelRefusal) int {
 	return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.Node, b.Node), cmp.Compare(a.Interface, b.Interface), cmp.Compare(a.Reason, b.Reason))
+}
+
+// proveWGUnderlay checks that rgCap shows where a single-peer WireGuard device
+// sends its encapsulated packets, and returns the Tunnel record with the evidence
+// behind it. The proof holds only when all of these are true: the endpoint is IPv4,
+// since the node's rules are read for IPv4 only; the device and its egress device
+// sit in the default routing domain; the node's IPv4 rules are the kernel default
+// set; and the lookup is one unicast route out of the main table through an egress
+// device that is neither the tunnel itself nor a VRF.
+func proveWGUnderlay(set linkSet, u UnprovenTunnel, rgCap TunnelCapture, rules ruleState) (Tunnel, WireGuardProof, error) {
+	if !u.Remote.Is4() {
+		return Tunnel{}, WireGuardProof{}, errors.New(errIPv6Endpoint)
+	}
+	if rules.reason != "" {
+		return Tunnel{}, WireGuardProof{}, fmt.Errorf("the underlay routing table is not proven: %s", rules.reason)
+	}
+	rg, err := parseRouteGet(rgCap.Data, u.Remote)
+	if err != nil {
+		return Tunnel{}, WireGuardProof{}, err
+	}
+	if rg.dev == u.Interface {
+		return Tunnel{}, WireGuardProof{}, errors.New("the route lookup leaves through the tunnel's own device, so the underlay is not shown")
+	}
+	egress, ok := set.links[rg.dev]
+	if !ok {
+		return Tunnel{}, WireGuardProof{}, fmt.Errorf("the route lookup egress device %q is not in the link capture", rg.dev)
+	}
+	if egress.kind() == "vrf" {
+		return Tunnel{}, WireGuardProof{}, errors.New("the route lookup leaves through a vrf device, which the import does not validate")
+	}
+	underlayVRF, err := vrfOf(set.links, egress.Name, "the underlay device")
+	if err != nil {
+		return Tunnel{}, WireGuardProof{}, err
+	}
+	if err := defaultRoutingDomains(u.VRF, underlayVRF); err != nil {
+		return Tunnel{}, WireGuardProof{}, err
+	}
+	device := netmodel.Provenance{Source: set.capture.Source, CollectedAt: set.capture.CollectedAt}
+	return Tunnel{
+		Provenance:  device,
+		Node:        u.Node,
+		VRF:         u.VRF,
+		Interface:   u.Interface,
+		Remote:      u.Remote,
+		UnderlayVRF: underlayVRF,
+	}, WireGuardProof{
+		Node:      u.Node,
+		Interface: u.Interface,
+		Egress:    rg.dev,
+		Device:    device,
+		Endpoint:  u.Endpoint,
+		Lookup:    netmodel.Provenance{Source: rgCap.Source, CollectedAt: rgCap.CollectedAt},
+		Rules:     rules.prov,
+	}, nil
+}
+
+// ipRouteGet is the full FIB route matched for an endpoint and its unique egress.
+type ipRouteGet struct {
+	dev string
+}
+
+// routeGetString reads key of obj as a JSON string. present is false when the key is
+// absent. A value that is not a string, including null, is an error.
+func routeGetString(obj map[string]json.RawMessage, key string) (value string, present bool, err error) {
+	raw, ok := obj[key]
+	if !ok {
+		return "", false, nil
+	}
+	if err := json.Unmarshal(raw, &value); err != nil || string(bytes.TrimSpace(raw)) == "null" {
+		return "", true, fmt.Errorf("has a %s field that is not a string", key)
+	}
+	return value, true, nil
+}
+
+// parseRouteGet reads one ip -j route get fibmatch array. It requires exactly one
+// full FIB route covering the requested endpoint, with one unicast path out of the
+// main table. Errors name the problem, never the bytes of the capture.
+func parseRouteGet(data []byte, wantDst netip.Addr) (ipRouteGet, error) {
+	elems, err := readObjects(data, "ip -j route get fibmatch")
+	if err != nil {
+		return ipRouteGet{}, err
+	}
+	if len(elems) != 1 {
+		return ipRouteGet{}, fmt.Errorf("lists %d FIB route objects; the import needs exactly one", len(elems))
+	}
+	obj, err := object(elems[0])
+	if err != nil {
+		return ipRouteGet{}, err
+	}
+	if err := checkKeyCase(obj, "dst", "dev", "gateway", "prefsrc", "table", "protocol", "flags", "uid", "cache", "type", "error", "nexthops", "nhid"); err != nil {
+		return ipRouteGet{}, err
+	}
+	if _, ok := obj["nhid"]; ok {
+		return ipRouteGet{}, errUnresolvedNexthop
+	}
+	// iproute2 prints an error field as an integer, and only when it is not zero. A
+	// field of any other shape cannot be read as "no error", so it refuses.
+	if raw, ok := obj["error"]; ok {
+		code, convErr := strconv.Atoi(string(bytes.TrimSpace(raw)))
+		switch {
+		case convErr != nil:
+			return ipRouteGet{}, errors.New("route lookup has an error field that is not an integer")
+		case code != 0:
+			return ipRouteGet{}, errors.New("route lookup reports an error")
+		}
+	}
+	typ, hasType, err := routeGetString(obj, "type")
+	if err != nil {
+		return ipRouteGet{}, err
+	}
+	if hasType && typ != "unicast" {
+		if plainKernelName(typ) {
+			return ipRouteGet{}, fmt.Errorf("route lookup is %s, not a unicast route", typ)
+		}
+		return ipRouteGet{}, errors.New("route lookup has a route type that is not a unicast route")
+	}
+	table, hasTable, err := routeGetString(obj, "table")
+	if err != nil {
+		return ipRouteGet{}, err
+	}
+	if hasTable && table != "main" {
+		return ipRouteGet{}, errors.New("route lookup used a table other than main, which the default policy rules do not select")
+	}
+	if raw, ok := obj["flags"]; ok {
+		var flags []string
+		if err := json.Unmarshal(raw, &flags); err != nil || flags == nil {
+			return ipRouteGet{}, errors.New("route lookup has a flags field that is not a list of strings")
+		}
+		if slices.Contains(flags, "dead") || slices.Contains(flags, "linkdown") {
+			return ipRouteGet{}, errors.New("route lookup is marked dead or linkdown, so its egress device carries no traffic")
+		}
+	}
+	dev, hasDev, err := routeGetString(obj, "dev")
+	if err != nil {
+		return ipRouteGet{}, err
+	}
+	if raw, ok := obj["nexthops"]; ok {
+		var hops []json.RawMessage
+		if err := json.Unmarshal(raw, &hops); err != nil || hops == nil {
+			return ipRouteGet{}, errors.New("route lookup has a nexthops field that is not a list")
+		}
+		switch len(hops) {
+		case 0:
+			return ipRouteGet{}, errors.New("full FIB route has an empty nexthop set")
+		case 1:
+			hop, err := object(hops[0])
+			if err != nil {
+				return ipRouteGet{}, errors.New("full FIB route has an invalid nexthop")
+			}
+			if err := checkKeyCase(hop, "dev", "gateway", "weight", "flags", "onlink", "via", "encap", "nhid"); err != nil {
+				return ipRouteGet{}, err
+			}
+			if _, ok := hop["nhid"]; ok {
+				return ipRouteGet{}, errUnresolvedNexthop
+			}
+			if flagsRaw, ok := hop["flags"]; ok {
+				var flags []string
+				if err := json.Unmarshal(flagsRaw, &flags); err != nil || flags == nil {
+					return ipRouteGet{}, errors.New("single FIB nexthop has a flags field that is not a list of strings")
+				}
+				if slices.Contains(flags, "dead") || slices.Contains(flags, "linkdown") {
+					return ipRouteGet{}, errors.New("single FIB nexthop is marked dead or linkdown")
+				}
+			}
+			hopDev, _, err := routeGetString(hop, "dev")
+			if err != nil || hopDev == "" {
+				return ipRouteGet{}, errors.New("single FIB nexthop names no egress device")
+			}
+			if hasDev && dev != hopDev {
+				return ipRouteGet{}, errors.New("full FIB route has inconsistent egress devices")
+			}
+			dev, hasDev = hopDev, true
+		default:
+			return ipRouteGet{}, errAmbiguousFibRoute
+		}
+	}
+	switch {
+	case !hasDev || dev == "":
+		return ipRouteGet{}, errors.New("route lookup names no egress device")
+	case !validIfaceName(dev):
+		return ipRouteGet{}, errors.New("route lookup egress device is not a valid Linux interface name")
+	}
+	dst, _, err := routeGetString(obj, "dst")
+	if err != nil {
+		return ipRouteGet{}, err
+	}
+	if !fibRouteContains(dst, wantDst) {
+		return ipRouteGet{}, errors.New("full FIB route destination does not cover the peer endpoint")
+	}
+	return ipRouteGet{dev: dev}, nil
+}
+
+// fibRouteContains accepts the destination prefix printed by fibmatch and the
+// address form printed for host routes. A FIB entry is useful only if it covers
+// the exact WireGuard peer endpoint.
+func fibRouteContains(dst string, want netip.Addr) bool {
+	if dst == "default" {
+		return want.Is4()
+	}
+	if prefix, err := netip.ParsePrefix(dst); err == nil {
+		return prefix.Addr().Is4() == want.Is4() && prefix.Contains(want)
+	}
+	addr, err := netip.ParseAddr(dst)
+	return err == nil && addr == want
 }
 
 // linkSet is the one ip -d -j link capture a node has in an import, with its
@@ -675,19 +1004,29 @@ func jsonString(raw json.RawMessage) (string, bool) {
 	return s, true
 }
 
-// underlayProven says why a gre device's underlay routing table is not proven, or
+// underlayProven says why a GRE or IPIP device's underlay routing table is not proven, or
 // returns nil when it is. The device and its underlay device must sit in the
 // default routing domain, and the node's IPv4 rules must be the kernel default set.
 // Then every IPv4 lookup of the encapsulated packet ends in the main table, whichever
 // device it leaves by, so the table is known from these facts alone.
 func underlayProven(w wireTunnel, rules ruleState) error {
-	switch {
-	case w.VRF != "default":
-		return errors.New("the tunnel is enslaved to a vrf, which the import does not validate")
-	case w.UnderlayVRF != "default":
-		return errors.New("the underlay device is enslaved to a vrf, which the import does not validate")
-	case rules.reason != "":
+	if err := defaultRoutingDomains(w.VRF, w.UnderlayVRF); err != nil {
+		return err
+	}
+	if rules.reason != "" {
 		return fmt.Errorf("the underlay routing table is not proven: %s", rules.reason)
+	}
+	return nil
+}
+
+// defaultRoutingDomains gives GRE, IPIP and WireGuard the same conservative domain check.
+// A captured route can support a tunnel record only when both devices are in default.
+func defaultRoutingDomains(tunnelVRF, underlayVRF string) error {
+	switch {
+	case tunnelVRF != "default":
+		return errors.New("the tunnel is enslaved to a vrf, which the import does not validate")
+	case underlayVRF != "default":
+		return errors.New("the underlay device is enslaved to a vrf, which the import does not validate")
 	}
 	return nil
 }

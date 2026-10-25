@@ -585,3 +585,43 @@ func TestTunnelImportWritesTheRecordedTunnel(t *testing.T) {
 		t.Errorf("text report lacks %q:\n%s", want, text)
 	}
 }
+
+// TestTunnelReportNamesTheCapturesBehindAWireGuardRecord checks that a WireGuard
+// record carries the source and collection time of its dump and endpoint lookup, and
+// the egress device the lookup named, in the JSON report and in the text. A gre record
+// carries none of these fields, so its report is as it was.
+func TestTunnelReportNamesTheCapturesBehindAWireGuardRecord(t *testing.T) {
+	at := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	prov := func(source string, after time.Duration) netmodel.Provenance {
+		return netmodel.Provenance{Source: source, CollectedAt: at.Add(after)}
+	}
+	remote := netip.MustParseAddr("10.0.25.1")
+	tun := func(iface string) routepath.Tunnel {
+		return routepath.Tunnel{Provenance: prov("ip-link-r1", 0), Node: "r1", VRF: "default", Interface: iface, Remote: remote, UnderlayVRF: "default"}
+	}
+	imp := routepath.TunnelImport{
+		Tunnels: []routepath.Tunnel{tun("gre1"), tun("wg0")},
+		WireGuard: []routepath.WireGuardProof{{
+			Node: "r1", Interface: "wg0", Egress: "eth0",
+			Device: prov("ip-link-r1", 0), Endpoint: prov("wg-r1", time.Minute), Lookup: prov("ip-route-get-r1", 2*time.Minute), Rules: prov("ip-rule-r1", 0),
+		}},
+		Rules: []routepath.RulesProof{{Node: "r1", Rules: prov("ip-rule-r1", 0)}},
+	}
+	r := buildTunnelReport("manifest.json", tunnelManifest{Topology: "base.json"}, imp)
+	gre, wg := r.Tunnels[0], r.Tunnels[1]
+	if gre.LookupSource != "" || gre.EndpointSource != "" || gre.EgressInterface != "" {
+		t.Errorf("gre record carries WireGuard evidence: %+v", gre)
+	}
+	if wg.EndpointSource != "wg-r1" || wg.EndpointCollectedAt != stampText(at.Add(time.Minute)) ||
+		wg.LookupSource != "ip-route-get-r1" || wg.LookupCollectedAt != stampText(at.Add(2*time.Minute)) ||
+		wg.LookupCommand != routepath.TunnelCommandRouteGetFibmatchPrefix+"10.0.25.1" || wg.EgressInterface != "eth0" {
+		t.Errorf("wireguard record = %+v, want the dump, the lookup, and the egress device named", wg)
+	}
+	raw, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(raw), `"lookup_source"`); got != 1 {
+		t.Errorf("report names a lookup source %d times, want once (for wg0 only): %s", got, raw)
+	}
+}

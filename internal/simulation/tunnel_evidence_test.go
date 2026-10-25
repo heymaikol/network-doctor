@@ -42,6 +42,14 @@ func writeTunnelEvidence(dir string, captures []routepath.TunnelCapture, base []
 	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		return err
 	}
+	dataBySource := make(map[string][]byte, len(captures))
+	for _, c := range captures {
+		data, err := sanitizeTunnelEvidenceCapture(c)
+		if err != nil {
+			return err
+		}
+		dataBySource[c.Source] = data
+	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
@@ -49,7 +57,7 @@ func writeTunnelEvidence(dir string, captures []routepath.TunnelCapture, base []
 	for _, c := range captures {
 		file := c.Source + ".json"
 		meta = append(meta, tunnelEvidenceEntry{Source: c.Source, Node: c.Node, Command: c.Command, CollectedAt: c.CollectedAt.UTC(), File: file})
-		if err := writeNewFile(filepath.Join(dir, file), c.Data); err != nil {
+		if err := writeNewFile(filepath.Join(dir, file), dataBySource[c.Source]); err != nil {
 			return err
 		}
 	}
@@ -87,6 +95,32 @@ func writeTunnelEvidence(dir string, captures []routepath.TunnelCapture, base []
 		fmt.Fprintf(&sums, "%x  %s\n", sha256.Sum256(b), e.Name())
 	}
 	return writeNewFile(filepath.Join(dir, "SHA256SUMS"), sums.Bytes())
+}
+
+// sanitizeTunnelEvidenceCapture redacts WireGuard key columns while retaining the
+// dump's rows and tab-separated field count. An unexpected row shape refuses the
+// export so unrecognized key material cannot be written.
+func sanitizeTunnelEvidenceCapture(c routepath.TunnelCapture) ([]byte, error) {
+	if c.Command != routepath.TunnelCommandWireGuard {
+		return c.Data, nil
+	}
+	lines := strings.Split(string(c.Data), "\n")
+	for i, line := range lines {
+		if line == "" && i == len(lines)-1 {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		switch len(fields) {
+		case 5:
+			fields[1] = "<private-key-redacted>"
+		case 9:
+			fields[2] = "<preshared-key-redacted>"
+		default:
+			return nil, fmt.Errorf("%s: WireGuard dump line %d has %d fields; refusing to export unsanitized key material", c.Source, i+1, len(fields))
+		}
+		lines[i] = strings.Join(fields, "\t")
+	}
+	return []byte(strings.Join(lines, "\n")), nil
 }
 
 // writeNewFile creates path with data, failing if it already exists.
@@ -187,6 +221,56 @@ func TestWriteTunnelEvidenceMetadataRoundTrips(t *testing.T) {
 	}
 	if raw := readTestFile(t, filepath.Join(dir, "metadata.json")); !strings.Contains(raw, "2026-10-21T03:14:05.123456789Z") {
 		t.Errorf("metadata.json does not record the collection time in UTC: %s", raw)
+	}
+}
+
+// TestWriteTunnelEvidenceRedactsWireGuardKeys verifies exported dumps retain their
+// row structure while neither interface private keys nor peer preshared keys appear
+// anywhere in the evidence artifacts.
+func TestWriteTunnelEvidenceRedactsWireGuardKeys(t *testing.T) {
+	const privateKey = "private-key-secret"
+	const presharedKey = "preshared-key-secret"
+	const publicKey = "peer-public-key"
+	const dump = "wg1\t" + privateKey + "\tinterface-public-key\t51820\toff\n" +
+		"wg1\t" + publicKey + "\t" + presharedKey + "\t192.0.2.2:51820\t10.0.0.0/24\t0\t0\t0\toff\n"
+	dir := filepath.Join(t.TempDir(), "case")
+	captures := []routepath.TunnelCapture{{
+		Source: "wg-r1", Node: "r1", Command: routepath.TunnelCommandWireGuard,
+		CollectedAt: time.Date(2026, 10, 21, 3, 14, 5, 0, time.UTC), Data: []byte(dump),
+	}}
+	if err := writeTunnelEvidence(dir, captures, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		data := readTestFile(t, filepath.Join(dir, entry.Name()))
+		if strings.Contains(data, privateKey) || strings.Contains(data, presharedKey) {
+			t.Errorf("%s contains WireGuard key material", entry.Name())
+		}
+	}
+	got := readTestFile(t, filepath.Join(dir, "wg-r1.json"))
+	want := "wg1\t<private-key-redacted>\tinterface-public-key\t51820\toff\n" +
+		"wg1\tpeer-public-key\t<preshared-key-redacted>\t192.0.2.2:51820\t10.0.0.0/24\t0\t0\t0\toff\n"
+	if got != want {
+		t.Errorf("sanitized dump = %q, want %q", got, want)
+	}
+}
+
+func TestWriteTunnelEvidenceRefusesMalformedWireGuardDump(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "case")
+	captures := []routepath.TunnelCapture{{
+		Source: "wg-r1", Node: "r1", Command: routepath.TunnelCommandWireGuard,
+		Data: []byte("wg1\tprivate-key-secret\tunrecognized-row\n"),
+	}}
+	if err := writeTunnelEvidence(dir, captures, nil, ""); err == nil {
+		t.Fatal("exported a malformed WireGuard row that could contain unredacted keys")
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("malformed dump created evidence directory: %v", err)
 	}
 }
 

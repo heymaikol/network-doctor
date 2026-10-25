@@ -109,7 +109,7 @@ func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 	if !before[ipipOverlay] {
 		t.Fatalf("the overlay %s is not up before the fault", ipipOverlay)
 	}
-	tunnelPathState(ctx, t, e, &outcome, ipipDevice, "before the fault")
+	tunnelPathState(ctx, t, e, &outcome, "before the fault", ipipDevice)
 
 	// The same file with no tunnel record is the answer the simulation gives when the
 	// tunnel is not believed. Both answers are graded.
@@ -140,7 +140,7 @@ func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 	for _, d := range dests {
 		after[d] = dialDelivers(ctx, t, src, d)
 	}
-	tunnelPathState(ctx, t, e, &outcome, ipipDevice, "after the fault")
+	tunnelPathState(ctx, t, e, &outcome, "after the fault", ipipDevice)
 
 	sim, err := routepath.Simulate(written, c.fault)
 	if err != nil {

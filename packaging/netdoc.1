@@ -430,10 +430,13 @@ Refused without
 .BI \-change\-route\-policy " node:vrf:import|export:peer:policy"
 With \fB\-explain\fR, apply a recorded FRR 10.7.0 policy at one node.
 The topology must embed complete JSON policy evidence with sources, timestamps,
-and SHA-256 checksums. Unproven protocol recomputation and forwarding stay unknown;
+and SHA-256 checksums. Unproven protocol recomputation and forwarding
+stay unknown;
 no replacement route is predicted and downstream forwarding stays recorded.
-The verified producer supports exact IPv4 prefix-list matches in the default VRF.
-Existing-policy replacement, tunnels, other failure selectors, and \fB\-sources\fR
+The verified producer supports exact IPv4 prefix-list matches in the
+default VRF.
+Existing-policy replacement, tunnels, other failure selectors,
+and \fB\-sources\fR
 are refused. Runs no probes.
 .TP
 .BI \-sources " list"

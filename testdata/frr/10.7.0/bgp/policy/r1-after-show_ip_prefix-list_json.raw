@@ -1,0 +1,14 @@
+show ip prefix-list json
+{
+  "P10-2":{
+    "addressFamily":"IPv4",
+    "entries":[
+      {
+        "sequenceNumber":5,
+        "type":"permit",
+        "prefix":"10.10.2.0/24"
+      }
+    ]
+  }
+}
+r1# 

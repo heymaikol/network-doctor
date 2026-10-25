@@ -1,0 +1,48 @@
+{
+  "frr_version": "10.7.0",
+  "integration_base": "450c2831c0e991a94c0ea3695eed55aebba0606b",
+  "original_pr_head": "9986dc3f44ad7a807de90b35ea39d9bb4126413b",
+  "reconciliation_commit": "92ed930887231f1ea2bc85103d827e6325ee092f",
+  "command": "SCRATCH=/tmp/netdoc-pr408-frr-enabled BGPD_VTY_PORT=2605 timeout 900 unshare -Urnm bash testdata/frr/10.7.0/lab/bgp-policy.sh",
+  "producer_sha256": {
+    "testdata/frr/10.7.0/lab/bgp-policy.sh": "ec240925a70591eb9ac9931631a3af3fb59f58e6ae23676601c4a9a929866392",
+    "testdata/frr/10.7.0/lab/bgp-policy-check.py": "5c56cc3f637f25a1e5356a143e28b5c80d7ce8953effcda6a697adec6075cb0b",
+    "testdata/frr/10.7.0/lab/tcpvty2.py": "42c288f257412274b6ce6af124416d1e282a881873e07791cf1bb3fe43d4c06c",
+    "testdata/frr/10.7.0/lab/etc/group": "581f6ac3aa8df848706d64d847055dfd11a2902af8f3bcc0c0e5f04aa46d7c0a",
+    "testdata/frr/10.7.0/lab/etc/passwd": "3747e6a4f626aa1105292e65ff06bee83a0120fe6c2762f9d1c2829039ea596b"
+  },
+  "packages": [
+    {
+      "file": "frr-10.7.0-1.fc44.x86_64.rpm",
+      "url": "https://kojipkgs.fedoraproject.org/packages/frr/10.7.0/1.fc44/x86_64/frr-10.7.0-1.fc44.x86_64.rpm",
+      "sha256": "29bf2f4f901b63a1ee42b99b805fef8775d5aa6db94fb0b2e81ff94fcdedf6f9",
+      "signature": "unsigned Koji build; RPM header and payload digests verified"
+    },
+    {
+      "file": "libyang-3.13.5-2.fc44.x86_64.rpm",
+      "url": "https://kojipkgs.fedoraproject.org/packages/libyang/3.13.5/2.fc44/x86_64/libyang-3.13.5-2.fc44.x86_64.rpm",
+      "sha256": "71c191c5297412c339f41abdf7edb34623d64d8578021d537f094aa052ace3ad",
+      "signature": "unsigned Koji build; RPM header and payload digests verified"
+    }
+  ],
+  "binaries_sha256": {
+    "bgpd": "15b9bd82aaa47ba62176f9d87ee719c5d8ad09a90898ff46ecda1a366973a8bc",
+    "zebra": "3b1db60640a96611fbd7b269c276311fbc6838218ac7d72f15a93603aea54487"
+  },
+  "nodes": {
+    "r1": {
+      "local_as": 65001,
+      "router_id": "1.1.1.1"
+    },
+    "r2": {
+      "local_as": 65002,
+      "router_id": "2.2.2.2"
+    },
+    "r3": {
+      "local_as": 65003,
+      "router_id": "3.3.3.3"
+    }
+  },
+  "vrf": "default",
+  "family": "ipv4Unicast"
+}

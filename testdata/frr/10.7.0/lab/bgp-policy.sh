@@ -185,7 +185,10 @@ start() {
 
 # query CMD FILE: one raw bgpd vty query on r1 into FILE. Stderr goes to FILE.err.
 query() {
-  timeout 30 python3 -I "$TCP" "$P" "$1" > "$2" 2> "$2.err"
+  local -a at=() mode=()
+  if [[ -n ${CAP_NS-} ]]; then at=(nsenter -t "$CAP_NS" -n); fi
+  if [[ ${CAP_ENABLE-} == 1 ]]; then mode=(enable); fi
+  "${at[@]}" timeout 30 python3 -I "$TCP" "$P" "$1" "${mode[@]}" > "$2" 2> "$2.err"
 }
 
 # VTYCFG PORT LINE...: send each line to r1's bgpd vty in one TCP session, and print the bytes it
@@ -223,12 +226,13 @@ event() {
 # as json. A capture that fails is kept as .raw.failed with no .collected_at. The UTC stamp is taken
 # before the vty connects and is written only after the checks pass.
 cap() {
-  local phase=$1 cmd=$2 base rc at
+  local phase=$1 cmd=$2 base rc at prompt="${CAP_NODE-r1}> "
+  if [[ ${CAP_ENABLE-} == 1 ]]; then prompt="${CAP_NODE-r1}# "; fi
   shift 2
-  base="$OUT/r1-$phase-${cmd// /_}"
+  base="$OUT/${CAP_NODE-r1}-$phase-${cmd// /_}"
   at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || return 1
   query "$cmd" "$base.raw"; rc=$?
-  if (( rc == 0 )) && python3 -I "$CHECK" json "$cmd" "r1> " "$@" < "$base.raw" 2>/dev/null; then
+  if (( rc == 0 )) && python3 -I "$CHECK" json "$cmd" "$prompt" "$@" < "$base.raw" 2>/dev/null; then
     rm -f "$base.raw.err"
     if printf '%s\n' "$at" > "$base.collected_at"; then return 0; fi
     rm -f "$base.collected_at"
@@ -306,6 +310,23 @@ settle() {
   cap "$phase" "show ip bgp neighbors 10.0.1.2 json" key:10.0.1.2 || fail "r1 $phase neighbor 10.0.1.2 capture failed"
   cap "$phase" "show ip bgp neighbors 10.0.3.3 json" key:10.0.3.3 || fail "r1 $phase neighbor 10.0.3.3 capture failed"
   captxt "$phase" running-config "show running-config" "${CFG[@]}" || fail "r1 $phase running configuration capture failed"
+  CAP_ENABLE=1 cap "$phase" "show route-map json" || fail "r1 $phase route-map JSON capture failed"
+  CAP_ENABLE=1 cap "$phase" "show ip prefix-list json" || fail "r1 $phase prefix-list JSON capture failed"
+  local node ns base at
+  for node in r1 r2 r3; do
+    ns=
+    case $node in r2) ns=$R2 ;; r3) ns=$R3 ;; esac
+    if [[ $node != r1 ]]; then
+      CAP_NODE=$node CAP_NS=$ns cap "$phase" "show ip bgp json" || fail "$node $phase BGP table capture failed"
+    fi
+    local -a where=()
+    if [[ -n $ns ]]; then where=(nsenter -t "$ns" -n); fi
+    base="$OUT/$node-$phase-ip-route"
+    at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ) || fail "could not timestamp $base"
+    "${where[@]}" ip -j -4 route show table main > "$base.json" || fail "could not capture $base"
+    python3 -I -c 'import json,sys; assert isinstance(json.load(sys.stdin),list)' < "$base.json" || fail "invalid kernel route JSON"
+    printf '%s\n' "$at" > "$base.collected_at" || fail "could not stamp $base"
+  done
 }
 
 # sums: SHA256SUMS for every kept file in $OUT, except poll-*, the vty stderr files, failed captures,

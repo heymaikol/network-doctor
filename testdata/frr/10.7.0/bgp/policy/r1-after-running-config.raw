@@ -1,0 +1,49 @@
+terminal length 0
+r1> enable
+r1# show running-config
+
+Current configuration:
+!
+frr version 10.7.0
+frr defaults traditional
+!
+hostname r1
+!
+route-map R3-IN permit 10
+ match ip address prefix-list P10-2
+ set weight 100
+exit
+!
+route-map R3-IN permit 20
+exit
+!
+!
+!
+!
+!
+!
+router bgp 65001
+ bgp router-id 1.1.1.1
+ no bgp ebgp-requires-policy
+ neighbor 10.0.1.2 remote-as 65002
+ neighbor 10.0.1.2 timers connect 5
+ neighbor 10.0.3.3 remote-as 65003
+ neighbor 10.0.3.3 timers connect 5
+ !
+ address-family ipv4 unicast
+  network 10.10.1.0/24
+  neighbor 10.0.3.3 route-map R3-IN in
+ exit-address-family
+!
+exit
+!
+ip prefix-list P10-2 seq 5 permit 10.10.2.0/24
+!
+!
+!
+line vty
+ no login
+exit
+!
+end
+r1# 

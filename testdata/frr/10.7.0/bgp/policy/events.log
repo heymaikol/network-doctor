@@ -1,0 +1,1 @@
+2026-10-25T16:58:52.622713142Z r1: route-map R3-IN permit 10 (prefix-list P10-2, set weight 100) and permit 20; neighbor 10.0.3.3 route-map R3-IN in; clear ip bgp 10.0.3.3 soft in

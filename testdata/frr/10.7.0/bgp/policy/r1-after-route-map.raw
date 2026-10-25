@@ -1,0 +1,20 @@
+terminal length 0
+r1> enable
+r1# show route-map
+BGP:
+route-map: R3-IN Invoked: 6 (0 milliseconds total) Optimization: enabled Processed Change: false
+ permit, sequence 10 Invoked 3 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list P10-2
+  Set clauses:
+    weight 100
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 20 Invoked 3 (0 milliseconds total)
+  Match clauses:
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+r1# 

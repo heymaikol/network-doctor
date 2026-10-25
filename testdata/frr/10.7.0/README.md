@@ -324,10 +324,10 @@ anything. Its checks are in `lab/bgp-policy-check.py`, which reads each capture 
 `internal/app/frr_bgp_policy_check_test.go` runs that file over committed FRR output and
 over edited copies. `internal/app/frr_bgp_policy_lab_test.go` runs the lab's own `cap` and
 `captxt` over committed captures, with the vty replaced by a copy, and checks the port and
-user namespace refusals. Those tests do not run the lab. No capture of this lab is committed
-yet, so this repository holds no policy evidence. The text forms of `show running-config`,
-`show route-map`, and `show ip prefix-list` are not verified against FRR 10.7.0. The run's
-own checks read them, and a mismatch fails the run with that capture kept as `.raw.failed`.
+user namespace refusals. Those tests do not run the lab. The genuine 2026-10-25 run is preserved in
+[`bgp/policy/`](bgp/policy/README.md), with policy JSON, downstream BGP tables, and
+independent before/after kernel routes. Policy JSON requires enable mode. The run's
+own checks read the text forms too; a mismatch fails with the capture kept as `.raw.failed`.
 The operator runbook for this lab is at the end of this file.
 
 The OSPF adjacency-loss lab is `lab/ospf-adjacency.sh`. It takes `ARM`, which is
@@ -345,8 +345,8 @@ lab; the test reads the preserved captures.
 ### BGP policy lab runbook
 
 Run this only as the maintainer, or an operator the maintainer authorizes, on a Linux host
-they control. Do not run it from CI or from an agent. Its user, mount, and network namespaces
-need maintainer control.
+they control. An agent needs explicit maintainer authorization to run it. Do not
+run it from CI. Its user, mount, and network namespaces need maintainer control.
 
 1. Check the host. `unshare -Urnm true` must succeed as your normal user. Install `python3`,
    `iproute2`, `util-linux` (`nsenter`, `unshare`), and `coreutils` (`timeout`, `sha256sum`).
@@ -358,8 +358,8 @@ need maintainer control.
 4. Run the command above with both variables set. A pass exits 0 and prints `DONE` after
    `--- stopping`. A failed capture exits 1 and never prints `DONE`. A bad port exits 2, and a
    missing `SCRATCH` exits nonzero. Both stop before anything is written.
-5. Check the expected files. A successful run keeps these 38 files. `SHA256SUMS` lists exactly
-   these 38, in C collation, as `hash  name`, and the run reads it back with `sha256sum -c`:
+5. Check the expected files. A successful run keeps these 66 files. `SHA256SUMS` lists exactly
+   these 66, in C collation, as `hash  name`, and the run reads it back with `sha256sum -c`:
    - `bgpd-version.txt` and `zebra-version.txt`, which must show 10.7.0; `events.log`
    - `r1-bgpd.conf`, `r2-bgpd.conf`, `r3-bgpd.conf`, `r1-zebra.conf`, `r2-zebra.conf`, `r3-zebra.conf`
    - `r1-daemons.log`, `r2-daemons.log`, `r3-daemons.log`
@@ -368,14 +368,17 @@ need maintainer control.
      `r1-PHASE-show_ip_bgp_json.raw`, `r1-PHASE-show_ip_bgp_neighbors_10.0.1.2_json.raw`,
      `r1-PHASE-show_ip_bgp_neighbors_10.0.3.3_json.raw`, and `r1-PHASE-running-config.raw`,
      each with its `.collected_at`
+   - for each phase: r1 enable-mode `show route-map json` and
+     `show ip prefix-list json`, r2 and r3 `show ip bgp json`, and all three
+     nodes' `ip -j -4 route show table main`, each with its `.collected_at`
    - for `after` only: `r1-after-route-map.raw` and `r1-after-prefix-list.raw`, each with its
      `.collected_at`
 
    The three `rN-zebra.conf` files are empty, so their lines must hash to
    `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`. No other hash is
    expected here. The rest depend on the run. Re-check the run with
-   `cd "$SCRATCH/run/bgp-policy" && sha256sum -c SHA256SUMS`, which must report OK for all 38.
-6. Preserve a passing run. Leave `$SCRATCH/run/bgp-policy` unchanged. To keep it, copy the 38
+   `cd "$SCRATCH/run/bgp-policy" && sha256sum -c SHA256SUMS`, which must report OK for all 66.
+6. Preserve a passing run. Leave `$SCRATCH/run/bgp-policy` unchanged. To keep it, copy the 66
    files and `SHA256SUMS` into `testdata/frr/10.7.0/bgp/policy/` by hand, never `poll-*.last`,
    `*.err`, or `*.raw.failed`. Run `sha256sum -c SHA256SUMS` in that directory. Then run
    `git add testdata/frr/10.7.0/bgp/policy` and `git ls-files --eol testdata/frr/10.7.0/bgp/policy`.
@@ -392,6 +395,6 @@ need maintainer control.
    before table pins r2's path as bestpath for 10.10.2.0/24. The lab does not verify that
    tie-break for FRR 10.7.0. Do not change r1's configuration to force a pass.
 
-A passing run shows what r1 reports for its peers, paths, weights, and running configuration
-in an isolated lab. It shows no kernel FIB state, no convergence time, and nothing about r3's
-view of the policy.
+A passing run shows r1's peers, paths, weights, policy JSON, and running configuration
+in an isolated lab, with all three routers' BGP tables and kernel routes. It proves no
+convergence time or packet delivery and does not correlate BGP to forwarding in the product.

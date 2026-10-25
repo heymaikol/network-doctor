@@ -32,6 +32,7 @@ type wireFile struct {
 	Checks       []wireCheck       `json:"checks"`
 	Boundaries   []wireBoundary    `json:"boundaries"`
 	Tunnels      []wireTunnel      `json:"tunnels,omitempty"`
+	Policies     []PolicyChange    `json:"route_policies,omitempty"`
 }
 
 type wireStart struct {
@@ -131,6 +132,18 @@ func Decode(data []byte) (File, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return File{}, errors.New("invalid topology file: data follows the topology object")
 	}
+	if len(w.Policies) > 0 {
+		if err := CheckPolicyDocument(data); err != nil {
+			return File{}, fmt.Errorf("invalid policy topology: %w", err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return File{}, err
+		}
+		if fields["route_policies"] == nil {
+			return File{}, errors.New("policy topology needs the exact route_policies field name")
+		}
+	}
 	switch {
 	case w.Version == 0:
 		return File{}, fmt.Errorf(`topology file needs "version": %d`, FileVersion)
@@ -192,6 +205,9 @@ func Decode(data []byte) (File, error) {
 		tunnels = append(tunnels, t)
 	}
 	slices.SortFunc(tunnels, compareTunnels)
+	if err := validatePolicies(w.Policies, m); err != nil {
+		return File{}, err
+	}
 	return File{
 		Source:     Start{Node: w.Source.Node, VRF: w.Source.VRF},
 		SourceAddr: srcAddr,
@@ -199,6 +215,7 @@ func Decode(data []byte) (File, error) {
 		Checks:     checks,
 		Boundaries: bounds,
 		Tunnels:    tunnels,
+		Policies:   w.Policies,
 	}, nil
 }
 

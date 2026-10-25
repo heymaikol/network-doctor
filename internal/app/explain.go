@@ -20,7 +20,7 @@ import (
 // explanation, including one that says the path is broken, and 2 when the
 // input cannot be read, the destination is not an address, or the failure to
 // simulate is not in the file.
-func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, failOSPF, failNextHop, sources string, stdout, stderr io.Writer) int {
+func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, failOSPF, failNextHop, sources, changePolicy string, stdout, stderr io.Writer) int {
 	if rejectRunFlags("explain", setFlags, stderr) {
 		return 2
 	}
@@ -75,7 +75,15 @@ func runExplain(paths []string, setFlags map[string]bool, jsonOut bool, fail, fa
 		}
 		flag, failure = "fail-next-hop", routepath.Failure{Node: node, VRF: vrf, NextHop: addr, Interface: iface}
 	}
-	if fail != "" || failOSPF != "" || failNextHop != "" {
+	if changePolicy != "" {
+		selector, err := routepath.ParsePolicySelector(changePolicy)
+		if err != nil {
+			fmt.Fprintf(stderr, "netdoc: -change-route-policy: %s\n", textsafe.Clean(err.Error()))
+			return 2
+		}
+		flag, failure = "change-route-policy", routepath.Failure{Policy: &selector}
+	}
+	if fail != "" || failOSPF != "" || failNextHop != "" || changePolicy != "" {
 		if sources != "" {
 			all, named, err := parseSources(file, sources)
 			if err != nil {

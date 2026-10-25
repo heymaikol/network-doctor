@@ -131,6 +131,9 @@ func ResolveSource(f File, node, vrf string) (Start, error) {
 // The run's work is therefore up to maxBlastSources simulations, and the source
 // count is the only bound the run adds.
 func SimulateBlast(f File, fail Failure, all bool, named []Start, extra ...netip.Addr) (Blast, error) {
+	if fail.Policy != nil {
+		return Blast{}, errors.New("route-policy simulation accepts one source only")
+	}
 	sources := named
 	if all {
 		sources = ModeledSources(f)

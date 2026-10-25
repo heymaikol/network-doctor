@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"maps"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -24,15 +24,14 @@ var ipipAcceptanceDirector = flag.Bool("ipip-acceptance-director", false, "inter
 // The overlay address r3 holds on its ipip1 device, which each case grades, and the
 // two underlay addresses the tunnel's remotes are reached at, as the diamond lays them out.
 const (
-	ipipOverlay  = "172.32.0.2"
 	ipipRemoteR1 = "10.71.30.1"
 	ipipRemoteR3 = "10.71.14.1"
 )
 
 // TestIPIPAcceptanceAgainstLiveNamespaces builds the GRE import diamond with an IPIP
 // tunnel from r1 to r3 instead, and grades the overlay the simulator predicts after each
-// fault against what the kernel delivers. It also checks that the production importer
-// still refuses the configured ipip devices, so these cases enable no IPIP record.
+// fault against what the kernel delivers. The records come from the production
+// importer and are checked against independently read live device attributes.
 func TestIPIPAcceptanceAgainstLiveNamespaces(t *testing.T) {
 	if *ipipAcceptanceDirector {
 		for _, c := range ipipAcceptanceCases {
@@ -76,15 +75,10 @@ func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkIPIPRefusal(t, e, file, imp)
-
-	// The tunnel records the simulator grades with are read from the kernel here. They
-	// are not proven by the import, which still refuses the devices, and no topology
-	// file the importer reads holds them.
-	merged := file
-	merged.Tunnels = []routepath.Tunnel{
-		ipipRecordFrom(t, captures, "r1", ipipRemoteR1, e.byName["r1"].interfaceForSegment("s14").iface),
-		ipipRecordFrom(t, captures, "r3", ipipRemoteR3, e.byName["r3"].interfaceForSegment("s43").iface),
+	checkIPIPImport(t, e, captures, imp)
+	merged, err := routepath.MergeTunnelImport(file, imp)
+	if err != nil {
+		t.Fatal(err)
 	}
 	data, err := routepath.Encode(merged)
 	if err != nil {
@@ -96,7 +90,7 @@ func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 	}
 
 	var outcome strings.Builder
-	outcome.WriteString("tunnel records: constructed by this test from the live ip -d -j link captures, not proven by ImportTunnels\n")
+	outcome.WriteString("tunnel records: proven by ImportTunnels from live device and default IPv4 rule captures\n")
 	for _, r := range merged.Tunnels {
 		fmt.Fprintf(&outcome, "  %s %s %s remote %s underlay %s, from %s at %s\n", r.Node, r.VRF, r.Interface, r.Remote, r.UnderlayVRF, r.Source, r.CollectedAt.UTC().Format(time.RFC3339Nano))
 	}
@@ -166,27 +160,19 @@ func runIPIPAcceptanceCase(t *testing.T, c ipipAcceptanceCase) {
 	keepTunnelEvidence(t, dir, captures, file, outcome.String())
 }
 
-// checkIPIPRefusal asserts what the production importer does with the two configured
-// IPIP devices: each is refused with the reason that keeps ipip out of the topology,
-// nothing is recorded, MergeTunnelImport refuses the import, and tunl0 stays an inert
-// fallback on every node. A change to any of these means the importer's ipip handling
-// moved, which this slice does not allow.
-func checkIPIPRefusal(t *testing.T, e *netnsEnv, file routepath.File, imp routepath.TunnelImport) {
+// checkIPIPImport compares the production records with an independent reading of
+// the live device captures, and requires a complete import with inert tunl0 devices.
+func checkIPIPImport(t *testing.T, e *netnsEnv, captures []routepath.TunnelCapture, imp routepath.TunnelImport) {
 	t.Helper()
-	const reason = "is an ipip device, which the import does not record: no ipip underlay has been validated live"
-	want := map[string]string{"r1 " + ipipDevice: reason, "r3 " + ipipDevice: reason}
-	got := map[string]string{}
-	for _, r := range imp.Refused {
-		got[r.Node+" "+r.Interface] = r.Reason
+	want := []routepath.Tunnel{
+		ipipRecordFrom(t, captures, "r1", ipipRemoteR1, e.byName["r1"].interfaceForSegment("s14").iface),
+		ipipRecordFrom(t, captures, "r3", ipipRemoteR3, e.byName["r3"].interfaceForSegment("s43").iface),
 	}
-	if len(got) != len(imp.Refused) || !maps.Equal(got, want) {
-		t.Errorf("refusals:\n%s\nwant:\n%s", tunnelLines(got), tunnelLines(want))
+	if !reflect.DeepEqual(imp.Tunnels, want) || len(imp.Refused) != 0 || len(imp.Unproven) != 0 || len(imp.Uncovered) != 0 {
+		t.Fatalf("import = %+v, want the two live IPIP records %+v without refusals or unproven evidence", imp, want)
 	}
-	if len(imp.Tunnels) != 0 {
-		t.Errorf("the import recorded %d tunnels, want none while configured ipip is refused", len(imp.Tunnels))
-	}
-	if _, err := routepath.MergeTunnelImport(file, imp); err == nil {
-		t.Error("MergeTunnelImport accepted an import that refuses the ipip devices")
+	if len(imp.Rules) != len(e.nodes) {
+		t.Fatalf("rules proven for %d nodes, want %d", len(imp.Rules), len(e.nodes))
 	}
 	inert := map[string]bool{}
 	for _, d := range imp.Inert {

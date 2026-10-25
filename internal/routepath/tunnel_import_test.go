@@ -811,7 +811,7 @@ func TestTunnelImportRecordsGREOnlyWhenItsUnderlayIsProven(t *testing.T) {
 		{"rules that are not JSON", []TunnelCapture{linkCapture("ip-link-r1", "r1", eth0, gre1), ruleCapture("ip-rule-r1", "r1", "not json")}, "is not valid JSON at byte", false},
 		{"gre with a fwmark", []TunnelCapture{linkCapture("ip-link-r1", "r1", eth0, `{"ifname":"gre1","link":"eth0","linkinfo":{"info_kind":"gre","info_data":{"remote":"10.0.25.1","fwmark":"0x10"}}}`), ruleCapture("ip-rule-r1", "r1", defaultRules)}, "has a fwmark", false},
 		{"underlay device in a vrf", []TunnelCapture{linkCapture("ip-link-r1", "r1", `{"ifname":"blue","link_type":"ether","linkinfo":{"info_kind":"vrf"}}`, `{"ifname":"eth0","master":"blue","link_type":"ether"}`, gre1), ruleCapture("ip-rule-r1", "r1", defaultRules)}, "the underlay device is enslaved to a vrf", false},
-		{"ipip device", []TunnelCapture{linkCapture("ip-link-r1", "r1", eth0, `{"ifname":"ipip9","link":"eth0","linkinfo":{"info_kind":"ipip","info_data":{"remote":"10.0.25.1"}}}`), ruleCapture("ip-rule-r1", "r1", defaultRules)}, "is an ipip device", false},
+		{"ipip device absent from the model", []TunnelCapture{linkCapture("ip-link-r1", "r1", eth0, `{"ifname":"ipip9","link":"eth0","linkinfo":{"info_kind":"ipip","info_data":{"remote":"10.0.25.1"}}}`), ruleCapture("ip-rule-r1", "r1", defaultRules)}, "lists no interface", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1039,14 +1039,13 @@ func TestGuardedRuleKeysRefuseOtherCase(t *testing.T) {
 }
 
 // TestNonFallbackKindsAreRefusedWhateverTheRules checks the policy text: a gretap,
-// erspan, or ipip device that is not an inert fallback is refused by its kind, under
+// erspan device that is not an inert fallback is refused by its kind, under
 // the kernel default rules and under rules that steer.
 func TestNonFallbackKindsAreRefusedWhateverTheRules(t *testing.T) {
 	const steered = `[{"priority":0,"src":"all","table":"local"},{"priority":100,"src":"all","table":"main"},{"priority":32766,"src":"all","table":"main"},{"priority":32767,"src":"all","table":"default"}]`
 	devices := []struct{ dev, want string }{
 		{`{"ifname":"gretap9","link_type":"ether","linkinfo":{"info_kind":"gretap","info_data":{"local":"10.0.12.1","remote":"10.0.12.2"}}}`, `has kind "gretap", which the import does not read`},
 		{`{"ifname":"erspan9","link_type":"ether","linkinfo":{"info_kind":"erspan","info_data":{"local":"10.0.12.1","remote":"10.0.12.2"}}}`, `has kind "erspan", which the import does not read`},
-		{`{"ifname":"ipip9","link":"eth0","link_type":"ipip","linkinfo":{"info_kind":"ipip","info_data":{"local":"10.0.12.1","remote":"10.0.12.2","proto":"ip"}}}`, "is an ipip device, which the import does not record"},
 	}
 	for _, d := range devices {
 		for _, rules := range []string{defaultRules, steered} {

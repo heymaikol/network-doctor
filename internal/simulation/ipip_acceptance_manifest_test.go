@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"encoding/json"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -10,9 +11,81 @@ import (
 	"github.com/heymaikol/network-doctor/v2/internal/routepath"
 )
 
+// TestIPIPCommittedEvidence checks the immutable captures and replays their import
+// and fault grades offline. It does not replace the kernel-backed acceptance run.
+func TestIPIPCommittedEvidence(t *testing.T) {
+	for _, phase := range []string{"before-import", "imported"} {
+		for _, c := range ipipAcceptanceCases {
+			t.Run(phase+"/"+c.name, func(t *testing.T) {
+				dir := filepath.Join("testdata", "ipip_acceptance_live", phase, strings.ReplaceAll(c.name, " ", "-"))
+				sums := readTestSums(t, dir)
+				want := ipipEvidenceFiles()
+				slices.Sort(want)
+				if !slices.Equal(slices.Sorted(maps.Keys(sums)), want) {
+					t.Fatal("evidence manifest does not cover the expected files")
+				}
+				for name, hash := range sums {
+					if got := testFileSum(t, filepath.Join(dir, name)); got != hash {
+						t.Fatalf("%s checksum mismatch: got %s, want %s", name, got, hash)
+					}
+				}
+				var entries []tunnelEvidenceEntry
+				if err := json.Unmarshal([]byte(readTestFile(t, filepath.Join(dir, "metadata.json"))), &entries); err != nil {
+					t.Fatal(err)
+				}
+				if len(entries) != len(ipipEvidenceNodes)*len(ipipCaptureKinds) {
+					t.Fatalf("%d capture entries, want 20", len(entries))
+				}
+				var captures []routepath.TunnelCapture
+				for _, e := range entries {
+					if e.File != e.Source+".json" || filepath.Base(e.File) != e.File || e.CollectedAt.IsZero() {
+						t.Fatalf("invalid capture provenance: %+v", e)
+					}
+					captures = append(captures, routepath.TunnelCapture{Source: e.Source, Node: e.Node, Command: e.Command, CollectedAt: e.CollectedAt, Data: []byte(readTestFile(t, filepath.Join(dir, e.File)))})
+				}
+				base, err := routepath.Decode([]byte(readTestFile(t, filepath.Join(dir, "base-topology.json"))))
+				if err != nil {
+					t.Fatal(err)
+				}
+				imp, err := routepath.ImportTunnels(base.Model, captures)
+				if err != nil || len(imp.Tunnels) != 2 || len(imp.Rules) != 4 {
+					t.Fatalf("import = %+v, %v", imp, err)
+				}
+				merged, err := routepath.MergeTunnelImport(base, imp)
+				if err != nil {
+					t.Fatal(err)
+				}
+				sim, err := routepath.Simulate(merged, c.fault)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found := false
+				for _, a := range sim.Affected {
+					if a.Destination == ipipOverlay {
+						found = true
+						if a.Impact != c.impact {
+							t.Fatalf("overlay grade %s, want %s", a.Impact, c.impact)
+						}
+					}
+				}
+				if !found {
+					t.Fatal("overlay destination absent from the simulation")
+				}
+				outcome := readTestFile(t, filepath.Join(dir, "outcome.txt"))
+				if !strings.Contains(outcome, "path before the fault at ") || !strings.Contains(outcome, "path after the fault at ") {
+					t.Fatal("missing before/after kernel observations")
+				}
+			})
+		}
+	}
+}
+
 // ipipDevice is the configured IPIP tunnel the acceptance cases create on r1 and r3.
 // Its name is not tunl0, the kernel fallback the import reads as inert.
-const ipipDevice = "ipip1"
+const (
+	ipipDevice  = "ipip1"
+	ipipOverlay = "172.32.0.2"
+)
 
 // ipipEvidenceNodes are the diamond's four routers, which each live case captures.
 var ipipEvidenceNodes = []string{"r1", "r2", "r3", "r4"}

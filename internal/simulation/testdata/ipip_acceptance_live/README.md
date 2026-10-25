@@ -28,3 +28,25 @@ Verify each case by running `sha256sum -c SHA256SUMS` inside its directory.
 The captures contain only lab addresses and no WireGuard dumps or private keys.
 They are a controlled namespace experiment on one kernel, not field validation
 or an atomic snapshot of a changing production network.
+
+## Production import acceptance
+
+The `imported` cases run the same faults using the records returned by
+`ImportTunnels`, not test-constructed simulator records. They require a complete
+import, two IPIP records with matching source/time and kernel device attributes,
+four proven rule sets and inert `tunl0` devices. The records pass through the real
+merge and topology encode/decode before grading. Both IPIP cases and all GRE and
+WireGuard regressions passed without skips.
+
+`provenance-imported.json` records the source parent and a reproducible hash of
+the exact Go sources built for this run, alongside the environment and command.
+The capture was made from the implementation working tree before committing its
+fixtures; the recorded source hash excludes evidence files. Each capture retains
+its actual collection time and exact command in `metadata.json`.
+
+`TestIPIPCommittedEvidence` verifies each case's checksums and replays both the
+historical and production capture imports and fault grades offline. Its fixture
+checks do not replace live acceptance. The root `SHA256SUMS` additionally covers
+all committed evidence, provenance and this README. Verify it from this directory
+with `sha256sum -c SHA256SUMS`. Raw counter output retains iproute2's trailing
+spaces so the recorded bytes and case checksums are unchanged.

@@ -21,7 +21,7 @@ import (
 // WireGuard form is "wg show all dump", not "wg show <interface> dump": the all
 // form prints the interface name on every line, so the source shows the
 // interface rather than the caller declaring it. The rules form lists the IPv4
-// policy rules only, which is the family a gre device's outer packet uses. The
+// policy rules only, which is the family a GRE or IPIP device's outer packet uses. The
 // address and route forms never prove a tunnel. They show only whether a kernel
 // fallback device is inert, so the device is not refused for its own kind.
 // The "ip -j route get fibmatch" form shows the complete FIB route for a WireGuard
@@ -392,10 +392,6 @@ func ImportTunnels(m netmodel.Model, captures []TunnelCapture) (TunnelImport, er
 				w, err := tunnelFromLink(s.capture, s.links, l)
 				if err != nil {
 					out.refuse(s.capture.Source, s.capture.Node, name, err.Error())
-					continue
-				}
-				if kind == "ipip" {
-					out.refuse(s.capture.Source, s.capture.Node, name, "is an ipip device, which the import does not record: no ipip underlay has been validated live")
 					continue
 				}
 				if _, marked := l.Info.Data["fwmark"]; marked {
@@ -1008,7 +1004,7 @@ func jsonString(raw json.RawMessage) (string, bool) {
 	return s, true
 }
 
-// underlayProven says why a gre device's underlay routing table is not proven, or
+// underlayProven says why a GRE or IPIP device's underlay routing table is not proven, or
 // returns nil when it is. The device and its underlay device must sit in the
 // default routing domain, and the node's IPv4 rules must be the kernel default set.
 // Then every IPv4 lookup of the encapsulated packet ends in the main table, whichever
@@ -1023,7 +1019,7 @@ func underlayProven(w wireTunnel, rules ruleState) error {
 	return nil
 }
 
-// defaultRoutingDomains gives GRE and WireGuard the same conservative domain check.
+// defaultRoutingDomains gives GRE, IPIP and WireGuard the same conservative domain check.
 // A captured route can support a tunnel record only when both devices are in default.
 func defaultRoutingDomains(tunnelVRF, underlayVRF string) error {
 	switch {

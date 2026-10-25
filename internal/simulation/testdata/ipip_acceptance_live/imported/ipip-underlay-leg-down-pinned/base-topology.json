@@ -1,0 +1,329 @@
+{
+  "version": 1,
+  "source": {
+    "node": "r1",
+    "vrf": "default"
+  },
+  "observations": [
+    {
+      "source": "kernel:r1",
+      "collected_at": "2026-10-25T06:32:38.87052139Z",
+      "plane": "fib",
+      "node": "r1",
+      "vrf": "default",
+      "routes_complete": true,
+      "neighbors_complete": false,
+      "interfaces": [
+        {
+          "name": "ipip1",
+          "addresses": [
+            "172.32.0.1/30"
+          ],
+          "attributes": []
+        },
+        {
+          "name": "s12",
+          "addresses": [
+            "10.71.12.1/24"
+          ],
+          "attributes": []
+        },
+        {
+          "name": "s14",
+          "addresses": [
+            "10.71.14.1/24"
+          ],
+          "attributes": []
+        }
+      ],
+      "neighbors": [],
+      "routes": [
+        {
+          "prefix": "10.71.12.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "s12"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.14.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "s14"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.30.0/24",
+          "origin": "boot",
+          "metric": 0,
+          "next_hops": [
+            {
+              "addr": "10.71.12.2",
+              "interface": "s12"
+            },
+            {
+              "addr": "10.71.14.4",
+              "interface": "s14"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "172.32.0.0/30",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "ipip1"
+            }
+          ],
+          "attributes": []
+        }
+      ]
+    },
+    {
+      "source": "kernel:r2",
+      "collected_at": "2026-10-25T06:32:38.87052139Z",
+      "plane": "fib",
+      "node": "r2",
+      "vrf": "default",
+      "routes_complete": true,
+      "neighbors_complete": false,
+      "interfaces": [
+        {
+          "name": "s12",
+          "addresses": [
+            "10.71.12.2/24"
+          ],
+          "attributes": []
+        },
+        {
+          "name": "s23",
+          "addresses": [
+            "10.71.23.2/24"
+          ],
+          "attributes": []
+        }
+      ],
+      "neighbors": [],
+      "routes": [
+        {
+          "prefix": "10.71.12.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "s12"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.23.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "s23"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.30.0/24",
+          "origin": "boot",
+          "metric": 0,
+          "next_hops": [
+            {
+              "addr": "10.71.23.3",
+              "interface": "s23"
+            }
+          ],
+          "attributes": []
+        }
+      ]
+    },
+    {
+      "source": "kernel:r3",
+      "collected_at": "2026-10-25T06:32:38.87052139Z",
+      "plane": "fib",
+      "node": "r3",
+      "vrf": "default",
+      "routes_complete": true,
+      "neighbors_complete": false,
+      "interfaces": [
+        {
+          "name": "ipip1",
+          "addresses": [
+            "172.32.0.2/30"
+          ],
+          "attributes": []
+        },
+        {
+          "name": "lan3",
+          "addresses": [
+            "10.71.30.1/24"
+          ],
+          "attributes": []
+        },
+        {
+          "name": "s23",
+          "addresses": [
+            "10.71.23.3/24"
+          ],
+          "attributes": []
+        },
+        {
+          "name": "s43",
+          "addresses": [
+            "10.71.43.3/24"
+          ],
+          "attributes": []
+        }
+      ],
+      "neighbors": [],
+      "routes": [
+        {
+          "prefix": "10.71.12.0/24",
+          "origin": "boot",
+          "metric": 0,
+          "next_hops": [
+            {
+              "addr": "10.71.23.2",
+              "interface": "s23"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.14.0/24",
+          "origin": "boot",
+          "metric": 0,
+          "next_hops": [
+            {
+              "addr": "10.71.43.4",
+              "interface": "s43"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.23.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "s23"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.30.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "lan3"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.43.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "s43"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "172.32.0.0/30",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "ipip1"
+            }
+          ],
+          "attributes": []
+        }
+      ]
+    },
+    {
+      "source": "kernel:r4",
+      "collected_at": "2026-10-25T06:32:38.87052139Z",
+      "plane": "fib",
+      "node": "r4",
+      "vrf": "default",
+      "routes_complete": true,
+      "neighbors_complete": false,
+      "interfaces": [
+        {
+          "name": "s14",
+          "addresses": [
+            "10.71.14.4/24"
+          ],
+          "attributes": []
+        },
+        {
+          "name": "s43",
+          "addresses": [
+            "10.71.43.4/24"
+          ],
+          "attributes": []
+        }
+      ],
+      "neighbors": [],
+      "routes": [
+        {
+          "prefix": "10.71.14.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "s14"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.30.0/24",
+          "origin": "boot",
+          "metric": 0,
+          "next_hops": [
+            {
+              "addr": "10.71.43.3",
+              "interface": "s43"
+            }
+          ],
+          "attributes": []
+        },
+        {
+          "prefix": "10.71.43.0/24",
+          "origin": "kernel",
+          "metric": 0,
+          "next_hops": [
+            {
+              "interface": "s43"
+            }
+          ],
+          "attributes": []
+        }
+      ]
+    }
+  ],
+  "checks": [],
+  "boundaries": []
+}

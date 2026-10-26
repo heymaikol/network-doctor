@@ -2,12 +2,14 @@
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from bundle import Refused, decode, produce
+from bundle import Refused, decode, main, produce, read_source
 
 HERE = Path(__file__).resolve().parent
 EVIDENCE = HERE.parents[2] / "testdata/frr/10.7.0/bgp/correlation-v1"
@@ -33,6 +35,43 @@ class ProducerProof(unittest.TestCase):
 
     def result(self):
         return produce(self.logs, self.build)
+
+    def test_output_does_not_overwrite_existing_file_or_symlink(self):
+        source = next(self.logs.glob("*.jsonl"))
+        original = source.read_bytes()
+        link = self.root / "output.json"
+        link.symlink_to(source)
+        for output in (source, link):
+            with patch("sys.argv", ["bundle.py", str(self.logs), "--build", str(EVIDENCE / "build.json"), "--output", str(output)]):
+                self.assertEqual(main(), 2)
+            self.assertEqual(source.read_bytes(), original)
+
+    def test_output_exclusive_creation_for_success_and_refusal(self):
+        for refused in (False, True):
+            if refused:
+                (self.logs / "extra.partial").write_bytes(b"")
+            output = self.root / (str(refused) + ".json")
+            with patch("sys.argv", ["bundle.py", str(self.logs), "--build", str(EVIDENCE / "build.json"), "--output", str(output)]):
+                self.assertEqual(main(), 2 if refused else 0)
+            self.assertEqual(decode(output.read_bytes())["capture"]["complete"], not refused)
+
+    def test_source_symlink_and_fifo_are_refused(self):
+        source = next(self.logs.glob("*.jsonl"))
+        preserved = self.root / "preserved.jsonl"
+        source.rename(preserved)
+        source.symlink_to(preserved)
+        with self.assertRaises(OSError):
+            self.result()
+        source.unlink()
+        os.mkfifo(source)
+        with self.assertRaisesRegex(Refused, "non-regular"):
+            self.result()
+
+    def test_source_read_is_bounded(self):
+        source = self.root / "oversized"
+        source.write_bytes(b"x" * 4097)
+        with self.assertRaisesRegex(Refused, "size limit"):
+            read_source(source, 4096)
 
     def test_live_identity_chains(self):
         bundle = self.result()

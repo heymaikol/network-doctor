@@ -8,8 +8,11 @@ import argparse
 import hashlib
 import ipaddress
 import json
+import os
 from pathlib import Path
 import re
+import stat
+import sys
 
 SCHEMA = "netdoc-frr-correlation/v1"
 SOURCE = "87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef"
@@ -43,6 +46,16 @@ def decode(raw):
     return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
 
 
+def read_source(path, limit):
+    # Opening first avoids a check-then-open symlink race; nonblocking rejects FIFOs.
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as source:
+        require(stat.S_ISREG(os.fstat(source.fileno()).st_mode), "non-regular source file")
+        raw = source.read(limit + 1)
+        require(len(raw) <= limit, "source file size limit")
+        return raw
+
+
 def integer(value):
     return type(value) is int and 0 <= value < 2**64
 
@@ -71,8 +84,7 @@ def streams(directory, build):
     require(len(files) == 2, "need exactly one closed bgpd epoch and one closed zebra epoch; restarts require a new capture")
     sources, events = [], {}
     for path in files:
-        require(not path.is_symlink() and path.stat().st_size <= 67108864, "invalid source file or size")
-        raw = path.read_bytes()
+        raw = read_source(path, 67108864)
         require(raw.endswith(b"\n"), "truncated source")
         lines = raw.splitlines()
         require(2 <= len(lines) <= 1000000 and all(len(l) <= 65535 for l in lines), "source bounds")
@@ -287,13 +299,19 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     try:
-        result = produce(args.directory, decode(args.build.read_bytes()))
+        result = produce(args.directory, decode(read_source(args.build, 1048576)))
         status = 0
     except (Refused, ValueError, KeyError, TypeError, OSError) as error:
         result = {"schema": SCHEMA, "capture": {"complete": False, "snapshot_complete": False},
                   "claims": [], "refusals": [{"reason": str(error)}]}
         status = 2
-    args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    try:
+        # Never overwrite evidence, or follow an existing output symlink.
+        with args.output.open("x", encoding="utf-8") as destination:
+            destination.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    except OSError as error:
+        print("cannot create bundle output: " + str(error), file=sys.stderr)
+        return 2
     return status
 
 

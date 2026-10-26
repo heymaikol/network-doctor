@@ -30,11 +30,12 @@ const (
 // on Interface when it is set, and the interface and the gateway's node stay
 // up. Simulate fills an empty VRF from the FIB rows that name the next hop.
 type Failure struct {
-	Node         string `json:"node"`
-	Interface    string `json:"interface,omitempty"`
-	VRF          string `json:"vrf,omitempty"`
-	OSPFNeighbor string `json:"ospf_neighbor,omitempty"`
-	NextHop      string `json:"next_hop,omitempty"`
+	Node         string          `json:"node"`
+	Interface    string          `json:"interface,omitempty"`
+	VRF          string          `json:"vrf,omitempty"`
+	OSPFNeighbor string          `json:"ospf_neighbor,omitempty"`
+	NextHop      string          `json:"next_hop,omitempty"`
+	Policy       *PolicySelector `json:"policy,omitempty"`
 }
 
 // Tunnel is one recorded tunnel interface: Interface of Node in routing domain
@@ -53,6 +54,9 @@ type Tunnel struct {
 
 func (f Failure) String() string {
 	switch {
+	case f.Policy != nil:
+		p := f.Policy
+		return "apply policy " + p.Policy + " on " + p.Node + " (" + p.VRF + ") " + p.Direction + " peer " + p.Peer
 	case f.NextHop != "":
 		on := ""
 		if f.Interface != "" {
@@ -140,14 +144,15 @@ type Affected struct {
 // its own, and an Affected with no After says its walk was omitted after it was
 // rated.
 type Simulation struct {
-	Failure    Failure    `json:"failure"`
-	Adjacency  *Adjacency `json:"adjacency,omitempty"`
-	Gateway    *Gateway   `json:"gateway,omitempty"`
-	Source     Start      `json:"source"`
-	Considered int        `json:"considered"`
-	Unchanged  int        `json:"unchanged"`
-	Affected   []Affected `json:"affected"`
-	Truncated  bool       `json:"truncated"`
+	Failure    Failure           `json:"failure"`
+	Adjacency  *Adjacency        `json:"adjacency,omitempty"`
+	Gateway    *Gateway          `json:"gateway,omitempty"`
+	Policy     *PolicyEvaluation `json:"policy,omitempty"`
+	Source     Start             `json:"source"`
+	Considered int               `json:"considered"`
+	Unchanged  int               `json:"unchanged"`
+	Affected   []Affected        `json:"affected"`
+	Truncated  bool              `json:"truncated"`
 	skipped    bool
 	stopped    bool
 }
@@ -200,6 +205,8 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	w := newWalker(f, netip.Addr{})
 	var err error
 	switch {
+	case fail.Policy != nil:
+		fail, w.policy, err = selectedPolicy(f, fail)
 	case fail.NextHop != "":
 		fail, w.gw, err = w.gateway(fail)
 	case fail.OSPFNeighbor != "":
@@ -228,7 +235,7 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 	slices.SortFunc(owned, netip.Addr.Compare)
 	dests = append(dests, owned...)
 
-	s := Simulation{Failure: fail, Adjacency: w.adj, Gateway: w.gw, Source: f.Source, Affected: []Affected{}}
+	s := Simulation{Failure: fail, Adjacency: w.adj, Gateway: w.gw, Policy: w.policy, Source: f.Source, Affected: []Affected{}}
 	if len(dests) > maxDestinations {
 		dests, s.skipped = dests[:maxDestinations], true
 	}
@@ -241,13 +248,19 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 		}
 		s.Considered++
 		w.dest, w.fail, w.touched = d, &fail, false
+		if w.policy != nil {
+			w.fail = nil
+		}
 		after, trunc := w.run(forwardingPlanes, src)
 		spent += maxStates - w.budget
 		w.fail = nil
 		before := after
 		if w.touched {
 			var t bool
+			policy := w.policy
+			w.policy = nil
 			before, t = w.run(forwardingPlanes, src)
+			w.policy = policy
 			spent += maxStates - w.budget
 			trunc = trunc || t
 		}
@@ -257,6 +270,9 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 			a.Owners = append(a.Owners, Start{Node: o.node, VRF: o.vrf})
 		}
 		a.Impact, a.Reason = rate(reachOf(&before, nil), reachOf(&after, nil), w.touched)
+		if w.policy != nil && w.touched {
+			a.Impact, a.Reason = ImpactUnknown, "the policy change needs unproven protocol recomputation; BGP-to-FIB correlation is unproven and no replacement route is predicted"
+		}
 		if a.Impact == ImpactReachabilityLost && w.adj != nil {
 			a.Impact, a.Reason = ImpactUnknown, "after the adjacency loss, a forwarding branch has no surviving recorded next hop; OSPF recomputes its routes after the loss, and no SPF is run here, so whether another path takes over is unknown"
 		}
@@ -274,7 +290,7 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 				a.Impact, a.Reason = ImpactUnknown, fmt.Sprintf("every surviving recorded branch delivers, but %s (%s) still lists a next hop that crosses the failure on another node; whether %s stops selecting it is not in the evidence, so traffic hashed onto it may be dropped", far.From, far.VRF, far.From)
 			}
 		}
-		if (a.Impact == ImpactNone || a.Impact == ImpactRedundancyLost) && w.gw == nil && w.adj == nil {
+		if (a.Impact == ImpactNone || a.Impact == ImpactRedundancyLost) && w.gw == nil && w.adj == nil && w.policy == nil {
 			if at, rows := bgpForwarding(a.After); at != nil {
 				claim := "no recorded forwarding branch crosses the failure"
 				if a.Impact == ImpactRedundancyLost {
@@ -284,7 +300,7 @@ func Simulate(f File, fail Failure, extra ...netip.Addr) (Simulation, error) {
 			}
 		}
 		gone := fail.Interface == "" && len(w.owners[d]) > 0 && !slices.ContainsFunc(w.owners[d], func(o state) bool { return o.node != fail.Node })
-		if a.Impact == ImpactReachabilityLost && w.gw == nil && w.adj == nil && !gone {
+		if a.Impact == ImpactReachabilityLost && w.gw == nil && w.adj == nil && w.policy == nil && !gone {
 			if stands, at := w.protocolLoss(&after, nil); !stands && at != nil {
 				a.Impact, a.Reason = ImpactUnknown, fmt.Sprintf("after the failure, a forwarding branch has no surviving recorded next hop, but %s (%s) holds an OSPF or BGP route toward it, in %s, and no route is recomputed here; whether that protocol computes another path once it learns of the failure is not in the evidence", at.Node, at.VRF, evidenceText(w.protocolRows(at)))
 			}
@@ -962,7 +978,20 @@ func (s Simulation) Text() string {
 	}
 	line("")
 	line("Failure simulation: %s, from %s (%s)", s.Failure, s.Source.Node, s.Source.VRF)
-	if g := s.Gateway; g != nil {
+	if p := s.Policy; p != nil {
+		line("Only the applying node's candidate selections are evaluated. Downstream forwarding stays recorded. Protocol recomputation and BGP-to-FIB correlation are unproven; no replacement route is predicted.")
+		line("%d BGP prefixes considered, %d unchanged, %d potentially affected.", p.Considered, p.Unchanged, p.Affected)
+		line("Unrecorded candidate effects: %s. Equal peer-prefix counts do not prove route identity, attributes, or an atomic snapshot.", p.UnrecordedAfter)
+		for _, r := range p.Routes {
+			line("  %s: selected before %s, selection after %s: %s", r.Prefix, r.SelectedBefore, r.SelectionAfter, r.Reason)
+			if r.AdvertisementAfter != "" {
+				line("    advertisement after %s; outcome %s", r.AdvertisementAfter, r.Outcome)
+			}
+		}
+		for _, e := range p.Evidence {
+			line("  evidence %s at %s: %s, SHA-256 %s", e.Source, e.CollectedAt.Format("2006-01-02T15:04:05.999999999Z07:00"), e.Command, e.SHA256)
+		}
+	} else if g := s.Gateway; g != nil {
 		f := s.Failure
 		on := ""
 		if f.Interface != "" {

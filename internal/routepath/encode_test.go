@@ -254,7 +254,7 @@ func TestEncodeCoversEveryFieldOfTheModel(t *testing.T) {
 		"netmodel.NextHop":     {netmodel.NextHop{}, 2},
 		"netmodel.Attribute":   {netmodel.Attribute{}, 2},
 		"netmodel.Provenance":  {netmodel.Provenance{}, 2},
-		"routepath.File":       {File{}, 6},
+		"routepath.File":       {File{}, 7},
 		"routepath.Start":      {Start{}, 2},
 		"routepath.Check":      {Check{}, 7},
 		"routepath.Boundary":   {Boundary{}, 4},

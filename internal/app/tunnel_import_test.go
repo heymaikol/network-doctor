@@ -523,65 +523,109 @@ const tunnelRules = `[{"priority":0,"src":"all","table":"local"},{"priority":327
 // and both report modes must name the link capture and the rules capture behind
 // it.
 func TestTunnelImportWritesTheRecordedTunnel(t *testing.T) {
-	dir, manifest := writeTunnelFiles(t, map[string]string{
-		"base.json":     tunnelBaseTopology,
-		"links-r1.json": tunnelGRELinks,
-		"links-r2.json": tunnelLinks,
-		"rules-r1.json": tunnelRules,
-		"manifest.json": tunnelManifestText("base.json",
-			tunnelEntry("links-r1.json", "ip-link-r1", "r1", "ip -d -j link"),
-			tunnelEntry("links-r2.json", "ip-link-r2", "r2", "ip -d -j link"),
-			tunnelEntry("rules-r1.json", "ip-rule-r1", "r1", "ip -j rule show")),
-	})
-	out := filepath.Join(dir, "out.json")
-	code, stdout, stderr := runTunnel(t, manifest, "--write-topology", out)
-	if code != 0 {
-		t.Fatalf("exit %d, want 0; stdout %q stderr %q", code, stdout, stderr)
-	}
-	got, err := os.ReadFile(filepath.Clean(out))
-	if err != nil {
-		t.Fatal(err)
-	}
-	f, err := routepath.Decode(got)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(f.Tunnels) != 1 {
-		t.Fatalf("written topology has %d tunnels, want 1: %s", len(f.Tunnels), got)
-	}
-	tun := f.Tunnels[0]
-	if tun.Node != "r1" || tun.Interface != "gre1" || tun.VRF != "default" || tun.Remote != netip.MustParseAddr("10.0.12.2") || tun.UnderlayVRF != "default" {
-		t.Errorf("tunnel %+v, want gre1 on r1 in default to 10.0.12.2 with underlay default", tun)
-	}
+	for _, kind := range []string{"gre", "ipip"} {
+		t.Run(kind, func(t *testing.T) {
+			dir, manifest := writeTunnelFiles(t, map[string]string{
+				"base.json":     tunnelBaseTopology,
+				"links-r1.json": strings.Replace(tunnelGRELinks, `"info_kind":"gre"`, `"info_kind":"`+kind+`"`, 1),
+				"links-r2.json": tunnelLinks,
+				"rules-r1.json": tunnelRules,
+				"manifest.json": tunnelManifestText("base.json",
+					tunnelEntry("links-r1.json", "ip-link-r1", "r1", "ip -d -j link"),
+					tunnelEntry("links-r2.json", "ip-link-r2", "r2", "ip -d -j link"),
+					tunnelEntry("rules-r1.json", "ip-rule-r1", "r1", "ip -j rule show")),
+			})
+			out := filepath.Join(dir, "out.json")
+			code, stdout, stderr := runTunnel(t, manifest, "--write-topology", out)
+			if code != 0 {
+				t.Fatalf("exit %d, want 0; stdout %q stderr %q", code, stdout, stderr)
+			}
+			got, err := os.ReadFile(filepath.Clean(out))
+			if err != nil {
+				t.Fatal(err)
+			}
+			f, err := routepath.Decode(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(f.Tunnels) != 1 {
+				t.Fatalf("written topology has %d tunnels, want 1: %s", len(f.Tunnels), got)
+			}
+			tun := f.Tunnels[0]
+			if tun.Node != "r1" || tun.Interface != "gre1" || tun.VRF != "default" || tun.Remote != netip.MustParseAddr("10.0.12.2") || tun.UnderlayVRF != "default" {
+				t.Errorf("tunnel %+v, want gre1 on r1 in default to 10.0.12.2 with underlay default", tun)
+			}
 
-	code, outcome := reportOutcome(t, manifest)
-	if code != 0 || !outcome.Complete {
-		t.Errorf("exit %d, outcome %+v; want exit 0 and complete", code, outcome)
+			code, outcome := reportOutcome(t, manifest)
+			if code != 0 || !outcome.Complete {
+				t.Errorf("exit %d, outcome %+v; want exit 0 and complete", code, outcome)
+			}
+			code, js, stderr := runTunnel(t, manifest, "--json")
+			if code != 0 {
+				t.Fatalf("json exit %d; stderr %q", code, stderr)
+			}
+			var report struct {
+				Tunnels []struct {
+					Command          string `json:"command"`
+					Source           string `json:"source"`
+					RulesSource      string `json:"rules_source"`
+					RulesCollectedAt string `json:"rules_collected_at"`
+				} `json:"tunnels"`
+			}
+			if err := json.Unmarshal([]byte(js), &report); err != nil {
+				t.Fatalf("report is not JSON: %v\n%s", err, js)
+			}
+			if len(report.Tunnels) != 1 {
+				t.Fatalf("report has %d tunnels, want 1: %s", len(report.Tunnels), js)
+			}
+			rec := report.Tunnels[0]
+			if rec.Command != routepath.TunnelCommandIPLink || rec.Source != "ip-link-r1" || rec.RulesSource != "ip-rule-r1" || rec.RulesCollectedAt != "2026-10-09T12:00:00Z" {
+				t.Errorf("record %+v, want link ip-link-r1 and rules ip-rule-r1 at 2026-10-09T12:00:00Z", rec)
+			}
+			_, text, _ := runTunnel(t, manifest)
+			if want := "rules ip-rule-r1 at 2026-10-09T12:00:00Z"; !strings.Contains(text, want) {
+				t.Errorf("text report lacks %q:\n%s", want, text)
+			}
+		})
 	}
-	code, js, stderr := runTunnel(t, manifest, "--json")
-	if code != 0 {
-		t.Fatalf("json exit %d; stderr %q", code, stderr)
+}
+
+// TestTunnelReportNamesTheCapturesBehindAWireGuardRecord checks that a WireGuard
+// record carries the source and collection time of its dump and endpoint lookup, and
+// the egress device the lookup named, in the JSON report and in the text. A gre record
+// carries none of these fields, so its report is as it was.
+func TestTunnelReportNamesTheCapturesBehindAWireGuardRecord(t *testing.T) {
+	at := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	prov := func(source string, after time.Duration) netmodel.Provenance {
+		return netmodel.Provenance{Source: source, CollectedAt: at.Add(after)}
 	}
-	var report struct {
-		Tunnels []struct {
-			Command          string `json:"command"`
-			Source           string `json:"source"`
-			RulesSource      string `json:"rules_source"`
-			RulesCollectedAt string `json:"rules_collected_at"`
-		} `json:"tunnels"`
+	remote := netip.MustParseAddr("10.0.25.1")
+	tun := func(iface string) routepath.Tunnel {
+		return routepath.Tunnel{Provenance: prov("ip-link-r1", 0), Node: "r1", VRF: "default", Interface: iface, Remote: remote, UnderlayVRF: "default"}
 	}
-	if err := json.Unmarshal([]byte(js), &report); err != nil {
-		t.Fatalf("report is not JSON: %v\n%s", err, js)
+	imp := routepath.TunnelImport{
+		Tunnels: []routepath.Tunnel{tun("gre1"), tun("wg0")},
+		WireGuard: []routepath.WireGuardProof{{
+			Node: "r1", Interface: "wg0", Egress: "eth0",
+			Device: prov("ip-link-r1", 0), Endpoint: prov("wg-r1", time.Minute), Lookup: prov("ip-route-get-r1", 2*time.Minute), Rules: prov("ip-rule-r1", 0),
+		}},
+		Rules: []routepath.RulesProof{{Node: "r1", Rules: prov("ip-rule-r1", 0)}},
 	}
-	if len(report.Tunnels) != 1 {
-		t.Fatalf("report has %d tunnels, want 1: %s", len(report.Tunnels), js)
+	r := buildTunnelReport("manifest.json", tunnelManifest{Topology: "base.json"}, imp)
+	gre, wg := r.Tunnels[0], r.Tunnels[1]
+	if gre.LookupSource != "" || gre.EndpointSource != "" || gre.EgressInterface != "" {
+		t.Errorf("gre record carries WireGuard evidence: %+v", gre)
 	}
-	rec := report.Tunnels[0]
-	if rec.Command != routepath.TunnelCommandIPLink || rec.Source != "ip-link-r1" || rec.RulesSource != "ip-rule-r1" || rec.RulesCollectedAt != "2026-10-09T12:00:00Z" {
-		t.Errorf("record %+v, want link ip-link-r1 and rules ip-rule-r1 at 2026-10-09T12:00:00Z", rec)
+	if wg.EndpointSource != "wg-r1" || wg.EndpointCollectedAt != stampText(at.Add(time.Minute)) ||
+		wg.LookupSource != "ip-route-get-r1" || wg.LookupCollectedAt != stampText(at.Add(2*time.Minute)) ||
+		wg.LookupCommand != routepath.TunnelCommandRouteGetFibmatchPrefix+"10.0.25.1" || wg.EgressInterface != "eth0" {
+		t.Errorf("wireguard record = %+v, want the dump, the lookup, and the egress device named", wg)
 	}
-	_, text, _ := runTunnel(t, manifest)
-	if want := "rules ip-rule-r1 at 2026-10-09T12:00:00Z"; !strings.Contains(text, want) {
-		t.Errorf("text report lacks %q:\n%s", want, text)
+	raw, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(raw), `"lookup_source"`); got != 1 {
+		t.Errorf("report names a lookup source %d times, want once (for wg0 only): %s", got, raw)
 	}
 }

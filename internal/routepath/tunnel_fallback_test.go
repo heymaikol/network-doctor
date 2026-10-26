@@ -656,6 +656,25 @@ func TestEvidenceReadersRefuseNulls(t *testing.T) {
 	}
 }
 
+// TestAddrCaptureReadsDevicesWithoutALinkAddress checks that a device the kernel
+// prints with no link address is read from ip -j addr show, while a null address is
+// still refused. A WireGuard interface is such a device: its addr capture omits the
+// address key entirely.
+func TestAddrCaptureReadsDevicesWithoutALinkAddress(t *testing.T) {
+	const noAddress = `[{"ifindex":3,"ifname":"wg0","flags":["UP"],"addr_info":[]}]`
+	addrs, err := parseIPAddr([]byte(noAddress))
+	if err != nil {
+		t.Fatalf("a device without a link address was refused: %v", err)
+	}
+	if a := addrs["wg0"]; a.Address != "" || a.Index != 3 || !a.Up || a.Addrs != 0 {
+		t.Errorf("wg0 = %+v, want an empty link address with its index and UP state", a)
+	}
+	const nullAddress = `[{"ifindex":3,"ifname":"wg0","flags":["UP"],"address":null,"addr_info":[]}]`
+	if _, err := parseIPAddr([]byte(nullAddress)); err == nil {
+		t.Error("a device with a null link address was read")
+	}
+}
+
 // TestEvidenceReadersRefuseRepeatedNestedKeys checks that a key repeated inside a nested
 // object refuses the element, as a repeat at the top does, and that a key spelled in
 // capitals refuses it too. A route's nexthop and an address's addr_info are the nested

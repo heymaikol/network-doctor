@@ -94,6 +94,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	failSpec := fs.String("fail", "", "with -explain, simulate router `node` or interface node:interface failing in the recorded forwarding; runs no probes")
 	failOSPF := fs.String("fail-ospf", "", "with -explain, simulate losing the OSPF adjacency `node:interface:neighbor` in the recorded forwarding, with the interface still up; runs no probes")
 	failNextHop := fs.String("fail-next-hop", "", "with -explain, simulate one node losing the recorded next hop `node[@vrf]:address[%interface]`, with the interface and the next hop's node still up; runs no probes")
+	changePolicy := fs.String("change-route-policy", "", "with -explain, apply recorded FRR policy `node:vrf:import|export:peer:policy`; unproven recomputation stays unknown; runs no probes")
 	sourcesSpec := fs.String("sources", "", "with -explain and a failure flag, simulate that failure from each source in a comma-separated `list` of node[@vrf], or from every modeled node with all; runs no probes")
 	importFRR := fs.String("import-frr-ospf", "", "import the FRR OSPF captures named by manifest `file`; runs no probes")
 	writeTopology := fs.String("write-topology", "", "with -import-frr-ospf or -import-tunnels, write the topology to `file` only when every capture and record is accepted")
@@ -180,6 +181,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// The sources of a blast run are read against one simulated failure, so the
 	// flag is refused without -explain, without a failure flag, or without a list.
 	failSet := setFlagNames(fs)["fail"] || setFlagNames(fs)["fail-ospf"] || setFlagNames(fs)["fail-next-hop"]
+	if setFlagNames(fs)["change-route-policy"] && (!*explain || *changePolicy == "" || failSet || setFlagNames(fs)["sources"]) {
+		fmt.Fprintln(stderr, "netdoc: -change-route-policy needs -explain and node:vrf:import|export:peer:policy, and no other failure selector or -sources")
+		return 2
+	}
 	if setFlagNames(fs)["sources"] && (!*explain || !failSet || *sourcesSpec == "") {
 		fmt.Fprintln(stderr, "netdoc: -sources needs -explain, one of -fail, -fail-ospf, or -fail-next-hop, and a list of node[@vrf] or all")
 		return 2
@@ -277,7 +282,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "netdoc: -explain cannot be combined with -compare or -two-sided")
 			return 2
 		}
-		return runExplain(positional, setFlagNames(fs), *jsonOut, *failSpec, *failOSPF, *failNextHop, *sourcesSpec, stdout, stderr)
+		return runExplain(positional, setFlagNames(fs), *jsonOut, *failSpec, *failOSPF, *failNextHop, *sourcesSpec, *changePolicy, stdout, stderr)
 	}
 	if *compareMode {
 		return runCompare(positional, setFlagNames(fs), *jsonOut, stdout, stderr)

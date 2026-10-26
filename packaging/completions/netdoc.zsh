@@ -84,6 +84,7 @@ _arguments \
   '(--fail -fail)'{--fail,-fail}='[with --explain, simulate a router or node\:interface failing; runs no probes]:node or node\:interface:' \
   '(--fail-ospf -fail-ospf)'{--fail-ospf,-fail-ospf}='[with --explain, simulate losing the OSPF adjacency node\:interface\:neighbor; runs no probes]:node\:interface\:neighbor:' \
   '(--fail-next-hop -fail-next-hop)'{--fail-next-hop,-fail-next-hop}='[with --explain, simulate one node losing one recorded next hop; runs no probes]:node[@vrf]\:address[%%interface]:' \
+  '(--change-route-policy -change-route-policy)'{--change-route-policy,-change-route-policy}='[with --explain, apply a recorded FRR route policy; unproven forwarding stays unknown]:node\:vrf\:import or export\:peer\:policy:' \
   '(--sources -sources)'{--sources,-sources}='[with --explain and a failure flag, simulate that failure from each listed node or from all modeled nodes; runs no probes]:node[@vrf] list or all:' \
   '(--import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp --import-tunnels -import-tunnels --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-frr-ospf,-import-frr-ospf}'=[import the FRR OSPF captures a manifest names; runs no probes]:manifest:_files' \
   '(--import-tunnels -import-tunnels --import-frr-ospf -import-frr-ospf --import-frr-bgp -import-frr-bgp --compare -compare --two-sided -two-sided --explain -explain --via -via)'{--import-tunnels,-import-tunnels}'=[import the tunnel captures a manifest names onto its base topology; runs no probes]:manifest:_files' \

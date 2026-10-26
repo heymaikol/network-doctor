@@ -29,6 +29,7 @@ func Encode(f File) ([]byte, error) {
 		Observations: []wireObservation{},
 		Checks:       []wireCheck{},
 		Boundaries:   []wireBoundary{},
+		Policies:     f.Policies,
 	}
 	for i, o := range f.Model.Observations() {
 		wo, err := encodeObservation(o)
@@ -159,10 +160,18 @@ type evidence struct {
 	Checks     []Check
 	Boundaries []Boundary
 	Tunnels    []Tunnel
+	Policies   []PolicyChange
 }
 
 func evidenceOf(f File) evidence {
 	e := evidence{Source: f.Source, SourceAddr: f.SourceAddr, Model: f.Model.Observations()}
+	for _, p := range f.Policies {
+		p.Captures = slices.Clone(p.Captures)
+		for i := range p.Captures {
+			p.Captures[i].CollectedAt = p.Captures[i].CollectedAt.UTC()
+		}
+		e.Policies = append(e.Policies, p)
+	}
 	for i := range e.Model {
 		e.Model[i].CollectedAt = e.Model[i].CollectedAt.UTC()
 	}

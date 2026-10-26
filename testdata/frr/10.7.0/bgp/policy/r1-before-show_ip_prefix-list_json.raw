@@ -1,0 +1,3 @@
+show ip prefix-list json
+{}
+r1# 

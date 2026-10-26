@@ -2224,22 +2224,27 @@ The report lists these, so a reader does not take the topology for the whole net
 netdoc --import-tunnels manifest.json [--write-topology topology.json] [--json]
 ```
 
-The manifest is JSON with `"version": 1`, a `"topology"` that names the base topology file, and a `"captures"` array. Each capture names its `file`, a `source` label, a `node`, a `command`, and a `collected_at` time with an offset. The `command` is one of six:
+The manifest is JSON with `"version": 1`, a `"topology"` that names the base topology file, and a `"captures"` array. Each capture names its `file`, a `source` label, a `node`, a `command`, and a `collected_at` time with an offset. The `command` is one of:
 
 - `ip -d -j link`: one node's device list from `ip -d -j link`. It is the only source of device kinds, masters, and underlay devices, so a node needs exactly one.
-- `ip -j rule show`: one node's IPv4 policy rules. The command lists IPv4 rules only, which is the family a gre device's outer packet uses. A gre device needs its node's rules. A node has at most one capture of them, and two are refused.
+- `ip -j rule show`: one node's IPv4 policy rules. The command lists IPv4 rules only, which is the family GRE and IPIP outer packets use, and the only family a WireGuard record is proven for. GRE, IPIP and WireGuard devices all need their node's rules. A node has at most one capture of them, and two are refused.
 - `ip -j addr show`: one node's addresses. It is read only to show whether a kernel fallback device has an address. It never proves a tunnel. A node has at most one capture of it, and a node with a fallback device needs one.
 - `ip -4 -j route show table all` and `ip -6 -j route show table all`: one node's IPv4 and IPv6 routes, in every table. They are read only to show whether a route names a kernel fallback device. A node has at most one capture of each, and a node with a fallback device needs one of each.
 - `wg show all dump`: that node's WireGuard dump.
+- `ip -j route get fibmatch <endpoint>`: the full FIB route matched for that node's WireGuard peer endpoint. The command is spelled exactly that way, with the endpoint written as a lowercase address with no zone, no prefix, and no other argument. Ordinary `ip -j route get` output is not accepted because it can show only the selected ECMP nexthop. Any other spelling is refused as a command the import does not read. A node has at most one capture for an endpoint.
 
 Paths are relative to the manifest's directory. A symbolic link, a path that climbs out of that directory, and two captures of one file are refused.
 
+Original `wg show all dump` files contain interface private keys and peer preshared keys; treat them as sensitive. Optional live-test evidence export redacts those fields while retaining the dump's tab-separated rows and columns.
+
 What the import does with each device:
 
-- A `gre` device is recorded only when its underlay routing table is proven. The device and its underlay device must sit in the default routing domain, the device must carry no fwmark, and the node's `ip -j rule show` capture must list exactly the kernel default IPv4 rules: priority `0` to `local`, `32766` to `main`, and `32767` to `default`, each listed once and selecting source `all`. Each rule must carry its `priority`, `src`, and `table` keys exactly once, spelled exactly so. A rule with a key missing, repeated, or spelled in another case, or with a `null` or non-integer priority, refuses the capture rather than being read around. Those rules send every IPv4 lookup to the main table, so the table is known without any other fact. Any other rule, a missing or repeated rules capture, a VRF, or a mark refuses the device. The record keeps the source and collection time of both captures it rests on, the `ip -d -j link` capture and the `ip -j rule show` capture.
-- An `ipip` device is refused, since no ipip underlay has been validated live, unless it is the kernel fallback `tunl0` listed as inert below.
+- A `gre` or configured IPv4 `ipip` device is recorded only when its underlay routing table is proven. The device and its underlay device must sit in the default routing domain, the device must carry no fwmark, and the node's `ip -j rule show` capture must list exactly the kernel default IPv4 rules: priority `0` to `local`, `32766` to `main`, and `32767` to `default`, each listed once and selecting source `all`. Each rule must carry its `priority`, `src`, and `table` keys exactly once, spelled exactly so. A rule with a key missing, repeated, or spelled in another case, or with a `null` or non-integer priority, refuses the capture rather than being read around. Those rules send every IPv4 lookup to the main table, so the table is known without any other fact. Any other rule, a missing or repeated rules capture, a VRF, or a mark refuses the device. The record keeps the source and collection time of both captures it rests on, the `ip -d -j link` capture and the `ip -j rule show` capture.
+- Configured IPIP uses the same additive `tunnels` record and underlay proof as GRE. `remote any`, IPv6 remotes, missing or ambiguous underlay devices, foreign namespaces, externally controlled devices, VRFs, fwmarks and unsupported policy rules remain refused. This proof identifies the routing domain, not a unique physical forwarding path. The inert kernel fallback `tunl0` behavior below is unchanged. Live before/after fault observations and reproducible provenance are in [`ipip_acceptance_live`](../internal/simulation/testdata/ipip_acceptance_live/README.md).
 - A kernel fallback device (`gre0`, `gretap0`, `erspan0`, or `tunl0`) is listed under inert devices, and makes no record, only when all of these hold. Its link type, zero link address, and info data are exactly what the kernel gives an inactive fallback of its kind, with `netns-immutable` set and no other info data attribute. It is down, has no address, and is neither enslaved nor linked to another device or namespace. No route on IPv4 or IPv6 names it, directly or through a nexthop, and no route uses a nexthop object. The node's policy rules are the kernel default set. The node needs one address capture and one capture of each route command, and the address capture must list the same devices, indices, link addresses, and up states as the `ip -d -j link` capture. Every capture of the node must have a collection time, and all of them must fall within 250 milliseconds of one another, from the earliest to the latest. A wider spread refuses the node's fallbacks. The bound narrows the window in which a change could go unseen, but the captures are not one atomic snapshot, so a change inside the window is not excluded. Any other fallback is refused with the reason, and so is every fallback of a node whose evidence is missing or contradictory.
-- A WireGuard interface is reported as unproven. Its endpoint is shown, but no capture shows the routing table the endpoint is looked up in, so the interface is never written. A WireGuard device that no usable dump names is refused.
+- A WireGuard interface is recorded only when its endpoint's underlay lookup is proven. The interface must carry exactly one peer with an IPv4 endpoint, its fwmark must be off, and it must sit in the default routing domain. Its node's IPv4 policy rules must be the kernel default set. One `ip -j route get fibmatch <endpoint>` capture must show the full FIB route covering the endpoint, as a single unicast path out of the main table through an egress device that the same `ip -d -j link` capture lists in the default routing domain. The egress device must not be the tunnel itself and must not be a VRF. Multiple nexthops and a route that names an unresolved nexthop object do not prove uniqueness; the endpoint remains unproven and the lookup capture is refused. Ordinary `ip -j route get` output is not sufficient because it can show one selected device from an ECMP route without showing the complete nexthop set. Other refusal cases include a route type other than unicast, a table other than `main`, a `dead` or `linkdown` flag, a destination prefix that does not cover the endpoint, and an `error` field that is not the integer `0`. The record keeps the format every record has. The report adds, for each WireGuard record, the source and collection time of the dump (`endpoint_source`, `endpoint_collected_at`), of the lookup (`lookup_source`, `lookup_collected_at`, `lookup_command`), and the `egress_interface`, beside the device and rules captures. An endpoint with no matching FIB lookup capture is reported as unproven; this is separate from an ambiguous or unresolved nexthop capture, which is also left unproven and refused. Multi-peer devices, devices with no peer or no endpoint, and fwmark-steered devices are refused.
+- An IPv6 WireGuard endpoint is refused, with any lookup captured for it. The rules capture lists IPv4 rules only, so the table an IPv6 lookup ends in is not shown, and a lookup capture cannot stand in for it.
+- A FIB route capture that is malformed, is one of several for the same endpoint, names an endpoint no usable WireGuard interface of its node reports, or belongs to an interface that was refused, is refused with its reason and source. It is never skipped.
 - A device of kind `vrf`, `bridge`, `bond`, `vlan`, `macvlan`, `ipvlan`, `veth`, or `dummy`, and a plain `ether` or `loopback` device with no kind, is accepted and carries nothing into the topology. Any other kind is refused by kind, unless it is a kernel fallback listed above as inert. A name is never read as a kind.
 - A capture of a node the base topology does not describe is refused, so a mistyped node name is never a clean import.
 - Keys in a dump are never kept, so none reaches the report, the topology, or an error.
@@ -2513,3 +2518,93 @@ Both ends bound what they will read from the other, and neither trusts the other
 - There is no live progress. The probes run on the far end and the answer arrives when the run is finished, which is why `--via` is headless rather than a remote terminal UI.
 - The probe IDs given to `--check` and `--skip` are validated locally as well as remotely, so a probe ID that exists only on a newer remote netdoc is rejected before the connection opens.
 - The drill-down tools, the LAN map, and the SSH login form are terminal UI features and are not part of a remote run.
+
+### Route-policy change simulation
+
+`--change-route-policy NODE:VRF:import|export:PEER:POLICY` with `--explain`
+attaches a recorded policy at one node, VRF, direction, and peer. It runs no
+commands against a router and sends no traffic:
+
+```sh
+netdoc --explain topology.json 10.10.2.2 --change-route-policy r1:default:import:10.0.3.3:R3-IN
+netdoc --explain topology.json 10.10.2.2 --change-route-policy r1:default:import:10.0.3.3:R3-IN --json
+```
+
+The authoritative producer was chosen and validated before implementation:
+[the genuine FRR 10.7.0 policy lab](../testdata/frr/10.7.0/bgp/policy/README.md).
+Policy semantics come from enable-mode `show route-map json` and
+`show ip prefix-list json`. Running configuration is audit context only.
+The producer records the source identity, exact commands, timestamps, and
+SHA-256 checksums, with raw transcripts preserved. Checksums verify integrity;
+they do not authenticate the operator's assertions about the source or time.
+
+The topology's optional `route_policies` array contains objects with `node`,
+`vrf`, `direction`, `peer`, `policy`, and `captures`. Each capture contains
+`source`, `collected_at`, `frr_version`, `command`, `sha256`, and `raw`.
+`raw` is the entire unmodified transcript encoded as a JSON string, including
+its CRLF and prompt. `sha256` is the lowercase SHA-256 of those decoded raw
+bytes. Every capture needs a distinct source and command. Exactly these four
+commands are required:
+
+| Command | Purpose | Prompt |
+| --- | --- | --- |
+| `show route-map json` | Candidate policy rules | `NODE# ` |
+| `show ip prefix-list json` | Candidate exact IPv4 prefix-list matches | `NODE# ` |
+| `show ip bgp neighbors PEER json` | Baseline peer, session, and local identity | `NODE> ` |
+| `show ip bgp json` | Complete baseline candidate table and selected paths | `NODE> ` |
+
+The policy captures must be collected after the baseline table and neighbor
+captures. Router IDs, local AS, peer address, and default VRF must reconcile.
+The baseline peer must be Established with no path policy; existing-policy
+replacement is refused. Its `ipv4Unicast.acceptedPrefixCounter` must be a
+nonnegative integer equal to the number of distinct IPv4 prefixes with paths
+from that peer in the table. Multiple paths for one prefix count once. Missing,
+null, malformed, overflowing, or contradictory counts are refused for import
+and export alike. A zero count with no incoming paths supports export with
+unknown impact; import with no recorded peer path is refused.
+
+Count agreement is a consistency check, not proof of route identities,
+attributes, or an atomic snapshot. Per-prefix ratings describe only recorded
+candidates. `unrecorded_after` reports unknown effects for candidates not
+proven by these sequential captures. Forwarding remains unknown even if all
+recorded candidates are unchanged, unless an import policy permits every
+prefix without assigning attributes. Export stays unknown in either case.
+
+Capture identity, malformed or duplicate JSON keys,
+missing clauses, wrong checksums, incomplete tables, unknown peers, stale
+paths, ambiguous bestpaths, and unsupported actions all fail closed with exit
+2. A duplicate policy selector is also refused. The
+[replay topology](../internal/routepath/testdata/policy/topology.json) is a
+complete example built from the lab's independently captured kernel tables and
+raw FRR transcripts. Its interface addresses come from the kernel's connected
+route source addresses; it does not infer a FIB from BGP.
+
+The supported subset is ordered terminal permit/deny rules, at most one exact
+IPv4 prefix-list match per rule, and at most one canonical `weight` assignment
+on a permit rule. An empty match is unconditional. Prefix-list entries use
+first-match order, with exact prefix equality and an implicit deny; route maps
+also end in an implicit deny. Prefix length ranges, community or AS-path
+matches, calls, jumps, and unknown semantic fields are refused. The verified
+producer supports FRR 10.7.0 and the default IPv4 unicast VRF only. Other VRFs,
+IPv6 peers, tunnel dependencies, multiple sources, and combinations with other
+failure selectors are refused.
+
+The result's `failure.policy` records each prefix's selected peer **before**
+the change and whether its selection afterward is unchanged or unknown. A
+candidate changed by import policy needs BGP bestpath recomputation; an export
+change needs remote protocol recomputation. Neither is run here. A deny does
+not prove loss of the route, and an available candidate never becomes an
+invented replacement. Export keeps local selections unchanged and reports advertisement impact
+unknown for every baseline prefix, including identity policies. No per-peer
+advertisement eligibility or remote recomputation is inferred from a local
+bestpath. `outcome` and `affected` carry this uncertainty in JSON.
+
+Where a policy could change a candidate, a forwarding walk through the applying
+node stops at `unknown`. This intentionally includes prefixes whose forwarding
+relationship to BGP has not been proven. It adds no BGP-to-FIB correlation from
+issue #390. Other nodes keep their recorded forwarding, including paths that
+never visit the applying node. No route, check, or observation in the input is
+changed. Both text and JSON report identical selections and destination
+accounting: considered equals unchanged plus affected. A run without the new
+selector keeps the legacy report bytes, including when valid policy evidence
+is present. The new flag is added to help and shipped completion/man surfaces.

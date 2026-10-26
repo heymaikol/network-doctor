@@ -245,10 +245,16 @@ jobs:
       #
       # The tunnel import cases expect the tunl0 fallback device, which the kernel
       # gives each new namespace only while the ipip module is loaded. The coverage
-      # run failed on the runner without it.
+      # run failed on the runner without it. The WireGuard cases of #406 also need
+      # the wireguard module and the wg tool, and NETDOC_SIM_REQUIRE_NETNS below turns
+      # a lab without them into a failure rather than a skip.
       - if: matrix.shard == 'coverage'
-        name: Load the ipip module
-        run: sudo modprobe ipip
+        name: Load the ipip and wireguard modules and install the wg tool
+        run: |
+          sudo modprobe ipip
+          sudo modprobe wireguard
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y wireguard-tools
       #
       # Each scenario builds its own namespaces under a random run id, so the
       # runs are independent and -parallel decides how many stand at once. Most
@@ -331,6 +337,9 @@ jobs:
         run: go test -run='^$' -fuzz=FuzzDecodeSummary -fuzztime=10s ./internal/frrbgp
       - if: matrix.shard == 'fuzz'
         run: go test -run='^$' -fuzz=FuzzDecodeRouteCapture -fuzztime=10s ./internal/frrbgp
+      - name: Fuzz route policy evidence
+        if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzPolicyChange -fuzztime=10s ./internal/routepath
       # The Challenge Mode generator builds every hunt case from a seed, so
       # smoke-fuzz it too: a bad seed there produces an invalid scenario.
       - if: matrix.shard == 'fuzz'

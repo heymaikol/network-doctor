@@ -1,0 +1,142 @@
+[
+  {
+    "source": "ip-link-r1",
+    "node": "r1",
+    "command": "ip -d -j link",
+    "collected_at": "2026-10-25T06:32:38.982274138Z",
+    "file": "ip-link-r1.json"
+  },
+  {
+    "source": "ip-rule-r1",
+    "node": "r1",
+    "command": "ip -j rule show",
+    "collected_at": "2026-10-25T06:32:38.989081047Z",
+    "file": "ip-rule-r1.json"
+  },
+  {
+    "source": "ip-addr-r1",
+    "node": "r1",
+    "command": "ip -j addr show",
+    "collected_at": "2026-10-25T06:32:38.994110319Z",
+    "file": "ip-addr-r1.json"
+  },
+  {
+    "source": "ip-route4-r1",
+    "node": "r1",
+    "command": "ip -4 -j route show table all",
+    "collected_at": "2026-10-25T06:32:38.998680827Z",
+    "file": "ip-route4-r1.json"
+  },
+  {
+    "source": "ip-route6-r1",
+    "node": "r1",
+    "command": "ip -6 -j route show table all",
+    "collected_at": "2026-10-25T06:32:39.001934118Z",
+    "file": "ip-route6-r1.json"
+  },
+  {
+    "source": "ip-link-r2",
+    "node": "r2",
+    "command": "ip -d -j link",
+    "collected_at": "2026-10-25T06:32:39.006011501Z",
+    "file": "ip-link-r2.json"
+  },
+  {
+    "source": "ip-rule-r2",
+    "node": "r2",
+    "command": "ip -j rule show",
+    "collected_at": "2026-10-25T06:32:39.01163478Z",
+    "file": "ip-rule-r2.json"
+  },
+  {
+    "source": "ip-addr-r2",
+    "node": "r2",
+    "command": "ip -j addr show",
+    "collected_at": "2026-10-25T06:32:39.016843741Z",
+    "file": "ip-addr-r2.json"
+  },
+  {
+    "source": "ip-route4-r2",
+    "node": "r2",
+    "command": "ip -4 -j route show table all",
+    "collected_at": "2026-10-25T06:32:39.022073439Z",
+    "file": "ip-route4-r2.json"
+  },
+  {
+    "source": "ip-route6-r2",
+    "node": "r2",
+    "command": "ip -6 -j route show table all",
+    "collected_at": "2026-10-25T06:32:39.028568502Z",
+    "file": "ip-route6-r2.json"
+  },
+  {
+    "source": "ip-link-r4",
+    "node": "r4",
+    "command": "ip -d -j link",
+    "collected_at": "2026-10-25T06:32:39.033640647Z",
+    "file": "ip-link-r4.json"
+  },
+  {
+    "source": "ip-rule-r4",
+    "node": "r4",
+    "command": "ip -j rule show",
+    "collected_at": "2026-10-25T06:32:39.038937367Z",
+    "file": "ip-rule-r4.json"
+  },
+  {
+    "source": "ip-addr-r4",
+    "node": "r4",
+    "command": "ip -j addr show",
+    "collected_at": "2026-10-25T06:32:39.043919797Z",
+    "file": "ip-addr-r4.json"
+  },
+  {
+    "source": "ip-route4-r4",
+    "node": "r4",
+    "command": "ip -4 -j route show table all",
+    "collected_at": "2026-10-25T06:32:39.047535782Z",
+    "file": "ip-route4-r4.json"
+  },
+  {
+    "source": "ip-route6-r4",
+    "node": "r4",
+    "command": "ip -6 -j route show table all",
+    "collected_at": "2026-10-25T06:32:39.049914912Z",
+    "file": "ip-route6-r4.json"
+  },
+  {
+    "source": "ip-link-r3",
+    "node": "r3",
+    "command": "ip -d -j link",
+    "collected_at": "2026-10-25T06:32:39.051911268Z",
+    "file": "ip-link-r3.json"
+  },
+  {
+    "source": "ip-rule-r3",
+    "node": "r3",
+    "command": "ip -j rule show",
+    "collected_at": "2026-10-25T06:32:39.053508047Z",
+    "file": "ip-rule-r3.json"
+  },
+  {
+    "source": "ip-addr-r3",
+    "node": "r3",
+    "command": "ip -j addr show",
+    "collected_at": "2026-10-25T06:32:39.055429772Z",
+    "file": "ip-addr-r3.json"
+  },
+  {
+    "source": "ip-route4-r3",
+    "node": "r3",
+    "command": "ip -4 -j route show table all",
+    "collected_at": "2026-10-25T06:32:39.057523137Z",
+    "file": "ip-route4-r3.json"
+  },
+  {
+    "source": "ip-route6-r3",
+    "node": "r3",
+    "command": "ip -6 -j route show table all",
+    "collected_at": "2026-10-25T06:32:39.059451247Z",
+    "file": "ip-route6-r3.json"
+  }
+]

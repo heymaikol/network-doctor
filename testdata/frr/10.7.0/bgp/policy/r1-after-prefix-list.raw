@@ -1,0 +1,6 @@
+terminal length 0
+r1> enable
+r1# show ip prefix-list
+BGP: ip prefix-list P10-2: 1 entries
+   seq 5 permit 10.10.2.0/24
+r1# 

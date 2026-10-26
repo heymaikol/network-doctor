@@ -1,0 +1,20 @@
+{
+  "kernel": "7.2.11-200.fc44.x86_64",
+  "iproute2": "ip utility, iproute2-6.17.0, libbpf 1.6.3",
+  "go": "go version go1.27.0 linux/amd64",
+  "environment": {
+    "NETDOC_SIM_REQUIRE_NETNS": "1",
+    "GOTMPDIR": "<writable build temporary directory>"
+  },
+  "command": "go test -tags netns_integration -count=1 -v -timeout 10m -run '^(TestIPIPAcceptanceAgainstLiveNamespaces|TestTunnelImportAgainstLiveNamespaces|TestWireGuardImportAgainstLiveNamespaces)$' ./internal/simulation -args -tunnel-import-evidence <new empty directory>",
+  "results": {
+    "IPIP": "PASS (both cases)",
+    "GRE": "PASS (four cases)",
+    "WireGuard": "PASS (three cases)"
+  },
+  "production_import": "Records are returned by ImportTunnels, compared with independently decoded live device attributes, merged, encoded, decoded and graded against kernel observations.",
+  "source_parent": "49ac6fb2632a44368d8b6cfcd297a85b72900189",
+  "source_state": "IPIP implementation working tree, before its evidence commit",
+  "go_source_sha256": "4f69e60ea25d3d08c42f64817af218fd49d136f3e6380c87462d804a1d4e9c60",
+  "go_source_hash_algorithm": "SHA256 of sorted unique git ls-files --cached --others --exclude-standard *.go entries: path, NUL, file SHA256 hex, LF"
+}

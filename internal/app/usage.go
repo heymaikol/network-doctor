@@ -22,6 +22,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --explain topology.json DEST [--fail NODE[:INTERFACE]] [--json]
        netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR [--json]
        netdoc --explain topology.json DEST --fail-next-hop NODE[@VRF]:ADDRESS[%INTERFACE] [--json]
+       netdoc --explain topology.json DEST --change-route-policy NODE:VRF:import|export:PEER:POLICY [--json]
        netdoc --explain topology.json DEST --fail NODE[:INTERFACE] --sources LIST|all [--json]
        netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR --sources LIST|all [--json]
        netdoc --explain topology.json DEST --fail-next-hop NODE[@VRF]:ADDRESS[%INTERFACE] --sources LIST|all [--json]
@@ -95,6 +96,15 @@ never redundancy_lost. It removes the recorded FIB next hop directly, simulates
 no OSPF adjacency or BGP session loss, and assumes no protocol computes its
 routes again.
 
+--change-route-policy NODE:VRF:import|export:PEER:POLICY applies a recorded FRR
+policy to one node. The topology must embed route_policies with complete,
+checksummed FRR 10.7.0 JSON transcripts. Only exact IPv4 prefix-list matches and
+terminal permit/deny rules with optional weight assignments are supported.
+Unproven protocol recomputation and forwarding stay unknown. No replacement
+route is invented, and downstream forwarding remains recorded. The verified
+producer supports the default VRF. Existing-policy replacement, tunnels, other
+failure selectors, and --sources are refused. It runs no probes.
+
 --sources LIST, with one failure flag, simulates that failure from each source
 in LIST, a comma-separated set of NODE[@VRF] names, or from every modeled node
 with all. Each source gets the same ratings its own single-source run gives. The
@@ -129,11 +139,14 @@ usable capture and no candidate was refused or left unproven; a complete import
 writes the base topology with its tunnel records added. Exit 1 means the import
 is incomplete, so nothing is written: something was refused or left unproven, or
 a modeled node has no usable capture. Exit 2 means the manifest, the base
-topology, or a capture cannot be used. A gre device is recorded only when its
-node's IPv4 rules are the kernel default set, and an ipip device is refused unless it is an inert kernel fallback. A
+topology, or a capture cannot be used. A GRE or configured IPv4 IPIP device is recorded only
+in the default routing domain, without a fwmark, under the kernel default IPv4
+rules, with its underlay device shown. Multipoint and IPv6 remotes are refused. A
 kernel fallback device is listed as inert only when the address and route captures
 show it inert, and is refused otherwise. A
-WireGuard endpoint is reported as unproven. With
+single-peer IPv4 WireGuard endpoint with no matching ip -j route get fibmatch
+capture is reported as unproven. Ambiguous or unresolved nexthops also leave the
+endpoint unproven and the lookup capture refused. With
 --write-topology FILE, a complete import is written, and the file is never
 replaced. The format is documented under Tunnel import from captures in the
 reference.

@@ -1,0 +1,10 @@
+{
+  "threads": 4,
+  "events_per_thread": 1000,
+  "records": 4002,
+  "unique_ids": 4000,
+  "contiguous_sequence": true,
+  "complete_trailer": true,
+  "source_sha256": "75efff800759ca80464e9f91561ab7d58ed52364c72b3a8bf7175c284881f6c8",
+  "binary_library_sha256": "1de59c1f1c77b0f4ab1df1556d978ed1ccfc4ef49dd9e22cb5710670077732ac"
+}

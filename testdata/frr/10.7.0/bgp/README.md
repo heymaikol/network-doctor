@@ -121,6 +121,11 @@ drawn from the BGP table.
 
 ## Opt-in FIB capture recipe
 
+The producer choice has now been approved. The [Phase 1 instrumented producer
+and validation report](correlation-v1/README.md) record its implementation and
+live identity evidence, awaiting independent review before any Network Doctor
+importer or forwarding ratings. The earlier investigation remains historical.
+
 `lab/bgp-withdraw.sh` and `lab/bgp-session.sh` take an opt-in `ZEBRA_VTY_PORT`.
 Set, each phase adds r1's zebra route table (`show ip route json`) with a
 `.collected_at` stamp, and the run writes `SHA256SUMS` once every daemon has

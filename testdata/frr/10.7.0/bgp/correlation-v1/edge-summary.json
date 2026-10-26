@@ -1,0 +1,180 @@
+{
+  "claim_counts": {
+    "path_submitted_as_route": 12,
+    "route_installed_as_fib": 6,
+    "route_leg_resolved_by_route": 7
+  },
+  "pending_operations": 16,
+  "resolving_bgp_route": {
+    "announcement_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/announcement/11",
+    "contributors": [
+      {
+        "leg": 0,
+        "path_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/path/9",
+        "peer_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/peer/2",
+        "revision": 1,
+        "session_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/session/5"
+      }
+    ],
+    "daemon": "zebra",
+    "epoch": "265ecb4d-c702-0e9b-d42f-ccd45133f692",
+    "event": "route_generation",
+    "generation": 2,
+    "hook": "zebra_rib",
+    "monotonic_ns": 373100586960626,
+    "origin": "bgp",
+    "prefix": "10.10.9.0/24",
+    "route_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/route/58",
+    "safi": 1,
+    "seq": 98,
+    "table": 254,
+    "utc_ns": 1792984665324205562,
+    "vrf": 0
+  },
+  "shared_installation": {
+    "generation": 2,
+    "historical": true,
+    "operation_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/operation/78",
+    "resolution_ids": [
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692/resolution/76",
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692/resolution/77"
+    ],
+    "route_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/route/74",
+    "source_refs": [
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692:130",
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692:133",
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692:136",
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692:138"
+    ],
+    "type": "route_installed_as_fib"
+  },
+  "shared_paths": [
+    {
+      "as_path": "65002",
+      "daemon": "bgpd",
+      "epoch": "9709b868-f7a4-1d16-f659-bb4e3e87b186",
+      "event": "bgp_path",
+      "hook": "bgp_zebra_announce_parse_nexthop",
+      "local_as": 65001,
+      "monotonic_ns": 373103614149199,
+      "multipath": true,
+      "nexthop": "10.0.1.2",
+      "path_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/path/8",
+      "peer_address": "10.0.1.2",
+      "peer_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/peer/2",
+      "prefix": "10.10.2.0/24",
+      "remote_as": 65002,
+      "revision": 2,
+      "safi": 1,
+      "selected": true,
+      "seq": 18,
+      "session_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/session/5",
+      "stale": false,
+      "table": 254,
+      "utc_ns": 1792984668351394127,
+      "valid": true,
+      "vrf": 0
+    },
+    {
+      "as_path": "65002",
+      "daemon": "bgpd",
+      "epoch": "9709b868-f7a4-1d16-f659-bb4e3e87b186",
+      "event": "bgp_path",
+      "hook": "bgp_zebra_announce_parse_nexthop",
+      "local_as": 65001,
+      "monotonic_ns": 373103614170616,
+      "multipath": true,
+      "nexthop": "10.0.1.2",
+      "path_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/path/12",
+      "peer_address": "10.0.3.3",
+      "peer_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/peer/3",
+      "prefix": "10.10.2.0/24",
+      "remote_as": 65002,
+      "revision": 1,
+      "safi": 1,
+      "selected": false,
+      "seq": 19,
+      "session_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/session/6",
+      "stale": false,
+      "table": 254,
+      "utc_ns": 1792984668351415537,
+      "valid": true,
+      "vrf": 0
+    }
+  ],
+  "shared_route": {
+    "announcement_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/announcement/14",
+    "contributors": [
+      {
+        "leg": 0,
+        "path_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/path/8",
+        "peer_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/peer/2",
+        "revision": 2,
+        "session_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/session/5"
+      },
+      {
+        "leg": 1,
+        "path_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/path/12",
+        "peer_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/peer/3",
+        "revision": 1,
+        "session_id": "9709b868-f7a4-1d16-f659-bb4e3e87b186/session/6"
+      }
+    ],
+    "daemon": "zebra",
+    "epoch": "265ecb4d-c702-0e9b-d42f-ccd45133f692",
+    "event": "route_generation",
+    "generation": 2,
+    "hook": "zebra_rib",
+    "monotonic_ns": 373103624485476,
+    "origin": "bgp",
+    "prefix": "10.10.2.0/24",
+    "route_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/route/74",
+    "safi": 1,
+    "seq": 126,
+    "table": 254,
+    "utc_ns": 1792984668361730397,
+    "vrf": 0
+  },
+  "static_installation": {
+    "generation": 2,
+    "historical": true,
+    "operation_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/operation/73",
+    "resolution_ids": [
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692/resolution/71"
+    ],
+    "route_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/route/67",
+    "source_refs": [
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692:118",
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692:120",
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692:122",
+      "265ecb4d-c702-0e9b-d42f-ccd45133f692:123"
+    ],
+    "type": "route_installed_as_fib"
+  },
+  "static_resolution": {
+    "daemon": "zebra",
+    "epoch": "265ecb4d-c702-0e9b-d42f-ccd45133f692",
+    "event": "resolution",
+    "gateway": "10.10.9.2",
+    "generation": 2,
+    "hook": "nexthop_active:selected_fib",
+    "leg": 0,
+    "lookup_flags": 65,
+    "monotonic_ns": 373100640360298,
+    "recursive": true,
+    "resolution_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/resolution/71",
+    "resolver_generation": 2,
+    "resolver_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/route/58",
+    "resolver_origin": "bgp",
+    "resolver_prefix": "10.10.9.0/24",
+    "resolver_table": 254,
+    "resolving_vrf": 0,
+    "route_id": "265ecb4d-c702-0e9b-d42f-ccd45133f692/route/67",
+    "seq": 115,
+    "supported": true,
+    "table": 254,
+    "terminal_ifindex": 0,
+    "utc_ns": 1792984665377605251,
+    "vrf": 0
+  }
+}

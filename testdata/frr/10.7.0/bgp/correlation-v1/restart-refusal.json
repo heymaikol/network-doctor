@@ -1,0 +1,13 @@
+{
+  "capture": {
+    "complete": false,
+    "snapshot_complete": false
+  },
+  "claims": [],
+  "refusals": [
+    {
+      "reason": "need exactly one closed bgpd epoch and one closed zebra epoch; restarts require a new capture"
+    }
+  ],
+  "schema": "netdoc-frr-correlation/v1"
+}

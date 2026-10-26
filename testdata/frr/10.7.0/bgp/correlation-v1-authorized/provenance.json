@@ -1,0 +1,90 @@
+{
+  "authority": {
+    "input": "Trusted launcher directory capability at fd 3; only direct producer UUID basenames",
+    "manifest": "Fixed verified-build.json beside trusted implementation",
+    "output": "Trusted launcher directory capability at fd 4; exclusive fixed bundle.json",
+    "untrusted_path_selectors": false
+  },
+  "baseline_head": "79ea6dde9b2884c05f5567deac41c40061f74a06",
+  "current_implementation_files": {
+    "Containerfile": "c7d86bb49a0347445df163bead0b027bd1e8f91d7c4656fa96aba29bf23b8e9f",
+    "README.md": "a9bc0e372d544be7a3fe78e7e81a7bb5bf4b3db0eba31f4d47f9b011b91838f6",
+    "SECURITY.md": "202ecb438b1f28006fc66ab407149adf45dfcbfae3a994479d366e91dffa64ca",
+    "bgp.inc": "2deff323205a06bc318f1bb16bf9c44962407facd866a32a6f7a0fc31fb6401f",
+    "build.sh": "a63d4f92c1aa1c0a542e67210b11afd3d25c788c8dc1e5727f1f3e9a17b164fb",
+    "builder-packages.lock": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+    "bundle.py": "0272f21b8f3a6344f6cad8436d2f532157ea1b9a8d0dbab3d8d233237408a24d",
+    "codec_test.c": "7c4e288202e217e7959987b0cdf75e426777325436ece6a3fce96a5736a93c62",
+    "dplane.inc": "23d51bdf26251e1445bef96575983809c08bb32f2aa5c6d5dcdefaae943409d3",
+    "frr.patch": "532531b8fa3a54a099ef6c88376750aea93f1ad26879160e26ea6e62fe88a5eb",
+    "implementation.sha256": "869dff22b71fef5678f24fd8ef0066510ce77db0f0457dfe10b99492b0335b09",
+    "lab.sh": "f676eabe2088d6d167f90e47dd4ca032fdaeab1952e0cb29d022d646fa6bd4ca",
+    "netdoc.c": "a431c1a66571f283e716cc274e45460b44cf4603cf27377f76b51fd66c5e513d",
+    "netdoc.h": "ba11898d1b7dd98afb89d27c19856119d8eae4b6860de03c682cf47303bdf885",
+    "schema.json": "bdb9dd122de51ce32267c979d9623e1267b26fb130abfe75ae6401160f15e40c",
+    "test_bundle.py": "0cec28fa8732c9b71a1f18f822b9c964ce24ed70e22e32e18f3c7d8eaa9ead83",
+    "test_writer.py": "a4fd7b75b9c1597d064775a7f9b77824d9dc6767e69c7187b6df63f5c654d32a",
+    "verified-build.json": "b39a88260f31d6321c26a03003114ea3dc81cf9b2ebccb47a33b2b32f49203ef",
+    "writer_test.c": "6621e4a75fe67ba64b028223394a37a2f628f2fac76a365bf6dae2a791af3c7e",
+    "zebra.inc": "c0823e303677447a3d5d16ba9bc9c773b9b6fe57d7201e057afbdc73e0aac5cf"
+  },
+  "historical_manifests": {
+    "correlation-investigation/SHA256SUMS": "65f75bc0675158f9482e0ad65d6b09d5db443ba894d256f86920f0efb652b4e3",
+    "correlation-investigation/recursive-shared/SHA256SUMS": "c4fc2a4b68595f7c16c678a495295708a74b96af1adb68f0c55b0185b913c94d",
+    "correlation-investigation/session-plain/SHA256SUMS": "8f3ce350ce99131804e3dd86d7ffa78c91006d3770a653744e1234313339aa6f",
+    "correlation-investigation/withdraw/SHA256SUMS": "450ff92f2b18309b5f81f2cb3d9cc11daaf2d6ddf357d99f158e6ee907c4eb20",
+    "correlation-review-7df7be1/SHA256SUMS": "3c1feb9d515ef93892299cca1dc7818370df660710137a81c5ab4447f38bf8c5",
+    "correlation-v1-hardened/SHA256SUMS": "c3b68ab79f297e019087e0a845885299e5a28a90de7e0e5dda26bf65b99a2ecc",
+    "correlation-v1-hardened/proof/SHA256SUMS": "2c8382cef3c4b67bb618dd9f067680521e99e169abbac0a43571fa0d25635e4a",
+    "correlation-v1-hardened/restart/SHA256SUMS": "066aab4ada15b108b03d21d78f2461aa9e04c349456c1dd6f5e86dd0e481e91d",
+    "correlation-v1-noreplace/SHA256SUMS": "4fa0879426bbb2054f3743a775f4fdc603087b09a04415820ec48a2c5bff410a",
+    "correlation-v1-noreplace/proof/SHA256SUMS": "bb1fada449cb5bad1db87686dd1745c1bea445829c9f6afe05c1e27aa3002b87",
+    "correlation-v1-noreplace/restart/SHA256SUMS": "c9bff402aa893cacacf2f4099a230437d24b1afb00e57e3fe2eb8daaf795e0a4",
+    "correlation-v1/SHA256SUMS": "aa75f07647b98876a13ca285942ff22e287b6fbeb9a71f340dc3ed772cb15444",
+    "correlation-v1/proof/SHA256SUMS": "fadfe8fb71d035687e424112c5501ea495c1c1cfee16521d628d70d00a46117b",
+    "correlation-v1/restart/SHA256SUMS": "ee36098f22bbec0867c4759ec453037b1164e5d05e383217e7d86f99ee569d13"
+  },
+  "integration_main": "823a91611592c5949d7cb37b26bdf547443cf063",
+  "python_packager_sha256": "0272f21b8f3a6344f6cad8436d2f532157ea1b9a8d0dbab3d8d233237408a24d",
+  "raw_stream_policy": "No raw stream edits, copies or new live FRR claims. Read immutable correlation-v1-noreplace files through operator-authorized directory descriptors. Derived proof is byte-identical.",
+  "recorded_utc": "2026-10-26T18:00:52.848552+00:00",
+  "reprocessed_cases": [
+    {
+      "actual_exit_code": 0,
+      "comparison": "byte-identical to original proof-bundle.json",
+      "input": "../correlation-v1-noreplace/proof/identity/r1",
+      "output": "proof-bundle.json",
+      "sha256": "864be2e216bd21345e67ecc0c4aab4044caffa9a6ccaf0a7f42a23eab562b4e3"
+    },
+    {
+      "actual_exit_code": 2,
+      "claims": [],
+      "input": "../correlation-v1-noreplace/restart/identity/r1",
+      "output": "restart-refusal.json",
+      "sha256": "5c37105cca84689d33234d0694982aeded588b1bb183e0c76bc11815d3d55e50"
+    }
+  ],
+  "reverified_builds": {
+    "all_eight_artifacts_match_pinned_manifest": true,
+    "directories": [
+      "noreplace-a",
+      "noreplace-b"
+    ],
+    "new_frr_build_required": false,
+    "reason": "Only Python file acquisition and its callers/docs/tests changed. All instrumentation, build inputs and schema are byte-identical to baseline."
+  },
+  "schema": "netdoc-frr-authorized-packager-provenance/v1",
+  "unchanged_frr_build_id": "89f0152ef221c716119b8b739a6464a96eaf3ff526d54e5e6e0822bea0dc179d",
+  "unchanged_instrumentation_sha256": "51d792997f50558e95fa8c9e918a7424360b3843fe4dec63dca4d9e03b1b6afd",
+  "validation": {
+    "Sonar": "Baseline 37 findings individually reviewed; high valid and implementation corrected; actual published-head analysis required. No rule/disposition/configuration changes.",
+    "c_tests_freshly_compiled": true,
+    "exact_final_gate": "Tree ID and complete final logs retained externally at .pr407-tmp/authorization, final execution required before push",
+    "existing_writer_modes": 27,
+    "go": "go1.27.3",
+    "historical_correlation_AST_after_source_acquisition": "identical",
+    "historical_sha256_entries": 1313,
+    "producer_schema_skips": 0,
+    "producer_schema_tests": 37
+  }
+}

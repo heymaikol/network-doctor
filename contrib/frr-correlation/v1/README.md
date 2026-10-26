@@ -196,12 +196,16 @@ only with exit 0, `DONE`, and a complete recursive manifest. The restart run
 itself succeeds while its producer bundle is deliberately refused:
 
 ```sh
-python3 -I contrib/frr-correlation/v1/bundle.py <proof>/identity/r1 \
-  --build contrib/frr-correlation/v1/verified-build.json --output bundle.json
+# These directories are chosen by the trusted operator, never by a request.
+python3 -I contrib/frr-correlation/v1/bundle.py \
+  3< <proof>/identity/r1 4< <authorized-output-directory>
 ```
 
-Output must not already exist. Exclusive creation refuses existing files and
-symlinks, including an output path that aliases source evidence.
+The trusted launcher supplies capture-directory fd 3 and output-directory fd 4.
+The packager accepts no path arguments and loads its own verified-build.json.
+It creates only bundle.json within the authorized output directory, exclusively;
+existing regular files, hard links and symlinks are refused without modification.
+See [the filesystem authority model](SECURITY.md) before automated use.
 
 A refused bundle has `capture.complete=false`, no claims, a refusal reason,
 and process exit 2. The supported bundle validates with `schema.json` and is
@@ -210,7 +214,8 @@ Doctor.
 
 ## Proof and remaining gate
 
-See [the validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-noreplace/README.md)
+See [the authorization validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-authorized/README.md)
+and [the producer validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-noreplace/README.md)
 for live runs, exact proven/unproven edges, independent observations, checksums,
 negative tests, concurrency test, and reproducibility results. Approval of
 the producer choice did not approve this implementation. Stop for independent
@@ -233,7 +238,9 @@ LD_LIBRARY_PATH="$PWD/lib/.libs" python3 -I /producer/test_writer.py /work/write
 The C test includes the actual current writer source for syscall fault injection;
 these synthetic events never substitute for live daemon identity evidence.
 
-The [current Sonar review](../../../testdata/frr/10.7.0/bgp/correlation-review-7df7be1/README.md)
+The [historical Sonar review](../../../testdata/frr/10.7.0/bgp/correlation-review-7df7be1/README.md)
 is pinned to PR head `7df7be1`, including the high input-path finding's actual
-flow, supported CLI threat model, and unsupported agent/server reuse. Earlier
-triage is historical evidence. No remote finding or security rule is suppressed.
+flow and the earlier CLI threat model. That high finding was valid: the old CLI
+had no path authorization boundary. The capability correction in SECURITY.md
+supersedes its safe-use conclusion. Historical evidence is unchanged. No remote
+finding or security rule is suppressed.

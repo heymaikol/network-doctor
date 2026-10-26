@@ -46,11 +46,27 @@ def decode(raw):
     return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
 
 
-def read_source(path, limit):
-    # Opening first avoids a check-then-open symlink race; nonblocking rejects FIFOs.
-    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+# Capabilities supplied by a trusted launcher, never selected by CLI or capture data.
+CAPTURE_FD = 3
+OUTPUT_FD = 4
+
+
+def directory_capability(fd):
+    require(sys.platform == "linux" and type(fd) is int
+            and stat.S_ISDIR(os.fstat(fd).st_mode), "need Linux directory capability")
+
+
+def read_source(directory_fd, name, limit):
+    directory_capability(directory_fd)
+    # A single producer basename plus openat/O_NOFOLLOW leaves no traversable edge.
+    require(isinstance(name, str) and re.fullmatch(r"(?:bgpd|zebra)\." + UUID + r"\.jsonl", name),
+            "unauthorized source name")
+    fd = os.open(name, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+                 dir_fd=directory_fd)
     with os.fdopen(fd, "rb") as source:
-        require(stat.S_ISREG(os.fstat(source.fileno()).st_mode), "non-regular source file")
+        info = os.fstat(source.fileno())
+        require(stat.S_ISREG(info.st_mode), "non-regular source file")
+        require(info.st_nlink <= 1, "multiply linked source file")
         raw = source.read(limit + 1)
         require(len(raw) <= limit, "source file size limit")
         return raw
@@ -75,18 +91,24 @@ def supported(row):
         and type(row["table"]) is int and row["table"] == 254 and row.get("safi") == 1
 
 
-def streams(directory, build):
-    pinned = decode(Path(__file__).with_name("verified-build.json").read_bytes())
-    require(build == pinned, "unsupported build or runtime manifest")
+def streams(directory_fd):
+    directory_capability(directory_fd)
+    # This manifest has the same authority as the installed implementation itself.
+    build = decode(Path(__file__).with_name("verified-build.json").read_bytes())
     require(build.get("schema") == "netdoc-frr-build/v1" and build.get("source") == SOURCE,
             "unsupported build manifest")
-    require(not list(Path(directory).glob("*.partial")), "incomplete producer stream")
-    require(not list(Path(directory).glob("*.failed")), "failed producer stream")
-    files = sorted(Path(directory).glob("*.jsonl"))
+    names = []
+    with os.scandir(directory_fd) as entries:
+        for entry in entries:
+            require(len(names) < 1024, "capture directory entry limit")
+            names.append(entry.name)
+    require(not any(n.endswith(".partial") for n in names), "incomplete producer stream")
+    require(not any(n.endswith(".failed") for n in names), "failed producer stream")
+    files = sorted(n for n in names if n.endswith(".jsonl"))
     require(len(files) == 2, "need exactly one closed bgpd epoch and one closed zebra epoch; restarts require a new capture")
     sources, events = [], {}
-    for path in files:
-        raw = read_source(path, 67108864)
+    for name in files:
+        raw = read_source(directory_fd, name, 67108864)
         require(raw.endswith(b"\n"), "truncated source")
         lines = raw.splitlines()
         require(2 <= len(lines) <= 1000000 and all(len(l) <= 65535 for l in lines), "source bounds")
@@ -100,7 +122,7 @@ def streams(directory, build):
         require(start.get("kernel") == build.get("verified_kernel"), "kernel outside verified subset")
         epoch, daemon = start["epoch"], start["daemon"]
         require(isinstance(epoch, str) and re.fullmatch(UUID, epoch) and daemon in ("bgpd", "zebra"), "invalid source identity")
-        require(path.name == f"{daemon}.{epoch}.jsonl" and daemon not in events, "contradictory source epochs")
+        require(name == f"{daemon}.{epoch}.jsonl" and daemon not in events, "contradictory source epochs")
         require(integer(start["netns_inode"]) and re.fullmatch(UUID, start["boot_id"]), "missing namespace or boot identity")
         previous = 0
         for seq, row in enumerate(rows, 1):
@@ -117,18 +139,18 @@ def streams(directory, build):
             if "error" in row:
                 require(type(row["error"]) is int and -(2**31) <= row["error"] < 2**31, "invalid kernel error type")
         events[daemon] = rows
-        sources.append({"epoch": epoch, "daemon": daemon, "file": path.name,
+        sources.append({"epoch": epoch, "daemon": daemon, "file": name,
                         "sha256": hashlib.sha256(raw).hexdigest(), "records": len(rows),
                         "netns_inode": start["netns_inode"], "boot_id": start["boot_id"],
                         "start_monotonic_ns": start["monotonic_ns"],
                         "end_monotonic_ns": end["monotonic_ns"]})
     require({s["daemon"] for s in sources} == {"bgpd", "zebra"}, "missing daemon source")
     require(len({(s["netns_inode"], s["boot_id"]) for s in sources}) == 1, "mixed namespaces or boots")
-    return sources, events
+    return sources, events, build
 
 
-def produce(directory, build):
-    sources, events = streams(directory, build)
+def produce(directory_fd):
+    sources, events, build = streams(directory_fd)
     output = {"schema": SCHEMA, "producer": build,
               "capture": {"complete": True, "snapshot_complete": False,
                           "scope": "closed producer histories; historical claims only",
@@ -296,22 +318,22 @@ def produce(directory, build):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=Path)
-    parser.add_argument("--build", required=True, type=Path)
-    parser.add_argument("--output", required=True, type=Path)
-    args = parser.parse_args()
+    parser.parse_args()
     try:
-        result = produce(args.directory, decode(read_source(args.build, 1048576)))
+        result = produce(CAPTURE_FD)
         status = 0
     except (Refused, ValueError, KeyError, TypeError, OSError) as error:
         result = {"schema": SCHEMA, "capture": {"complete": False, "snapshot_complete": False},
                   "claims": [], "refusals": [{"reason": str(error)}]}
         status = 2
     try:
-        # Never overwrite evidence, or follow an existing output symlink.
-        with args.output.open("x", encoding="utf-8") as destination:
+        directory_capability(OUTPUT_FD)
+        # The output capability authorizes one fixed, exclusively created leaf.
+        fd = os.open("bundle.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+                     0o600, dir_fd=OUTPUT_FD)
+        with os.fdopen(fd, "w", encoding="utf-8") as destination:
             destination.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    except OSError as error:
+    except (OSError, Refused) as error:
         print("cannot create bundle output: " + str(error), file=sys.stderr)
         return 2
     return status

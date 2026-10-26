@@ -1,0 +1,658 @@
+{
+  "annotation_counts": {
+    "high": 1,
+    "low": 36
+  },
+  "baseline_head": "79ea6dde9b2884c05f5567deac41c40061f74a06",
+  "findings": [
+    {
+      "action": "No path arguments or manifest selector; trusted launcher supplies fixed directory capabilities; exact producer basenames use descriptor-relative no-follow opens; fixed exclusive output leaf. Remote corrected-head scan required, no false-positive resolution.",
+      "file": "contrib/frr-correlation/v1/bundle.py",
+      "issue": "AaF3ExOYI5fXcO_YEVtK",
+      "line": 51,
+      "rule": "pythonsecurity:S8707",
+      "security_impact": "HIGH: arbitrary source paths could read files accessible to the packager process; earlier safe-use dismissal is superseded",
+      "source": "    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)",
+      "validity": "valid vulnerability; corrected by removing caller-selected filesystem paths"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQD",
+      "line": 104,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "paths = detail[\"routes\"][\"10.10.2.0/24\"]",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQE",
+      "line": 106,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert {p[\"peer\"][\"peerId\"] for p in paths} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQF",
+      "line": 106,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert {p[\"peer\"][\"peerId\"] for p in paths} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQG",
+      "line": 108,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "           and p[\"multipath\"] is True and p[\"nexthops\"][0][\"ip\"] == \"10.0.1.2\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQH",
+      "line": 112,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "route = installed(routes, \"10.10.2.0/24\", \"bgp\")",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQI",
+      "line": 119,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "resolver = installed(routes, \"10.10.9.0/24\", \"bgp\")",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQJ",
+      "line": 123,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "    assert any(n.get(\"recursive\") and n[\"ip\"] == \"10.10.9.2\" for n in route[\"nexthops\"])",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQK",
+      "line": 124,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "    assert any(n.get(\"resolver\") and n.get(\"fib\") and n[\"ip\"] == \"10.0.1.2\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQL",
+      "line": 127,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "resolutions = nht[\"default\"][\"ipv4\"][\"10.10.9.2\"][\"resolutions\"]",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQM",
+      "line": 128,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert all(r[\"prefix\"] == \"10.10.9.0/24\" and r[\"resolvedProtocol\"] == \"bgp\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQN",
+      "line": 132,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert cache[\"ipv4\"][\"10.10.9.2\"][\"resolvedPrefix\"] == \"10.10.9.0/24\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQO",
+      "line": 132,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert cache[\"ipv4\"][\"10.10.9.2\"][\"resolvedPrefix\"] == \"10.10.9.0/24\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQP",
+      "line": 133,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert sum(p[\"prefix\"] == \"10.10.2.0/24\" for p in cache[\"ipv4\"][\"10.0.1.2\"][\"paths\"]) == 2",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQQ",
+      "line": 133,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert sum(p[\"prefix\"] == \"10.10.2.0/24\" for p in cache[\"ipv4\"][\"10.0.1.2\"][\"paths\"]) == 2",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQR",
+      "line": 137,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert lookup[\"dst\"] == \"10.10.9.2\" and fibmatch[\"dst\"] == \"10.10.9.0/24\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQS",
+      "line": 137,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert lookup[\"dst\"] == \"10.10.9.2\" and fibmatch[\"dst\"] == \"10.10.9.0/24\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQT",
+      "line": 140,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "for prefix in (\"10.10.9.0/24\", \"198.51.100.0/24\", \"203.0.113.0/24\"):",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQU",
+      "line": 146,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "           for r in after_nht[\"default\"][\"ipv4\"][\"10.10.9.2\"][\"resolutions\"])",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain locked builder identity; use rootless Podman, read-only /producer, scratch-only writable mounts, and --network=none for compilation/tests. No privileged/rootful deployment approval or suppression.",
+      "file": "contrib/frr-correlation/v1/Containerfile",
+      "issue": "AaF2ULWycJVNBoyMYmyg",
+      "line": 1,
+      "rule": "docker:S6471",
+      "security_impact": "LOW: container UID 0 is needed for pinned RPM installation and source builds; a rootful privileged deployment would exceed the supported authority model",
+      "source": "FROM registry.fedoraproject.org/fedora@sha256:2d894246f63e15be3557d103c50e5fdef67bf50b34e35d54753966b9c1854608",
+      "validity": "valid default UID 0 detection; independently reviewed constrained build use"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtPy",
+      "line": 81,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert {p[\"peerId\"] for p in before[\"10.10.2.0/24\"]} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtPz",
+      "line": 81,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert {p[\"peerId\"] for p in before[\"10.10.2.0/24\"]} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP0",
+      "line": 81,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert {p[\"peerId\"] for p in before[\"10.10.2.0/24\"]} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP1",
+      "line": 82,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert [p[\"peerId\"] for p in after1[\"10.10.2.0/24\"]] == [\"10.0.3.3\"]",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP2",
+      "line": 82,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert [p[\"peerId\"] for p in after1[\"10.10.2.0/24\"]] == [\"10.0.3.3\"]",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP3",
+      "line": 83,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert \"10.10.9.0/24\" not in after2",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP4",
+      "line": 86,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "    installed(routes, \"10.10.1.0/24\", \"connected\")",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP5",
+      "line": 87,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "    installed(routes, \"10.10.2.0/24\", \"bgp\")",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP6",
+      "line": 88,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "    assert \"10.10.1.0/24\" in kernel(withdraw, phase)",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP7",
+      "line": 89,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert \"10.10.9.0/24\" not in zebra(withdraw, \"after2\")",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP8",
+      "line": 90,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert \"10.10.9.0/24\" not in kernel(withdraw, \"after2\")",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP9",
+      "line": 93,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert any(p[\"peerId\"] == \"10.0.1.2\" for ps in bgp(session, \"before\").values() for p in ps)",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP-",
+      "line": 94,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert all(p[\"peerId\"] != \"10.0.1.2\" for ps in bgp(session, \"after\").values() for p in ps)",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtP_",
+      "line": 97,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert peers[\"10.0.1.2\"][\"state\"] != \"Established\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQA",
+      "line": 98,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert peers[\"10.0.3.3\"][\"state\"] == \"Established\"",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQB",
+      "line": 99,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert \"10.10.9.0/24\" not in zebra(session, \"after\")",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    },
+    {
+      "action": "Retain exact assertion and immutable evidence; changing expected addresses to silence a scanner would weaken proof. No suppression or rule change.",
+      "file": "testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+      "issue": "AaF2BX4yrSoZWpziCtQC",
+      "line": 100,
+      "rule": "python:S1313",
+      "security_impact": "LOW: this expression compares preserved lab observations against expected private/documentation addresses; it sends no traffic and configures no host service",
+      "source": "assert \"10.10.9.0/24\" not in kernel(session, \"after\")",
+      "validity": "valid literal detection; independently reviewed safe offline assertion"
+    }
+  ],
+  "historical_api_entries_absent_from_current_annotations": [
+    {
+      "assignee": "heymaikol-rrCEI@github",
+      "cleanCodeAttribute": "COMPLETE",
+      "cleanCodeAttributeCategory": "INTENTIONAL",
+      "closeDate": "2026-10-26T07:17:51+0000",
+      "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+      "creationDate": "2026-10-26T03:45:06+0000",
+      "debt": "30min",
+      "effort": "30min",
+      "flows": [
+        {
+          "locations": [
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "Sink: this invocation is not safe; a malicious value can be injected into the caller",
+              "textRange": {
+                "endLine": 290,
+                "endOffset": 71,
+                "startLine": 290,
+                "startOffset": 48
+              }
+            },
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "A malicious value was previously assigned to the field \u2018build\u2019",
+              "textRange": {
+                "endLine": 290,
+                "endOffset": 58,
+                "startLine": 290,
+                "startOffset": 48
+              }
+            },
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "A malicious value can be assigned to variable \u2018args\u2019",
+              "textRange": {
+                "endLine": 288,
+                "endOffset": 30,
+                "startLine": 288,
+                "startOffset": 4
+              }
+            },
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "Source: a user can craft an HTTP request with malicious content",
+              "textRange": {
+                "endLine": 288,
+                "endOffset": 30,
+                "startLine": 288,
+                "startOffset": 11
+              }
+            }
+          ]
+        }
+      ],
+      "hash": "184b8ae8f13fe0f2fcf9733ae21b2504",
+      "impacts": [
+        {
+          "severity": "HIGH",
+          "softwareQuality": "SECURITY"
+        }
+      ],
+      "internalTags": [
+        "taint"
+      ],
+      "issueStatus": "FIXED",
+      "key": "AaF2ULZxcJVNBoyMYmyi",
+      "lastChangeAnalysisUuid": "e8be1ef3-820d-45ff-a5ec-b644889fc1a5",
+      "lastChangeSource": "ANALYSIS",
+      "message": "Path Traversal via faulty LLM-supplied CLI arguments in bundle.main()",
+      "organization": "heymaikol",
+      "project": "heymaikol_network-doctor",
+      "projectName": "network-doctor",
+      "pullRequest": "407",
+      "resolution": "FIXED",
+      "rule": "pythonsecurity:S8707",
+      "severity": "MAJOR",
+      "status": "CLOSED",
+      "tags": [
+        "cwe"
+      ],
+      "textRange": {
+        "endLine": 290,
+        "endOffset": 71,
+        "startLine": 290,
+        "startOffset": 48
+      },
+      "type": "VULNERABILITY",
+      "updateDate": "2026-10-26T07:17:51+0000"
+    },
+    {
+      "assignee": "heymaikol-rrCEI@github",
+      "cleanCodeAttribute": "COMPLETE",
+      "cleanCodeAttributeCategory": "INTENTIONAL",
+      "closeDate": "2026-10-26T07:17:51+0000",
+      "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+      "creationDate": "2026-10-26T03:45:06+0000",
+      "debt": "30min",
+      "effort": "30min",
+      "flows": [
+        {
+          "locations": [
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "Sink: this invocation is not safe; a malicious value can be used as argument",
+              "textRange": {
+                "endLine": 296,
+                "endOffset": 79,
+                "startLine": 296,
+                "startOffset": 4
+              }
+            },
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "Source: a user can craft an HTTP request with malicious content",
+              "textRange": {
+                "endLine": 290,
+                "endOffset": 71,
+                "startLine": 290,
+                "startOffset": 48
+              }
+            }
+          ]
+        },
+        {
+          "locations": [
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "Sink: this invocation is not safe; a malicious value can be used as argument",
+              "textRange": {
+                "endLine": 296,
+                "endOffset": 79,
+                "startLine": 296,
+                "startOffset": 4
+              }
+            },
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "Source: a user can craft an HTTP request with malicious content",
+              "textRange": {
+                "endLine": 75,
+                "endOffset": 31,
+                "startLine": 75,
+                "startOffset": 14
+              }
+            }
+          ]
+        }
+      ],
+      "hash": "94127280b9bb6782446ab13d308115fb",
+      "impacts": [
+        {
+          "severity": "BLOCKER",
+          "softwareQuality": "SECURITY"
+        }
+      ],
+      "internalTags": [
+        "taint"
+      ],
+      "issueStatus": "FIXED",
+      "key": "AaF2ULZxcJVNBoyMYmyh",
+      "lastChangeAnalysisUuid": "e8be1ef3-820d-45ff-a5ec-b644889fc1a5",
+      "lastChangeSource": "ANALYSIS",
+      "message": "Path Traversal via file content in bundle.main()",
+      "organization": "heymaikol",
+      "project": "heymaikol_network-doctor",
+      "projectName": "network-doctor",
+      "pullRequest": "407",
+      "resolution": "FIXED",
+      "rule": "pythonsecurity:S2083",
+      "severity": "BLOCKER",
+      "status": "CLOSED",
+      "tags": [
+        "cwe"
+      ],
+      "textRange": {
+        "endLine": 296,
+        "endOffset": 79,
+        "startLine": 296,
+        "startOffset": 4
+      },
+      "type": "VULNERABILITY",
+      "updateDate": "2026-10-26T07:17:51+0000"
+    },
+    {
+      "assignee": "heymaikol-rrCEI@github",
+      "cleanCodeAttribute": "COMPLETE",
+      "cleanCodeAttributeCategory": "INTENTIONAL",
+      "closeDate": "2026-10-26T07:17:51+0000",
+      "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+      "creationDate": "2026-10-26T03:45:06+0000",
+      "debt": "30min",
+      "effort": "30min",
+      "flows": [
+        {
+          "locations": [
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "Sink: this invocation is not safe; a malicious value can be used as argument",
+              "textRange": {
+                "endLine": 296,
+                "endOffset": 79,
+                "startLine": 296,
+                "startOffset": 4
+              }
+            },
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "A malicious value was previously assigned to the field \u2018output\u2019",
+              "textRange": {
+                "endLine": 296,
+                "endOffset": 15,
+                "startLine": 296,
+                "startOffset": 4
+              }
+            },
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "A malicious value can be assigned to variable \u2018args\u2019",
+              "textRange": {
+                "endLine": 288,
+                "endOffset": 30,
+                "startLine": 288,
+                "startOffset": 4
+              }
+            },
+            {
+              "component": "heymaikol_network-doctor:contrib/frr-correlation/v1/bundle.py",
+              "msg": "Source: a user can craft an HTTP request with malicious content",
+              "textRange": {
+                "endLine": 288,
+                "endOffset": 30,
+                "startLine": 288,
+                "startOffset": 11
+              }
+            }
+          ]
+        }
+      ],
+      "hash": "94127280b9bb6782446ab13d308115fb",
+      "impacts": [
+        {
+          "severity": "HIGH",
+          "softwareQuality": "SECURITY"
+        }
+      ],
+      "internalTags": [
+        "taint"
+      ],
+      "issueStatus": "FIXED",
+      "key": "AaF2ULZxcJVNBoyMYmyj",
+      "lastChangeAnalysisUuid": "e8be1ef3-820d-45ff-a5ec-b644889fc1a5",
+      "lastChangeSource": "ANALYSIS",
+      "message": "Path Traversal via faulty LLM-supplied CLI arguments in bundle.main()",
+      "organization": "heymaikol",
+      "project": "heymaikol_network-doctor",
+      "projectName": "network-doctor",
+      "pullRequest": "407",
+      "resolution": "FIXED",
+      "rule": "pythonsecurity:S8707",
+      "severity": "MAJOR",
+      "status": "CLOSED",
+      "tags": [
+        "cwe"
+      ],
+      "textRange": {
+        "endLine": 296,
+        "endOffset": 79,
+        "startLine": 296,
+        "startOffset": 4
+      },
+      "type": "VULNERABILITY",
+      "updateDate": "2026-10-26T07:17:51+0000"
+    }
+  ],
+  "quality_gates_or_rules_changed": false,
+  "remote_dispositions_changed": false,
+  "schema": "netdoc-frr-sonar-authorization-review/v1"
+}

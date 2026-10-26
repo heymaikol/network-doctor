@@ -5,6 +5,9 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -34,7 +37,22 @@ class ProducerProof(unittest.TestCase):
         path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
     def result(self):
-        return produce(self.logs, self.build)
+        fd = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            return produce(fd)
+        finally:
+            os.close(fd)
+
+    def cli(self, output_directory, args=()):
+        capture = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        output = os.open(output_directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with patch("bundle.CAPTURE_FD", capture), patch("bundle.OUTPUT_FD", output), \
+                    patch("sys.argv", ["bundle.py", *args]):
+                return main()
+        finally:
+            os.close(capture)
+            os.close(output)
 
     def test_partial_stream_is_refused_even_with_two_closed_streams(self):
         (self.logs / "zebra.other.jsonl.partial").write_bytes(b"")
@@ -52,10 +70,10 @@ class ProducerProof(unittest.TestCase):
                 marker.write_bytes(b"")
             with self.assertRaisesRegex(Refused, "failed producer stream"):
                 self.result()
-            output = self.root / ("marker-refusal-" + str(symbolic) + ".json")
-            with patch("sys.argv", ["bundle.py", str(self.logs), "--build", str(EVIDENCE / "build.json"), "--output", str(output)]):
-                self.assertEqual(main(), 2)
-            refused = decode(output.read_bytes())
+            output = self.root / ("marker-refusal-" + str(symbolic))
+            output.mkdir()
+            self.assertEqual(self.cli(output), 2)
+            refused = decode((output / "bundle.json").read_bytes())
             self.assertFalse(refused["capture"]["complete"])
             self.assertEqual(refused["claims"], [])
             self.assertEqual(target.read_bytes(), b"ORIGINAL DESTINATION\n")
@@ -64,21 +82,26 @@ class ProducerProof(unittest.TestCase):
     def test_output_does_not_overwrite_existing_file_or_symlink(self):
         source = next(self.logs.glob("*.jsonl"))
         original = source.read_bytes()
-        link = self.root / "output.json"
-        link.symlink_to(source)
-        for output in (source, link):
-            with patch("sys.argv", ["bundle.py", str(self.logs), "--build", str(EVIDENCE / "build.json"), "--output", str(output)]):
-                self.assertEqual(main(), 2)
+        output = self.root / "bundle.json"
+        for symbolic in (False, True):
+            if symbolic:
+                output.symlink_to(source)
+            else:
+                os.link(source, output)
+            self.assertEqual(self.cli(self.root), 2)
             self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(output.read_bytes(), original)
+            output.unlink()
 
     def test_output_exclusive_creation_for_success_and_refusal(self):
         for refused in (False, True):
             if refused:
                 (self.logs / "extra.partial").write_bytes(b"")
-            output = self.root / (str(refused) + ".json")
-            with patch("sys.argv", ["bundle.py", str(self.logs), "--build", str(EVIDENCE / "build.json"), "--output", str(output)]):
-                self.assertEqual(main(), 2 if refused else 0)
-            self.assertEqual(decode(output.read_bytes())["capture"]["complete"], not refused)
+            output = self.root / str(refused)
+            output.mkdir()
+            self.assertEqual(self.cli(output), 2 if refused else 0)
+            self.assertEqual(decode((output / "bundle.json").read_bytes())["capture"]["complete"], not refused)
+            self.assertEqual(self.cli(output), 2)
 
     def test_source_symlink_and_fifo_are_refused(self):
         source = next(self.logs.glob("*.jsonl"))
@@ -93,10 +116,176 @@ class ProducerProof(unittest.TestCase):
             self.result()
 
     def test_source_read_is_bounded(self):
-        source = self.root / "oversized"
+        source = next(self.logs.glob("*.jsonl"))
         source.write_bytes(b"x" * 4097)
-        with self.assertRaisesRegex(Refused, "size limit"):
-            read_source(source, 4096)
+        fd = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with self.assertRaisesRegex(Refused, "size limit"):
+                read_source(fd, source.name, 4096)
+        finally:
+            os.close(fd)
+
+    def test_unauthorized_names_never_open_or_read(self):
+        source = next(self.logs.glob("*.jsonl"))
+        outside = self.root / source.name
+        outside.write_bytes(b"OUTSIDE SECRET")
+        fd = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        names = (str(outside), "../" + source.name, "./" + source.name,
+                 "nested/" + source.name, "nested/../" + source.name,
+                 "//" + str(outside), "..", ".", source.name + "/", source.name + "\x00",
+                 "verified-build.json", "bgpd.%2e%2e.jsonl")
+        for name in names:
+            with self.subTest(name=name), patch("bundle.os.open") as opened, \
+                    patch("bundle.os.fdopen") as read:
+                with self.assertRaisesRegex(Refused, "unauthorized source name"):
+                    read_source(fd, name, 4096)
+                opened.assert_not_called()
+                read.assert_not_called()
+        self.assertEqual(outside.read_bytes(), b"OUTSIDE SECRET")
+
+    def test_symlink_escapes_never_read_target(self):
+        source = next(self.logs.glob("*.jsonl"))
+        source.unlink()
+        outside = self.root / "secret"
+        outside.write_bytes(b"OUTSIDE SECRET")
+        nested = self.logs / "nested"
+        nested.symlink_to(self.root, target_is_directory=True)
+        fd = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        for target in (outside, nested / "secret"):
+            source.symlink_to(target)
+            with patch("bundle.os.fdopen") as read:
+                with self.assertRaises(OSError):
+                    read_source(fd, source.name, 4096)
+                read.assert_not_called()
+            source.unlink()
+        self.assertEqual(outside.read_bytes(), b"OUTSIDE SECRET")
+
+    def test_hard_link_to_outside_file_is_refused(self):
+        source = next(self.logs.glob("*.jsonl"))
+        source.unlink()
+        outside = self.root / "secret"
+        outside.write_bytes(b"OUTSIDE SECRET")
+        os.link(outside, source)
+        fd = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        with self.assertRaisesRegex(Refused, "multiply linked"):
+            read_source(fd, source.name, 4096)
+        self.assertEqual(outside.read_bytes(), b"OUTSIDE SECRET")
+
+    def test_special_sources_never_read(self):
+        source = next(self.logs.glob("*.jsonl"))
+        source.unlink()
+        fd = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        for kind in ("fifo", "directory", "socket", "device"):
+            with self.subTest(kind=kind):
+                sock = None
+                if kind == "fifo":
+                    os.mkfifo(source)
+                elif kind == "directory":
+                    source.mkdir()
+                elif kind == "socket":
+                    sock = socket.socket(socket.AF_UNIX)
+                    try:
+                        sock.bind(str(source))
+                    except OSError:
+                        sock.close()
+                        raise
+                else:
+                    source.symlink_to("/dev/null")
+                with self.assertRaises((OSError, Refused)):
+                    read_source(fd, source.name, 4096)
+                if sock:
+                    sock.close()
+                if kind == "directory":
+                    source.rmdir()
+                else:
+                    source.unlink()
+
+    def test_leaf_replacement_before_open_cannot_escape(self):
+        source = next(self.logs.glob("*.jsonl"))
+        outside = self.root / "secret"
+        outside.write_bytes(b"OUTSIDE SECRET")
+        original_open = os.open
+        def replace(name, flags, **kwargs):
+            source.unlink()
+            source.symlink_to(outside)
+            return original_open(name, flags, **kwargs)
+        fd = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        with patch("bundle.os.open", side_effect=replace), patch("bundle.os.fdopen") as read:
+            with self.assertRaises(OSError):
+                read_source(fd, source.name, 67108864)
+            read.assert_not_called()
+        self.assertEqual(outside.read_bytes(), b"OUTSIDE SECRET")
+
+    def test_open_descriptor_survives_leaf_and_root_replacement(self):
+        source = next(self.logs.glob("*.jsonl"))
+        expected = source.read_bytes()
+        outside = self.root / "secret"
+        outside.write_bytes(b"OUTSIDE SECRET")
+        fd = os.open(self.logs, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        original_open = os.open
+        def replace(name, flags, **kwargs):
+            opened = original_open(name, flags, **kwargs)
+            source.unlink()
+            source.symlink_to(outside)
+            return opened
+        with patch("bundle.os.open", side_effect=replace):
+            self.assertEqual(read_source(fd, source.name, 67108864), expected)
+        source.unlink()
+        source.write_bytes(expected)
+        moved = self.root / "moved"
+        self.logs.rename(moved)
+        self.logs.symlink_to(self.root, target_is_directory=True)
+        (self.root / source.name).write_bytes(b"OUTSIDE SECRET")
+        self.assertEqual(read_source(fd, source.name, 67108864), expected)
+
+    def test_manifest_root_and_output_path_arguments_are_not_capabilities(self):
+        for args in (("--build", "/etc/passwd"), (str(self.logs),),
+                     ("--root", str(self.root)), ("--output", "/tmp/bundle.json")):
+            with self.subTest(args=args), patch("sys.argv", ["bundle.py", *args]), \
+                    patch("bundle.os.open") as opened, patch("bundle.os.fdopen") as read:
+                with self.assertRaises(SystemExit) as exit_status:
+                    main()
+                self.assertEqual(exit_status.exception.code, 2)
+                opened.assert_not_called()
+                read.assert_not_called()
+
+    def test_missing_invalid_and_unsupported_capabilities_fail_closed(self):
+        for fd in (-1, str(self.logs)):
+            with self.assertRaises((OSError, Refused)):
+                produce(fd)
+        fd = os.open(next(self.logs.glob("*.jsonl")), os.O_RDONLY)
+        self.addCleanup(os.close, fd)
+        with self.assertRaisesRegex(Refused, "directory capability"):
+            produce(fd)
+        with patch("bundle.sys.platform", "unsupported"):
+            with self.assertRaisesRegex(Refused, "Linux directory capability"):
+                self.result()
+
+    def test_directory_enumeration_is_bounded(self):
+        with patch("bundle.os.scandir") as scan:
+            scan.return_value.__enter__.return_value = iter([type("Entry", (), {"name": "ignored"})()] * 1025)
+            with self.assertRaisesRegex(Refused, "entry limit"):
+                self.result()
+
+    def test_real_cli_uses_only_inherited_capabilities(self):
+        command = 'exec "$1" -I "$2" 3< "$3" 4< "$4"'
+        result = subprocess.run(["bash", "-c", command, "trusted-launcher", sys.executable,
+                                 str(HERE / "bundle.py"), str(self.logs), str(self.root)],
+                                capture_output=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(decode((self.root / "bundle.json").read_bytes()), self.result())
+        original = (self.root / "bundle.json").read_bytes()
+        result = subprocess.run(["bash", "-c", command, "trusted-launcher", sys.executable,
+                                 str(HERE / "bundle.py"), str(self.logs), str(self.root)],
+                                capture_output=True, timeout=30, check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual((self.root / "bundle.json").read_bytes(), original)
 
     def test_live_identity_chains(self):
         bundle = self.result()
@@ -284,7 +473,11 @@ class ProducerProof(unittest.TestCase):
 
     def test_live_restart_capture_is_refused(self):
         with self.assertRaisesRegex(Refused, "restarts|trailer|incomplete producer stream"):
-            produce(EVIDENCE / "restart/identity/r1", self.build)
+            fd = os.open(EVIDENCE / "restart/identity/r1", os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                produce(fd)
+            finally:
+                os.close(fd)
 
     def test_truncated_duplicate_key_or_event_gap_is_refused(self):
         path = next(self.logs.glob("bgpd.*.jsonl"))

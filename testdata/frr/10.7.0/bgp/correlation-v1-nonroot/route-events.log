@@ -1,0 +1,7 @@
+=== RUN   TestRouteEventsReachTheSessionFromTheKernel
+--- PASS: TestRouteEventsReachTheSessionFromTheKernel (0.03s)
+=== RUN   TestRouteEventsNamespaceHelper
+    watch_route_events_netns_integration_test.go:77: runs only as the namespace helper
+--- SKIP: TestRouteEventsNamespaceHelper (0.00s)
+PASS
+ok  	github.com/heymaikol/network-doctor/v2/internal/diagnostic	0.037s

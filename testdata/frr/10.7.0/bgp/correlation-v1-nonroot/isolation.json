@@ -1,0 +1,108 @@
+{
+  "all_table_routes": {
+    "-4": [
+      {
+        "dev": "lo",
+        "dst": "127.0.0.0/8",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.0.0.1",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.255.255.255",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "local",
+        "type": "broadcast"
+      }
+    ],
+    "-6": [
+      {
+        "dev": "lo",
+        "dst": "::1",
+        "flags": [],
+        "metric": 0,
+        "pref": "medium",
+        "protocol": "kernel",
+        "table": "local",
+        "type": "local"
+      }
+    ]
+  },
+  "capabilities": {
+    "CapAmb": "0000000000000000",
+    "CapBnd": "0000000000000000",
+    "CapEff": "0000000000000000",
+    "CapInh": "0000000000000000",
+    "CapPrm": "0000000000000000"
+  },
+  "gid": 65534,
+  "interface_flags": {
+    "erspan0": 4098,
+    "gre0": 128,
+    "gretap0": 4098,
+    "lo": 9,
+    "tunl0": 128
+  },
+  "interfaces": [
+    [
+      1,
+      "lo"
+    ],
+    [
+      2,
+      "gre0"
+    ],
+    [
+      3,
+      "gretap0"
+    ],
+    [
+      4,
+      "erspan0"
+    ],
+    [
+      5,
+      "tunl0"
+    ]
+  ],
+  "network_namespace": "net:[4026534079]",
+  "no_new_privileges": true,
+  "protected_writes_refused": [
+    {
+      "errno": 30,
+      "path": "/producer/.least-privilege-probe"
+    },
+    {
+      "errno": 30,
+      "path": "/repo/.least-privilege-probe"
+    },
+    {
+      "errno": 30,
+      "path": "/etc/.least-privilege-probe"
+    },
+    {
+      "errno": 30,
+      "path": "/input/frr-source.tar.gz"
+    }
+  ],
+  "scratch_write_succeeded": true,
+  "uid": 65534,
+  "uid_map": "         0          1      65534\n     65534          0          1\n     65535      65535          2\n"
+}

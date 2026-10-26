@@ -1,0 +1,87 @@
+[
+     {
+          "Id": "67e00e0327159ba2368a72bc96db80d52d17d0f91020d3544b9d366c71d6a9ff",
+          "Digest": "sha256:2a735793e2a529b3d83f553fe779f144c932e0eb7d9465cefa663b8ae0a3acef",
+          "RepoTags": [
+               "localhost/netdoc407-locked-builder:v1"
+          ],
+          "RepoDigests": [
+               "localhost/netdoc407-locked-builder@sha256:2a735793e2a529b3d83f553fe779f144c932e0eb7d9465cefa663b8ae0a3acef"
+          ],
+          "Parent": "2af71e6552694d5ed20391e1088d7699d4b58ffcc49b9db4d0fcca531abd5029",
+          "Comment": "",
+          "Created": "2026-10-26T03:21:23.42980504Z",
+          "Config": {
+               "Env": [
+                    "PATH=/usr/local/bin:/usr/bin",
+                    "container=oci"
+               ],
+               "Cmd": [
+                    "/bin/bash"
+               ],
+               "WorkingDir": "/",
+               "Labels": {
+                    "io.buildah.version": "1.43.5",
+                    "org.opencontainers.image.licenses": "MIT",
+                    "org.opencontainers.image.title": "fedora",
+                    "org.opencontainers.image.url": "https://fedoraproject.org/",
+                    "org.opencontainers.image.vendor": "Fedora Project",
+                    "org.opencontainers.image.version": "44"
+               }
+          },
+          "Version": "",
+          "Author": "Fedora Project Contributors <devel@lists.fedoraproject.org>",
+          "Architecture": "amd64",
+          "Os": "linux",
+          "Size": 752555098,
+          "VirtualSize": 752555098,
+          "GraphDriver": {
+               "Name": "vfs",
+               "Data": null
+          },
+          "RootFS": {
+               "Type": "layers",
+               "Layers": [
+                    "sha256:7caae5ca96776fa5be93d51ae15cf87750826b2a40db843424f515cd4b4709ed",
+                    "sha256:94eaa642d842bab3501ea69df1f2c76f950242e5620f7ea6738e3f8c45fa36ed",
+                    "sha256:d4d561e56e6b9acd6d806ffdddb5386be20f8ef7e90829ee23e6acb9221d39c1"
+               ]
+          },
+          "Labels": {
+               "io.buildah.version": "1.43.5",
+               "org.opencontainers.image.licenses": "MIT",
+               "org.opencontainers.image.title": "fedora",
+               "org.opencontainers.image.url": "https://fedoraproject.org/",
+               "org.opencontainers.image.vendor": "Fedora Project",
+               "org.opencontainers.image.version": "44"
+          },
+          "Annotations": {
+               "org.opencontainers.image.base.digest": "sha256:2d894246f63e15be3557d103c50e5fdef67bf50b34e35d54753966b9c1854608",
+               "org.opencontainers.image.base.name": "registry.fedoraproject.org/fedora:44",
+               "org.opencontainers.image.created": "2026-10-26T03:21:23.42980504Z"
+          },
+          "ManifestType": "application/vnd.oci.image.manifest.v1+json",
+          "User": "",
+          "History": [
+               {
+                    "created": "2026-10-25T06:48:04.245207011Z",
+                    "created_by": "KIWI 11.1.1",
+                    "author": "Fedora Project Contributors <devel@lists.fedoraproject.org>"
+               },
+               {
+                    "created": "2026-10-26T03:17:43.15571403Z",
+                    "created_by": "/bin/sh -c #(nop) COPY file:2456884adb263a6064e9b4ae02ba8879c44647ddf47d9d4b94ffbce98866bb75 in /builder-packages.lock      ",
+                    "author": "Fedora Project Contributors <devel@lists.fedoraproject.org>",
+                    "comment": "FROM registry.fedoraproject.org/fedora:44"
+               },
+               {
+                    "created": "2026-10-26T03:21:26.435970579Z",
+                    "created_by": "/bin/sh -c sed '/^gpg-pubkey-/d' /builder-packages.lock | xargs dnf -y --setopt=install_weak_deps=False install &&     rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\\n' | LC_ALL=C sort > /actual-packages &&     cmp /builder-packages.lock /actual-packages",
+                    "author": "Fedora Project Contributors <devel@lists.fedoraproject.org>"
+               }
+          ],
+          "NamesHistory": [
+               "localhost/netdoc407-locked-builder:v1"
+          ]
+     }
+]

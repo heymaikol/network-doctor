@@ -154,7 +154,9 @@ files. The lab records actual runtime dependency hashes separately.
 Use a fresh workspace directory. The build never installs FRR on the host.
 Rootless Podman can keep its `--root`, `--runroot`, and storage entirely in
 scratch directories. The Containerfile pins the Fedora base digest and every
-installed package. It excludes RPM public-key pseudo-packages from install
+installed package. After privileged package installation it selects UID/GID
+65534, the existing nobody account, as its non-root default. The supported
+configuration is pinned separately in verified-builder.json. It excludes RPM public-key pseudo-packages from install
 arguments, then requires the entire resulting package database, including key
 records, to match the lock.
 
@@ -166,16 +168,31 @@ Build the Containerfile, mount this directory read-only at `/producer`, mount
 scratch at `/work`, and run with `--network=none`:
 
 ```sh
-bash /producer/build.sh /work/build-a /work/frr-source.tar.gz
-bash /producer/build.sh /work/build-b /work/frr-source.tar.gz
-cmp /work/build-a/build.json /work/build-b/build.json
+# Provision the image from the pinned base and exact package lock.
+# Only provisioning requires network access for package retrieval.
+podman build --timestamp=1784130712 -t localhost/netdoc407-nonroot-builder:v1 \
+  -f contrib/frr-correlation/v1/Containerfile contrib/frr-correlation/v1
+
+# Operator-approved absolute paths; /work is dedicated scratch.
+podman run --rm --network=none --read-only --cap-drop=ALL \
+  --security-opt=no-new-privileges --userns=keep-id:uid=65534,gid=65534 \
+  --tmpfs /tmp:rw,nosuid,nodev \
+  -v <producer-directory>:/producer:ro \
+  -v <source-archive>:/input/frr-source.tar.gz:ro \
+  -v <scratch-directory>:/work:rw \
+  localhost/netdoc407-nonroot-builder:v1 \
+  bash /producer/build.sh /work/build-a /input/frr-source.tar.gz
+# Repeat with a new /work/build-b, then compare manifests and all eight artifacts.
 ```
 
 Each output must be a new directory. The recipe verifies inputs, applies the
 patch with zero fuzz, fixes locale/date/path mappings, builds five FRR executables
 and libraries, exercises the real wire codec, stages `frr-root/`, and writes
-`build.json` plus `SHA256SUMS`. The current two accepted clean builds produced identical
-bytes for all eight staged artifacts. Their build logs and manifests are
+`build.json` plus `SHA256SUMS`. The new non-root image produced two independent clean builds with identical
+bytes for all eight staged artifacts, also matching the prior pinned artifacts.
+The FRR build ID and verified-build.json therefore remain unchanged; the new
+image identity is recorded in verified-builder.json and the non-root report.
+The previous root-default image and all its evidence remain preserved. Their build logs and manifests are
 preserved with the evidence. An exact package version that disappears from
 repositories causes a failure; newer packages are not substituted silently.
 
@@ -214,14 +231,17 @@ Doctor.
 
 ## Proof and remaining gate
 
-See [the authorization validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-authorized/README.md)
+See [the non-root builder validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-nonroot/README.md),
+[the individual address review](../../../testdata/frr/10.7.0/bgp/correlation-review-dfbd4b3/README.md),
+[the authorization validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-authorized/README.md)
 and [the producer validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-noreplace/README.md)
 for live runs, exact proven/unproven edges, independent observations, checksums,
 negative tests, concurrency test, and reproducibility results. Approval of
 the producer choice did not approve this implementation. Stop for independent
 ChatGPT review before an importer or forwarding semantics is implemented.
 
-Run the producer/schema tests in the locked builder, from this directory:
+Run the producer/schema tests with the non-root builder and the same isolation
+flags above, mounting the repository read-only and using this working directory:
 
 ```sh
 python3 -B -m unittest -v test_bundle

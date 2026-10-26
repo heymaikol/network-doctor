@@ -105,3 +105,31 @@ manifest/root/output argument rejection, missing capabilities, unsupported OS,
 bounded enumeration, valid authorized CLI processing and exclusive output.
 Unauthorized selectors are asserted to reach neither open nor read; symlink
 replacements are asserted never to create a readable source wrapper.
+
+## Builder privileges
+
+The current builder installs the exact locked RPM packages as container root,
+then defaults to UID/GID 65534. Compilation and testing are certified only with
+rootless Podman, all capabilities dropped, no-new-privileges, readonly image and
+source mounts, a dedicated writable scratch directory, private temporary storage
+and --network=none. verified-builder.json records the new image and recipe hashes.
+Rootless execution alone is not an adequate substitute for those restrictions.
+The host user maps to the non-root build identity so scratch ownership does not
+require host chown or elevated privileges. Other host paths are not mounted.
+
+The package-provisioning step requires repository network access and its output
+must match the entire existing RPM lock. Compilation and tests have no network.
+Kernel-created fallback tunnel interfaces can appear in a fresh namespace; the
+proof requires them administratively down, an empty /proc/net/route, only loopback IPv6
+routes and a network namespace distinct from the host. No interface-name-only
+isolation claim is made. UID, capabilities, mount-write refusals and network state
+are captured by the non-root isolation probe.
+
+The historical root-default image remains preserved with its original identity.
+New non-root builds reproduce all eight original FRR artifacts byte for byte, so
+the producer build identity and manifest remain unchanged. FRR runtime namespace
+privileges are separate from build privileges; live labs still use disposable
+rootless namespaces to exercise genuine routing operations. No system FRR or host
+route is changed. Historical validation programs that pin implementation hashes
+must be run at their recorded commit; the current report validates the new builder
+and unchanged producer/packager without rewriting those historical programs.

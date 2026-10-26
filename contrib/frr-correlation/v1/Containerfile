@@ -3,3 +3,5 @@ COPY builder-packages.lock /builder-packages.lock
 RUN sed '/^gpg-pubkey-/d' /builder-packages.lock | xargs dnf -y --setopt=install_weak_deps=False install && \
     rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | LC_ALL=C sort > /actual-packages && \
     cmp /builder-packages.lock /actual-packages
+
+USER 65534:65534

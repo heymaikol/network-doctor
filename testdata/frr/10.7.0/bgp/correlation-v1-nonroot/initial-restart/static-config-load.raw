@@ -1,0 +1,11 @@
+% Can't open configuration file /etc/frr/vtysh.conf due to 'No such file or directory'.
+Configuration file[/etc/frr/frr.conf] processing failure: 11
+[2227605|mgmtd] sending configuration
+[2227606|zebra] sending configuration
+[2227612|bgpd] sending configuration
+[2227621|staticd] sending configuration
+Waiting for children to finish applying config...
+[2227606|zebra] done
+[2227612|bgpd] done
+[2227605|mgmtd] done
+[2227621|staticd] done

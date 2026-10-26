@@ -1,0 +1,31 @@
+{
+  "containerfile_sha256": "0cf20a3baeeabfa9e11e838273d863ca1b7091d4f7bc2daa66a32dd8f857c71e",
+  "default_user": "65534:65534",
+  "evidence": "../../../testdata/frr/10.7.0/bgp/correlation-v1-nonroot/README.md",
+  "frr_build_id_unchanged": "89f0152ef221c716119b8b739a6464a96eaf3ff526d54e5e6e0822bea0dc179d",
+  "historical_image": {
+    "image": "localhost/netdoc407-locked-builder:v1",
+    "image_digest": "sha256:2a735793e2a529b3d83f553fe779f144c932e0eb7d9465cefa663b8ae0a3acef",
+    "image_id": "67e00e0327159ba2368a72bc96db80d52d17d0f91020d3544b9d366c71d6a9ff",
+    "status": "preserved unchanged; historical build environment only"
+  },
+  "image": "localhost/netdoc407-nonroot-builder:v1",
+  "image_digest": "sha256:67a80138645044df127765177335ad30e3ee175c1e9134c0b0836df98b99e00e",
+  "image_id": "3806db6332b838c627a3693d3e7861c47371137e20eb9208755506cd83bc7ad2",
+  "packages_sha256": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+  "required_runtime": {
+    "capabilities": "all dropped",
+    "mounts": {
+      "build_output": "dedicated writable scratch",
+      "producer": "read-only",
+      "source_archive": "read-only"
+    },
+    "network": "none",
+    "no_new_privileges": true,
+    "root_filesystem": "read-only",
+    "rootless": true,
+    "temporary_storage": "private /tmp tmpfs, nosuid,nodev",
+    "user_namespace": "keep-id:uid=65534,gid=65534"
+  },
+  "schema": "netdoc-frr-builder/v1"
+}

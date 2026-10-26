@@ -1,0 +1,4 @@
+ok  	github.com/heymaikol/network-doctor/v2/internal/app	10.056s
+ok  	github.com/heymaikol/network-doctor/v2/internal/diagnostic	83.776s
+ok  	github.com/heymaikol/network-doctor/v2/internal/peer	1.241s
+ok  	github.com/heymaikol/network-doctor/v2/internal/simulation	298.727s

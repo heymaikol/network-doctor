@@ -82,6 +82,7 @@ type walker struct {
 	lost    *Hop
 	adj     *Adjacency
 	gw      *Gateway
+	policy  *PolicyEvaluation
 	// tunnels are the file's tunnel records. underlay says a walk toward a
 	// tunnel's remote is under way, and nested names a tunnel that walk met.
 	tunnels  []Tunnel
@@ -204,6 +205,11 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 		}
 		h.Decision = w.localDecision(planes, at, owned)
 		w.noteOtherOwners(at, owned)
+		return h
+	}
+	if p := w.policy; p != nil && at.node == p.Node && at.vrf == p.VRF && (p.Direction == "export" || p.Considered != p.Unchanged || p.UnrecordedAfter == "unknown") {
+		w.touched = true
+		h.Decision = Decision{Kind: KindUnknown, Reason: "policy " + p.Policy + " needs unproven protocol recomputation; BGP-to-FIB correlation is unproven, so forwarding is unknown and no replacement route is predicted", Evidence: policySupports(p)}
 		return h
 	}
 	d, hops := w.decide(planes, at)

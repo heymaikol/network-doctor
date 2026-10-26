@@ -2518,3 +2518,93 @@ Both ends bound what they will read from the other, and neither trusts the other
 - There is no live progress. The probes run on the far end and the answer arrives when the run is finished, which is why `--via` is headless rather than a remote terminal UI.
 - The probe IDs given to `--check` and `--skip` are validated locally as well as remotely, so a probe ID that exists only on a newer remote netdoc is rejected before the connection opens.
 - The drill-down tools, the LAN map, and the SSH login form are terminal UI features and are not part of a remote run.
+
+### Route-policy change simulation
+
+`--change-route-policy NODE:VRF:import|export:PEER:POLICY` with `--explain`
+attaches a recorded policy at one node, VRF, direction, and peer. It runs no
+commands against a router and sends no traffic:
+
+```sh
+netdoc --explain topology.json 10.10.2.2 --change-route-policy r1:default:import:10.0.3.3:R3-IN
+netdoc --explain topology.json 10.10.2.2 --change-route-policy r1:default:import:10.0.3.3:R3-IN --json
+```
+
+The authoritative producer was chosen and validated before implementation:
+[the genuine FRR 10.7.0 policy lab](../testdata/frr/10.7.0/bgp/policy/README.md).
+Policy semantics come from enable-mode `show route-map json` and
+`show ip prefix-list json`. Running configuration is audit context only.
+The producer records the source identity, exact commands, timestamps, and
+SHA-256 checksums, with raw transcripts preserved. Checksums verify integrity;
+they do not authenticate the operator's assertions about the source or time.
+
+The topology's optional `route_policies` array contains objects with `node`,
+`vrf`, `direction`, `peer`, `policy`, and `captures`. Each capture contains
+`source`, `collected_at`, `frr_version`, `command`, `sha256`, and `raw`.
+`raw` is the entire unmodified transcript encoded as a JSON string, including
+its CRLF and prompt. `sha256` is the lowercase SHA-256 of those decoded raw
+bytes. Every capture needs a distinct source and command. Exactly these four
+commands are required:
+
+| Command | Purpose | Prompt |
+| --- | --- | --- |
+| `show route-map json` | Candidate policy rules | `NODE# ` |
+| `show ip prefix-list json` | Candidate exact IPv4 prefix-list matches | `NODE# ` |
+| `show ip bgp neighbors PEER json` | Baseline peer, session, and local identity | `NODE> ` |
+| `show ip bgp json` | Complete baseline candidate table and selected paths | `NODE> ` |
+
+The policy captures must be collected after the baseline table and neighbor
+captures. Router IDs, local AS, peer address, and default VRF must reconcile.
+The baseline peer must be Established with no path policy; existing-policy
+replacement is refused. Its `ipv4Unicast.acceptedPrefixCounter` must be a
+nonnegative integer equal to the number of distinct IPv4 prefixes with paths
+from that peer in the table. Multiple paths for one prefix count once. Missing,
+null, malformed, overflowing, or contradictory counts are refused for import
+and export alike. A zero count with no incoming paths supports export with
+unknown impact; import with no recorded peer path is refused.
+
+Count agreement is a consistency check, not proof of route identities,
+attributes, or an atomic snapshot. Per-prefix ratings describe only recorded
+candidates. `unrecorded_after` reports unknown effects for candidates not
+proven by these sequential captures. Forwarding remains unknown even if all
+recorded candidates are unchanged, unless an import policy permits every
+prefix without assigning attributes. Export stays unknown in either case.
+
+Capture identity, malformed or duplicate JSON keys,
+missing clauses, wrong checksums, incomplete tables, unknown peers, stale
+paths, ambiguous bestpaths, and unsupported actions all fail closed with exit
+2. A duplicate policy selector is also refused. The
+[replay topology](../internal/routepath/testdata/policy/topology.json) is a
+complete example built from the lab's independently captured kernel tables and
+raw FRR transcripts. Its interface addresses come from the kernel's connected
+route source addresses; it does not infer a FIB from BGP.
+
+The supported subset is ordered terminal permit/deny rules, at most one exact
+IPv4 prefix-list match per rule, and at most one canonical `weight` assignment
+on a permit rule. An empty match is unconditional. Prefix-list entries use
+first-match order, with exact prefix equality and an implicit deny; route maps
+also end in an implicit deny. Prefix length ranges, community or AS-path
+matches, calls, jumps, and unknown semantic fields are refused. The verified
+producer supports FRR 10.7.0 and the default IPv4 unicast VRF only. Other VRFs,
+IPv6 peers, tunnel dependencies, multiple sources, and combinations with other
+failure selectors are refused.
+
+The result's `failure.policy` records each prefix's selected peer **before**
+the change and whether its selection afterward is unchanged or unknown. A
+candidate changed by import policy needs BGP bestpath recomputation; an export
+change needs remote protocol recomputation. Neither is run here. A deny does
+not prove loss of the route, and an available candidate never becomes an
+invented replacement. Export keeps local selections unchanged and reports advertisement impact
+unknown for every baseline prefix, including identity policies. No per-peer
+advertisement eligibility or remote recomputation is inferred from a local
+bestpath. `outcome` and `affected` carry this uncertainty in JSON.
+
+Where a policy could change a candidate, a forwarding walk through the applying
+node stops at `unknown`. This intentionally includes prefixes whose forwarding
+relationship to BGP has not been proven. It adds no BGP-to-FIB correlation from
+issue #390. Other nodes keep their recorded forwarding, including paths that
+never visit the applying node. No route, check, or observation in the input is
+changed. Both text and JSON report identical selections and destination
+accounting: considered equals unchanged plus affected. A run without the new
+selector keeps the legacy report bytes, including when valid policy evidence
+is present. The new flag is added to help and shipped completion/man surfaces.

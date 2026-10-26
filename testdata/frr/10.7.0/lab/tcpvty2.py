@@ -1,5 +1,5 @@
 # Raw FRR vty-over-TCP query for the local lab. Run inside a router netns.
-# Usage: python3 -I tcpvty2.py PORT "command"
+# Usage: python3 -I tcpvty2.py PORT "command" [enable]
 # Writes the daemon's bytes for that one command to stdout, unmodified.
 import socket
 import sys
@@ -26,6 +26,9 @@ def drain(quiet):
 drain(1.5)  # greeting and prompt, discarded
 s.sendall(b"terminal length 0\n")
 drain(0.6)
+if len(sys.argv) == 4 and sys.argv[3] == "enable":
+    s.sendall(b"enable\n")
+    drain(0.6)
 s.sendall(cmd.encode() + b"\n")
 sys.stdout.buffer.write(drain(1.0))
 s.close()

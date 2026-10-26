@@ -24,6 +24,7 @@ complete -c netdoc -o explain -l explain -d 'Explain how traffic to a destinatio
 complete -c netdoc -o fail -l fail -r -f -d 'With --explain, simulate a router or node:interface failing; runs no probes'
 complete -c netdoc -o fail-ospf -l fail-ospf -r -f -d 'With --explain, simulate losing the OSPF adjacency node:interface:neighbor; runs no probes'
 complete -c netdoc -o fail-next-hop -l fail-next-hop -r -f -d 'With --explain, simulate one node losing next hop node[@vrf]:address[%interface]; runs no probes'
+complete -c netdoc -o change-route-policy -l change-route-policy -r -f -d 'With --explain, apply recorded FRR policy node:vrf:import|export:peer:policy; unproven forwarding stays unknown'
 complete -c netdoc -o sources -l sources -r -f -d 'With --explain and a failure flag, simulate that failure from each listed node[@vrf], or from all modeled nodes; runs no probes'
 # The two route files are topology JSON for side A and side B of offline
 # --two-sided, so they take file completion and are refused with --via.

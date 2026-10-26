@@ -1,0 +1,34 @@
+show route-map json
+{
+  "R3-IN":{
+    "invoked":6,
+    "disabledOptimization":false,
+    "processedChange":false,
+    "rules":[
+      {
+        "sequenceNumber":10,
+        "type":"permit",
+        "invoked":3,
+        "cpuTimeMS":0,
+        "matchClauses":[
+          "ip address prefix-list P10-2"
+        ],
+        "setClauses":[
+          "weight 100"
+        ],
+        "action":"Exit routemap"
+      },
+      {
+        "sequenceNumber":20,
+        "type":"permit",
+        "invoked":3,
+        "cpuTimeMS":0,
+        "matchClauses":[],
+        "setClauses":[],
+        "action":"Exit routemap"
+      }
+    ],
+    "cpuTimeMS":0
+  }
+}
+r1# 

@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "source": {
+    "node": "r1",
+    "vrf": "default"
+  },
+  "observations": [
+    {
+      "source": "r1-before-ip-route.json",
+      "collected_at": "2026-10-25T16:58:46.217756667Z",
+      "plane": "fib",
+      "node": "r1",
+      "vrf": "default",
+      "routes_complete": true,
+      "interfaces": [
+        {
+          "name": "e1",
+          "addresses": [
+            "10.0.1.1/24"
+          ]
+        },
+        {
+          "name": "e3",
+          "addresses": [
+            "10.0.3.1/24"
+          ]
+        },
+        {
+          "name": "stub1",
+          "addresses": [
+            "10.10.1.1/24"
+          ]
+        }
+      ],
+      "routes": [
+        {
+          "prefix": "10.0.1.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "e1"
+            }
+          ]
+        },
+        {
+          "prefix": "10.0.3.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "e3"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.1.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "stub1"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.2.0/24",
+          "origin": "bgp",
+          "next_hops": [
+            {
+              "interface": "e1",
+              "addr": "10.0.1.2"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.3.0/24",
+          "origin": "bgp",
+          "next_hops": [
+            {
+              "interface": "e3",
+              "addr": "10.0.3.3"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.9.0/24",
+          "origin": "bgp",
+          "next_hops": [
+            {
+              "interface": "e1",
+              "addr": "10.0.1.2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "r2-before-ip-route.json",
+      "collected_at": "2026-10-25T16:58:49.404384951Z",
+      "plane": "fib",
+      "node": "r2",
+      "vrf": "default",
+      "routes_complete": true,
+      "interfaces": [
+        {
+          "name": "e2",
+          "addresses": [
+            "10.0.1.2/24"
+          ]
+        },
+        {
+          "name": "stub2",
+          "addresses": [
+            "10.10.1.2/24",
+            "10.10.2.2/24",
+            "10.10.9.2/24"
+          ]
+        }
+      ],
+      "routes": [
+        {
+          "prefix": "10.0.1.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "e2"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.1.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "stub2"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.2.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "stub2"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.3.0/24",
+          "origin": "bgp",
+          "next_hops": [
+            {
+              "interface": "e2",
+              "addr": "10.0.1.1"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.9.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "stub2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "r3-before-ip-route.json",
+      "collected_at": "2026-10-25T16:58:52.596798191Z",
+      "plane": "fib",
+      "node": "r3",
+      "vrf": "default",
+      "routes_complete": true,
+      "interfaces": [
+        {
+          "name": "e4",
+          "addresses": [
+            "10.0.3.3/24"
+          ]
+        },
+        {
+          "name": "stub3",
+          "addresses": [
+            "10.10.2.3/24",
+            "10.10.3.3/24"
+          ]
+        }
+      ],
+      "routes": [
+        {
+          "prefix": "10.0.3.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "e4"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.1.0/24",
+          "origin": "bgp",
+          "next_hops": [
+            {
+              "interface": "e4",
+              "addr": "10.0.3.1"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.2.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "stub3"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.3.0/24",
+          "origin": "kernel",
+          "next_hops": [
+            {
+              "interface": "stub3"
+            }
+          ]
+        },
+        {
+          "prefix": "10.10.9.0/24",
+          "origin": "bgp",
+          "next_hops": [
+            {
+              "interface": "e4",
+              "addr": "10.0.3.1"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "checks": [],
+  "boundaries": [],
+  "route_policies": [
+    {
+      "node": "r1",
+      "vrf": "default",
+      "direction": "import",
+      "peer": "10.0.3.3",
+      "policy": "R3-IN",
+      "captures": [
+        {
+          "source": "r1-after-show_route-map_json.raw",
+          "collected_at": "2026-10-25T16:59:29.938699304Z",
+          "frr_version": "10.7.0",
+          "command": "show route-map json",
+          "sha256": "40541d178cb2d030c9cd86c0bd748f7b73e08b48d3d05aa922f82b3471b2ef45",
+          "raw": "show route-map json\r\n{\r\n  \"R3-IN\":{\r\n    \"invoked\":6,\r\n    \"disabledOptimization\":false,\r\n    \"processedChange\":false,\r\n    \"rules\":[\r\n      {\r\n        \"sequenceNumber\":10,\r\n        \"type\":\"permit\",\r\n        \"invoked\":3,\r\n        \"cpuTimeMS\":0,\r\n        \"matchClauses\":[\r\n          \"ip address prefix-list P10-2\"\r\n        ],\r\n        \"setClauses\":[\r\n          \"weight 100\"\r\n        ],\r\n        \"action\":\"Exit routemap\"\r\n      },\r\n      {\r\n        \"sequenceNumber\":20,\r\n        \"type\":\"permit\",\r\n        \"invoked\":3,\r\n        \"cpuTimeMS\":0,\r\n        \"matchClauses\":[],\r\n        \"setClauses\":[],\r\n        \"action\":\"Exit routemap\"\r\n      }\r\n    ],\r\n    \"cpuTimeMS\":0\r\n  }\r\n}\r\nr1# "
+        },
+        {
+          "source": "r1-after-show_ip_prefix-list_json.raw",
+          "collected_at": "2026-10-25T16:59:33.704811118Z",
+          "frr_version": "10.7.0",
+          "command": "show ip prefix-list json",
+          "sha256": "58d191fb389d7e9dafdee4a9f1609bc361af6b87afa48a4deb1027208d4e23fc",
+          "raw": "show ip prefix-list json\r\n{\r\n  \"P10-2\":{\r\n    \"addressFamily\":\"IPv4\",\r\n    \"entries\":[\r\n      {\r\n        \"sequenceNumber\":5,\r\n        \"type\":\"permit\",\r\n        \"prefix\":\"10.10.2.0/24\"\r\n      }\r\n    ]\r\n  }\r\n}\r\nr1# "
+        },
+        {
+          "source": "r1-before-show_ip_bgp_neighbors_10.0.3.3_json.raw",
+          "collected_at": "2026-10-25T16:58:31.537814432Z",
+          "frr_version": "10.7.0",
+          "command": "show ip bgp neighbors 10.0.3.3 json",
+          "sha256": "7beaf1297c03c438cca2a5f945c54db7dbf21e3099c4aa9280b9d0b164bc4988",
+          "raw": "show ip bgp neighbors 10.0.3.3 json\r\n{\r\n  \"10.0.3.3\":{\r\n    \"neighborAddr\":\"10.0.3.3\",\r\n    \"remoteAs\":65003,\r\n    \"localAs\":65001,\r\n    \"localAsReplaceAsDualAs\":false,\r\n    \"nbrExternalLink\":true,\r\n    \"localRole\":\"undefined\",\r\n    \"remoteRole\":\"undefined\",\r\n    \"hostname\":\"r3\",\r\n    \"bgpVersion\":4,\r\n    \"remoteRouterId\":\"3.3.3.3\",\r\n    \"localRouterId\":\"1.1.1.1\",\r\n    \"bgpState\":\"Established\",\r\n    \"bgpTimerUpMsec\":17000,\r\n    \"bgpTimerUpString\":\"00:00:17\",\r\n    \"bgpTimerUpEstablishedEpoch\":1792947496,\r\n    \"bgpTimerLastRead\":15000,\r\n    \"bgpTimerLastWrite\":15000,\r\n    \"bgpInUpdateElapsedTimeMsecs\":15000,\r\n    \"bgpTimerConfiguredHoldTimeMsecs\":180000,\r\n    \"bgpTimerConfiguredKeepAliveIntervalMsecs\":60000,\r\n    \"bgpTimerHoldTimeMsecs\":180000,\r\n    \"bgpTimerKeepAliveIntervalMsecs\":60000,\r\n    \"bgpTcpMssConfigured\":0,\r\n    \"bgpTcpMssSynced\":1448,\r\n    \"extendedOptionalParametersLength\":false,\r\n    \"bgpTimerConfiguredConditionalAdvertisementsSec\":60,\r\n    \"neighborCapabilities\":{\r\n      \"4byteAs\":\"advertisedAndReceived\",\r\n      \"extendedMessage\":\"advertisedAndReceived\",\r\n      \"addPath\":{\r\n        \"ipv4Unicast\":{\r\n          \"rxAdvertisedAndReceived\":true,\r\n          \"rxAdvertised\":true,\r\n          \"rxReceived\":true\r\n        }\r\n      },\r\n      \"pathsLimit\":{\r\n        \"ipv4Unicast\":{\r\n          \"advertisedAndReceived\":true,\r\n          \"advertisedPathsLimit\":0,\r\n          \"receivedPathsLimit\":0\r\n        }\r\n      },\r\n      \"longLivedGracefulRestart\":\"advertisedAndReceived\",\r\n      \"longLivedGracefulRestartByPeer\":{},\r\n      \"routeRefresh\":\"advertisedAndReceived\",\r\n      \"enhancedRouteRefresh\":\"advertisedAndReceived\",\r\n      \"multiprotocolExtensions\":{\r\n        \"ipv4Unicast\":{\r\n          \"advertisedAndReceived\":true\r\n        }\r\n      },\r\n      \"hostName\":{\r\n        \"advHostName\":\"r1\",\r\n        \"advDomainName\":\"n\\/a\",\r\n        \"rcvHostName\":\"r3\",\r\n        \"rcvDomainName\":\"n\\/a\"\r\n      },\r\n      \"softwareVersion\":{},\r\n      \"linkLocalNextHop\":{\r\n        \"advertised\":false,\r\n        \"received\":false\r\n      },\r\n      \"gracefulRestart\":\"advertisedAndReceived\",\r\n      \"gracefulRestartRemoteTimerSec\":120,\r\n      \"rBitReceived\":true,\r\n      \"nBitReceived\":true,\r\n      \"addressFamiliesByPeer\":\"none\"\r\n    },\r\n    \"gracefulRestartInfo\":{\r\n      \"endOfRibSend\":{\r\n        \"ipv4Unicast\":true\r\n      },\r\n      \"endOfRibRecv\":{\r\n        \"ipv4Unicast\":true\r\n      },\r\n      \"localGrMode\":\"Helper*\",\r\n      \"remoteGrMode\":\"Helper\",\r\n      \"rBit\":true,\r\n      \"nBit\":true,\r\n      \"timers\":{\r\n        \"configuredRestartTimer\":120,\r\n        \"configuredLlgrStaleTime\":0,\r\n        \"receivedRestartTimer\":120\r\n      },\r\n      \"ipv4Unicast\":{\r\n        \"fBit\":false,\r\n        \"endOfRibStatus\":{\r\n          \"endOfRibSend\":true,\r\n          \"endOfRibSentAfterUpdate\":false,\r\n          \"endOfRibRecv\":true\r\n        },\r\n        \"timers\":{\r\n          \"stalePathTimer\":360,\r\n          \"llgrStaleTime\":0\r\n        }\r\n      }\r\n    },\r\n    \"messageStats\":{\r\n      \"depthInq\":0,\r\n      \"depthOutq\":0,\r\n      \"opensSent\":1,\r\n      \"opensRecv\":1,\r\n      \"notificationsSent\":0,\r\n      \"notificationsRecv\":0,\r\n      \"updatesSent\":4,\r\n      \"updatesRecv\":4,\r\n      \"keepalivesSent\":1,\r\n      \"keepalivesRecv\":1,\r\n      \"routeRefreshSent\":0,\r\n      \"routeRefreshRecv\":0,\r\n      \"capabilitySent\":0,\r\n      \"capabilityRecv\":0,\r\n      \"totalSent\":6,\r\n      \"totalRecv\":6\r\n    },\r\n    \"prefixStats\":{\r\n      \"inboundFiltered\":0,\r\n      \"aspathLoop\":2,\r\n      \"originatorLoop\":0,\r\n      \"clusterLoop\":0,\r\n      \"invalidNextHop\":0,\r\n      \"withdrawn\":0,\r\n      \"attributesDiscarded\":0\r\n    },\r\n    \"minBtwnAdvertisementRunsTimerMsecs\":0,\r\n    \"bgpUpdateDelayTimerMsecs\":0,\r\n    \"bgpUpdateDelayTimerMsecsRemaining\":0,\r\n    \"addressFamilyInfo\":{\r\n      \"ipv4Unicast\":{\r\n        \"updateGroupId\":1,\r\n        \"subGroupId\":2,\r\n        \"packetQueueLength\":0,\r\n        \"commAttriSentToNbr\":\"standardAndextendedAndlarge\",\r\n        \"acceptedPrefixCounter\":2,\r\n        \"sentPrefixCounter\":4,\r\n        \"receivedPrefixDup\":0\r\n      }\r\n    },\r\n    \"connectionsEstablished\":1,\r\n    \"connectionsDropped\":0,\r\n    \"lastResetTimerMsecs\":18000,\r\n    \"lastResetDueTo\":\"No path to specified Neighbor\",\r\n    \"lastResetCode\":27,\r\n    \"softwareVersion\":\"n\\/a\",\r\n    \"externalBgpNbrMaxHopsAway\":1,\r\n    \"hostLocal\":\"10.0.3.1\",\r\n    \"portLocal\":33412,\r\n    \"hostForeign\":\"10.0.3.3\",\r\n    \"portForeign\":179,\r\n    \"nexthop\":\"10.0.3.1\",\r\n    \"nexthopGlobal\":\"::\",\r\n    \"nexthopLocal\":\"::\",\r\n    \"bgpConnection\":\"sharedNetwork\",\r\n    \"connectRetryTimer\":5,\r\n    \"estimatedRttInMsecs\":0,\r\n    \"readThread\":\"on\",\r\n    \"writeThread\":\"on\"\r\n  }\r\n}\r\nr1> "
+        },
+        {
+          "source": "r1-before-show_ip_bgp_json.raw",
+          "collected_at": "2026-10-25T16:58:25.210747831Z",
+          "frr_version": "10.7.0",
+          "command": "show ip bgp json",
+          "sha256": "ebb7f285ae266eb9a7da0abee646656a18e96fc23f291267f96671212d7742e8",
+          "raw": "show ip bgp json\r\n{\r\n \"vrfId\": 0,\r\n \"vrfName\": \"default\",\r\n \"tableVersion\": 4,\r\n \"routerId\": \"1.1.1.1\",\r\n \"defaultLocPrf\": 100,\r\n \"localAS\": 65001,\r\n \"routes\": { \"10.10.1.0/24\": [{\"valid\":true,\"bestpath\":true,\"selectionReason\":\"Weight\",\"pathFrom\":\"external\",\"prefix\":\"10.10.1.0\",\"prefixLen\":24,\"network\":\"10.10.1.0/24\",\"version\":1,\"metric\":0,\"weight\":32768,\"peerId\":\"(unspec)\",\"path\":\"\",\"origin\":\"IGP\",\"nexthops\":[{\"ip\":\"0.0.0.0\",\"hostname\":\"r1\",\"afi\":\"ipv4\",\"used\":true}]},{\"valid\":true,\"pathFrom\":\"external\",\"prefix\":\"10.10.1.0\",\"prefixLen\":24,\"network\":\"10.10.1.0/24\",\"version\":1,\"metric\":0,\"weight\":0,\"peerId\":\"10.0.1.2\",\"path\":\"65002\",\"origin\":\"IGP\",\"nexthops\":[{\"ip\":\"10.0.1.2\",\"hostname\":\"r2\",\"afi\":\"ipv4\",\"used\":true}]}]\r\n,\"10.10.2.0/24\": [{\"valid\":true,\"bestpath\":true,\"selectionReason\":\"Router ID\",\"pathFrom\":\"external\",\"prefix\":\"10.10.2.0\",\"prefixLen\":24,\"network\":\"10.10.2.0/24\",\"version\":2,\"metric\":0,\"weight\":0,\"peerId\":\"10.0.1.2\",\"path\":\"65002\",\"origin\":\"IGP\",\"nexthops\":[{\"ip\":\"10.0.1.2\",\"hostname\":\"r2\",\"afi\":\"ipv4\",\"used\":true}]},{\"valid\":true,\"pathFrom\":\"external\",\"prefix\":\"10.10.2.0\",\"prefixLen\":24,\"network\":\"10.10.2.0/24\",\"version\":2,\"metric\":0,\"weight\":0,\"peerId\":\"10.0.3.3\",\"path\":\"65003\",\"origin\":\"IGP\",\"nexthops\":[{\"ip\":\"10.0.3.3\",\"hostname\":\"r3\",\"afi\":\"ipv4\",\"used\":true}]}]\r\n,\"10.10.3.0/24\": [{\"valid\":true,\"bestpath\":true,\"selectionReason\":\"First path received\",\"pathFrom\":\"external\",\"prefix\":\"10.10.3.0\",\"prefixLen\":24,\"network\":\"10.10.3.0/24\",\"version\":3,\"metric\":0,\"weight\":0,\"peerId\":\"10.0.3.3\",\"path\":\"65003\",\"origin\":\"IGP\",\"nexthops\":[{\"ip\":\"10.0.3.3\",\"hostname\":\"r3\",\"afi\":\"ipv4\",\"used\":true}]}]\r\n,\"10.10.9.0/24\": [{\"valid\":true,\"bestpath\":true,\"selectionReason\":\"First path received\",\"pathFrom\":\"external\",\"prefix\":\"10.10.9.0\",\"prefixLen\":24,\"network\":\"10.10.9.0/24\",\"version\":4,\"metric\":0,\"weight\":0,\"peerId\":\"10.0.1.2\",\"path\":\"65002\",\"origin\":\"IGP\",\"nexthops\":[{\"ip\":\"10.0.1.2\",\"hostname\":\"r2\",\"afi\":\"ipv4\",\"used\":true}]}]\r\n } , \"totalRoutes\": 4, \"totalPaths\": 6,\"numRoutes\":4\r\n } \r\nr1> "
+        }
+      ]
+    }
+  ]
+}

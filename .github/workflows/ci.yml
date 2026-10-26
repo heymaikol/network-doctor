@@ -337,6 +337,9 @@ jobs:
         run: go test -run='^$' -fuzz=FuzzDecodeSummary -fuzztime=10s ./internal/frrbgp
       - if: matrix.shard == 'fuzz'
         run: go test -run='^$' -fuzz=FuzzDecodeRouteCapture -fuzztime=10s ./internal/frrbgp
+      - name: Fuzz route policy evidence
+        if: matrix.shard == 'fuzz'
+        run: go test -run='^$' -fuzz=FuzzPolicyChange -fuzztime=10s ./internal/routepath
       # The Challenge Mode generator builds every hunt case from a seed, so
       # smoke-fuzz it too: a bad seed there produces an invalid scenario.
       - if: matrix.shard == 'fuzz'

@@ -74,7 +74,8 @@ type File struct {
 	Checks     []Check
 	Boundaries []Boundary
 	// Tunnels tie tunnel interfaces to their underlays. Only Simulate reads them.
-	Tunnels []Tunnel
+	Tunnels  []Tunnel
+	Policies []PolicyChange
 }
 
 // Kind says what happens to the destination at one node.

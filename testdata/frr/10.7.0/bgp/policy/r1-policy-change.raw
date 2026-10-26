@@ -1,0 +1,17 @@
+enable
+r1# configure terminal
+r1(config)# ip prefix-list P10-2 seq 5 permit 10.10.2.0/24
+r1(config)# route-map R3-IN permit 10
+r1(config-route-map)# match ip address prefix-list P10-2
+r1(config-route-map)# set weight 100
+r1(config-route-map)# exit
+r1(config)# route-map R3-IN permit 20
+r1(config-route-map)# exit
+r1(config)# router bgp 65001
+r1(config-router)# address-family ipv4 unicast
+r1(config-router-af)# neighbor 10.0.3.3 route-map R3-IN in
+r1(config-router-af)# exit-address-family
+r1(config-router)# exit
+r1(config)# end
+r1# clear ip bgp 10.0.3.3 soft in
+r1# 

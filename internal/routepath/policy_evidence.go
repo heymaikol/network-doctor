@@ -110,11 +110,12 @@ type PolicySupport struct {
 // an alternate; downstream BGP propagation and forwarding are not recomputed.
 type PolicyEvaluation struct {
 	PolicySelector
-	Considered int             `json:"considered"`
-	Unchanged  int             `json:"unchanged"`
-	Affected   int             `json:"affected"`
-	Routes     []PolicyRoute   `json:"routes"`
-	Evidence   []PolicySupport `json:"evidence"`
+	Considered      int             `json:"considered"`
+	Unchanged       int             `json:"unchanged"`
+	Affected        int             `json:"affected"`
+	UnrecordedAfter string          `json:"unrecorded_after"`
+	Routes          []PolicyRoute   `json:"routes"`
+	Evidence        []PolicySupport `json:"evidence"`
 }
 
 func (s PolicySelector) Validate() error {
@@ -391,6 +392,10 @@ func EvaluatePolicy(change PolicyChange) (PolicyEvaluation, error) {
 	if !ok || len(neighbors) != 1 || peer.Addr != s.Peer || peer.LocalAS != table.LocalAS || peer.RouterID != table.RouterID || peer.RemoteAS == 0 || peer.RemoteAS == math.MaxUint32 || !policyIPv4(peer.RemoteID) || peer.State != "Established" || af == nil {
 		return out, errors.New("peer is unknown, not Established, or contradicts the BGP table")
 	}
+	var acceptedPrefixes *uint64
+	if json.Unmarshal(af["acceptedPrefixCounter"], &acceptedPrefixes) != nil || acceptedPrefixes == nil {
+		return out, errors.New("peer accepted-prefix count must be a nonnegative integer")
+	}
 	for k, v := range af {
 		// Only the observed telemetry and explicit false policy flags establish
 		// an unfiltered baseline. A policy identifier is never a boolean.
@@ -426,11 +431,12 @@ func EvaluatePolicy(change PolicyChange) (PolicyEvaluation, error) {
 		}
 		return a.Bits() - b.Bits()
 	})
-	paths, peerPaths := 0, 0
+	paths, peerPrefixes := 0, uint64(0)
 	for _, routePrefix := range prefixes {
 		row := PolicyRoute{Prefix: routePrefix.String(), SelectionAfter: "unchanged", Outcome: "unchanged", Reason: "the policy leaves every recorded candidate for this prefix unchanged"}
 		permit, set := policyAction(routePrefix, rules, lists)
 		selected := 0
+		fromPeer := false
 		for _, path := range table.Routes[row.Prefix] {
 			paths++
 			var network, prefix string
@@ -464,7 +470,7 @@ func EvaluatePolicy(change PolicyChange) (PolicyEvaluation, error) {
 				row.SelectedBefore = peerID
 			}
 			if peerID == s.Peer {
-				peerPaths++
+				fromPeer = true
 			}
 			applies := peerID == s.Peer
 			if s.Direction == "import" && applies && (!permit || set != nil && *set != weight) {
@@ -472,6 +478,9 @@ func EvaluatePolicy(change PolicyChange) (PolicyEvaluation, error) {
 				row.Outcome = "unknown"
 				row.Reason = "policy changes a recorded candidate; protocol recomputation is required and no replacement route is proven"
 			}
+		}
+		if fromPeer {
+			peerPrefixes++
 		}
 		if selected != 1 {
 			return out, errors.New("baseline selected path is missing or ambiguous")
@@ -488,8 +497,21 @@ func EvaluatePolicy(change PolicyChange) (PolicyEvaluation, error) {
 		}
 		out.Routes = append(out.Routes, row)
 	}
-	if paths != *table.TotalPaths || s.Direction == "import" && peerPaths == 0 {
-		return out, errors.New("baseline path inventory is contradictory or names no path from the peer")
+	if paths != *table.TotalPaths || peerPrefixes != *acceptedPrefixes || s.Direction == "import" && peerPrefixes == 0 {
+		return PolicyEvaluation{}, errors.New("baseline path or peer prefix inventory is contradictory or names no path from the import peer")
+	}
+	// Equal counts cannot prove route identities or attributes across captures.
+	out.UnrecordedAfter = "unknown"
+	if s.Direction == "import" {
+		for _, rule := range rules {
+			if rule.Type != "permit" || rule.weight != nil {
+				break
+			}
+			if rule.list == "" {
+				out.UnrecordedAfter = "unchanged"
+				break
+			}
+		}
 	}
 	return out, nil
 }

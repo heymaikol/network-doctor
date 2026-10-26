@@ -207,7 +207,7 @@ func (w *walker) walk(planes []netmodel.Plane, at state, via *Segment, path []st
 		w.noteOtherOwners(at, owned)
 		return h
 	}
-	if p := w.policy; p != nil && at.node == p.Node && at.vrf == p.VRF && (p.Direction == "export" || p.Considered != p.Unchanged) {
+	if p := w.policy; p != nil && at.node == p.Node && at.vrf == p.VRF && (p.Direction == "export" || p.Considered != p.Unchanged || p.UnrecordedAfter == "unknown") {
 		w.touched = true
 		h.Decision = Decision{Kind: KindUnknown, Reason: "policy " + p.Policy + " needs unproven protocol recomputation; BGP-to-FIB correlation is unproven, so forwarding is unknown and no replacement route is predicted", Evidence: policySupports(p)}
 		return h

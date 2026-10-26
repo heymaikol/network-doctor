@@ -981,6 +981,7 @@ func (s Simulation) Text() string {
 	if p := s.Policy; p != nil {
 		line("Only the applying node's candidate selections are evaluated. Downstream forwarding stays recorded. Protocol recomputation and BGP-to-FIB correlation are unproven; no replacement route is predicted.")
 		line("%d BGP prefixes considered, %d unchanged, %d potentially affected.", p.Considered, p.Unchanged, p.Affected)
+		line("Unrecorded candidate effects: %s. Equal peer-prefix counts do not prove route identity, attributes, or an atomic snapshot.", p.UnrecordedAfter)
 		for _, r := range p.Routes {
 			line("  %s: selected before %s, selection after %s: %s", r.Prefix, r.SelectedBefore, r.SelectionAfter, r.Reason)
 			if r.AdvertisementAfter != "" {

@@ -278,6 +278,7 @@ func TestPolicyExportPeerNeedsNoIncomingPath(t *testing.T) {
 	c.Raw = strings.ReplaceAll(c.Raw, "10.0.3.3", "10.0.3.9")
 	sum := sha256.Sum256([]byte(c.Raw))
 	c.SHA256 = hex.EncodeToString(sum[:])
+	editPolicy(t, &p, 2, `"acceptedPrefixCounter":2`, `"acceptedPrefixCounter":0`)
 	if _, err := EvaluatePolicy(p); err == nil {
 		t.Fatal("import with no peer paths was accepted")
 	}

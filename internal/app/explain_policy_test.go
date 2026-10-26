@@ -36,6 +36,9 @@ func TestExplainPolicyPredictionGradedAgainstLiveFRR(t *testing.T) {
 	if !strings.Contains(text, fmt.Sprintf("%d destinations considered, %d unchanged.", s.Considered, s.Unchanged)) {
 		t.Fatal("text and JSON counts disagree")
 	}
+	if s.Policy.UnrecordedAfter != "unknown" || !strings.Contains(text, "Unrecorded candidate effects: unknown") {
+		t.Fatal("matching counts claimed complete route identity")
+	}
 	before := policyLabObject(t, "r1", "before", "show ip bgp json", false)["routes"].(map[string]any)
 	after := policyLabObject(t, "r1", "after", "show ip bgp json", false)["routes"].(map[string]any)
 	best := func(routes map[string]any, prefix string) string {

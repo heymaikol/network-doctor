@@ -120,10 +120,9 @@ func TestPolicyIdentityAndExportRatings(t *testing.T) {
 		p := &f.Policies[0]
 		p.Direction = direction
 		if direction == "import" {
-			c := &p.Captures[0]
-			c.Raw = strings.Replace(c.Raw, "weight 100", "weight 0", 1)
-			sum := sha256.Sum256([]byte(c.Raw))
-			c.SHA256 = hex.EncodeToString(sum[:])
+			// Permitting every prefix without assigning attributes proves a no-op
+			// even for candidates absent from the sequential baseline captures.
+			editPolicy(t, p, 0, `"weight 100"`, "")
 		}
 		s, err := Simulate(f, Failure{Policy: &p.PolicySelector}, addr("10.10.2.2"))
 		if err != nil {
@@ -132,6 +131,9 @@ func TestPolicyIdentityAndExportRatings(t *testing.T) {
 		got := impacts(s)["10.10.2.2"]
 		if direction == "import" && got != "" {
 			t.Errorf("identity policy impact %s, want none", got)
+		}
+		if direction == "import" && s.Policy.UnrecordedAfter != "unchanged" {
+			t.Fatal("global identity policy did not prove unchanged unrecorded candidates")
 		}
 		if direction == "export" && got != ImpactUnknown {
 			t.Errorf("export impact %s, want unknown", got)
@@ -212,6 +214,7 @@ func TestPolicyEmptyExportTableStillHasUnknownForwarding(t *testing.T) {
 	f := policyFile(t)
 	p := &f.Policies[0]
 	p.Direction = "export"
+	editPolicy(t, p, 2, `"acceptedPrefixCounter":2`, `"acceptedPrefixCounter":0`)
 	c := &p.Captures[3]
 	body, err := policyBody(*c, p.Node, policyTableCommand, false)
 	if err != nil {
@@ -236,5 +239,8 @@ func TestPolicyEmptyExportTableStillHasUnknownForwarding(t *testing.T) {
 	}
 	if a := affected(t, s, "10.10.2.2"); a.Impact != ImpactUnknown {
 		t.Fatalf("empty export table claimed known forwarding: %+v", a)
+	}
+	if s.Policy.Considered != 0 || s.Policy.UnrecordedAfter != "unknown" {
+		t.Fatalf("empty export inventory claimed complete identities: %+v", s.Policy)
 	}
 }

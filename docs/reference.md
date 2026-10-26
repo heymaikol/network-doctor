@@ -2556,7 +2556,21 @@ commands are required:
 The policy captures must be collected after the baseline table and neighbor
 captures. Router IDs, local AS, peer address, and default VRF must reconcile.
 The baseline peer must be Established with no path policy; existing-policy
-replacement is refused. Capture identity, malformed or duplicate JSON keys,
+replacement is refused. Its `ipv4Unicast.acceptedPrefixCounter` must be a
+nonnegative integer equal to the number of distinct IPv4 prefixes with paths
+from that peer in the table. Multiple paths for one prefix count once. Missing,
+null, malformed, overflowing, or contradictory counts are refused for import
+and export alike. A zero count with no incoming paths supports export with
+unknown impact; import with no recorded peer path is refused.
+
+Count agreement is a consistency check, not proof of route identities,
+attributes, or an atomic snapshot. Per-prefix ratings describe only recorded
+candidates. `unrecorded_after` reports unknown effects for candidates not
+proven by these sequential captures. Forwarding remains unknown even if all
+recorded candidates are unchanged, unless an import policy permits every
+prefix without assigning attributes. Export stays unknown in either case.
+
+Capture identity, malformed or duplicate JSON keys,
 missing clauses, wrong checksums, incomplete tables, unknown peers, stale
 paths, ambiguous bestpaths, and unsupported actions all fail closed with exit
 2. A duplicate policy selector is also refused. The

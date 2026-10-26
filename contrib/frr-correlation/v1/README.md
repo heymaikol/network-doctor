@@ -99,9 +99,25 @@ A source-record reference is `daemon-epoch:sequence`; object IDs are
 `daemon-epoch/kind/counter`. Paths also require their snapshot revision.
 
 The writer serializes concurrent records, bounds each line to 65535 bytes and
-each stream to 64 MiB / one million records, and terminates successful streams
-with a complete trailer after worker shutdown. Write/clock/flush failures leave
-no acceptable complete stream. A crash has no complete trailer. The packager
+each stream to 64 MiB / one million records. One mutex owns emission, trailer,
+flush, close, and publication. The private `emit_locked` helper does not acquire
+that mutex again. Shutdown is idempotent and closes its descriptor exactly once,
+including Linux close errors. Captures remain `.jsonl.partial` until both flushes
+and close succeed; no truncation rollback is needed. Partial streams are refused
+even when they contain an otherwise valid complete trailer. Late emission never
+appends after the trailer: it marks failure and revokes the published filename
+back to `.partial`. `ndoc_enabled` stays true after shutdown so hooks cannot
+silently discard late events. One directory descriptor is retained until process
+exit for revocation. Initialization runs once. Workers can already exist; the enabled state is
+published after the start record under the same mutex.
+
+Consume only after all producers have exited and the collection directory has
+stopped changing. A late-event revocation failure is reported to stderr and
+invalidates the collection operationally; the packager cannot infer an unrecorded
+filesystem failure from an isolated copied JSONL file. Retain daemon diagnostics.
+This is a trusted local writable-filesystem lab subset, not a guarantee against
+storage failure, malicious capture copying, or power loss. Write/clock/flush/close
+failures leave no acceptable published stream. A crash has no complete trailer. The packager
 requires exactly one closed epoch of each daemon in the same boot/namespace;
 it refuses restart histories rather than splicing epochs together.
 
@@ -149,7 +165,7 @@ cmp /work/build-a/build.json /work/build-b/build.json
 Each output must be a new directory. The recipe verifies inputs, applies the
 patch with zero fuzz, fixes locale/date/path mappings, builds five FRR executables
 and libraries, exercises the real wire codec, stages `frr-root/`, and writes
-`build.json` plus `SHA256SUMS`. Both accepted clean builds produced identical
+`build.json` plus `SHA256SUMS`. The current two accepted clean builds produced identical
 bytes for all eight staged artifacts. Their build logs and manifests are
 preserved with the evidence. An exact package version that disappears from
 repositories causes a failure; newer packages are not substituted silently.
@@ -175,6 +191,9 @@ python3 -I contrib/frr-correlation/v1/bundle.py <proof>/identity/r1 \
   --build contrib/frr-correlation/v1/verified-build.json --output bundle.json
 ```
 
+Output must not already exist. Exclusive creation refuses existing files and
+symlinks, including an output path that aliases source evidence.
+
 A refused bundle has `capture.complete=false`, no claims, a refusal reason,
 and process exit 2. The supported bundle validates with `schema.json` and is
 deterministic from preserved raw sources. No command consumes it in Network
@@ -182,8 +201,25 @@ Doctor.
 
 ## Proof and remaining gate
 
-See [the validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1/README.md)
+See [the validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-hardened/README.md)
 for live runs, exact proven/unproven edges, independent observations, checksums,
 negative tests, concurrency test, and reproducibility results. Approval of
 the producer choice did not approve this implementation. Stop for independent
 ChatGPT review before an importer or forwarding semantics is implemented.
+
+Run the producer/schema tests in the locked builder, from this directory:
+
+```sh
+python3 -B -m unittest -v test_bundle
+```
+
+For writer/shutdown faults, from an accepted build's pinned FRR source directory:
+
+```sh
+gcc -UNDEBUG -DHAVE_CONFIG_H -I. -Ilib /producer/writer_test.c \
+  -Llib/.libs -lfrr -ljson-c -pthread -o /work/writer-test
+LD_LIBRARY_PATH="$PWD/lib/.libs" python3 -I /producer/test_writer.py /work/writer-test
+```
+
+The C test includes the actual current writer source for syscall fault injection;
+these synthetic events never substitute for live daemon identity evidence.

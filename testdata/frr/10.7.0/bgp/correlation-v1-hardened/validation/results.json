@@ -1,0 +1,23 @@
+{
+  "compiled_wire_tests": "passed in both accepted builds",
+  "final_push_gate": "rerun against frozen integrated tree, retain immutable tree ID and results externally to avoid a self-referential tree hash",
+  "live_arms": {
+    "proof": 0,
+    "restart": 0
+  },
+  "namespace_integration_exit": 0,
+  "optional_sanitizers": "unavailable; no success claimed",
+  "producer_skips": 0,
+  "producer_tests": 26,
+  "race_integration_retry_exit": 0,
+  "repository_check_race_exit": 0,
+  "reproducibility": "identical build manifests and eight artifact byte comparisons",
+  "reproducible_builds": [
+    "hardening-d",
+    "hardening-e"
+  ],
+  "restart_bundle_exit": 2,
+  "toolchain": "go1.27.3",
+  "writer_modes": 15,
+  "writer_modes_passed": true
+}

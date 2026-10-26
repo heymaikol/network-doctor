@@ -12,7 +12,7 @@ from unittest.mock import patch
 from bundle import Refused, decode, main, produce, read_source
 
 HERE = Path(__file__).resolve().parent
-EVIDENCE = HERE.parents[2] / "testdata/frr/10.7.0/bgp/correlation-v1"
+EVIDENCE = HERE.parents[2] / "testdata/frr/10.7.0/bgp/correlation-v1-hardened"
 
 
 class ProducerProof(unittest.TestCase):
@@ -35,6 +35,11 @@ class ProducerProof(unittest.TestCase):
 
     def result(self):
         return produce(self.logs, self.build)
+
+    def test_partial_stream_is_refused_even_with_two_closed_streams(self):
+        (self.logs / "zebra.other.jsonl.partial").write_bytes(b"")
+        with self.assertRaisesRegex(Refused, "incomplete producer stream"):
+            self.result()
 
     def test_output_does_not_overwrite_existing_file_or_symlink(self):
         source = next(self.logs.glob("*.jsonl"))
@@ -258,7 +263,7 @@ class ProducerProof(unittest.TestCase):
                 path.write_bytes(original)
 
     def test_live_restart_capture_is_refused(self):
-        with self.assertRaisesRegex(Refused, "restarts|trailer"):
+        with self.assertRaisesRegex(Refused, "restarts|trailer|incomplete producer stream"):
             produce(EVIDENCE / "restart/identity/r1", self.build)
 
     def test_truncated_duplicate_key_or_event_gap_is_refused(self):

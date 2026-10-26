@@ -218,3 +218,5 @@ asynchronous, and no forwarding rating follows merely from observed route loss.
 Until the maintainer selects and validates a producer for the explicit links,
 `forwarding_impact` remains unknown. Do not start a broad Zebra RIB import solely
 for this decision.
+
+Current Phase 1 hardening and new-build evidence: [correlation-v1-hardened](correlation-v1-hardened/README.md). The original correlation-v1 evidence remains unchanged and proves only its original build.

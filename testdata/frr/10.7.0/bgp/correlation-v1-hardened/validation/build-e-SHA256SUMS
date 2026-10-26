@@ -1,0 +1,9 @@
+dbaec8a44f9caa2b5f1867a41750a1eb8be92afa210a79dc50daa21955ccb46c  frr-root/usr/bin/vtysh
+cf009e6734430f19512384bd6fc7ce24375fe2515f5fc4acae41ac67aac557ad  frr-root/usr/lib64/frr/libfrr.so.0
+ac4ea35dfd2283f202f567a70d4e58fe9ac069be8a69b4565852e612a188b86e  frr-root/usr/lib64/frr/libmgmt_be_nb.so.0
+452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb  frr-root/usr/lib64/libyang.so.3
+a80189660879e1d45bd28ebe634e461f1e7b5b3786359e694b366f2ff8f71712  frr-root/usr/libexec/frr/bgpd
+bae7d6f7fa0d45f77d12ccc1a38c4fd84fc7a54ae965c034d937abbf8f0a9c19  frr-root/usr/libexec/frr/mgmtd
+f27d18c6e44c2fe3e7d10b7fc993a2848b16049082156e8cd872070af17ccd54  frr-root/usr/libexec/frr/staticd
+6de7c37fdc428b7d9b462d3f0ab5a06fde8c9a17f9ddd1746ad756b7c3688a5b  frr-root/usr/libexec/frr/zebra
+8018c0a7ebd284373571473fbc3f9807338b30690b1d94059337f6d54de65ff6  build.json

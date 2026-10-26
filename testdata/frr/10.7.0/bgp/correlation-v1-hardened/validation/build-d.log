@@ -1,0 +1,2695 @@
+/work/frr-source.tar.gz: OK
+patching file bgpd/bgp_fsm.c
+patching file bgpd/bgp_route.c
+patching file bgpd/bgp_route.h
+patching file bgpd/bgp_zebra.c
+patching file bgpd/bgpd.c
+patching file bgpd/bgpd.h
+patching file lib/libfrr.c
+patching file lib/subdir.am
+patching file lib/zclient.c
+patching file lib/zclient.h
+patching file zebra/kernel_netlink.c
+patching file zebra/rib.h
+patching file zebra/zapi_msg.c
+patching file zebra/zebra_dplane.c
+patching file zebra/zebra_dplane.h
+patching file zebra/zebra_nhg.c
+patching file zebra/zebra_rib.c
+libtoolize: putting auxiliary files in AC_CONFIG_AUX_DIR, 'm4/ac'.
+libtoolize: linking file 'm4/ac/ltmain.sh'
+libtoolize: putting macros in AC_CONFIG_MACRO_DIRS, 'm4'.
+libtoolize: linking file 'm4/libtool.m4'
+libtoolize: linking file 'm4/ltoptions.m4'
+libtoolize: linking file 'm4/ltsugar.m4'
+libtoolize: linking file 'm4/ltversion.m4'
+libtoolize: linking file 'm4/lt~obsolete.m4'
+configure.ac:256: installing 'm4/ac/compile'
+configure.ac:99: installing 'm4/ac/config.guess'
+configure.ac:99: installing 'm4/ac/config.sub'
+configure.ac:181: installing 'm4/ac/install-sh'
+configure.ac:181: installing 'm4/ac/missing'
+Makefile.am: installing 'm4/ac/depcomp'
+lib/subdir.am:538: warning: user target '.l.c' defined here ...
+Makefile.am:180:   'lib/subdir.am' included from here
+/usr/share/automake-1.18/am/lex.am: ... overrides Automake target '.l.c' defined here
+configure.ac: installing 'm4/ac/ylwrap'
+lib/subdir.am:540: warning: user target '.y.c' defined here ...
+Makefile.am:180:   'lib/subdir.am' included from here
+/usr/share/automake-1.18/am/yacc.am: ... overrides Automake target '.y.c' defined here
+parallel-tests: installing 'm4/ac/test-driver'
+configure: loading site script /usr/share/config.site
+checking whether --sysconfdir option is FRR-specific... no, as expected
+checking whether --localstatedir option is FRR-specific... no, as expected
+checking build system type... x86_64-pc-linux-gnu
+checking host system type... x86_64-pc-linux-gnu
+checking for a BSD-compatible install... /usr/bin/install -c
+checking whether sleep supports fractional seconds... yes
+checking filesystem timestamp resolution... 0.01
+checking whether build environment is sane... yes
+checking for a race-free mkdir -p... /usr/bin/mkdir -p
+checking for gawk... gawk
+checking whether make sets $(MAKE)... yes
+checking whether make supports nested variables... yes
+checking xargs -n works... yes
+checking whether UID '0' is supported by ustar format... yes
+checking whether GID '0' is supported by ustar format... yes
+checking how to create a ustar tar archive... gnutar
+checking for perl... /usr/bin/perl
+checking for pkg-config... /usr/bin/pkg-config
+checking pkg-config is at least version 0.9.0... yes
+checking for gcc... gcc
+checking whether the C compiler works... yes
+checking for C compiler default output file name... a.out
+checking for suffix of executables... 
+checking whether we are cross compiling... no
+checking for suffix of object files... o
+checking whether the compiler supports GNU C... yes
+checking whether gcc accepts -g... yes
+checking for gcc option to enable C11 features... none needed
+checking whether gcc understands -c and -o together... yes
+checking whether make supports the include directive... yes (GNU style)
+checking dependency style of gcc... gcc3
+checking how to run the C preprocessor... gcc -E
+checking for g++... g++
+checking whether the compiler supports GNU C++... yes
+checking whether g++ accepts -g... yes
+checking for g++ option to enable C++11 features... none needed
+checking dependency style of g++... gcc3
+checking for pkg-config... (cached) /usr/bin/pkg-config
+checking pkg-config is at least version 0.9.0... yes
+checking for stdio.h... yes
+checking for stdlib.h... yes
+checking for string.h... yes
+checking for inttypes.h... yes
+checking for stdint.h... yes
+checking for strings.h... yes
+checking for sys/stat.h... yes
+checking for sys/types.h... yes
+checking for unistd.h... yes
+checking for wchar.h... yes
+checking for minix/config.h... no
+checking whether it is safe to define __EXTENSIONS__... yes
+checking whether _XOPEN_SOURCE should be defined... no
+checking whether gcc supports -fms-extensions... yes
+checking whether gcc supports -fno-omit-frame-pointer... yes
+checking whether gcc supports -funwind-tables... yes
+checking whether gcc supports -Wall... yes
+checking whether gcc supports -Wextra... yes
+checking whether gcc supports -Wformat-nonliteral... yes
+checking whether gcc supports -Wformat-security... yes
+checking whether gcc supports -Wswitch-enum... yes
+checking whether gcc supports -Wstrict-prototypes... yes
+checking whether gcc supports -Wmissing-prototypes... yes
+checking whether gcc supports -Wmissing-declarations... yes
+checking whether gcc supports -Wpointer-arith... yes
+checking whether gcc supports -Wbad-function-cast... yes
+checking whether gcc supports -Wwrite-strings... yes
+checking whether gcc supports -Wundef... yes
+checking whether gcc supports -Wimplicit-fallthrough... yes
+checking whether gcc supports -Wshadow... yes
+checking whether gcc supports -Wmissing-noreturn... yes
+checking whether gcc supports -Wformat-extra-args... yes
+checking whether gcc supports -Wno-unused-result... yes
+checking whether gcc supports -Wno-unused-parameter... yes
+checking whether gcc supports -Wno-missing-field-initializers... yes
+checking whether gcc supports -Wno-microsoft-anon-tag... no
+checking whether gcc supports -Wno-error=deprecated-declarations... yes
+checking whether gcc supports -Waddress-of-packed-member... yes
+checking whether gcc supports -Wc++-compat... yes
+checking whether gcc supports -fplugin=tools/gcc-plugins/frr-format.so... no
+checking whether gcc supports -fplugin=frr-format... no
+checking whether linker supports __start/stop_section symbols... yes
+checking if compiler needs -Werror to reject unknown flags... no
+checking for the pthreads library -lpthreads... no
+checking whether pthreads work without any flags... yes
+checking for joinable pthread attribute... PTHREAD_CREATE_JOINABLE
+checking if more special flags are required for pthreads... no
+checking for PTHREAD_PRIO_INHERIT... yes
+checking for pthread_np.h... no
+checking for pthread_setname_np... yes
+checking for pthread_set_name_np... no
+checking for pthread_getthreadid_np... no
+checking whether ln -s works... yes
+checking for ar... ar
+checking how to print strings... printf
+checking for a sed that does not truncate output... sed
+checking for egrep... /usr/bin/egrep
+checking for fgrep... /usr/bin/fgrep
+checking for ld used by gcc... /usr/bin/ld
+checking if the linker (/usr/bin/ld) is GNU ld... yes
+checking for BSD- or MS-compatible name lister (nm)... /usr/bin/nm -B
+checking the name lister (/usr/bin/nm -B) interface... BSD nm
+checking the maximum length of command line arguments... 1572864
+checking how to convert x86_64-pc-linux-gnu file names to x86_64-pc-linux-gnu format... func_convert_file_noop
+checking how to convert x86_64-pc-linux-gnu file names to toolchain format... func_convert_file_noop
+checking for /usr/bin/ld option to reload object files... -r
+checking for file... :
+checking for objdump... objdump
+checking how to recognize dependent libraries... pass_all
+checking for dlltool... no
+checking how to associate runtime and link libraries... printf %s\n
+checking for ranlib... ranlib
+checking for archiver @FILE support... @
+checking for strip... strip
+checking command to parse /usr/bin/nm -B output from gcc object... ok
+checking for sysroot... no
+checking for a working dd... /usr/bin/dd
+checking how to truncate binary pipes... /usr/bin/dd bs=4096 count=1
+checking for mt... no
+checking if : is a manifest tool... no
+checking for dlfcn.h... yes
+checking for objdir... .libs
+checking if gcc supports -fno-rtti -fno-exceptions... no
+checking for gcc option to produce PIC... -fPIC -DPIC
+checking if gcc PIC flag -fPIC -DPIC works... yes
+checking if gcc static flag -static works... no
+checking if gcc supports -c -o file.o... yes
+checking if gcc supports -c -o file.o... (cached) yes
+checking whether the gcc linker (/usr/bin/ld) supports shared libraries... egrep: warning: egrep is obsolescent; using grep -E
+yes
+checking whether -lc should be explicitly linked in... no
+checking dynamic linker characteristics... GNU/Linux ld.so
+checking how to hardcode library paths into programs... immediate
+checking whether stripping libraries is possible... yes
+checking if libtool supports shared libraries... yes
+checking whether to build shared libraries... yes
+checking whether to build static libraries... yes
+checking how to run the C++ preprocessor... g++ -E
+checking for ld used by g++... /usr/bin/ld
+checking if the linker (/usr/bin/ld) is GNU ld... yes
+checking whether the g++ linker (/usr/bin/ld) supports shared libraries... yes
+checking for g++ option to produce PIC... -fPIC -DPIC
+checking if g++ PIC flag -fPIC -DPIC works... yes
+checking if g++ static flag -static works... no
+checking if g++ supports -c -o file.o... yes
+checking if g++ supports -c -o file.o... (cached) yes
+checking whether the g++ linker (/usr/bin/ld) supports shared libraries... yes
+checking dynamic linker characteristics... (cached) GNU/Linux ld.so
+checking how to hardcode library paths into programs... immediate
+checking whether ar supports D option... yes
+checking whether ranlib supports D option... yes
+checking for json-c/json.h... yes
+checking for json_object_get in -ljson-c... yes
+checking for a Python interpreter with version >= 3... python
+checking for python... /usr/bin/python
+checking for python version... 3.14
+checking for python platform... linux
+checking for GNU default python prefix... ${prefix}
+checking for GNU default python exec_prefix... ${exec_prefix}
+checking for python script directory (pythondir)... ${PYTHON_PREFIX}/lib/python3.14/site-packages
+checking for python extension module directory (pyexecdir)... ${PYTHON_EXEC_PREFIX}/lib64/python3.14/site-packages
+checking for gelf.h... yes
+checking for elf_memory in -lelf... yes
+checking for elf_getdata_rawchunk in -lelf... yes
+checking for gelf_getnote in -lelf... yes
+checking python interpreter /usr/bin/python... /usr/bin/python (python3)
+checking whether /usr/bin/python3.14-config is available... yes
+checking whether /usr/bin/python3.14-config provides a working build environment... yes
+checking whether /usr/bin/python module pytest is available... yes
+checking whether /usr/bin/python module sphinx is executable... no
+checking for objcopy... objcopy
+checking for .interp value to use... /lib64/ld-linux-x86-64.so.2
+checking for asm/types.h... yes
+checking for sys/endian.h... no
+checking for endian.h... yes
+checking for main in -latomic... yes
+checking for stdatomic.h... yes
+checking whether _Atomic qualifier works... yes
+checking for Linux futex() support... yes
+checking for netinet/in_var.h... no
+checking for netinet/ip_icmp.h... yes
+checking for ucontext.h... yes
+checking for ucontext_t.uc_mcontext.uc_regs... no
+checking for ucontext_t.uc_mcontext.regs... no
+checking for ucontext_t.uc_mcontext.gregs... yes
+checking which operating system interface to use... Linux
+checking for gcc option to enable large file support... none needed
+checking for strlcat... yes
+checking for strlcpy... yes
+checking for getgrouplist... yes
+checking for getloadavg... yes
+checking for openat... yes
+checking for unlinkat... yes
+checking for posix_fallocate... yes
+checking for sendmmsg... yes
+checking for explicit_bzero... yes
+checking for struct mmsghdr.msg_hdr... yes
+checking for readline in -lreadline... yes
+checking for rl_clear_visible_line... yes
+checking for readline/history.h... yes
+checking for rl_completion_matches in -lreadline... yes
+checking for append_history in -lreadline... yes
+checking for library containing pow... -lm
+checking for ppoll... yes
+checking for pollts... no
+checking for epoll_pwait... yes
+checking for epoll API support... yes
+checking for gcc options needed to detect all undeclared functions... none needed
+checking for asm-generic/unistd.h... yes
+checking whether __NR_setns is declared... yes
+checking for setns... yes
+checking for net/bpf.h... no
+checking for sys/dlpi.h... no
+checking zebra IS-IS I/O method... pfpacket
+checking for struct ip_mreqn.imr_ifindex... yes
+checking for linux/mroute.h... yes
+checking for linux/mroute6.h... yes
+checking for netinet/ip_mroute.h... no
+checking for netinet6/ip6_mroute.h... no
+checking for RFC3678 protocol-independed API... yes
+checking for net/if_media.h... no
+checking for struct if_data.ifi_link_state... no
+checking for netinet/tcp.h... yes
+checking whether TCP_MD5SIG is declared... yes
+checking for crypt in -lcrypt... yes
+checking for res_init in -lresolv... no
+checking for CARES (libcares)... yes
+checking for struct utsname.domainname... yes
+checking for netinet6/nd6.h... no
+checking for LIBYANG (libyang >= 2.1.128)... yes
+checking for struct lyd_node.priv... yes
+checking for lyd_find_xpath3 in -lyang... yes
+checking for ly_strerrcode... no
+checking for ly_strvecode... yes
+checking for lyd_trim_xpath... yes
+checking for pimd OS support... yes
+checking for pim6d OS support... yes
+checking for VRRP OS support... yes
+checking whether the RTR Library is compiled with SSH... no
+checking for library containing dlopen... none required
+checking for link.h... yes
+checking for dlinfo(RTLD_DI_ORIGIN)... yes
+checking for dlinfo(RTLD_DI_LINKMAP)... yes
+checking for struct sockaddr_dl... no
+checking for struct vifctl... yes
+checking for struct mfcctl... yes
+checking for struct sioc_sg_req... yes
+checking for vifi_t... yes
+checking for struct sioc_vif_req... yes
+checking for struct igmpmsg... yes
+checking for struct ifaliasreq... no
+checking for struct nd_opt_adv_interval... yes
+checking for struct nd_opt_homeagent_info... no
+checking for struct nd_opt_adv_interval... (cached) yes
+checking for struct nd_opt_rdnss... no
+checking for struct nd_opt_dnssl... no
+checking for struct sockaddr.sa_len... no
+checking for struct sockaddr_in.sin_len... no
+checking for struct sockaddr_un.sun_len... no
+checking for struct sockaddr_dl.sdl_len... no
+checking for struct nd_opt_adv_interval.nd_opt_ai_type... no
+checking for IP_PKTINFO... yes
+checking for IP_RECVDSTADDR... no
+checking for IP_RECVIF... no
+checking for SO_BINDANY... no
+checking for IP_FREEBIND... yes
+checking whether be32enc is declared... no
+checking whether be32dec is declared... no
+checking for clock_gettime in -lrt... yes
+checking for library containing clock_nanosleep... none required
+checking for flex... flex
+checking for lex output file root... lex.yy
+checking for lex library... none needed
+checking whether yytext is a pointer... yes
+checking version of flex... 2.6.4
+checking for bison... bison -y
+checking version of bison... 3.8.2 - 3.3 or newer
+checking whether prctl PR_SET_KEEPCAPS is available... yes
+checking for sys/capability.h... yes
+checking for cap_init in -lcap... yes
+checking for UNWIND (libunwind)... no
+checking for libunwind.h... no
+checking for libunwind.h... no
+checking for execinfo.h... yes
+checking for library containing backtrace... none required
+checking for malloc.h... yes
+checking for malloc_np.h... no
+checking for malloc/malloc.h... no
+checking whether mallinfo is available... yes
+checking whether mallinfo2 is available... yes
+checking whether malloc_usable_size is available... yes
+checking for CU_initialize_registry in -lcunit... no
+checking for valgrind... no
+checking that generated files are newer than configure... done
+configure: creating ./config.status
+config.status: creating Makefile
+config.status: creating config.version
+config.status: creating redhat/frr.spec
+config.status: creating alpine/APKBUILD
+config.status: creating snapcraft/snapcraft.yaml
+config.status: creating lib/version.h
+config.status: creating lib/config_paths.h
+config.status: creating tests/lib/cli/test_cli.refout
+config.status: creating pkgsrc/mgmtd.sh
+config.status: creating pkgsrc/bgpd.sh
+config.status: creating pkgsrc/ospf6d.sh
+config.status: creating pkgsrc/ospfd.sh
+config.status: creating pkgsrc/ripd.sh
+config.status: creating pkgsrc/ripngd.sh
+config.status: creating pkgsrc/zebra.sh
+config.status: creating pkgsrc/eigrpd.sh
+config.status: creating tools/frr
+config.status: creating tools/watchfrr.sh
+config.status: creating tools/frrinit.sh
+config.status: creating tools/frrcommon.sh
+config.status: creating tools/frr.service
+config.status: creating tools/frr@.service
+config.status: creating tools/frr.pc
+config.status: creating config.h
+config.status: executing depfiles commands
+config.status: executing libtool commands
+
+FRRouting configuration
+------------------------------
+FRR version             : 10.7.0
+host operating system   : linux-gnu
+source code location    : .
+compiler                : gcc
+compiler flags          : -O2 -g0 -ffile-prefix-map=/work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef=. -fmacro-prefix-map=/work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef=.   -fms-extensions -fno-omit-frame-pointer -funwind-tables -Wall -Wextra -Wformat-nonliteral -Wformat-security -Wswitch-enum -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wpointer-arith -Wbad-function-cast -Wwrite-strings -Wundef -Wimplicit-fallthrough -Wshadow -Wmissing-noreturn -Wformat-extra-args -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -Wno-error=deprecated-declarations -Waddress-of-packed-member  
+make                    : make
+linker flags            :  -g  -lyang   -ljson-c -latomic -lrt -lcap -lreadline -lm 
+local state file dir    : /var/lib/frr
+run state file dir      : /var/run/frr
+config file directory   : /etc/frr
+module directory        : /usr/lib64/frr/frr/modules
+pkgconfig directory     : /usr/lib64/frr/pkgconfig
+script directory        : /etc/frr/scripts
+user to run as          : root
+group to run as         : root
+group for vty sockets   : root
+config file mask        : 0600
+log file mask           : 0600
+zebra protobuf enabled  : no
+vici socket path        : /var/run/charon.vici
+
+The above user and group must have read/write access to the state file
+directory and to the config files in the config file directory.
+true
+/usr/bin/perl ./lib/route_types.pl  --enabled bfdd --enabled bgpd --enabled bgpd-vnc --enabled eigrpd --enabled isisd --enabled fabricd  --enabled nhrpd --enabled ospfd --enabled ospf6d --enabled pbrd --enabled pimd --enabled ripd --enabled ripngd  --enabled zebra < ./lib/route_types.txt > lib/route_types.h
+/usr/bin/perl ./vtysh/daemons.pl zebra mgmtd bgpd ripd ripngd ospfd ospf6d isisd fabricd nhrpd   eigrpd  pimd pim6d pbrd staticd bfdd vrrpd pathd > lib/vtysh_daemons.h
+  GEN      yang/frr-bgp-types.yang.c
+  GEN      yang/frr-bgp.yang.c
+  GEN      yang/frr-bgp-common-structure.yang.c
+  GEN      yang/frr-bgp-common.yang.c
+  GEN      yang/frr-bgp-common-multiprotocol.yang.c
+  GEN      yang/frr-bgp-neighbor.yang.c
+  GEN      yang/frr-bgp-peer-group.yang.c
+  GEN      yang/frr-bgp-bmp.yang.c
+  GEN      yang/frr-bgp-rpki.yang.c
+  GEN      yang/frr-deviations-bgp-datacenter.yang.c
+  GEN      yang/frr-bgp-filter.yang.c
+  GEN      yang/frr-bgp-route-map.yang.c
+  CC       bgpd/bgp_addpath.o
+  CC       bgpd/bgp_advertise.o
+  CC       bgpd/bgp_aspath.o
+  CC       bgpd/bgp_attr.o
+  CC       bgpd/bgp_attr_evpn.o
+  LEX      lib/command_lex.c
+  YACC     lib/command_parse.c
+  CC       lib/clippy-command_py.o
+  LEX      lib/defun_lex.c
+  CC       lib/clippy-elf_py.o
+  CC       lib/clippy-graph.o
+  CC       lib/clippy-libfrr_trace.o
+  CC       lib/clippy-memory.o
+  CC       lib/clippy-typesafe.o
+  CC       lib/clippy-vector.o
+  CC       bgpd/bgp_clist.o
+  CC       bgpd/bgp_community.o
+  CC       bgpd/bgp_community_alias.o
+  CC       bgpd/bgp_conditional_adv.o
+  CC       bgpd/bgp_damp.o
+  CC       bgpd/bgp_dump.o
+  CC       bgpd/bgp_ecommunity.o
+  CC       bgpd/bgp_encap_tlv.o
+  CC       bgpd/bgp_errors.o
+  CC       bgpd/bgp_evpn.o
+  CC       bgpd/bgp_evpn_mh.o
+  CC       bgpd/bgp_filter.o
+  CC       bgpd/bgp_flowspec.o
+  CC       bgpd/bgp_flowspec_util.o
+  CC       bgpd/bgp_flowspec_vty.o
+  CC       bgpd/bgp_fsm.o
+  CC       bgpd/bgp_io.o
+  CC       bgpd/bgp_keepalives.o
+  CC       bgpd/bgp_label.o
+  CC       bgpd/bgp_lcommunity.o
+  CC       bgpd/bgp_ls.o
+  CC       bgpd/bgp_ls_nlri.o
+  CC       bgpd/bgp_ls_ted.o
+  CC       bgpd/bgp_mac.o
+  CC       bgpd/bgp_memory.o
+  CC       bgpd/bgp_mpath.o
+  CC       bgpd/bgp_mplsvpn.o
+  CC       bgpd/bgp_network.o
+  CC       bgpd/bgp_nht.o
+  CC       bgpd/bgp_open.o
+  CC       bgpd/bgp_packet.o
+  CC       bgpd/bgp_pbr.o
+  CC       bgpd/bgp_rd.o
+  CC       bgpd/bgp_regex.o
+  CC       bgpd/bgp_routemap_nb.o
+  CC       bgpd/bgp_routemap_nb_config.o
+  CC       bgpd/bgp_script.o
+  CC       bgpd/bgp_table.o
+  CC       bgpd/bgp_updgrp.o
+  CC       bgpd/bgp_updgrp_adv.o
+  CC       bgpd/bgp_updgrp_packet.o
+  CC       bgpd/bgp_vpn.o
+  CC       bgpd/bgp_zebra.o
+  CC       bgpd/bgpd.o
+  CC       bgpd/bgp_trace.o
+  CC       bgpd/bgp_nhg.o
+  CC       bgpd/bgp_nhc.o
+  CC       bgpd/bgp_srv6.o
+  CC       lib/netdoc.lo
+  CC       lib/admin_group.lo
+  CC       lib/affinitymap.lo
+  CC       lib/affinitymap_northbound.lo
+  CC       lib/agg_table.lo
+  CC       lib/atomlist.lo
+  CC       lib/asn.lo
+  CC       lib/base64.lo
+  CC       lib/bfd.lo
+  CC       lib/buffer.lo
+  CC       lib/checksum.lo
+  CC       lib/command.lo
+  CC       lib/command_graph.lo
+  CC       lib/command_match.lo
+  CC       lib/cspf.lo
+  CC       lib/csv.lo
+  CC       lib/darr.lo
+  CC       lib/debug.lo
+  CC       lib/defaults.lo
+  CC       lib/distribute.lo
+  CC       lib/explicit_bzero.lo
+  CC       lib/ferr.lo
+  CC       lib/filter.lo
+  CC       lib/filter_nb.lo
+  CC       lib/flex_algo.lo
+  CC       lib/frrcu.lo
+  CC       lib/frrlua.lo
+  CC       lib/frrscript.lo
+  CC       lib/frr_pthread.lo
+  CC       lib/frrstr.lo
+  CC       lib/grammar_sandbox.lo
+  CC       lib/graph.lo
+  CC       lib/hash.lo
+  CC       lib/host_nb.lo
+  CC       lib/hook.lo
+  CC       lib/id_alloc.lo
+  CC       lib/iso.lo
+  CC       lib/jhash.lo
+  CC       lib/json.lo
+  CC       lib/keychain.lo
+  CC       lib/keychain_nb.lo
+  CC       lib/ldp_sync.lo
+  CC       lib/lib_errors.lo
+  CC       lib/lib_vty.lo
+  CC       lib/libagentx.lo
+  CC       lib/libfrr.lo
+  CC       lib/libfrr_trace.lo
+  CC       lib/linklist.lo
+  CC       lib/link_state.lo
+  CC       lib/log.lo
+  CC       lib/log_filter.lo
+  CC       lib/log_nb.lo
+  CC       lib/md5.lo
+  CC       lib/memory.lo
+  CC       lib/mgmt_msg.lo
+  CC       lib/mgmt_msg_native.lo
+  CC       lib/mlag.lo
+  CC       lib/module.lo
+  CC       lib/mpls.lo
+  CC       lib/srv6.lo
+  CC       lib/netlink_parser.lo
+  CC       lib/network.lo
+  CC       lib/nexthop.lo
+  CC       lib/netns.lo
+  CC       lib/northbound.lo
+  CC       lib/northbound_db.lo
+  CC       lib/northbound_notif.lo
+  CC       lib/northbound_oper.lo
+  CC       lib/ntop.lo
+  CC       lib/openbsd-tree.lo
+  CC       lib/pid_output.lo
+  CC       lib/prefix.lo
+  CC       lib/privs.lo
+  CC       lib/ptm_lib.lo
+  CC       lib/pullwr.lo
+  CC       lib/qobj.lo
+  CC       lib/ringbuf.lo
+  CC       lib/routemap_northbound.lo
+  CC       lib/sbuf.lo
+  CC       lib/seqlock.lo
+  CC       lib/sha256.lo
+  CC       lib/sigevent.lo
+  CC       lib/skiplist.lo
+  CC       lib/sockopt.lo
+  CC       lib/sockunion.lo
+  CC       lib/spf_backoff.lo
+  CC       lib/segment_routing.lo
+  CC       lib/srcdest_table.lo
+  CC       lib/stream.lo
+  CC       lib/strformat.lo
+  CC       lib/strlcat.lo
+  CC       lib/strlcpy.lo
+  CC       lib/systemd.lo
+  CC       lib/table.lo
+  CC       lib/termtable.lo
+  CC       lib/typerb.lo
+  CC       lib/typesafe.lo
+  CC       lib/vector.lo
+  CC       lib/vrf.lo
+  CC       lib/wheel.lo
+  CC       lib/workqueue.lo
+  CC       lib/xref.lo
+  CC       lib/yang.lo
+  CC       lib/yang_translator.lo
+  CC       lib/yang_wrappers.lo
+  CC       lib/zclient.lo
+  CC       lib/zlog.lo
+  CC       lib/zlog_5424.lo
+  CC       lib/zlog_live.lo
+  CC       lib/zlog_recirculate.lo
+  CC       lib/zlog_targets.lo
+  CC       lib/routing_nb.lo
+  CC       lib/routing_nb_config.lo
+  CC       lib/tc.lo
+  GEN      yang/frr-affinity-map.yang.c
+  GEN      yang/frr-backend.yang.c
+  GEN      yang/frr-filter.yang.c
+  GEN      yang/frr-host.yang.c
+  GEN      yang/frr-if-rmap.yang.c
+  GEN      yang/frr-interface.yang.c
+  GEN      yang/frr-logging.yang.c
+  GEN      yang/frr-route-map.yang.c
+  GEN      yang/frr-route-types.yang.c
+  GEN      yang/frr-vrf.yang.c
+  GEN      yang/frr-routing.yang.c
+  GEN      yang/frr-nexthop.yang.c
+  GEN      yang/ietf/frr-deviations-ietf-key-chain.yang.c
+  GEN      yang/ietf/ietf-routing-types.yang.c
+  GEN      yang/ietf/ietf-syslog-types.yang.c
+  GEN      yang/ietf/ietf-netconf-acm.yang.c
+  GEN      yang/ietf/ietf-key-chain.yang.c
+  GEN      yang/ietf/ietf-interfaces.yang.c
+  GEN      yang/ietf/ietf-bgp-types.yang.c
+  GEN      yang/frr-module-translator.yang.c
+  GEN      yang/ietf/ietf-srv6-types.yang.c
+  GEN      yang/frr-zebra.yang.c
+  GEN      yang/frr-zebra-route-map.yang.c
+  GEN      yang/frr-bfdd.yang.c
+  GEN      yang/frr-staticd.yang.c
+  CC       staticd/static_bfd.o
+  CC       staticd/static_trace.o
+  CC       staticd/static_debug.o
+  CC       staticd/static_nht.o
+  CC       staticd/static_routes.o
+  CC       staticd/static_zebra.o
+  CC       staticd/static_vrf.o
+  CC       staticd/static_nb.o
+  CC       staticd/static_nb_config.o
+  CC       staticd/static_srv6.o
+  CC       yang/mgmtd_mgmtd-frr-zebra.yang.o
+  CC       yang/mgmtd_mgmtd-frr-zebra-route-map.yang.o
+  GEN      yang/ietf/ietf-netconf.yang.c
+  GEN      yang/ietf/ietf-netconf-with-defaults.yang.c
+  CC       yang/mgmtd_mgmtd-frr-bfdd.yang.o
+  GEN      yang/frr-ripd.yang.c
+  GEN      yang/frr-ripngd.yang.c
+  CC       yang/mgmtd_mgmtd-frr-staticd.yang.o
+  CC       mgmtd/mgmt.o
+  CC       mgmtd/mgmt_ds.o
+  CC       mgmtd/mgmt_be_adapter.o
+  CC       mgmtd/mgmt_fe_adapter.o
+  CC       mgmtd/mgmt_history.o
+  CC       mgmtd/mgmt_memory.o
+  CC       mgmtd/mgmt_txn.o
+  CC       mgmtd/mgmt_txn_cfg.o
+  CC       mgmtd/mgmt_vty_frontend.o
+  CC       mgmtd/libmgmt_be_nb_la-mgmt_be_nb.lo
+  CC       zebra/fpm_listener.o
+  CC       ripd/rip_debug.o
+  CC       ripd/rip_errors.o
+  CC       ripd/rip_interface.o
+  CC       ripd/rip_offset.o
+  CC       ripd/rip_main.o
+  CC       ripd/rip_nb.o
+  CC       ripd/rip_nb_config.o
+  CC       ripd/rip_nb_rpcs.o
+  CC       ripd/rip_nb_notifications.o
+  CC       ripd/rip_nb_state.o
+  CC       ripd/rip_peer.o
+  CC       ripd/rip_routemap.o
+  CC       ripd/rip_zebra.o
+  CC       ripd/ripd.o
+  CC       yang/frr-ripd.yang.o
+  CC       ripngd/ripng_debug.o
+  CC       ripngd/ripng_interface.o
+  CC       ripngd/ripng_nexthop.o
+  CC       ripngd/ripng_offset.o
+  CC       ripngd/ripng_main.o
+  CC       ripngd/ripng_nb.o
+  CC       ripngd/ripng_nb_config.o
+  CC       ripngd/ripng_nb_rpcs.o
+  CC       ripngd/ripng_nb_state.o
+  CC       ripngd/ripng_peer.o
+  CC       ripngd/ripng_route.o
+  CC       ripngd/ripng_routemap.o
+  CC       ripngd/ripng_zebra.o
+  CC       ripngd/ripngd.o
+  CC       yang/frr-ripngd.yang.o
+  GEN      yang/frr-ospf-route-map.yang.c
+  GEN      yang/frr-ospf6-route-map.yang.c
+  CC       ospf6d/ospf6_abr.o
+  CC       ospf6d/ospf6_routemap_nb.o
+  CC       ospf6d/ospf6_routemap_nb_config.o
+  CC       ospf6d/ospf6_bfd.o
+  CC       ospf6d/ospf6_flood.o
+  CC       ospf6d/ospf6_intra.o
+  CC       ospf6d/ospf6_lsdb.o
+  CC       ospf6d/ospf6_message.o
+  CC       ospf6d/ospf6_network.o
+  CC       ospf6d/ospf6_proto.o
+  CC       ospf6d/ospf6_spf.o
+  CC       ospf6d/ospf6_zebra.o
+  CC       ospf6d/ospf6_auth_trailer.o
+  GEN      yang/frr-isisd.yang.c
+  CC       isisd/isis_affinitymap.o
+  CC       isisd/isis_adjacency.o
+  CC       isisd/isis_bfd.o
+  CC       isisd/isis_circuit.o
+  CC       isisd/isis_csm.o
+  CC       isisd/isis_dr.o
+  CC       isisd/isis_dynhn.o
+  CC       isisd/isis_errors.o
+  CC       isisd/isis_events.o
+  CC       isisd/isis_flags.o
+  CC       isisd/isis_ldp_sync.o
+  CC       isisd/isis_lfa.o
+  CC       isisd/isis_lsp.o
+  CC       isisd/isis_misc.o
+  CC       isisd/isis_mt.o
+  CC       isisd/isis_pdu.o
+  CC       isisd/isis_pdu_counter.o
+  CC       isisd/isis_redist.o
+  CC       isisd/isis_route.o
+  CC       isisd/isis_routemap.o
+  CC       isisd/isis_spf.o
+  CC       isisd/isis_sr.o
+  CC       isisd/isis_flex_algo.o
+  CC       isisd/isis_srv6.o
+  CC       isisd/isis_te.o
+  CC       isisd/isis_tlvs.o
+  CC       isisd/isis_tx_queue.o
+  CC       isisd/isis_zebra.o
+  CC       isisd/isisd.o
+  CC       isisd/iso_checksum.o
+  CC       isisd/fabricd.o
+  CC       isisd/isis_nb.o
+  CC       isisd/isis_nb_config.o
+  CC       isisd/isis_nb_notifications.o
+  CC       isisd/isis_nb_state.o
+  CC       isisd/fabricd-isis_bpf.o
+  CC       isisd/fabricd-isis_dlpi.o
+  CC       isisd/fabricd-isis_main.o
+  CC       isisd/fabricd-isis_pfpacket.o
+  CC       isisd/libfabric_a-isis_affinitymap.o
+  CC       isisd/libfabric_a-isis_adjacency.o
+  CC       isisd/libfabric_a-isis_bfd.o
+  CC       isisd/libfabric_a-isis_circuit.o
+  CC       isisd/libfabric_a-isis_csm.o
+  CC       isisd/libfabric_a-isis_dr.o
+  CC       isisd/libfabric_a-isis_dynhn.o
+  CC       isisd/libfabric_a-isis_errors.o
+  CC       isisd/libfabric_a-isis_events.o
+  CC       isisd/libfabric_a-isis_flags.o
+  CC       isisd/libfabric_a-isis_ldp_sync.o
+  CC       isisd/libfabric_a-isis_lfa.o
+  CC       isisd/libfabric_a-isis_lsp.o
+  CC       isisd/libfabric_a-isis_misc.o
+  CC       isisd/libfabric_a-isis_mt.o
+  CC       isisd/libfabric_a-isis_pdu.o
+  CC       isisd/libfabric_a-isis_pdu_counter.o
+  CC       isisd/libfabric_a-isis_redist.o
+  CC       isisd/libfabric_a-isis_route.o
+  CC       isisd/libfabric_a-isis_routemap.o
+  CC       isisd/libfabric_a-isis_spf.o
+  CC       isisd/libfabric_a-isis_sr.o
+  CC       isisd/libfabric_a-isis_flex_algo.o
+  CC       isisd/libfabric_a-isis_srv6.o
+  CC       isisd/libfabric_a-isis_te.o
+  CC       isisd/libfabric_a-isis_tlvs.o
+  CC       isisd/libfabric_a-isis_tx_queue.o
+  CC       isisd/libfabric_a-isis_zebra.o
+  CC       isisd/libfabric_a-isisd.o
+  CC       isisd/libfabric_a-iso_checksum.o
+  CC       isisd/libfabric_a-fabricd.o
+  CC       isisd/libfabric_a-isis_vty_fabricd.o
+  CC       lib/libfrrcares_la-resolver.lo
+  GEN      yang/frr-eigrpd.yang.c
+  GEN      yang/frr-pim.yang.c
+  GEN      yang/frr-pim-route-map.yang.c
+  GEN      yang/frr-pim-rp.yang.c
+  GEN      yang/frr-pim-candidate.yang.c
+  GEN      yang/frr-gmp.yang.c
+  CC       pimd/pim6d-pim_addr.o
+  CC       pimd/pim6d-pim_assert.o
+  CC       pimd/pim6d-pim_bfd.o
+  CC       pimd/pim6d-pim_bsm.o
+  CC       pimd/pim6d-pim_bsr_rpdb.o
+  CC       pimd/pim6d-pim_cmd_common.o
+  CC       pimd/pim6d-pim_errors.o
+  CC       pimd/pim6d-pim_hello.o
+  CC       pimd/pim6d-pim_iface.o
+  CC       pimd/pim6d-pim_ifchannel.o
+  CC       pimd/pim6d-pim_instance.o
+  CC       pimd/pim6d-pim_int.o
+  CC       pimd/pim6d-pim_join.o
+  CC       pimd/pim6d-pim_jp_agg.o
+  CC       pimd/pim6d-pim_macro.o
+  CC       pimd/pim6d-pim_memory.o
+  CC       pimd/pim6d-pim_mroute.o
+  CC       pimd/pim6d-pim_msg.o
+  CC       pimd/pim6d-pim_nb.o
+  CC       pimd/pim6d-pim_nb_config.o
+  CC       pimd/pim6d-pim_neighbor.o
+  CC       pimd/pim6d-pim_nht.o
+  CC       pimd/pim6d-pim_oil.o
+  CC       pimd/pim6d-pim_pim.o
+  CC       pimd/pim6d-pim_rp.o
+  CC       pimd/pim6d-pim_rpf.o
+  CC       pimd/pim6d-pim_sock.o
+  CC       pimd/pim6d-pim_ssm.o
+  CC       pimd/pim6d-pim_dm.o
+  CC       pimd/pim6d-pim_state_refresh.o
+  CC       pimd/pim6d-pim_ssmpingd.o
+  CC       pimd/pim6d-pim_static.o
+  CC       pimd/pim6d-pim_tib.o
+  CC       pimd/pim6d-pim_time.o
+  CC       pimd/pim6d-pim_tlv.o
+  CC       pimd/pim6d-pim_upstream.o
+  CC       pimd/pim6d-pim_util.o
+  CC       pimd/pim6d-pim_vty.o
+  CC       pimd/pim6d-pim_zebra.o
+  CC       pimd/pim6d-pim_zlookup.o
+  CC       pimd/pim6d-pim_vxlan.o
+  CC       pimd/pim6d-pim_register.o
+  CC       pimd/pim6d-pimd.o
+  CC       pimd/pim6d-pim6_main.o
+  CC       yang/pimd_pim6d-frr-pim.yang.o
+  CC       yang/pimd_pim6d-frr-pim-route-map.yang.o
+  CC       yang/pimd_pim6d-frr-pim-rp.yang.o
+  CC       yang/pimd_pim6d-frr-pim-candidate.yang.o
+  CC       yang/pimd_pim6d-frr-gmp.yang.o
+  GEN      yang/frr-vrrpd.yang.c
+  GEN      yang/frr-pathd.yang.c
+  CC       pathd/path_debug.o
+  CC       pathd/path_errors.o
+  CC       pathd/path_nb.o
+  CC       pathd/path_nb_config.o
+  CC       pathd/path_nb_state.o
+  CC       pathd/path_zebra.o
+  CC       pathd/pathd.o
+  CC       zebra/zebra_mlag_private.lo
+  CC       pathd/pathd_pcep_la-path_pcep.lo
+  CC       pathd/pathd_pcep_la-path_pcep_controller.lo
+  CC       pathd/pathd_pcep_la-path_pcep_debug.lo
+  CC       pathd/pathd_pcep_la-path_pcep_lib.lo
+  CC       pathd/pathd_pcep_la-path_pcep_config.lo
+  CC       pathd/pathd_pcep_la-path_pcep_pcc.lo
+  CC       bgpd/bgp_main.o
+  CC       yang/frr-bgp-types.yang.o
+  CC       yang/frr-bgp.yang.o
+  CC       yang/frr-bgp-common-structure.yang.o
+  CC       yang/frr-bgp-common.yang.o
+  CC       yang/frr-bgp-common-multiprotocol.yang.o
+  CC       yang/frr-bgp-neighbor.yang.o
+  CC       yang/frr-bgp-peer-group.yang.o
+  CC       yang/frr-bgp-bmp.yang.o
+  CC       yang/frr-bgp-rpki.yang.o
+  CC       yang/frr-deviations-bgp-datacenter.yang.o
+  CC       yang/frr-bgp-filter.yang.o
+  CC       yang/frr-bgp-route-map.yang.o
+  CC       lib/clippy-jhash.o
+  CC       lib/clippy-clippy.o
+  CC       lib/clippy-command_graph.o
+  CC       lib/clippy-defun_lex.o
+In file included from /usr/include/python3.14/pyconfig.h:6,
+                 from /usr/include/python3.14/Python.h:14,
+                 from lib/defun_lex.l:35:
+/usr/include/python3.14/pyconfig-64.h:2031:9: warning: '_POSIX_C_SOURCE' redefined
+ 2031 | #define _POSIX_C_SOURCE 200809L
+      |         ^~~~~~~~~~~~~~~
+In file included from /usr/include/bits/libc-header-start.h:33,
+                 from /usr/include/stdio.h:28,
+                 from lib/defun_lex.c:281:
+/usr/include/features.h:319:10: note: this is the location of the previous definition
+  319 | # define _POSIX_C_SOURCE        202405L
+      |          ^~~~~~~~~~~~~~~
+/usr/include/python3.14/pyconfig-64.h:2070:9: warning: '_XOPEN_SOURCE' redefined
+ 2070 | #define _XOPEN_SOURCE 700
+      |         ^~~~~~~~~~~~~
+/usr/include/features.h:234:10: note: this is the location of the previous definition
+  234 | # define _XOPEN_SOURCE  800
+      |          ^~~~~~~~~~~~~
+  CC       bgpd/rfapi/bgp_rfapi_cfg.o
+  CC       bgpd/rfapi/rfapi_import.o
+  CC       bgpd/rfapi/rfapi.o
+  CC       bgpd/rfapi/rfapi_ap.o
+  CC       bgpd/rfapi/rfapi_descriptor_rfp_utils.o
+  CC       bgpd/rfapi/rfapi_encap_tlv.o
+  CC       bgpd/rfapi/rfapi_nve_addr.o
+  CC       bgpd/rfapi/rfapi_monitor.o
+  CC       bgpd/rfapi/rfapi_rib.o
+  CC       bgpd/rfapi/rfapi_vty.o
+  CC       bgpd/rfapi/vnc_debug.o
+  CC       bgpd/rfapi/vnc_export_bgp.o
+  CC       bgpd/rfapi/vnc_export_table.o
+  CC       bgpd/rfapi/vnc_import_bgp.o
+  CC       bgpd/rfapi/vnc_zebra.o
+  CC       bgpd/rfp-example/librfp/rfp_example.o
+  CC       lib/command_lex.lo
+  CC       lib/command_parse.lo
+  CC       lib/printf/printf-pos.lo
+  CC       lib/printf/vfprintf.lo
+  CC       lib/printf/glue.lo
+  CC       yang/frr-affinity-map.yang.lo
+  CC       yang/frr-backend.yang.lo
+  CC       yang/frr-filter.yang.lo
+  CC       yang/frr-host.yang.lo
+  CC       yang/frr-if-rmap.yang.lo
+  CC       yang/frr-interface.yang.lo
+  CC       yang/frr-logging.yang.lo
+  CC       yang/frr-route-map.yang.lo
+  CC       yang/frr-route-types.yang.lo
+  CC       yang/frr-vrf.yang.lo
+  CC       yang/frr-routing.yang.lo
+  CC       yang/frr-nexthop.yang.lo
+  CC       yang/ietf/frr-deviations-ietf-key-chain.yang.lo
+  CC       yang/ietf/ietf-routing-types.yang.lo
+  CC       yang/ietf/ietf-syslog-types.yang.lo
+  CC       yang/ietf/ietf-netconf-acm.yang.lo
+  CC       yang/ietf/ietf-key-chain.yang.lo
+  CC       yang/ietf/ietf-interfaces.yang.lo
+  CC       yang/ietf/ietf-bgp-types.yang.lo
+  CC       yang/frr-module-translator.yang.lo
+  CC       yang/ietf/ietf-srv6-types.yang.lo
+  CC       zebra/connected.o
+  CC       zebra/if_ioctl.o
+  CC       zebra/if_netlink.o
+  CC       zebra/if_socket.o
+  CC       zebra/if_sysctl.o
+  CC       zebra/ioctl.o
+  CC       zebra/ipforward_proc.o
+  CC       zebra/ipforward_sysctl.o
+  CC       zebra/kernel_netlink.o
+  CC       zebra/kernel_socket.o
+  CC       zebra/main.o
+  CC       zebra/netconf_netlink.o
+  CC       zebra/redistribute.o
+  CC       zebra/router-id.o
+  CC       zebra/rt_netlink.o
+  CC       zebra/ge_netlink.o
+  CC       zebra/rt_socket.o
+  CC       zebra/rtread_netlink.o
+  CC       zebra/rtread_sysctl.o
+  CC       zebra/rule_netlink.o
+  CC       zebra/rule_socket.o
+  CC       zebra/table_manager.o
+  CC       zebra/tc_netlink.o
+  CC       zebra/tc_socket.o
+  CC       zebra/zapi_msg.o
+  CC       zebra/zebra_affinitymap.o
+  CC       zebra/zebra_dplane.o
+  CC       zebra/zebra_errors.o
+  CC       zebra/zebra_gr.o
+  CC       zebra/zebra_l2.o
+  CC       zebra/zebra_l2_bridge_if.o
+  CC       zebra/zebra_evpn.o
+  CC       zebra/zebra_evpn_mac.o
+  CC       zebra/zebra_evpn_neigh.o
+  CC       zebra/zebra_mlag.o
+  CC       zebra/zebra_mpls.o
+  CC       zebra/zebra_mpls_netlink.o
+  CC       zebra/zebra_mpls_openbsd.o
+  CC       zebra/zebra_mpls_null.o
+  CC       zebra/zebra_mpls_vty.o
+  CC       zebra/zebra_srv6.o
+  CC       zebra/zebra_mroute.o
+  CC       zebra/zebra_nb.o
+  CC       zebra/zebra_nb_config.o
+  CC       zebra/zebra_nb_rpcs.o
+  CC       zebra/zebra_nb_state.o
+  CC       zebra/zebra_netns_id.o
+  CC       zebra/zebra_netns_notify.o
+  CC       zebra/zebra_nhg.o
+  CC       zebra/zebra_ns.o
+  CC       zebra/zebra_opaque.o
+  CC       zebra/zebra_pbr.o
+  CC       zebra/zebra_ptm.o
+  CC       zebra/zebra_ptm_redistribute.o
+  CC       zebra/zebra_pw.o
+  CC       zebra/zebra_rib.o
+  CC       zebra/zebra_router.o
+  CC       zebra/zebra_rnh.o
+  CC       zebra/zebra_routemap_nb.o
+  CC       zebra/zebra_routemap_nb_config.o
+  CC       zebra/zebra_script.o
+  CC       zebra/zebra_srte.o
+  CC       zebra/zebra_tc.o
+  CC       zebra/zebra_trace.o
+  CC       zebra/zebra_vxlan.o
+  CC       zebra/zebra_vxlan_if.o
+  CC       zebra/zebra_evpn_mh.o
+  CC       zebra/zebra_neigh.o
+  CC       zebra/debug_nl.o
+  CC       yang/frr-zebra.yang.o
+  CC       yang/frr-zebra-route-map.yang.o
+  CC       staticd/static_main.o
+  CC       yang/frr-bfdd.yang.o
+  CC       yang/frr-staticd.yang.o
+  CC       mgmtd/mgmtd-mgmt_main.o
+  CC       yang/ietf/mgmtd_mgmtd-ietf-netconf.yang.o
+  CC       yang/ietf/mgmtd_mgmtd-ietf-netconf-with-defaults.yang.o
+  CC       yang/mgmtd_mgmtd-frr-ripd.yang.o
+  CC       yang/mgmtd_mgmtd-frr-ripngd.yang.o
+  CC       vtysh/vtysh_main.o
+  CC       vtysh/vtysh_user.o
+  CC       vtysh/vtysh_config.o
+  CC       watchfrr/watchfrr.o
+  CC       watchfrr/watchfrr_errors.o
+  CC       ospfd/ospf_main.o
+  CC       yang/frr-ospf-route-map.yang.o
+  CC       ospfd/ospf_abr.o
+  CC       ospfd/ospf_api.o
+  CC       ospfd/ospf_apiserver.o
+  CC       ospfd/ospf_asbr.o
+  CC       ospfd/ospf_ase.o
+  CC       ospfd/ospf_bfd.o
+  CC       ospfd/ospf_dump_api.o
+  CC       ospfd/ospf_errors.o
+  CC       ospfd/ospf_ext.o
+  CC       ospfd/ospf_flood.o
+  CC       ospfd/ospf_ia.o
+  CC       ospfd/ospf_interface.o
+  CC       ospfd/ospf_ism.o
+  CC       ospfd/ospf_lsa.o
+  CC       ospfd/ospf_lsdb.o
+  CC       ospfd/ospf_memory.o
+  CC       ospfd/ospf_neighbor.o
+  CC       ospfd/ospf_network.o
+  CC       ospfd/ospf_nsm.o
+  CC       ospfd/ospf_opaque.o
+  CC       ospfd/ospf_packet.o
+  CC       ospfd/ospf_quicknbr.o
+  CC       ospfd/ospf_ri.o
+  CC       ospfd/ospf_route.o
+  CC       ospfd/ospf_routemap.o
+  CC       ospfd/ospf_routemap_nb.o
+  CC       ospfd/ospf_routemap_nb_config.o
+  CC       ospfd/ospf_spf.o
+  CC       ospfd/ospf_ti_lfa.o
+  CC       ospfd/ospf_sr.o
+  CC       ospfd/ospf_te.o
+  CC       ospfd/ospf_zebra.o
+  CC       ospfd/ospfd.o
+  CC       ospfd/ospf_gr_helper.o
+  CC       ospfd/ospf_auth.o
+  AR       ospfd/libfrrospfclient.a
+  CC       ospf6d/ospf6_main.o
+  CC       yang/frr-ospf6-route-map.yang.o
+  CC       isisd/isis_bpf.o
+  CC       isisd/isis_dlpi.o
+  CC       isisd/isis_main.o
+  CC       isisd/isis_pfpacket.o
+  CC       yang/frr-isisd.yang.o
+  AR       isisd/libfabric.a
+  CC       nhrpd/linux.o
+  CC       nhrpd/netlink_arp.o
+  CC       nhrpd/nhrp_cache.o
+  CC       nhrpd/nhrp_errors.o
+  CC       nhrpd/nhrp_event.o
+  CC       nhrpd/nhrp_interface.o
+  CC       nhrpd/nhrp_main.o
+  CC       nhrpd/nhrp_nhs.o
+  CC       nhrpd/nhrp_packet.o
+  CC       nhrpd/nhrp_peer.o
+  CC       nhrpd/nhrp_multicast.o
+  CC       nhrpd/nhrp_route.o
+  CC       nhrpd/nhrp_shortcut.o
+  CC       nhrpd/nhrp_vc.o
+  CC       nhrpd/reqid.o
+  CC       nhrpd/vici.o
+  CC       nhrpd/zbuf.o
+  CC       nhrpd/znl.o
+  CCLD     lib/libfrrcares.la
+  CC       eigrpd/eigrp_dump.o
+  CC       eigrpd/eigrp_errors.o
+  CC       eigrpd/eigrp_filter.o
+  CC       eigrpd/eigrp_fsm.o
+  CC       eigrpd/eigrp_hello.o
+  CC       eigrpd/eigrp_interface.o
+  CC       eigrpd/eigrp_main.o
+  CC       eigrpd/eigrp_metric.o
+  CC       eigrpd/eigrp_neighbor.o
+  CC       eigrpd/eigrp_network.o
+  CC       eigrpd/eigrp_northbound.o
+  CC       eigrpd/eigrp_packet.o
+  CC       eigrpd/eigrp_query.o
+  CC       eigrpd/eigrp_reply.o
+  CC       eigrpd/eigrp_siaquery.o
+  CC       eigrpd/eigrp_siareply.o
+  CC       eigrpd/eigrp_snmp.o
+  CC       eigrpd/eigrp_topology.o
+  CC       eigrpd/eigrp_update.o
+  CC       eigrpd/eigrp_vrf.o
+  CC       eigrpd/eigrp_zebra.o
+  CC       eigrpd/eigrpd.o
+  CC       yang/frr-eigrpd.yang.o
+  CC       pimd/pimd-pim_addr.o
+  CC       pimd/pimd-pim_assert.o
+  CC       pimd/pimd-pim_bfd.o
+  CC       pimd/pimd-pim_bsm.o
+  CC       pimd/pimd-pim_bsr_rpdb.o
+  CC       pimd/pimd-pim_cmd_common.o
+  CC       pimd/pimd-pim_errors.o
+  CC       pimd/pimd-pim_hello.o
+  CC       pimd/pimd-pim_iface.o
+  CC       pimd/pimd-pim_ifchannel.o
+  CC       pimd/pimd-pim_instance.o
+  CC       pimd/pimd-pim_int.o
+  CC       pimd/pimd-pim_join.o
+  CC       pimd/pimd-pim_jp_agg.o
+  CC       pimd/pimd-pim_macro.o
+  CC       pimd/pimd-pim_memory.o
+  CC       pimd/pimd-pim_mroute.o
+  CC       pimd/pimd-pim_msg.o
+  CC       pimd/pimd-pim_nb.o
+  CC       pimd/pimd-pim_nb_config.o
+  CC       pimd/pimd-pim_neighbor.o
+  CC       pimd/pimd-pim_nht.o
+  CC       pimd/pimd-pim_oil.o
+  CC       pimd/pimd-pim_pim.o
+  CC       pimd/pimd-pim_rp.o
+  CC       pimd/pimd-pim_rpf.o
+  CC       pimd/pimd-pim_sock.o
+  CC       pimd/pimd-pim_ssm.o
+  CC       pimd/pimd-pim_dm.o
+  CC       pimd/pimd-pim_state_refresh.o
+  CC       pimd/pimd-pim_ssmpingd.o
+  CC       pimd/pimd-pim_static.o
+  CC       pimd/pimd-pim_tib.o
+  CC       pimd/pimd-pim_time.o
+  CC       pimd/pimd-pim_tlv.o
+  CC       pimd/pimd-pim_upstream.o
+  CC       pimd/pimd-pim_util.o
+  CC       pimd/pimd-pim_vty.o
+  CC       pimd/pimd-pim_zebra.o
+  CC       pimd/pimd-pim_zlookup.o
+  CC       pimd/pimd-pim_vxlan.o
+  CC       pimd/pimd-pim_register.o
+  CC       pimd/pimd-pimd.o
+  CC       pimd/pimd-pim_autorp.o
+  CC       pimd/pimd-pim_igmp.o
+  CC       pimd/pimd-pim_igmp_mtrace.o
+  CC       pimd/pimd-pim_igmp_stats.o
+  CC       pimd/pimd-pim_igmpv2.o
+  CC       pimd/pimd-pim_igmpv3.o
+  CC       pimd/pimd-pim_main.o
+  CC       pimd/pimd-pim_mlag.o
+  CC       pimd/pimd-pim_msdp.o
+  CC       pimd/pimd-pim_msdp_packet.o
+  CC       pimd/pimd-pim_msdp_socket.o
+  CC       pimd/pimd-pim_signals.o
+  CC       pimd/pimd-pim_zpthread.o
+  CC       yang/pimd_pimd-frr-pim.yang.o
+  CC       yang/pimd_pimd-frr-pim-route-map.yang.o
+  CC       yang/pimd_pimd-frr-pim-rp.yang.o
+  CC       yang/pimd_pimd-frr-pim-candidate.yang.o
+  CC       yang/pimd_pimd-frr-gmp.yang.o
+  CC       pbrd/pbr_main.o
+  CC       pbrd/pbr_zebra.o
+  CC       pbrd/pbr_map.o
+  CC       pbrd/pbr_memory.o
+  CC       pbrd/pbr_nht.o
+  CC       pbrd/pbr_vrf.o
+  CC       bfdd/bfdd.o
+  CC       bfdd/bfd.o
+  CC       bfdd/bfdd_nb.o
+  CC       bfdd/bfdd_nb_config.o
+  CC       bfdd/bfdd_nb_state.o
+  CC       bfdd/bfd_packet.o
+  CC       bfdd/dplane.o
+  CC       bfdd/event.o
+  CC       bfdd/ptm_adapter.o
+  CC       bfdd/bfd_trace.o
+  CC       vrrpd/vrrp.o
+  CC       vrrpd/vrrp_debug.o
+  CC       vrrpd/vrrp_arp.o
+  CC       vrrpd/vrrp_main.o
+  CC       vrrpd/vrrp_ndisc.o
+  CC       vrrpd/vrrp_northbound.o
+  CC       vrrpd/vrrp_packet.o
+  CC       vrrpd/vrrp_zebra.o
+  CC       yang/frr-vrrpd.yang.o
+  CC       pathd/path_main.o
+  CC       yang/frr-pathd.yang.o
+  CC       ospfclient/ospf_apiclient.lo
+  CCLD     zebra/zebra_cumulus_mlag.la
+  CC       pceplib/libpcep_pcc_la-pcep_msg_messages.lo
+  CC       pceplib/libpcep_pcc_la-pcep_msg_objects.lo
+  CC       pceplib/libpcep_pcc_la-pcep_msg_tlvs.lo
+  CC       pceplib/libpcep_pcc_la-pcep_msg_tools.lo
+  CC       pceplib/libpcep_pcc_la-pcep_msg_messages_encoding.lo
+  CC       pceplib/libpcep_pcc_la-pcep_msg_objects_encoding.lo
+  CC       pceplib/libpcep_pcc_la-pcep_msg_tlvs_encoding.lo
+  CC       pceplib/libpcep_pcc_la-pcep_msg_object_error_types.lo
+  CC       pceplib/libpcep_pcc_la-pcep_pcc_api.lo
+  CC       pceplib/libpcep_pcc_la-pcep_session_logic.lo
+  CC       pceplib/libpcep_pcc_la-pcep_session_logic_loop.lo
+  CC       pceplib/libpcep_pcc_la-pcep_session_logic_states.lo
+  CC       pceplib/libpcep_pcc_la-pcep_session_logic_counters.lo
+  CC       pceplib/libpcep_pcc_la-pcep_socket_comm_loop.lo
+  CC       pceplib/libpcep_pcc_la-pcep_socket_comm.lo
+  CC       pceplib/libpcep_pcc_la-pcep_timers_event_loop.lo
+  CC       pceplib/libpcep_pcc_la-pcep_timers.lo
+  CC       pceplib/libpcep_pcc_la-pcep_utils_counters.lo
+  CC       pceplib/libpcep_pcc_la-pcep_utils_double_linked_list.lo
+  CC       pceplib/libpcep_pcc_la-pcep_utils_logging.lo
+  CC       pceplib/libpcep_pcc_la-pcep_utils_memory.lo
+  CC       pceplib/libpcep_pcc_la-pcep_utils_ordered_list.lo
+  CC       pceplib/libpcep_pcc_la-pcep_utils_queue.lo
+  CC       lib/clippy-command_lex.o
+  CC       lib/clippy-command_parse.o
+  AR       bgpd/rfp-example/librfp/librfp.a
+  CCLD     pceplib/libpcep_pcc.la
+  CCLD     lib/clippy
+  CLIPPY   bgpd/bgp_bfd_clippy.c
+  CLIPPY   bgpd/bgp_debug_clippy.c
+  CLIPPY   bgpd/bgp_evpn_vty_clippy.c
+  CLIPPY   bgpd/bgp_labelpool_clippy.c
+  CLIPPY   bgpd/bgp_nexthop_clippy.c
+  CLIPPY   bgpd/bgp_route_clippy.c
+  CLIPPY   bgpd/bgp_routemap_clippy.c
+  CLIPPY   bgpd/bgp_vty_clippy.c
+  CLIPPY   lib/affinitymap_cli_clippy.c
+  CLIPPY   lib/filter_cli_clippy.c
+  CLIPPY   lib/host_cli_clippy.c
+  CLIPPY   lib/if_clippy.c
+  CLIPPY   lib/if_rmap_clippy.c
+  CLIPPY   lib/keychain_cli_clippy.c
+  CLIPPY   lib/log_cli_clippy.c
+  CLIPPY   lib/log_vty_clippy.c
+  CLIPPY   lib/mgmt_be_client_clippy.c
+  CLIPPY   lib/mgmt_fe_client_clippy.c
+  CLIPPY   lib/nexthop_group_clippy.c
+  CLIPPY   lib/northbound_cli_clippy.c
+  CLIPPY   lib/plist_clippy.c
+  CLIPPY   lib/routemap_clippy.c
+  CLIPPY   lib/routemap_cli_clippy.c
+  CLIPPY   lib/event_clippy.c
+  CLIPPY   lib/vty_clippy.c
+  CLIPPY   lib/zlog_5424_cli_clippy.c
+  CLIPPY   zebra/debug_clippy.c
+  CLIPPY   zebra/interface_clippy.c
+  CLIPPY   zebra/label_manager_clippy.c
+  CLIPPY   zebra/rtadv_clippy.c
+  CLIPPY   zebra/zebra_mlag_vty_clippy.c
+  CLIPPY   zebra/zebra_srv6_vty_clippy.c
+  CLIPPY   zebra/zebra_routemap_clippy.c
+  CLIPPY   zebra/zebra_vrf_clippy.c
+  CLIPPY   zebra/zebra_vty_clippy.c
+  CLIPPY   zebra/zserv_clippy.c
+  CLIPPY   staticd/static_vty_clippy.c
+  CLIPPY   mgmtd/mgmt_vty_clippy.c
+  CLIPPY   zebra/zebra_cli_clippy.c
+  CLIPPY   ripd/rip_cli_clippy.c
+  CLIPPY   ripngd/ripng_cli_clippy.c
+  CLIPPY   vtysh/vtysh_clippy.c
+  CLIPPY   ripd/rip_bfd_clippy.c
+  CLIPPY   watchfrr/watchfrr_vty_clippy.c
+  CLIPPY   ospfd/ospf_dump_clippy.c
+  CLIPPY   ospfd/ospf_gr_clippy.c
+  CLIPPY   ospfd/ospf_ldp_sync_clippy.c
+  CLIPPY   ospfd/ospf_vty_clippy.c
+  CLIPPY   ospf6d/ospf6_nssa_clippy.c
+  CLIPPY   ospf6d/ospf6_area_clippy.c
+  CLIPPY   ospf6d/ospf6_asbr_clippy.c
+  CLIPPY   ospf6d/ospf6_gr_clippy.c
+  CLIPPY   ospf6d/ospf6_gr_helper_clippy.c
+  CLIPPY   ospf6d/ospf6_interface_clippy.c
+  CLIPPY   ospf6d/ospf6_lsa_clippy.c
+  CLIPPY   ospf6d/ospf6_neighbor_clippy.c
+  CLIPPY   ospf6d/ospf6_route_clippy.c
+  CLIPPY   ospf6d/ospf6_top_clippy.c
+  CLIPPY   ospf6d/ospf6d_clippy.c
+  CLIPPY   isisd/isis_cli_clippy.c
+  CLIPPY   nhrpd/nhrp_vty_clippy.c
+  CLIPPY   eigrpd/eigrp_cli_clippy.c
+  CLIPPY   eigrpd/eigrp_vty_clippy.c
+  CLIPPY   pimd/pim_routemap_clippy.c
+  CLIPPY   pimd/pim_cmd_clippy.c
+  CLIPPY   pimd/pim6_mld_clippy.c
+  CLIPPY   pimd/pim6_cmd_clippy.c
+  CLIPPY   pbrd/pbr_vty_clippy.c
+  CLIPPY   pbrd/pbr_debug_clippy.c
+  CLIPPY   bfdd/bfdd_vty_clippy.c
+  CLIPPY   bfdd/bfdd_cli_clippy.c
+  CLIPPY   vrrpd/vrrp_vty_clippy.c
+  CLIPPY   pathd/path_cli_clippy.c
+  CLIPPY   pathd/path_ted_clippy.c
+  XRELFO   lib/libfrrcares.la.xref
+  XRELFO   zebra/zebra_cumulus_mlag.la.xref
+  CLIPPY   zebra/dplane_fpm_nl_clippy.c
+  CLIPPY   bgpd/bgp_bmp_clippy.c
+  CLIPPY   pathd/path_pcep_cli_clippy.c
+  CC       bgpd/bgp_bfd.o
+  CC       bgpd/bgp_debug.o
+  CC       bgpd/bgp_evpn_vty.o
+  CC       bgpd/bgp_labelpool.o
+  CC       bgpd/bgp_nexthop.o
+  CC       bgpd/bgp_route.o
+  CC       bgpd/bgp_routemap.o
+  CC       bgpd/bgp_vty.o
+  CC       lib/affinitymap_cli.lo
+  CC       lib/filter_cli.lo
+  CC       lib/host_cli.lo
+  CC       lib/if.lo
+  CC       lib/if_rmap.lo
+  CC       lib/keychain_cli.lo
+  CC       lib/log_cli.lo
+  CC       lib/log_vty.lo
+  CC       lib/mgmt_be_client.lo
+  CC       lib/mgmt_fe_client.lo
+  CC       lib/nexthop_group.lo
+  CC       lib/northbound_cli.lo
+  CC       lib/plist.lo
+  CC       lib/routemap.lo
+  CC       lib/routemap_cli.lo
+  CC       lib/event.lo
+  CC       lib/vty.lo
+  CC       lib/zlog_5424_cli.lo
+  CC       zebra/debug.o
+  CC       zebra/interface.o
+  CC       zebra/label_manager.o
+  CC       zebra/rtadv.o
+  CC       zebra/zebra_mlag_vty.o
+  CC       zebra/zebra_srv6_vty.o
+  CC       zebra/zebra_routemap.o
+  CC       zebra/zebra_vrf.o
+  CC       zebra/zebra_vty.o
+  CC       zebra/zserv.o
+  CC       staticd/static_vty.o
+  CC       mgmtd/mgmt_vty.o
+  CC       zebra/mgmtd_libmgmt_be_nb_la-zebra_cli.lo
+  CC       ripd/mgmtd_libmgmt_be_nb_la-rip_cli.lo
+  CC       ripngd/mgmtd_libmgmt_be_nb_la-ripng_cli.lo
+  CC       staticd/mgmtd_libmgmt_be_nb_la-static_vty.lo
+  CC       vtysh/vtysh.o
+  CC       watchfrr/watchfrr_vty.o
+  CC       ripd/rip_bfd.o
+  CC       ospfd/ospf_dump.o
+  CC       ospfd/ospf_gr.o
+  CC       ospfd/ospf_ldp_sync.o
+  CC       ospfd/ospf_vty.o
+  CC       ospf6d/ospf6_nssa.o
+  CC       ospf6d/ospf6_area.o
+  CC       ospf6d/ospf6_asbr.o
+  CC       ospf6d/ospf6_gr.o
+  CC       ospf6d/ospf6_gr_helper.o
+  CC       ospf6d/ospf6_interface.o
+  CC       ospf6d/ospf6_lsa.o
+  CC       ospf6d/ospf6_neighbor.o
+  CC       ospf6d/ospf6_route.o
+  CC       ospf6d/ospf6_top.o
+  CC       ospf6d/ospf6d.o
+  CC       isisd/isis_cli.o
+  CC       nhrpd/nhrp_vty.o
+  CC       eigrpd/eigrp_cli.o
+  CC       eigrpd/eigrp_vty.o
+  CC       pimd/pimd-pim_routemap.o
+  CC       pimd/pimd-pim_cmd.o
+  CC       pimd/pim6d-pim_routemap.o
+  CC       pimd/pim6d-pim6_mld.o
+  CC       pimd/pim6d-pim6_cmd.o
+  CC       pbrd/pbr_vty.o
+  CC       pbrd/pbr_debug.o
+  CC       bfdd/bfdd_vty.o
+  CC       bfdd/bfdd_cli.o
+  CC       vrrpd/vrrp_vty.o
+  CC       pathd/path_cli.o
+  CC       pathd/path_ted.o
+  CC       zebra/dplane_fpm_nl.lo
+  CC       bgpd/bgp_bmp.lo
+  CC       pathd/pathd_pcep_la-path_pcep_cli.lo
+  AR       bgpd/libbgp.a
+  CCLD     lib/libfrr.la
+  AR       staticd/libstatic.a
+  AR       mgmtd/libmgmtd.a
+  CCLD     mgmtd/libmgmt_be_nb.la
+  AR       ospfd/libfrrospf.a
+  AR       ospf6d/libospf6.a
+  AR       isisd/libisis.a
+  AR       pbrd/libpbr.a
+  AR       bfdd/libbfd.a
+  CCLD     vrrpd/vrrpd
+  AR       pathd/libpath.a
+  XRELFO   lib/libfrr.la.xref
+  XRELFO   mgmtd/libmgmt_be_nb.la.xref
+  CCLD     ospfclient/libfrrospfapiclient.la
+  CCLD     bgpd/bgpd
+  CCLD     zebra/zebra
+  CCLD     staticd/staticd
+  CCLD     mgmtd/mgmtd
+  CCLD     zebra/fpm_listener
+  CCLD     watchfrr/watchfrr
+  CCLD     ripd/ripd
+  CCLD     ripngd/ripngd
+  CCLD     ospfd/ospfd
+  CCLD     ospf6d/ospf6d
+  CCLD     isisd/isisd
+  CCLD     isisd/fabricd
+  CCLD     nhrpd/nhrpd
+  CCLD     eigrpd/eigrpd
+  CCLD     pimd/pim6d
+  CCLD     pbrd/pbrd
+  XRELFO   staticd/staticd.xref
+  CCLD     bfdd/bfdd
+  XRELFO   vrrpd/vrrpd.xref
+  CCLD     pathd/pathd
+  XRELFO   ospfclient/libfrrospfapiclient.la.xref
+  CCLD     zebra/dplane_fpm_nl.la
+  XRELFO   zebra/zebra.xref
+  XRELFO   zebra/fpm_listener.xref
+  XRELFO   watchfrr/watchfrr.xref
+  XRELFO   mgmtd/mgmtd.xref
+  XRELFO   bgpd/bgpd.xref
+  XRELFO   ripd/ripd.xref
+  XRELFO   ripngd/ripngd.xref
+  XRELFO   ospfd/ospfd.xref
+  XRELFO   ospf6d/ospf6d.xref
+  XRELFO   isisd/isisd.xref
+  XRELFO   isisd/fabricd.xref
+  XRELFO   nhrpd/nhrpd.xref
+  XRELFO   eigrpd/eigrpd.xref
+  XRELFO   pimd/pim6d.xref
+  XRELFO   pbrd/pbrd.xref
+  XRELFO   bfdd/bfdd.xref
+  XRELFO   pathd/pathd.xref
+  XRELFO   zebra/dplane_fpm_nl.la.xref
+  CCLD     pathd/pathd_pcep.la
+  XRELFO   pathd/pathd_pcep.la.xref
+  CCLD     pimd/pimd
+  XRELFO   pimd/pimd.xref
+  CCLD     bgpd/bgpd_bmp.la
+  XRELFO   bgpd/bgpd_bmp.la.xref
+  XRELFO   frr.xref
+  CC       vtysh/vtysh_cmd.o
+  CC       vtysh/vtysh_cmd.1.o
+  CC       vtysh/vtysh_cmd.2.o
+  CC       vtysh/vtysh_cmd.3.o
+  CC       vtysh/vtysh_cmd.4.o
+  CC       vtysh/vtysh_cmd.5.o
+  CC       vtysh/vtysh_cmd.6.o
+  CC       vtysh/vtysh_cmd.7.o
+  CC       vtysh/vtysh_cmd.8.o
+  CCLD     vtysh/vtysh
+In file included from ./lib/mgmt_fe_client.h:17,
+                 from ./lib/vty.h:19,
+                 from ./lib/command.h:11,
+                 from ./lib/json.h:13,
+                 from ./lib/netdoc.h:4,
+                 from /producer/codec_test.c:5:
+./lib/mgmt_msg_native.h:269:31: warning: declaration does not declare anything
+  269 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:286:31: warning: declaration does not declare anything
+  286 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:306:31: warning: declaration does not declare anything
+  306 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:341:31: warning: declaration does not declare anything
+  341 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:370:31: warning: declaration does not declare anything
+  370 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:412:31: warning: declaration does not declare anything
+  412 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:436:31: warning: declaration does not declare anything
+  436 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:456:31: warning: declaration does not declare anything
+  456 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:475:31: warning: declaration does not declare anything
+  475 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:514:31: warning: declaration does not declare anything
+  514 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:539:31: warning: declaration does not declare anything
+  539 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:557:31: warning: declaration does not declare anything
+  557 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:570:31: warning: declaration does not declare anything
+  570 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:584:31: warning: declaration does not declare anything
+  584 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:603:31: warning: declaration does not declare anything
+  603 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:621:31: warning: declaration does not declare anything
+  621 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:642:31: warning: declaration does not declare anything
+  642 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:659:31: warning: declaration does not declare anything
+  659 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:671:31: warning: declaration does not declare anything
+  671 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:692:31: warning: declaration does not declare anything
+  692 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:707:31: warning: declaration does not declare anything
+  707 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:716:31: warning: declaration does not declare anything
+  716 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:728:31: warning: declaration does not declare anything
+  728 |         struct mgmt_msg_header;
+      |                               ^
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getl2: Attempt to get long out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 0, endp: 0
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getl2+0x139) [0x7fc1b04974d9]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x26) [0x7fc1b040be06]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getl2: Attempt to get long out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 0, endp: 1
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getl2+0x139) [0x7fc1b04974d9]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x26) [0x7fc1b040be06]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getl2: Attempt to get long out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 0, endp: 2
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getl2+0x139) [0x7fc1b04974d9]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x26) [0x7fc1b040be06]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getl2: Attempt to get long out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 0, endp: 3
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getl2+0x139) [0x7fc1b04974d9]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x26) [0x7fc1b040be06]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 4
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 5
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 6
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 7
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 8
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 9
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 10
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 11
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 12
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 13
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 14
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 15
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 16
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 17
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 18
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 19
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 20
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 21
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 22
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 23
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 24
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 25
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 26
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 27
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 28
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 29
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 30
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 31
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 32
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 33
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 34
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 35
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 36
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 37
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 38
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 39
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 4, endp: 40
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7fc1b0496751]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7fc1b040be2b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 41, endp: 41
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7fc1b040be64]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 41, endp: 42
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7fc1b040be64]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 41, endp: 43
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7fc1b040be64]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 41, endp: 44
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7fc1b040be64]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 41, endp: 45
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7fc1b040be64]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 41, endp: 46
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7fc1b040be64]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 41, endp: 47
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7fc1b040be64]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 41, endp: 48
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7fc1b040be64]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 49, endp: 49
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7fc1b0496cc1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0xa6) [0x7fc1b040be86]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 49, endp: 50
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7fc1b0496cc1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0xa6) [0x7fc1b040be86]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 51, endp: 51
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 51, endp: 52
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 51, endp: 53
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 51, endp: 54
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 51, endp: 55
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 51, endp: 56
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 51, endp: 57
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 51, endp: 58
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 59, endp: 59
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 59, endp: 60
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 59, endp: 61
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 59, endp: 62
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 59, endp: 63
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 59, endp: 64
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 59, endp: 65
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 59, endp: 66
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 67, endp: 67
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 67, endp: 68
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 67, endp: 69
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 67, endp: 70
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 67, endp: 71
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 67, endp: 72
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 67, endp: 73
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 67, endp: 74
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 75, endp: 75
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 75, endp: 76
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 75, endp: 77
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 75, endp: 78
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 75, endp: 79
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 75, endp: 80
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 75, endp: 81
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 75, endp: 82
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 83, endp: 83
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7fc1b0496cc1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x16d) [0x7fc1b040bf4d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 83, endp: 84
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7fc1b0496cc1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x16d) [0x7fc1b040bf4d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 85, endp: 85
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 85, endp: 86
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 85, endp: 87
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 85, endp: 88
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 85, endp: 89
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 85, endp: 90
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 85, endp: 91
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 85, endp: 92
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7fc1b040bf9d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 93, endp: 93
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 93, endp: 94
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 93, endp: 95
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 93, endp: 96
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 93, endp: 97
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 93, endp: 98
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 93, endp: 99
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 93, endp: 100
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7fc1b040bee7]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 101, endp: 101
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 101, endp: 102
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 101, endp: 103
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 101, endp: 104
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 101, endp: 105
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 1CODEC_TESTS_PASSED
+00663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 101, endp: 106
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 101, endp: 107
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 101, endp: 108
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7fc1b040bf0b]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 109, endp: 109
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 109, endp: 110
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 109, endp: 111
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 109, endp: 112
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 109, endp: 113
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 109, endp: 114
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 109, endp: 115
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 109, endp: 116
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7fc1b0497af1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7fc1b040bf2f]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 117, endp: 117
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7fc1b0496cc1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x16d) [0x7fc1b040bf4d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+2026/10/26 07:01:01 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 07:01:01 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x1f6a7060, size: 8192, getp: 117, endp: 118
+2026/10/26 07:01:01 Backtrace for 7 stack frames:
+2026/10/26 07:01:01 [bt 0] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7fc1b044cde7]
+2026/10/26 07:01:01 [bt 1] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7fc1b0496cc1]
+2026/10/26 07:01:01 [bt 2] /work/hardening-d/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x16d) [0x7fc1b040bf4d]
+2026/10/26 07:01:01 [bt 3] /work/hardening-d/codec-test() [0x4008e8]
+2026/10/26 07:01:01 [bt 4] /lib64/libc.so.6(+0x3681) [0x7fc1b020a681]
+2026/10/26 07:01:01 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fc1b020a798]
+2026/10/26 07:01:01 [bt 6] /work/hardening-d/codec-test() [0x400465]
+frr-root/usr/bin/vtysh: OK
+frr-root/usr/lib64/frr/libfrr.so.0: OK
+frr-root/usr/lib64/frr/libmgmt_be_nb.so.0: OK
+frr-root/usr/lib64/libyang.so.3: OK
+frr-root/usr/libexec/frr/bgpd: OK
+frr-root/usr/libexec/frr/mgmtd: OK
+frr-root/usr/libexec/frr/staticd: OK
+frr-root/usr/libexec/frr/zebra: OK
+build.json: OK
+BUILD_DONE

@@ -1,7 +1,7 @@
 {
   "artifacts": {
     "usr/bin/vtysh": "dbaec8a44f9caa2b5f1867a41750a1eb8be92afa210a79dc50daa21955ccb46c",
-    "usr/lib64/frr/libfrr.so.0": "cf009e6734430f19512384bd6fc7ce24375fe2515f5fc4acae41ac67aac557ad",
+    "usr/lib64/frr/libfrr.so.0": "8ac012413ca0a3e84af3405c7fc62f9a4784579d3ca5b0ae81007624dc440af5",
     "usr/lib64/frr/libmgmt_be_nb.so.0": "ac4ea35dfd2283f202f567a70d4e58fe9ac069be8a69b4565852e612a188b86e",
     "usr/lib64/libyang.so.3": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb",
     "usr/libexec/frr/bgpd": "a80189660879e1d45bd28ebe634e461f1e7b5b3786359e694b366f2ff8f71712",
@@ -9,7 +9,7 @@
     "usr/libexec/frr/staticd": "f27d18c6e44c2fe3e7d10b7fc993a2848b16049082156e8cd872070af17ccd54",
     "usr/libexec/frr/zebra": "6de7c37fdc428b7d9b462d3f0ab5a06fde8c9a17f9ddd1746ad756b7c3688a5b"
   },
-  "build_id": "a8addc1b3cd33f6fd3a0fb9c8ca2eaeb4b994eadf78ad3fe21c12964d6ca9a96",
+  "build_id": "89f0152ef221c716119b8b739a6464a96eaf3ff526d54e5e6e0822bea0dc179d",
   "inputs": {
     "archive_sha256": "bf601f8f35b03a49a5a45981721394f00d3b9eac0c5bd77577732c4c4ffffa67",
     "cflags": "-O2 -g0 -ffile-prefix-map=SOURCE=. -fmacro-prefix-map=SOURCE=.",
@@ -33,7 +33,7 @@
       "--disable-zeromq",
       "--disable-grpc"
     ],
-    "implementation_sha256": "327f29dbacbc58d0e00131cbf3f3df17dd239edd7de2e3f8a3293e52c0a856fd",
+    "implementation_sha256": "51d792997f50558e95fa8c9e918a7424360b3843fe4dec63dca4d9e03b1b6afd",
     "packages_sha256": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
     "source": "87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef",
     "source_date_epoch": 1784130712

@@ -18,7 +18,8 @@ from FRR 10.7.0 commit `87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef`, on Linux
 x86_64 with the recorded kernel release. That file pins executable/library
 hashes, source archive, instrumentation hash, complete builder package lock,
 configuration and compiler flags. Another build, kernel, OS, architecture or
-schema is refused by the packager, even if it calls itself FRR 10.7.0.
+schema is refused by the packager, even if it calls itself FRR 10.7.0. The filesystem must support Linux no-replace
+rename; unsupported operations fail closed without an overwrite fallback.
 
 Verified attribution covers default VRF, table 254, IPv4 unicast, ordinary eBGP
 paths, single-next-hop static routes resolving through BGP, and multiple eBGP
@@ -106,15 +107,23 @@ including Linux close errors. Captures remain `.jsonl.partial` until both flushe
 and close succeed; no truncation rollback is needed. Partial streams are refused
 even when they contain an otherwise valid complete trailer. Late emission never
 appends after the trailer: it marks failure and revokes the published filename
-back to `.partial`. `ndoc_enabled` stays true after shutdown so hooks cannot
+back to `.partial`. Both publication and revocation use Linux
+`renameat2(..., RENAME_NOREPLACE)`: existing regular files and symlinks are
+never replaced, and there is no fallback to an overwriting operation. A kernel
+or filesystem rejecting the operation leaves a refused partial publication.
+Failed revocation also creates an exclusive `.jsonl.failed` marker; the packager
+refuses any such marker even while the original final stream remains visible.
+Existing failure markers and their symlink targets are never overwritten.
+`ndoc_enabled` stays true after shutdown so hooks cannot
 silently discard late events. One directory descriptor is retained until process
 exit for revocation. Initialization runs once. Workers can already exist; the enabled state is
 published after the start record under the same mutex.
 
 Consume only after all producers have exited and the collection directory has
-stopped changing. A late-event revocation failure is reported to stderr and
-invalidates the collection operationally; the packager cannot infer an unrecorded
-filesystem failure from an isolated copied JSONL file. Retain daemon diagnostics.
+stopped changing. A failed late-event move leaves a failure marker and is refused.
+If the filesystem prevents both that move and marker creation, diagnostics
+invalidate the collection operationally; the packager cannot infer that
+unrecorded storage failure from an isolated copied JSONL file. Retain diagnostics.
 This is a trusted local writable-filesystem lab subset, not a guarantee against
 storage failure, malicious capture copying, or power loss. Write/clock/flush/close
 failures leave no acceptable published stream. A crash has no complete trailer. The packager
@@ -201,7 +210,7 @@ Doctor.
 
 ## Proof and remaining gate
 
-See [the validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-hardened/README.md)
+See [the validation report](../../../testdata/frr/10.7.0/bgp/correlation-v1-noreplace/README.md)
 for live runs, exact proven/unproven edges, independent observations, checksums,
 negative tests, concurrency test, and reproducibility results. Approval of
 the producer choice did not approve this implementation. Stop for independent
@@ -223,3 +232,8 @@ LD_LIBRARY_PATH="$PWD/lib/.libs" python3 -I /producer/test_writer.py /work/write
 
 The C test includes the actual current writer source for syscall fault injection;
 these synthetic events never substitute for live daemon identity evidence.
+
+The [current Sonar review](../../../testdata/frr/10.7.0/bgp/correlation-review-7df7be1/README.md)
+is pinned to PR head `7df7be1`, including the high input-path finding's actual
+flow, supported CLI threat model, and unsupported agent/server reuse. Earlier
+triage is historical evidence. No remote finding or security rule is suppressed.

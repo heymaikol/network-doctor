@@ -219,4 +219,6 @@ Until the maintainer selects and validates a producer for the explicit links,
 `forwarding_impact` remains unknown. Do not start a broad Zebra RIB import solely
 for this decision.
 
-Current Phase 1 hardening and new-build evidence: [correlation-v1-hardened](correlation-v1-hardened/README.md). The original correlation-v1 evidence remains unchanged and proves only its original build.
+Previous Phase 1 hardening and its build evidence: [correlation-v1-hardened](correlation-v1-hardened/README.md). The original correlation-v1 evidence remains unchanged and proves only its original build.
+
+Latest Phase 1 no-replace implementation and new-build proof: [correlation-v1-noreplace](correlation-v1-noreplace/README.md). Exact-head Sonar review: [7df7be1](correlation-review-7df7be1/README.md).

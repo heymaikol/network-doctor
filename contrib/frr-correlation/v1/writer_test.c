@@ -11,7 +11,7 @@
 #include "lib/netdoc.h"
 
 static const char *mode;
-static unsigned writes, flushes, closes, truncates;
+static unsigned writes, flushes, closes, truncates, renames;
 static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
 static bool entered, release_write;
@@ -68,22 +68,71 @@ static int test_ftruncate(int fd, off_t length)
 	errno = EIO;
 	return -1;
 }
-static int test_renameat(int olddir, const char *old, int newdir, const char *next)
+static int test_renameat2(int olddir, const char *old, int newdir, const char *next, unsigned flags)
 {
+	assert(flags == RENAME_NOREPLACE);
+	renames++;
 	if (!strcmp(mode, "publish")) { errno = ENOSPC; return -1; }
-	return renameat(olddir, old, newdir, next);
+	if ((!strncmp(mode, "publish_", 8) && renames == 1) ||
+	    (!strncmp(mode, "revoke_", 7) && renames == 2)) {
+		if (strstr(mode, "_enosys") || strstr(mode, "_marker_")) { errno = ENOSYS; return -1; }
+		if (strstr(mode, "_eopnotsupp")) { errno = EOPNOTSUPP; return -1; }
+		if (strstr(mode, "_einval")) { errno = EINVAL; return -1; }
+	}
+	return renameat2(olddir, old, newdir, next, flags);
 }
 #define write test_write
 #define fsync test_fsync
 #define close test_close
 #define ftruncate test_ftruncate
-#define renameat test_renameat
+#define renameat2 test_renameat2
 #include "netdoc.c"
 #undef write
 #undef fsync
 #undef close
 #undef ftruncate
-#undef renameat
+#undef renameat2
+
+static void existing_destination(const char *name, bool symbolic)
+{
+	static const char sentinel[] = "ORIGINAL DESTINATION\n";
+	int fd = openat(directory, "sentinel", O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	assert(fd >= 0);
+	assert(write(fd, sentinel, sizeof(sentinel) - 1) == sizeof(sentinel) - 1);
+	assert(!close(fd));
+	if (symbolic) assert(!symlinkat("sentinel", directory, name));
+	else assert(!linkat(directory, "sentinel", directory, name, 0));
+}
+static void test_noreplace(void)
+{
+	bool revoke = !strncmp(mode, "revoke_", 7);
+	bool collision = strstr(mode, "_existing_") != NULL;
+	bool marker_collision = strstr(mode, "_marker_") != NULL;
+	unsigned before = closes;
+	struct stat st;
+	if (!revoke && collision)
+		existing_destination(filename, strstr(mode, "_symlink") != NULL);
+	ndoc_emit(ndoc_record("writer_test"));
+	ndoc_finish();
+	assert(output == -1 && closes == before + 1 && renames == 1);
+	if (revoke) {
+		assert(published && !failed);
+		if (collision) existing_destination(partial, strstr(mode, "_symlink") != NULL);
+		if (marker_collision) existing_destination(failure, strstr(mode, "_symlink") != NULL);
+		unsigned saved_writes = writes;
+		ndoc_emit(ndoc_record("late"));
+		assert(failed && published && writes == saved_writes && renames == 2);
+		assert(!fstatat(directory, failure, &st, AT_SYMLINK_NOFOLLOW));
+		assert(closes == before + (marker_collision ? 1 : 2));
+	} else {
+		assert(failed && !published);
+		assert(!fstatat(directory, partial, &st, AT_SYMLINK_NOFOLLOW));
+	}
+	before = closes;
+	unsigned saved_renames = renames;
+	ndoc_finish();
+	assert(closes == before && renames == saved_renames && !truncates);
+}
 
 static void *write_records(void *unused)
 {
@@ -137,6 +186,9 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "startup")) { test_startup(); puts("WRITER_TEST_PASSED"); return 0; }
 	ndoc_init("zebra");
 	assert(ndoc_enabled());
+	if (!strncmp(mode, "publish_", 8) || !strncmp(mode, "revoke_", 7)) {
+		test_noreplace(); puts("WRITER_TEST_PASSED"); return 0;
+	}
 	unsigned before = closes;
 	if (!strcmp(mode, "concurrent") || !strcmp(mode, "joined")) {
 		for (unsigned i = 0; i < 4; i++) assert(!pthread_create(&writers[i], NULL, write_records, NULL));

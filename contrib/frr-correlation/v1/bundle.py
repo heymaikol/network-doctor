@@ -81,6 +81,7 @@ def streams(directory, build):
     require(build.get("schema") == "netdoc-frr-build/v1" and build.get("source") == SOURCE,
             "unsupported build manifest")
     require(not list(Path(directory).glob("*.partial")), "incomplete producer stream")
+    require(not list(Path(directory).glob("*.failed")), "failed producer stream")
     files = sorted(Path(directory).glob("*.jsonl"))
     require(len(files) == 2, "need exactly one closed bgpd epoch and one closed zebra epoch; restarts require a new capture")
     sources, events = [], {}

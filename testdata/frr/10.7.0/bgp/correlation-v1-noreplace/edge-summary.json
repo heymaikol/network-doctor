@@ -1,0 +1,34 @@
+{
+  "build_id": "89f0152ef221c716119b8b739a6464a96eaf3ff526d54e5e6e0822bea0dc179d",
+  "claims_by_type": {
+    "path_submitted_as_route": 12,
+    "route_installed_as_fib": 6,
+    "route_leg_resolved_by_route": 7
+  },
+  "pending_operations": 16,
+  "snapshot_complete": false,
+  "sources": [
+    {
+      "boot_id": "b4cf28c9-5380-441d-9be3-324ecefd110e",
+      "daemon": "bgpd",
+      "end_monotonic_ns": 419662196894709,
+      "epoch": "c357ecce-72e1-556b-1ede-3d35c9051379",
+      "file": "bgpd.c357ecce-72e1-556b-1ede-3d35c9051379.jsonl",
+      "netns_inode": 4026533250,
+      "records": 38,
+      "sha256": "97829b02a6ce4df39a3993af3f2bae281014244a75be931f3ad63f89b4296c41",
+      "start_monotonic_ns": 419598755449453
+    },
+    {
+      "boot_id": "b4cf28c9-5380-441d-9be3-324ecefd110e",
+      "daemon": "zebra",
+      "end_monotonic_ns": 419662192788635,
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "file": "zebra.d3273161-6715-c3fc-91ce-08f8afe3a644.jsonl",
+      "netns_inode": 4026533250,
+      "records": 196,
+      "sha256": "0c0866ab1db407da0c7fc665d93e2131874c70895930155363940f92a83bc9a7",
+      "start_monotonic_ns": 419598728197444
+    }
+  ]
+}

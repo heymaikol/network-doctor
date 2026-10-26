@@ -17,7 +17,7 @@ static _Atomic int output = -1;
 static _Atomic bool failed, configured;
 static int directory = -1;
 static bool published;
-static char filename[96], partial[104];
+static char filename[96], partial[104], failure[104];
 static char epoch[37], daemon_name[32];
 
 bool ndoc_enabled(void) { return configured; }
@@ -91,9 +91,16 @@ void ndoc_emit(json_object *j)
 		if (configured) {
 			failed = true;
 			/* A late event revokes the sealed file, never appends after end. */
-			if (published && renameat(directory, filename, directory, partial))
+			if (published && renameat2(directory, filename, directory, partial, RENAME_NOREPLACE)) {
 				fprintf(stderr, "netdoc: cannot revoke late-event capture: %s\n", strerror(errno));
-			else
+				/* Keep refusal visible even if the final file cannot move. */
+				int marker = openat(directory, failure,
+					O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+				if (marker < 0 && errno != EEXIST)
+					fprintf(stderr, "netdoc: cannot mark failed capture: %s\n", strerror(errno));
+				if (marker >= 0 && close(marker))
+					fprintf(stderr, "netdoc: cannot close failure marker: %s\n", strerror(errno));
+			} else
 				published = false;
 			fprintf(stderr, "netdoc: late event; capture incomplete\n");
 		}
@@ -125,6 +132,7 @@ void ndoc_init(const char *daemon)
 	if (directory < 0) goto done;
 	snprintf(filename, sizeof(filename), "%s.%s.jsonl", daemon, epoch);
 	snprintf(partial, sizeof(partial), "%s.partial", filename);
+	snprintf(failure, sizeof(failure), "%s.failed", filename);
 	output = openat(directory, partial, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
 	if (output < 0) { close(directory); directory = -1; goto done; }
 	j = ndoc_record("start");
@@ -166,7 +174,7 @@ void ndoc_finish(void)
 	/* Failed streams remain partial, including flush and close failures.
 	 * No truncate rollback can accidentally leave a complete trailer. */
 	if (!failed) {
-		if (renameat(directory, partial, directory, filename))
+		if (renameat2(directory, partial, directory, filename, RENAME_NOREPLACE))
 			failed = true;
 		else
 			published = true;

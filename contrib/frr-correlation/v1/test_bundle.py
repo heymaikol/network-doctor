@@ -12,7 +12,7 @@ from unittest.mock import patch
 from bundle import Refused, decode, main, produce, read_source
 
 HERE = Path(__file__).resolve().parent
-EVIDENCE = HERE.parents[2] / "testdata/frr/10.7.0/bgp/correlation-v1-hardened"
+EVIDENCE = HERE.parents[2] / "testdata/frr/10.7.0/bgp/correlation-v1-noreplace"
 
 
 class ProducerProof(unittest.TestCase):
@@ -40,6 +40,26 @@ class ProducerProof(unittest.TestCase):
         (self.logs / "zebra.other.jsonl.partial").write_bytes(b"")
         with self.assertRaisesRegex(Refused, "incomplete producer stream"):
             self.result()
+
+    def test_failed_revocation_marker_refuses_retained_closed_streams(self):
+        marker = self.logs / "zebra.other.jsonl.failed"
+        target = self.root / "marker-target"
+        target.write_bytes(b"ORIGINAL DESTINATION\n")
+        for symbolic in (False, True):
+            if symbolic:
+                marker.symlink_to(target)
+            else:
+                marker.write_bytes(b"")
+            with self.assertRaisesRegex(Refused, "failed producer stream"):
+                self.result()
+            output = self.root / ("marker-refusal-" + str(symbolic) + ".json")
+            with patch("sys.argv", ["bundle.py", str(self.logs), "--build", str(EVIDENCE / "build.json"), "--output", str(output)]):
+                self.assertEqual(main(), 2)
+            refused = decode(output.read_bytes())
+            self.assertFalse(refused["capture"]["complete"])
+            self.assertEqual(refused["claims"], [])
+            self.assertEqual(target.read_bytes(), b"ORIGINAL DESTINATION\n")
+            marker.unlink()
 
     def test_output_does_not_overwrite_existing_file_or_symlink(self):
         source = next(self.logs.glob("*.jsonl"))

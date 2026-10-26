@@ -44,6 +44,8 @@ export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH=1784130712
 mapfile -t configure_args < <(python3 -I -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["inputs"]["configuration"]))' "$out/build.json")
 ./configure "${configure_args[@]}" CFLAGS="-O2 -g0 -ffile-prefix-map=$PWD=. -fmacro-prefix-map=$PWD=." \
   CXXFLAGS="-O2 -g0 -ffile-prefix-map=$PWD=. -fmacro-prefix-map=$PWD=."
+# Direct binary targets bypass the upstream all target header barrier.
+make -j1 lib/gitversion.h lib/route_types.h lib/vtysh_daemons.h
 make -j8 bgpd/bgpd zebra/zebra staticd/staticd mgmtd/mgmtd vtysh/vtysh
 gcc -UNDEBUG -DHAVE_CONFIG_H -I. -Ilib "$producer/codec_test.c" -Llib/.libs -lfrr -o "$out/codec-test"
 LD_LIBRARY_PATH="$PWD/lib/.libs" "$out/codec-test"

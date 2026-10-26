@@ -98,6 +98,19 @@ security configuration or quality gate is changed. These documented low findings
 may keep the remote checks red; their actual corrected-head status must be
 reported, not inferred from this baseline review.
 
+## Corrected-head analysis and recipe follow-up
+
+SonarCloud analyzed head 38ab7bc803fa7685a6058662b4840b088e3878da and
+closed AaF3ExOYI5fXcO_YEVtK with resolution FIXED. Its 36 security annotations
+are the same individually reviewed low findings, with no moved high alert.
+The quality gate still fails new_security_rating: B versus required A.
+Code Analysis additionally reported S7688 on this directory's validate.sh
+quoted test comparison. The Bash recipe now uses [[ ... ]] with the exact same
+tree equality assertion. The original recipe and SHA256 manifest remain
+preserved at commit 38ab7bc; no raw FRR capture or previous build is changed.
+The revised recipe is executed again on the final frozen tree before pushing.
+See [the exact scan records](../correlation-review-38ab7bc/README.md).
+
 ## Review gate and limitations
 
 Independent ChatGPT review is required before an importer or forwarding semantics.

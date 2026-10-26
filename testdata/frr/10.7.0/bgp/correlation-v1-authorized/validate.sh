@@ -12,5 +12,5 @@ podman --root /home/mplaczek/network-doctor/.pr407-tmp/containers --runroot /tmp
 go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation > "$scratch/integration-race.log" 2>&1
 go test -tags netns_integration -count=1 -v -run '^TestRouteEvents' ./internal/diagnostic > "$scratch/route-events.log" 2>&1
 git diff --exit-code
-test "$(git write-tree)" = "$(cat "$scratch/integrated-tree.txt")"
+[[ "$(git write-tree)" == "$(cat "$scratch/integrated-tree.txt")" ]]
 printf 'EXACT_TREE_VALIDATION_PASSED\n'

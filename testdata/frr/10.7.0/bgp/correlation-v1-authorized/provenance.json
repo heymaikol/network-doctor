@@ -86,5 +86,11 @@
     "historical_sha256_entries": 1313,
     "producer_schema_skips": 0,
     "producer_schema_tests": 37
+  },
+  "validation_recipe_revision": {
+    "change": "Use Bash [[ string equality ]] while preserving the exact assertion; rerun actual recipe on frozen integrated tree before push",
+    "original_script_sha256": "25361aa0edf08eeae36741fcccebf901a15cec08ec803d030fe3ef8607d6980a",
+    "preserved_original_commit": "38ab7bc803fa7685a6058662b4840b088e3878da",
+    "rule": "shelldre:S7688"
   }
 }

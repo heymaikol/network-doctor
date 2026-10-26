@@ -1,0 +1,77 @@
+[
+  {
+    "path": "/home/mplaczek/network-doctor",
+    "head": "e5e2ea74b9d95b345f7524dc1c30d14cade508bc",
+    "status": "?? .pr407-tmp/\n?? .pr407-worktree/\n?? .pr408-main-baseline/\n?? .pr408-tmp/\n?? .pr408-worktree/\n?? .pr411-main-baseline/\n?? .pr411-tmp/\n?? .pr411-worktree/\n"
+  },
+  {
+    "path": "/home/mplaczek/network-doctor/.pr407-worktree",
+    "head": "19d8d38ded17c37da0afafb858b86efd9353dc14",
+    "status": "?? testdata/frr/10.7.0/bgp/correlation-investigation/\n?? testdata/frr/10.7.0/lab/bgp-producer-probe.sh\n"
+  },
+  {
+    "path": "/home/mplaczek/network-doctor/.pr408-main-baseline",
+    "head": "450c2831c0e991a94c0ea3695eed55aebba0606b",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/network-doctor/.pr408-worktree",
+    "head": "0271f0af8c2c97c5d1d09d40afb7482a83ac8299",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/network-doctor/.pr411-main-baseline",
+    "head": "93267072cec4fa39b060c566d07e3b40938be494",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/network-doctor/.pr411-worktree",
+    "head": "37cd7bfd0653407a890aaf84a385209ae52e5f11",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/dockerfile-go-1.27.3",
+    "head": "4be38cd9c654a986ccb272f674dc26a55a529938",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/go-1.27.3-lint",
+    "head": "4b53898ca9d37782989d5e76bba98ac170ab2157",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/issue-282",
+    "head": "bb33285548ada3a1814db9486ac05d2bf409fec6",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/issue-283",
+    "head": "797eac0f68c41484637ad7b5d3029ed2af3707d0",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/issue-284",
+    "head": "897636cb03742962ce90c3292174147e8e504865",
+    "status": "?? internal/simulation/testdata/tunnel_import_live-run2/\n?? internal/simulation/testdata/tunnel_import_live-run3/\n?? internal/simulation/testdata/tunnel_import_live-run5/\n?? internal/simulation/testdata/tunnel_import_live/\n"
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/issue-285",
+    "head": "797eac0f68c41484637ad7b5d3029ed2af3707d0",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/issue-286",
+    "head": "9986dc3f44ad7a807de90b35ea39d9bb4126413b",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/issue-287",
+    "head": "2fd17065f461f109a8820d843afe688651463615",
+    "status": ""
+  },
+  {
+    "path": "/home/mplaczek/thelio-chat-bridge/worktrees/issue-316",
+    "head": "6b9d45cc013af81ebdad687a96ee647bc8f6657f",
+    "status": ""
+  }
+]

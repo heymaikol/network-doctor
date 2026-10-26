@@ -119,7 +119,7 @@ timer or BFD detection, long-lived graceful restart, or timing. The kernel route
 captures are context: netdoc reads none of them, and no forwarding conclusion is
 drawn from the BGP table.
 
-## Live FIB evidence (opt-in, not yet captured)
+## Opt-in FIB capture recipe
 
 `lab/bgp-withdraw.sh` and `lab/bgp-session.sh` take an opt-in `ZEBRA_VTY_PORT`.
 Set, each phase adds r1's zebra route table (`show ip route json`) with a
@@ -127,8 +127,13 @@ Set, each phase adds r1's zebra route table (`show ip route json`) with a
 exited. The withdraw run also adds r1's kernel IPv4 routes (`ip -j -4 route
 show`) and an `events.log` line before each deletion. The session runs already
 take the kernel routes, with or without the opt-in. Unset, the runs write the
-files they wrote before, and no `SHA256SUMS`. The repo holds no run of this
-opt-in and no zebra capture of any BGP phase, so nothing here is FIB evidence yet.
+files they wrote before, and no `SHA256SUMS`.
+
+[The producer investigation](correlation-investigation/README.md) now holds
+verified opt-in withdrawal and plain session-loss runs, plus a separate
+recursive/shared-next-hop experiment. It compares producer candidates and
+proposes an explicit identity contract for maintainer review. These captures
+do not yet prove a FIB-to-BGP-path relationship or implement forwarding ratings.
 
 Run each command from `lab/` with the header's conditions: `SCRATCH` holds
 `frr-root/` from the FRR 10.7.0 RPM, `BGPD_VTY_PORT` and `ZEBRA_VTY_PORT` are
@@ -181,97 +186,30 @@ A run counts as evidence only if all of these hold:
 A legacy run, without `ZEBRA_VTY_PORT`, writes no `SHA256SUMS` and no zebra
 capture. It is not FIB evidence.
 
-### Evidence still to obtain
+### Producer decision and remaining evidence
 
-1. Zebra route tables for each BGP phase of all four runs. No zebra field is
-   verified for a BGP route. The repo's zebra captures are OSPF only: neither R
-   capture under `zebra-rib/steady/` holds a `"protocol": "bgp"` entry.
-2. Zebra's vty port and prompt. `lsdb.sh` says the repo never proves them. The
-   opt-in writes `hostname rN` and binds zebra to `ZEBRA_VTY_PORT`, but a live
-   run decides. A prompt other than `r1> ` fails the first zebra capture, and
-   the `.raw.failed` file is kept.
-3. Kernel routes from a withdrawal run. `bgp/withdraw` holds none. The session
-   fixtures hold kernel captures, and `session/plain` shows `"protocol":"bgp"`
-   routes, but no kernel capture was taken alongside a zebra capture.
-4. Provenance for each new run: the FRR build, the host, and the operator's
-   record of the run. The steady R capture's operator record is the model.
-5. A producer for the recursive resolution identity (see Missing evidence
-   producers).
-6. A producer for the mapping from a BGP path to its installed entry (see
-   Missing evidence producers).
+See [the investigation and proposed contract](correlation-investigation/README.md)
+for live fields, provenance, limitations, candidate comparison, and the exact
+producer decision awaiting ChatGPT review. The former speculative join rules
+are superseded by that investigation. Prefixes, next hops, protocol labels,
+AS paths, destination-level installation flags, and shared next-hop-group IDs
+do not supply the missing explicit path identity.
 
-### Known unknowns
+The enhanced GR and administrative-shutdown arms have not been recaptured.
+In a GR `during` capture, each Zebra/kernel timestamp must still fall within
+the configured restart window after the event. Otherwise the phase name alone
+cannot establish that stale routes were retained.
 
-These are not verified, and no existing run resolves them:
+The ordinary withdrawal and session recipes still exercise directly connected
+BGP next hops. Their `10.10.1.0/24` route is connected on r1 and cannot be
+credited to a remote BGP peer. The separate research recipe exercises a BGP
+recursive next hop, a static route resolving through BGP, and shared forwarding
+groups. Its recorded NHT resolution names a prefix/protocol and client, but
+still does not emit a consuming-route-to-originating-BGP-peer identity chain.
 
-- Zebra's vty port and prompt. A prompt other than `r1> ` fails the first zebra
-  capture, keeps `.raw.failed`, and exits 1.
-- Zebra's fields. The zebra capture is checked for framing and one JSON object
-  only. No selection, install, protocol, or next-hop field is read, and which keys
-  carry those for BGP routes is unverified.
-- Kernel routes are context only. The capture records no resolution for a next
-  hop, and a `proto bgp` line does not show that BGP installed it.
-- Order is not simultaneity. The zebra and kernel captures come after the BGP
-  captures, and nothing checks them against the BGP table again.
-- Graceful-restart timing. In `gr` `during`, the zebra and kernel captures
-  (`r1-during-show_ip_route_json.raw` and `r1-during-ip_route.json`) are `during`
-  captures only if their `.collected_at` is less than 30 seconds after the
-  `r2: SIGKILL bgpd` line in `events.log`, the configured restart time. Otherwise,
-  they may show paths that the restart timer has already removed. The committed
-  `session/gr/r1-during-ip_route.json` is a kernel capture of that kind, so the
-  rule applies to it too. No zebra capture of a BGP phase is committed.
-
-### Missing evidence producers
-
-These are gaps. No lab command captures them, and nothing here implements them:
-
-- The recursive resolution identity: the zebra or kernel route that resolves each
-  BGP next hop, such as 10.0.1.2. Neither BGP script queries zebra for a next hop
-  or runs `ip route get`. A candidate, unverified: `ip -j -4 route get <next hop>`.
-  Before using it, verify that its output names the resolving route. Until a producer exists, a next hop is not tied to a resolving route, and a route
-  is never matched by its gateway alone.
-- The mapping from a BGP path to its installed zebra entry. The join rules below
-  are a target. They are not implemented, and `forwarding_impact` stays unknown.
-- A future producer must be checked against live FRR 10.7.0 output before its
-  fields are read.
-
-### Join rules for a later stage (not implemented)
-
-A BGP path can be considered for crediting with an installed forwarding entry
-only when every rule holds in the same phase. Each rule is necessary. Together
-they are still not sufficient:
-
-- FRR's table lists the prefix with exactly one `bestpath` path from the named
-  peer, and that path is `valid`. The `valid`, `bestpath`, and
-  `selectionReason` keys are FRR's, and the repo's session captures show them.
-  The decoder does not read them yet.
-- The path is not stale.
-- Zebra's entry for the prefix has `protocol` `bgp`, its install indicators
-  are set, and its next hop is the path's next hop. The next hop must be
-  unique to that path, and the entry must not be recursive or unresolved.
-- The kernel shows a `proto bgp` route for the prefix with the same gateway.
-
-Refuse the join, and keep `forwarding_impact` unknown with the reason, when:
-
-- a next hop is shared by more than one path for the prefix, or the prefix
-  has multipath;
-- a next hop is recursive or unresolved;
-- an install indicator is missing, or a field is absent from the capture;
-- the path is stale, or it has no peer (`(unspec)`).
-
-Prefix plus next hop plus `proto bgp` does not prove the selected path, and
-`bestpath` on the path does not show that the installed entry came from it.
-Until a direct mapping from the path to its installed entry is present,
-`forwarding_impact` stays unknown.
-
-### Limits of this lab
-
-- Recursion is not exercised. Each peer next hop here is directly connected on
-  r1 (10.0.1.2 on e1, 10.0.3.3 on e3). Recursion needs a separate arm in a
-  later stage.
-- 10.10.1.0/24 is also connected on r1 (stub1), so a kernel route for it cannot
-  be credited to BGP. Locally originated paths (`(unspec)`) have no peer to join.
-- Install is asynchronous. Zebra and kernel captures taken after the BGP table
-  settles can lag it. The stamps record order, not simultaneity.
-- The lab has no policy and no route reflector, and r2 and r3 do not peer with
-  each other, so nothing propagates beyond r1.
+The captures record separate collection times. Neither convergence polling nor
+equal bracket endpoints makes cross-daemon state atomic. Installation is
+asynchronous, and no forwarding rating follows merely from observed route loss.
+Until the maintainer selects and validates a producer for the explicit links,
+`forwarding_impact` remains unknown. Do not start a broad Zebra RIB import solely
+for this decision.

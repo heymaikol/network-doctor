@@ -1,0 +1,16 @@
+show ip bgp json
+{
+ "vrfId": 0,
+ "vrfName": "default",
+ "tableVersion": 6,
+ "routerId": "1.1.1.1",
+ "defaultLocPrf": 100,
+ "localAS": 65001,
+ "routes": { "10.10.1.0/24": [{"valid":true,"bestpath":true,"selectionReason":"Weight","pathFrom":"external","prefix":"10.10.1.0","prefixLen":24,"network":"10.10.1.0/24","version":1,"metric":0,"weight":32768,"peerId":"(unspec)","path":"","origin":"IGP","nexthops":[{"ip":"0.0.0.0","hostname":"r1","afi":"ipv4","used":true}]},{"valid":true,"pathFrom":"external","prefix":"10.10.1.0","prefixLen":24,"network":"10.10.1.0/24","version":1,"metric":0,"weight":0,"peerId":"10.0.1.2","path":"65002","origin":"IGP","nexthops":[{"ip":"10.0.1.2","hostname":"r2","afi":"ipv4","used":true}]}]
+,"10.10.2.0/24": [{"valid":true,"bestpath":true,"selectionReason":"Older Path","multipath":true,"pathFrom":"external","prefix":"10.10.2.0","prefixLen":24,"network":"10.10.2.0/24","version":5,"metric":0,"weight":0,"peerId":"10.0.1.2","path":"65002","origin":"IGP","nexthops":[{"ip":"10.0.1.2","hostname":"r2","afi":"ipv4","used":true}]},{"valid":true,"multipath":true,"pathFrom":"external","prefix":"10.10.2.0","prefixLen":24,"network":"10.10.2.0/24","version":5,"metric":0,"weight":0,"peerId":"10.0.3.3","path":"65002","origin":"IGP","nexthops":[{"ip":"10.0.1.2","hostname":"r3","afi":"ipv4","used":true}]}]
+,"10.10.3.0/24": [{"valid":true,"bestpath":true,"selectionReason":"First path received","pathFrom":"external","prefix":"10.10.3.0","prefixLen":24,"network":"10.10.3.0/24","version":6,"metric":0,"weight":0,"peerId":"10.0.3.3","path":"65002","origin":"IGP","nexthops":[{"ip":"10.0.3.3","hostname":"r3","afi":"ipv4","used":true}]}]
+,"10.10.9.0/24": [{"valid":true,"bestpath":true,"selectionReason":"First path received","pathFrom":"external","prefix":"10.10.9.0","prefixLen":24,"network":"10.10.9.0/24","version":3,"metric":0,"weight":0,"peerId":"10.0.1.2","path":"65002","origin":"IGP","nexthops":[{"ip":"10.0.1.2","hostname":"r2","afi":"ipv4","used":true}]}]
+,"203.0.113.0/24": [{"valid":true,"bestpath":true,"selectionReason":"First path received","pathFrom":"external","prefix":"203.0.113.0","prefixLen":24,"network":"203.0.113.0/24","version":4,"metric":0,"weight":0,"peerId":"10.0.1.2","path":"65002","origin":"IGP","nexthops":[{"ip":"10.10.9.2","hostname":"r2","afi":"ipv4","used":true}]}]
+ } , "totalRoutes": 5, "totalPaths": 7,"numRoutes":5
+ } 
+r1> 

@@ -136,6 +136,12 @@ def streams(directory_fd):
                         "lookup_flags", "resolving_vrf", "resolver_table", "terminal_ifindex"):
                 if key in row:
                     require(integer(row[key]), "invalid integer field: " + key)
+            for contributor in row.get("contributors", []):
+                require(integer(contributor["revision"]) and contributor["revision"] > 0,
+                        "invalid contributor revision")
+            for key in ("contributors", "resolution_refs"):
+                for item in row.get(key, []):
+                    require(integer(item["leg"]) and item["leg"] < 64, "invalid nested leg")
             if "error" in row:
                 require(type(row["error"]) is int and -(2**31) <= row["error"] < 2**31, "invalid kernel error type")
         events[daemon] = rows
@@ -251,6 +257,10 @@ def produce(directory_fd):
             require(row["resolver_origin"] == resolver["origin"] and row["resolver_prefix"] == resolver["prefix"], "contradictory resolver identity")
             require(identity(row["resolution_id"], zebra_epoch, "resolution") and row["resolution_id"] not in resolutions,
                     "invalid or duplicate resolution identity")
+            # Tables are copied from the routes; supported lookups require both VRFs zero.
+            require(row["table"] == consumer["table"] and row["resolver_table"] == resolver["table"]
+                    and (row["supported"] is not True or (row["vrf"] == 0 and row["resolving_vrf"] == 0)),
+                    "contradictory resolution context")
             resolutions[row["resolution_id"]] = row
             output["resolutions"].append(row)
             if row["supported"] is not True or not supported(consumer) or not supported(resolver) \

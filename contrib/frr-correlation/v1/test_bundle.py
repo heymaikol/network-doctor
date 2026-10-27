@@ -54,6 +54,16 @@ class ProducerProof(unittest.TestCase):
             os.close(capture)
             os.close(output)
 
+    def assert_refused_without_claims(self, reason):
+        with self.assertRaisesRegex(Refused, reason):
+            self.result()
+        with tempfile.TemporaryDirectory(dir=self.root) as output:
+            self.assertEqual(self.cli(output), 2)
+            refused = decode((Path(output) / "bundle.json").read_bytes())
+            self.assertFalse(refused["capture"]["complete"])
+            self.assertEqual(refused["claims"], [])
+            self.assertEqual(refused.get("fib_entries", []), [])
+
     def test_partial_stream_is_refused_even_with_two_closed_streams(self):
         (self.logs / "zebra.other.jsonl.partial").write_bytes(b"")
         with self.assertRaisesRegex(Refused, "incomplete producer stream"):
@@ -312,6 +322,9 @@ class ProducerProof(unittest.TestCase):
 
     def test_committed_bundle_matches_sources(self):
         self.assertEqual(self.result(), decode((EVIDENCE / "proof-bundle.json").read_bytes()))
+        self.assertEqual(self.cli(self.root), 0)
+        self.assertEqual((self.root / "bundle.json").read_bytes(),
+                         (EVIDENCE / "proof-bundle.json").read_bytes())
 
     def test_complete_evidence_manifests(self):
         for root in (EVIDENCE, EVIDENCE / "proof", EVIDENCE / "restart"):
@@ -387,6 +400,96 @@ class ProducerProof(unittest.TestCase):
         self.mutate("zebra", change)
         with self.assertRaisesRegex(Refused, "contradictory path-to-route"):
             self.result()
+
+    def test_contributor_revisions_require_positive_uint64(self):
+        for daemon, event in (("bgpd", "bgp_submission"), ("zebra", "route_received"),
+                              ("zebra", "route_generation")):
+            path = next(self.logs.glob(daemon + ".*.jsonl"))
+            original = path.read_bytes()
+            for value in (True, False, -1, 0, 2**64, 1.0):
+                with self.subTest(event=event, value=value):
+                    def change(rows):
+                        row = next(r for r in rows if r["event"] == event and r["contributors"])
+                        row["contributors"][0]["revision"] = value
+                    try:
+                        self.mutate(daemon, change)
+                        self.assert_refused_without_claims("invalid contributor revision")
+                    finally:
+                        path.write_bytes(original)
+
+    def test_nested_legs_require_integer_ordinals(self):
+        for daemon, event, field in (("bgpd", "bgp_submission", "contributors"),
+                                     ("zebra", "route_received", "contributors"),
+                                     ("zebra", "route_generation", "contributors"),
+                                     ("zebra", "operation", "resolution_refs")):
+            path = next(self.logs.glob(daemon + ".*.jsonl"))
+            original = path.read_bytes()
+            for value in (True, False, -1, 64, 2**64, 0.0):
+                with self.subTest(event=event, value=value):
+                    def change(rows):
+                        row = next(r for r in rows if r["event"] == event and len(r[field]) == 2)
+                        row[field][int(value) if type(value) is bool else 0]["leg"] = value
+                    try:
+                        self.mutate(daemon, change)
+                        self.assert_refused_without_claims("invalid nested leg")
+                    finally:
+                        path.write_bytes(original)
+
+    def test_operation_leg_count_requires_uint64(self):
+        path = next(self.logs.glob("zebra.*.jsonl"))
+        original = path.read_bytes()
+        for value in (True, False, -1, 2**64, 1.0):
+            with self.subTest(value=value):
+                try:
+                    self.mutate("zebra", lambda rows: next(r for r in rows if r["event"] == "operation").update(source_leg_count=value))
+                    self.assert_refused_without_claims("incomplete operation leg inventory")
+                finally:
+                    path.write_bytes(original)
+
+    def assert_resolution_context_refused(self, field, value):
+        def change(rows):
+            row = next(r for r in rows if r["event"] == "resolution" and r["supported"] is True and r["recursive"] is True)
+            row[field] = value
+        self.mutate("zebra", change)
+        self.assert_refused_without_claims("contradictory resolution context")
+
+    def test_resolution_resolver_table_must_match_selected_route(self):
+        self.assert_resolution_context_refused("resolver_table", 100)
+
+    def test_resolution_resolving_vrf_must_match_supported_lookup(self):
+        self.assert_resolution_context_refused("resolving_vrf", 7)
+
+    def test_resolution_table_must_match_consumer(self):
+        self.assert_resolution_context_refused("table", 100)
+
+    def test_resolution_vrf_must_match_supported_lookup(self):
+        self.assert_resolution_context_refused("vrf", 7)
+
+    def test_unsupported_resolution_cannot_hide_contradictory_tables(self):
+        path = next(self.logs.glob("zebra.*.jsonl"))
+        original = path.read_bytes()
+        for field in ("table", "resolver_table"):
+            with self.subTest(field=field):
+                def change(rows):
+                    row = next(r for r in rows if r["event"] == "resolution" and r["supported"] is True)
+                    row.update(supported=False)
+                    row[field] = 100
+                try:
+                    self.mutate("zebra", change)
+                    self.assert_refused_without_claims("contradictory resolution context")
+                finally:
+                    path.write_bytes(original)
+
+    def test_unsupported_resolution_gets_no_resolution_or_installation_credit(self):
+        changed = []
+        def change(rows):
+            row = next(r for r in rows if r["event"] == "resolution" and r["supported"] is True and r["recursive"] is True)
+            changed.append(row["resolution_id"])
+            row["supported"] = False
+        self.mutate("zebra", change)
+        result = self.result()
+        self.assertFalse(any(c.get("resolution_id") == changed[0] or changed[0] in c.get("resolution_ids", [])
+                             for c in result["claims"]))
 
     def test_missing_resolution_object_is_refused(self):
         def change(rows):

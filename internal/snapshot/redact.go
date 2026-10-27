@@ -567,7 +567,7 @@ func (r *redactor) check(c Check) Check {
 	// address, credential, identifier, or user-supplied string of its own, and
 	// nothing here could recompute it once the proxy row's text is rewritten.
 	observed := &Observed{
-		DNSNotFound: o.DNSNotFound, Resolver: r.address(o.Resolver),
+		DNSNotFound: o.DNSNotFound, DNSNameScope: o.DNSNameScope, Resolver: r.address(o.Resolver),
 		SourceIP: r.address(o.SourceIP), Interface: r.alias("interface", o.Interface),
 		SSID: r.alias("ssid", o.SSID), Timeout: o.Timeout,
 		InterfaceAmbiguous: o.InterfaceAmbiguous, ClockOffsetMs: o.ClockOffsetMs,

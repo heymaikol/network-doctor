@@ -96,7 +96,7 @@ func TestNoRunCallsItselfHealthyWithAFailedRow(t *testing.T) {
 		target: literal, order: planOrder(t, literal),
 		given: map[ProbeID]ProbeResult{
 			ProbeDNS:          {Status: StatusNA, Addrs: []net.IP{ip}, SelectedIP: ip},
-			ProbeDNSPublic:    {Status: StatusNA},
+			ProbeDNSPublic:    {DNSNameScope: "absolute", Status: StatusNA},
 			ProbeDNSEncrypted: {Status: StatusFail, Detail: "no verified DoH/DoT exchange"},
 			ProbeTargetTCP:    {Status: StatusPass, SelectedIP: ip},
 		},
@@ -108,7 +108,7 @@ func TestNoRunCallsItselfHealthyWithAFailedRow(t *testing.T) {
 		given: map[ProbeID]ProbeResult{
 			ProbeQUIC:      {Status: StatusFail, Cause: QUICCauseTimeout},
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{pub}},
 			ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
 		},
 	}, {
@@ -117,7 +117,7 @@ func TestNoRunCallsItselfHealthyWithAFailedRow(t *testing.T) {
 		given: map[ProbeID]ProbeResult{
 			ProbeProxy:     {Status: StatusFail, Detail: "proxy CONNECT refused"},
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{pub}},
 			ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
 		},
 	}}
@@ -159,7 +159,7 @@ func TestDegradedSiblingsDoNotOutrankAnUnexplainedResolverFailure(t *testing.T) 
 	// anything but its own broken resolver is exactly this state.
 	base := map[ProbeID]ProbeResult{
 		ProbeDNS:       {Status: StatusFail, Cause: DNSCauseTimeout},
-		ProbeDNSPublic: {Status: StatusNA, Detail: "public DNS unavailable"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusNA, Detail: "public DNS unavailable"},
 	}
 	alone := Interpret(nil, order, settle(t, nil, order, base))
 	if alone.Verdict != VerdictDNS {
@@ -183,7 +183,7 @@ func TestDegradedSiblingsDoNotOutrankAnUnexplainedResolverFailure(t *testing.T) 
 			// into the same hole: it is functional, so it reads as plaintext
 			// resolution working, while it resolved nothing.
 			if sibling.id == ProbeDNSEncrypted {
-				with[ProbeDNSPublic] = ProbeResult{Status: StatusPass, DNSNotFound: true}
+				with[ProbeDNSPublic] = ProbeResult{DNSNameScope: "absolute", Status: StatusPass, DNSNotFound: true}
 			}
 			d := Interpret(nil, order, settle(t, nil, order, with))
 			if d.Verdict != VerdictDNS {
@@ -206,7 +206,7 @@ func TestResolverDisagreementDoesNotClaimOnlineWithoutEgress(t *testing.T) {
 	public := net.ParseIP("198.51.100.10")
 	disagreeing := map[ProbeID]ProbeResult{
 		ProbeDNS: {Status: StatusPass, Addrs: []net.IP{system}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{public},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{public},
 			resolver: "8.8.8.8", Detail: "second opinion"},
 	}
 
@@ -270,7 +270,7 @@ func TestRejectedCertificateOutranksThePathMTUCorrelation(t *testing.T) {
 		t.Run(cause, func(t *testing.T) {
 			res := settle(t, target, order, map[ProbeID]ProbeResult{
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{pub}},
 				ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
 				ProbePMTU:      {Status: StatusWarn, Detail: "stalled without draining the send buffer"},
 				ProbeTLS:       {Status: StatusFail, Cause: cause},
@@ -292,7 +292,7 @@ func TestRejectedCertificateOutranksThePathMTUCorrelation(t *testing.T) {
 	// a handshake that timed out observed no certificate at all.
 	res := settle(t, target, order, map[ProbeID]ProbeResult{
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{pub}},
 		ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
 		ProbePMTU:      {Status: StatusWarn},
 		ProbeTLS:       {Status: StatusFail, Cause: TLSCauseTimeout, timedOut: true},
@@ -314,7 +314,7 @@ func TestNoCounterfactualIsDrawnFromInterceptedRows(t *testing.T) {
 		// The portal's resolver answers with the portal; the second opinion
 		// is let out to 8.8.8.8 and answers with the real address.
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{portalIP}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("140.82.121.4")}},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{net.ParseIP("140.82.121.4")}},
 		ProbeTargetTCP: {Status: StatusPass, SelectedIP: portalIP},
 	})
 	d := Interpret(target, order, res)
@@ -340,7 +340,7 @@ func TestTLSFailuresWithoutACertificateDoNotOfferCertificateCauses(t *testing.T)
 		t.Run(cause, func(t *testing.T) {
 			res := settle(t, target, order, map[ProbeID]ProbeResult{
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{pub}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{pub}},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{pub}},
 				ProbeTargetTCP: {Status: StatusPass, SelectedIP: pub},
 				ProbeTLS:       {Status: StatusFail, Cause: cause},
 			})

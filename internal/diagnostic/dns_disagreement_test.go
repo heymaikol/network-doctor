@@ -53,7 +53,7 @@ func TestQUICFailureOnADisagreeingAnswerIsNotUDPUnavailability(t *testing.T) {
 	d, res := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poison4, poison6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
 		ProbeQUIC: {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{
 			{IP: poison6}, {IP: poison4},
 		}},
@@ -125,7 +125,7 @@ func TestQUICFailureWithAgreeingDNSKeepsItsDiagnosis(t *testing.T) {
 			d, res := genericRun(t, map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{real4}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: tc.public, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: tc.public, resolver: "8.8.8.8"},
 				ProbeQUIC:      {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{{IP: real4}}},
 			})
 			if got := res[ProbeDNSPublic].answerComparison; got != comparisonAgree {
@@ -170,7 +170,7 @@ func TestQUICFailureOnACorroboratedAddressKeepsItsDiagnosis(t *testing.T) {
 		res := settle(t, nil, order, map[ProbeID]ProbeResult{
 			ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poison4, real6}},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
 			ProbeQUIC:      {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{{IP: real6}}},
 		})
 		public := res[ProbeDNSPublic]
@@ -200,7 +200,7 @@ func TestQUICFailureAfterTheSystemAnswerRotatedKeepsTheDisagreement(t *testing.T
 	d, res := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{earlierSystem4}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{public4}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{public4}, resolver: "8.8.8.8"},
 		ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, laterSystem4),
 	})
 	if got := res[ProbeDNSPublic].answerComparison; got != comparisonDisagree {
@@ -244,7 +244,7 @@ func TestResolverDisagreementWithoutAQUICFailureIsUnchanged(t *testing.T) {
 			d, _ := genericRun(t, map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poison4}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{real4}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{real4}, resolver: "8.8.8.8"},
 				ProbeQUIC:      tc.quic,
 			})
 			if got := findingIDs(d); len(got) == 0 || got[0] != DiagnosisDNSDisagreement {
@@ -265,7 +265,7 @@ func TestCaptivePortalStillOutranksTheDisagreement(t *testing.T) {
 	d, _ := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  {Status: StatusFail, Portal: &Portal{RedirectURL: "http://portal.example/login"}},
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poison4}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{real4}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{real4}, resolver: "8.8.8.8"},
 		ProbeQUIC:      {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{{IP: poison4}}},
 	})
 	if got := findingIDs(d); len(got) == 0 || got[0] != DiagnosisCaptivePortal {
@@ -304,7 +304,7 @@ func TestTargetDisagreementDoesNotExplainAnUnrelatedQUICFailure(t *testing.T) {
 	res := settle(t, tg, order, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("192.0.2.123")}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}, resolver: "8.8.8.8"},
 		ProbeTargetTCP: {Status: StatusPass},
 		ProbeQUIC: {Status: StatusFail, Cause: QUICCauseTimeout,
 			Attempts: []Attempt{{IP: net.ParseIP("142.250.9.94")}}},
@@ -352,7 +352,7 @@ func disagreementRoundTrip(t *testing.T, poison4, poison6, real4, real6 net.IP, 
 	res := settle(t, nil, order, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poison4, poison6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
 		ProbeQUIC:      quic,
 	})
 	live := Interpret(nil, order, res)
@@ -396,7 +396,7 @@ func TestTheDisagreementLinkageSurvivesSanitization(t *testing.T) {
 		ProbeIface:     {Status: StatusPass},
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poison4, poison6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
 		ProbeQUIC: {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{
 			{IP: poison6, Cause: ConnectionCauseTimeout}, {IP: poison4, Cause: ConnectionCauseTimeout},
 		}},
@@ -433,7 +433,7 @@ func TestAnycastAcrossPrefixesWithOneUsableFamilyStaysHealthy(t *testing.T) {
 	d, res := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{system4, system6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{public4, public6}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{public4, public6}, resolver: "8.8.8.8"},
 	})
 	public := res[ProbeDNSPublic]
 	if public.answerComparison != comparisonAgree {

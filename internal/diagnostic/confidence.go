@@ -121,10 +121,10 @@ var diagnosisConfidence = map[DiagnosisID]confidenceClass{
 	// reason this says inferred.
 	DiagnosisProbablePathMTU: classInferred,
 
-	// Name resolution. Two resolvers asked the same question is a controlled
+	// Name resolution. Two resolution paths given the same absolute name allow a
 	// comparison, and their agreeing on a negative answer is observed: a name
 	// with no records has none whichever resolver is asked. Their disagreeing
-	// is weaker than it looks. One query each, at one moment, shows the
+	// is weaker than it looks. One lookup per path, at one moment, shows the
 	// configured resolver failing then, and does not separate a resolver that
 	// is broken or filtering from a name whose own servers were briefly
 	// failing for everyone. A resolver failing with no second opinion names

@@ -466,7 +466,7 @@ func TestReplayKeepsAnAgreementSanitizationWouldSplit(t *testing.T) {
 		// them is also the public resolver's own address, which is the field
 		// support redaction keeps verbatim.
 		ProbeDNS: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("8.8.4.4")}},
-		ProbeDNSPublic: {
+		ProbeDNSPublic: {DNSNameScope: "absolute",
 			Status: StatusPass, Addrs: []net.IP{net.ParseIP("8.8.8.8")},
 			resolver: "8.8.8.8", ResolverTargets: []string{"8.8.8.8:53"},
 		},
@@ -504,7 +504,7 @@ func TestReplayKeepsADisagreementSanitizationWouldCollapse(t *testing.T) {
 		// Sanitization pseudonymizes both into one block, so an artifact-only
 		// comparison reads them as agreeing.
 		ProbeDNS: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("203.0.113.9")}},
-		ProbeDNSPublic: {
+		ProbeDNSPublic: {DNSNameScope: "absolute",
 			Status: StatusPass, Addrs: []net.IP{net.ParseIP("198.51.100.20")},
 			resolver: "9.9.9.9", ResolverTargets: []string{"9.9.9.9:53"},
 		},

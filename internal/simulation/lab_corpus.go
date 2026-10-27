@@ -17,7 +17,7 @@ const labTarget6 = "2606:2800:220:1:248:1893:25c8:1946"
 // statuses, findings, or diagnosis text.
 func LabScenarios() []LabScenario {
 	healthy := func(name, description string, dual bool) LabScenario {
-		return LabScenario{Name: name, Description: description, Network: labBase(dual), Views: []LabView{{Node: "client", SourceSegment: "ethernet", Target: "https://" + labHost, Expected: LabExpected{Verdict: d.VerdictOK, Checks: []ExpectedCheck{{ID: "target_tcp", Status: "PASS"}, {ID: "tls", Status: "PASS"}, {ID: "https", Status: "PASS"}}}}}}
+		return LabScenario{Name: name, Description: description, Network: labBase(dual), Views: []LabView{{Node: "client", SourceSegment: "ethernet", Target: "https://" + labHost + ".", Expected: LabExpected{Verdict: d.VerdictOK, Checks: []ExpectedCheck{{ID: "target_tcp", Status: "PASS"}, {ID: "tls", Status: "PASS"}, {ID: "https", Status: "PASS"}}}}}}
 	}
 	expect := func(s *LabScenario, verdict string, id d.DiagnosisID, checks ...ExpectedCheck) {
 		s.Views[0].Expected = LabExpected{Verdict: verdict, Required: []d.DiagnosisID{id}, Forbidden: []d.DiagnosisID{d.DiagnosisOffline}, Checks: checks}
@@ -123,13 +123,13 @@ func LabScenarios() []LabScenario {
 	// tunnel source goes to an on-link address with no router there.
 	s.Faults = []LabFault{{ID: "wrong-return-gateway", Layer: "routing", Scope: "target/return-path", Route: &Route{Node: "target", Destination: "10.20.3.0/24", Via: "10.20.2.254"}}}
 	expect(&s, d.VerdictService, d.DiagnosisTargetUnreachable, ExpectedCheck{ID: "target_tcp", Status: "FAIL"})
-	s.Views = append(s.Views, LabView{Node: "remote", Target: "https://" + labHost, Expected: LabExpected{Verdict: d.VerdictOK}})
+	s.Views = append(s.Views, LabView{Node: "remote", Target: "https://" + labHost + ".", Expected: LabExpected{Verdict: d.VerdictOK}})
 	s.TwoSided = compare.SideA
 	s.BlindSpots = []string{"The simulator sees the broken return path. Client route evidence only describes outbound decisions; two-sided comparison places the failing vantage, not an asymmetric hop."}
 	out = append(out, s)
 	s = healthy("remote-side-broken", "The local client works; only the remote observer locally rejects target TCP/443.", false)
 	s.Faults = []LabFault{{ID: "remote-target-drop", Layer: "transport", Scope: "remote", Network: &Fault{Type: FaultDrop, Node: "remote", To: labTarget4, Port: 443, Protocol: "tcp", Direction: DirectionOutbound}}}
-	s.Views = append(s.Views, LabView{Node: "remote", Target: "https://" + labHost, Expected: LabExpected{Verdict: d.VerdictService, Required: []d.DiagnosisID{d.DiagnosisTCPConnectionRefused}, Forbidden: []d.DiagnosisID{d.DiagnosisOffline}}})
+	s.Views = append(s.Views, LabView{Node: "remote", Target: "https://" + labHost + ".", Expected: LabExpected{Verdict: d.VerdictService, Required: []d.DiagnosisID{d.DiagnosisTCPConnectionRefused}, Forbidden: []d.DiagnosisID{d.DiagnosisOffline}}})
 	s.TwoSided = compare.SideB
 	out = append(out, s)
 	s = healthy("unrelated-dns-answers", "Two observers resolve the same name to disjoint but working server addresses.", false)
@@ -139,7 +139,7 @@ func LabScenarios() []LabScenario {
 	svc.Records = labRecords(false, "203.0.113.99")
 	s.Faults = []LabFault{replace("split-dns-answer", "dns", svc)}
 	expect(&s, d.VerdictDegraded, d.DiagnosisDNSDisagreement)
-	s.Views = append(s.Views, LabView{Node: "remote", Target: "https://" + labHost, Expected: LabExpected{Verdict: d.VerdictOK}})
+	s.Views = append(s.Views, LabView{Node: "remote", Target: "https://" + labHost + ".", Expected: LabExpected{Verdict: d.VerdictOK}})
 	s.TwoSided = compare.SideNone
 	s.BlindSpots = []string{"Two-sided matching uses the named target, not common resolved addresses. It can compare different servers; a shared-address control would be needed for endpoint-level localization."}
 	out = append(out, s)

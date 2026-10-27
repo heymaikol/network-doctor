@@ -18,7 +18,7 @@ Probes form a **dependency graph with independent branches**, so an unrelated fa
   successful local UDP send cannot masquerade as reachability.
 - **Proxy-egress path** (independent of both): `Interface → Internet (env
   proxy)`. Native probes deliberately bypass proxies, so this row reports the environment-configured proxy separately: a proxy-only corporate network reads "online via proxy" rather than offline.
-- **Public-DNS path** (independent of system DNS): `Interface → DNS (public)`. Failing to reach the third-party resolver is N/A; differing answers warn about split DNS or filtering but never fail the run on their own. `--public-dns` picks a different resolver, and `--public-dns ""` removes the row.
+- **Public-DNS path** (independent of system DNS): `Interface → DNS (public)`. Failing to reach the third-party resolver is N/A; answers for explicitly absolute inputs can warn about split DNS or filtering but never fail the run on their own. `--public-dns` picks a different resolver, and `--public-dns ""` removes the row.
 - **Encrypted-DNS path** (independent of both plaintext DNS rows): `Interface →
   DNS (encrypted DoH/DoT)`. Plain DNS and encrypted DNS are separate network capabilities, so this row hangs off the interface rather than under the DNS row: a network can carry ordinary DNS while blocking DoH and DoT.
 - **Wi-Fi metadata path**: `Interface → Wi-Fi network`. SSID discovery runs beside network checks, so slow OS lookup never delays them.
@@ -26,6 +26,25 @@ Probes form a **dependency graph with independent branches**, so an unrelated fa
 - **Selected target path**: `Interface → DNS → TCP → TLS → HTTPS` for secure web targets, or applicable protocol row for other ports.
 - **Path-MTU branch** (hangs off connect, not off any protocol): `TCP → Path
   MTU`. Black hole breaks SSH and SMTP exactly as thoroughly as TLS.
+
+Public DNS never applies the machine's DNS search suffixes. An explicitly
+absolute hostname, including `printer.`, is queried as written. A relative
+multi-label hostname such as `server.internal` is queried only as
+`server.internal.`. An unqualified relative name such as `printer` gets N/A
+without contacting any public resolver. IDNs use the existing ASCII
+canonicalization before these rules apply; IP literals still need no DNS.
+The no-target check queries `connectivitycheck.gstatic.com.` publicly.
+System resolution keeps its normal search and hosts-file behavior, and local
+overrides are never credited as public DNS answers.
+
+Only explicitly absolute inputs support comparisons with system resolution.
+Rooting a relative public query does not prove which name the system resolved,
+so its addresses and negative answers remain standalone observations. This
+also limits resolver counterfactuals and untested endpoint alternatives. Even
+matching name scope does not prove identical wire questions or which system
+resolver or local source supplied an address. A private suffix supplied in the
+input is still sent as part of that exact name; use `--public-dns ""` to disable
+the second opinion when that is unwanted.
 
 Each row lands in one of five states: **✓ Pass**, **! Warn** (reachable but degraded: high latency, some addresses failing, an ambiguous source interface), **✗ Fail**, **⊘ Skip** (a prerequisite failed), or **– N/A** (doesn't apply, e.g. DNS on an IP literal). Warn never counts as a failure.
 
@@ -1301,6 +1320,15 @@ The rest of a row's identity and the run's outcome are enforced the same way, an
 
 Both readers hold `ran` to the status beside it, because the two are not independent facts about a run. A `PASS`, `WARN`, or `FAIL` row carries an outcome a probe body measured, so it ran. A `SKIP` row was recorded when a prerequisite failed and an `INCOMPLETE` row was never reached at all, so neither did. `N/A` is deliberately outside the rule: a probe reports it from inside its own body after looking, and a netdoc that ruled a row inapplicable before calling it would still be writing a valid v1 file. A row that did not run also reports `duration_ms: 0`, because `ran` is that duration read as a yes or no. The reverse is not required, since a probe body faster than the unit can round to zero.
 
+`dns_name_scope` on a JSON public-DNS row, and `observed.dns_name_scope`
+in a snapshot, records `absolute` or `rooted_relative`. Absence means unknown
+legacy query-name provenance, not a newly rooted relative lookup. The field
+contains no hostname and survives support redaction. Replay suppresses
+comparisons and comparison-derived warnings for relative or unknown scope,
+while preserving standalone observations. An unsanitized legacy target ending
+in a root dot can establish absolute scope; redacted target spelling cannot.
+Historical stored diagnosis text is unchanged and is never replay evidence.
+
 `observed.resolver_targets` holds the same attempted DNS service addresses as the JSON report. It is additive and optional, so an older snapshot with no field makes no resolver-provenance claim. `observed.routes` holds the same per-destination route decisions the JSON report documents above, in the same shape and with the same rule that an absent field is unknown rather than zero. It is an additive optional field: a snapshot written before it existed simply has none, and every reader treats that as "this run recorded no route decisions", never as "there was no route". `observed.connect_cleartext` mirrors the JSON report's `connect_cleartext`: `true` on a working `proxy_connect` row whose environment proxy used a plaintext HTTP CONNECT, and absent otherwise. It is additive and optional in the same way, it survives `--support` sanitization because a boolean names nobody, and an absent field never means a TLS hop to the proxy was confirmed or that no cleartext hostname was sent. Nothing stores a routing table; the entries are the answers to the bounded set of lookups the run already had to make.
 
 Within a check, `observed` is what the probe measured and `derived` is what the cross-probe reasoning pass concluded about that row afterwards. Two fields live under `derived`. `status_downgraded` marks an observed egress failure that was relaxed to a Warn because another path carried traffic off this network on the same run: the endpoint under test answered a direct connection at a public address, or the environment proxy tunnelled. Its presence says the row's status is a conclusion rather than a reading. A destination reached without leaving the network, such as a device on the LAN or a peer in `100.64.0.0/10`, never earns one, and neither does the resolver answering. `answer_comparison` is on the `dns_public` row and records what that pass concluded when it compared the two resolvers' answers: `agree` or `disagree`, and absent when there was nothing to compare. It is stored because the comparison is made from the addresses the resolvers returned, and a `--support` artifact holds only pseudonyms of those, so a reader that recomputed it would be asking a different question than the run did. Absent never means the answers agreed, and an artifact written before the field existed has none. A row can therefore carry `derived` without its status having been rewritten. `cause`, `verdict`, and the finding IDs use exactly the vocabularies documented for [JSON output](#json-output) and [diagnosis findings](#diagnosis-findings).
@@ -1731,7 +1759,7 @@ It also cannot see anything the snapshots do not carry, which is the same list a
 Conditions that weaken the reading are reported as caveats rather than left for the reader to notice. They are prose for a person and are not parsed back:
 
 - **A gap between the two captures.** Anything that changed in between is inside the evidence. Runs started together produce no caveat; the gap is reported from a minute upward, in minutes, hours, or days.
-- **Settings the two runs did not share.** Different probe timeouts (a timed-out row may be a shorter budget rather than a slower path), different second-opinion resolvers (the public DNS row asked two different questions), or a different `--check`/`--skip` selection. The selection is compared as a set, so a reordering is not a caveat.
+- **Settings the two runs did not share.** Different probe timeouts (a timed-out row may be a shorter budget rather than a slower path), different second-opinion resolvers (the public DNS rows attempted different servers), or a different `--check`/`--skip` selection. The selection is compared as a set, so a reordering is not a caveat.
 - **Source bindings that did not constrain the two runs alike.** One run bound its probes to a chosen local source with `--iface` while the other used the machine's own routing choice, so a row that fails on one side may follow from that binding rather than from the machine. Two runs that were both bound are also reported when their bindings did not cover the same address families, because a source with no address for a family means that family was never attempted rather than unreachable. The binding is read as policy and never as identity: probes bind by the resolved addresses, and two machines have different interface names and different local addresses by construction, the same way they have different hostnames, so differing values are not a caveat and neither the names nor the addresses appear in the caveat text. This reading is where independently bound snapshots meet, since live `--two-sided --via` rejects `--iface`.
 - **Rows only one side measured**, counted.
 - **Mixed fidelity**, when one side is a sanitized `--support` artifact and the other is full fidelity, because the names and addresses are then not comparable. This arises only for two generic runs: on a targeted run, sanitization renames the target itself, so the pair fails the same-target rule above and is refused before any row is read.

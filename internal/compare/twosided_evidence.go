@@ -91,6 +91,7 @@ func checkEvidence(a, b snapshot.Check, redacted bool) []EvidenceComparison {
 	add("cause_family", evidenceScalar(a.CauseFamily), evidenceScalar(b.CauseFamily), false)
 	add("address_families.ipv4", evidenceScalar(xf.IPv4), evidenceScalar(yf.IPv4), false)
 	add("address_families.ipv6", evidenceScalar(xf.IPv6), evidenceScalar(yf.IPv6), false)
+	add("dns_name_scope", evidenceScalar(string(x.DNSNameScope)), evidenceScalar(string(y.DNSNameScope)), false)
 	add("dns_outcome", evidenceScalar(dnsOutcome(a)), evidenceScalar(dnsOutcome(b)), false)
 	add("addresses", evidenceAddresses(x.Addresses), evidenceAddresses(y.Addresses), true)
 	add("selected_ip", evidenceAddresses(nonempty(x.SelectedIP)), evidenceAddresses(nonempty(y.SelectedIP)), true)

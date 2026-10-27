@@ -451,7 +451,7 @@ func TestDiagnoseUnfilteredCompatibility(t *testing.T) {
 		t.Fatalf("full target all-clear = %q/%q", d.Summary, d.Verdict)
 	}
 	targetResults[ProbeQUIC] = ProbeResult{Status: StatusFail}
-	targetResults[ProbeDNSPublic] = ProbeResult{Status: StatusWarn}
+	targetResults[ProbeDNSPublic] = ProbeResult{DNSNameScope: "absolute", Status: StatusWarn}
 	if d := Interpret(target, targetOrder, targetResults); d.Summary != "The target and direct TCP/443 work, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower." || d.Verdict != VerdictDegraded {
 		t.Fatalf("full target precedence = %q/%q", d.Summary, d.Verdict)
 	}

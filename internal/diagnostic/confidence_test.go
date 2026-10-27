@@ -287,7 +287,7 @@ func TestConfidenceDoesNotDependOnWhichPassBuiltTheFinding(t *testing.T) {
 	// reads the same live and replayed.
 	resolvers := map[ProbeID]ProbeResult{
 		ProbeDNS: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("192.0.2.1")}},
-		ProbeDNSPublic: {Status: StatusWarn, Addrs: []net.IP{net.ParseIP("198.51.100.1")},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusWarn, Addrs: []net.IP{net.ParseIP("198.51.100.1")},
 			answerComparison: comparisonDisagree},
 	}
 	// A working target leaves the truth table free to reach the resolver
@@ -368,7 +368,7 @@ func TestSkippedDownstreamRungsKeepDNSConfidence(t *testing.T) {
 		ProbeIface:     {Status: StatusPass},
 		ProbeInternet:  {Status: StatusPass},
 		ProbeDNS:       {Status: StatusFail, DNSNotFound: true},
-		ProbeDNSPublic: {Status: StatusPass, DNSNotFound: true},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, DNSNotFound: true},
 		ProbeTargetTCP: SkipPrereq(ProbeTargetTCP),
 		ProbeTLS:       SkipPrereq(ProbeTLS),
 	}

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
@@ -185,9 +186,10 @@ type ProbeResult struct {
 	// restored from the snapshot on replay, because it is derived state rather
 	// than anything a probe measured.
 	answerComparison answerComparison
-	Portal           *Portal  // non-nil when egress is intercepted, not dead.
-	Addrs            []net.IP // DNS publishes all A records here
-	DNSNotFound      bool     // the resolver found no A/AAAA records
+	Portal           *Portal               // non-nil when egress is intercepted, not dead.
+	Addrs            []net.IP              // DNS publishes all A records here
+	DNSNameScope     snapshot.DNSNameScope // public lookup input scope; empty is unknown
+	DNSNotFound      bool                  // the resolver found no A/AAAA records
 	// ResolverTargets are DNS service addresses recorded as passed to the Go
 	// resolver's Dial hook. They prove where a lookup was attempted, not which
 	// target answered or supplied any returned address.

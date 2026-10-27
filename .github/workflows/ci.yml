@@ -277,8 +277,8 @@ jobs:
       # nexthop changes inside its own user and network namespace, and must run
       # here rather than skip.
       - if: matrix.shard == 'coverage'
-        name: Run route-event namespace test
-        run: go test -count=1 -tags netns_integration -run '^TestRouteEvents' ./internal/diagnostic
+        name: Run route-event and DNS-search namespace tests
+        run: go test -count=1 -tags netns_integration -run '^Test(RouteEvents|PublicDNSSearchIsolation)' ./internal/diagnostic
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
       - if: matrix.shard == 'coverage'

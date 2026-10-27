@@ -86,10 +86,10 @@ func fixtureRun() (*Target, []Probe, map[ProbeID]ProbeResult) {
 			ResolverTargets: []string{"192.0.2.53:53", "[2001:db8::53]:53"},
 			Detail:          "example.com resolved to 2 addresses",
 		},
-		ProbeDNSPublic: {
+		ProbeDNSPublic: {DNSNameScope: "rooted_relative",
 			ID: ProbeDNSPublic, Status: StatusPass, Dur: 19 * time.Millisecond,
 			resolver: "8.8.8.8", ResolverTargets: []string{"8.8.8.8:53"},
-			Addrs: []net.IP{net.ParseIP("93.184.216.34")}, Detail: "8.8.8.8 agrees on 93.184.216.34",
+			Addrs: []net.IP{net.ParseIP("93.184.216.34")}, Detail: "example.com. → 93.184.216.34 (via 8.8.8.8); system lookup may use search suffixes, so answers are not compared",
 		},
 		ProbeTargetTCP: {
 			ID: ProbeTargetTCP, Status: StatusFail, Dur: 33 * time.Millisecond,

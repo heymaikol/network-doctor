@@ -103,7 +103,7 @@ func TestGenericQUICFailureOnSystemOnlyAddressesIsNotUDPUnavailability(t *testin
 			d, res := genericRun(t, map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: tc.system},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: tc.public, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: tc.public, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, tc.tried),
 			})
 			// The fixture has to reach the masked state, or it is testing
@@ -161,7 +161,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{shared4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{shared4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{shared4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, shared4),
 			},
 			expect: DiagnosisQUICUnavailable,
@@ -172,7 +172,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, shared4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, shared4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, shared4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4, shared4),
 			},
 			expect: DiagnosisQUICUnavailable,
@@ -183,7 +183,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, poisoned6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4, poisoned6),
 			},
 			// Disjoint in every family, so the resolvers are recorded as
@@ -197,7 +197,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4, sharedSystem6),
 			},
 			expect: DiagnosisUncorroboratedEndpointFailure,
@@ -214,7 +214,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, net.ParseIP("203.0.113.77")),
 			},
 			expect: DiagnosisUncorroboratedEndpointFailure,
@@ -225,7 +225,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      {Status: StatusFail, Cause: QUICCauseTimeout},
 			},
 			expect: DiagnosisQUICUnavailable,
@@ -236,7 +236,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusNA, Detail: "no public resolver reachable"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusNA, Detail: "no public resolver reachable"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4),
 			},
 			expect: DiagnosisQUICUnavailable,
@@ -247,7 +247,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, DNSNotFound: true, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, DNSNotFound: true, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4),
 			},
 			expect: DiagnosisQUICUnavailable,
@@ -258,7 +258,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4),
 			},
 			expect: DiagnosisQUICUnavailable,
@@ -269,7 +269,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4),
 			},
 			expect: DiagnosisQUICUnavailable,
@@ -280,7 +280,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4),
 			},
 			expect: DiagnosisUncorroboratedEndpointFailure,
@@ -291,7 +291,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  {Status: StatusPass},
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4),
 			},
 			expect: DiagnosisUncorroboratedEndpointFailure,
@@ -302,7 +302,7 @@ func TestUncorroboratedScopeRule(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC: {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{
 					{IP: poisoned4, Cause: ConnectionCauseCanceled, Aborted: true},
 				}},
@@ -340,7 +340,7 @@ func TestQUICPassingOrAbsentInventsNothing(t *testing.T) {
 		return map[ProbeID]ProbeResult{
 			ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 			ProbeQUIC:      quic,
 		}
 	}
@@ -379,7 +379,7 @@ func TestTargetedModeScopesTheTargetConclusion(t *testing.T) {
 	res := settle(t, tg, order, map[ProbeID]ProbeResult{
 		ProbeInternet: egress(FamilyReachable, FamilyUnreachable),
 		ProbeDNS:      {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
 			resolver: "8.8.8.8"},
 		ProbeTargetTCP: targetFailureOn(ConnectionCauseTimeout, poisoned4, sharedSystem6),
 	})
@@ -415,7 +415,7 @@ func TestTargetedModeKeepsTheBroadConclusionWhereItIsEarned(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet: egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:      {Status: StatusPass, Addrs: []net.IP{poisoned4, shared4}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, shared4},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, shared4},
 					resolver: "8.8.8.8"},
 				ProbeTargetTCP: targetFailureOn(ConnectionCauseTimeout, poisoned4, shared4),
 			},
@@ -426,7 +426,7 @@ func TestTargetedModeKeepsTheBroadConclusionWhereItIsEarned(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet: egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:      {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
 					resolver: "8.8.8.8"},
 				ProbeTargetTCP: func() ProbeResult {
 					r := targetFailureOn(ConnectionCauseRefused, poisoned4)
@@ -471,7 +471,7 @@ func TestGenericQUICSurvivesASystemAnswerThatRotated(t *testing.T) {
 	d, res := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{earlierSystem4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{public4, sharedPublic6}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{public4, sharedPublic6}, resolver: "8.8.8.8"},
 		ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, laterSystem4),
 	})
 	if containsResolvedIP(res[ProbeDNS].Addrs, laterSystem4) {
@@ -499,7 +499,7 @@ func TestTargetAttemptOfUnknownOriginDoesNotProveUnreachability(t *testing.T) {
 	res := settle(t, tg, order, map[ProbeID]ProbeResult{
 		ProbeInternet: egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:      {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
 			resolver: "8.8.8.8"},
 		ProbeTargetTCP: targetFailureOn(ConnectionCauseTimeout, net.ParseIP("203.0.113.77")),
 	})
@@ -520,7 +520,7 @@ func TestTargetDNSDoesNotScopeTheGenericQUICEndpoint(t *testing.T) {
 	res := settle(t, tg, order, map[ProbeID]ProbeResult{
 		ProbeInternet: egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:      {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
 			resolver: "8.8.8.8"},
 		ProbeTargetTCP: {Status: StatusPass, SelectedIP: poisoned4},
 		// The QUIC row tried an address the target's DNS rows never mention,
@@ -544,7 +544,7 @@ func TestQUICAttemptsOnTheTargetsAnswersStayUnrelatedInTargetedMode(t *testing.T
 	res := settle(t, tg, order, map[ProbeID]ProbeResult{
 		ProbeInternet: egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:      {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
 			resolver: "8.8.8.8"},
 		ProbeTargetTCP: {Status: StatusPass, SelectedIP: poisoned4},
 		ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, poisoned4),
@@ -562,7 +562,7 @@ func TestSplitDNSRemainsRepresentable(t *testing.T) {
 	d, res := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("10.1.2.3")}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
 	})
 	if got := res[ProbeDNSPublic].answerComparison; got != comparisonDisagree {
 		t.Fatalf("answer comparison = %v, want %v", got, comparisonDisagree)
@@ -581,7 +581,7 @@ func TestHealthyDefaultRunStaysHealthy(t *testing.T) {
 	d, _ := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("142.250.9.94")}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("142.250.189.99")}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{net.ParseIP("142.250.189.99")}, resolver: "8.8.8.8"},
 	})
 	if got := findingIDs(d); len(got) != 0 {
 		t.Fatalf("findings = %v, want none (summary: %s)", got, d.Summary)
@@ -601,7 +601,7 @@ func uncorroboratedRun(attempted net.IP) ([]ProbeID, map[ProbeID]ProbeResult) {
 		ProbeIface:     {Status: StatusPass},
 		ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 		ProbeQUIC:      quicFailureOn(ConnectionCauseTimeout, attempted),
 	}
 }

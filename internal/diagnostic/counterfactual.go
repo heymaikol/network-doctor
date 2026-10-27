@@ -36,7 +36,7 @@ func counterfactualFindings(t *Target, res map[ProbeID]ProbeResult) []DiagnosisF
 func dnsCounterfactual(t *Target, res map[ProbeID]ProbeResult) (DiagnosisFinding, bool) {
 	system, systemOK := res[ProbeDNS]
 	independent, independentOK := res[ProbeDNSPublic]
-	if !systemOK || !independentOK || independent.Status == StatusNA || independent.Status == StatusSkip {
+	if !dnsNamesComparable(res) || !systemOK || !independentOK || independent.Status == StatusNA || independent.Status == StatusSkip {
 		return DiagnosisFinding{}, false
 	}
 	name := "the name"

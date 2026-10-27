@@ -678,3 +678,39 @@ func TestLabLossSeparatesProbeIdentities(t *testing.T) {
 		t.Fatal("unrelated probes share every packet loss decision")
 	}
 }
+
+func TestLabPublicDNSNameScope(t *testing.T) {
+	for _, input := range []string{"app.test.", "app.test", "printer"} {
+		t.Run(input, func(t *testing.T) {
+			scenario, _ := FindLabScenario("healthy-ipv4")
+			scenario.Views[0].Target = "https://" + input
+			report, err := RunLab(context.Background(), scenario)
+			if err != nil {
+				t.Fatal(err)
+			}
+			publicRows := 0
+			for _, check := range report.Views[0].Snapshot.Checks {
+				if check.ID != "dns_public" {
+					continue
+				}
+				publicRows++
+				_, want := d.PublicDNSQueryName(input)
+				if check.Observed == nil {
+					if input != "printer" || check.Status != "N/A" {
+						t.Fatalf("missing observation: %+v", check)
+					}
+					continue
+				}
+				if check.Observed.DNSNameScope != want {
+					t.Fatalf("scope=%q want %q", check.Observed.DNSNameScope, want)
+				}
+				if input == "printer" && (len(check.Observed.ResolverTargets) > 0 || check.Status != "N/A") {
+					t.Fatalf("short public lookup: %+v", check)
+				}
+			}
+			if publicRows != 1 {
+				t.Fatalf("public DNS rows=%d, want 1", publicRows)
+			}
+		})
+	}
+}

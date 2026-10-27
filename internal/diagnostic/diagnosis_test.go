@@ -497,7 +497,7 @@ func TestReconcileDNS(t *testing.T) {
 	t.Run("public resolver works", func(t *testing.T) {
 		res := map[ProbeID]ProbeResult{
 			ProbeDNS:       {Status: StatusFail, Detail: "SERVFAIL"},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{ip1}},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{ip1}},
 		}
 		reconcileDNS(res)
 		if !strings.Contains(res[ProbeDNS].Detail, "public DNS resolves it") || res[ProbeDNSPublic].Status != StatusPass {
@@ -507,7 +507,7 @@ func TestReconcileDNS(t *testing.T) {
 	t.Run("both say name is absent", func(t *testing.T) {
 		res := map[ProbeID]ProbeResult{
 			ProbeDNS:       {Status: StatusFail, DNSNotFound: true, Detail: "not found"},
-			ProbeDNSPublic: {Status: StatusPass, DNSNotFound: true},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, DNSNotFound: true},
 		}
 		reconcileDNS(res)
 		if !strings.Contains(res[ProbeDNS].Detail, "agrees") || res[ProbeDNSPublic].Status != StatusPass {
@@ -517,7 +517,7 @@ func TestReconcileDNS(t *testing.T) {
 	t.Run("unrelated answers warn", func(t *testing.T) {
 		res := map[ProbeID]ProbeResult{
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{ip1}},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{elsewhere}, resolver: "8.8.8.8"},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{elsewhere}, resolver: "8.8.8.8"},
 		}
 		reconcileDNS(res)
 		if !strings.Contains(res[ProbeDNSPublic].Detail, "public 8.8.8.8:") {
@@ -538,7 +538,7 @@ func TestReconcileDNS(t *testing.T) {
 	t.Run("same answers in different order pass", func(t *testing.T) {
 		res := map[ProbeID]ProbeResult{
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{ip1, ip2}},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{ip2, ip1}},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{ip2, ip1}},
 		}
 		reconcileDNS(res)
 		if res[ProbeDNSPublic].Status != StatusPass {
@@ -585,7 +585,7 @@ func TestReconcileDNS(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				res := map[ProbeID]ProbeResult{
 					ProbeDNS:       {Status: StatusPass, Addrs: tc.system},
-					ProbeDNSPublic: {Status: StatusPass, Addrs: tc.public},
+					ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: tc.public},
 				}
 				reconcileDNS(res)
 				if res[ProbeDNSPublic].Status != StatusPass {
@@ -621,7 +621,7 @@ func TestReconcileDNS(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				res := map[ProbeID]ProbeResult{
 					ProbeDNS:       {Status: StatusPass, Addrs: tc.system},
-					ProbeDNSPublic: {Status: StatusPass, Addrs: tc.public},
+					ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: tc.public},
 				}
 				reconcileDNS(res)
 				if res[ProbeDNSPublic].Status != StatusWarn {
@@ -633,7 +633,7 @@ func TestReconcileDNS(t *testing.T) {
 	t.Run("unavailable public resolver is neutral", func(t *testing.T) {
 		res := map[ProbeID]ProbeResult{
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{ip1}},
-			ProbeDNSPublic: {Status: StatusNA},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusNA},
 		}
 		reconcileDNS(res)
 		order := []ProbeID{ProbeDNS, ProbeDNSPublic}
@@ -707,6 +707,7 @@ func TestDiagnoseSecondOpinionDNS(t *testing.T) {
 			for id, r := range base {
 				res[id] = r
 			}
+			tc.public.DNSNameScope = "absolute"
 			res[ProbeDNS], res[ProbeDNSPublic] = tc.system, tc.public
 			reconcileDNS(res)
 			d := Interpret(tg, order, res)

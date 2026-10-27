@@ -2183,7 +2183,7 @@ func TestSMTPOnPort465DiagnosesTLSFailureAsTLS(t *testing.T) {
 	ip := net.ParseIP("192.0.2.25")
 	res := settle(t, target, order, map[ProbeID]ProbeResult{
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{ip}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{ip}},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{ip}},
 		ProbeTargetTCP: {Status: StatusPass, SelectedIP: ip},
 		ProbeTLS:       {Status: StatusFail, SelectedIP: ip, Cause: TLSCauseHostnameMismatch},
 	})
@@ -2217,7 +2217,7 @@ func TestSMTPOnPort465SecondHandshakeFailureStaysTLS(t *testing.T) {
 	ip := net.ParseIP("192.0.2.25")
 	res := settle(t, target, order, map[ProbeID]ProbeResult{
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{ip}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{ip}},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{ip}},
 		ProbeTargetTCP: {Status: StatusPass, SelectedIP: ip},
 		ProbeTLS:       ran[ProbeTLS],
 		ProbeSMTP:      smtp,

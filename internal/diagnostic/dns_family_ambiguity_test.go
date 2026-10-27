@@ -132,7 +132,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicTimeoutOn(poisoned4),
 			},
 			comparison: comparisonAgree,
@@ -150,7 +150,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyUnreachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{shared4, poisoned6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{shared4, controlPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{shared4, controlPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicTimeoutOn(poisoned6),
 			},
 			comparison: comparisonAgree,
@@ -168,7 +168,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicTimeoutOn(poisoned4),
 			},
 			comparison: comparisonAgree,
@@ -186,7 +186,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  {Status: StatusPass},
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      quicTimeoutOn(poisoned4),
 			},
 			comparison: comparisonAgree,
@@ -204,7 +204,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      {Status: StatusPass},
 			},
 			comparison: comparisonAgree,
@@ -221,7 +221,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 				ProbeQUIC:      {Status: StatusNA},
 			},
 			comparison: comparisonAgree,
@@ -239,7 +239,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{controlSystem4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
@@ -252,7 +252,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyUnreachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{shared4, controlSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{shared4, controlPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{shared4, controlPublic6}, resolver: "8.8.8.8"},
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
@@ -268,7 +268,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
@@ -281,7 +281,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{controlSystem4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{sharedPublic6}, resolver: "8.8.8.8"},
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
@@ -298,7 +298,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("10.1.2.3")}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
 			},
 			comparison: comparisonDisagree,
 			public:     StatusWarn,
@@ -312,7 +312,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{controlSystem4, sharedSystem6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlSystem4, sharedSystem6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlSystem4, sharedSystem6}, resolver: "8.8.8.8"},
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
@@ -327,7 +327,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{net.ParseIP("142.250.9.94")}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("142.250.189.99")}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{net.ParseIP("142.250.189.99")}, resolver: "8.8.8.8"},
 			},
 			comparison: comparisonAgree,
 			public:     StatusPass,
@@ -343,7 +343,7 @@ func TestUsableFamilyResolverEvidence(t *testing.T) {
 			given: map[ProbeID]ProbeResult{
 				ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, poisoned6}},
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 			},
 			comparison: comparisonDisagree,
 			public:     StatusWarn,
@@ -397,7 +397,7 @@ func TestQUICAbsentFromThePlanLeavesTheComparisonAlone(t *testing.T) {
 	res := settle(t, nil, order, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 	})
 	if got := res[ProbeDNSPublic].answerComparison; got != comparisonAgree {
 		t.Fatalf("answer comparison = %v, want %v with no QUIC row in the plan", got, comparisonAgree)
@@ -423,7 +423,7 @@ func TestTargetedModeCarriesTheSameUsableFamilyAmbiguity(t *testing.T) {
 	res := settle(t, tg, order, map[ProbeID]ProbeResult{
 		ProbeInternet: egress(FamilyReachable, FamilyUnreachable),
 		ProbeDNS:      {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6},
 			resolver: "8.8.8.8"},
 		ProbeTargetTCP: {Status: StatusFail, Attempts: []Attempt{
 			{IP: poisoned4, Cause: ConnectionCauseTimeout},
@@ -478,7 +478,7 @@ func TestPoisonedAndHealthyDivergenceAreIndistinguishable(t *testing.T) {
 		return genericRun(t, map[ProbeID]ProbeResult{
 			ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{system4, sharedSystem6}},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 			ProbeQUIC:      quicTimeoutOn(system4),
 		})
 	}
@@ -534,7 +534,7 @@ func TestUnusableFamilyAgreementIsWhatMasksTheDisagreement(t *testing.T) {
 	_, masked := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4, sharedSystem6}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4, sharedPublic6}, resolver: "8.8.8.8"},
 	})
 	if got := masked[ProbeDNSPublic].answerComparison; got != comparisonAgree {
 		t.Fatalf("answer comparison = %v, want %v while the IPv6 answers overlap", got, comparisonAgree)
@@ -543,7 +543,7 @@ func TestUnusableFamilyAgreementIsWhatMasksTheDisagreement(t *testing.T) {
 	_, bare := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poisoned4}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
 	})
 	if got := bare[ProbeDNSPublic].answerComparison; got != comparisonDisagree {
 		t.Fatalf("answer comparison = %v, want %v once the overlapping family is gone", got, comparisonDisagree)
@@ -554,7 +554,7 @@ func TestUnusableFamilyAgreementIsWhatMasksTheDisagreement(t *testing.T) {
 	_, control := genericRun(t, map[ProbeID]ProbeResult{
 		ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 		ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{controlSystem4}},
-		ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
+		ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{controlPublic4}, resolver: "8.8.8.8"},
 	})
 	if got := control[ProbeDNSPublic].answerComparison; got != comparisonDisagree {
 		t.Fatalf("answer comparison = %v, want %v: the healthy control is the same shape, which is the whole problem",

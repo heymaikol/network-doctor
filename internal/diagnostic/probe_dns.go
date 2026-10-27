@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // resolverTargetRecorder collects what the Go resolver passed to Dial. A and
@@ -118,6 +120,24 @@ func answeredWithoutDNS(ctx context.Context, host string) bool {
 // force the local answer that the hosts-file guard reads.
 var answeredWithoutDNSCheck = answeredWithoutDNS
 
+var errUnqualifiedPublicDNS = errors.New("unqualified relative hostname is not sent to public DNS")
+
+// PublicDNSQueryName roots canonical ASCII input only for the public lookup.
+// Empty query means an unqualified relative name that must stay off public DNS.
+// The simulator uses the same policy; system search stays intact.
+func PublicDNSQueryName(host string) (string, snapshot.DNSNameScope) {
+	if net.ParseIP(host) != nil {
+		return host, ""
+	}
+	if strings.HasSuffix(host, ".") {
+		return host, snapshot.DNSNameAbsolute
+	}
+	if !strings.Contains(host, ".") {
+		return "", ""
+	}
+	return host + ".", snapshot.DNSNameRootedRelative
+}
+
 // lookupIPPublicWithDial bypasses the configured resolver for a second opinion.
 // Unavailability is reported as N/A by publicDNSProbe, never as a failure.
 //
@@ -129,6 +149,10 @@ var answeredWithoutDNSCheck = answeredWithoutDNS
 // server. The targets survive either way: they are what this run tried, which is
 // true whoever answered.
 func lookupIPPublicWithDial(ctx context.Context, host string, dial func(context.Context, string, string) (net.Conn, error), server string) ([]net.IP, []string, error) {
+	query, _ := PublicDNSQueryName(host)
+	if query == "" {
+		return nil, nil, errUnqualifiedPublicDNS
+	}
 	var targets resolverTargetRecorder
 	var responses dnsResponses
 	r := net.Resolver{
@@ -138,9 +162,9 @@ func lookupIPPublicWithDial(ctx context.Context, host string, dial func(context.
 			return responses.observe(dial(ctx, network, server))
 		},
 	}
-	ips, err := r.LookupIP(ctx, "ip", host)
+	ips, err := r.LookupIP(ctx, "ip", query)
 	if err != nil {
-		if kept := responses.replay(ctx, host); len(kept) > 0 {
+		if kept := responses.replay(ctx, query); len(kept) > 0 {
 			ips, err = kept, nil
 		}
 	}
@@ -522,8 +546,8 @@ func (o *netops) dnsProbe(host string, litIP net.IP) func(context.Context, map[P
 	}
 }
 
-// publicDNSProbe asks a second-opinion resolver the same question the system
-// resolver was asked. resolvers is the one address the user named, or the
+// publicDNSProbe asks for the intended absolute name without system search
+// suffixes. resolvers is the one address the user named, or the
 // automatic candidates, which are tried in order and only moved along when a
 // lookup obtained no usable DNS response: a resolver that answered, refused, or
 // said the name does not exist has answered this row, whatever it said. That is
@@ -582,7 +606,17 @@ func publicDNSAttemptContext(ctx context.Context, left int) (context.Context, co
 // publicDNSAttempt queries one resolver. A non-nil error permits fallback only
 // when no usable DNS response was observed. It does not prove unreachability:
 // malformed replies and transport failures can both leave no usable response.
-func (o *netops) publicDNSAttempt(ctx context.Context, host, publicDNSIP string) (ProbeResult, error) {
+func (o *netops) publicDNSAttempt(ctx context.Context, host, publicDNSIP string) (result ProbeResult, lookupErr error) {
+	query, scope := PublicDNSQueryName(host)
+	if query == "" {
+		return ProbeResult{Status: StatusNA, Detail: errUnqualifiedPublicDNS.Error()}, nil
+	}
+	defer func() {
+		result.DNSNameScope = scope
+		if scope == snapshot.DNSNameRootedRelative && result.Status == StatusPass {
+			result.Detail += "; queried " + query + " only; system lookup may use search suffixes, so answers are not compared"
+		}
+	}()
 	ips, targets, err := o.lookupPublicIP(ctx, host, publicDNSServer(publicDNSIP))
 	// A resolver this run dialed is still only a resolver this run tried, so
 	// the targets stay on the row as attempt evidence while the answer they
@@ -614,7 +648,7 @@ func (o *netops) publicDNSAttempt(ctx context.Context, host, publicDNSIP string)
 			DNSNotFound:     true,
 			ResolverTargets: targets,
 			resolver:        publicDNSIP,
-			Detail:          publicDNSIP + " reports no A/AAAA records for " + host,
+			Detail:          publicDNSIP + " reports no A/AAAA records for " + query,
 		}, nil
 	}
 	if err != nil {
@@ -626,7 +660,7 @@ func (o *netops) publicDNSAttempt(ctx context.Context, host, publicDNSIP string)
 		Addrs:           ips,
 		ResolverTargets: targets,
 		resolver:        publicDNSIP,
-		Detail:          host + " → " + joinIPs(ips) + " (via " + publicDNSIP + ")",
+		Detail:          query + " → " + joinIPs(ips) + " (via " + publicDNSIP + ")",
 	}, nil
 }
 

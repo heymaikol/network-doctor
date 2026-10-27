@@ -110,6 +110,11 @@
           "description": "The addresses a lookup returned.",
           "items": { "type": "string" }
         },
+        "dns_name_scope": {
+          "type": "string",
+          "enum": ["absolute", "rooted_relative"],
+          "description": "Original public DNS input scope: absolute or relative queried only in rooted form. Absent means unknown. It does not establish wire-question or system-answer provenance."
+        },
         "resolver_targets": {
           "type": "array",
           "description": "DNS service addresses recorded as dialed. Attempt evidence, not proof of which server answered.",

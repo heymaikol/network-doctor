@@ -21,11 +21,11 @@ topology:
         - {name: internet-quic, type: quic, port: 443, certificate: {mode: valid, dns_names: [connectivitycheck.gstatic.com]}}
 
 tests:
-  - {name: office printer name does not exist, node: client, target: printer.office.test}
+  - {name: office printer name does not exist, node: client, target: printer.office.test.}
 
 expect:
   verdict: dns
-  summary: printer.office.test has no A/AAAA records according to either system or public DNS. (The general internet is reachable.)
+  summary: printer.office.test. has no A/AAAA records according to either system or public DNS. (The general internet is reachable.)
   checks:
     - {id: iface, status: PASS}
     - {id: internet_tcp, status: PASS}

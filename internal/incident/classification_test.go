@@ -44,6 +44,7 @@ var observedClassification = map[string]classification{
 	"SelectedIP": {true, "the address this row actually used",
 		snapshot.Observed{SelectedIP: "198.51.100.7"},
 		snapshot.Observed{SelectedIP: "198.51.100.8"}},
+	"DNSNameScope": {false, "lookup input provenance, not a measured change in network path", snapshot.Observed{}, snapshot.Observed{DNSNameScope: snapshot.DNSNameRootedRelative}},
 	"DNSNotFound": {false, "an answer the resolver gave, which is a result and not a path",
 		snapshot.Observed{},
 		snapshot.Observed{DNSNotFound: true}},

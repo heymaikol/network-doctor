@@ -572,11 +572,16 @@ func TestPublicDNSCallerCancellationKeepsAnAnswer(t *testing.T) {
 func TestPublicDNSReplayKeepsTheHostsFileGuard(t *testing.T) {
 	previous := answeredWithoutDNSCheck
 	t.Cleanup(func() { answeredWithoutDNSCheck = previous })
-	answeredWithoutDNSCheck = func(context.Context, string) bool { return true }
+	answeredWithoutDNSCheck = func(_ context.Context, host string) bool {
+		if host != "netdoc.test" {
+			t.Errorf("hosts guard got %q, want original relative name", host)
+		}
+		return true
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	drop := dropQueries([]uint16{dnsTypeAAAA}, nil)
-	ips, _, err := lookupIPPublicWithDial(ctx, "netdoc.test.", func(dctx context.Context, _, _ string) (net.Conn, error) {
+	ips, _, err := lookupIPPublicWithDial(ctx, "netdoc.test", func(dctx context.Context, _, _ string) (net.Conn, error) {
 		return lostDNSConn{&publicDNSFixtureConn{splitDNSConn: &splitDNSConn{fixture: &splitDNSFixture{}}, mutate: drop}, dctx}, nil
 	}, "8.8.8.8")
 	if !errors.Is(err, errHostsFileAnswer) || len(ips) != 0 {

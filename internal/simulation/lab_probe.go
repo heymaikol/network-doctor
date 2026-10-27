@@ -176,6 +176,14 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 		resolver := node.Resolver
 		if p.id == diagnostic.ProbeDNSPublic {
 			resolver = diagnostic.DefaultPublicDNS
+			var query string
+			query, r.DNSNameScope = diagnostic.PublicDNSQueryName(host)
+			if query == "" {
+				r.Status = diagnostic.StatusNA
+				r.Detail = "unqualified relative hostname is not sent to public DNS"
+				return r
+			}
+			host = query
 		}
 		answers, cause := p.resolve(node.Name, resolver, host)
 		r.ResolverTargets = []string{net.JoinHostPort(resolver, "53")}
@@ -192,6 +200,9 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 			}
 			if p.id == diagnostic.ProbeDNSPublic {
 				r.Status = diagnostic.StatusNA
+				if r.DNSNotFound {
+					r.Status = diagnostic.StatusPass
+				}
 			}
 		}
 		r.Detail = fmt.Sprintf("resolver %s answers %v (%s)", resolver, answers, cause)
@@ -443,7 +454,7 @@ func labTLSCause(s *Service, host string) string {
 	case TLSCertificateHostnameMismatch:
 		return diagnostic.TLSCauseHostnameMismatch
 	}
-	if !slices.Contains(s.Certificate.DNSNames, host) {
+	if !slices.Contains(s.Certificate.DNSNames, strings.TrimSuffix(host, ".")) {
 		return diagnostic.TLSCauseHostnameMismatch
 	}
 	return ""

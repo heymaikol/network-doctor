@@ -280,7 +280,7 @@ func reportScenarios() []reportScenario {
 				},
 				diagnostic.ProbeDNSPublic: {
 					Status: diagnostic.StatusPass, Dur: 14 * time.Millisecond, Detail: "resolved",
-					Addrs: []net.IP{net.ParseIP("192.0.2.10")}, ResolverTargets: []string{"8.8.8.8:53"},
+					DNSNameScope: "absolute", Addrs: []net.IP{net.ParseIP("192.0.2.10")}, ResolverTargets: []string{"8.8.8.8:53"},
 				},
 				diagnostic.ProbeTargetTCP: {Status: diagnostic.StatusPass, Dur: 20 * time.Millisecond, Detail: "connected", SelectedIP: net.ParseIP("10.1.2.3")},
 				diagnostic.ProbeTLS:       {Status: diagnostic.StatusPass, Dur: 40 * time.Millisecond, Detail: "TLS handshake OK"},
@@ -365,7 +365,7 @@ func TestPublishedReportsValidateAgainstSchema(t *testing.T) {
 		"ts", "target_null", "failed_stage", "findings", "confidence", "evidence", "causal_evidence",
 		"counterfactual", "alternative_evidence", "remediation", "remediation_command", "remediation_steps",
 		"address_families", "portal", "attempts", "attempt_error", "attempt_aborted", "addrs",
-		"resolver_targets", "routes", "route_metric", "route_competing", "route_tunnel", "route_reason", "cause", "fix",
+		"dns_name_scope", "resolver_targets", "routes", "route_metric", "route_competing", "route_tunnel", "route_reason", "cause", "fix",
 		"connect_cleartext",
 	} {
 		if !covered[want] {
@@ -387,7 +387,7 @@ func recordCoverage(rep report.Report, covered, statuses map[string]bool) {
 		statuses[c.Status] = true
 		for key, present := range map[string]bool{
 			"cause": c.Cause != "", "fix": c.Fix != "", "addrs": len(c.Addrs) > 0,
-			"resolver_targets": len(c.ResolverTargets) > 0, "address_families": c.Families != nil,
+			"dns_name_scope": c.DNSNameScope != "", "resolver_targets": len(c.ResolverTargets) > 0, "address_families": c.Families != nil,
 			"portal": c.Portal != nil, "attempts": len(c.Attempts) > 0, "routes": len(c.Routes) > 0,
 			"connect_cleartext": c.ConnectCleartext,
 		} {

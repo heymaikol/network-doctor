@@ -28,7 +28,7 @@ cd /work/native
 make -j2 lib/clippy
 
 cd /work/sanitized
-flags=(-O1 -g -UNDEBUG -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+flags=(-O1 -g -UNDEBUG '-fsanitize=address,undefined' -fno-sanitize-recover=all -fno-omit-frame-pointer)
 "$source/configure" --with-clippy=/work/native/lib/clippy \
     --enable-user=nobody --enable-group=nogroup --enable-vty-group=nogroup \
     --enable-multipath=64 --disable-doc --disable-snmp --disable-rpki \

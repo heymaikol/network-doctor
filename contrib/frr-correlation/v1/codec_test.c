@@ -60,10 +60,14 @@ int main(void)
 	/* Mutate wire counts directly so encoder guards cannot mask decoder bugs. */
 	for (unsigned n = 0; n <= NDOC_LIMIT + 1; n += NDOC_LIMIT + 1) {
 		size_t count_offset = sizeof(uint32_t) + sizeof(in.epoch) + sizeof(uint64_t);
+		size_t contributor_size = 4 * sizeof(uint64_t) + sizeof(uint16_t);
 		stream_reset(s);
 		stream_put(s, bytes, size);
 		s->data[count_offset] = 0;
 		s->data[count_offset + 1] = n;
+		/* A full extra contributor prevents truncation from masking a missing bound. */
+		if (n > NDOC_LIMIT)
+			stream_put(s, bytes + size - contributor_size, contributor_size);
 		assert(ndoc_decode(s, &out) == -1);
 		negatives++;
 	}

@@ -47,7 +47,7 @@ jobs:
             --mount "type=bind,src=$PWD,dst=/src,readonly" \
             --workdir /src netdoc-frr-regression:ci \
             bash -euo pipefail -c '
-              rpm -q python3-jsonschema
+              dpkg-query -W python3-jsonschema
               python3 -B -I -c "import jsonschema; print(jsonschema.__file__)"
               evidence=/src/testdata/frr/10.7.0/bgp/correlation-v1-noreplace
               for part in . proof restart; do

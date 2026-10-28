@@ -332,7 +332,7 @@ def main():
     try:
         result = produce(CAPTURE_FD)
         status = 0
-    except (Refused, ValueError, KeyError, TypeError, OSError) as error:
+    except (Refused, ValueError, KeyError, TypeError, OSError, RecursionError) as error:
         result = {"schema": SCHEMA, "capture": {"complete": False, "snapshot_complete": False},
                   "claims": [], "refusals": [{"reason": str(error)}]}
         status = 2

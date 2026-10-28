@@ -23,18 +23,18 @@
     ]
   },
   "expected": {
-    "verdict": "degraded",
-    "findings": [
-      "dns_disagreement"
-    ],
+    "verdict": "ok",
+    "findings": [],
     "not_findings": [
       "dns_failure",
-      "offline"
+      "offline",
+      "dns_disagreement"
     ]
   },
   "provenance": {
     "origin": "synthetic",
     "summary": "Generated from typed in-memory observations solely to bootstrap the replay harness."
   },
-  "snapshot": "snapshot.ndoc"
+  "snapshot": "snapshot.ndoc",
+  "notes": " Legacy no-target DNS evidence records no original query-name scope. Replay retains standalone answers but cannot support a resolver comparison; the historical diagnosis and verified network condition remain unchanged."
 }

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // Interpret is the diagnostic interpretation pass, and the only one there is.
@@ -303,8 +305,8 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 
 	prx := proxyCarries(res)
 	prxDown := has(ProbeProxy) && fail(ProbeProxy)
-	publicResolves := has(ProbeDNSPublic) && len(res[ProbeDNSPublic].Addrs) > 0
-	bothNotFound := has(ProbeDNS) && res[ProbeDNS].DNSNotFound && has(ProbeDNSPublic) && res[ProbeDNSPublic].DNSNotFound
+	publicResolves := dnsNamesComparable(res) && has(ProbeDNSPublic) && len(res[ProbeDNSPublic].Addrs) > 0
+	bothNotFound := dnsNamesComparable(res) && has(ProbeDNS) && res[ProbeDNS].DNSNotFound && has(ProbeDNSPublic) && res[ProbeDNSPublic].DNSNotFound
 
 	// Generic mode (no target): the verdict is a truth table over egress, DNS,
 	// and proxy state. Cases are ordered most-specific first because several
@@ -384,7 +386,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			return blame(DiagnosisEncryptedDNSUnavailable, ProbeDNSEncrypted, encryptedDNSSummary, VerdictDegraded, ProbeDNS, ProbeDNSPublic, ProbeInternet)
 		case ip && dn && prxDown:
 			return blame(DiagnosisProxyFailure, ProbeProxy, "Online directly, but the configured environment proxy check failed, so apps that use the proxy will fail (see the proxy row).", VerdictDegraded, ProbeInternet, ProbeDNS)
-		case directOK() && warn(ProbeDNSPublic) && has(ProbeDNS) && functional(res[ProbeDNS].Status):
+		case directOK() && dnsNamesComparable(res) && warn(ProbeDNSPublic) && has(ProbeDNS) && functional(res[ProbeDNS].Status):
 			// The sentence says the machine is online, so it is only ever
 			// reached where the direct path carried traffic. Without that the
 			// egress cases below are the answer: a resolver difference is a
@@ -724,7 +726,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			summary = "The target works but one of the egress check's connectivity endpoints returned an unexpected response (see the ! row for details)."
 		}
 		return blame(DiagnosisDirectEgressDegraded, ProbeInternet, summary, VerdictDegraded, endpoint...)
-	case targetOK && warn(ProbeDNSPublic) && has(ProbeDNS) && functional(res[ProbeDNS].Status):
+	case targetOK && dnsNamesComparable(res) && warn(ProbeDNSPublic) && has(ProbeDNS) && functional(res[ProbeDNS].Status):
 		return blame(DiagnosisDNSDisagreement, ProbeDNSPublic, "The target works, but system DNS and public DNS disagree; split DNS or filtering may be intentional (see the DNS rows).", VerdictDegraded, ProbeDNS)
 	case targetOK && !anyFailed && degraded:
 		return plain("The target works, but some checks are degraded (see the ! rows for details).", VerdictDegraded)
@@ -1049,7 +1051,7 @@ func encryptedDNSBlocked(res map[ProbeID]ProbeResult) bool {
 // to have before it may reorder the two.
 func quicUsedDisagreeingAnswer(res map[ProbeID]ProbeResult) bool {
 	public, ok := res[ProbeDNSPublic]
-	if !ok || public.answerComparison != comparisonDisagree {
+	if !dnsNamesComparable(res) || !ok || public.answerComparison != comparisonDisagree {
 		return false
 	}
 	system, ok := res[ProbeDNS]
@@ -1149,7 +1151,7 @@ const (
 // endpoint and is deliberately not passed here.
 func uncorroboratedEndpointFailure(res map[ProbeID]ProbeResult, id ProbeID, origin addressOrigin) bool {
 	public, ok := res[ProbeDNSPublic]
-	if !ok || !functional(public.Status) || len(public.Addrs) == 0 {
+	if !dnsNamesComparable(res) || !ok || !functional(public.Status) || len(public.Addrs) == 0 {
 		return false
 	}
 	system, ok := res[ProbeDNS]
@@ -1439,12 +1441,21 @@ func reconcileEncryptedDNS(res map[ProbeID]ProbeResult) {
 	res[ProbeDNSEncrypted] = encrypted
 }
 
+// dnsNamesComparable permits name-level reasoning only for matching absolute
+// input scope; the probe graph supplies the original host to both lookups.
+// It does not establish wire-question or resolver provenance.
+func dnsNamesComparable(res map[ProbeID]ProbeResult) bool {
+	_, system := res[ProbeDNS]
+	public, ok := res[ProbeDNSPublic]
+	return system && ok && public.DNSNameScope == snapshot.DNSNameAbsolute
+}
+
 // reconcileDNS compares the independently collected system and public answers.
 // Public DNS can add context or a warning, but never fails a run on its own.
 func reconcileDNS(res map[ProbeID]ProbeResult) {
 	system, systemOK := res[ProbeDNS]
 	public, publicOK := res[ProbeDNSPublic]
-	if !systemOK || !publicOK || public.Status != StatusPass {
+	if !dnsNamesComparable(res) || !systemOK || !publicOK || public.Status != StatusPass {
 		return
 	}
 	// The comparison is made once, here, and recorded on the row so nothing

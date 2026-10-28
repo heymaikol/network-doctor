@@ -912,6 +912,7 @@ func observedOf(c snapshot.Check) snapshot.Observed {
 
 func diffObserved(d *diff, id string, before, after snapshot.Observed) {
 	path := "checks." + id + ".observed."
+	d.field(SectionCheck, id, path+"dns_name_scope", id+" public DNS input scope", string(before.DNSNameScope), string(after.DNSNameScope))
 	// Resolver answers are a set. Which record came back first is the
 	// resolver's business and changes between two identical lookups, so an
 	// order-only difference is not a difference.

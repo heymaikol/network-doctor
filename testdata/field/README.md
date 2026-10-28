@@ -123,21 +123,21 @@ row that is not WARN, an answer comparison on any row but `dns_public`, an
 answer comparison on a row that recorded no answers to compare, and a failed
 target attempt carrying only human error text with no typed cause.
 
-Two limits are worth knowing before writing `expected` for a real case, and the
-first one now depends on how old the artifact is. Support redaction
-pseudonymizes every address without preserving the /16 `answersAgree` compares,
-in both directions: it can put two agreeing answer sets in different blocks and
-two disagreeing sets in the same one. A snapshot produced by a version that
-writes `derived.answer_comparison` records what the original unsanitized
-comparison found, so replay reads that outcome and never recomputes it from the
-pseudonyms, and the `dns_disagreement` finding and the resolver counterfactual
-under it both survive intact. A sanitized snapshot that predates the field
-carries no such record and is inherently lossy: replay falls back to comparing
-the sanitized addresses, so its resolver counterfactual can still be lost or
-invented. Nothing here repairs those older artifacts, and nothing here restores
-or preserves original addresses in any artifact. That is the second limit, and
-it is unchanged: evidence values that are addresses are the sanitized
-addresses, not the originals, which is what the artifact actually records.
+DNS comparisons also require matching name scope. `observed.dns_name_scope`
+is `absolute` for an explicitly absolute input and `rooted_relative` when a new
+public lookup rooted relative input. Absence means unknown legacy provenance.
+Replay preserves standalone answers, but suppresses resolver comparisons,
+counterfactuals, endpoint alternatives and comparison-derived warnings for
+relative or unknown scope. Only an unsanitized recorded absolute target can
+establish scope in a legacy artifact. Redacted hostname spelling cannot.
+
+For matching absolute scope, `derived.answer_comparison` preserves the original
+comparison across address pseudonymization. Sanitized artifacts with unknown
+name scope cannot support that comparison even when they recorded its outcome.
+The stored historical diagnosis and independently verified ground truth stay
+unchanged; expected replay findings reflect what the artifact can prove today.
+Evidence values that are addresses remain the sanitized addresses, never the
+originals.
 
 If a change to the snapshot encoder makes a committed fixture non-canonical,
 re-encode it in place rather than editing the JSON by hand: decode the file

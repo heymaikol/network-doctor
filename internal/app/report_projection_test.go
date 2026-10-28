@@ -122,6 +122,7 @@ var reportProjection = map[string]decision{
 	"diagnostic.ProbeResult.Families":        {category: published},
 	"diagnostic.ProbeResult.Portal":          {category: published},
 	"diagnostic.ProbeResult.Addrs":           {category: published},
+	"diagnostic.ProbeResult.DNSNameScope":    {category: published},
 	"diagnostic.ProbeResult.ResolverTargets": {category: published},
 	"diagnostic.ProbeResult.SelectedIP":      {category: published},
 	"diagnostic.ProbeResult.Source":          {category: published},
@@ -270,6 +271,7 @@ var reportProjection = map[string]decision{
 	"report.Check.Detail":           {category: published},
 	"report.Check.Fix":              {category: published},
 	"report.Check.Addrs":            {category: published},
+	"report.Check.DNSNameScope":     {category: published},
 	"report.Check.ResolverTargets":  {category: published},
 	"report.Check.SelectedIP":       {category: published},
 	"report.Check.Source":           {category: published},
@@ -452,6 +454,7 @@ func maximalRow() diagnostic.ProbeResult {
 		Portal:          &diagnostic.Portal{RedirectURL: "http://portal.example/fixture-signin"},
 		Addrs:           []net.IP{net.ParseIP("192.0.2.71"), net.ParseIP("2001:db8::71")},
 		DNSNotFound:     true,
+		DNSNameScope:    "rooted_relative",
 		ResolverTargets: []string{"192.0.2.53:5353"},
 		SelectedIP:      net.ParseIP("192.0.2.71"),
 		Source:          net.ParseIP("198.51.100.72"),
@@ -618,6 +621,7 @@ func proveRowProjection(t *testing.T, proven map[string]bool) {
 	crossed(t, proven, "diagnostic.ProbeResult.Cause", c.Cause, live.Cause)
 	crossed(t, proven, "diagnostic.ProbeResult.Detail", c.Detail, live.Detail)
 	crossed(t, proven, "diagnostic.ProbeResult.Fix", c.Fix, live.Fix)
+	crossed(t, proven, "diagnostic.ProbeResult.DNSNameScope", c.DNSNameScope, string(live.DNSNameScope))
 	crossed(t, proven, "diagnostic.ProbeResult.ResolverTargets", c.ResolverTargets, live.ResolverTargets)
 	crossed(t, proven, "diagnostic.ProbeResult.Iface", c.Iface, live.Iface)
 	crossed(t, proven, "diagnostic.ProbeResult.Network", c.Network, live.Network)

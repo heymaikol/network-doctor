@@ -27,6 +27,7 @@ var observationValidationPolicy = map[string]string{
 	"Check.Derived":               "parent: optional conclusions; AnswerComparison checked by validate",
 	"Observed.Addresses":          "structural: each entry is an IP address",
 	"Observed.SelectedIP":         "structural: optional IP address; may come from a different operation than Addresses",
+	"Observed.DNSNameScope":       "structural: optional closed vocabulary on dns_public; validated by validate",
 	"Observed.DNSNotFound":        "opaque: positive observation; no per-query identity to relate it to other DNS readings",
 	"Observed.Resolver":           "structural: optional resolver IP address",
 	"Observed.ResolverTargets":    "opaque: raw resolver Dial service addresses; no response provenance, global ordering or uniqueness",

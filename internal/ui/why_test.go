@@ -19,7 +19,7 @@ func resolverExplanationModel(t *testing.T) model {
 				Status: diagnostic.StatusFail, Detail: "the configured resolver returned SERVFAIL",
 				Fix: "check the configured resolver",
 			},
-			diagnostic.ProbeDNSPublic: {
+			diagnostic.ProbeDNSPublic: {DNSNameScope: "absolute",
 				Status: diagnostic.StatusPass, Detail: "independent DNS resolved example.com",
 				Addrs: []net.IP{net.ParseIP("192.0.2.1")},
 			},

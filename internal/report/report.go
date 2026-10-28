@@ -125,6 +125,8 @@ type Check struct {
 	Detail   string    `json:"detail"`
 	Fix      string    `json:"fix,omitempty"`
 	Addrs    []string  `json:"addrs,omitempty"`
+	// DNSNameScope is absolute, rooted_relative, or absent for legacy/unknown.
+	DNSNameScope string `json:"dns_name_scope,omitempty"`
 	// ResolverTargets are DNS service addresses recorded as tried. They are
 	// attempt evidence, not answering-resolver or per-address provenance.
 	ResolverTargets []string  `json:"resolver_targets,omitempty"`

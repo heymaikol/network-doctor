@@ -24,6 +24,9 @@ import (
 	"testing"
 )
 
+// DNS comparison fixtures declare absolute scope explicitly. Query policy and
+// live generic scope are exercised separately by dns_scope_test.go.
+//
 // matrixCase is one complete run handed to the pass: the probes the run asked
 // for, what each of them reported, and everything the pass must say about it.
 type matrixCase struct {
@@ -58,7 +61,7 @@ func reached(ip string) ProbeResult {
 // outcome is part of the state, not decoration: it is the only form of the
 // comparison that survives into a sanitized artifact.
 func disagreed(addrs ...net.IP) ProbeResult {
-	return ProbeResult{Status: StatusWarn, Addrs: addrs, answerComparison: comparisonDisagree}
+	return ProbeResult{DNSNameScope: "absolute", Status: StatusWarn, Addrs: addrs, answerComparison: comparisonDisagree}
 }
 
 // agreed is the same row when the comparison found one shared allocation: left
@@ -66,7 +69,7 @@ func disagreed(addrs ...net.IP) ProbeResult {
 // over a pool is not agreement on every address in it, which is what the rows
 // using this are about.
 func agreed(addrs ...net.IP) ProbeResult {
-	return ProbeResult{Status: StatusPass, Addrs: addrs, answerComparison: comparisonAgree}
+	return ProbeResult{DNSNameScope: "absolute", Status: StatusPass, Addrs: addrs, answerComparison: comparisonAgree}
 }
 
 func diagnosisMatrix() []matrixCase {
@@ -133,7 +136,7 @@ func diagnosisMatrix() []matrixCase {
 			name: "generic system resolver failing", order: []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeDNSPublic},
 			res: map[ProbeID]ProbeResult{
 				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass), ProbeDNS: ok(StatusFail),
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
 			},
 			summary: "System DNS is failing, but public DNS resolves the name. Check the configured resolver, VPN, or DNS filter.",
 			verdict: VerdictDNS, focus: ProbeDNS,
@@ -144,7 +147,7 @@ func diagnosisMatrix() []matrixCase {
 			res: map[ProbeID]ProbeResult{
 				ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass),
 				ProbeDNS:       {Status: StatusFail, DNSNotFound: true},
-				ProbeDNSPublic: {Status: StatusPass, DNSNotFound: true},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, DNSNotFound: true},
 			},
 			summary: "Internet egress works, but the DNS test name has no A/AAAA records according to either resolver.",
 			verdict: VerdictDNS, focus: ProbeDNS,
@@ -375,7 +378,7 @@ func diagnosisMatrix() []matrixCase {
 			name: "targeted system resolver failing", target: tls, order: append(append([]ProbeID{}, webOrder...), ProbeDNSPublic),
 			res: with(map[ProbeID]ProbeResult{
 				ProbeDNS:       ok(StatusFail),
-				ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{net.ParseIP("93.184.216.34")}},
 			}),
 			summary: "System DNS cannot resolve example.com, but public DNS can, so the configured resolver is failing or filtering the name. (The general internet is reachable.)",
 			verdict: VerdictDNS, focus: ProbeDNS,
@@ -385,7 +388,7 @@ func diagnosisMatrix() []matrixCase {
 			name: "targeted name has no records", target: tls, order: append(append([]ProbeID{}, webOrder...), ProbeDNSPublic),
 			res: with(map[ProbeID]ProbeResult{
 				ProbeDNS:       {Status: StatusFail, DNSNotFound: true},
-				ProbeDNSPublic: {Status: StatusPass, DNSNotFound: true},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, DNSNotFound: true},
 			}),
 			summary: "example.com has no A/AAAA records according to either system or public DNS. (The general internet is reachable.)",
 			verdict: VerdictDNS, focus: ProbeDNS,

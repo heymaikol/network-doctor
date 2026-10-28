@@ -98,11 +98,12 @@
       "status": "PASS",
       "ran": true,
       "duration_ms": 19,
-      "detail": "8.8.8.8 agrees on 93.184.216.34",
+      "detail": "example.com. → 93.184.216.34 (via 8.8.8.8); system lookup may use search suffixes, so answers are not compared",
       "observed": {
         "addresses": [
           "93.184.216.34"
         ],
+        "dns_name_scope": "rooted_relative",
         "resolver": "8.8.8.8",
         "resolver_targets": [
           "8.8.8.8:53"

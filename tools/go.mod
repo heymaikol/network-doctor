@@ -1,6 +1,6 @@
 module github.com/heymaikol/network-doctor/tools
 
-go 1.27.0
+go 1.27.3
 
 tool github.com/kojah/gohawk
 

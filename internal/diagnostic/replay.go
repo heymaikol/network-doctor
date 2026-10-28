@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
@@ -52,6 +53,21 @@ func ReplaySnapshot(s snapshot.Snapshot) (Diagnosis, error) {
 			return Diagnosis{}, fmt.Errorf("replay check %q: %w", check.ID, err)
 		}
 		results[id] = result
+	}
+	if public, ok := results[ProbeDNSPublic]; ok {
+		// Only an unsanitized, explicitly absolute historical input proves scope.
+		if public.DNSNameScope == "" && s.Redaction == nil && target != nil && target.IP == nil && strings.HasSuffix(target.Host, ".") {
+			public.DNSNameScope = snapshot.DNSNameAbsolute
+			results[ProbeDNSPublic] = public
+		}
+		if !dnsNamesComparable(results) {
+			public.answerComparison = comparisonUnrecorded
+			// The public probe itself never warns; only comparison rewrites it.
+			if public.Status == StatusWarn {
+				public.Status = StatusPass
+			}
+			results[ProbeDNSPublic] = public
+		}
 	}
 	return Interpret(target, order, results), nil
 }
@@ -153,6 +169,10 @@ func replayResult(id ProbeID, status Status, check snapshot.Check) (ProbeResult,
 	}
 
 	observed := check.Observed
+	if !snapshot.ValidDNSNameScope(observed.DNSNameScope) || observed.DNSNameScope != "" && id != ProbeDNSPublic {
+		return ProbeResult{}, errors.New("invalid DNS name scope")
+	}
+	result.DNSNameScope = observed.DNSNameScope
 	var err error
 	if result.Addrs, err = replayIPs("address", observed.Addresses); err != nil {
 		return ProbeResult{}, err

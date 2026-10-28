@@ -33,21 +33,14 @@
     ]
   },
   "expected": {
-    "verdict": "degraded",
-    "findings": [
-      "dns_disagreement"
-    ],
+    "verdict": "ok",
+    "findings": [],
     "not_findings": [
       "dns_failure",
       "target_unreachable",
       "local_device_unreachable",
-      "direct_egress_blocked"
-    ],
-    "confidence": [
-      {
-        "finding": "dns_disagreement",
-        "level": "medium"
-      }
+      "direct_egress_blocked",
+      "dns_disagreement"
     ]
   },
   "provenance": {
@@ -55,5 +48,5 @@
     "summary": "Captured on a maintainer-controlled physical Windows and Fedora network. DNS used a controlled resolver on the physical LAN, and the returned private target used a real WireGuard split tunnel. Independent checks established the controlled transition and the artifact was reviewed for privacy before commit."
   },
   "snapshot": "snapshot.ndoc",
-  "notes": "The resolver disagreement and controlled path transition were directly observed, but dns_disagreement remains an inferred product conclusion: differing answers can be intentional, and one contemporaneous comparison does not establish resolver fault. The diagnosis is therefore capped at medium confidence."
+  "notes": "The resolver disagreement and controlled path transition were directly observed, but dns_disagreement remains an inferred product conclusion: differing answers can be intentional, and one contemporaneous comparison does not establish resolver fault. The diagnosis is therefore capped at medium confidence. Legacy sanitized DNS evidence records no original query-name scope. Replay retains standalone answers but cannot support a resolver comparison; the historical diagnosis and verified network condition remain unchanged."
 }

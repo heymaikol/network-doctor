@@ -47,9 +47,10 @@ func referenceEgress(id ProbeID, hasTarget, publicDNSNamed bool) bool {
 	// resolves ConnectivityProbeHost, which is a question netdoc invented.
 	case ProbeDNS:
 		return !hasTarget
-	// Same question, asked of a second resolver. Reference when netdoc chose
-	// the resolver, and reference in a targetless run whoever chose it, since
-	// the only name left to ask about is the compiled-in one.
+	// The public resolver queries a canonical absolute name; system resolution
+	// may apply configured search suffixes. Reference when netdoc chose the
+	// resolver, and reference in a targetless run whoever chose it, since the
+	// only name left to ask about is the compiled-in one.
 	case ProbeDNSPublic:
 		return !hasTarget || !publicDNSNamed
 	}

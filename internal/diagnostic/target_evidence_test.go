@@ -312,7 +312,7 @@ func TestTargetAttemptCoverageDiagnosis(t *testing.T) {
 			}
 			order := []ProbeID{ProbeIface, ProbeInternet, ProbeDNS, ProbeTargetTCP}
 			if tc.independentNotFound {
-				res[ProbeDNSPublic] = ProbeResult{Status: StatusWarn, DNSNotFound: true}
+				res[ProbeDNSPublic] = ProbeResult{DNSNameScope: "absolute", Status: StatusWarn, DNSNotFound: true}
 				order = append(order, ProbeDNSPublic)
 			}
 			Finalize(res)

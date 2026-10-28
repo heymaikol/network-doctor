@@ -49,7 +49,7 @@ faults:
 tests:
   - name: name that will not resolve
     node: client
-    target: example.test:80
+    target: example.test.:80
 
 expect:
   verdict: dns

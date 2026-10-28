@@ -362,6 +362,20 @@ type Check struct {
 	Derived *Derived `json:"derived,omitempty"`
 }
 
+// DNSNameScope records the original input's scope under the public lookup policy.
+// Empty means legacy/unknown, never a rooted relative lookup. It proves neither
+// identical wire questions nor the source of the system resolver's answers.
+type DNSNameScope string
+
+const (
+	DNSNameAbsolute       DNSNameScope = "absolute"
+	DNSNameRootedRelative DNSNameScope = "rooted_relative"
+)
+
+func ValidDNSNameScope(scope DNSNameScope) bool {
+	return scope == "" || scope == DNSNameAbsolute || scope == DNSNameRootedRelative
+}
+
 // Observed is evidence a probe measured directly. Everything here is a
 // reading; nothing here is a conclusion.
 type Observed struct {
@@ -372,6 +386,8 @@ type Observed struct {
 	// DNSNotFound distinguishes "the resolver answered, with nothing" from
 	// "the resolver did not answer", which have different fixes.
 	DNSNotFound bool `json:"dns_not_found,omitempty"`
+	// DNSNameScope is present only on the public DNS observation.
+	DNSNameScope DNSNameScope `json:"dns_name_scope,omitempty"`
 	// Resolver is the configured second-opinion DNS server this row queried.
 	// It remains for compatibility; ResolverTargets is the direct Dial evidence
 	// available to both system and second-opinion lookups.
@@ -904,6 +920,8 @@ func validate(s Snapshot) error {
 			return fmt.Errorf("snapshot check %q has unknown status %q", c.ID, c.Status)
 		case c.CauseFamily != "" && c.Cause == "":
 			return fmt.Errorf("snapshot check %q has a cause family without a cause", c.ID)
+		case c.Observed != nil && (!ValidDNSNameScope(c.Observed.DNSNameScope) || c.Observed.DNSNameScope != "" && c.ID != "dns_public"):
+			return fmt.Errorf("snapshot check %q has invalid DNS name scope %q", c.ID, c.Observed.DNSNameScope)
 		case c.Derived != nil && !validAnswerComparison(c.Derived.AnswerComparison):
 			return fmt.Errorf("snapshot check %q has unknown answer comparison %q", c.ID, c.Derived.AnswerComparison)
 		case !c.Ran && c.DurationMs != 0:

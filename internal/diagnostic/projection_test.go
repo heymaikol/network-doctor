@@ -72,6 +72,7 @@ var evidenceProjection = map[string]decision{
 	"diagnostic.ProbeResult.answerComparison": {category: replayed},
 	"diagnostic.ProbeResult.Portal":           {category: replayed},
 	"diagnostic.ProbeResult.Addrs":            {category: replayed},
+	"diagnostic.ProbeResult.DNSNameScope":     {category: replayed},
 	"diagnostic.ProbeResult.DNSNotFound":      {category: replayed},
 	"diagnostic.ProbeResult.ResolverTargets":  {category: replayed},
 	"diagnostic.ProbeResult.SelectedIP":       {category: replayed},
@@ -165,6 +166,7 @@ var evidenceProjection = map[string]decision{
 
 	"snapshot.Observed.Addresses":          {category: replayed},
 	"snapshot.Observed.SelectedIP":         {category: replayed},
+	"snapshot.Observed.DNSNameScope":       {category: replayed},
 	"snapshot.Observed.DNSNotFound":        {category: replayed},
 	"snapshot.Observed.Resolver":           {category: replayed},
 	"snapshot.Observed.ResolverTargets":    {category: replayed},
@@ -308,6 +310,7 @@ func maximalResult() ProbeResult {
 		Portal:            &Portal{RedirectURL: "http://portal.example/login"},
 		Addrs:             []net.IP{net.ParseIP("192.0.2.10"), net.ParseIP("2001:db8::10")},
 		DNSNotFound:       true,
+		DNSNameScope:      snapshot.DNSNameAbsolute,
 		ResolverTargets:   []string{"192.0.2.53:53"},
 		SelectedIP:        net.ParseIP("192.0.2.10"),
 		Source:            net.ParseIP("198.51.100.5"),

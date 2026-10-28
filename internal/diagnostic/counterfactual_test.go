@@ -26,7 +26,7 @@ func TestDNSCounterfactualTruthTable(t *testing.T) {
 		return map[ProbeID]ProbeResult{
 			ProbeIface: ok(StatusPass), ProbeInternet: ok(StatusPass),
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{v4a}},
-			ProbeDNSPublic: {Status: StatusPass, Addrs: []net.IP{v4a}},
+			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{v4a}},
 		}
 	}
 	tests := []struct {
@@ -40,17 +40,17 @@ func TestDNSCounterfactualTruthTable(t *testing.T) {
 		}, DiagnosisSystemDNSFailure, true},
 		{"both report not found", func(r map[ProbeID]ProbeResult) {
 			r[ProbeDNS] = ProbeResult{Status: StatusFail, DNSNotFound: true}
-			r[ProbeDNSPublic] = ProbeResult{Status: StatusPass, DNSNotFound: true}
+			r[ProbeDNSPublic] = ProbeResult{DNSNameScope: "absolute", Status: StatusPass, DNSNotFound: true}
 		}, DiagnosisDNSNameNotFound, true},
 		{"both fail without attribution", func(r map[ProbeID]ProbeResult) {
 			r[ProbeDNS] = ProbeResult{Status: StatusFail, Cause: DNSCauseTimeout}
-			r[ProbeDNSPublic] = ProbeResult{Status: StatusFail, Cause: DNSCauseTimeout}
+			r[ProbeDNSPublic] = ProbeResult{DNSNameScope: "absolute", Status: StatusFail, Cause: DNSCauseTimeout}
 		}, DiagnosisDNSFailure, false},
 		{"different answer networks", func(r map[ProbeID]ProbeResult) {
-			r[ProbeDNSPublic] = ProbeResult{Status: StatusWarn, Addrs: []net.IP{v4b}}
+			r[ProbeDNSPublic] = ProbeResult{DNSNameScope: "absolute", Status: StatusWarn, Addrs: []net.IP{v4b}}
 		}, DiagnosisDNSDisagreement, true},
 		{"system answer and independent not found", func(r map[ProbeID]ProbeResult) {
-			r[ProbeDNSPublic] = ProbeResult{Status: StatusWarn, DNSNotFound: true}
+			r[ProbeDNSPublic] = ProbeResult{DNSNameScope: "absolute", Status: StatusWarn, DNSNotFound: true}
 		}, DiagnosisDNSDisagreement, true},
 		{"same answer network", func(map[ProbeID]ProbeResult) {}, "", false},
 	}

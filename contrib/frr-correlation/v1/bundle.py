@@ -332,17 +332,26 @@ def main():
     try:
         result = produce(CAPTURE_FD)
         status = 0
-    except (Refused, ValueError, KeyError, TypeError, OSError) as error:
+    except (Refused, ValueError, KeyError, TypeError, OSError, RecursionError) as error:
         result = {"schema": SCHEMA, "capture": {"complete": False, "snapshot_complete": False},
                   "claims": [], "refusals": [{"reason": str(error)}]}
         status = 2
     try:
         directory_capability(OUTPUT_FD)
+        # Serialize before opening the only authorized output leaf. A deeply
+        # nested but decoded value must not leave an empty bundle.json.
+        try:
+            payload = json.dumps(result, indent=2, sort_keys=True) + "\n"
+        except RecursionError:
+            result = {"schema": SCHEMA, "capture": {"complete": False, "snapshot_complete": False},
+                      "claims": [], "refusals": [{"reason": "output JSON nesting exceeds supported limit"}]}
+            status = 2
+            payload = json.dumps(result, indent=2, sort_keys=True) + "\n"
         # The output capability authorizes one fixed, exclusively created leaf.
         fd = os.open("bundle.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
                      0o600, dir_fd=OUTPUT_FD)
         with os.fdopen(fd, "w", encoding="utf-8") as destination:
-            destination.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+            destination.write(payload)
     except (OSError, Refused) as error:
         print("cannot create bundle output: " + str(error), file=sys.stderr)
         return 2

@@ -64,7 +64,7 @@ jobs:
                 -p test_bundle.py -v 2>&1 | tee /tmp/packager-tests.log
               # Require the reviewed baseline suite, including schema validation.
               # Adding intentional tests requires updating this count.
-              grep -Eq "^Ran 46 tests in " /tmp/packager-tests.log
+              grep -Eq "^Ran 48 tests in " /tmp/packager-tests.log
               grep -Eq "^test_versioned_schema .* \.\.\. ok$" /tmp/packager-tests.log
               grep -qx "OK" /tmp/packager-tests.log
               if grep -Eq "skipped=|^FAILED" /tmp/packager-tests.log; then

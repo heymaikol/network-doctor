@@ -64,6 +64,23 @@ class ProducerProof(unittest.TestCase):
             self.assertEqual(refused["claims"], [])
             self.assertEqual(refused.get("fib_entries", []), [])
 
+    def test_excessive_json_nesting_returns_refusal_bundle(self):
+        source = next(self.logs.glob("bgpd.*.jsonl"))
+        lines = source.read_bytes().splitlines(keepends=True)
+        # Fits the 65,535 byte record bound but exceeds Python JSON nesting.
+        nested = b"[" * 16000 + b"0" + b"]" * 16000 + b"\n"
+        self.assertLessEqual(len(nested) - 1, 65535)
+        lines.insert(1, nested)
+        source.write_bytes(b"".join(lines))
+        with tempfile.TemporaryDirectory(dir=self.root) as output:
+            self.assertEqual(self.cli(output), 2)
+            result = decode((Path(output) / "bundle.json").read_bytes())
+            self.assertFalse(result["capture"]["complete"])
+            self.assertFalse(result["capture"]["snapshot_complete"])
+            self.assertEqual(result["claims"], [])
+            self.assertTrue(any("recursion" in item["reason"].lower()
+                                for item in result["refusals"]))
+
     def test_partial_stream_is_refused_even_with_two_closed_streams(self):
         (self.logs / "zebra.other.jsonl.partial").write_bytes(b"")
         with self.assertRaisesRegex(Refused, "incomplete producer stream"):

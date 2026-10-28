@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  # Regression scope only. This does not replace certified rootless FRR builds,
-  # live lab acceptance, or separately recorded C writer and codec fault tests.
+  # Packager-only CI. Historical FRR builder certification, live acceptance and
+  # C writer/codec fault testing retain their independently recorded gates.
   frr-correlation-regression:
     name: FRR correlation packager and schema
     runs-on: ubuntu-24.04
@@ -20,14 +20,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Build exact-package FRR test environment
+      - name: Build pinned Python regression environment
         run: |
           set -euo pipefail
-          # The existing Containerfile pins the base-image digest and the entire
-          # Fedora RPM inventory, and rejects an unavailable or mismatched lock.
-          docker build --pull --no-cache \
-            -f contrib/frr-correlation/v1/Containerfile \
-            -t netdoc-frr-regression:ci contrib/frr-correlation/v1
+          # This is a test-only Python image, not the certified FRR builder.
+          # The FRR builder RPM lock is untouched and must not be relaxed when
+          # its historical packages disappear from current Fedora repositories.
+          docker build --pull --no-cache -t netdoc-frr-regression:ci - <<'DOCKERFILE'
+          FROM ubuntu@sha256:2e863c44b718727c860746568e1d54afd13b2fa71b160f5cd9058fc436217b30
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update && apt-get install --no-install-recommends -y \
+              python3-jsonschema=4.10.3-2ubuntu1 && \
+              rm -rf /var/lib/apt/lists/*
+          USER 65534:65534
+          DOCKERFILE
           test "$(docker image inspect --format '{{.Config.User}}' netdoc-frr-regression:ci)" = "65534:65534"
       - name: Verify historical manifests and run all packager regressions
         run: |

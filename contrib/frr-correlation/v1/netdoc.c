@@ -225,7 +225,7 @@ int ndoc_decode(struct stream *s, struct ndoc_submission *sub)
 	if (sub->epoch[36] || strlen(sub->epoch) != 36) return -1;
 	STREAM_GETQ(s, sub->announcement);
 	STREAM_GETW(s, sub->count);
-	if (!sub->announcement || !sub->count || sub->count > NDOC_LIMIT) return -1;
+	if (!sub->announcement || sub->count > NDOC_LIMIT) return -1;
 	for (unsigned i = 0; i < sub->count; i++) {
 		struct ndoc_contributor *c = &sub->paths[i];
 		STREAM_GETQ(s, c->path); STREAM_GETQ(s, c->peer);

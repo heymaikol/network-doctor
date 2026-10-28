@@ -10,8 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  # Packager-only CI. Historical FRR builder certification, live acceptance and
-  # C writer/codec fault testing retain their independently recorded gates.
+  # Historical builder reproducibility and live acceptance remain separate gates.
   frr-correlation-regression:
     name: FRR correlation packager and schema
     runs-on: ubuntu-24.04
@@ -72,6 +71,50 @@ jobs:
                 exit 1
               fi
             '
+
+  frr-correlation-c-regression:
+    name: FRR correlation writer and codec sanitizers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build pinned C regression environment
+        run: |
+          set -euo pipefail
+          docker build --pull --no-cache -t netdoc-frr-c-regression:ci \
+            -f contrib/frr-correlation/v1/Containerfile.ci \
+            contrib/frr-correlation/v1 2>&1 | tee "$RUNNER_TEMP/frr-c-provision.log"
+          test "$(docker image inspect --format '{{.Config.User}}' netdoc-frr-c-regression:ci)" = "65534:65534"
+      - name: Compile FRR hooks and run writer and codec regressions
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/frr-c-regression"
+          mkdir "$work"
+          chmod 777 "$work"
+          if ! docker run --rm --pull never --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --user 65534:65534 \
+            --pids-limit 256 --memory 6g \
+            --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+            --mount "type=bind,src=$PWD,dst=/src,readonly" \
+            --mount "type=bind,src=$work,dst=/work" \
+            netdoc-frr-c-regression:ci \
+            bash /src/contrib/frr-correlation/v1/check-c.sh > "$work/build.log" 2>&1; then
+            tail -n 60 "$work/build.log"
+            exit 1
+          fi
+          tail -n 30 "$work/build.log"
+      - name: Preserve C validation logs and package versions
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frr-c-regression
+          path: |
+            ${{ runner.temp }}/frr-c-provision.log
+            ${{ runner.temp }}/frr-c-regression/*.log
+            ${{ runner.temp }}/frr-c-regression/*.txt
+          if-no-files-found: error
 
   gohawk:
     name: GoHawk core analyzers

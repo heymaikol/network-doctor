@@ -258,6 +258,43 @@ LD_LIBRARY_PATH="$PWD/lib/.libs" python3 -I /producer/test_writer.py /work/write
 The C test includes the actual current writer source for syscall fault injection;
 these synthetic events never substitute for live daemon identity evidence.
 
+## Automated C regression gate
+
+The CI writer/codec job uses `Containerfile.ci`, a separate test environment:
+the digest-pinned Debian trixie image and signed Debian package snapshots at
+2026-10-01 UTC. Snapshot expiry checks are disabled for this historical index;
+signature and package-hash verification remain enabled. A checksum-pinned CA
+package bootstraps HTTPS in the minimal image. Snapshot and source downloads use
+HTTPS, including source redirects. Missing packages fail
+provisioning. The image downloads the pinned FRR source archive and verifies its
+SHA256. This environment does not reproduce or replace the historical Fedora
+builder, its package lock, build IDs, artifacts or reproducibility evidence.
+
+`check-c.sh` applies the current patch with zero fuzz and compiles real libfrr,
+bgpd and Zebra with assertions, AddressSanitizer and UndefinedBehaviorSanitizer.
+A native build-time Clippy generator remains outside sanitizer coverage because
+of its separately documented upstream leaks. Leak detection remains enabled for
+the writer and codec tests. No daemon is started or installed.
+
+Compilation and execution run as UID/GID 65534, offline, with no capabilities,
+no-new-privileges, read-only image/source and dedicated writable scratch. The job
+requires all 27 writer fault modes and a codec summary of 64 roundtrips, 2,227
+maximum-frame truncations, 13 semantic negatives and 512 deterministic mutations.
+Malformed wire counts exercise the decoder independently of encoder checks.
+Logs, sanitizer-symbol checks and resolved package versions are CI artifacts.
+The separate Python job still verifies historical manifests before its 48
+packager/schema tests, requiring zero skips.
+
+For local reproduction, build `Containerfile.ci`, then run the image with the
+same restrictions and mounts as `.github/workflows/ci.yml`; invoke
+`bash /src/contrib/frr-correlation/v1/check-c.sh` with fresh `/work` scratch.
+Successful C tests prove these synthetic cases and hook compilation. Live
+daemon acceptance, arbitrary namespace lifetime mixing, exact historical binary
+reproduction, power-loss durability and exhaustive allocation/clock/size-limit
+fault injection remain separate gates or unproven limits. C ThreadSanitizer and
+other architectures are not covered. No importer or
+forwarding rating is enabled by this job.
+
 The [historical Sonar review](../../../testdata/frr/10.7.0/bgp/correlation-review-7df7be1/README.md)
 is pinned to PR head `7df7be1`, including the high input-path finding's actual
 flow and the earlier CLI threat model. That high finding was valid: the old CLI

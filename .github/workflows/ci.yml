@@ -10,6 +10,69 @@ permissions:
   contents: read
 
 jobs:
+  # Packager-only CI. Historical FRR builder certification, live acceptance and
+  # C writer/codec fault testing retain their independently recorded gates.
+  frr-correlation-regression:
+    name: FRR correlation packager and schema
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build pinned Python regression environment
+        run: |
+          set -euo pipefail
+          # This is a test-only Python image, not the certified FRR builder.
+          # The FRR builder RPM lock is untouched and must not be relaxed when
+          # its historical packages disappear from current Fedora repositories.
+          docker build --pull --no-cache -t netdoc-frr-regression:ci - <<'DOCKERFILE'
+          FROM ubuntu@sha256:2e863c44b718727c860746568e1d54afd13b2fa71b160f5cd9058fc436217b30
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update && apt-get install --no-install-recommends -y \
+              python3-jsonschema=4.10.3-2ubuntu1 && \
+              rm -rf /var/lib/apt/lists/*
+          USER 65534:65534
+          DOCKERFILE
+          test "$(docker image inspect --format '{{.Config.User}}' netdoc-frr-regression:ci)" = "65534:65534"
+      - name: Verify historical manifests and run all packager regressions
+        run: |
+          set -euo pipefail
+          # The image may download packages during build. Execution is offline,
+          # unprivileged, with no capabilities and a read-only repository mount.
+          docker run --rm --pull never --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --user 65534:65534 \
+            --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+            --mount "type=bind,src=$PWD,dst=/src,readonly" \
+            --workdir /src netdoc-frr-regression:ci \
+            bash -euo pipefail -c '
+              dpkg-query -W python3-jsonschema
+              python3 -B -I -c "import jsonschema; print(jsonschema.__file__)"
+              evidence=/src/testdata/frr/10.7.0/bgp/correlation-v1-noreplace
+              for part in . proof restart; do
+                log="/tmp/manifest-$part.log"
+                if ! (cd "$evidence/$part" && sha256sum --check --strict SHA256SUMS) > "$log" 2>&1; then
+                  tail -n 30 "$log"
+                  echo "Historical evidence integrity check failed: $part" >&2
+                  exit 1
+                fi
+                echo "PASS: $part historical evidence checksum manifest"
+              done
+              python3 -B -I -m unittest discover \
+                -s /src/contrib/frr-correlation/v1 \
+                -p test_bundle.py -v 2>&1 | tee /tmp/packager-tests.log
+              # Require the reviewed baseline suite, including schema validation.
+              # Adding intentional tests requires updating this count.
+              grep -Eq "^Ran 46 tests in " /tmp/packager-tests.log
+              grep -Eq "^test_versioned_schema .* \.\.\. ok$" /tmp/packager-tests.log
+              grep -qx "OK" /tmp/packager-tests.log
+              if grep -Eq "skipped=|^FAILED" /tmp/packager-tests.log; then
+                echo "Skipped or failed packager tests are forbidden" >&2
+                exit 1
+              fi
+            '
+
   gohawk:
     name: GoHawk core analyzers
     runs-on: ubuntu-latest

@@ -13,7 +13,7 @@ def main():
     logs = Path(sys.argv[1])
     runner = Path(__file__).with_name("test_writer.py")
     private = "environment sentinel must not be logged"
-    with tempfile.TemporaryDirectory() as scratch:
+    with tempfile.TemporaryDirectory(dir=logs) as scratch:
         child = Path(scratch) / "writer"
         for name, status in (("exit", 7), ("assert", 0)):
             child.write_text(f"#!{sys.executable}\nimport sys\n"

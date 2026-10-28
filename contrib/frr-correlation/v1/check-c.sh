@@ -2,7 +2,7 @@
 # Test-only build in isolated scratch; never install or run FRR daemons.
 set -euo pipefail
 producer=$(cd "$(dirname "$0")" && pwd)
-test "$(id -u)" = 65534
+[[ $(id -u) == 65534 ]]
 grep -Eq '^CapEff:[[:space:]]+0+$' /proc/self/status
 export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH=1784130712
 export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1
@@ -48,7 +48,7 @@ for name in writer codec; do
     grep -q __assert_fail "/work/$name-symbols.txt"
 done
 python3 -B -I "$producer/test_writer.py" /work/writer-test | tee /work/writer-tests.log
-test "$(grep -c ': PASS$' /work/writer-tests.log)" = 27
+[[ $(grep -c ': PASS$' /work/writer-tests.log) == 27 ]]
 grep -qx WRITER_SHUTDOWN_TESTS_PASSED /work/writer-tests.log
 if ! /work/codec-test > /work/codec-tests.log 2> /work/codec-stderr.log; then
     tail -n 40 /work/codec-tests.log /work/codec-stderr.log

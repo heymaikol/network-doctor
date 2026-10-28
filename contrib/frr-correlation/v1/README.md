@@ -263,7 +263,9 @@ these synthetic events never substitute for live daemon identity evidence.
 The CI writer/codec job uses `Containerfile.ci`, a separate test environment:
 the digest-pinned Debian trixie image and signed Debian package snapshots at
 2026-10-01 UTC. Snapshot expiry checks are disabled for this historical index;
-signature and package-hash verification remain enabled. Missing packages fail
+signature and package-hash verification remain enabled. A checksum-pinned CA
+package bootstraps HTTPS in the minimal image. Snapshot and source downloads use
+HTTPS, including source redirects. Missing packages fail
 provisioning. The image downloads the pinned FRR source archive and verifies its
 SHA256. This environment does not reproduce or replace the historical Fedora
 builder, its package lock, build IDs, artifacts or reproducibility evidence.

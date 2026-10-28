@@ -1,19 +1,26 @@
 # Regression environment only; does not certify the historical Fedora build.
 FROM debian:trixie@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
 ENV DEBIAN_FRONTEND=noninteractive
-# Signed HTTP snapshots bootstrap CA certificates from the minimal pinned base.
-RUN rm /etc/apt/sources.list.d/debian.sources && \
+# Bootstrap TLS trust from the same checksum-pinned Debian snapshot package.
+ADD --checksum=sha256:ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
+    https://snapshot.debian.org/archive/debian/20261001T000000Z/pool/main/c/ca-certificates/ca-certificates_20250419_all.deb /tmp/ca-certificates.deb
+RUN dpkg-deb -x /tmp/ca-certificates.deb /tmp/ca && \
+    mkdir -p /etc/ssl/certs && \
+    cat /tmp/ca/usr/share/ca-certificates/mozilla/*.crt > /etc/ssl/certs/ca-certificates.crt && \
+    rm -rf /tmp/ca /tmp/ca-certificates.deb && \
+    rm /etc/apt/sources.list.d/debian.sources && \
     printf '%s\n' \
-      'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261001T000000Z trixie main' \
-      'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261001T000000Z trixie-security main' \
+      'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20261001T000000Z trixie main' \
+      'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20261001T000000Z trixie-security main' \
       > /etc/apt/sources.list && \
-    apt-get update --error-on=any && apt-get install --no-install-recommends -y \
+    apt-get -o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt update --error-on=any && \
+    apt-get -o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt install --no-install-recommends -y \
       autoconf automake bison ca-certificates curl flex g++ gcc libcap-dev \
       libc-ares-dev libelf-dev libjson-c-dev libpcre2-dev libreadline-dev \
       libtool libyang-dev make patch pkg-config python3-dev && \
     dpkg-query -W > /opt/ci-packages.txt && \
     rm -rf /var/lib/apt/lists/*
-RUN curl --fail --location --retry 3 \
+RUN curl --proto '=https' --proto-redir '=https' --fail --location --retry 3 \
       https://codeload.github.com/FRRouting/frr/tar.gz/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef \
       -o /opt/frr-source.tar.gz && \
     echo 'bf601f8f35b03a49a5a45981721394f00d3b9eac0c5bd77577732c4c4ffffa67  /opt/frr-source.tar.gz' | sha256sum -c -

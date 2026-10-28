@@ -81,6 +81,30 @@ class ProducerProof(unittest.TestCase):
             self.assertTrue(any("recursion" in item["reason"].lower()
                                 for item in result["refusals"]))
 
+    def test_output_serialization_recursion_returns_refusal_bundle(self):
+        original_dumps = json.dumps
+        attempts = []
+        with tempfile.TemporaryDirectory(dir=self.root) as output:
+            destination = Path(output) / "bundle.json"
+
+            def fail_once(*args, **kwargs):
+                attempts.append(1)
+                if len(attempts) == 1:
+                    self.assertFalse(destination.exists())
+                    raise RecursionError("synthetic deep output")
+                return original_dumps(*args, **kwargs)
+
+            with patch("bundle.json.dumps", side_effect=fail_once):
+                self.assertEqual(self.cli(output), 2)
+
+            self.assertEqual(len(attempts), 2)
+            refused = decode(destination.read_bytes())
+            self.assertFalse(refused["capture"]["complete"])
+            self.assertFalse(refused["capture"]["snapshot_complete"])
+            self.assertEqual(refused["claims"], [])
+            self.assertEqual(refused["refusals"],
+                             [{"reason": "output JSON nesting exceeds supported limit"}])
+
     def test_partial_stream_is_refused_even_with_two_closed_streams(self):
         (self.logs / "zebra.other.jsonl.partial").write_bytes(b"")
         with self.assertRaisesRegex(Refused, "incomplete producer stream"):

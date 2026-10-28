@@ -19,7 +19,9 @@ def main():
             result = None
             try:
                 result = subprocess.run([executable, mode], env=dict(os.environ, NETDOC_CORRELATION_DIR=scratch),
-                                        capture_output=True, text=True, errors="replace", timeout=30, check=True)
+                                        capture_output=True, timeout=30, check=True)
+                result.stdout = result.stdout.decode("utf-8")
+                result.stderr = result.stderr.decode("utf-8")
                 assert "WRITER_TEST_PASSED" in result.stdout
                 files = list(Path(scratch).iterdir())
                 if mode.startswith(("publish_", "revoke_")):

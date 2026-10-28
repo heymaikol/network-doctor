@@ -48,7 +48,7 @@ for name in writer codec; do
     grep -q __assert_fail "/work/$name-symbols.txt"
 done
 python3 -B -I "$producer/test_writer_runner.py" /work | tee /work/writer-runner-tests.log
-grep -qx 'WRITER_RUNNER_DIAGNOSTICS_TESTS_PASSED cases=4' /work/writer-runner-tests.log
+grep -qx 'WRITER_RUNNER_DIAGNOSTICS_TESTS_PASSED cases=5' /work/writer-runner-tests.log
 python3 -B -I "$producer/test_writer.py" /work/writer-test 2>&1 | tee /work/writer-tests.log
 [[ $(grep -c ': PASS$' /work/writer-tests.log) == 27 ]]
 grep -qx WRITER_SHUTDOWN_TESTS_PASSED /work/writer-tests.log

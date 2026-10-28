@@ -15,8 +15,9 @@ def main():
     private = "environment sentinel must not be logged"
     with tempfile.TemporaryDirectory(dir=logs) as scratch:
         child = Path(scratch) / "writer"
-        for name, status in (("exit", 7), ("assert", 0)):
-            child.write_text(f"#!{sys.executable}\nimport sys\n"
+        for name, status in (("exit", 7), ("assert", 0), ("decode", 0)):
+            malformed = "sys.stdout.buffer.write(b'WRITER_TEST_PASSED\\xff\\n')\n" if name == "decode" else ""
+            child.write_text(f"#!{sys.executable}\nimport sys\n" + malformed +
                              "print('WRITER_STDOUT_DIAGNOSTIC')\n"
                              "print('WRITER_STDERR_DIAGNOSTIC', file=sys.stderr)\n"
                              f"sys.exit({status})\n")
@@ -31,6 +32,8 @@ def main():
             assert result.returncode != 0
             assert "WRITER_STDOUT_DIAGNOSTIC" in text and "WRITER_STDERR_DIAGNOSTIC" in text
             assert f"startup: failed (child exit status {status})" in text
+            if name == "decode":
+                assert "UnicodeDecodeError" in text and "WRITER_TEST_PASSED\ufffd" in text
             assert private not in text and "WRITER_SHUTDOWN_TESTS_PASSED" not in text
 
         spec = importlib.util.spec_from_file_location("writer_runner", runner)
@@ -54,7 +57,7 @@ def main():
             if stdout is not None:
                 assert "TIMEOUT_STDOUT_DIAGNOSTIC" in text and "TIMEOUT_STDERR_DIAGNOSTIC\ufffd" in text
             assert private not in text and "WRITER_SHUTDOWN_TESTS_PASSED" not in text
-    print("WRITER_RUNNER_DIAGNOSTICS_TESTS_PASSED cases=4")
+    print("WRITER_RUNNER_DIAGNOSTICS_TESTS_PASSED cases=5")
 
 
 if __name__ == "__main__":

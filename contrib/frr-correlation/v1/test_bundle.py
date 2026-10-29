@@ -65,21 +65,30 @@ class ProducerProof(unittest.TestCase):
             self.assertEqual(refused.get("fib_entries", []), [])
 
     def test_excessive_json_nesting_returns_refusal_bundle(self):
+        accepted = self.result()
         source = next(self.logs.glob("bgpd.*.jsonl"))
         lines = source.read_bytes().splitlines(keepends=True)
-        # Fits the 65,535 byte record bound but exceeds Python JSON nesting.
+        # Fits the record bound; Python versions can reject it at different stages.
         nested = b"[" * 16000 + b"0" + b"]" * 16000 + b"\n"
         self.assertLessEqual(len(nested) - 1, 65535)
         lines.insert(1, nested)
         source.write_bytes(b"".join(lines))
-        with tempfile.TemporaryDirectory(dir=self.root) as output:
-            self.assertEqual(self.cli(output), 2)
-            result = decode((Path(output) / "bundle.json").read_bytes())
-            self.assertFalse(result["capture"]["complete"])
-            self.assertFalse(result["capture"]["snapshot_complete"])
-            self.assertEqual(result["claims"], [])
-            self.assertTrue(any("recursion" in item["reason"].lower()
-                                for item in result["refusals"]))
+        def assert_refused():
+            with tempfile.TemporaryDirectory(dir=self.root) as output:
+                self.assertEqual(self.cli(output), 2)
+                result = decode((Path(output) / "bundle.json").read_bytes())
+                self.assertIs(result["capture"]["complete"], False)
+                self.assertIs(result["capture"]["snapshot_complete"], False)
+                self.assertEqual(result["claims"], [])
+                self.assertEqual(result.get("fib_entries", []), [])
+                self.assertTrue(any(isinstance(item.get("reason"), str)
+                                    and item["reason"].strip()
+                                    for item in result["refusals"]))
+
+        assert_refused()
+        with patch("bundle.produce", return_value=accepted):
+            with self.assertRaises(AssertionError):
+                assert_refused()
 
     def test_output_serialization_recursion_returns_refusal_bundle(self):
         original_dumps = json.dumps

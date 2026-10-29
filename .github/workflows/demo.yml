@@ -5,8 +5,8 @@ name: demo
 # from the official action.
 #
 # The recording uses live probes, so latencies and spinner phases make fresh
-# recordings differ byte for byte. After verification, the tracked GIF follows
-# the newest successful recording and is also uploaded for review.
+# recordings differ byte for byte. After verification, the GIF, website video
+# and final-frame poster follow the newest successful recording together.
 #
 # Checkout persists the job's GITHUB_TOKEN for the final git push. The tag a
 # release is cut from is already on main, so the refreshed recording lands
@@ -78,18 +78,26 @@ jobs:
           # exact count so encoder timing cannot make a healthy recording fail,
           # but reject a file that stopped before the finished screen was shown.
           test "${recording[2]}" -ge 100
+      - name: Regenerate and verify website media
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s .github/scripts -p 'test_demo_media.py'
+          python3 .github/scripts/demo_media.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: hero-gif
-          path: assets/hero.gif
+          name: hero-media
+          path: |
+            assets/hero.gif
+            assets/hero.mp4
+            assets/hero-poster.png
           if-no-files-found: error
       - name: Commit the changed recording
         env:
           EXPECTED_HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- assets/hero.gif; then
-            echo "assets/hero.gif is unchanged"
+          if git diff --quiet -- assets/hero.gif assets/hero.mp4 assets/hero-poster.png; then
+            echo "Demo media are unchanged"
             exit 0
           fi
           git fetch origin main
@@ -99,6 +107,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets/hero.gif
-          git commit -m "Refresh README hero GIF"
+          git add assets/hero.gif assets/hero.mp4 assets/hero-poster.png
+          git commit -m "Refresh homepage demo media"
           git push origin HEAD:main

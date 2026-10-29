@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func exampleEnvelope() Envelope {
@@ -158,13 +159,20 @@ func TestIntegerLexicalBoundaries(t *testing.T) {
 
 func TestResourceLimits(t *testing.T) {
 	valid := string(encode(t, exampleEnvelope()))
+	// Two-byte runes: over the byte limit while still under it by rune count.
+	wide := strings.Repeat("é", MaxStringBytes/2+1)
+	if len(wide) <= MaxStringBytes || utf8.RuneCountInString(wide) > MaxStringBytes {
+		t.Fatalf("wide string is %d bytes, %d runes", len(wide), utf8.RuneCountInString(wide))
+	}
 	cases := map[string]string{
-		"bytes":  strings.Repeat(" ", MaxEnvelopeBytes+1),
-		"depth":  strings.Repeat("[", MaxDepth+1) + "0" + strings.Repeat("]", MaxDepth+1),
-		"tokens": "[" + strings.Repeat("0,", MaxTokens) + "0]",
-		"string": `{"x":"` + strings.Repeat("x", MaxStringBytes+1) + `"}`,
-		"key":    `{"` + strings.Repeat("x", MaxStringBytes+1) + `":0}`,
-		"number": strings.Repeat("9", MaxNumberBytes+1),
+		"bytes":            strings.Repeat(" ", MaxEnvelopeBytes+1),
+		"depth":            strings.Repeat("[", MaxDepth+1) + "0" + strings.Repeat("]", MaxDepth+1),
+		"tokens":           "[" + strings.Repeat("0,", MaxTokens) + "0]",
+		"string":           `{"x":"` + strings.Repeat("x", MaxStringBytes+1) + `"}`,
+		"key":              `{"` + strings.Repeat("x", MaxStringBytes+1) + `":0}`,
+		"multibyte string": `{"x":"` + wide + `"}`,
+		"multibyte key":    `{"` + wide + `":0}`,
+		"number":           strings.Repeat("9", MaxNumberBytes+1),
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -243,6 +251,8 @@ func TestExactResourceBoundaries(t *testing.T) {
 		strings.Repeat("[", MaxDepth) + "0" + strings.Repeat("]", MaxDepth),
 		"[" + strings.Repeat("0,", MaxTokens-3) + "0]",
 		`"` + strings.Repeat("x", MaxStringBytes) + `"`,
+		`"` + strings.Repeat("é", MaxStringBytes/2) + `"`,
+		`{"` + strings.Repeat("é", MaxStringBytes/2) + `":0}`,
 		"1" + strings.Repeat("0", MaxNumberBytes-1),
 	} {
 		_, err := Decode(strings.NewReader(raw))

@@ -21,14 +21,26 @@ configuration and compiler flags. Another build, kernel, OS, architecture or
 schema is refused by the packager, even if it calls itself FRR 10.7.0. The filesystem must support Linux no-replace
 rename; unsupported operations fail closed without an overwrite fallback.
 
+The peer-transport guard is a source correction after that certified build.
+`verified-build.json` and `implementation.sha256` remain historical pins.
+`build.sh` derives a different build ID from the corrected hook; the packager
+refuses that new build until it is separately certified. Existing captures are
+not relabeled as evidence for the corrected producer.
+
 Verified attribution covers default VRF, table 254, IPv4 unicast, ordinary eBGP
-paths, single-next-hop static routes resolving through BGP, and multiple eBGP
-paths with identical next-hop semantics sharing one forwarding leg. Every
+paths over IPv4 peer transport, single-next-hop static routes resolving through
+BGP, and multiple eBGP paths with identical next-hop semantics sharing one
+forwarding leg. Every
 contributor is retained. Distinct-next-hop ECMP, active add-path IDs, stale
 paths/GR retention, iBGP/confederations, table maps, weights, labels, SRv6,
 on-link overrides, backup nexthops, other tables/VRFs, and other recursive
 classes are outside this subset. Unsupported records remain visible with
 refusals. Recognizing `ospf` as an origin label does not enable OSPF claims.
+
+IPv6 and unknown peer transport families are refused before exporting a path
+contributor. Any unsupported peer marks the whole announcement unsupported,
+including mixed-family contributors; no private path-to-route submission is
+exported for it. This preserves the packager's existing IPv4-only peer contract.
 
 ## Actual ownership boundaries
 
@@ -280,6 +292,9 @@ Compilation and execution run as UID/GID 65534, offline, with no capabilities,
 no-new-privileges, read-only image/source and dedicated writable scratch. The job
 requires all 27 writer fault modes and a codec summary of 64 roundtrips, 2,227
 maximum-frame truncations, 13 semantic negatives and 512 deterministic mutations.
+It also includes the exact BGP hook with real pinned FRR structures and checks
+six peer-family cases: IPv4, IPv6, unknown families, and mixed peers in both
+orders. These compiled-hook checks do not substitute for live daemon acceptance.
 Malformed wire counts exercise the decoder independently of encoder checks.
 Logs, sanitizer-symbol checks and resolved package versions are CI artifacts.
 The separate Python job still verifies historical manifests before its 48

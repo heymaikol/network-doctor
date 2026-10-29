@@ -43,7 +43,8 @@ export LD_LIBRARY_PATH="$PWD/lib/.libs"
 flags+=(-DHAVE_CONFIG_H -I. -Ilib -I"$source" -I"$source/lib" -Llib/.libs)
 gcc "${flags[@]}" "$producer/writer_test.c" -lfrr -ljson-c -pthread -o /work/writer-test
 gcc "${flags[@]}" "$producer/codec_test.c" -lfrr -o /work/codec-test
-for name in writer codec; do
+gcc "${flags[@]}" -fms-extensions "$producer/bgp_peer_test.c" -lfrr -ljson-c -o /work/bgp-peer-test
+for name in writer codec bgp-peer; do
     nm -u "/work/$name-test" > "/work/$name-symbols.txt"
     grep -q __assert_fail "/work/$name-symbols.txt"
 done
@@ -52,6 +53,11 @@ grep -qx 'WRITER_RUNNER_DIAGNOSTICS_TESTS_PASSED cases=5' /work/writer-runner-te
 python3 -B -I "$producer/test_writer.py" /work/writer-test 2>&1 | tee /work/writer-tests.log
 [[ $(grep -c ': PASS$' /work/writer-tests.log) == 27 ]]
 grep -qx WRITER_SHUTDOWN_TESTS_PASSED /work/writer-tests.log
+if ! /work/bgp-peer-test > /work/bgp-peer-tests.log 2>&1; then
+    tail -n 40 /work/bgp-peer-tests.log
+    exit 1
+fi
+grep -x 'BGP_PEER_TESTS_PASSED cases=6' /work/bgp-peer-tests.log
 if ! /work/codec-test > /work/codec-tests.log 2> /work/codec-stderr.log; then
     tail -n 40 /work/codec-tests.log /work/codec-stderr.log
     exit 1

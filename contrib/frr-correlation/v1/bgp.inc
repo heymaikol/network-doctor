@@ -9,7 +9,8 @@ static void ndoc_bgp_path(struct bgp_path_info *pi, struct zapi_route *api, unsi
 	if (!ndoc_enabled()) return;
 	if (api->prefix.family != AF_INET || api->safi != SAFI_UNICAST || api->vrf_id ||
 	    (api->tableid && api->tableid != 254) || leg >= NDOC_LIMIT ||
-	    peer->sort != BGP_PEER_EBGP || !peer->ndoc_session || pi->addpath_rx_id ||
+	    peer->sort != BGP_PEER_EBGP || sockunion_family(&peer->connection->su) != AF_INET ||
+	    !peer->ndoc_session || pi->addpath_rx_id ||
 	    CHECK_FLAG(pi->flags, BGP_PATH_STALE) || nh->type != NEXTHOP_TYPE_IPV4 ||
 	    nh->flags || nh->srte_color || nh->weight || nh->ifindex || nh->vrf_id ||
 	    peer->bgp->table_map[AFI_IP][SAFI_UNICAST].name ||

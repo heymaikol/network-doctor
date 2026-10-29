@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:netdoc:frr:cohort:v1",
+  "title": "Untrusted Network Doctor FRR cohort claims",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "cohort_id",
+    "boot_id",
+    "namespace",
+    "build_id",
+    "certificate_sha256",
+    "producers",
+    "bundle_sha256",
+    "selected_fib_verified"
+  ],
+  "properties": {
+    "schema": {
+      "const": "netdoc-frr-cohort/v1"
+    },
+    "cohort_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "boot_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "namespace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device",
+        "inode"
+      ],
+      "properties": {
+        "device": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "inode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        }
+      }
+    },
+    "build_id": {
+      "$ref": "#/$defs/sha256"
+    },
+    "certificate_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "producers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bgpd",
+        "zebra"
+      ],
+      "properties": {
+        "bgpd": {
+          "$ref": "#/$defs/producer"
+        },
+        "zebra": {
+          "$ref": "#/$defs/producer"
+        }
+      }
+    },
+    "bundle_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "selected_fib_verified": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pid",
+        "start_time_ticks",
+        "epoch",
+        "capture_sha256",
+        "capture_bytes"
+      ],
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "start_time_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "epoch": {
+          "$ref": "#/$defs/uuid"
+        },
+        "capture_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "capture_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        }
+      }
+    }
+  }
+}

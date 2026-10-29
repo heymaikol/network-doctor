@@ -1,0 +1,29 @@
+{
+  "GOMEMLIMIT": "2GiB",
+  "Sonar_quality_gate": "failed; no suppression; independent review of supported-use threat model required",
+  "Sonar_reviewed_current_alerts": {
+    "high": 1,
+    "low": 36
+  },
+  "eight_artifacts_identical": true,
+  "existing_failure_marker_modes": 2,
+  "final_gate": "rerun against the frozen integrated tree; immutable tree ID and final result retained externally at PR handoff to avoid self-reference",
+  "go_toolchain": "go1.27.3",
+  "integration_main": "823a91611592c5949d7cb37b26bdf547443cf063",
+  "live_run_exit_codes": {
+    "proof": 0,
+    "restart": 0
+  },
+  "native_destination_collision_modes": 4,
+  "original_writer_modes_preserved": 15,
+  "producer_schema_skips": 0,
+  "producer_schema_tests": 27,
+  "race_integration_exit_code": 0,
+  "repository_check_race_exit_code": 0,
+  "restart_bundle_exit_code": 2,
+  "reviewed_head": "7df7be121846490ebc5cf389eee2e4f1e15cca56",
+  "synthetic_unsupported_rename_modes": 6,
+  "two_clean_builds_byte_identical": true,
+  "wire_tests": "passed in both clean builds",
+  "writer_test_modes": 27
+}

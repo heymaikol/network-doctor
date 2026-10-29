@@ -1,0 +1,14 @@
+2026/10/25 22:17:43 ZEBRA: [WVJCK-PPMGD][EC 4043309093] generic-netlink-cmd (NS 0) error: Operation not permitted, type=RTM_GETQDISC(38), seq=3, pid=3771240
+2026/10/25 22:17:43 ZEBRA: [SAPXX-HP5B5][EC 4043309108] Extended Error: failed to retrieve link settings
+2026/10/25 22:17:43 ZEBRA: [WVJCK-PPMGD][EC 4043309093] generic-netlink-cmd (NS 0) error: Operation not supported, type=(23), seq=3, pid=3771240
+2026/10/25 22:17:43 ZEBRA: [SAPXX-HP5B5][EC 4043309108] Extended Error: failed to retrieve link settings
+2026/10/25 22:17:43 ZEBRA: [WVJCK-PPMGD][EC 4043309093] generic-netlink-cmd (NS 0) error: Operation not supported, type=(23), seq=4, pid=3771240
+2026/10/25 22:17:43 ZEBRA: [SAPXX-HP5B5][EC 4043309108] Extended Error: failed to retrieve link settings
+2026/10/25 22:17:43 ZEBRA: [WVJCK-PPMGD][EC 4043309093] generic-netlink-cmd (NS 0) error: Operation not supported, type=(23), seq=5, pid=3771240
+2026/10/25 22:17:43 ZEBRA: [SAPXX-HP5B5][EC 4043309108] Extended Error: failed to retrieve link settings
+2026/10/25 22:17:43 ZEBRA: [WVJCK-PPMGD][EC 4043309093] generic-netlink-cmd (NS 0) error: Operation not supported, type=(23), seq=6, pid=3771240
+2026/10/25 22:17:43 ZEBRA: [SAPXX-HP5B5][EC 4043309108] Extended Error: failed to retrieve link settings
+2026/10/25 22:17:43 ZEBRA: [WVJCK-PPMGD][EC 4043309093] generic-netlink-cmd (NS 0) error: Operation not supported, type=(23), seq=7, pid=3771240
+2026/10/25 22:17:43 ZEBRA: [SAPXX-HP5B5][EC 4043309108] Extended Error: failed to retrieve link settings
+2026/10/25 22:17:43 ZEBRA: [WVJCK-PPMGD][EC 4043309093] generic-netlink-cmd (NS 0) error: Operation not supported, type=(23), seq=10, pid=3771240
+2026/10/25 22:17:43 ZEBRA: [QBKSZ-0KHCW][EC 4043309138] Disabling MPLS support (no kernel support)

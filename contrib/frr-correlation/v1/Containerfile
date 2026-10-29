@@ -1,0 +1,7 @@
+FROM registry.fedoraproject.org/fedora@sha256:2d894246f63e15be3557d103c50e5fdef67bf50b34e35d54753966b9c1854608
+COPY builder-packages.lock /builder-packages.lock
+RUN sed '/^gpg-pubkey-/d' /builder-packages.lock | xargs dnf -y --setopt=install_weak_deps=False install && \
+    rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | LC_ALL=C sort > /actual-packages && \
+    cmp /builder-packages.lock /actual-packages
+
+USER 65534:65534

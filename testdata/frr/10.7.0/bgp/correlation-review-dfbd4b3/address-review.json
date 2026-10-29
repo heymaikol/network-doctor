@@ -1,0 +1,1031 @@
+{
+  "baseline_passes_with_effect_guards": true,
+  "findings": [
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 50,
+      "evidence": [
+        {
+          "file": "withdraw/r1-before-show_ip_bgp_json.raw",
+          "sha256": "4b528ad333b8137241f3c1cdca64cfbace73647d908ef181237ea306eea205a2"
+        }
+      ],
+      "flow": "select captured route / compare its peer set",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtPy",
+      "line": 81,
+      "literal": "10.10.2.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.2.0/24\"",
+      "source_line": "assert {p[\"peerId\"] for p in before[\"10.10.2.0/24\"]} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "start_offset": 36
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 67,
+      "evidence": [
+        {
+          "file": "withdraw/r1-before-show_ip_bgp_json.raw",
+          "sha256": "4b528ad333b8137241f3c1cdca64cfbace73647d908ef181237ea306eea205a2"
+        }
+      ],
+      "flow": "select captured route / compare its peer set",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtPz",
+      "line": 81,
+      "literal": "10.0.1.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.1.2\"",
+      "source_line": "assert {p[\"peerId\"] for p in before[\"10.10.2.0/24\"]} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "start_offset": 57
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 79,
+      "evidence": [
+        {
+          "file": "withdraw/r1-before-show_ip_bgp_json.raw",
+          "sha256": "4b528ad333b8137241f3c1cdca64cfbace73647d908ef181237ea306eea205a2"
+        }
+      ],
+      "flow": "select captured route / compare its peer set",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP0",
+      "line": 81,
+      "literal": "10.0.3.3",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.3.3\"",
+      "source_line": "assert {p[\"peerId\"] for p in before[\"10.10.2.0/24\"]} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "start_offset": 69
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 50,
+      "evidence": [
+        {
+          "file": "withdraw/r1-after1-show_ip_bgp_json.raw",
+          "sha256": "b5a5f710ff392989a9fdcf56b0b6c02e5ecf1589bc9efa65b39a7ba803dcd2be"
+        }
+      ],
+      "flow": "select captured route / compare remaining peer list",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP1",
+      "line": 82,
+      "literal": "10.10.2.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.2.0/24\"",
+      "source_line": "assert [p[\"peerId\"] for p in after1[\"10.10.2.0/24\"]] == [\"10.0.3.3\"]",
+      "start_offset": 36
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 67,
+      "evidence": [
+        {
+          "file": "withdraw/r1-after1-show_ip_bgp_json.raw",
+          "sha256": "b5a5f710ff392989a9fdcf56b0b6c02e5ecf1589bc9efa65b39a7ba803dcd2be"
+        }
+      ],
+      "flow": "select captured route / compare remaining peer list",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP2",
+      "line": 82,
+      "literal": "10.0.3.3",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.3.3\"",
+      "source_line": "assert [p[\"peerId\"] for p in after1[\"10.10.2.0/24\"]] == [\"10.0.3.3\"]",
+      "start_offset": 57
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "10.10.1.0/24"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 21,
+      "evidence": [
+        {
+          "file": "withdraw/r1-after2-show_ip_bgp_json.raw",
+          "sha256": "3772351cadbb661df1094ff6c56c57ff10bece98502da2eead80c5e65234cac7"
+        }
+      ],
+      "flow": "assert withdrawn prefix absent from captured BGP dictionary",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP3",
+      "line": 83,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "assert \"10.10.9.0/24\" not in after2",
+      "start_offset": 7
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 36,
+      "evidence": [
+        {
+          "file": "withdraw/r1-before-show_ip_route_json.raw",
+          "sha256": "7fe5d65ee1f37884e0a06f8198f3c1a90167e26e04bb57e7867a5fecb5df2e0a"
+        },
+        {
+          "file": "withdraw/r1-after1-show_ip_route_json.raw",
+          "sha256": "e1471a47d78409c21cc6721043a480131f687e2eff0bbc776fd9277fcfd54a2b"
+        },
+        {
+          "file": "withdraw/r1-after2-show_ip_route_json.raw",
+          "sha256": "88439bd21370ca59ea521039ab71a89f64f27317fc411f931c981890781a4e51"
+        }
+      ],
+      "flow": "installed indexes captured routes and asserts selected/installed connected metadata",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP4",
+      "line": 86,
+      "literal": "10.10.1.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.1.0/24\"",
+      "source_line": "    installed(routes, \"10.10.1.0/24\", \"connected\")",
+      "start_offset": 22
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 36,
+      "evidence": [
+        {
+          "file": "withdraw/r1-before-show_ip_route_json.raw",
+          "sha256": "7fe5d65ee1f37884e0a06f8198f3c1a90167e26e04bb57e7867a5fecb5df2e0a"
+        },
+        {
+          "file": "withdraw/r1-after1-show_ip_route_json.raw",
+          "sha256": "e1471a47d78409c21cc6721043a480131f687e2eff0bbc776fd9277fcfd54a2b"
+        },
+        {
+          "file": "withdraw/r1-after2-show_ip_route_json.raw",
+          "sha256": "88439bd21370ca59ea521039ab71a89f64f27317fc411f931c981890781a4e51"
+        }
+      ],
+      "flow": "installed indexes captured routes and asserts selected/installed BGP metadata",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP5",
+      "line": 87,
+      "literal": "10.10.2.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.2.0/24\"",
+      "source_line": "    installed(routes, \"10.10.2.0/24\", \"bgp\")",
+      "start_offset": 22
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 25,
+      "evidence": [
+        {
+          "file": "withdraw/r1-before-ip_route.json",
+          "sha256": "1cfad1f8e9347adef8a1c7dbd4a2ce8a88aa75af1283fb8fe5d5dd0448b870da"
+        },
+        {
+          "file": "withdraw/r1-after1-ip_route.json",
+          "sha256": "b49105957fb29dc6df9e50523b5facd0f8e993bb8d0f54919c3934770ed92c43"
+        },
+        {
+          "file": "withdraw/r1-after2-ip_route.json",
+          "sha256": "6c7963f6131247122defb7550174df5319f5c3d009ab839293c3ba5cf1bb7202"
+        }
+      ],
+      "flow": "assert connected prefix present in captured kernel dictionary",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP6",
+      "line": 88,
+      "literal": "10.10.1.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.1.0/24\"",
+      "source_line": "    assert \"10.10.1.0/24\" in kernel(withdraw, phase)",
+      "start_offset": 11
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "10.0.1.0/24"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 21,
+      "evidence": [
+        {
+          "file": "withdraw/r1-after2-show_ip_route_json.raw",
+          "sha256": "88439bd21370ca59ea521039ab71a89f64f27317fc411f931c981890781a4e51"
+        }
+      ],
+      "flow": "assert withdrawn prefix absent from captured Zebra dictionary",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP7",
+      "line": 89,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "assert \"10.10.9.0/24\" not in zebra(withdraw, \"after2\")",
+      "start_offset": 7
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "10.0.1.0/24"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 21,
+      "evidence": [
+        {
+          "file": "withdraw/r1-after2-ip_route.json",
+          "sha256": "6c7963f6131247122defb7550174df5319f5c3d009ab839293c3ba5cf1bb7202"
+        }
+      ],
+      "flow": "assert withdrawn prefix absent from captured kernel dictionary",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP8",
+      "line": 90,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "assert \"10.10.9.0/24\" not in kernel(withdraw, \"after2\")",
+      "start_offset": 7
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 36,
+      "evidence": [
+        {
+          "file": "session-plain/r1-before-show_ip_bgp_json.raw",
+          "sha256": "ebb7f285ae266eb9a7da0abee646656a18e96fc23f291267f96671212d7742e8"
+        }
+      ],
+      "flow": "assert captured paths include the peer before session loss",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP9",
+      "line": 93,
+      "literal": "10.0.1.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.1.2\"",
+      "source_line": "assert any(p[\"peerId\"] == \"10.0.1.2\" for ps in bgp(session, \"before\").values() for p in ps)",
+      "start_offset": 26
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "(unspec)"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 36,
+      "evidence": [
+        {
+          "file": "session-plain/r1-after-show_ip_bgp_json.raw",
+          "sha256": "6cbf47cca89924e70e03877ee7f4023e825c130f192de6c21b43ab27c6ed818c"
+        }
+      ],
+      "flow": "assert captured paths exclude the lost peer",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP-",
+      "line": 94,
+      "literal": "10.0.1.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.1.2\"",
+      "source_line": "assert all(p[\"peerId\"] != \"10.0.1.2\" for ps in bgp(session, \"after\").values() for p in ps)",
+      "start_offset": 26
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 23,
+      "evidence": [
+        {
+          "file": "session-plain/r1-after-show_ip_bgp_summary_json.raw",
+          "sha256": "13eed8c133697fe235e36d9baf85c6585c21e0a9136030e947cb82324e701429"
+        }
+      ],
+      "flow": "index captured peer and assert it is not Established",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtP_",
+      "line": 97,
+      "literal": "10.0.1.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.1.2\"",
+      "source_line": "assert peers[\"10.0.1.2\"][\"state\"] != \"Established\"",
+      "start_offset": 13
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 23,
+      "evidence": [
+        {
+          "file": "session-plain/r1-after-show_ip_bgp_summary_json.raw",
+          "sha256": "13eed8c133697fe235e36d9baf85c6585c21e0a9136030e947cb82324e701429"
+        }
+      ],
+      "flow": "index captured peer and assert it remains Established",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQA",
+      "line": 98,
+      "literal": "10.0.3.3",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.3.3\"",
+      "source_line": "assert peers[\"10.0.3.3\"][\"state\"] == \"Established\"",
+      "start_offset": 13
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "10.0.1.0/24"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 21,
+      "evidence": [
+        {
+          "file": "session-plain/r1-after-show_ip_route_json.raw",
+          "sha256": "ba843f091a2600946e213847d3818763b92372a9a16f87c2664dfea5b72b72b6"
+        }
+      ],
+      "flow": "assert lost prefix absent from captured Zebra dictionary",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQB",
+      "line": 99,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "assert \"10.10.9.0/24\" not in zebra(session, \"after\")",
+      "start_offset": 7
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "10.0.1.0/24"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 21,
+      "evidence": [
+        {
+          "file": "session-plain/r1-after-ip_route.json",
+          "sha256": "6c7963f6131247122defb7550174df5319f5c3d009ab839293c3ba5cf1bb7202"
+        }
+      ],
+      "flow": "assert lost prefix absent from captured kernel dictionary",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQC",
+      "line": 100,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "assert \"10.10.9.0/24\" not in kernel(session, \"after\")",
+      "start_offset": 7
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 39,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-bgp-detail.raw",
+          "sha256": "903cedb177e768e21e478038adf3340bc505582826bb6646bfc1f137529f5500"
+        }
+      ],
+      "flow": "select captured path list for subsequent path-count and attribute assertions",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQD",
+      "line": 104,
+      "literal": "10.10.2.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.2.0/24\"",
+      "source_line": "paths = detail[\"routes\"][\"10.10.2.0/24\"]",
+      "start_offset": 25
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 58,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-bgp-detail.raw",
+          "sha256": "903cedb177e768e21e478038adf3340bc505582826bb6646bfc1f137529f5500"
+        }
+      ],
+      "flow": "compare captured peer set; does not choose an owner",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQE",
+      "line": 106,
+      "literal": "10.0.1.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.1.2\"",
+      "source_line": "assert {p[\"peer\"][\"peerId\"] for p in paths} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "start_offset": 48
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 70,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-bgp-detail.raw",
+          "sha256": "903cedb177e768e21e478038adf3340bc505582826bb6646bfc1f137529f5500"
+        }
+      ],
+      "flow": "compare captured peer set; does not choose an owner",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQF",
+      "line": 106,
+      "literal": "10.0.3.3",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.3.3\"",
+      "source_line": "assert {p[\"peer\"][\"peerId\"] for p in paths} == {\"10.0.1.2\", \"10.0.3.3\"}",
+      "start_offset": 60
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 78,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-bgp-detail.raw",
+          "sha256": "903cedb177e768e21e478038adf3340bc505582826bb6646bfc1f137529f5500"
+        }
+      ],
+      "flow": "compare captured shared next-hop attribute",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQG",
+      "line": 108,
+      "literal": "10.0.1.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.1.2\"",
+      "source_line": "           and p[\"multipath\"] is True and p[\"nexthops\"][0][\"ip\"] == \"10.0.1.2\"",
+      "start_offset": 68
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 40,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-show_ip_route_json.raw",
+          "sha256": "6009cb796af1c13b413fefca6c7711d89c9b2937c66674aeab0aa7a12c147b43"
+        }
+      ],
+      "flow": "select installed captured BGP route; assert one FIB leg and one duplicate",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQH",
+      "line": 112,
+      "literal": "10.10.2.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.2.0/24\"",
+      "source_line": "route = installed(routes, \"10.10.2.0/24\", \"bgp\")",
+      "start_offset": 26
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 43,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-show_ip_route_json.raw",
+          "sha256": "6009cb796af1c13b413fefca6c7711d89c9b2937c66674aeab0aa7a12c147b43"
+        }
+      ],
+      "flow": "select captured resolver route; compare recorded nexthop group IDs",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQI",
+      "line": 119,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "resolver = installed(routes, \"10.10.9.0/24\", \"bgp\")",
+      "start_offset": 29
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 60,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-show_ip_route_json.raw",
+          "sha256": "6009cb796af1c13b413fefca6c7711d89c9b2937c66674aeab0aa7a12c147b43"
+        }
+      ],
+      "flow": "assert recorded recursive gateway on both captured consuming routes",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQJ",
+      "line": 123,
+      "literal": "10.10.9.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.2\"",
+      "source_line": "    assert any(n.get(\"recursive\") and n[\"ip\"] == \"10.10.9.2\" for n in route[\"nexthops\"])",
+      "start_offset": 49
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 75,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-show_ip_route_json.raw",
+          "sha256": "6009cb796af1c13b413fefca6c7711d89c9b2937c66674aeab0aa7a12c147b43"
+        }
+      ],
+      "flow": "assert recorded resolver/FIB gateway on both captured consuming routes",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQK",
+      "line": 124,
+      "literal": "10.0.1.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.1.2\"",
+      "source_line": "    assert any(n.get(\"resolver\") and n.get(\"fib\") and n[\"ip\"] == \"10.0.1.2\"",
+      "start_offset": 65
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 48,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-nht.raw",
+          "sha256": "b50c1eb9fd836366e40d93fef7b7a224ba99b5f45fff60f020553a0cc2a98152"
+        }
+      ],
+      "flow": "index captured NHT resolution list for later assertions",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQL",
+      "line": 127,
+      "literal": "10.10.9.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.2\"",
+      "source_line": "resolutions = nht[\"default\"][\"ipv4\"][\"10.10.9.2\"][\"resolutions\"]",
+      "start_offset": 37
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 40,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-nht.raw",
+          "sha256": "b50c1eb9fd836366e40d93fef7b7a224ba99b5f45fff60f020553a0cc2a98152"
+        }
+      ],
+      "flow": "compare captured resolver prefix and origin",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQM",
+      "line": 128,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "assert all(r[\"prefix\"] == \"10.10.9.0/24\" and r[\"resolvedProtocol\"] == \"bgp\"",
+      "start_offset": 26
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 32,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-bgp-nexthop.raw",
+          "sha256": "3aedac4fa7741363e7cca26fd44130c0aecefb6d5eccf07c07fb0212259e73bf"
+        }
+      ],
+      "flow": "index captured BGP next-hop cache / compare its resolved prefix",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQN",
+      "line": 132,
+      "literal": "10.10.9.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.2\"",
+      "source_line": "assert cache[\"ipv4\"][\"10.10.9.2\"][\"resolvedPrefix\"] == \"10.10.9.0/24\"",
+      "start_offset": 21
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 69,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-bgp-nexthop.raw",
+          "sha256": "3aedac4fa7741363e7cca26fd44130c0aecefb6d5eccf07c07fb0212259e73bf"
+        }
+      ],
+      "flow": "index captured BGP next-hop cache / compare its resolved prefix",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQO",
+      "line": 132,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "assert cache[\"ipv4\"][\"10.10.9.2\"][\"resolvedPrefix\"] == \"10.10.9.0/24\"",
+      "start_offset": 55
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 40,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-bgp-nexthop.raw",
+          "sha256": "3aedac4fa7741363e7cca26fd44130c0aecefb6d5eccf07c07fb0212259e73bf"
+        }
+      ],
+      "flow": "index captured cache / count captured paths with the prefix",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQP",
+      "line": 133,
+      "literal": "10.10.2.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.2.0/24\"",
+      "source_line": "assert sum(p[\"prefix\"] == \"10.10.2.0/24\" for p in cache[\"ipv4\"][\"10.0.1.2\"][\"paths\"]) == 2",
+      "start_offset": 26
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 74,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-bgp-nexthop.raw",
+          "sha256": "3aedac4fa7741363e7cca26fd44130c0aecefb6d5eccf07c07fb0212259e73bf"
+        }
+      ],
+      "flow": "index captured cache / count captured paths with the prefix",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQQ",
+      "line": 133,
+      "literal": "10.0.1.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.0.1.2\"",
+      "source_line": "assert sum(p[\"prefix\"] == \"10.10.2.0/24\" for p in cache[\"ipv4\"][\"10.0.1.2\"][\"paths\"]) == 2",
+      "start_offset": 64
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 35,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-get.json",
+          "sha256": "ec5be6053b1975675f09baeb2ff109530632d51bb0ff1c02aba18cb950e1a780"
+        },
+        {
+          "file": "recursive-shared/r1-before-fibmatch.json",
+          "sha256": "2edb7d147c0a924a3ca23828e6f1355c336da1ecc7828b518c4a71e05e4406b2"
+        }
+      ],
+      "flow": "compare recorded route-get and fibmatch destinations, without executing either command",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQR",
+      "line": 137,
+      "literal": "10.10.9.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.2\"",
+      "source_line": "assert lookup[\"dst\"] == \"10.10.9.2\" and fibmatch[\"dst\"] == \"10.10.9.0/24\"",
+      "start_offset": 24
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 73,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-before-get.json",
+          "sha256": "ec5be6053b1975675f09baeb2ff109530632d51bb0ff1c02aba18cb950e1a780"
+        },
+        {
+          "file": "recursive-shared/r1-before-fibmatch.json",
+          "sha256": "2edb7d147c0a924a3ca23828e6f1355c336da1ecc7828b518c4a71e05e4406b2"
+        }
+      ],
+      "flow": "compare recorded route-get and fibmatch destinations, without executing either command",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQS",
+      "line": 137,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "assert lookup[\"dst\"] == \"10.10.9.2\" and fibmatch[\"dst\"] == \"10.10.9.0/24\"",
+      "start_offset": 59
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "AssertionError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "10.0.1.0/24"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 29,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-after-show_ip_route_json.raw",
+          "sha256": "0bc5de1b12c20be5c5d6f887d2425abe2ad88a91e3f896c3e8b4314994059b90"
+        },
+        {
+          "file": "recursive-shared/r1-after-ip_route.json",
+          "sha256": "4679ca901f58278bc30492f65a30ee47e78086b87bbd40e8abd52151657b5e8b"
+        }
+      ],
+      "flow": "iterate expected absent prefixes and assert absence in both captured dictionaries",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQT",
+      "line": 140,
+      "literal": "10.10.9.0/24",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.0/24\"",
+      "source_line": "for prefix in (\"10.10.9.0/24\", \"198.51.100.0/24\", \"203.0.113.0/24\"):",
+      "start_offset": 15
+    },
+    {
+      "behavioral_proof": {
+        "detected_as": "KeyError",
+        "forbidden_effects": [],
+        "one_literal_changed_in_memory": true,
+        "replacement": "REVIEW_UNMATCHED_VALUE"
+      },
+      "classification": "legitimate fixed test data with proven safe usage",
+      "end_offset": 60,
+      "evidence": [
+        {
+          "file": "recursive-shared/r1-after-nht.raw",
+          "sha256": "9289328dbf919cbbe313224bbfa6710f5a688af585098191d4c01ca0280178ed"
+        }
+      ],
+      "flow": "index captured NHT entry and assert recorded unresolved state and empty legs",
+      "genuine_defect": false,
+      "issue": "AaF2BX4yrSoZWpziCtQU",
+      "line": 146,
+      "literal": "10.10.9.2",
+      "network_or_routing_effect": "none; builtin JSON selection/comparison only",
+      "remote_disposition": "unchanged; independent ChatGPT approval required",
+      "rule": "python:S1313",
+      "security_decision": "affects offline fixture-validation success only; no authentication, authorization or configuration decision",
+      "source_expression": "\"10.10.9.2\"",
+      "source_line": "           for r in after_nht[\"default\"][\"ipv4\"][\"10.10.9.2\"][\"resolutions\"])",
+      "start_offset": 49
+    }
+  ],
+  "guard_self_tests": [
+    "socket.__new__",
+    "subprocess.Popen",
+    "open"
+  ],
+  "head": "dfbd4b30ccdd2daa0bce4f18bef384de2ebae4a9",
+  "schema": "netdoc-frr-address-review/v1",
+  "scope": "Pinned offline verifier and original local immutable observations; not a general untrusted-code sandbox",
+  "source": "../correlation-investigation/verify.py",
+  "source_sha256": "ba38ab6f93eb1715c6dbb265e7c8585c5b6deb547e6fa928537b0745f7c68d5f"
+}

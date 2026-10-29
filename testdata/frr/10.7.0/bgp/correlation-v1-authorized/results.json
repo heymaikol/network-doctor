@@ -1,0 +1,20 @@
+{
+  "actual_kernel_route_events": "PASS",
+  "baseline_head": "79ea6dde9b2884c05f5567deac41c40061f74a06",
+  "compiled_wire_tests": "PASS",
+  "final_frozen_tree": "Required before push; ID and logs retained externally to avoid self-reference",
+  "go_race_integration": "PASS",
+  "go_version": "go version go1.27.3 linux/amd64",
+  "main": "823a91611592c5949d7cb37b26bdf547443cf063",
+  "new_C_build": false,
+  "old_evidence_manifests": "1313 entries PASS",
+  "original_writer_modes": 27,
+  "positive_reprocessing": "byte-identical",
+  "preliminary_integrated_tree": "5c1ffb884354e806f9682b645a101f9d58bd4161",
+  "producer_skips": 0,
+  "producer_tests": 37,
+  "remote_security_analysis": "Required on actual published head; no false-positive disposition or rule changes",
+  "repository_check_race": "PASS",
+  "restart_reprocessing_exit": 2,
+  "schema": "netdoc-frr-authorization-validation/v1"
+}

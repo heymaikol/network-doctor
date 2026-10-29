@@ -1,0 +1,2 @@
+# Poll transcripts are preserved capture bytes too.
+*.last -text

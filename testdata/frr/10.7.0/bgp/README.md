@@ -118,3 +118,107 @@ iBGP, route reflection, add-path, multipath, policy, recursive next hops, hold
 timer or BFD detection, long-lived graceful restart, or timing. The kernel route
 captures are context: netdoc reads none of them, and no forwarding conclusion is
 drawn from the BGP table.
+
+## Opt-in FIB capture recipe
+
+The producer choice has now been approved. The [Phase 1 instrumented producer
+and validation report](correlation-v1/README.md) record its implementation and
+live identity evidence, awaiting independent review before any Network Doctor
+importer or forwarding ratings. The earlier investigation remains historical.
+
+`lab/bgp-withdraw.sh` and `lab/bgp-session.sh` take an opt-in `ZEBRA_VTY_PORT`.
+Set, each phase adds r1's zebra route table (`show ip route json`) with a
+`.collected_at` stamp, and the run writes `SHA256SUMS` once every daemon has
+exited. The withdraw run also adds r1's kernel IPv4 routes (`ip -j -4 route
+show`) and an `events.log` line before each deletion. The session runs already
+take the kernel routes, with or without the opt-in. Unset, the runs write the
+files they wrote before, and no `SHA256SUMS`.
+
+[The producer investigation](correlation-investigation/README.md) now holds
+verified opt-in withdrawal and plain session-loss runs, plus a separate
+recursive/shared-next-hop experiment. It compares producer candidates and
+proposes an explicit identity contract for maintainer review. These captures
+do not yet prove a FIB-to-BGP-path relationship or implement forwarding ratings.
+
+Run each command from `lab/` with the header's conditions: `SCRATCH` holds
+`frr-root/` from the FRR 10.7.0 RPM, `BGPD_VTY_PORT` and `ZEBRA_VTY_PORT` are
+distinct free ports, neither 179 nor 2604, and `BGPD_VTY_PORT` is not 2601 (zebra's
+default). The output directory does not exist.
+
+```sh
+SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> unshare -Urnm bash bgp-withdraw.sh
+SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> ARM=plain unshare -Urnm bash bgp-session.sh
+SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> ARM=gr unshare -Urnm bash bgp-session.sh
+SCRATCH=<dir> BGPD_VTY_PORT=<port> ZEBRA_VTY_PORT=<zport> ARM=admin unshare -Urnm bash bgp-session.sh
+```
+
+Outputs are `$SCRATCH/run/bgp-withdraw` and `$SCRATCH/run/bgp-session-<arm>`.
+Verify a finished run as described under Operator run requirements below.
+The phases are withdraw: before, after1, after2; plain: before, after; gr:
+before, during, expired; admin: before, after. Each phase adds
+`r1-<phase>-show_ip_route_json.raw` with its `.collected_at` file, and the
+withdraw run also writes `r1-<phase>-ip_route.json` with its `.collected_at`.
+
+### Operator run requirements
+
+Run these only from a controlled shell, after reading both scripts. Do not run
+them in CI or from an automated agent. They need Linux with unprivileged user
+namespaces, `unshare`, `nsenter`, `ip -j`, `python3`, `sha256sum`, and `timeout`.
+Record the FRR build, the host, and the date in an operator note beside the run.
+
+A run counts as evidence only if all of these hold:
+
+1. It printed `DONE` and exited 0. A run that exits nonzero, or prints no
+   `DONE`, is not evidence, even if a manifest exists.
+2. `cd <output> && sha256sum -c --strict SHA256SUMS` exits 0, with `OK` on each
+   line.
+3. The manifest is complete. The `diff` below prints nothing, which means the
+   directory and the manifest list the same names, so no file was added after the
+   manifest was written:
+
+   ```sh
+   cd <output>
+   diff <(LC_ALL=C ls -1A | grep -Ev '^(SHA256SUMS|poll-.*\.last|.*\.err)$') \
+     <(awk '{print $2}' SHA256SUMS | LC_ALL=C sort)
+   ```
+
+   `sha256sum -c` checks only the listed files. It does not catch an unlisted one.
+4. No `*.failed` file exists, and each phase capture, `r1-<phase>-*.raw` or
+   `r1-<phase>-ip_route.json`, has a `.collected_at` beside it. The admin run's
+   `r1-shutdown.raw` is the vty transcript of the shutdown, not a capture, and has
+   no stamp.
+
+A legacy run, without `ZEBRA_VTY_PORT`, writes no `SHA256SUMS` and no zebra
+capture. It is not FIB evidence.
+
+### Producer decision and remaining evidence
+
+See [the investigation and proposed contract](correlation-investigation/README.md)
+for live fields, provenance, limitations, candidate comparison, and the exact
+producer decision awaiting ChatGPT review. The former speculative join rules
+are superseded by that investigation. Prefixes, next hops, protocol labels,
+AS paths, destination-level installation flags, and shared next-hop-group IDs
+do not supply the missing explicit path identity.
+
+The enhanced GR and administrative-shutdown arms have not been recaptured.
+In a GR `during` capture, each Zebra/kernel timestamp must still fall within
+the configured restart window after the event. Otherwise the phase name alone
+cannot establish that stale routes were retained.
+
+The ordinary withdrawal and session recipes still exercise directly connected
+BGP next hops. Their `10.10.1.0/24` route is connected on r1 and cannot be
+credited to a remote BGP peer. The separate research recipe exercises a BGP
+recursive next hop, a static route resolving through BGP, and shared forwarding
+groups. Its recorded NHT resolution names a prefix/protocol and client, but
+still does not emit a consuming-route-to-originating-BGP-peer identity chain.
+
+The captures record separate collection times. Neither convergence polling nor
+equal bracket endpoints makes cross-daemon state atomic. Installation is
+asynchronous, and no forwarding rating follows merely from observed route loss.
+Until the maintainer selects and validates a producer for the explicit links,
+`forwarding_impact` remains unknown. Do not start a broad Zebra RIB import solely
+for this decision.
+
+Previous Phase 1 hardening and its build evidence: [correlation-v1-hardened](correlation-v1-hardened/README.md). The original correlation-v1 evidence remains unchanged and proves only its original build.
+
+Latest Phase 1 no-replace implementation and new-build proof: [correlation-v1-noreplace](correlation-v1-noreplace/README.md). Exact-head Sonar review: [7df7be1](correlation-review-7df7be1/README.md).

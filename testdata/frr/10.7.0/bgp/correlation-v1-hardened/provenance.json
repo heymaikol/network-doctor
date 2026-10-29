@@ -1,0 +1,154 @@
+{
+  "build_id": "a8addc1b3cd33f6fd3a0fb9c8ca2eaeb4b994eadf78ad3fe21c12964d6ca9a96",
+  "builder_digest": "sha256:2a735793e2a529b3d83f553fe779f144c932e0eb7d9465cefa663b8ae0a3acef",
+  "builder_image": "localhost/netdoc407-locked-builder:v1",
+  "builder_package_lock_sha256": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+  "builds": {
+    "accepted": [
+      "hardening-d",
+      "hardening-e"
+    ],
+    "artifact_bytes_and_build_json_identical": true,
+    "artifacts": {
+      "usr/bin/vtysh": "dbaec8a44f9caa2b5f1867a41750a1eb8be92afa210a79dc50daa21955ccb46c",
+      "usr/lib64/frr/libfrr.so.0": "cf009e6734430f19512384bd6fc7ce24375fe2515f5fc4acae41ac67aac557ad",
+      "usr/lib64/frr/libmgmt_be_nb.so.0": "ac4ea35dfd2283f202f567a70d4e58fe9ac069be8a69b4565852e612a188b86e",
+      "usr/lib64/libyang.so.3": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb",
+      "usr/libexec/frr/bgpd": "a80189660879e1d45bd28ebe634e461f1e7b5b3786359e694b366f2ff8f71712",
+      "usr/libexec/frr/mgmtd": "bae7d6f7fa0d45f77d12ccc1a38c4fd84fc7a54ae965c034d937abbf8f0a9c19",
+      "usr/libexec/frr/staticd": "f27d18c6e44c2fe3e7d10b7fc993a2848b16049082156e8cd872070af17ccd54",
+      "usr/libexec/frr/zebra": "6de7c37fdc428b7d9b462d3f0ab5a06fde8c9a17f9ddd1746ad756b7c3688a5b"
+    },
+    "independent_fresh_source_directories": true,
+    "network": "none",
+    "rejected": [
+      "hardening-a: upstream generated route header observed incomplete during parallel compile; log retained"
+    ],
+    "superseded_trials": [
+      "hardening-b and hardening-c, build ad5e013, retained in scratch trial-ad5e013; not evidence for final executable"
+    ]
+  },
+  "host": {
+    "machine": "x86_64",
+    "node": "thelio",
+    "processor": "",
+    "release": "7.2.11-200.fc44.x86_64",
+    "system": "Linux",
+    "version": "#1 SMP PREEMPT_DYNAMIC Thu Oct 15 15:58:58 UTC 2026"
+  },
+  "integration_main": "823a91611592c5949d7cb37b26bdf547443cf063",
+  "limitations": [
+    "historical edges only; no current atomic FIB, packet delivery or convergence guarantee",
+    "consume after daemon exit with trusted complete collection and diagnostics",
+    "filesystem revocation failure invalidates collection; copied JSONL alone cannot reveal omitted diagnostics or partials",
+    "other builds, platforms, kernels and features refused"
+  ],
+  "live_runs": [
+    {
+      "arm": "proof",
+      "bundle_exit_status": 0,
+      "command": "SCRATCH=/home/mplaczek/network-doctor/.pr407-tmp/hardening/final-proof BGPD_VTY_PORT=2605 ZEBRA_VTY_PORT=2611 MODE=proof timeout 600 unshare -Urnm bash contrib/frr-correlation/v1/lab.sh",
+      "exit_status": 0,
+      "raw_manifest_sha256": "2c8382cef3c4b67bb618dd9f067680521e99e169abbac0a43571fa0d25635e4a",
+      "terminal_sha256": "8221ac66be71558c921fb44cfb66f7997699aea754d917763882d6d9eddc836e"
+    },
+    {
+      "arm": "restart",
+      "bundle_exit_status": 2,
+      "command": "SCRATCH=/home/mplaczek/network-doctor/.pr407-tmp/hardening/final-restart BGPD_VTY_PORT=2605 ZEBRA_VTY_PORT=2611 MODE=restart timeout 600 unshare -Urnm bash contrib/frr-correlation/v1/lab.sh",
+      "exit_status": 0,
+      "raw_manifest_sha256": "066aab4ada15b108b03d21d78f2461aa9e04c349456c1dd6f5e86dd0e481e91d",
+      "terminal_sha256": "8221ac66be71558c921fb44cfb66f7997699aea754d917763882d6d9eddc836e"
+    }
+  ],
+  "original_build_id": "b5207a87e19c585481294b77604ca6bd639d38679b85da2fe10c42d46cddb507",
+  "producer_files_sha256": {
+    "Containerfile": "c7d86bb49a0347445df163bead0b027bd1e8f91d7c4656fa96aba29bf23b8e9f",
+    "README.md": "789b9ee67252d2846c26e77f3b87cda20b98b236a058926fb73a07ab19fdc5d6",
+    "bgp.inc": "2deff323205a06bc318f1bb16bf9c44962407facd866a32a6f7a0fc31fb6401f",
+    "build.sh": "a63d4f92c1aa1c0a542e67210b11afd3d25c788c8dc1e5727f1f3e9a17b164fb",
+    "builder-packages.lock": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+    "bundle.py": "4065044d3c9187671212fedcb1288b09b2fa648c68fdfc3a7706f68ff625c762",
+    "codec_test.c": "7c4e288202e217e7959987b0cdf75e426777325436ece6a3fce96a5736a93c62",
+    "dplane.inc": "23d51bdf26251e1445bef96575983809c08bb32f2aa5c6d5dcdefaae943409d3",
+    "frr.patch": "532531b8fa3a54a099ef6c88376750aea93f1ad26879160e26ea6e62fe88a5eb",
+    "implementation.sha256": "ca12aeff548f01edceec33f458906ea245e143d3ca56273ad3f146b603ad3db0",
+    "lab.sh": "f676eabe2088d6d167f90e47dd4ca032fdaeab1952e0cb29d022d646fa6bd4ca",
+    "netdoc.c": "a8fe1aedf26dbadc5fdffbc0c67ff7bf1e2775762d062ff2ea11536618485773",
+    "netdoc.h": "ba11898d1b7dd98afb89d27c19856119d8eae4b6860de03c682cf47303bdf885",
+    "schema.json": "bdb9dd122de51ce32267c979d9623e1267b26fb130abfe75ae6401160f15e40c",
+    "test_bundle.py": "8238efe1c69ddc8b5778a381f710908ba455b798369bd3d21787e1311f721e6a",
+    "test_writer.py": "f1db195ece73152deb970009cebccb15364f0ba019a9d64901aeb81d88770a77",
+    "verified-build.json": "4d21a1e1a1f41add2661eeaf2ad09d8624e0e8b7bac92ff8c19a2308b0515fc9",
+    "writer_test.c": "b0f7f17a81ef5e18cb52f5f0f35bfeacf50f22efe7c83eff18800dc7046d2618",
+    "zebra.inc": "c0823e303677447a3d5d16ba9bc9c773b9b6fe57d7201e057afbdc73e0aac5cf"
+  },
+  "recorded_utc": "2026-10-26T07:05:56.031781+00:00",
+  "reviewed_head": "aa5ffe6782334a971896b2621885489088cd1ec9",
+  "runtime_dependencies": {
+    "/home/mplaczek/network-doctor/.pr407-tmp/producer-build/hardening-d/frr-root/usr/lib64/frr/libfrr.so.0": {
+      "resolved": "/home/mplaczek/network-doctor/.pr407-tmp/producer-build/hardening-d/frr-root/usr/lib64/frr/libfrr.so.0",
+      "sha256": "cf009e6734430f19512384bd6fc7ce24375fe2515f5fc4acae41ac67aac557ad"
+    },
+    "/home/mplaczek/network-doctor/.pr407-tmp/producer-build/hardening-d/frr-root/usr/lib64/frr/libmgmt_be_nb.so.0": {
+      "resolved": "/home/mplaczek/network-doctor/.pr407-tmp/producer-build/hardening-d/frr-root/usr/lib64/frr/libmgmt_be_nb.so.0",
+      "sha256": "ac4ea35dfd2283f202f567a70d4e58fe9ac069be8a69b4565852e612a188b86e"
+    },
+    "/home/mplaczek/network-doctor/.pr407-tmp/producer-build/hardening-d/frr-root/usr/lib64/libyang.so.3": {
+      "resolved": "/home/mplaczek/network-doctor/.pr407-tmp/producer-build/hardening-d/frr-root/usr/lib64/libyang.so.3",
+      "sha256": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb"
+    },
+    "/lib64/ld-linux-x86-64.so.2": {
+      "resolved": "/usr/lib64/ld-linux-x86-64.so.2",
+      "sha256": "4e5d39355699e90fa29313d3100e82af4a23290028c58c364d6a249ef6a78e5e"
+    },
+    "/lib64/libatomic.so.1": {
+      "resolved": "/usr/lib64/libatomic.so.1.2.0",
+      "sha256": "b08060687ffb5768003b0c283cac5bddaa84ea5526d4d7bcb5994af98af5a130"
+    },
+    "/lib64/libc.so.6": {
+      "resolved": "/usr/lib64/libc.so.6",
+      "sha256": "a5c5ad9d59d3c69eda93aa8f82930ba06cc4e893a113e66c85ad6e96243d53c8"
+    },
+    "/lib64/libcap.so.2": {
+      "resolved": "/usr/lib64/libcap.so.2.78",
+      "sha256": "045455580153db0de1d2fcafafdcecf2d438844078f3fb6e25d938343d034baf"
+    },
+    "/lib64/libcrypt.so.2": {
+      "resolved": "/usr/lib64/libcrypt.so.2.0.0",
+      "sha256": "d599ca6de2ff06d1189c47945616fde24cd7816bcafb1c587ca1a51cb0c584e3"
+    },
+    "/lib64/libjson-c.so.5": {
+      "resolved": "/usr/lib64/libjson-c.so.5.4.0",
+      "sha256": "6dfe4deb41877c38acbe863485614dfafd54b5eda8e0a9187b0874899c44e7e6"
+    },
+    "/lib64/libm.so.6": {
+      "resolved": "/usr/lib64/libm.so.6",
+      "sha256": "16a03ce6d24c8a46742206d4a9c1d35bb6577ae2384f153dc6ef4a4b62b5357f"
+    },
+    "/lib64/libpcre2-8.so.0": {
+      "resolved": "/usr/lib64/libpcre2-8.so.0.15.0",
+      "sha256": "473aeb0704abc871886650c553b43bb300395d73fe4088620329459b5ddbf4be"
+    }
+  },
+  "schema": "netdoc-frr-hardening-provenance/v1",
+  "source_archive": {
+    "sha256": "bf601f8f35b03a49a5a45981721394f00d3b9eac0c5bd77577732c4c4ffffa67",
+    "url": "https://codeload.github.com/FRRouting/frr/tar.gz/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef"
+  },
+  "source_date_epoch": 1784130712,
+  "validation": {
+    "go_heap_target": "2GiB for final sequential gates",
+    "go_toolchain": "go1.27.3",
+    "initial_integration_failure": "kernel confirmed global OOM; failed concurrent attempt retained",
+    "integration_race": "passed Go 1.27.3 sequential retry with GOMEMLIMIT=2GiB; final frozen integrated tree rerun required before push",
+    "namespace_integration": "passed, genuine namespaces, exit 0",
+    "no_application_changes": true,
+    "optional_sanitizers": "not run: locked builder lacks ASan/UBSan runtimes; failed link log retained",
+    "producer_suite": "26 tests, zero skips in locked builder",
+    "repository_race": "passed Go 1.27.3; isolated integration workspace; final frozen-tree rerun required before push",
+    "unchanged_original_evidence": true,
+    "wire": "actual compiled libfrr codec, both accepted clean builds",
+    "writer_suite": "15 modes, deterministic overlap, actual current writer source with synthetic IO faults"
+  }
+}

@@ -1,0 +1,849 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/heymaikol/network-doctor/contrib/frr-correlation/v1/schema.json",
+  "title": "Closed instrumented FRR identity histories, version 1",
+  "$defs": {
+    "event": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "string"
+        },
+        "daemon": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "peer_address": {
+          "type": "string"
+        },
+        "as_path": {
+          "type": "string"
+        },
+        "nexthop": {
+          "type": "string"
+        },
+        "hook": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "resolver_prefix": {
+          "type": "string"
+        },
+        "resolver_origin": {
+          "type": "string"
+        },
+        "gateway": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string"
+        },
+        "path_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+        },
+        "peer_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+        },
+        "announcement_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+        },
+        "route_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+        },
+        "destination_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+        },
+        "resolution_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+        },
+        "resolver_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+        },
+        "replaces_route_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "monotonic_ns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "utc_ns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "vrf": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "table": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "safi": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "remote_as": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "local_as": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "selection_generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "resolver_generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "leg": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "dplane_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "netlink_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "nhg": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "source_leg_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "multipath": {
+          "type": "boolean"
+        },
+        "recursive": {
+          "type": "boolean"
+        },
+        "supported": {
+          "type": "boolean"
+        },
+        "accepted_generation": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "contributors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+              },
+              "peer_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+              },
+              "session_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 18446744073709551615
+              },
+              "leg": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 63
+              }
+            },
+            "required": [
+              "path_id",
+              "peer_id",
+              "session_id",
+              "revision",
+              "leg"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 64
+        },
+        "resolution_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "leg": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 63
+              },
+              "resolution_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "leg",
+              "resolution_id"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 64
+        },
+        "lookup_flags": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "resolving_vrf": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "resolver_table": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "terminal_ifindex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      },
+      "required": [
+        "event",
+        "epoch",
+        "daemon",
+        "seq",
+        "monotonic_ns",
+        "utc_ns"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "netdoc-frr-correlation/v1"
+        },
+        "producer": {
+          "type": "object",
+          "required": [
+            "schema",
+            "source",
+            "build_id",
+            "inputs",
+            "artifacts",
+            "verified_kernel"
+          ],
+          "properties": {
+            "schema": {
+              "const": "netdoc-frr-build/v1"
+            },
+            "source": {
+              "const": "87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef"
+            },
+            "build_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "inputs": {
+              "type": "object"
+            },
+            "artifacts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "verified_kernel": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "capture": {
+          "type": "object",
+          "properties": {
+            "complete": {
+              "const": true
+            },
+            "snapshot_complete": {
+              "const": false
+            },
+            "scope": {
+              "const": "closed producer histories; historical claims only"
+            },
+            "netns_inode": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 18446744073709551615
+            },
+            "boot_id": {
+              "type": "string"
+            },
+            "gaps": {
+              "const": []
+            },
+            "pending_operations": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+              },
+              "maxItems": 1000000
+            },
+            "attribution_complete": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "complete",
+            "snapshot_complete",
+            "scope",
+            "netns_inode",
+            "boot_id",
+            "gaps",
+            "pending_operations",
+            "attribution_complete"
+          ],
+          "additionalProperties": false
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "epoch": {
+                "type": "string"
+              },
+              "daemon": {
+                "enum": [
+                  "bgpd",
+                  "zebra"
+                ]
+              },
+              "file": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "records": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 18446744073709551615
+              },
+              "netns_inode": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 18446744073709551615
+              },
+              "boot_id": {
+                "type": "string"
+              },
+              "start_monotonic_ns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              "end_monotonic_ns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              }
+            },
+            "required": [
+              "epoch",
+              "daemon",
+              "file",
+              "sha256",
+              "records",
+              "netns_inode",
+              "boot_id",
+              "start_monotonic_ns",
+              "end_monotonic_ns"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 2
+        },
+        "bgp_paths": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/event"
+              },
+              {
+                "properties": {
+                  "event": {
+                    "enum": [
+                      "bgp_path"
+                    ]
+                  }
+                },
+                "required": [
+                  "path_id",
+                  "peer_id",
+                  "session_id",
+                  "revision",
+                  "prefix",
+                  "vrf",
+                  "table",
+                  "safi",
+                  "valid",
+                  "stale"
+                ]
+              }
+            ]
+          },
+          "maxItems": 1000000
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/event"
+              },
+              {
+                "properties": {
+                  "event": {
+                    "enum": [
+                      "route_received",
+                      "route_generation"
+                    ]
+                  }
+                },
+                "required": [
+                  "route_id",
+                  "generation",
+                  "prefix",
+                  "vrf",
+                  "table",
+                  "safi",
+                  "origin",
+                  "contributors"
+                ]
+              }
+            ]
+          },
+          "maxItems": 1000000
+        },
+        "fib_entries": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/event"
+              },
+              {
+                "properties": {
+                  "event": {
+                    "enum": [
+                      "operation_result"
+                    ]
+                  }
+                },
+                "required": [
+                  "operation_id",
+                  "route_id",
+                  "generation",
+                  "operation",
+                  "result",
+                  "accepted_generation"
+                ]
+              }
+            ]
+          },
+          "maxItems": 1000000
+        },
+        "resolutions": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/event"
+              },
+              {
+                "properties": {
+                  "event": {
+                    "enum": [
+                      "resolution"
+                    ]
+                  }
+                },
+                "required": [
+                  "resolution_id",
+                  "route_id",
+                  "generation",
+                  "resolver_id",
+                  "resolver_generation",
+                  "leg",
+                  "supported"
+                ]
+              }
+            ]
+          },
+          "maxItems": 1000000
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "const": "path_submitted_as_route"
+                  },
+                  "source_refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f-]+:[1-9][0-9]*$"
+                    },
+                    "maxItems": 12,
+                    "minItems": 1
+                  },
+                  "route_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 18446744073709551615
+                  },
+                  "path_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  "path_revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 18446744073709551615
+                  },
+                  "peer_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  }
+                },
+                "required": [
+                  "type",
+                  "source_refs",
+                  "route_id",
+                  "generation",
+                  "path_id",
+                  "path_revision",
+                  "peer_id",
+                  "session_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "const": "route_installed_as_fib"
+                  },
+                  "source_refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f-]+:[1-9][0-9]*$"
+                    },
+                    "maxItems": 12,
+                    "minItems": 1
+                  },
+                  "route_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 18446744073709551615
+                  },
+                  "operation_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  "historical": {
+                    "const": true
+                  },
+                  "resolution_ids": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "maxItems": 64
+                  }
+                },
+                "required": [
+                  "type",
+                  "source_refs",
+                  "route_id",
+                  "generation",
+                  "operation_id",
+                  "historical",
+                  "resolution_ids"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "const": "route_leg_resolved_by_route"
+                  },
+                  "source_refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f-]+:[1-9][0-9]*$"
+                    },
+                    "maxItems": 12,
+                    "minItems": 1
+                  },
+                  "route_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 18446744073709551615
+                  },
+                  "resolver_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  "resolver_generation": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 18446744073709551615
+                  },
+                  "resolution_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/[a-z]+/[1-9][0-9]*$"
+                  },
+                  "leg": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 18446744073709551615
+                  }
+                },
+                "required": [
+                  "type",
+                  "source_refs",
+                  "route_id",
+                  "generation",
+                  "resolver_id",
+                  "resolver_generation",
+                  "resolution_id",
+                  "leg"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "maxItems": 1000000
+        },
+        "refusals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source_ref": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source_ref",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1000000
+        }
+      },
+      "required": [
+        "schema",
+        "producer",
+        "capture",
+        "sources",
+        "bgp_paths",
+        "routes",
+        "fib_entries",
+        "resolutions",
+        "claims",
+        "refusals"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "netdoc-frr-correlation/v1"
+        },
+        "capture": {
+          "type": "object",
+          "properties": {
+            "complete": {
+              "const": false
+            },
+            "snapshot_complete": {
+              "const": false
+            }
+          },
+          "required": [
+            "complete",
+            "snapshot_complete"
+          ],
+          "additionalProperties": false
+        },
+        "claims": {
+          "const": []
+        },
+        "refusals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1000000
+        }
+      },
+      "required": [
+        "schema",
+        "capture",
+        "claims",
+        "refusals"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

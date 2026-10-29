@@ -1,0 +1,1 @@
+[{"dst":"10.10.9.0/24","nhid":14,"gateway":"10.0.1.2","dev":"e1","protocol":"bgp","metric":20,"flags":[]}]

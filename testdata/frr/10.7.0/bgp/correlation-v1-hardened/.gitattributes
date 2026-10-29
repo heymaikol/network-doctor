@@ -1,0 +1,4 @@
+# Preserve terminal CRLF, prompts, and compiler output exactly.
+*.last -text -whitespace
+*.raw -text -whitespace
+*.log -whitespace

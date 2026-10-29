@@ -1,0 +1,577 @@
+--- a/bgpd/bgp_fsm.c
++++ b/bgpd/bgp_fsm.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <zebra.h>
++#include "lib/netdoc.h"
+ 
+ #include "linklist.h"
+ #include "prefix.h"
+@@ -2004,6 +2005,15 @@
+ 	struct bgp *bgp = peer->bgp;
+ 	uint32_t peer_count;
+ 
++	if (status == Established && !peer_established(connection))
++		peer->ndoc_session = ndoc_next();
++	if (ndoc_enabled()) {
++		json_object *j = ndoc_record("peer_state");
++		ndoc_ref(j, "peer_id", ndoc_epoch(), "peer", peer->ndoc_id);
++		ndoc_ref(j, "session_id", ndoc_epoch(), "session", peer->ndoc_session);
++		json_object_string_add(j, "state", lookup_msg(bgp_status_msg, status, NULL));
++		ndoc_emit(j);
++	}
+ 	peer_count = bgp->established_peers;
+ 
+ 	if (status == Established) {
+--- a/bgpd/bgp_route.c
++++ b/bgpd/bgp_route.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <zebra.h>
++#include "lib/netdoc.h"
+ #include <math.h>
+ 
+ #include "bgpd/bgp_addpath_types.h"
+@@ -5481,6 +5482,7 @@
+ 
+ 	/* Make new BGP info. */
+ 	new = XCALLOC(MTYPE_BGP_ROUTE, sizeof(struct bgp_path_info));
++	new->ndoc_id = ndoc_next();
+ 	new->type = type;
+ 	new->instance = instance;
+ 	new->sub_type = sub_type;
+--- a/bgpd/bgp_route.h
++++ b/bgpd/bgp_route.h
+@@ -287,6 +287,7 @@
+ };
+ 
+ struct bgp_path_info {
++	uint64_t ndoc_id, ndoc_revision;
+ 	/* For linked list. */
+ 	struct bgp_path_info *next;
+ 	struct bgp_path_info *prev;
+--- a/bgpd/bgp_zebra.c
++++ b/bgpd/bgp_zebra.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <zebra.h>
++#include "lib/netdoc.h"
+ 
+ #include "command.h"
+ #include "stream.h"
+@@ -1289,6 +1290,8 @@
+ 	return true;
+ }
+ 
++#include "bgpd/netdoc_bgp.inc"
++
+ static void bgp_zebra_announce_parse_nexthop(struct bgp_path_info *info, const struct prefix *p,
+ 					     struct bgp *bgp, struct zapi_route *api,
+ 					     unsigned int *valid_nh_count, afi_t afi, safi_t safi,
+@@ -1518,6 +1521,7 @@
+ 			SET_FLAG(api_nh->flags, ZAPI_NEXTHOP_FLAG_SEG6);
+ 		}
+ 
++		ndoc_bgp_path(mpinfo, api, *valid_nh_count);
+ 		(*valid_nh_count)++;
+ 	}
+ }
+@@ -1737,6 +1741,7 @@
+ 			   __func__, p, (allow_recursion ? "" : "NOT "));
+ 	}
+ 
++	ndoc_bgp_submit(&api);
+ 	return zclient_route_send(ZEBRA_ROUTE_ADD, bgp_zclient, &api);
+ }
+ 
+--- a/bgpd/bgpd.c
++++ b/bgpd/bgpd.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <zebra.h>
++#include "lib/netdoc.h"
+ 
+ #include "prefix.h"
+ #include "frrevent.h"
+@@ -1759,6 +1760,7 @@
+ 
+ 	/* Allocate new peer. */
+ 	peer = XCALLOC(MTYPE_BGP_PEER, sizeof(struct peer));
++	peer->ndoc_id = ndoc_next();
+ 
+ 	/* Create buffers. */
+ 	peer->connection = bgp_peer_connection_new(peer, su, dir);
+--- a/bgpd/bgpd.h
++++ b/bgpd/bgpd.h
+@@ -1563,6 +1563,7 @@
+ 
+ /* BGP neighbor structure. */
+ struct peer {
++	uint64_t ndoc_id, ndoc_session;
+ 	/* BGP structure.  */
+ 	struct bgp *bgp;
+ 
+--- a/lib/libfrr.c
++++ b/lib/libfrr.c
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <zebra.h>
++#include "lib/netdoc.h"
+ 
+ #include <signal.h>
+ #include <sys/stat.h>
+@@ -1205,6 +1206,7 @@
+ 
+ void frr_run(struct event_loop *loop)
+ {
++	ndoc_init(di->name);
+ 	char instanceinfo[64] = "";
+ 	struct event thread;
+ 
+@@ -1309,6 +1311,7 @@
+ 
+ 	log_memstats(di->name, debug_memstats_at_exit);
+ 	zlog_tmpdir_fini();
++	ndoc_finish();
+ }
+ 
+ struct json_object *frr_daemon_state_load(void)
+--- a/lib/subdir.am
++++ b/lib/subdir.am
+@@ -7,6 +7,7 @@
+ lib_libfrr_la_LIBADD = $(LIBCAP) $(UNWIND_LIBS) $(LIBYANG_LIBS) $(LUA_LIB) $(UST_LIBS) $(LIBCRYPT) $(LIBDL) $(LIBM)
+ 
+ lib_libfrr_la_SOURCES = \
++	lib/netdoc.c \
+ 	lib/admin_group.c \
+ 	lib/affinitymap.c \
+ 	lib/affinitymap_cli.c \
+--- a/lib/zclient.c
++++ b/lib/zclient.c
+@@ -1568,6 +1568,8 @@
+ 		stream_putw(s, api->opaque.length);
+ 		stream_write(s, api->opaque.data, api->opaque.length);
+ 	}
++	if (CHECK_FLAG(api->message, ZAPI_MESSAGE_NETDOC) && ndoc_encode(s, &api->ndoc))
++		return -1;
+ 	/* Put length at the first point of the stream. */
+ 	stream_putw_at(s, 0, stream_get_endp(s));
+ 
+@@ -1825,6 +1827,9 @@
+ 
+ 		STREAM_GET(api->opaque.data, s, api->opaque.length);
+ 	}
++	if (CHECK_FLAG(api->message, ZAPI_MESSAGE_NETDOC) &&
++	    (ndoc_decode(s, &api->ndoc) || api->ndoc.count != api->nexthop_num))
++		return -1;
+ 
+ 	return 0;
+ stream_failure:
+--- a/lib/zclient.h
++++ b/lib/zclient.h
+@@ -10,6 +10,7 @@
+ 
+ /* For struct zapi_route. */
+ #include "prefix.h"
++#include "lib/netdoc.h"
+ #include "ipaddr.h"
+ 
+ /* For struct interface and struct connected. */
+@@ -511,6 +512,8 @@
+  * to encode/decode.
+  */
+ struct zapi_route {
++	struct ndoc_submission ndoc;
++	bool ndoc_bad;
+ 	uint8_t type;
+ 	unsigned short instance;
+ 
+--- a/zebra/kernel_netlink.c
++++ b/zebra/kernel_netlink.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <zebra.h>
++#include "lib/netdoc.h"
+ #include <fcntl.h>
+ 
+ #ifdef HAVE_NETLINK
+@@ -1266,6 +1267,11 @@
+ 			int err = netlink_parse_error(nl, h, bth->zns->is_cmd,
+ 						      false);
+ 
++			if ((uint32_t)dplane_ctx_get_ns(ctx)->seq == (uint32_t)seq &&
++			    h->nlmsg_len >= NLMSG_LENGTH(sizeof(struct nlmsgerr)))
++				ndoc_dplane("netlink_ack", ctx, seq,
++					((struct nlmsgerr *)NLMSG_DATA(h))->error, false);
++
+ 			if (err == -1)
+ 				dplane_ctx_set_status(
+ 					ctx, ZEBRA_DPLANE_REQUEST_FAILURE);
+@@ -1413,6 +1419,10 @@
+ 	msgh = (struct nlmsghdr *)bth->buf_head;
+ 	msgh->nlmsg_seq = seq;
+ 	msgh->nlmsg_pid = nl->snl.nl_pid;
++	if (!ignore_res && ndoc_dplane_traced(ctx)) {
++		msgh->nlmsg_flags |= NLM_F_ACK;
++		ndoc_dplane("netlink_send", ctx, seq, 0, false);
++	}
+ 
+ 	bth->zns = dplane_ctx_get_ns(ctx);
+ 	bth->buf_head = ((char *)bth->buf_head) + size;
+--- a/zebra/rib.h
++++ b/zebra/rib.h
+@@ -8,6 +8,7 @@
+ #define _ZEBRA_RIB_H
+ 
+ #include "zebra.h"
++#include "lib/netdoc.h"
+ #include "memory.h"
+ #include "hook.h"
+ #include "typesafe.h"
+@@ -30,6 +31,7 @@
+ DECLARE_MGROUP(ZEBRA);
+ 
+ DECLARE_MTYPE(RE);
++extern void ndoc_zebra_route(const char *, struct route_entry *, const struct prefix *);
+ 
+ PREDECL_LIST(rnh_list);
+ PREDECL_RBTREE_UNIQ(rnh_rbtree);
+@@ -82,6 +84,11 @@
+ };
+ 
+ struct route_entry {
++	uint64_t ndoc_id, ndoc_generation;
++	uint64_t ndoc_resolutions[NDOC_LIMIT];
++	uint16_t ndoc_leg_count;
++	safi_t ndoc_safi;
++	struct ndoc_submission ndoc;
+ 	/* Link list. */
+ 	struct re_list_item next;
+ 
+@@ -234,6 +241,7 @@
+ 	struct re_list_head routes;
+ 
+ 	struct route_entry *selected_fib;
++	uint64_t ndoc_selection, ndoc_id;
+ 
+ 	/*
+ 	 * Flags, see below.
+--- a/zebra/zapi_msg.c
++++ b/zebra/zapi_msg.c
+@@ -2215,6 +2215,7 @@
+ 		return;
+ 	}
+ 
++	if (CHECK_FLAG(api.message, ZAPI_MESSAGE_NETDOC)) re->ndoc = api.ndoc;
+ 	if (CHECK_FLAG(api.message, ZAPI_MESSAGE_OPAQUE)) {
+ 		re->opaque =
+ 			XMALLOC(MTYPE_RE_OPAQUE,
+--- a/zebra/zebra_dplane.c
++++ b/zebra/zebra_dplane.c
+@@ -17,6 +17,7 @@
+ #include "lib/frr_pthread.h"
+ #include "lib/memory.h"
+ #include "lib/zebra.h"
++#include "lib/netdoc.h"
+ #include "zebra/netconf_netlink.h"
+ #include "zebra/zebra_router.h"
+ #include "zebra/zebra_dplane.h"
+@@ -448,6 +449,9 @@
+  * dataplane layer (and pthread).
+  */
+ struct zebra_dplane_ctx {
++	uint64_t ndoc_route, ndoc_generation, ndoc_operation;
++	uint64_t ndoc_resolutions[NDOC_LIMIT];
++	uint16_t ndoc_leg_count;
+ 
+ 	/* Operation code */
+ 	enum dplane_op_e zd_op;
+@@ -4145,6 +4149,11 @@
+ 	/* Trying out the sequence number idea, so we can try to detect
+ 	 * when a result is stale.
+ 	 */
++	ctx->ndoc_route = re->ndoc_id;
++	ctx->ndoc_generation = re->ndoc_generation;
++	ctx->ndoc_operation = ndoc_next();
++	ctx->ndoc_leg_count = re->ndoc_leg_count;
++	memcpy(ctx->ndoc_resolutions, re->ndoc_resolutions, sizeof(ctx->ndoc_resolutions));
+ 	re->dplane_sequence = zebra_router_get_next_sequence();
+ 	ctx->zd_seq = re->dplane_sequence;
+ 
+@@ -4818,6 +4827,8 @@
+ /*
+  * Utility that prepares a route update and enqueues it for processing
+  */
++#include "zebra/netdoc_dplane.inc"
++
+ static enum zebra_dplane_result
+ dplane_route_update_internal(struct route_node *rn,
+ 			     struct route_entry *re,
+@@ -4870,6 +4881,7 @@
+ 			}
+ #endif	/* !HAVE_NETLINK */
+ 		}
++		ndoc_dplane("operation", ctx, 0, 0, false);
+ 		/* Enqueue context for processing */
+ 		ret = dplane_update_enqueue(ctx);
+ 	}
+--- a/zebra/zebra_dplane.h
++++ b/zebra/zebra_dplane.h
+@@ -365,6 +365,9 @@
+  */
+ enum zebra_dplane_result dplane_ctx_get_status(
+ 	const struct zebra_dplane_ctx *ctx);
++bool ndoc_dplane_traced(struct zebra_dplane_ctx *);
++void ndoc_dplane(const char *, struct zebra_dplane_ctx *, uint32_t, int, bool);
++bool ndoc_dplane_matches(struct zebra_dplane_ctx *, struct route_entry *);
+ void dplane_ctx_set_status(struct zebra_dplane_ctx *ctx,
+ 			   enum zebra_dplane_result status);
+ const char *dplane_res2str(enum zebra_dplane_result res);
+--- a/zebra/zebra_nhg.c
++++ b/zebra/zebra_nhg.c
+@@ -5,6 +5,7 @@
+  *                    Stephen Worley
+  */
+ #include <zebra.h>
++#include "lib/netdoc.h"
+ 
+ #include "lib/nexthop.h"
+ #include "lib/nexthop_group_private.h"
+@@ -2282,7 +2283,7 @@
+  */
+ static int nexthop_active(struct nexthop *nexthop, struct nhg_hash_entry *nhe,
+ 			  const struct prefix *top, int type, uint32_t flags,
+-			  uint32_t *pmtu, vrf_id_t vrf_id)
++			  uint32_t *pmtu, vrf_id_t vrf_id, struct route_entry *consumer, unsigned leg)
+ {
+ 	struct prefix p;
+ 	struct route_table *table;
+@@ -2541,6 +2542,32 @@
+ 					"%s: CONNECT match %p (%pNG), newhop %pNHv",
+ 					__func__, match, match->nhe, newhop);
+ 
++			if (ndoc_enabled()) {
++				json_object *j = ndoc_record("resolution");
++				uint64_t id = ndoc_next();
++				char gateway[INET6_ADDRSTRLEN];
++				if (leg < NDOC_LIMIT) consumer->ndoc_resolutions[leg] = id;
++				ndoc_ref(j, "resolution_id", ndoc_epoch(), "resolution", id);
++				ndoc_num(j, "leg", leg);
++				inet_ntop(afi == AFI_IP ? AF_INET : AF_INET6, &nexthop->gate, gateway, sizeof(gateway));
++				json_object_string_add(j, "gateway", gateway);
++				ndoc_ref(j, "route_id", ndoc_epoch(), "route", consumer->ndoc_id);
++				ndoc_num(j, "generation", consumer->ndoc_generation);
++				ndoc_ref(j, "resolver_id", ndoc_epoch(), "route", match->ndoc_id);
++				ndoc_num(j, "resolver_generation", match->ndoc_generation);
++				ndoc_prefix(j, "resolver_prefix", &rn->p);
++				json_object_string_add(j, "resolver_origin", zebra_route_string(match->type));
++				json_object_string_add(j, "hook", "nexthop_active:selected_fib");
++				json_object_boolean_add(j, "recursive", CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_RECURSIVE));
++				ndoc_num(j, "vrf", vrf_id);
++				ndoc_num(j, "table", consumer->table);
++				ndoc_num(j, "lookup_flags", flags);
++				ndoc_num(j, "resolving_vrf", nexthop->vrf_id);
++				ndoc_num(j, "resolver_table", match->table);
++				ndoc_num(j, "terminal_ifindex", nexthop->ifindex);
++				json_object_boolean_add(j, "supported", afi == AFI_IP && !vrf_id && !nexthop->vrf_id && consumer->table == 254 && match->table == 254);
++				ndoc_emit(j);
++			}
+ 			return 1;
+ 		} else if (match && CHECK_FLAG(flags, ZEBRA_FLAG_ALLOW_RECURSION)) {
+ 			struct nexthop_group *nhg;
+@@ -2630,6 +2657,32 @@
+ 				goto continue_up_tree;
+ 			}
+ 
++			if (ndoc_enabled()) {
++				json_object *j = ndoc_record("resolution");
++				uint64_t id = ndoc_next();
++				char gateway[INET6_ADDRSTRLEN];
++				if (leg < NDOC_LIMIT) consumer->ndoc_resolutions[leg] = id;
++				ndoc_ref(j, "resolution_id", ndoc_epoch(), "resolution", id);
++				ndoc_num(j, "leg", leg);
++				inet_ntop(afi == AFI_IP ? AF_INET : AF_INET6, &nexthop->gate, gateway, sizeof(gateway));
++				json_object_string_add(j, "gateway", gateway);
++				ndoc_ref(j, "route_id", ndoc_epoch(), "route", consumer->ndoc_id);
++				ndoc_num(j, "generation", consumer->ndoc_generation);
++				ndoc_ref(j, "resolver_id", ndoc_epoch(), "route", match->ndoc_id);
++				ndoc_num(j, "resolver_generation", match->ndoc_generation);
++				ndoc_prefix(j, "resolver_prefix", &rn->p);
++				json_object_string_add(j, "resolver_origin", zebra_route_string(match->type));
++				json_object_string_add(j, "hook", "nexthop_active:selected_fib");
++				json_object_boolean_add(j, "recursive", CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_RECURSIVE));
++				ndoc_num(j, "vrf", vrf_id);
++				ndoc_num(j, "table", consumer->table);
++				ndoc_num(j, "lookup_flags", flags);
++				ndoc_num(j, "resolving_vrf", nexthop->vrf_id);
++				ndoc_num(j, "resolver_table", match->table);
++				ndoc_num(j, "terminal_ifindex", nexthop->ifindex);
++				json_object_boolean_add(j, "supported", afi == AFI_IP && !vrf_id && !nexthop->vrf_id && consumer->table == 254 && match->table == 254);
++				ndoc_emit(j);
++			}
+ 			return 1;
+ 		} else if (IS_ZEBRA_DEBUG_RIB_DETAILED) {
+ 			zlog_debug(
+@@ -2672,7 +2725,7 @@
+ static unsigned nexthop_active_check(struct route_node *rn,
+ 				     struct route_entry *re,
+ 				     struct nexthop *nexthop,
+-				     struct nhg_hash_entry *nhe)
++				     struct nhg_hash_entry *nhe, unsigned leg)
+ {
+ 	route_map_result_t ret = RMAP_PERMITMATCH;
+ 	afi_t family;
+@@ -2713,7 +2766,7 @@
+ 	switch (nexthop->type) {
+ 	case NEXTHOP_TYPE_IFINDEX:
+ 		if (nexthop_active(nexthop, nhe, &rn->p, re->type, re->flags,
+-				   &mtu, vrf_id))
++				   &mtu, vrf_id, re, leg))
+ 			SET_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+ 		else
+ 			UNSET_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+@@ -2722,7 +2775,7 @@
+ 	case NEXTHOP_TYPE_IPV4_IFINDEX:
+ 		family = AFI_IP;
+ 		if (nexthop_active(nexthop, nhe, &rn->p, re->type, re->flags,
+-				   &mtu, vrf_id))
++				   &mtu, vrf_id, re, leg))
+ 			SET_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+ 		else
+ 			UNSET_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+@@ -2734,7 +2787,7 @@
+ 			family = AFI_IP6;
+ 
+ 		if (nexthop_active(nexthop, nhe, &rn->p, re->type, re->flags,
+-				   &mtu, vrf_id))
++				   &mtu, vrf_id, re, leg))
+ 			SET_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+ 		else
+ 			UNSET_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+@@ -2903,6 +2956,7 @@
+ 	unsigned int prev_active, new_active;
+ 	ifindex_t prev_index;
+ 	uint32_t counter = 0;
++	unsigned ndoc_leg = 0;
+ 	struct nexthop *nexthop;
+ 	struct nexthop_group *nhg = &nhe->nhg;
+ 	bool vni_removed = false;
+@@ -2916,7 +2970,8 @@
+ 	vni_removed = !nexthop_list_set_evpn_dvni(re, nhg);
+ 
+ 	/* Process nexthops one-by-one */
+-	for ( ; nexthop; nexthop = nexthop->next) {
++	for ( ; nexthop; nexthop = nexthop->next, ndoc_leg++) {
++		re->ndoc_leg_count = ndoc_leg + 1;
+ 
+ 		/* No protocol daemon provides src and so we're skipping
+ 		 * tracking it
+@@ -2930,7 +2985,7 @@
+ 		 */
+ 		new_active =
+ 			nexthop_active_check(rn, re, nexthop,
+-					     (is_backup ? NULL : nhe));
++					     (is_backup ? NULL : nhe), ndoc_leg);
+ 
+ 		/*
+ 		 * We need to respect the multipath_num here
+@@ -3220,6 +3275,10 @@
+ {
+ 	struct nhg_hash_entry *curr_nhe, *remove;
+ 	uint32_t curr_active = 0, backup_active = 0;
++	re->ndoc_generation++;
++	memset(re->ndoc_resolutions, 0, sizeof(re->ndoc_resolutions));
++	re->ndoc_leg_count = 0;
++	ndoc_zebra_route("route_generation", re, &rn->p);
+ 
+ 	if (PROTO_OWNED(re->nhe) ||
+ 	    CHECK_FLAG(re->nhe->flags, NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL))
+--- a/zebra/zebra_rib.c
++++ b/zebra/zebra_rib.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <zebra.h>
++#include "lib/netdoc.h"
+ 
+ #ifdef GNU_LINUX
+ #include <linux/rtnetlink.h>
+@@ -681,6 +682,8 @@
+ /* Update flag indicates whether this is a "replace" or not. Currently, this
+  * is only used for IPv4.
+  */
++#include "zebra/netdoc_zebra.inc"
++
+ void rib_install_kernel(struct route_node *rn, struct route_entry *re,
+ 			struct route_entry *old)
+ {
+@@ -704,6 +707,7 @@
+ 					 info->afi, info->safi);
+ 
+ 	/* Update fib selection */
++	ndoc_selection(dest, re, old, &rn->p);
+ 	dest->selected_fib = re;
+ 
+ 	/*
+@@ -2044,6 +2048,9 @@
+ 	}
+ 
+ 	seq = dplane_ctx_get_seq(ctx);
++	ndoc_dplane("operation_result", ctx, 0, 0, ndoc_dplane_matches(ctx, re) &&
++		(op == DPLANE_OP_ROUTE_DELETE || (dest->selected_fib == re &&
++		 !CHECK_FLAG(re->status, ROUTE_ENTRY_REMOVED))));
+ 
+ 	/*
+ 	 * Check sequence number(s) to detect stale results before continuing
+@@ -3036,6 +3043,7 @@
+ 				 * as such we should mark
+ 				 * it as deleted
+ 				 */
++				ndoc_selection(dest, NULL, dest->selected_fib, &rn->p);
+ 				dest->selected_fib = NULL;
+ 			} else {
+ 				/*
+@@ -4111,8 +4119,10 @@
+ 
+ 	re_list_del(&dest->routes, re);
+ 
+-	if (dest->selected_fib == re)
++	if (dest->selected_fib == re) {
++		ndoc_selection(dest, NULL, re, &rn->p);
+ 		dest->selected_fib = NULL;
++	}
+ 
+ 	rib_re_nhg_free(re);
+ 
+@@ -4423,6 +4433,8 @@
+ 	struct route_entry *re;
+ 
+ 	re = XCALLOC(MTYPE_RE, sizeof(struct route_entry));
++	re->ndoc_id = ndoc_next();
++	re->ndoc_generation = 1;
+ 	re->type = type;
+ 	re->instance = instance;
+ 	re->distance = distance;
+@@ -4464,6 +4476,8 @@
+ 	if (!re)
+ 		return -1;
+ 
++	re->ndoc_safi = safi;
++	ndoc_zebra_route("route_received", re, p);
+ 	assert(!src_p || !src_p->prefixlen || afi == AFI_IP6);
+ 
+ 	ere = XCALLOC(MTYPE_WQ_WRAPPER, sizeof(*ere));
+@@ -5050,6 +5064,7 @@
+ 
+ 		if (dest && dest->selected_fib) {
+ 			rib_uninstall_kernel(rn, dest->selected_fib);
++			ndoc_selection(dest, NULL, dest->selected_fib, &rn->p);
+ 			dest->selected_fib = NULL;
+ 		}
+ 	}

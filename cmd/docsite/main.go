@@ -55,7 +55,7 @@ func main() {
 	shell := flag.String("shell", "site", "directory holding the Jekyll shell (_config.yml, layouts, landing page)")
 	docsDir := flag.String("docs", "docs", "directory of repository documentation to publish")
 	wikiDir := flag.String("wiki", "", "clone of the GitHub wiki repository (required)")
-	assetsDir := flag.String("assets", "assets", "directory of images the site links to")
+	assetsDir := flag.String("assets", "assets", "directory of media the site links to")
 	out := flag.String("out", "_docsite", "directory to write the staged Jekyll source into")
 	check := flag.String("verify", "", "instead of staging, check the built site in this directory and exit")
 	flag.Parse()
@@ -99,9 +99,8 @@ func build(baseurl, shell, docsDir, wikiDir, assetsDir, out string) error {
 	if err := os.CopyFS(out, os.DirFS(shell)); err != nil {
 		return fmt.Errorf("copy site shell %s: %w", shell, err)
 	}
-	// The landing page and the social card reuse the images the README already
-	// ships; copying beats a second checked-in copy.
-	for _, name := range []string{"hero.gif", "social-preview.png"} {
+	// Stage only the media the site uses; the README keeps its GIF on GitHub.
+	for _, name := range []string{"hero.mp4", "hero-poster.png", "social-preview.png"} {
 		if err := copyFile(filepath.Join(assetsDir, name), filepath.Join(out, "assets", name)); err != nil {
 			return err
 		}
@@ -305,7 +304,7 @@ func writeFile(dst, content string) error {
 }
 
 func copyFile(src, dst string) error {
-	// #nosec G304 -- src is an image path from this tool's own fixed list, under the assets flag.
+	// #nosec G304 -- src is a media path from this tool's own fixed list, under the assets flag.
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err

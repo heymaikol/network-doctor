@@ -73,7 +73,7 @@ type builtSite struct {
 }
 
 var (
-	refRE = regexp.MustCompile(`(?:href|src)="([^"]+)"`)
+	refRE = regexp.MustCompile(`(?:href|src|poster)="([^"]+)"`)
 	idRE  = regexp.MustCompile(`\bid="([^"]+)"`)
 )
 

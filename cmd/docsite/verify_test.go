@@ -15,9 +15,11 @@ func builtFixture(t *testing.T, base string, pages map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
 	all := map[string]string{
-		"index.html":                      `<link href="` + base + `/assets/style.css"><a href="` + base + `/wiki/Getting-Started/">Start</a>`,
+		"index.html":                      `<link href="` + base + `/assets/style.css"><a href="` + base + `/wiki/Getting-Started/">Start</a><video poster="` + base + `/assets/hero-poster.png"><source src="` + base + `/assets/hero.mp4" type="video/mp4"></video>`,
 		"wiki/Getting-Started/index.html": `<h1 id="getting-started">Start</h1><a href="` + base + `/">Home</a>`,
 		"assets/style.css":                "body{}\n",
+		"assets/hero.mp4":                 "mp4",
+		"assets/hero-poster.png":          "png",
 		"sitemap.xml":                     `<urlset/>`,
 		"robots.txt":                      "User-agent: *\n",
 	}
@@ -79,6 +81,21 @@ func TestVerifyRejectsASiteThatWouldNotWork(t *testing.T) {
 			name: "link to a page the site never built", base: "/network-doctor",
 			path: "index.html", content: `<a href="/network-doctor/wiki/Retired/">Gone</a>`,
 			want: "which the site does not serve",
+		},
+		{
+			name: "missing video", base: "",
+			path: "index.html", content: `<video><source src="/assets/missing.mp4" type="video/mp4"></video>`,
+			want: "which the site does not serve",
+		},
+		{
+			name: "missing poster", base: "",
+			path: "index.html", content: `<video poster="/assets/missing.png"></video>`,
+			want: "which the site does not serve",
+		},
+		{
+			name: "poster that dropped the project base path", base: "/network-doctor",
+			path: "index.html", content: `<video poster="/assets/hero-poster.png"></video>`,
+			want: "missing the /network-doctor base path",
 		},
 		{
 			name: "link to an anchor that moved", base: "",

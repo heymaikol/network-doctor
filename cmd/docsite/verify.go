@@ -73,7 +73,7 @@ type builtSite struct {
 }
 
 var (
-	refRE = regexp.MustCompile(`(?:href|src|poster)="([^"]+)"`)
+	refRE = regexp.MustCompile(`(?:href|src|poster)=(?:"([^"]+)"|'([^']+)')`)
 	idRE  = regexp.MustCompile(`\bid="([^"]+)"`)
 )
 
@@ -111,7 +111,7 @@ func readSite(dir, baseurl string) (*builtSite, error) {
 		}
 		s.ids[url] = ids
 		for _, m := range refRE.FindAllStringSubmatch(text, -1) {
-			s.refs[url] = append(s.refs[url], m[1])
+			s.refs[url] = append(s.refs[url], m[1]+m[2])
 		}
 		return nil
 	})

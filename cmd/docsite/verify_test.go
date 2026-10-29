@@ -39,10 +39,32 @@ func builtFixture(t *testing.T, base string, pages map[string]string) string {
 func TestVerifyAcceptsAWorkingSite(t *testing.T) {
 	for _, base := range []string{"", "/network-doctor"} {
 		t.Run("baseurl "+base, func(t *testing.T) {
-			if err := verify(builtFixture(t, base, nil), base); err != nil {
-				t.Fatalf("a working site failed verification: %v", err)
+			for _, quote := range []string{`"`, `'`} {
+				page := `<a href=QUOTE` + base + `/wiki/Getting-Started/QUOTE>Start</a><video poster=QUOTE` + base + `/assets/hero-poster.pngQUOTE><source src=QUOTE` + base + `/assets/hero.mp4QUOTE></video>`
+				page = strings.ReplaceAll(page, "QUOTE", quote)
+				if err := verify(builtFixture(t, base, map[string]string{"index.html": page}), base); err != nil {
+					t.Fatalf("a working site with %s quotes failed verification: %v", quote, err)
+				}
 			}
 		})
+	}
+}
+
+func TestReferenceQuotesMustMatch(t *testing.T) {
+	for _, tc := range []struct{ attribute, want string }{
+		{`poster="/assets/hero's.png"`, "/assets/hero's.png"},
+		{`src='/assets/hero"s.mp4'`, `/assets/hero"s.mp4`},
+		{`href="/missing/'`, ""},
+		{`poster='/missing.png"`, ""},
+	} {
+		matches := refRE.FindStringSubmatch(tc.attribute)
+		if tc.want == "" {
+			if matches != nil {
+				t.Errorf("mismatched delimiters in %s matched %q", tc.attribute, matches)
+			}
+		} else if matches == nil || matches[1]+matches[2] != tc.want {
+			t.Errorf("%s matched %q, want %q", tc.attribute, matches, tc.want)
+		}
 	}
 }
 
@@ -90,6 +112,26 @@ func TestVerifyRejectsASiteThatWouldNotWork(t *testing.T) {
 		{
 			name: "missing poster", base: "",
 			path: "index.html", content: `<video poster="/assets/missing.png"></video>`,
+			want: "which the site does not serve",
+		},
+		{
+			name: "missing single-quoted poster", base: "",
+			path: "index.html", content: `<video poster='/assets/missing.png'></video>`,
+			want: "which the site does not serve",
+		},
+		{
+			name: "single-quoted poster without base path", base: "/network-doctor",
+			path: "index.html", content: `<video poster='/assets/hero-poster.png'></video>`,
+			want: "missing the /network-doctor base path",
+		},
+		{
+			name: "missing single-quoted link", base: "",
+			path: "index.html", content: `<a href='/missing/'>Gone</a>`,
+			want: "which the site does not serve",
+		},
+		{
+			name: "missing single-quoted source", base: "",
+			path: "index.html", content: `<source src='/assets/missing.mp4'>`,
 			want: "which the site does not serve",
 		},
 		{

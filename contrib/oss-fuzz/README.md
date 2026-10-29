@@ -37,6 +37,11 @@ If accepted, copy `Dockerfile`, executable `build.sh`, and a filled-in
 On a host with Docker, in a clone of google/oss-fuzz, place the three prepared
 files in `projects/network-doctor/` and run:
 
+For **pre-merge testing**, change the copied Dockerfile's `ARG NETDOC_REF`
+from `main` to `integration/oss-fuzz-preparation`. The default must be
+restored to `main` for the upstream integration after merge. The ref override
+changes only the disposable OSS-Fuzz build checkout.
+
 ```sh
 python infra/helper.py build_image network-doctor
 python infra/helper.py build_fuzzers --sanitizer address network-doctor

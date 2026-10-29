@@ -31,8 +31,8 @@ service?**
     poster="{{ '/assets/hero-poster.png' | relative_url }}"
     tabindex="0" aria-label="Network Doctor diagnosis demo" aria-describedby="demo-caption">
     <source src="{{ '/assets/hero.mp4' | relative_url }}" type="video/mp4">
-    <a href="{{ '/assets/hero.mp4' | relative_url }}">Download the demo video</a>.
   </video>
+  <p><a href="{{ '/assets/hero.mp4' | relative_url }}">Download the demo video</a>.</p>
   <figcaption id="demo-caption">Demo: diagnosing a printer hostname that will not resolve.
     DNS fails, dependent checks are skipped, and the diagnosis suggests checking name resolution.</figcaption>
 </figure>

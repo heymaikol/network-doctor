@@ -1,0 +1,9 @@
+# Template only: do not submit without replacing the contact address.
+homepage: "https://networkdoctor.dev/"
+main_repo: "https://github.com/heymaikol/network-doctor"
+primary_contact: "REPLACE_WITH_COMMITTER_GOOGLE_ACCOUNT_EMAIL"
+language: go
+fuzzing_engines:
+  - libfuzzer
+sanitizers:
+  - address

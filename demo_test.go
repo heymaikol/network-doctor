@@ -365,11 +365,10 @@ func TestDemoWorkflowValidatesDerivativesBeforePublishing(t *testing.T) {
 }
 
 func TestDemoMediaValidator(t *testing.T) {
-	python, err := exec.LookPath("python3")
-	if err != nil {
+	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("Python 3 is not installed; demo workflow runs these offline checks too")
 	}
-	out, err := exec.Command(python, "-B", "-m", "unittest", "discover", "-s", ".github/scripts", "-p", "test_demo_media.py").CombinedOutput()
+	out, err := exec.Command("python3", "-B", "-m", "unittest", "discover", "-s", ".github/scripts", "-p", "test_demo_media.py").CombinedOutput()
 	if err != nil {
 		t.Fatalf("demo media validation tests: %v\n%s", err, out)
 	}

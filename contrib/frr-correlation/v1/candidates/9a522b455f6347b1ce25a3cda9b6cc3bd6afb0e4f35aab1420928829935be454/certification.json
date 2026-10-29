@@ -1,0 +1,152 @@
+{
+  "acceptance": {
+    "candidate_certificate_sha256": "6e92a1575e9bad88e59436e16814820877ba8b25d72b5b4761047f9d00dab749",
+    "fresh-through-historical": {
+      "claims": 0,
+      "producer_build_id": null,
+      "refusals": [
+        {
+          "reason": "unsupported producer build, schema, or operating system"
+        }
+      ],
+      "status": 2
+    },
+    "fresh_capture_sources": {
+      "captures/dual-family/identity": {
+        "bgpd.5c43bda9-13cb-2fb2-8fb8-32aaa46c9566.jsonl": "8d612f168fb8c955d5fbe4c893e63e33abaa6c6afc601a5e8f4ff7ba3ee7e3ec",
+        "zebra.57ea9c8d-5718-675c-4656-a7c081f63e6b.jsonl": "f805a177b145651eaeb514fc822f1b6504725a04a03f41cc5a77763086015a0c"
+      },
+      "captures/proof/identity/r1": {
+        "bgpd.bcbf7a20-35eb-3d6e-3842-10f7dd165dad.jsonl": "92fb083442fdf55925d30286a4f55789e3939b9737a82823ddfe1aa91a0f703d",
+        "zebra.449b9186-345a-7138-7d56-6a3df1fe17bf.jsonl": "a78505c544f2c8e5d13b002ccf378ad95cf082027bee2b1bf38f982643c5c047"
+      }
+    },
+    "fresh_dual_family": {
+      "attribution_complete": false,
+      "ipv4_full_chain": true,
+      "status": 0,
+      "unsupported_ipv6_bgp_attribution_edges": 0,
+      "unsupported_ipv6_independent_operation_facts": 1
+    },
+    "fresh_ipv4": {
+      "claims": {
+        "path_submitted_as_route": 12,
+        "route_installed_as_fib": 6,
+        "route_leg_resolved_by_route": 7
+      },
+      "full_bgp_route_operation_chain": true,
+      "static_to_bgp_resolution_edges": 1,
+      "status": 0
+    },
+    "historical-through-candidate": {
+      "claims": 0,
+      "producer_build_id": null,
+      "refusals": [
+        {
+          "reason": "unsupported producer build, schema, or operating system"
+        }
+      ],
+      "status": 2
+    },
+    "historical-through-historical": {
+      "claims": 25,
+      "producer_build_id": "89f0152ef221c716119b8b739a6464a96eaf3ff526d54e5e6e0822bea0dc179d",
+      "refusals": [],
+      "status": 0
+    },
+    "historical_certificate_sha256": "b39a88260f31d6321c26a03003114ea3dc81cf9b2ebccb47a33b2b32f49203ef",
+    "source_files_unchanged": true
+  },
+  "builder": {
+    "archive_sha256": "255bf108e6314f2557ace5577cce33ab58e3e719c709d3bc7388bb8a8e848871",
+    "base_digest": "2d894246f63e15be3557d103c50e5fdef67bf50b34e35d54753966b9c1854608",
+    "containerfile_sha256": "0cf20a3baeeabfa9e11e838273d863ca1b7091d4f7bc2daa66a32dd8f857c71e",
+    "exported_oci_manifest_digest": "9a3987f51755afa5a6749e768a677936d8f198abf0ad086d036c44ebae4e5b25",
+    "fedora_signing_fingerprint": "36f612dcf27f7d1a48a835e4dbfcf71c6d9f90a6",
+    "original_certified_config_id": "3806db6332b838c627a3693d3e7861c47371137e20eb9208755506cd83bc7ad2",
+    "package_lock_sha256": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+    "provisioning": "Unchanged original Containerfile and complete RPM lock; four unavailable exact versions recovered as Fedora-signed RPMs in a temporary read-only auxiliary repository. Original image identity was not reproduced.",
+    "reconstructed_config_id": "34d4b82aaa526fa57cc5db550cd22a9d6da242d29e5fbdedcb9b2ff13934248b",
+    "required_runtime": {
+      "capabilities": "all dropped",
+      "mounts": {
+        "build_output": "dedicated writable scratch",
+        "producer": "read-only",
+        "source_archive": "read-only"
+      },
+      "network": "none",
+      "no_new_privileges": true,
+      "root_filesystem": "read-only",
+      "rootless": true,
+      "temporary_storage": "private /tmp tmpfs, nosuid,nodev",
+      "user_namespace": "keep-id:uid=65534,gid=65534"
+    },
+    "stored_manifest_digest": "31d337156bc7360b13836e1d23313774ebcab59555e115a3189478101cf65edd"
+  },
+  "candidate_certificate_sha256": "6e92a1575e9bad88e59436e16814820877ba8b25d72b5b4761047f9d00dab749",
+  "fresh_build_evidence": {
+    "build-a": {
+      "build_json_sha256": "e82e32072573132ae2f9a6406a6fd0dedd227850cd46343e7861364cd4c060bf",
+      "compiler": "gcc (GCC) 16.2.1 20260819 (Red Hat 16.2.1-2)\nCopyright (C) 2026 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+      "kernel": "Linux 7c33bbf4aa7b 7.2.11-200.fc44.x86_64 #1 SMP PREEMPT_DYNAMIC Thu Oct 15 15:58:58 UTC 2026 x86_64 GNU/Linux\n",
+      "packages_sha256": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+      "runtime": "uid=65534(nobody) gid=65534(nobody) groups=65534(nobody)\n         0          1      65534\n     65534          0          1\n     65535      65535          2\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\n"
+    },
+    "build-b": {
+      "build_json_sha256": "e82e32072573132ae2f9a6406a6fd0dedd227850cd46343e7861364cd4c060bf",
+      "compiler": "gcc (GCC) 16.2.1 20260819 (Red Hat 16.2.1-2)\nCopyright (C) 2026 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+      "kernel": "Linux f3541b1b807a 7.2.11-200.fc44.x86_64 #1 SMP PREEMPT_DYNAMIC Thu Oct 15 15:58:58 UTC 2026 x86_64 GNU/Linux\n",
+      "packages_sha256": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+      "runtime": "uid=65534(nobody) gid=65534(nobody) groups=65534(nobody)\n         0          1      65534\n     65534          0          1\n     65535      65535          2\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\n"
+    }
+  },
+  "historical_builder_certificate_sha256": "183dc0f0037af93b2f745bbcd811789db224171fef13d71779b6291a6e316348",
+  "historical_certificate_sha256": "b39a88260f31d6321c26a03003114ea3dc81cf9b2ebccb47a33b2b32f49203ef",
+  "historical_implementation_pin_sha256": "869dff22b71fef5678f24fd8ef0066510ce77db0f0457dfe10b99492b0335b09",
+  "limitations": [
+    "Candidate manifest is recognized only in a separate trusted packager installation with byte-identical approved packager/schema. No manifest selector or multi-build acceptance was added.",
+    "Capture metadata is trusted collection evidence, not cryptographic attestation of the executing binary. Historical source bytes must not be relabeled.",
+    "Namespace boot/inode is not permanent lifetime or capture-cohort identity.",
+    "Claims remain historical identity and accepted-operation edges, not current forwarding, delivery, convergence or GR retained-forwarding certification.",
+    "Native locked-builder regressions and live runs are not sanitizer-certified; the separate pinned CI lane supplies ASan/UBSan coverage."
+  ],
+  "packager_sha256": "902f4347f053871b7372b1ad560ec172866fc3a4b74d6578bbbd2bc16988dad3",
+  "packager_test_commit": "2cbee21099d047e92fd5bba19f82bc7357ab2453",
+  "producer_source_commit": "dcd12e633731cef009adf53d23084c34842edef9",
+  "producer_source_files_sha256": {
+    "bgp.inc": "cd165f679e3e2586629c863cc9313702df6fa2f8e1b04cebeb6ed73ec7a9493f",
+    "dplane.inc": "23d51bdf26251e1445bef96575983809c08bb32f2aa5c6d5dcdefaae943409d3",
+    "frr.patch": "532531b8fa3a54a099ef6c88376750aea93f1ad26879160e26ea6e62fe88a5eb",
+    "netdoc.c": "a431c1a66571f283e716cc274e45460b44cf4603cf27377f76b51fd66c5e513d",
+    "netdoc.h": "ba11898d1b7dd98afb89d27c19856119d8eae4b6860de03c682cf47303bdf885",
+    "zebra.inc": "c0823e303677447a3d5d16ba9bc9c773b9b6fe57d7201e057afbdc73e0aac5cf"
+  },
+  "reproduction": {
+    "all_eight_artifacts_identical": true,
+    "build_id": "9a522b455f6347b1ce25a3cda9b6cc3bd6afb0e4f35aab1420928829935be454",
+    "builds": [
+      "build-a",
+      "build-b"
+    ],
+    "changed_artifacts": {
+      "usr/lib64/frr/libfrr.so.0": {
+        "corrected": "fe82c83cb019881bde4735f67a39a0c761bd3e2fc4d7edcc0f2120241fc4ed9f",
+        "historical": "8ac012413ca0a3e84af3405c7fc62f9a4784579d3ca5b0ae81007624dc440af5"
+      },
+      "usr/libexec/frr/bgpd": {
+        "corrected": "c604fcd77f683df5bcd20f5bc09f36ab16f870e79f711ab7f5ba4fa916fb3324",
+        "historical": "a80189660879e1d45bd28ebe634e461f1e7b5b3786359e694b366f2ff8f71712"
+      }
+    },
+    "unchanged_artifacts": {
+      "usr/bin/vtysh": "dbaec8a44f9caa2b5f1867a41750a1eb8be92afa210a79dc50daa21955ccb46c",
+      "usr/lib64/frr/libmgmt_be_nb.so.0": "ac4ea35dfd2283f202f567a70d4e58fe9ac069be8a69b4565852e612a188b86e",
+      "usr/lib64/libyang.so.3": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb",
+      "usr/libexec/frr/mgmtd": "bae7d6f7fa0d45f77d12ccc1a38c4fd84fc7a54ae965c034d937abbf8f0a9c19",
+      "usr/libexec/frr/staticd": "f27d18c6e44c2fe3e7d10b7fc993a2848b16049082156e8cd872070af17ccd54",
+      "usr/libexec/frr/zebra": "6de7c37fdc428b7d9b462d3f0ab5a06fde8c9a17f9ddd1746ad756b7c3688a5b"
+    }
+  },
+  "schema_sha256": "bdb9dd122de51ce32267c979d9623e1267b26fb130abfe75ae6401160f15e40c",
+  "status": "candidate only; not activated in the historical packager installation"
+}

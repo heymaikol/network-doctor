@@ -27,6 +27,10 @@ The peer-transport guard is a source correction after that certified build.
 refuses that new build until it is separately certified. Existing captures are
 not relabeled as evidence for the corrected producer.
 
+The [corrected producer candidate](candidates/9a522b455f6347b1ce25a3cda9b6cc3bd6afb0e4f35aab1420928829935be454/README.md)
+records separate build and live acceptance evidence. It is not activated in this
+installation; final independent review must approve any certificate publication.
+
 Verified attribution covers default VRF, table 254, IPv4 unicast, ordinary eBGP
 paths over IPv4 peer transport, single-next-hop static routes resolving through
 BGP, and multiple eBGP paths with identical next-hop semantics sharing one

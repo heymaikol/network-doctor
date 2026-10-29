@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
@@ -284,15 +285,16 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 		t.Errorf("demo.yml expected head = %q, want the revision that was recorded", commit.Env["EXPECTED_HEAD"])
 	}
 
-	noChange := strings.Index(commit.Run, "git diff --quiet -- assets/hero.gif")
+	media := "assets/hero.gif assets/hero.mp4 assets/hero-poster.png"
+	noChange := strings.Index(commit.Run, "git diff --quiet -- "+media)
 	remoteHead := strings.Index(commit.Run, "git fetch origin main")
 	compareHead := strings.Index(commit.Run, `if ! git merge-base --is-ancestor "$EXPECTED_HEAD" origin/main; then`)
 	rejectStale := strings.Index(commit.Run, "exit 1")
-	addGIF := strings.Index(commit.Run, "git add assets/hero.gif")
-	commitGIF := strings.Index(commit.Run, `git commit -m "Refresh README hero GIF"`)
+	addGIF := strings.Index(commit.Run, "git add "+media)
+	commitGIF := strings.Index(commit.Run, `git commit -m "Refresh homepage demo media"`)
 	pushGIF := strings.Index(commit.Run, "git push origin HEAD:main")
 	if noChange < 0 || remoteHead < 0 || noChange > remoteHead || !strings.Contains(commit.Run[noChange:remoteHead], "exit 0") {
-		t.Error("demo.yml does not exit without a commit when assets/hero.gif is unchanged")
+		t.Error("demo.yml does not exit without a commit when all demo media are unchanged")
 	}
 	ordered := []int{noChange, remoteHead, compareHead, rejectStale, addGIF, commitGIF, pushGIF}
 	prev := -1
@@ -305,8 +307,8 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 	for _, want := range []string{
 		`git config user.name "github-actions[bot]"`,
 		`git config user.email "41898282+github-actions[bot]@users.noreply.github.com"`,
-		"git add assets/hero.gif",
-		`git commit -m "Refresh README hero GIF"`,
+		"git add " + media,
+		`git commit -m "Refresh homepage demo media"`,
 	} {
 		if !strings.Contains(commit.Run, want) {
 			t.Errorf("demo.yml commit step lacks %q", want)
@@ -315,6 +317,59 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 	indiscriminateAdd := regexp.MustCompile(`(?m)^\s*git add\s+(?:-A|--all|\.(?:\s|$))`)
 	indiscriminateCommit := regexp.MustCompile(`(?m)^\s*git commit\s+(?:-a|--all)(?:\s|$)`)
 	if indiscriminateAdd.MatchString(commit.Run) || indiscriminateCommit.MatchString(commit.Run) {
-		t.Error("demo.yml indiscriminately stages files instead of adding only assets/hero.gif")
+		t.Error("demo.yml indiscriminately stages files instead of adding only the three demo assets")
+	}
+}
+
+func TestDemoWorkflowValidatesDerivativesBeforePublishing(t *testing.T) {
+	workflow := demoWorkflow(t)
+	var document struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Run             string            `yaml:"run"`
+				If              string            `yaml:"if"`
+				Uses            string            `yaml:"uses"`
+				With            map[string]string `yaml:"with"`
+				ContinueOnError bool              `yaml:"continue-on-error"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(workflow), &document); err != nil {
+		t.Fatal(err)
+	}
+	converted := false
+	for _, step := range document.Jobs["hero"].Steps {
+		if strings.Contains(step.Run, "python3 .github/scripts/demo_media.py") {
+			converted = true
+			if step.If != "" || step.ContinueOnError {
+				t.Fatal("media conversion must run before every publication")
+			}
+		}
+		if strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
+			if !converted {
+				t.Fatal("media are uploaded before derivative validation")
+			}
+			for _, asset := range []string{"hero.gif", "hero.mp4", "hero-poster.png"} {
+				if !strings.Contains(step.With["path"], "assets/"+asset) {
+					t.Errorf("artifact omits %s", asset)
+				}
+			}
+		}
+		if strings.Contains(step.Run, "git push") && (!converted || step.If != "") {
+			t.Fatal("publication must require successful media conversion")
+		}
+	}
+	if !converted {
+		t.Fatal("workflow never regenerates and validates video and poster")
+	}
+}
+
+func TestDemoMediaValidator(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("Python 3 is not installed; demo workflow runs these offline checks too")
+	}
+	out, err := exec.Command("python3", "-B", "-m", "unittest", "discover", "-s", ".github/scripts", "-p", "test_demo_media.py").CombinedOutput()
+	if err != nil {
+		t.Fatalf("demo media validation tests: %v\n%s", err, out)
 	}
 }

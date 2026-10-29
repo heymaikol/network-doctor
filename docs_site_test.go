@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/net/html"
 	"gopkg.in/yaml.v3"
 )
 
@@ -69,6 +70,47 @@ func TestSiteIsConfiguredForItsCanonicalAddress(t *testing.T) {
 			t.Errorf("site/_config.yml does not enable %s; the site would publish without %s", plugin,
 				map[string]string{"jekyll-seo-tag": "titles, descriptions, or canonical URLs", "jekyll-sitemap": "a sitemap"}[plugin])
 		}
+	}
+}
+
+// Browsers hide video fallback children even when a source fails to load.
+func TestHomepageVideoDownloadIsOutsidePlayer(t *testing.T) {
+	data, err := os.ReadFile("site/index.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := html.Parse(strings.NewReader(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for node := range page.Descendants() {
+		if node.Type != html.ElementNode || node.Data != "a" || node.FirstChild == nil || node.FirstChild.Data != "Download the demo video" {
+			continue
+		}
+		found = true
+		href := ""
+		for _, attr := range node.Attr {
+			if attr.Key == "href" {
+				href = attr.Val
+			}
+		}
+		if want := "{{ '/assets/hero.mp4' | relative_url }}"; href != want {
+			t.Errorf("download URL = %q, want %q", href, want)
+		}
+		for parent := node; parent != nil; parent = parent.Parent {
+			if parent.Type == html.ElementNode && parent.Data == "video" {
+				t.Fatal("the download link is hidden inside the video when MP4 loading fails")
+			}
+			for _, attr := range parent.Attr {
+				if attr.Key == "hidden" {
+					t.Fatal("the download link or one of its ancestors is hidden")
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the homepage has no demo download link")
 	}
 }
 

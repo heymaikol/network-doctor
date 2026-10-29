@@ -89,9 +89,23 @@ func TestHomepageVideoDownloadIsOutsidePlayer(t *testing.T) {
 			continue
 		}
 		found = true
-		for parent := node.Parent; parent != nil; parent = parent.Parent {
+		href := ""
+		for _, attr := range node.Attr {
+			if attr.Key == "href" {
+				href = attr.Val
+			}
+		}
+		if want := "{{ '/assets/hero.mp4' | relative_url }}"; href != want {
+			t.Errorf("download URL = %q, want %q", href, want)
+		}
+		for parent := node; parent != nil; parent = parent.Parent {
 			if parent.Type == html.ElementNode && parent.Data == "video" {
 				t.Fatal("the download link is hidden inside the video when MP4 loading fails")
+			}
+			for _, attr := range parent.Attr {
+				if attr.Key == "hidden" {
+					t.Fatal("the download link or one of its ancestors is hidden")
+				}
 			}
 		}
 	}

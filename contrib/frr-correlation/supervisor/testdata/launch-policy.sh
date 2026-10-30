@@ -12,8 +12,8 @@
 # With no setpriv arguments the policy is --keep-groups (the control).
 #
 # Every wait is bounded, and the script tries to stop both daemons before it ends:
-#   QUERY_TIMEOUT  whole seconds the vtysh query may run before it is killed (default 10).
-#   STOP_GRACE     whole seconds a daemon gets after SIGTERM before SIGKILL (default 5).
+#   QUERY_TIMEOUT  whole seconds the vtysh query may run before it is killed (default 10; unset, not empty).
+#   STOP_GRACE     whole seconds a daemon gets after SIGTERM before SIGKILL (default 5; unset, not empty).
 # Both are from 1 to 60. Anything else exits 9 before the script mounts or starts anything.
 # A timeout or an escalation adds one line to the output; a normal run prints none. A query
 # that timeout ended at its deadline (status 124) reads "timed out". A query that died of
@@ -37,8 +37,8 @@ set -u
 NAME=${1:?usage: launch-policy.sh NAME [setpriv args...]}; shift
 ST=${STAGE:?set STAGE to a private copy of the FRR install}
 OUT=${OUT:?set OUT to a scratch directory}
-QUERY_TIMEOUT=${QUERY_TIMEOUT:-10}
-STOP_GRACE=${STOP_GRACE:-5}
+QUERY_TIMEOUT=${QUERY_TIMEOUT-10} # a default only for an unset variable: an empty one is refused below
+STOP_GRACE=${STOP_GRACE-5}
 for v in QUERY_TIMEOUT STOP_GRACE; do # at most two digits, so the arithmetic in await cannot overflow
   if ! [[ ${!v} =~ ^[1-9][0-9]?$ ]] || ((${!v} > 60)); then
     echo "$v must be a whole number of seconds from 1 to 60, not '${!v}'" >&2; exit 9

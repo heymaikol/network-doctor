@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -192,7 +193,13 @@ func startLaunchPolicy(t *testing.T, stage, out string, extraEnv ...string) poli
 	var buf bytes.Buffer
 	cmd := exec.CommandContext(ctx, unshare, "-Urnm", bash, script, "policy") //nolint:gosec // G204: the binaries come from LookPath and the script is this package's own testdata.
 	cmd.Env = append(os.Environ(), "STAGE="+stage, "OUT="+out, "STOP_GRACE=1", "QUERY_TIMEOUT=1")
-	cmd.Env = append(cmd.Env, extraEnv...)
+	for _, e := range extraEnv { // "-NAME" removes NAME, so a test can leave a setting unset
+		if name, drop := strings.CutPrefix(e, "-"); drop {
+			cmd.Env = slices.DeleteFunc(cmd.Env, func(v string) bool { return strings.HasPrefix(v, name+"=") })
+		} else {
+			cmd.Env = append(cmd.Env, e)
+		}
+	}
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -251,6 +258,17 @@ func noneAlive(t *testing.T, out string) {
 
 // The control: nothing is stuck, so the output keeps the shape it had before the
 // script was bounded, and both daemons are stopped by SIGTERM alone.
+// Only an unset setting takes its default. An empty one is refused (see the table below).
+func TestLaunchPolicyUnsetSettingsTakeTheirDefaults(t *testing.T) {
+	stage, out := newMockStage(t, "term", "term", vtyshAttached)
+	text, code := startLaunchPolicy(t, stage, out, "-STOP_GRACE", "-QUERY_TIMEOUT").wait(t)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, text)
+	}
+	requireLines(t, text, "  alive: zebra bgpd", "  bgpd attached to zebra: yes", "  bgpd exit: 143", "  zebra exit: 143")
+	noneAlive(t, out)
+}
+
 func TestLaunchPolicyControlStopsBothDaemonsWithSIGTERM(t *testing.T) {
 	stage, out := newMockStage(t, "term", "term", vtyshAttached)
 	text, code := startLaunchPolicy(t, stage, out).wait(t)
@@ -345,6 +363,8 @@ func TestLaunchPolicyRefusesUnusableSettings(t *testing.T) {
 		{"stage under /run", func(string) []string { return []string{"STAGE=/run/launch-policy-test"} }, "hidden"},
 		{"grace is not a number", func(string) []string { return []string{"STOP_GRACE=soon"} }, "STOP_GRACE"},
 		{"query bound is not a number", func(string) []string { return []string{"QUERY_TIMEOUT=-1"} }, "QUERY_TIMEOUT"},
+		{"grace is empty", func(string) []string { return []string{"STOP_GRACE="} }, "STOP_GRACE"},
+		{"query bound is empty", func(string) []string { return []string{"QUERY_TIMEOUT="} }, "QUERY_TIMEOUT"},
 		{"grace is zero", func(string) []string { return []string{"STOP_GRACE=0"} }, "STOP_GRACE"},
 		{"grace is one past the limit", func(string) []string { return []string{"STOP_GRACE=61"} }, "STOP_GRACE"},
 		{"grace has three digits", func(string) []string { return []string{"STOP_GRACE=100"} }, "STOP_GRACE"},

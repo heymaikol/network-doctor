@@ -207,8 +207,10 @@ modification time.
 
 **Bounds.** The script was later made safe to leave unattended, without
 changing what it measures. The `vtysh` query runs under `timeout` and is killed
-after `QUERY_TIMEOUT` seconds (default 10). A daemon that ignores SIGTERM gets
-`STOP_GRACE` seconds (default 5) and then SIGKILL. A timeout or an escalation
+after `QUERY_TIMEOUT` seconds (default 10 when unset). A daemon that ignores
+SIGTERM gets `STOP_GRACE` seconds (default 5 when unset) and then SIGKILL. Each
+is a whole number from 1 to 60. Any other value, an empty one included, exits 9
+before the script mounts or starts anything. A timeout or an escalation
 adds one line to the output, and a normal run prints exactly what it printed
 before. Status 124 from `timeout` reads `timed out`. Status 137, a query that
 died of SIGKILL, reads `ended by SIGKILL (status 137), cause not confirmed`: the

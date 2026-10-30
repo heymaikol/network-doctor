@@ -22,10 +22,14 @@
 # The daemons are also stopped, in the same way, if the script is interrupted or exits early.
 #
 # The script keeps a daemon's PID until /proc shows the process gone, and signals a PID only
-# while that process is still its own child. A daemon that is still running 2 seconds after
-# SIGKILL (a process in uninterruptible sleep, for one) cannot be stopped by any script: the
-# exit trap tries it once more, then the script names it on stderr ("may still be running")
-# and exits 10 in place of any other status. SIGKILL sent to the script itself runs no trap
+# while that process is still its own child. When the /proc entry cannot be read, kill -0
+# says whether a process holds the number: none means it exited and was reaped, and any
+# process there leaves the state unknown. An unknown daemon is not signalled and not waited
+# for, because it may be running and wait would block on it. A daemon that is still running
+# 2 seconds after SIGKILL (a process in uninterruptible sleep, for one) cannot be stopped by
+# any script, and nor can one the script cannot observe: the exit trap tries it once more,
+# then the script names it on stderr ("may still be running") and exits 10 in place of any
+# other status. SIGKILL sent to the script itself runs no trap
 # and leaves the daemons behind. The check of /proc is not a pidfd, so a PID reused between
 # the check and the signal is possible in principle.
 #
@@ -55,29 +59,50 @@ done
 FRR=$ST/usr/libexec/frr
 LD="$ST/usr/lib64/frr:$ST/usr/lib64:$ST/runtime/usr/lib64"
 ZP='' BP=''
-gone() { # gone PID: true once PID is not a live child of this script (exited, reaped by bash, or the number reused)
-  local stat state ppid
-  read -r stat 2> /dev/null < "/proc/$1/stat" || return 0
-  read -r state ppid _ <<< "${stat##*) }" # the fields after "(comm) ", which may itself hold a ")"
-  [[ $ppid != "$$" || $state == [ZX]* ]]
+# child_state PID: 0 if PID is not a live child of this script (exited, reaped by bash, or the number
+# reused), 1 if it is a running child, 2 if the script cannot tell. Only a readable /proc/PID/stat shows a
+# running child: its parent is this script and it is not a zombie. When the stat cannot be read, kill -0
+# is the second witness. Bash reaps its children as they end, so no process under that number means the
+# child is gone. A process there may be the child or a stranger, so the answer is 2, never 0. This script
+# is root in its own user namespace, so kill -0 can fail on its child only with ESRCH, never EPERM.
+child_state() {
+  local stat='' state='' ppid=''
+  read -r stat 2> /dev/null < "/proc/$1/stat" && read -r state ppid _ <<< "${stat##*) }" # after "(comm) ", which may hold a ")"
+  if [[ -n $ppid ]]; then
+    [[ $ppid == "$$" && $state != [ZX]* ]] && return 1
+    return 0
+  fi
+  kill -0 "$1" 2> /dev/null && return 2
+  return 0
 }
-await() { # await PID SECONDS: true if the process exits within the time
+await() { # await PID SECONDS: wait up to the time for PID to exit; status is its last child_state, 0 if it exited
   local i
-  for ((i = 0; i < $2 * 10; i++)); do gone "$1" && return 0; sleep 0.1; done
-  gone "$1"
+  for ((i = 0; i < $2 * 10; i++)); do child_state "$1" && return 0; sleep 0.1; done
+  child_state "$1"
 }
 stop() { # stop LABEL VAR: SIGTERM the process whose PID is in VAR, SIGKILL it after STOP_GRACE, reap it
   # VAR keeps the PID until the process is confirmed gone, so a later call can try again. A
   # process that is no longer a child of this script is never signalled: its PID may be someone else's.
-  local label=$1 pid=${!2} note='' rc
+  # A process whose state cannot be read is neither signalled nor waited for: it may be running, and
+  # wait would block on it. Only a process shown to have exited is waited for.
+  local label=$1 pid=${!2} note='' rc st
   [[ -n $pid ]] || return 0
-  if ! gone "$pid"; then
+  child_state "$pid"; st=$?
+  if ((st == 2)); then
+    echo "  $label stop: cannot read the state of pid $pid, not signalled and not waited for"; return 1
+  elif ((st == 1)); then
     kill -TERM "$pid" 2> /dev/null
-    if ! await "$pid" "$STOP_GRACE"; then
+    await "$pid" "$STOP_GRACE"; st=$?
+    if ((st == 2)); then
+      echo "  $label stop: cannot read the state of pid $pid after SIGTERM, not killed and not waited for"; return 1
+    elif ((st == 1)); then
       kill -KILL "$pid" 2> /dev/null
       note="  $label stop: SIGKILL after ${STOP_GRACE}s"
-      if ! await "$pid" 2; then # only an uninterruptible process gets here, and wait would not return
-        echo "$note"; echo "  $label stop: still running after SIGKILL, not waited for"
+      await "$pid" 2; st=$?
+      if ((st != 0)); then # only an uninterruptible process gets here, and wait would not return
+        echo "$note"
+        if ((st == 1)); then echo "  $label stop: still running after SIGKILL, not waited for"
+        else echo "  $label stop: cannot read the state of pid $pid after SIGKILL, not waited for"; fi
         return 1
       fi
     fi
@@ -93,9 +118,11 @@ cleanup() {
   trap '' INT TERM HUP # a second interrupt must not cut the stop short; it is bounded by the grace periods
   stop bgpd BP # a call that already failed is tried once more here, because VAR still holds the PID
   stop zebra ZP
-  local p left=() strays=()
+  local p st left=() strays=()
   for p in $(jobs -p); do # a child the two variables missed, such as one forked just before a signal
-    [[ $p == "$BP" || $p == "$ZP" ]] || gone "$p" || left+=("$p")
+    [[ $p == "$BP" || $p == "$ZP" ]] && continue
+    child_state "$p"; st=$?
+    if ((st == 1)); then left+=("$p"); elif ((st == 2)); then strays+=("$p"); fi # 2 is reported, never signalled
   done
   if ((${#left[@]})); then
     echo "  killed unaccounted children: ${left[*]}"

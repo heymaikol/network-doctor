@@ -218,20 +218,28 @@ status does not say whether the OOM killer, a person or `timeout` itself sent th
 signal, because `timeout` also returns 137 after a query that ignored SIGTERM. An interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both
 daemons the same way, and any other child still running is killed. A second
 interrupt while the daemons are being stopped is ignored, because stopping is
-already bounded. The script keeps a daemon's PID until `/proc` shows the process
-gone, and signals a PID only while that process is still its own child, so a
-process that is not its child is never signalled. It cannot promise that every daemon is gone. A daemon
-still running 2 seconds after SIGKILL, a process in uninterruptible sleep for
-one, cannot be stopped by a script: the exit trap tries it once more, then the
-script names it on stderr (`may still be running`) and exits 10 in place of any
-other status, so a failed cleanup never reads as success. A SIGKILL sent to the
-script itself runs no trap and leaves the daemons behind. The `/proc` check is
-not a `pidfd`, so a PID reused between the check and the signal is possible in
-principle. The tests simulate a survivor by dropping SIGKILL in a `kill`
-wrapper, because a test cannot put a process into uninterruptible sleep. Both
-settings must be whole numbers of seconds from 1 to 60. The script exits with
-status 9, before it mounts or starts anything, for any other value, and for a
-`STAGE` or `OUT` under a directory the tmpfs mounts would hide.
+already bounded. The script keeps a daemon's PID until the daemon is shown to
+have exited, and signals a PID only while `/proc` shows that process as its own
+child, so a process that is not its child is never signalled. When the `/proc`
+entry cannot be read, `kill -0` says whether any process holds the number. None
+means the child exited and bash reaped it. A process there leaves the state
+unknown, and the script then sends it no signal and does not `wait` for it,
+because it may be running and `wait` would block on it. An unknown daemon is
+reported like one that survives SIGKILL. The script cannot promise that every
+daemon is gone. A daemon still running 2 seconds after SIGKILL, a process in
+uninterruptible sleep for one, cannot be stopped by a script: the exit trap
+tries it once more, then the script names it on stderr (`may still be running`)
+and exits 10 in place of any other status, so a failed cleanup never reads as
+success. A SIGKILL sent to the script itself runs no trap and leaves the daemons
+behind. The `/proc` check is not a `pidfd`, so a PID reused between the check and
+the signal is possible in principle. A number that another process took over
+while `/proc` cannot be read also reads as unknown, so cleanup then fails closed
+with exit 10 although the daemon exited. The tests simulate a survivor by
+dropping SIGKILL in a `kill` wrapper, because a test cannot put a process into
+uninterruptible sleep, and they make `/proc` unreadable by mounting an empty
+tmpfs over it or over one `/proc/PID`. The script also exits with status 9,
+before it mounts or starts anything, for a `STAGE` or `OUT` under a directory
+the tmpfs mounts would hide.
 `launchpolicy_linux_test.go` runs the script against stand-in daemons that are
 symlinks to the test binary, never against FRR or an evidence archive. One run
 of the revised script against a private copy of the FRR 10.7.0 install gave the

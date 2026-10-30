@@ -19,10 +19,6 @@ import (
 const (
 	// DefaultStopGrace is how long Stop waits after SIGTERM before SIGKILL.
 	DefaultStopGrace = 5 * time.Second
-	// startDeadline bounds how long a launched child may take to enter the namespaces.
-	startDeadline = 5 * time.Second
-	// killDeadline bounds the wait for a SIGKILLed child to exit.
-	killDeadline = 5 * time.Second
 )
 
 // Options describes one child. Argv[0] must be an absolute path. Env is used
@@ -77,7 +73,7 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 	if len(o.Argv) == 0 || !filepath.IsAbs(o.Argv[0]) {
 		return nil, ErrLaunchFailed
 	}
-	if exited(n.holderFD) {
+	if n.sys.exited(n.holderFD) {
 		return nil, ErrIdentityMismatch
 	}
 	if err := ctx.Err(); err != nil {
@@ -127,12 +123,7 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 // watch closes done when the leader exits, without reaping it.
 func (c *Child) watch() {
 	var info unix.Siginfo
-	for {
-		err := unix.Waitid(unix.P_PIDFD, c.pidfd, &info, unix.WEXITED|unix.WNOWAIT, nil)
-		if err != unix.EINTR {
-			break
-		}
-	}
+	_ = c.ns.sys.waitid(c.pidfd, &info, unix.WEXITED|unix.WNOWAIT)
 	close(c.done)
 }
 
@@ -144,7 +135,7 @@ func (c *Child) verify(ctx context.Context, want Identity) error {
 	if err != nil {
 		return ErrIdentityMismatch
 	}
-	deadline := time.NewTimer(startDeadline)
+	deadline := time.NewTimer(c.ns.sys.startDeadline)
 	defer deadline.Stop()
 	for {
 		select {
@@ -158,7 +149,7 @@ func (c *Child) verify(ctx context.Context, want Identity) error {
 		}
 		got, err := pidfdIdentity(c.pidfd)
 		if err != nil {
-			if exited(c.pidfd) {
+			if c.ns.sys.exited(c.pidfd) {
 				return ErrLaunchFailed
 			}
 			return ErrIdentityMismatch
@@ -192,15 +183,6 @@ func pidfdIdentity(pidfd int) (Identity, error) {
 	return identityOf(net, user)
 }
 
-// exited reports whether the process behind pidfd has exited, reaped or not.
-func exited(pidfd int) bool {
-	var info unix.Siginfo
-	if err := unix.Waitid(unix.P_PIDFD, pidfd, &info, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT, nil); err != nil {
-		return true
-	}
-	return info.Signo != 0
-}
-
 // Done is closed when the child's leader process has exited.
 func (c *Child) Done() <-chan struct{} { return c.done }
 
@@ -219,22 +201,21 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 	if c.stopped {
 		return c.status, c.err
 	}
-	_ = unix.Kill(-c.pgid, unix.SIGTERM)
+	_ = c.ns.sys.killGroup(c.pgid, unix.SIGTERM)
 	if !c.waitDone(ctx, c.grace) {
 		c.status.Escalated = true
-		_ = unix.Kill(-c.pgid, unix.SIGKILL)
-		if !c.waitDone(context.Background(), killDeadline) {
+		_ = c.ns.sys.killGroup(c.pgid, unix.SIGKILL)
+		if !c.waitDone(context.Background(), c.ns.sys.killDeadline) {
 			c.stopped, c.err = true, ErrCleanupIncomplete
 			return c.status, c.err
 		}
 	}
-	_ = unix.Kill(-c.pgid, unix.SIGKILL) // leader is a zombie, so the group ID is still held
-	werr := c.cmd.Wait()
+	_ = c.ns.sys.killGroup(c.pgid, unix.SIGKILL) // leader is a zombie, so the group ID is still held
+	ps, werr := c.ns.sys.reap(c.cmd.Process)
 	_ = unix.Close(c.pidfd)
 	c.pidfd, c.stopped = -1, true
-	ws, ok := c.cmd.ProcessState.Sys().(syscall.WaitStatus)
-	var ee *exec.ExitError
-	if !ok || (werr != nil && !errors.As(werr, &ee)) {
+	ws, ok := ps.Sys().(syscall.WaitStatus)
+	if !ok || werr != nil {
 		c.err = ErrCleanupIncomplete
 		return c.status, c.err
 	}

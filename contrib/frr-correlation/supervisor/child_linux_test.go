@@ -452,7 +452,7 @@ func TestExitedProcessesKeepTheirPIDUntilReaped(t *testing.T) {
 	if err := syscall.Kill(holder, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; !exited(n.holderFD); i++ {
+	for i := 0; !n.sys.exited(n.holderFD); i++ {
 		if i > 200 {
 			t.Fatal("holder did not exit")
 		}

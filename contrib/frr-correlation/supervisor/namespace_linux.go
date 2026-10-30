@@ -33,6 +33,7 @@ type Namespace struct {
 	closeErr error
 	cmu      sync.Mutex // guards children; never held across a stop
 	children map[*Child]struct{}
+	sys      *sys
 	holder   *exec.Cmd
 	holderFD int // pidfd, closed only after the holder is reaped
 	netFD    int
@@ -46,6 +47,10 @@ var testHookAfterHolderStart func(pidfd int)
 // NewNamespace starts a holder in new rootless user and network namespaces and
 // retains descriptors to both. Any failure releases everything it created.
 func NewNamespace(ctx context.Context) (*Namespace, error) {
+	return newNamespaceWith(ctx, realSys())
+}
+
+func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -56,7 +61,7 @@ func NewNamespace(ctx context.Context) (*Namespace, error) {
 	if err != nil {
 		return nil, ErrUnsupported
 	}
-	n := &Namespace{holderFD: -1, netFD: -1, userFD: -1, children: map[*Child]struct{}{}}
+	n := &Namespace{holderFD: -1, netFD: -1, userFD: -1, children: map[*Child]struct{}{}, sys: s}
 	n.holder = exec.Command(sleep, "infinity") //nolint:gosec // G204: sleep comes from LookPath and the argument is constant.
 	n.holder.Env = []string{}
 	n.holder.SysProcAttr = &syscall.SysProcAttr{
@@ -217,9 +222,9 @@ func (n *Namespace) Close() error {
 // release kills the holder's group, reaps it last, then closes descriptors.
 func (n *Namespace) release() error {
 	if n.holder != nil && n.holder.Process != nil {
-		_ = unix.Kill(-n.holder.Process.Pid, unix.SIGKILL) // leader unreaped, so the pgid is still ours
+		_ = n.sys.killGroup(n.holder.Process.Pid, unix.SIGKILL) // leader unreaped, so the pgid is still ours
 		_ = n.holder.Process.Kill()
-		if _, err := n.holder.Process.Wait(); err != nil {
+		if _, err := n.sys.reap(n.holder.Process); err != nil {
 			return ErrCleanupIncomplete
 		}
 		n.holder = nil

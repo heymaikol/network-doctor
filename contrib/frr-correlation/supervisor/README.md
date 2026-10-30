@@ -50,10 +50,15 @@ These are deliberate scope cuts, not oversights. None is claimed to hold.
   verified. `nsenter` comes from util-linux and must be installed. Whoever can
   alter that `PATH` or those binaries already runs code as the supervisor's UID.
 - **No isolation of the supervisor from its children.** The children run as the
-  same host UID. FRR is root inside the user namespace, which maps to the
-  supervisor's UID outside, so FRR can signal or `ptrace` the supervisor
-  (`kernel.yama.ptrace_scope` was 0 on the test host). The producer-to-supervisor
-  boundary is not established.
+  same host UID and share the host mount namespace, so they can read and write
+  every file the supervisor can, including any future inbox. FRR is root inside
+  the user namespace, which maps to the supervisor's UID outside. Probed with a
+  stand-in process in a child user namespace on the test host (not with FRR):
+  `kill -0` on a same-UID host process succeeded, while reading its `environ` and
+  `maps` was denied and `PTRACE_SEIZE` failed with EPERM. So a child can signal
+  (and therefore stop or kill) the supervisor but, without `CAP_SYS_PTRACE` over
+  it, apparently cannot trace it. The producer-to-supervisor boundary is still
+  not established.
 - **Namespace membership is verified at one moment.** A child that holds
   `CAP_SYS_ADMIN` in the user namespace can create further namespaces later.
   FRR requests that capability (see below), so this is a real gap.
@@ -62,11 +67,14 @@ These are deliberate scope cuts, not oversights. None is claimed to hold.
   also writes `/var/tmp/frr/<daemon>.<pid>/` unconditionally, so a mount
   namespace is required for any real FRR launch and belongs to a later slice.
 - **`Pdeathsig` fires when the creating OS thread exits, not the process.**
-  Killing the whole supervisor is tested. A supervisor that retires one thread
-  is not.
-- **PID reuse is excluded by construction, not by test.** The holder and each
-  leader stay unreaped while they are signalled, so the kernel cannot reissue
-  their PID or process group ID. No test forces PID wraparound.
+  Killing the whole supervisor is tested with the Go test helper as the child.
+  The kernel clears the parent-death signal on some credential changes, and FRR
+  changes credentials after it starts, so whether FRR children die with the
+  supervisor is untested. A supervisor that retires one thread is also untested.
+- **PID wraparound is not forced.** The holder and each leader stay unreaped
+  while they are signalled, so the kernel cannot reissue their PID or process
+  group ID. `TestExitedProcessesKeepTheirPIDUntilReaped` checks that an exited
+  child and holder remain zombies until reaped. It does not wrap the PID space.
 - **The descriptor check is a point-in-time scan** of `/proc/self/fd` for
   non-`CLOEXEC` descriptors above 2. A descriptor opened between the scan and
   the exec is covered only by Go's own `CLOEXEC` default.
@@ -95,7 +103,9 @@ and `ASAN_OPTIONS=detect_leaks=0`, under `unshare -Urnm` with tmpfs mounted over
 seconds, records `/proc/<pid>/status`, asks zebra for its clients through
 `vtysh`, then sends SIGTERM and records both exit statuses. The control ran first
 and passed. The evidence archive was not executed or modified: the install was
-copied first and the archive's file hashes matched before and after.
+copied first, and the SHA-256 of the eight binaries and libraries copied from
+it was unchanged afterwards. No file under the archive tree had a newer
+modification time.
 
 | Policy (`setpriv`) | Daemons start | bgpd attached to zebra | SIGTERM exit |
 | --- | --- | --- | --- |
@@ -156,7 +166,8 @@ namespaces on the test host. Nothing below is modeled unless it says so.
 | Relative program path | `TestRelativeProgramIsRefused` |
 | `Close` stops running children and refuses new ones | `TestCloseStopsRunningChildrenAndRefusesNewOnes` |
 | Concurrent `Start`, `Stop` and `Close` under the race detector | `TestConcurrentStartStopAndClose` |
-| Supervisor killed: holder and child die with it | `TestSupervisorKilledTakesHolderAndChildWithIt` |
+| Supervisor killed: holder and a Go helper child die with it | `TestSupervisorKilledTakesHolderAndChildWithIt` |
+| Exited child and holder keep their PID as zombies until reaped | `TestExitedProcessesKeepTheirPIDUntilReaped` |
 | FRR launch, attach, clean stop, reaping | `TestFRRRunsUnderTheSupervisor` (needs `NETDOC_FRR_STAGE`) |
 
 The descriptor scan also has a rootless unit test in `fds_linux_test.go`.

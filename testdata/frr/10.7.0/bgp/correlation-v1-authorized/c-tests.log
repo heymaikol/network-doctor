@@ -1,0 +1,1369 @@
+In file included from ./lib/mgmt_fe_client.h:17,
+                 from ./lib/vty.h:19,
+                 from ./lib/command.h:11,
+                 from ./lib/json.h:13,
+                 from ./lib/netdoc.h:4,
+                 from /producer/writer_test.c:11:
+./lib/mgmt_msg_native.h:269:31: warning: declaration does not declare anything
+  269 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:286:31: warning: declaration does not declare anything
+  286 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:306:31: warning: declaration does not declare anything
+  306 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:341:31: warning: declaration does not declare anything
+  341 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:370:31: warning: declaration does not declare anything
+  370 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:412:31: warning: declaration does not declare anything
+  412 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:436:31: warning: declaration does not declare anything
+  436 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:456:31: warning: declaration does not declare anything
+  456 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:475:31: warning: declaration does not declare anything
+  475 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:514:31: warning: declaration does not declare anything
+  514 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:539:31: warning: declaration does not declare anything
+  539 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:557:31: warning: declaration does not declare anything
+  557 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:570:31: warning: declaration does not declare anything
+  570 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:584:31: warning: declaration does not declare anything
+  584 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:603:31: warning: declaration does not declare anything
+  603 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:621:31: warning: declaration does not declare anything
+  621 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:642:31: warning: declaration does not declare anything
+  642 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:659:31: warning: declaration does not declare anything
+  659 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:671:31: warning: declaration does not declare anything
+  671 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:692:31: warning: declaration does not declare anything
+  692 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:707:31: warning: declaration does not declare anything
+  707 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:716:31: warning: declaration does not declare anything
+  716 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:728:31: warning: declaration does not declare anything
+  728 |         struct mgmt_msg_header;
+      |                               ^
+startup: PASS
+joined: PASS
+concurrent: PASS
+late: PASS
+write_error: PASS
+write_eintr: PASS
+write_zero: PASS
+write_short: PASS
+flush_before: PASS
+flush_after: PASS
+close: PASS
+close_eintr: PASS
+trailer_write: PASS
+publish: PASS
+oversize: PASS
+publish_existing_regular: PASS
+publish_existing_symlink: PASS
+revoke_existing_regular: PASS
+revoke_existing_symlink: PASS
+publish_enosys: PASS
+publish_eopnotsupp: PASS
+publish_einval: PASS
+revoke_enosys: PASS
+revoke_eopnotsupp: PASS
+revoke_einval: PASS
+revoke_marker_regular: PASS
+revoke_marker_symlink: PASS
+WRITER_SHUTDOWN_TESTS_PASSED
+In file included from ./lib/mgmt_fe_client.h:17,
+                 from ./lib/vty.h:19,
+                 from ./lib/command.h:11,
+                 from ./lib/json.h:13,
+                 from ./lib/netdoc.h:4,
+                 from /producer/codec_test.c:5:
+./lib/mgmt_msg_native.h:269:31: warning: declaration does not declare anything
+  269 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:286:31: warning: declaration does not declare anything
+  286 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:306:31: warning: declaration does not declare anything
+  306 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:341:31: warning: declaration does not declare anything
+  341 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:370:31: warning: declaration does not declare anything
+  370 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:412:31: warning: declaration does not declare anything
+  412 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:436:31: warning: declaration does not declare anything
+  436 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:456:31: warning: declaration does not declare anything
+  456 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:475:31: warning: declaration does not declare anything
+  475 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:514:31: warning: declaration does not declare anything
+  514 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:539:31: warning: declaration does not declare anything
+  539 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:557:31: warning: declaration does not declare anything
+  557 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:570:31: warning: declaration does not declare anything
+  570 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:584:31: warning: declaration does not declare anything
+  584 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:603:31: warning: declaration does not declare anything
+  603 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:621:31: warning: declaration does not declare anything
+  621 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:642:31: warning: declaration does not declare anything
+  642 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:659:31: warning: declaration does not declare anything
+  659 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:671:31: warning: declaration does not declare anything
+  671 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:692:31: warning: declaration does not declare anything
+  692 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:707:31: warning: declaration does not declare anything
+  707 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:716:31: warning: declaration does not declare anything
+  716 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:728:31: warning: declaration does not declare anything
+  728 |         struct mgmt_msg_header;
+      |                               ^
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getl2: Attempt to get long out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 0, endp: 0
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getl2+0x139) [0x7ff5bcc97599]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x26) [0x7ff5bcc0beb6]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getl2: Attempt to get long out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 0, endp: 1
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getl2+0x139) [0x7ff5bcc97599]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x26) [0x7ff5bcc0beb6]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getl2: Attempt to get long out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 0, endp: 2
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getl2+0x139) [0x7ff5bcc97599]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x26) [0x7ff5bcc0beb6]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getl2: Attempt to get long out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 0, endp: 3
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getl2+0x139) [0x7ff5bcc97599]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x26) [0x7ff5bcc0beb6]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 4
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 5
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 6
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 7
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 8
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 9
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 10
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 11
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 12
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 13
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 14
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 15
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 16
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 17
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 18
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 19
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 20
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 21
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 22
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 23
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 24
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 25
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 26
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 27
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 28
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 29
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 30
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 31
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 32
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 33
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 34
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 35
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 36
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 37
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 38
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 39
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_get2: Attempt to get out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 4, endp: 40
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_get2+0x101) [0x7ff5bcc96811]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x4b) [0x7ff5bcc0bedb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 41, endp: 41
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7ff5bcc0bf14]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 41, endp: 42
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7ff5bcc0bf14]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 41, endp: 43
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7ff5bcc0bf14]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 41, endp: 44
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7ff5bcc0bf14]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 41, endp: 45
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7ff5bcc0bf14]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 41, endp: 46
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7ff5bcc0bf14]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 41, endp: 47
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7ff5bcc0bf14]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 41, endp: 48
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x84) [0x7ff5bcc0bf14]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 49, endp: 49
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7ff5bcc96d81]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0xa6) [0x7ff5bcc0bf36]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 49, endp: 50
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7ff5bcc96d81]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0xa6) [0x7ff5bcc0bf36]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 51, endp: 51
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 51, endp: 52
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 51, endp: 53
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 51, endp: 54
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 51, endp: 55
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 51, endp: 56
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 51, endp: 57
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 51, endp: 58
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 59, endp: 59
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 59, endp: 60
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 59, endp: 61
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 59, endp: 62
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 59, endp: 63
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 59, endp: 64
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 59, endp: 65
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 59, endp: 66
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 67, endp: 67
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 67, endp: 68
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 67, endp: 69
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 67, endp: 70
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 67, endp: 71
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 67, endp: 72
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 67, endp: 73
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 67, endp: 74
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 75, endp: 75
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 75, endp: 76
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 75, endp: 77
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 75, endp: 78
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 75, endp: 79
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 75, endp: 80
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 75, endp: 81
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 75, endp: 82
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 83, endp: 83
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7ff5bcc96d81]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x16d) [0x7ff5bcc0bffd]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 83, endp: 84
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7ff5bcc96d81]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x16d) [0x7ff5bcc0bffd]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 85, endp: 85
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 85, endp: 86
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 85, endp: 87
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 85, endp: 88
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 85, endp: 89
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 85, endp: 90
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 85, endp: 91
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 85, endp: 92
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x1bd) [0x7ff5bcc0c04d]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 93, endp: 93
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 93, endp: 94
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 93, endp: 95
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7fCODEC_TESTS_PASSED
+f5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 93, endp: 96
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 93, endp: 97
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 93, endp: 98
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 93, endp: 99
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 93, endp: 100
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x107) [0x7ff5bcc0bf97]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 101, endp: 101
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 101, endp: 102
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 101, endp: 103
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 101, endp: 104
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 101, endp: 105
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 101, endp: 106
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 101, endp: 107
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 101, endp: 108
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x12b) [0x7ff5bcc0bfbb]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 109, endp: 109
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 109, endp: 110
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 109, endp: 111
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 109, endp: 112
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 109, endp: 113
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 109, endp: 114
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 109, endp: 115
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getq2: Attempt to get uint64 out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 109, endp: 116
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getq2+0x1b1) [0x7ff5bcc97bb1]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x14f) [0x7ff5bcc0bfdf]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 117, endp: 117
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7ff5bcc96d81]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x16d) [0x7ff5bcc0bffd]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]
+2026/10/26 17:52:28 [S48XV-GT1WC][EC 100663311] stream_getw2: Attempt to get  out of bounds
+2026/10/26 17:52:28 [RF6RD-ZCBTC][EC 100663311] &(struct stream): 0x26aa3060, size: 8192, getp: 117, endp: 118
+2026/10/26 17:52:28 Backtrace for 7 stack frames:
+2026/10/26 17:52:28 [bt 0] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(zlog_backtrace+0x27) [0x7ff5bcc4cea7]
+2026/10/26 17:52:28 [bt 1] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(stream_getw2+0x111) [0x7ff5bcc96d81]
+2026/10/26 17:52:28 [bt 2] /work/producer-build/noreplace-a/frr-87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/.libs/libfrr.so.0(ndoc_decode+0x16d) [0x7ff5bcc0bffd]
+2026/10/26 17:52:28 [bt 3] /work/authorization/codec-test() [0x4008e8]
+2026/10/26 17:52:28 [bt 4] /lib64/libc.so.6(+0x3681) [0x7ff5bca0a681]
+2026/10/26 17:52:28 [bt 5] /lib64/libc.so.6(__libc_start_main+0x88) [0x7ff5bca0a798]
+2026/10/26 17:52:28 [bt 6] /work/authorization/codec-test() [0x400465]

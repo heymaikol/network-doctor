@@ -1,0 +1,65 @@
+{
+  "canonical": {
+    "command": "TMPDIR=/home/mplaczek/network-doctor/.pr407-tmp/gotmp ./scripts/check --race",
+    "exit_status": 0,
+    "log": "repository-check.log"
+  },
+  "clean_builds": {
+    "all_eight_artifacts_identical": true,
+    "build_manifests_identical": true,
+    "count": 2,
+    "exit_statuses": [
+      0,
+      0
+    ],
+    "wire_codec_tests_passed": true
+  },
+  "legacy_application": {
+    "command": "git diff --exit-code 729b168 -- internal cmd go.mod go.sum scripts",
+    "exit_status": 0,
+    "ordinary_and_golden_tests_passed": true
+  },
+  "limits": [
+    "historical identity edges, not an atomic current FIB snapshot",
+    "no Network Doctor importer or forwarding ratings",
+    "no packet delivery, convergence, hardware-offload, or field deployment proof",
+    "no C ThreadSanitizer run; concurrent C writer tested separately from Go race gate",
+    "other producer builds, schemas, kernels and operating systems unsupported"
+  ],
+  "live_proof": {
+    "DONE": true,
+    "exit_status": 0,
+    "producer_bundle_exit_status": 0
+  },
+  "live_restart": {
+    "DONE": true,
+    "claims": 0,
+    "exit_status": 0,
+    "producer_bundle_exit_status": 2
+  },
+  "original_investigation": {
+    "command": "python3 -I testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+    "exit_status": 0
+  },
+  "producer_tests": {
+    "command": "python3 -B -I -m unittest discover -s /repo/contrib/frr-correlation/v1 -p test_*.py -v",
+    "environment": "recreated locked rootless builder, network disabled",
+    "exit_status": 0,
+    "log": "producer-tests.log",
+    "skips": 0,
+    "tests": 21
+  },
+  "syntax_checks": {
+    "exit_status": 0,
+    "files": [
+      "contrib/frr-correlation/v1/build.sh",
+      "contrib/frr-correlation/v1/lab.sh"
+    ]
+  },
+  "writer_stress": {
+    "contiguous_and_unique": true,
+    "events": 4000,
+    "exit_status": 0,
+    "threads": 4
+  }
+}

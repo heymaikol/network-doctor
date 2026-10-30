@@ -10,6 +10,112 @@ permissions:
   contents: read
 
 jobs:
+  # Historical builder reproducibility and live acceptance remain separate gates.
+  frr-correlation-regression:
+    name: FRR correlation packager and schema
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build pinned Python regression environment
+        run: |
+          set -euo pipefail
+          # This is a test-only Python image, not the certified FRR builder.
+          # The FRR builder RPM lock is untouched and must not be relaxed when
+          # its historical packages disappear from current Fedora repositories.
+          docker build --pull --no-cache -t netdoc-frr-regression:ci - <<'DOCKERFILE'
+          FROM ubuntu@sha256:2e863c44b718727c860746568e1d54afd13b2fa71b160f5cd9058fc436217b30
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update && apt-get install --no-install-recommends -y \
+              python3-jsonschema=4.10.3-2ubuntu1 && \
+              rm -rf /var/lib/apt/lists/*
+          USER 65534:65534
+          DOCKERFILE
+          test "$(docker image inspect --format '{{.Config.User}}' netdoc-frr-regression:ci)" = "65534:65534"
+      - name: Verify historical manifests and run all packager regressions
+        run: |
+          set -euo pipefail
+          # The image may download packages during build. Execution is offline,
+          # unprivileged, with no capabilities and a read-only repository mount.
+          docker run --rm --pull never --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --user 65534:65534 \
+            --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+            --mount "type=bind,src=$PWD,dst=/src,readonly" \
+            --workdir /src netdoc-frr-regression:ci \
+            bash -euo pipefail -c '
+              dpkg-query -W python3-jsonschema
+              python3 -B -I -c "import jsonschema; print(jsonschema.__file__)"
+              evidence=/src/testdata/frr/10.7.0/bgp/correlation-v1-noreplace
+              for part in . proof restart; do
+                log="/tmp/manifest-$part.log"
+                if ! (cd "$evidence/$part" && sha256sum --check --strict SHA256SUMS) > "$log" 2>&1; then
+                  tail -n 30 "$log"
+                  echo "Historical evidence integrity check failed: $part" >&2
+                  exit 1
+                fi
+                echo "PASS: $part historical evidence checksum manifest"
+              done
+              python3 -B -I -m unittest discover \
+                -s /src/contrib/frr-correlation/v1 \
+                -p test_bundle.py -v 2>&1 | tee /tmp/packager-tests.log
+              # Require the reviewed baseline suite, including schema validation.
+              # Adding intentional tests requires updating this count.
+              grep -Eq "^Ran 48 tests in " /tmp/packager-tests.log
+              grep -Eq "^test_versioned_schema .* \.\.\. ok$" /tmp/packager-tests.log
+              grep -qx "OK" /tmp/packager-tests.log
+              if grep -Eq "skipped=|^FAILED" /tmp/packager-tests.log; then
+                echo "Skipped or failed packager tests are forbidden" >&2
+                exit 1
+              fi
+            '
+
+  frr-correlation-c-regression:
+    name: FRR correlation writer and codec sanitizers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build pinned C regression environment
+        run: |
+          set -euo pipefail
+          docker build --pull --no-cache -t netdoc-frr-c-regression:ci \
+            -f contrib/frr-correlation/v1/Containerfile.ci \
+            contrib/frr-correlation/v1 2>&1 | tee "$RUNNER_TEMP/frr-c-provision.log"
+          test "$(docker image inspect --format '{{.Config.User}}' netdoc-frr-c-regression:ci)" = "65534:65534"
+      - name: Compile FRR hooks and run writer and codec regressions
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/frr-c-regression"
+          mkdir "$work"
+          chmod 777 "$work"
+          if ! docker run --rm --pull never --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --user 65534:65534 \
+            --pids-limit 256 --memory 6g \
+            --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+            --mount "type=bind,src=$PWD,dst=/src,readonly" \
+            --mount "type=bind,src=$work,dst=/work" \
+            netdoc-frr-c-regression:ci \
+            bash /src/contrib/frr-correlation/v1/check-c.sh > "$work/build.log" 2>&1; then
+            tail -n 60 "$work/build.log"
+            exit 1
+          fi
+          tail -n 30 "$work/build.log"
+      - name: Preserve C validation logs and package versions
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frr-c-regression
+          path: |
+            ${{ runner.temp }}/frr-c-provision.log
+            ${{ runner.temp }}/frr-c-regression/*.log
+            ${{ runner.temp }}/frr-c-regression/*.txt
+          if-no-files-found: error
+
   gohawk:
     name: GoHawk core analyzers
     runs-on: ubuntu-latest
@@ -207,7 +313,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # The contributor-facing fast gate, run as the real command so the script
-      # cannot rot unnoticed. Contributors are told to run `scripts/check`, and
+      # cannot rot unnoticed. Contributors are told to run `scripts/check.sh`, and
       # running the real script is the only thing that proves it still works.
       # Asserting on its text cannot. It is its own shard because most of its
       # work is repeated by the shards below, so paying for it no longer delays
@@ -216,7 +322,7 @@ jobs:
       # on the hosts that have no shard here.
       - if: matrix.shard == 'check'
         name: Run the fast local check contributors are asked to run
-        run: ./scripts/check
+        run: ./scripts/check.sh
 
       # Every coverage-producing suite runs in this one shard, so the merge
       # below still sees all four profiles without moving them between jobs.
@@ -277,10 +383,40 @@ jobs:
       # nexthop changes inside its own user and network namespace, and must run
       # here rather than skip.
       - if: matrix.shard == 'coverage'
-        name: Run route-event namespace test
-        run: go test -count=1 -tags netns_integration -run '^TestRouteEvents' ./internal/diagnostic
+        name: Run route-event and DNS-search namespace tests
+        run: go test -count=1 -tags netns_integration -run '^Test(RouteEvents|PublicDNSSearchIsolation)' ./internal/diagnostic
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
+      # The supervisor's namespace tests need rootless user namespaces and the pidfd
+      # namespace ioctls (Linux 6.11 or later). The package decides whether this
+      # runner has them, not a shell guess about the kernel: one probe test runs
+      # without NETDOC_SIM_REQUIRE_NETNS. If it passes, the whole package must pass
+      # with the variable set, and a failure then is a real failure. If it skips, the
+      # step prints a warning that names the reason and succeeds, so a runner that
+      # cannot host namespaces never turns this job permanently red. Anything other
+      # than a pass or a skip fails, so a renamed probe cannot make the step vacuous.
+      - if: matrix.shard == 'coverage'
+        name: Run supervisor namespace tests
+        run: |
+          set -uo pipefail
+          probe_test=TestNamespaceIsRetainedIsolatedAndReleased
+          echo "kernel: $(uname -r)"
+          status=0
+          probe=$(env -u NETDOC_SIM_REQUIRE_NETNS go test -count=1 -tags netns_integration -run "^${probe_test}\$" -v ./contrib/frr-correlation/supervisor 2>&1) || status=$?
+          printf '%s\n' "$probe"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::supervisor probe test failed"
+            exit 1
+          fi
+          if grep -q -- "--- PASS: ${probe_test} " <<<"$probe"; then
+            NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -tags netns_integration ./contrib/frr-correlation/supervisor
+          elif grep -q -- "--- SKIP: ${probe_test} " <<<"$probe"; then
+            reason=$(grep -B1 -- "--- SKIP: ${probe_test} " <<<"$probe" | head -n1 | sed 's/^ *//')
+            echo "::warning::supervisor namespace tests did not run on kernel $(uname -r): ${reason}"
+          else
+            echo "::error::supervisor probe test neither passed nor skipped"
+            exit 1
+          fi
       - if: matrix.shard == 'coverage'
         name: Merge coverage
         run: |

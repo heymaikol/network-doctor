@@ -1,0 +1,2185 @@
+{
+  "bgp_paths": [
+    {
+      "as_path": "65002",
+      "daemon": "bgpd",
+      "epoch": "c357ecce-72e1-556b-1ede-3d35c9051379",
+      "event": "bgp_path",
+      "hook": "bgp_zebra_announce_parse_nexthop",
+      "local_as": 65001,
+      "monotonic_ns": 419600913270841,
+      "multipath": false,
+      "nexthop": "10.0.1.2",
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+      "peer_address": "10.0.1.2",
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "prefix": "10.10.2.0/24",
+      "remote_as": 65002,
+      "revision": 1,
+      "safi": 1,
+      "selected": true,
+      "seq": 14,
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "stale": false,
+      "table": 254,
+      "utc_ns": 1793031165650515814,
+      "valid": true,
+      "vrf": 0
+    },
+    {
+      "as_path": "65002",
+      "daemon": "bgpd",
+      "epoch": "c357ecce-72e1-556b-1ede-3d35c9051379",
+      "event": "bgp_path",
+      "hook": "bgp_zebra_announce_parse_nexthop",
+      "local_as": 65001,
+      "monotonic_ns": 419600913494122,
+      "multipath": false,
+      "nexthop": "10.0.1.2",
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/9",
+      "peer_address": "10.0.1.2",
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "prefix": "10.10.9.0/24",
+      "remote_as": 65002,
+      "revision": 1,
+      "safi": 1,
+      "selected": true,
+      "seq": 16,
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "stale": false,
+      "table": 254,
+      "utc_ns": 1793031165650739093,
+      "valid": true,
+      "vrf": 0
+    },
+    {
+      "as_path": "65002",
+      "daemon": "bgpd",
+      "epoch": "c357ecce-72e1-556b-1ede-3d35c9051379",
+      "event": "bgp_path",
+      "hook": "bgp_zebra_announce_parse_nexthop",
+      "local_as": 65001,
+      "monotonic_ns": 419603941432806,
+      "multipath": true,
+      "nexthop": "10.0.1.2",
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+      "peer_address": "10.0.1.2",
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "prefix": "10.10.2.0/24",
+      "remote_as": 65002,
+      "revision": 2,
+      "safi": 1,
+      "selected": true,
+      "seq": 18,
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "stale": false,
+      "table": 254,
+      "utc_ns": 1793031168678677734,
+      "valid": true,
+      "vrf": 0
+    },
+    {
+      "as_path": "65002",
+      "daemon": "bgpd",
+      "epoch": "c357ecce-72e1-556b-1ede-3d35c9051379",
+      "event": "bgp_path",
+      "hook": "bgp_zebra_announce_parse_nexthop",
+      "local_as": 65001,
+      "monotonic_ns": 419603941451919,
+      "multipath": true,
+      "nexthop": "10.0.1.2",
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+      "peer_address": "10.0.3.3",
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "prefix": "10.10.2.0/24",
+      "remote_as": 65002,
+      "revision": 1,
+      "safi": 1,
+      "selected": false,
+      "seq": 19,
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "stale": false,
+      "table": 254,
+      "utc_ns": 1793031168678696838,
+      "valid": true,
+      "vrf": 0
+    },
+    {
+      "as_path": "65002",
+      "daemon": "bgpd",
+      "epoch": "c357ecce-72e1-556b-1ede-3d35c9051379",
+      "event": "bgp_path",
+      "hook": "bgp_zebra_announce_parse_nexthop",
+      "local_as": 65001,
+      "monotonic_ns": 419603941484610,
+      "multipath": false,
+      "nexthop": "10.0.3.3",
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/13",
+      "peer_address": "10.0.3.3",
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "prefix": "10.10.3.0/24",
+      "remote_as": 65002,
+      "revision": 1,
+      "safi": 1,
+      "selected": true,
+      "seq": 21,
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "stale": false,
+      "table": 254,
+      "utc_ns": 1793031168678729529,
+      "valid": true,
+      "vrf": 0
+    },
+    {
+      "as_path": "65002",
+      "daemon": "bgpd",
+      "epoch": "c357ecce-72e1-556b-1ede-3d35c9051379",
+      "event": "bgp_path",
+      "hook": "bgp_zebra_announce_parse_nexthop",
+      "local_as": 65001,
+      "monotonic_ns": 419643222789781,
+      "multipath": false,
+      "nexthop": "10.0.1.2",
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+      "peer_address": "10.0.3.3",
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "prefix": "10.10.2.0/24",
+      "remote_as": 65002,
+      "revision": 2,
+      "safi": 1,
+      "selected": true,
+      "seq": 25,
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "stale": false,
+      "table": 254,
+      "utc_ns": 1793031207960034749,
+      "valid": true,
+      "vrf": 0
+    }
+  ],
+  "capture": {
+    "attribution_complete": false,
+    "boot_id": "b4cf28c9-5380-441d-9be3-324ecefd110e",
+    "complete": true,
+    "gaps": [],
+    "netns_inode": 4026533250,
+    "pending_operations": [
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/100",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/101",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/102",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/103",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/104",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/89",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/90",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/91",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/92",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/93",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/94",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/95",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/96",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/97",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/98",
+      "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/99"
+    ],
+    "scope": "closed producer histories; historical claims only",
+    "snapshot_complete": false
+  },
+  "claims": [
+    {
+      "generation": 1,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+      "path_revision": 1,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/57",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:14",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:15",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:92"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 1,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/9",
+      "path_revision": 1,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:16",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:17",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:93"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+      "path_revision": 1,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/57",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:14",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:15",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:94"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "leg": 0,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/59",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/57",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:95",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:94",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:16"
+      ],
+      "type": "route_leg_resolved_by_route"
+    },
+    {
+      "generation": 2,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/9",
+      "path_revision": 1,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:16",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:17",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:98"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "leg": 0,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/62",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:99",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:98",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:16"
+      ],
+      "type": "route_leg_resolved_by_route"
+    },
+    {
+      "generation": 2,
+      "historical": true,
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/61",
+      "resolution_ids": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/59"
+      ],
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/57",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:97",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:101",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:103",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:105"
+      ],
+      "type": "route_installed_as_fib"
+    },
+    {
+      "generation": 2,
+      "historical": true,
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/64",
+      "resolution_ids": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/62"
+      ],
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:102",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:104",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:106",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:107"
+      ],
+      "type": "route_installed_as_fib"
+    },
+    {
+      "generation": 2,
+      "leg": 0,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/71",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/67",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:115",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:114",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:98"
+      ],
+      "type": "route_leg_resolved_by_route"
+    },
+    {
+      "generation": 2,
+      "historical": true,
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/73",
+      "resolution_ids": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/71"
+      ],
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/67",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:118",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:120",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:122",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:123"
+      ],
+      "type": "route_installed_as_fib"
+    },
+    {
+      "generation": 1,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+      "path_revision": 2,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:18",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:20",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:124"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 1,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+      "path_revision": 1,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:19",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:20",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:124"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 1,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/13",
+      "path_revision": 1,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/75",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:21",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:22",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:125"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+      "path_revision": 2,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:18",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:20",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:126"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+      "path_revision": 1,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:19",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:20",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:126"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "leg": 0,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/76",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:127",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:126",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:16"
+      ],
+      "type": "route_leg_resolved_by_route"
+    },
+    {
+      "generation": 2,
+      "leg": 1,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/77",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:128",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:126",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:16"
+      ],
+      "type": "route_leg_resolved_by_route"
+    },
+    {
+      "generation": 2,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/13",
+      "path_revision": 1,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/75",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:21",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:22",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:131"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "leg": 0,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/79",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/5",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/75",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:132",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:131",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:28"
+      ],
+      "type": "route_leg_resolved_by_route"
+    },
+    {
+      "generation": 2,
+      "historical": true,
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/78",
+      "resolution_ids": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/76",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/77"
+      ],
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:130",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:135",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:137",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:139"
+      ],
+      "type": "route_installed_as_fib"
+    },
+    {
+      "generation": 2,
+      "historical": true,
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/81",
+      "resolution_ids": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/79"
+      ],
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/75",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:134",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:136",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:138",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:140"
+      ],
+      "type": "route_installed_as_fib"
+    },
+    {
+      "generation": 1,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+      "path_revision": 2,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/86",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:25",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:26",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:151"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+      "path_revision": 2,
+      "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/86",
+      "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6",
+      "source_refs": [
+        "c357ecce-72e1-556b-1ede-3d35c9051379:25",
+        "c357ecce-72e1-556b-1ede-3d35c9051379:26",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:152"
+      ],
+      "type": "path_submitted_as_route"
+    },
+    {
+      "generation": 2,
+      "leg": 0,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/87",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/86",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:153",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:152",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:16"
+      ],
+      "type": "route_leg_resolved_by_route"
+    },
+    {
+      "generation": 2,
+      "historical": true,
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/88",
+      "resolution_ids": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/87"
+      ],
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/86",
+      "source_refs": [
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:155",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:156",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:157",
+        "d3273161-6715-c3fc-91ce-08f8afe3a644:158"
+      ],
+      "type": "route_installed_as_fib"
+    }
+  ],
+  "fib_entries": [
+    {
+      "accepted_generation": true,
+      "daemon": "zebra",
+      "dplane_sequence": 97,
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "error": 0,
+      "event": "operation_result",
+      "generation": 2,
+      "hook": "operation_result",
+      "monotonic_ns": 419600924894651,
+      "netlink_sequence": 0,
+      "nhg": 14,
+      "operation": "ROUTE_INSTALL",
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/61",
+      "prefix": "10.10.2.0/24",
+      "result": "SUCCESS",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/57",
+      "safi": 1,
+      "seq": 105,
+      "table": 254,
+      "utc_ns": 1793031165662139621,
+      "vrf": 0
+    },
+    {
+      "accepted_generation": true,
+      "daemon": "zebra",
+      "dplane_sequence": 99,
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "error": 0,
+      "event": "operation_result",
+      "generation": 2,
+      "hook": "operation_result",
+      "monotonic_ns": 419600924982430,
+      "netlink_sequence": 0,
+      "nhg": 14,
+      "operation": "ROUTE_INSTALL",
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/64",
+      "prefix": "10.10.9.0/24",
+      "result": "SUCCESS",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "safi": 1,
+      "seq": 107,
+      "table": 254,
+      "utc_ns": 1793031165662227406,
+      "vrf": 0
+    },
+    {
+      "accepted_generation": true,
+      "daemon": "zebra",
+      "dplane_sequence": 110,
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "error": 0,
+      "event": "operation_result",
+      "generation": 2,
+      "hook": "operation_result",
+      "monotonic_ns": 419600973797436,
+      "netlink_sequence": 0,
+      "nhg": 14,
+      "operation": "ROUTE_INSTALL",
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/73",
+      "prefix": "198.51.100.0/24",
+      "result": "SUCCESS",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/67",
+      "safi": 1,
+      "seq": 123,
+      "table": 254,
+      "utc_ns": 1793031165711042408,
+      "vrf": 0
+    },
+    {
+      "accepted_generation": true,
+      "daemon": "zebra",
+      "dplane_sequence": 118,
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "error": 0,
+      "event": "operation_result",
+      "generation": 2,
+      "hook": "operation_result",
+      "monotonic_ns": 419603952983704,
+      "netlink_sequence": 0,
+      "nhg": 21,
+      "operation": "ROUTE_UPDATE",
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/78",
+      "prefix": "10.10.2.0/24",
+      "result": "SUCCESS",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "safi": 1,
+      "seq": 139,
+      "table": 254,
+      "utc_ns": 1793031168690228662,
+      "vrf": 0
+    },
+    {
+      "accepted_generation": true,
+      "daemon": "zebra",
+      "dplane_sequence": 122,
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "error": 0,
+      "event": "operation_result",
+      "generation": 2,
+      "hook": "operation_result",
+      "monotonic_ns": 419603953076277,
+      "netlink_sequence": 0,
+      "nhg": 22,
+      "operation": "ROUTE_INSTALL",
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/81",
+      "prefix": "10.10.3.0/24",
+      "result": "SUCCESS",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/75",
+      "safi": 1,
+      "seq": 140,
+      "table": 254,
+      "utc_ns": 1793031168690321233,
+      "vrf": 0
+    },
+    {
+      "accepted_generation": true,
+      "daemon": "zebra",
+      "dplane_sequence": 136,
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "error": 0,
+      "event": "operation_result",
+      "generation": 2,
+      "hook": "operation_result",
+      "monotonic_ns": 419643234363042,
+      "netlink_sequence": 0,
+      "nhg": 14,
+      "operation": "ROUTE_UPDATE",
+      "operation_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/operation/88",
+      "prefix": "10.10.2.0/24",
+      "result": "SUCCESS",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/86",
+      "safi": 1,
+      "seq": 158,
+      "table": 254,
+      "utc_ns": 1793031207971608034,
+      "vrf": 0
+    }
+  ],
+  "producer": {
+    "artifacts": {
+      "usr/bin/vtysh": "dbaec8a44f9caa2b5f1867a41750a1eb8be92afa210a79dc50daa21955ccb46c",
+      "usr/lib64/frr/libfrr.so.0": "8ac012413ca0a3e84af3405c7fc62f9a4784579d3ca5b0ae81007624dc440af5",
+      "usr/lib64/frr/libmgmt_be_nb.so.0": "ac4ea35dfd2283f202f567a70d4e58fe9ac069be8a69b4565852e612a188b86e",
+      "usr/lib64/libyang.so.3": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb",
+      "usr/libexec/frr/bgpd": "a80189660879e1d45bd28ebe634e461f1e7b5b3786359e694b366f2ff8f71712",
+      "usr/libexec/frr/mgmtd": "bae7d6f7fa0d45f77d12ccc1a38c4fd84fc7a54ae965c034d937abbf8f0a9c19",
+      "usr/libexec/frr/staticd": "f27d18c6e44c2fe3e7d10b7fc993a2848b16049082156e8cd872070af17ccd54",
+      "usr/libexec/frr/zebra": "6de7c37fdc428b7d9b462d3f0ab5a06fde8c9a17f9ddd1746ad756b7c3688a5b"
+    },
+    "build_id": "89f0152ef221c716119b8b739a6464a96eaf3ff526d54e5e6e0822bea0dc179d",
+    "inputs": {
+      "archive_sha256": "bf601f8f35b03a49a5a45981721394f00d3b9eac0c5bd77577732c4c4ffffa67",
+      "cflags": "-O2 -g0 -ffile-prefix-map=SOURCE=. -fmacro-prefix-map=SOURCE=.",
+      "configuration": [
+        "--prefix=/usr",
+        "--sbindir=/usr/libexec/frr",
+        "--libdir=/usr/lib64/frr",
+        "--libexecdir=/usr/libexec/frr",
+        "--sysconfdir=/etc",
+        "--localstatedir=/var",
+        "--enable-user=root",
+        "--enable-group=root",
+        "--enable-vty-group=root",
+        "--enable-multipath=64",
+        "--disable-doc",
+        "--disable-snmp",
+        "--disable-rpki",
+        "--disable-ldpd",
+        "--disable-babeld",
+        "--disable-protobuf",
+        "--disable-zeromq",
+        "--disable-grpc"
+      ],
+      "implementation_sha256": "51d792997f50558e95fa8c9e918a7424360b3843fe4dec63dca4d9e03b1b6afd",
+      "packages_sha256": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+      "source": "87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef",
+      "source_date_epoch": 1784130712
+    },
+    "schema": "netdoc-frr-build/v1",
+    "source": "87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef",
+    "verified_kernel": "7.2.11-200.fc44.x86_64"
+  },
+  "refusals": [
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:3"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:5"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:7"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:9"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:11"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:13"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:14"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:15"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:19"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:25"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:31"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:37"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:43"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:49"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:52"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:55"
+    },
+    {
+      "reason": "missing or unsuccessful explicit kernel ACK",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:58"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:59"
+    },
+    {
+      "reason": "missing or unsuccessful explicit kernel ACK",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:60"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:61"
+    },
+    {
+      "reason": "missing or unsuccessful explicit kernel ACK",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:62"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:63"
+    },
+    {
+      "reason": "missing or unsuccessful explicit kernel ACK",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:64"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:65"
+    },
+    {
+      "reason": "missing or unsuccessful explicit kernel ACK",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:66"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:67"
+    },
+    {
+      "reason": "missing or unsuccessful explicit kernel ACK",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:68"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:69"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:70"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:71"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:72"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:73"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:74"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:77"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:80"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:81"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:82"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:83"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:84"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:87"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:90"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:91"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:108"
+    },
+    {
+      "reason": "unsupported route context or unmapped origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:110"
+    },
+    {
+      "reason": "unsupported recursive lookup context",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:111"
+    },
+    {
+      "reason": "unsupported installation context or origin",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:121"
+    },
+    {
+      "reason": "unsuccessful or stale-generation dataplane result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:145"
+    },
+    {
+      "reason": "unsuccessful or stale-generation dataplane result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:150"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:185"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:187"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:189"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:191"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:193"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:159"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:161"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:163"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:165"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:167"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:169"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:171"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:173"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:176"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:179"
+    },
+    {
+      "reason": "dataplane operation has no recorded main-thread result",
+      "source_ref": "d3273161-6715-c3fc-91ce-08f8afe3a644:183"
+    }
+  ],
+  "resolutions": [
+    {
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "resolution",
+      "gateway": "10.0.1.2",
+      "generation": 2,
+      "hook": "nexthop_active:selected_fib",
+      "leg": 0,
+      "lookup_flags": 0,
+      "monotonic_ns": 419600924390954,
+      "recursive": false,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/59",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "resolver_origin": "connected",
+      "resolver_prefix": "10.0.1.0/24",
+      "resolver_table": 254,
+      "resolving_vrf": 0,
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/57",
+      "seq": 95,
+      "supported": true,
+      "table": 254,
+      "terminal_ifindex": 7,
+      "utc_ns": 1793031165661635929,
+      "vrf": 0
+    },
+    {
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "resolution",
+      "gateway": "10.0.1.2",
+      "generation": 2,
+      "hook": "nexthop_active:selected_fib",
+      "leg": 0,
+      "lookup_flags": 0,
+      "monotonic_ns": 419600924610529,
+      "recursive": false,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/62",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "resolver_origin": "connected",
+      "resolver_prefix": "10.0.1.0/24",
+      "resolver_table": 254,
+      "resolving_vrf": 0,
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "seq": 99,
+      "supported": true,
+      "table": 254,
+      "terminal_ifindex": 7,
+      "utc_ns": 1793031165661855502,
+      "vrf": 0
+    },
+    {
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "resolution",
+      "gateway": "10.0.1.2",
+      "generation": 2,
+      "hook": "nexthop_active:selected_fib",
+      "leg": 0,
+      "lookup_flags": 2113,
+      "monotonic_ns": 419600973248760,
+      "recursive": false,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/68",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "resolver_origin": "connected",
+      "resolver_prefix": "10.0.1.0/24",
+      "resolver_table": 254,
+      "resolving_vrf": 0,
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/65",
+      "seq": 111,
+      "supported": false,
+      "table": 100,
+      "terminal_ifindex": 7,
+      "utc_ns": 1793031165710493730,
+      "vrf": 0
+    },
+    {
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "resolution",
+      "gateway": "10.10.9.2",
+      "generation": 2,
+      "hook": "nexthop_active:selected_fib",
+      "leg": 0,
+      "lookup_flags": 65,
+      "monotonic_ns": 419600973432620,
+      "recursive": true,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/71",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "resolver_origin": "bgp",
+      "resolver_prefix": "10.10.9.0/24",
+      "resolver_table": 254,
+      "resolving_vrf": 0,
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/67",
+      "seq": 115,
+      "supported": true,
+      "table": 254,
+      "terminal_ifindex": 0,
+      "utc_ns": 1793031165710677590,
+      "vrf": 0
+    },
+    {
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "resolution",
+      "gateway": "10.0.1.2",
+      "generation": 2,
+      "hook": "nexthop_active:selected_fib",
+      "leg": 0,
+      "lookup_flags": 0,
+      "monotonic_ns": 419603951952068,
+      "recursive": false,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/76",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "resolver_origin": "connected",
+      "resolver_prefix": "10.0.1.0/24",
+      "resolver_table": 254,
+      "resolving_vrf": 0,
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "seq": 127,
+      "supported": true,
+      "table": 254,
+      "terminal_ifindex": 7,
+      "utc_ns": 1793031168689197023,
+      "vrf": 0
+    },
+    {
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "resolution",
+      "gateway": "10.0.1.2",
+      "generation": 2,
+      "hook": "nexthop_active:selected_fib",
+      "leg": 1,
+      "lookup_flags": 0,
+      "monotonic_ns": 419603951976629,
+      "recursive": false,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/77",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "resolver_origin": "connected",
+      "resolver_prefix": "10.0.1.0/24",
+      "resolver_table": 254,
+      "resolving_vrf": 0,
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "seq": 128,
+      "supported": true,
+      "table": 254,
+      "terminal_ifindex": 7,
+      "utc_ns": 1793031168689221570,
+      "vrf": 0
+    },
+    {
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "resolution",
+      "gateway": "10.0.3.3",
+      "generation": 2,
+      "hook": "nexthop_active:selected_fib",
+      "leg": 0,
+      "lookup_flags": 0,
+      "monotonic_ns": 419603952112870,
+      "recursive": false,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/79",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/5",
+      "resolver_origin": "connected",
+      "resolver_prefix": "10.0.3.0/24",
+      "resolver_table": 254,
+      "resolving_vrf": 0,
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/75",
+      "seq": 132,
+      "supported": true,
+      "table": 254,
+      "terminal_ifindex": 9,
+      "utc_ns": 1793031168689357812,
+      "vrf": 0
+    },
+    {
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "resolution",
+      "gateway": "10.0.1.2",
+      "generation": 2,
+      "hook": "nexthop_active:selected_fib",
+      "leg": 0,
+      "lookup_flags": 0,
+      "monotonic_ns": 419643233645890,
+      "recursive": false,
+      "resolution_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/resolution/87",
+      "resolver_generation": 2,
+      "resolver_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "resolver_origin": "connected",
+      "resolver_prefix": "10.0.1.0/24",
+      "resolver_table": 254,
+      "resolving_vrf": 0,
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/86",
+      "seq": 153,
+      "supported": true,
+      "table": 254,
+      "terminal_ifindex": 7,
+      "utc_ns": 1793031207970890863,
+      "vrf": 0
+    }
+  ],
+  "routes": [
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728802797,
+      "origin": "connected",
+      "prefix": "10.0.1.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "safi": 1,
+      "seq": 2,
+      "table": 254,
+      "utc_ns": 1793031163466047717,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728820203,
+      "origin": "connected",
+      "prefix": "10.0.1.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/2",
+      "safi": 2,
+      "seq": 3,
+      "table": 254,
+      "utc_ns": 1793031163466065123,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728826628,
+      "origin": "local",
+      "prefix": "10.0.1.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/3",
+      "safi": 1,
+      "seq": 4,
+      "table": 254,
+      "utc_ns": 1793031163466071548,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728832568,
+      "origin": "local",
+      "prefix": "10.0.1.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/4",
+      "safi": 2,
+      "seq": 5,
+      "table": 254,
+      "utc_ns": 1793031163466077488,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728840200,
+      "origin": "connected",
+      "prefix": "10.0.3.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/5",
+      "safi": 1,
+      "seq": 6,
+      "table": 254,
+      "utc_ns": 1793031163466085121,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728869740,
+      "origin": "connected",
+      "prefix": "10.0.3.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/6",
+      "safi": 2,
+      "seq": 7,
+      "table": 254,
+      "utc_ns": 1793031163466114660,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728874632,
+      "origin": "local",
+      "prefix": "10.0.3.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/7",
+      "safi": 1,
+      "seq": 8,
+      "table": 254,
+      "utc_ns": 1793031163466119552,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728879473,
+      "origin": "local",
+      "prefix": "10.0.3.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/8",
+      "safi": 2,
+      "seq": 9,
+      "table": 254,
+      "utc_ns": 1793031163466124393,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728884351,
+      "origin": "connected",
+      "prefix": "10.10.1.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/9",
+      "safi": 1,
+      "seq": 10,
+      "table": 254,
+      "utc_ns": 1793031163466129272,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728890385,
+      "origin": "connected",
+      "prefix": "10.10.1.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/10",
+      "safi": 2,
+      "seq": 11,
+      "table": 254,
+      "utc_ns": 1793031163466135305,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728895533,
+      "origin": "local",
+      "prefix": "10.10.1.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/11",
+      "safi": 1,
+      "seq": 12,
+      "table": 254,
+      "utc_ns": 1793031163466140452,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728904276,
+      "origin": "local",
+      "prefix": "10.10.1.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/12",
+      "safi": 2,
+      "seq": 13,
+      "table": 254,
+      "utc_ns": 1793031163466149196,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728913912,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/13",
+      "safi": 1,
+      "seq": 14,
+      "table": 254,
+      "utc_ns": 1793031163466158832,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598728918203,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/14",
+      "safi": 2,
+      "seq": 15,
+      "table": 254,
+      "utc_ns": 1793031163466163123,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739168137,
+      "origin": "connected",
+      "prefix": "10.0.1.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/1",
+      "safi": 1,
+      "seq": 16,
+      "table": 254,
+      "utc_ns": 1793031163476413058,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739207899,
+      "origin": "connected",
+      "prefix": "10.0.1.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/2",
+      "safi": 2,
+      "seq": 19,
+      "table": 254,
+      "utc_ns": 1793031163476452819,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739226284,
+      "origin": "local",
+      "prefix": "10.0.1.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/3",
+      "safi": 1,
+      "seq": 22,
+      "table": 254,
+      "utc_ns": 1793031163476471205,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739249154,
+      "origin": "local",
+      "prefix": "10.0.1.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/4",
+      "safi": 2,
+      "seq": 25,
+      "table": 254,
+      "utc_ns": 1793031163476494074,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739265432,
+      "origin": "connected",
+      "prefix": "10.0.3.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/5",
+      "safi": 1,
+      "seq": 28,
+      "table": 254,
+      "utc_ns": 1793031163476510352,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739282460,
+      "origin": "connected",
+      "prefix": "10.0.3.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/6",
+      "safi": 2,
+      "seq": 31,
+      "table": 254,
+      "utc_ns": 1793031163476527380,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739299758,
+      "origin": "local",
+      "prefix": "10.0.3.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/7",
+      "safi": 1,
+      "seq": 34,
+      "table": 254,
+      "utc_ns": 1793031163476544679,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739316953,
+      "origin": "local",
+      "prefix": "10.0.3.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/8",
+      "safi": 2,
+      "seq": 37,
+      "table": 254,
+      "utc_ns": 1793031163476561874,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739331740,
+      "origin": "connected",
+      "prefix": "10.10.1.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/9",
+      "safi": 1,
+      "seq": 40,
+      "table": 254,
+      "utc_ns": 1793031163476576661,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739350001,
+      "origin": "connected",
+      "prefix": "10.10.1.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/10",
+      "safi": 2,
+      "seq": 43,
+      "table": 254,
+      "utc_ns": 1793031163476594921,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739365124,
+      "origin": "local",
+      "prefix": "10.10.1.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/11",
+      "safi": 1,
+      "seq": 46,
+      "table": 254,
+      "utc_ns": 1793031163476610044,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739379557,
+      "origin": "local",
+      "prefix": "10.10.1.1/32",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/12",
+      "safi": 2,
+      "seq": 49,
+      "table": 254,
+      "utc_ns": 1793031163476624477,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739395912,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/13",
+      "safi": 1,
+      "seq": 52,
+      "table": 254,
+      "utc_ns": 1793031163476640834,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419598739412075,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/14",
+      "safi": 2,
+      "seq": 55,
+      "table": 254,
+      "utc_ns": 1793031163476656995,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419599678422950,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/49",
+      "safi": 1,
+      "seq": 72,
+      "table": 254,
+      "utc_ns": 1793031164415667924,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419599678499910,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/50",
+      "safi": 2,
+      "seq": 73,
+      "table": 254,
+      "utc_ns": 1793031164415744881,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419599688891065,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/49",
+      "safi": 1,
+      "seq": 74,
+      "table": 254,
+      "utc_ns": 1793031164426136064,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419599689109752,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/50",
+      "safi": 2,
+      "seq": 77,
+      "table": 254,
+      "utc_ns": 1793031164426354727,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419599742309740,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/53",
+      "safi": 1,
+      "seq": 82,
+      "table": 254,
+      "utc_ns": 1793031164479554713,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419599742384141,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/54",
+      "safi": 2,
+      "seq": 83,
+      "table": 254,
+      "utc_ns": 1793031164479629111,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419599752782156,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/53",
+      "safi": 1,
+      "seq": 84,
+      "table": 254,
+      "utc_ns": 1793031164490027163,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419599752972045,
+      "origin": "connected",
+      "prefix": "fe80::/64",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/54",
+      "safi": 2,
+      "seq": 87,
+      "table": 254,
+      "utc_ns": 1793031164490217016,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/10",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+          "revision": 1,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419600913833658,
+      "origin": "bgp",
+      "prefix": "10.10.2.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/57",
+      "safi": 1,
+      "seq": 92,
+      "table": 254,
+      "utc_ns": 1793031165651078656,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/11",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/9",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+          "revision": 1,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419600913925709,
+      "origin": "bgp",
+      "prefix": "10.10.9.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "safi": 1,
+      "seq": 93,
+      "table": 254,
+      "utc_ns": 1793031165651170682,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/10",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+          "revision": 1,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419600924299532,
+      "origin": "bgp",
+      "prefix": "10.10.2.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/57",
+      "safi": 1,
+      "seq": 94,
+      "table": 254,
+      "utc_ns": 1793031165661544502,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/11",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/9",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+          "revision": 1,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419600924575200,
+      "origin": "bgp",
+      "prefix": "10.10.9.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/58",
+      "safi": 1,
+      "seq": 98,
+      "table": 254,
+      "utc_ns": 1793031165661820178,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419600962363867,
+      "origin": "static",
+      "prefix": "192.0.2.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/65",
+      "safi": 1,
+      "seq": 108,
+      "table": 100,
+      "utc_ns": 1793031165699608853,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419600962496105,
+      "origin": "static",
+      "prefix": "198.51.100.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/67",
+      "safi": 1,
+      "seq": 109,
+      "table": 254,
+      "utc_ns": 1793031165699741091,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419600973157193,
+      "origin": "static",
+      "prefix": "192.0.2.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/65",
+      "safi": 1,
+      "seq": 110,
+      "table": 100,
+      "utc_ns": 1793031165710402164,
+      "vrf": 0
+    },
+    {
+      "contributors": [],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419600973397153,
+      "origin": "static",
+      "prefix": "198.51.100.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/67",
+      "safi": 1,
+      "seq": 114,
+      "table": 254,
+      "utc_ns": 1793031165710642124,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/14",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+          "revision": 2,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5"
+        },
+        {
+          "leg": 1,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+          "revision": 1,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419603941638861,
+      "origin": "bgp",
+      "prefix": "10.10.2.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "safi": 1,
+      "seq": 124,
+      "table": 254,
+      "utc_ns": 1793031168678883789,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/15",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/13",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+          "revision": 1,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419603941678157,
+      "origin": "bgp",
+      "prefix": "10.10.3.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/75",
+      "safi": 1,
+      "seq": 125,
+      "table": 254,
+      "utc_ns": 1793031168678923084,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/14",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/8",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/2",
+          "revision": 2,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/5"
+        },
+        {
+          "leg": 1,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+          "revision": 1,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419603951904234,
+      "origin": "bgp",
+      "prefix": "10.10.2.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/74",
+      "safi": 1,
+      "seq": 126,
+      "table": 254,
+      "utc_ns": 1793031168689149175,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/15",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/13",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+          "revision": 1,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419603952080138,
+      "origin": "bgp",
+      "prefix": "10.10.3.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/75",
+      "safi": 1,
+      "seq": 131,
+      "table": 254,
+      "utc_ns": 1793031168689325079,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/16",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+          "revision": 2,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_received",
+      "generation": 1,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419643223202545,
+      "origin": "bgp",
+      "prefix": "10.10.2.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/86",
+      "safi": 1,
+      "seq": 151,
+      "table": 254,
+      "utc_ns": 1793031207960447541,
+      "vrf": 0
+    },
+    {
+      "announcement_id": "c357ecce-72e1-556b-1ede-3d35c9051379/announcement/16",
+      "contributors": [
+        {
+          "leg": 0,
+          "path_id": "c357ecce-72e1-556b-1ede-3d35c9051379/path/12",
+          "peer_id": "c357ecce-72e1-556b-1ede-3d35c9051379/peer/3",
+          "revision": 2,
+          "session_id": "c357ecce-72e1-556b-1ede-3d35c9051379/session/6"
+        }
+      ],
+      "daemon": "zebra",
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "event": "route_generation",
+      "generation": 2,
+      "hook": "zebra_rib",
+      "monotonic_ns": 419643233536198,
+      "origin": "bgp",
+      "prefix": "10.10.2.0/24",
+      "route_id": "d3273161-6715-c3fc-91ce-08f8afe3a644/route/86",
+      "safi": 1,
+      "seq": 152,
+      "table": 254,
+      "utc_ns": 1793031207970781196,
+      "vrf": 0
+    }
+  ],
+  "schema": "netdoc-frr-correlation/v1",
+  "sources": [
+    {
+      "boot_id": "b4cf28c9-5380-441d-9be3-324ecefd110e",
+      "daemon": "bgpd",
+      "end_monotonic_ns": 419662196894709,
+      "epoch": "c357ecce-72e1-556b-1ede-3d35c9051379",
+      "file": "bgpd.c357ecce-72e1-556b-1ede-3d35c9051379.jsonl",
+      "netns_inode": 4026533250,
+      "records": 38,
+      "sha256": "97829b02a6ce4df39a3993af3f2bae281014244a75be931f3ad63f89b4296c41",
+      "start_monotonic_ns": 419598755449453
+    },
+    {
+      "boot_id": "b4cf28c9-5380-441d-9be3-324ecefd110e",
+      "daemon": "zebra",
+      "end_monotonic_ns": 419662192788635,
+      "epoch": "d3273161-6715-c3fc-91ce-08f8afe3a644",
+      "file": "zebra.d3273161-6715-c3fc-91ce-08f8afe3a644.jsonl",
+      "netns_inode": 4026533250,
+      "records": 196,
+      "sha256": "0c0866ab1db407da0c7fc665d93e2131874c70895930155363940f92a83bc9a7",
+      "start_monotonic_ns": 419598728197444
+    }
+  ]
+}

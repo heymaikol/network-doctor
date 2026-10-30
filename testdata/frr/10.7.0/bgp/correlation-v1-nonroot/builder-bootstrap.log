@@ -1,0 +1,672 @@
+STEP 1/4: FROM registry.fedoraproject.org/fedora@sha256:2d894246f63e15be3557d103c50e5fdef67bf50b34e35d54753966b9c1854608
+STEP 2/4: COPY builder-packages.lock /builder-packages.lock
+--> Using cache 9f215475fc1fdc91da69753f61517cf2eff5f64901b92c4c3d41af217a295d11
+--> 9f215475fc1f
+STEP 3/4: RUN sed '/^gpg-pubkey-/d' /builder-packages.lock | xargs dnf -y --setopt=install_weak_deps=False install &&     rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | LC_ALL=C sort > /actual-packages &&     cmp /builder-packages.lock /actual-packages
+Updating and loading repositories:
+ Fedora 44 openh264 (From Cisco) - x86_ 100% |   2.7 KiB/s |   5.3 KiB |  00m02s
+ Fedora 44 - x86_64 - Updates           100% |   5.7 MiB/s |  12.5 MiB |  00m02s
+ Fedora 44 - x86_64                     100% |  11.6 MiB/s |  36.4 MiB |  00m03s
+Repositories loaded.
+Package "alternatives-1.33-5.fc44.x86_64" is already installed.
+Package "audit-libs-4.2.1-1.fc44.x86_64" is already installed.
+Package "authselect-1.7.1-1.fc44.x86_64" is already installed.
+Package "authselect-libs-1.7.1-1.fc44.x86_64" is already installed.
+Package "bash-5.3.9-3.fc44.x86_64" is already installed.
+Package "bzip2-1.0.8-23.fc44.x86_64" is already installed.
+Package "bzip2-libs-1.0.8-23.fc44.x86_64" is already installed.
+Package "ca-certificates-2026.2.92_v9.0.319-2.fc44.noarch" is already installed.
+Package "coreutils-9.10-5.fc44.x86_64" is already installed.
+Package "coreutils-common-9.10-5.fc44.x86_64" is already installed.
+Package "cracklib-2.10.3-1.fc44.x86_64" is already installed.
+Package "crypto-policies-20251128-3.git19878fe.fc44.noarch" is already installed.
+Package "curl-8.18.0-14.fc44.x86_64" is already installed.
+Package "cyrus-sasl-lib-2.1.28-35.fc44.x86_64" is already installed.
+Package "dnf5-5.4.6.0-1.fc44.x86_64" is already installed.
+Package "dnf5-plugins-5.4.6.0-1.fc44.x86_64" is already installed.
+Package "elfutils-default-yama-scope-0.196-1.fc44.noarch" is already installed.
+Package "elfutils-libelf-0.196-1.fc44.x86_64" is already installed.
+Package "elfutils-libs-0.196-1.fc44.x86_64" is already installed.
+Package "fedora-gpg-keys-44-2.noarch" is already installed.
+Package "fedora-release-common-44-18.noarch" is already installed.
+Package "fedora-release-container-44-18.noarch" is already installed.
+Package "fedora-release-identity-container-44-18.noarch" is already installed.
+Package "fedora-repos-44-2.noarch" is already installed.
+Package "file-libs-5.46-10.fc44.x86_64" is already installed.
+Package "filesystem-3.18-52.fc44.x86_64" is already installed.
+Package "findutils-1:4.10.0-7.fc44.x86_64" is already installed.
+Package "fmt-11.2.0-4.fc44.x86_64" is already installed.
+Package "gawk-5.3.2-3.fc44.x86_64" is already installed.
+Package "gdbm-1:1.23-11.fc44.x86_64" is already installed.
+Package "gdbm-libs-1:1.23-11.fc44.x86_64" is already installed.
+Package "glib2-2.88.4-1.fc44.x86_64" is already installed.
+Package "glibc-2.43-9.fc44.x86_64" is already installed.
+Package "glibc-common-2.43-9.fc44.x86_64" is already installed.
+Package "glibc-minimal-langpack-2.43-9.fc44.x86_64" is already installed.
+Package "gmp-1:6.3.0-5.fc44.x86_64" is already installed.
+Package "gnulib-l10n-20241231-2.fc44.noarch" is already installed.
+Package "gnupg2-2.4.9-16.fc44.x86_64" is already installed.
+Package "gnupg2-dirmngr-2.4.9-16.fc44.x86_64" is already installed.
+Package "gnupg2-gpg-agent-2.4.9-16.fc44.x86_64" is already installed.
+Package "gnupg2-gpgconf-2.4.9-16.fc44.x86_64" is already installed.
+Package "gnupg2-keyboxd-2.4.9-16.fc44.x86_64" is already installed.
+Package "gnupg2-verify-2.4.9-16.fc44.x86_64" is already installed.
+Package "gnutls-3.8.13-1.fc44.x86_64" is already installed.
+Package "grep-3.12-3.fc44.x86_64" is already installed.
+Package "gzip-1.14-2.fc44.x86_64" is already installed.
+Package "ima-evm-utils-libs-1.6.2-8.fc44.x86_64" is already installed.
+Package "json-c-0.18-8.fc44.x86_64" is already installed.
+Package "keyutils-libs-1.6.3-7.fc44.x86_64" is already installed.
+Package "krb5-libs-1.22.2-4.fc44.x86_64" is already installed.
+Package "libacl-2.4.0-1.fc44.x86_64" is already installed.
+Package "libarchive-3.8.7-1.fc44.x86_64" is already installed.
+Package "libassuan-2.5.7-5.fc44.x86_64" is already installed.
+Package "libattr-2.6.0-1.fc44.x86_64" is already installed.
+Package "libblkid-2.41.5-1.fc44.x86_64" is already installed.
+Package "libbrotli-1.2.0-3.fc44.x86_64" is already installed.
+Package "libcap-2.78-1.fc44.x86_64" is already installed.
+Package "libcap-ng-0.9.6-1.fc44.x86_64" is already installed.
+Package "libcbor-0.13.0-2.fc44.x86_64" is already installed.
+Package "libcom_err-1.47.3-4.fc44.x86_64" is already installed.
+Package "libcurl-8.18.0-14.fc44.x86_64" is already installed.
+Package "libdnf5-5.4.6.0-1.fc44.x86_64" is already installed.
+Package "libdnf5-cli-5.4.6.0-1.fc44.x86_64" is already installed.
+Package "libeconf-0.7.9-3.fc44.x86_64" is already installed.
+Package "libevent-2.1.13-1.fc44.x86_64" is already installed.
+Package "libffi-3.5.2-2.fc44.x86_64" is already installed.
+Package "libfido2-1.16.0-5.fc44.x86_64" is already installed.
+Package "libfsverity-1.6-4.fc44.x86_64" is already installed.
+Package "libgcc-16.2.1-2.fc44.x86_64" is already installed.
+Package "libgcrypt-1.12.2-1.fc44.x86_64" is already installed.
+Package "libgomp-16.2.1-2.fc44.x86_64" is already installed.
+Package "libgpg-error-1.58-2.fc44.x86_64" is already installed.
+Package "libidn2-2.3.8-3.fc44.x86_64" is already installed.
+Package "libksba-1.6.7-5.fc44.x86_64" is already installed.
+Package "libmodulemd-2.15.3-1.fc44.x86_64" is already installed.
+Package "libmount-2.41.5-1.fc44.x86_64" is already installed.
+Package "libnghttp2-1.68.0-5.fc44.x86_64" is already installed.
+Package "libnghttp3-1.18.0-1.fc44.x86_64" is already installed.
+Package "libnsl2-2.0.1-5.fc44.x86_64" is already installed.
+Package "libpsl-0.21.5-7.fc44.x86_64" is already installed.
+Package "libpwquality-1.4.5-15.fc44.x86_64" is already installed.
+Package "librepo-1.21.2-1.fc44.x86_64" is already installed.
+Package "libselinux-3.11-2.fc44.x86_64" is already installed.
+Package "libsemanage-3.11-1.fc44.x86_64" is already installed.
+Package "libsepol-3.11-1.fc44.x86_64" is already installed.
+Package "libsmartcols-2.41.5-1.fc44.x86_64" is already installed.
+Package "libsolv-0.7.40-2.fc44.x86_64" is already installed.
+Package "libssh-0.12.2-1.fc44.x86_64" is already installed.
+Package "libssh-config-0.12.2-1.fc44.noarch" is already installed.
+Package "libstdc++-16.2.1-2.fc44.x86_64" is already installed.
+Package "libtasn1-4.21.0-1.fc44.x86_64" is already installed.
+Package "libtirpc-1.3.8-0.fc44.x86_64" is already installed.
+Package "libtool-ltdl-2.5.4-10.fc44.x86_64" is already installed.
+Package "libunistring-1.1-11.fc44.x86_64" is already installed.
+Package "libusb1-1.0.30-1.fc44.x86_64" is already installed.
+Package "libuuid-2.41.5-1.fc44.x86_64" is already installed.
+Package "libverto-0.3.2-12.fc44.x86_64" is already installed.
+Package "libxcrypt-4.5.2-3.fc44.x86_64" is already installed.
+Package "libxml2-2.12.10-6.fc44.x86_64" is already installed.
+Package "libyaml-0.2.5-18.fc44.x86_64" is already installed.
+Package "libzstd-1.5.7-5.fc44.x86_64" is already installed.
+Package "lua-libs-5.4.8-5.fc44.x86_64" is already installed.
+Package "lz4-libs-1.10.0-4.fc44.x86_64" is already installed.
+Package "mpfr-4.2.2-3.fc44.x86_64" is already installed.
+Package "ncurses-base-6.6-1.fc44.noarch" is already installed.
+Package "ncurses-libs-6.6-1.fc44.x86_64" is already installed.
+Package "nettle-3.10.1-3.fc44.x86_64" is already installed.
+Package "ngtcp2-1.22.1-1.fc44.x86_64" is already installed.
+Package "ngtcp2-crypto-ossl-1.22.1-1.fc44.x86_64" is already installed.
+Package "npth-1.8-4.fc44.x86_64" is already installed.
+Package "openldap-2.6.15-1.fc44.x86_64" is already installed.
+Package "openssl-libs-1:3.5.9-1.fc44.x86_64" is already installed.
+Package "p11-kit-0.26.5-1.fc44.x86_64" is already installed.
+Package "p11-kit-trust-0.26.5-1.fc44.x86_64" is already installed.
+Package "pam-1.7.2-2.fc44.x86_64" is already installed.
+Package "pam-libs-1.7.2-2.fc44.x86_64" is already installed.
+Package "pcre2-10.47-1.fc44.1.x86_64" is already installed.
+Package "pcre2-syntax-10.47-1.fc44.1.noarch" is already installed.
+Package "popt-1.19-10.fc44.x86_64" is already installed.
+Package "publicsuffix-list-dafsa-20260116-1.fc44.noarch" is already installed.
+Package "readline-8.3-4.fc44.x86_64" is already installed.
+Package "rootfiles-9.0-6.fc44.noarch" is already installed.
+Package "rpm-6.0.2-1.fc44.x86_64" is already installed.
+Package "rpm-build-libs-6.0.2-1.fc44.x86_64" is already installed.
+Package "rpm-libs-6.0.2-1.fc44.x86_64" is already installed.
+Package "rpm-sequoia-1.10.3-1.fc44.x86_64" is already installed.
+Package "rpm-sign-libs-6.0.2-1.fc44.x86_64" is already installed.
+Package "sdbus-cpp-2.2.1-2.fc44.x86_64" is already installed.
+Package "sed-4.9-7.fc44.x86_64" is already installed.
+Package "setup-2.15.0-28.fc44.noarch" is already installed.
+Package "shadow-utils-2:4.19.0-7.fc44.x86_64" is already installed.
+Package "sqlite-libs-3.51.2-2.fc44.x86_64" is already installed.
+Package "sudo-1.9.17-10.p2.fc44.x86_64" is already installed.
+Package "systemd-libs-259.10-1.fc44.x86_64" is already installed.
+Package "systemd-standalone-sysusers-259.10-1.fc44.x86_64" is already installed.
+Package "tar-2:1.35-9.fc44.x86_64" is already installed.
+Package "tpm2-tss-4.1.3-9.fc44.x86_64" is already installed.
+Package "tzdata-2026e-1.fc44.noarch" is already installed.
+Package "util-linux-core-2.41.5-1.fc44.x86_64" is already installed.
+Package "vim-data-2:9.2.1202-1.fc44.noarch" is already installed.
+Package "vim-minimal-2:9.2.1202-1.fc44.x86_64" is already installed.
+Package "xz-1:5.8.2-2.fc44.x86_64" is already installed.
+Package "xz-libs-1:5.8.2-2.fc44.x86_64" is already installed.
+Package "zchunk-libs-1.5.4-1.fc44.x86_64" is already installed.
+Package "zlib-ng-compat-2.3.3-3.fc44.x86_64" is already installed.
+Package "zstd-1.5.7-5.fc44.x86_64" is already installed.
+
+Package                            Arch   Version                   Repository      Size
+Installing:
+ 7zip                              x86_64 0:26.04-1.fc44            updates      3.3 MiB
+ autoconf                          noarch 0:2.72-10.fc44            fedora       2.8 MiB
+ automake                          noarch 0:1.18.1-4.fc44           fedora       1.8 MiB
+ bat                               x86_64 0:0.26.1-4.fc44           updates      5.3 MiB
+ binutils                          x86_64 0:2.46.1-1.fc44           updates     28.2 MiB
+ bison                             x86_64 0:3.8.2-15.fc44           fedora       3.5 MiB
+ c-ares                            x86_64 0:1.34.8-1.fc44           updates    293.2 KiB
+ c-ares-devel                      x86_64 0:1.34.8-1.fc44           updates    204.5 KiB
+ cmake-filesystem                  x86_64 0:4.3.0-1.fc44            fedora       0.0   B
+ cpp                               x86_64 0:16.2.1-2.fc44           updates     42.6 MiB
+ diffutils                         x86_64 0:3.12-5.fc44             fedora       1.6 MiB
+ ed                                x86_64 0:1.22.5-2.fc44           fedora     149.7 KiB
+ elfutils-debuginfod-client        x86_64 0:0.196-1.fc44            updates     83.8 KiB
+ elfutils-libelf-devel             x86_64 0:0.196-1.fc44            updates    104.3 KiB
+ emacs-filesystem                  x86_64 1:30.2-2.fc44             fedora       0.0   B
+ expat                             x86_64 0:2.8.5-1.fc44            updates    342.2 KiB
+ flex                              x86_64 0:2.6.4-24.fc44           fedora     805.1 KiB
+ gcc                               x86_64 0:16.2.1-2.fc44           updates    121.8 MiB
+ gcc-c++                           x86_64 0:16.2.1-2.fc44           updates     46.8 MiB
+ gettext                           x86_64 0:0.26-5.fc44             updates     12.9 MiB
+ gettext-common-devel              noarch 0:0.26-5.fc44             updates    593.4 KiB
+ gettext-devel                     x86_64 0:0.26-5.fc44             updates      1.5 MiB
+ gettext-envsubst                  x86_64 0:0.26-5.fc44             updates     87.5 KiB
+ gettext-libs                      x86_64 0:0.26-5.fc44             updates      2.4 MiB
+ gettext-runtime                   x86_64 0:0.26-5.fc44             updates    738.3 KiB
+ git                               x86_64 0:2.56.0-1.fc44           updates     57.7 KiB
+ git-core                          x86_64 0:2.56.0-1.fc44           updates     27.7 MiB
+ git-core-doc                      noarch 0:2.56.0-1.fc44           updates     19.1 MiB
+ glibc-devel                       x86_64 0:2.43-9.fc44             updates      2.3 MiB
+ groff-base                        x86_64 0:1.23.0-12.fc44          fedora       3.9 MiB
+ iproute                           x86_64 0:6.17.0-2.fc44           fedora       2.1 MiB
+ jansson                           x86_64 0:2.14-4.fc44             fedora      88.9 KiB
+ json-c-devel                      x86_64 0:0.18-8.fc44             fedora     152.7 KiB
+ kernel-headers                    x86_64 0:7.2.4-200.fc44          updates      7.0 MiB
+ less                              x86_64 0:710-1.fc44              updates    488.6 KiB
+ less-color                        x86_64 0:710-1.fc44              updates      2.4 KiB
+ libatomic                         x86_64 0:16.2.1-2.fc44           updates     45.6 KiB
+ libbpf                            x86_64 2:1.6.3-2.fc44            updates    442.7 KiB
+ libcap-devel                      x86_64 0:2.78-1.fc44             updates     35.7 KiB
+ libedit                           x86_64 0:3.1-59.20260512cvs.fc44 updates    248.3 KiB
+ libfdisk                          x86_64 0:2.41.5-1.fc44           updates    388.3 KiB
+ libgit2                           x86_64 0:1.9.7-1.fc44            updates      1.4 MiB
+ liblastlog2                       x86_64 0:2.41.5-1.fc44           updates     41.6 KiB
+ libmnl                            x86_64 0:1.0.5-9.fc44            fedora      51.0 KiB
+ libmpc                            x86_64 0:1.4.1-1.fc44            updates    168.7 KiB
+ libpkgconf                        x86_64 0:2.5.1-1.fc44            fedora      90.1 KiB
+ libssh2                           x86_64 0:1.11.1-9.fc44           updates    338.6 KiB
+ libstdc++-devel                   x86_64 0:16.2.1-2.fc44           updates     41.2 MiB
+ libtextstyle                      x86_64 0:0.26-5.fc44             updates    382.0 KiB
+ libtool                           x86_64 0:2.5.4-10.fc44           fedora       2.7 MiB
+ libxcrypt-devel                   x86_64 0:4.5.2-3.fc44            fedora      31.0 KiB
+ libyang                           x86_64 0:3.13.5-2.fc44           fedora       1.3 MiB
+ libyang-devel                     x86_64 0:3.13.5-2.fc44           fedora     570.0 KiB
+ libzstd-devel                     x86_64 0:1.5.7-5.fc44            fedora     217.6 KiB
+ llhttp                            x86_64 0:9.3.1-1.fc44            fedora      96.6 KiB
+ m4                                x86_64 0:1.4.21-1.fc44           fedora     881.1 KiB
+ make                              x86_64 1:4.4.1-12.fc44           fedora       1.8 MiB
+ mpdecimal                         x86_64 0:4.0.1-3.fc44            fedora     217.1 KiB
+ ncurses                           x86_64 0:6.6-1.fc44              fedora     611.4 KiB
+ ncurses-c++-libs                  x86_64 0:6.6-1.fc44              fedora     161.5 KiB
+ ncurses-devel                     x86_64 0:6.6-1.fc44              fedora     895.6 KiB
+ oniguruma                         x86_64 0:6.9.10-4.fc44           fedora     770.9 KiB
+ openssh                           x86_64 0:10.2p1-16.fc44          updates      1.4 MiB
+ openssh-clients                   x86_64 0:10.2p1-16.fc44          updates      2.7 MiB
+ patch                             x86_64 0:2.8-4.fc44              fedora     226.6 KiB
+ pcre2-devel                       x86_64 0:10.47-1.fc44.1          fedora       2.1 MiB
+ pcre2-utf16                       x86_64 0:10.47-1.fc44.1          fedora     655.2 KiB
+ pcre2-utf32                       x86_64 0:10.47-1.fc44.1          fedora     623.1 KiB
+ perl-AutoLoader                   noarch 0:5.74-525.fc44           updates     20.6 KiB
+ perl-B                            x86_64 0:1.89-525.fc44           updates    501.2 KiB
+ perl-Carp                         noarch 0:1.54-521.fc44           fedora      46.6 KiB
+ perl-Class-Struct                 noarch 0:0.68-525.fc44           updates     25.4 KiB
+ perl-Data-Dumper                  x86_64 0:2.192-523.fc44          updates    115.5 KiB
+ perl-Digest                       noarch 0:1.20-521.fc44           fedora      35.3 KiB
+ perl-Digest-MD5                   x86_64 0:2.59-521.fc44           fedora      59.6 KiB
+ perl-DynaLoader                   x86_64 0:1.57-525.fc44           updates     32.1 KiB
+ perl-Encode                       x86_64 4:3.21-521.fc44           fedora       4.7 MiB
+ perl-Errno                        x86_64 0:1.38-525.fc44           updates      8.4 KiB
+ perl-Error                        noarch 1:0.17030-3.fc44          fedora      76.8 KiB
+ perl-Exporter                     noarch 0:5.79-521.fc44           fedora      54.3 KiB
+ perl-Fcntl                        x86_64 0:1.20-525.fc44           updates     48.7 KiB
+ perl-File-Basename                noarch 0:2.86-525.fc44           updates     14.0 KiB
+ perl-File-Compare                 noarch 0:1.100.800-525.fc44      updates      5.6 KiB
+ perl-File-Copy                    noarch 0:2.41-525.fc44           updates     19.7 KiB
+ perl-File-Find                    noarch 0:1.44-525.fc44           updates     42.0 KiB
+ perl-File-Path                    noarch 0:2.18-522.fc44           fedora      63.5 KiB
+ perl-File-Temp                    noarch 1:0.231.200-2.fc44        fedora     163.7 KiB
+ perl-File-stat                    noarch 0:1.14-525.fc44           updates     12.5 KiB
+ perl-FileHandle                   noarch 0:2.05-525.fc44           updates      9.4 KiB
+ perl-Getopt-Long                  noarch 1:2.58-521.fc44           fedora     144.5 KiB
+ perl-Getopt-Std                   noarch 0:1.14-525.fc44           updates     11.2 KiB
+ perl-Git                          noarch 0:2.56.0-1.fc44           updates     64.4 KiB
+ perl-HTTP-Tiny                    noarch 0:0.096-1.fc44            updates    162.4 KiB
+ perl-IO                           x86_64 0:1.55-525.fc44           updates    147.3 KiB
+ perl-IO-Socket-IP                 noarch 0:0.43-522.fc44           fedora     100.3 KiB
+ perl-IO-Socket-SSL                noarch 0:2.098-2.fc44            fedora     723.5 KiB
+ perl-IPC-Open3                    noarch 0:1.24-525.fc44           updates     27.7 KiB
+ perl-MIME-Base32                  noarch 0:1.303-25.fc44           fedora      30.7 KiB
+ perl-MIME-Base64                  x86_64 0:3.16-521.fc44           fedora      41.9 KiB
+ perl-NDBM_File                    x86_64 0:1.18-525.fc44           updates     28.4 KiB
+ perl-Net-SSLeay                   x86_64 0:1.94-12.fc44            fedora       1.3 MiB
+ perl-POSIX                        x86_64 0:2.23-525.fc44           updates    229.4 KiB
+ perl-PathTools                    x86_64 0:3.94-521.fc44           fedora     179.9 KiB
+ perl-Pod-Escapes                  noarch 1:1.07-521.fc44           fedora      24.9 KiB
+ perl-Pod-Perldoc                  noarch 0:3.28.01-522.fc44        fedora     163.7 KiB
+ perl-Pod-Simple                   noarch 1:3.47-4.fc44             fedora     565.3 KiB
+ perl-Pod-Usage                    noarch 4:2.05-521.fc44           fedora      86.3 KiB
+ perl-Scalar-List-Utils            x86_64 5:1.70-2.fc44             fedora     144.8 KiB
+ perl-SelectSaver                  noarch 0:1.02-525.fc44           updates      2.2 KiB
+ perl-Socket                       x86_64 4:2.043-1.fc44            updates    121.8 KiB
+ perl-Storable                     x86_64 1:3.37-522.fc44           fedora     235.1 KiB
+ perl-Symbol                       noarch 0:1.09-525.fc44           updates      6.8 KiB
+ perl-Term-ANSIColor               noarch 0:5.01-522.fc44           fedora      97.5 KiB
+ perl-Term-Cap                     noarch 0:1.18-521.fc44           fedora      29.3 KiB
+ perl-TermReadKey                  x86_64 0:2.38-27.fc44            fedora      63.9 KiB
+ perl-Text-ParseWords              noarch 0:3.31-521.fc44           fedora      13.6 KiB
+ perl-Text-Tabs+Wrap               noarch 0:2024.001-521.fc44       fedora      22.6 KiB
+ perl-Thread-Queue                 noarch 0:3.14-521.fc44           fedora      28.9 KiB
+ perl-Time-HiRes                   x86_64 4:1.9778-521.fc44         fedora     115.6 KiB
+ perl-Time-Local                   noarch 2:1.350-521.fc44          fedora      69.0 KiB
+ perl-URI                          noarch 0:5.36-1.fc44             updates    275.7 KiB
+ perl-Unicode-Normalize            x86_64 0:1.32-521.fc44           fedora     486.0 KiB
+ perl-base                         noarch 0:2.27-525.fc44           updates     12.6 KiB
+ perl-constant                     noarch 0:1.33-522.fc44           fedora      26.2 KiB
+ perl-if                           noarch 0:0.61.000-525.fc44       updates      5.8 KiB
+ perl-interpreter                  x86_64 4:5.42.3-525.fc44         updates    118.8 KiB
+ perl-lib                          x86_64 0:0.65-525.fc44           updates      8.5 KiB
+ perl-libnet                       noarch 0:3.15-522.fc44           fedora     289.4 KiB
+ perl-libs                         x86_64 4:5.42.3-525.fc44         updates     11.6 MiB
+ perl-locale                       noarch 0:1.13-525.fc44           updates      6.1 KiB
+ perl-mro                          x86_64 0:1.29-525.fc44           updates     41.4 KiB
+ perl-overload                     noarch 0:1.40-525.fc44           updates     71.6 KiB
+ perl-overloading                  noarch 0:0.02-525.fc44           updates      4.9 KiB
+ perl-parent                       noarch 1:0.244-521.fc44          fedora      10.3 KiB
+ perl-podlators                    noarch 1:6.0.2-522.fc44          updates    317.7 KiB
+ perl-threads                      x86_64 1:2.43-521.fc44           fedora     114.9 KiB
+ perl-threads-shared               x86_64 0:1.70-521.fc44           fedora      83.Total size of inbound packages is 150 MiB. Need to download 150 MiB.
+After this operation, 530 MiB extra will be used (install 530 MiB, remove 0 B).
+5 KiB
+ perl-vars                         noarch 0:1.05-525.fc44           updates      3.9 KiB
+ pkgconf                           x86_64 0:2.5.1-1.fc44            fedora      92.7 KiB
+ pkgconf-m4                        noarch 0:2.5.1-1.fc44            fedora      14.3 KiB
+ pkgconf-pkg-config                x86_64 0:2.5.1-1.fc44            fedora     989.0   B
+ procps-ng                         x86_64 0:4.0.6-1.fc44            fedora       1.1 MiB
+ psmisc                            x86_64 0:23.7-7.fc44             fedora     828.7 KiB
+ python-pip-wheel                  noarch 0:26.0.1-3.fc44           updates      1.2 MiB
+ python-unversioned-command        noarch 0:3.14.8-1.fc44           updates     23.0   B
+ python3                           x86_64 0:3.14.8-1.fc44           updates     28.7 KiB
+ python3-attrs                     noarch 0:25.4.0-2.fc44           fedora     436.8 KiB
+ python3-devel                     x86_64 0:3.14.8-1.fc44           updates      2.0 MiB
+ python3-html2text                 noarch 0:2025.4.15-6.fc44        fedora     289.4 KiB
+ python3-iniconfig                 noarch 0:2.3.0-2.fc44            fedora      49.8 KiB
+ python3-jsonschema                noarch 0:4.23.0-7.fc44           fedora     906.6 KiB
+ python3-jsonschema-specifications noarch 0:2024.10.1-7.fc44        fedora      46.2 KiB
+ python3-libs                      x86_64 0:3.14.8-1.fc44           updates     44.1 MiB
+ python3-packaging                 noarch 0:25.0-8.fc44             fedora     607.4 KiB
+ python3-pip                       noarch 0:26.0.1-3.fc44           updates     11.5 MiB
+ python3-pluggy                    noarch 0:1.6.0-5.fc44            fedora     211.5 KiB
+ python3-pygments                  noarch 0:2.19.1-9.fc44           fedora      11.3 MiB
+ python3-pytest                    noarch 0:8.4.2-2.fc44            fedora      22.5 MiB
+ python3-referencing               noarch 0:0.36.2-6.fc44           fedora     336.5 KiB
+ python3-rpds-py                   x86_64 0:0.29.0-6.fc44           updates    704.2 KiB
+ readline-devel                    x86_64 0:8.3-4.fc44              fedora     595.8 KiB
+ unzip                             x86_64 0:6.0-69.fc44             fedora     445.8 KiB
+ util-linux                        x86_64 0:2.41.5-1.fc44           updates      3.5 MiB
+ which                             x86_64 0:2.25-1.fc44             updates     83.6 KiB
+ zlib-ng-compat-devel              x86_64 0:2.3.3-3.fc44            fedora     107.0 KiB
+
+Transaction Summary:
+ Installing:       165 packages
+
+[  1/165] autoconf-0:2.72-10.fc44.noarc 100% |   3.0 MiB/s | 830.9 KiB |  00m00s
+[  2/165] automake-0:1.18.1-4.fc44.noar 100% |   2.5 MiB/s | 723.6 KiB |  00m00s
+[  3/165] 7zip-0:26.04-1.fc44.x86_64    100% |   3.4 MiB/s |   1.3 MiB |  00m00s
+[  4/165] bat-0:0.26.1-4.fc44.x86_64    100% |   6.7 MiB/s |   2.5 MiB |  00m00s
+[  5/165] c-ares-0:1.34.8-1.fc44.x86_64 100% |   3.0 MiB/s | 127.0 KiB |  00m00s
+[  6/165] binutils-0:2.46.1-1.fc44.x86_ 100% |  14.4 MiB/s |   6.2 MiB |  00m00s
+[  7/165] c-ares-devel-0:1.34.8-1.fc44. 100% |   3.7 MiB/s | 163.8 KiB |  00m00s
+[  8/165] cmake-filesystem-0:4.3.0-1.fc 100% | 199.9 KiB/s |  15.0 KiB |  00m00s
+[  9/165] diffutils-0:3.12-5.fc44.x86_6 100% |   1.8 MiB/s | 395.3 KiB |  00m00s
+[ 10/165] cpp-0:16.2.1-2.fc44.x86_64    100% |  46.0 MiB/s |  14.6 MiB |  00m00s
+[ 11/165] elfutils-debuginfod-client-0: 100% |   1.2 MiB/s |  46.5 KiB |  00m00s
+[ 12/165] elfutils-libelf-devel-0:0.196 100% |   3.0 MiB/s | 124.1 KiB |  00m00s
+[ 13/165] emacs-filesystem-1:30.2-2.fc4 100% |  68.2 KiB/s |   8.0 KiB |  00m00s
+[ 14/165] expat-0:2.8.5-1.fc44.x86_64   100% |   3.4 MiB/s | 134.4 KiB |  00m00s
+[ 15/165] bison-0:3.8.2-15.fc44.x86_64  100% |   1.1 MiB/s | 998.2 KiB |  00m01s
+[ 16/165] ed-0:1.22.5-2.fc44.x86_64     100% | 255.6 KiB/s |  85.4 KiB |  00m00s
+[ 17/165] gcc-c++-0:16.2.1-2.fc44.x86_6 100% |  21.6 MiB/s |  17.3 MiB |  00m01s
+[ 18/165] gcc-0:16.2.1-2.fc44.x86_64    100% |  45.9 MiB/s |  43.3 MiB |  00m01s
+[ 19/165] gettext-0:0.26-5.fc44.x86_64  100% |  13.5 MiB/s |   1.7 MiB |  00m00s
+[ 20/165] gettext-common-devel-0:0.26-5 100% |  10.9 MiB/s | 602.8 KiB |  00m00s
+[ 21/165] gettext-devel-0:0.26-5.fc44.x 100% |   6.1 MiB/s | 313.8 KiB |  00m00s
+[ 22/165] gettext-envsubst-0:0.26-5.fc4 100% |   1.1 MiB/s |  45.3 KiB |  00m00s
+[ 23/165] gettext-libs-0:0.26-5.fc44.x8 100% |  11.2 MiB/s | 789.3 KiB |  00m00s
+[ 24/165] gettext-runtime-0:0.26-5.fc44 100% |   3.7 MiB/s | 174.3 KiB |  00m00s
+[ 25/165] git-0:2.56.0-1.fc44.x86_64    100% |   1.0 MiB/s |  40.8 KiB |  00m00s
+[ 26/165] git-core-doc-0:2.56.0-1.fc44. 100% |  26.4 MiB/s |   3.2 MiB |  00m00s
+[ 27/165] flex-0:2.6.4-24.fc44.x86_64   100% | 235.7 KiB/s | 299.3 KiB |  00m01s
+[ 28/165] glibc-devel-0:2.43-9.fc44.x86 100% |  10.8 MiB/s | 619.5 KiB |  00m00s
+[ 29/165] git-core-0:2.56.0-1.fc44.x86_ 100% |  21.2 MiB/s |   5.7 MiB |  00m00s
+[ 30/165] groff-base-0:1.23.0-12.fc44.x 100% |   7.4 MiB/s |   1.1 MiB |  00m00s
+[ 31/165] jansson-0:2.14-4.fc44.x86_64  100% | 713.9 KiB/s |  47.1 KiB |  00m00s
+[ 32/165] kernel-headers-0:7.2.4-200.fc 100% |  20.8 MiB/s |   1.7 MiB |  00m00s
+[ 33/165] json-c-devel-0:0.18-8.fc44.x8 100% | 486.4 KiB/s |  54.5 KiB |  00m00s
+[ 34/165] less-0:710-1.fc44.x86_64      100% |   5.3 MiB/s | 231.5 KiB |  00m00s
+[ 35/165] less-color-0:710-1.fc44.x86_6 100% | 252.2 KiB/s |  10.8 KiB |  00m00s
+[ 36/165] iproute-0:6.17.0-2.fc44.x86_6 100% |   3.1 MiB/s | 864.2 KiB |  00m00s
+[ 37/165] libatomic-0:16.2.1-2.fc44.x86 100% |   1.4 MiB/s |  55.3 KiB |  00m00s
+[ 38/165] libbpf-2:1.6.3-2.fc44.x86_64  100% |   4.4 MiB/s | 199.3 KiB |  00m00s
+[ 39/165] libedit-0:3.1-59.20260512cvs. 100% |   2.6 MiB/s | 110.4 KiB |  00m00s
+[ 40/165] libfdisk-0:2.41.5-1.fc44.x86_ 100% |   3.8 MiB/s | 168.6 KiB |  00m00s
+[ 41/165] libgit2-0:1.9.7-1.fc44.x86_64 100% |  11.1 MiB/s | 614.5 KiB |  00m00s
+[ 42/165] liblastlog2-0:2.41.5-1.fc44.x 100% | 396.3 KiB/s |  24.2 KiB |  00m00s
+[ 43/165] libmpc-0:1.4.1-1.fc44.x86_64  100% |   1.8 MiB/s |  75.5 KiB |  00m00s
+[ 44/165] libpkgconf-0:2.5.1-1.fc44.x86 100% |   1.9 MiB/s |  42.7 KiB |  00m00s
+[ 45/165] libcap-devel-0:2.78-1.fc44.x8 100% | 283.0 KiB/s |  60.8 KiB |  00m00s
+[ 46/165] libmnl-0:1.0.5-9.fc44.x86_64  100% | 255.1 KiB/s |  28.1 KiB |  00m00s
+[ 47/165] libssh2-0:1.11.1-9.fc44.x86_6 100% |   3.6 MiB/s | 149.1 KiB |  00m00s
+[ 48/165] libtextstyle-0:0.26-5.fc44.x8 100% |   1.5 MiB/s | 140.7 KiB |  00m00s
+[ 49/165] libtool-0:2.5.4-10.fc44.x86_6 100% |   5.1 MiB/s | 621.6 KiB |  00m00s
+[ 50/165] libxcrypt-devel-0:4.5.2-3.fc4 100% | 588.7 KiB/s |  30.0 KiB |  00m00s
+[ 51/165] libyang-devel-0:3.13.5-2.fc44 100% |   1.2 MiB/s | 101.5 KiB |  00m00s
+[ 52/165] libstdc++-devel-0:16.2.1-2.fc 100% |  21.1 MiB/s |   6.0 MiB |  00m00s
+[ 53/165] libyang-0:3.13.5-2.fc44.x86_6 100% |   3.7 MiB/s | 520.9 KiB |  00m00s
+[ 54/165] llhttp-0:9.3.1-1.fc44.x86_64  100% | 771.6 KiB/s |  37.8 KiB |  00m00s
+[ 55/165] libzstd-devel-0:1.5.7-5.fc44. 100% | 625.9 KiB/s |  56.3 KiB |  00m00s
+[ 56/165] mpdecimal-0:4.0.1-3.fc44.x86_ 100% |   4.2 MiB/s |  99.1 KiB |  00m00s
+[ 57/165] ncurses-0:6.6-1.fc44.x86_64   100% |   7.4 MiB/s | 429.8 KiB |  00m00s
+[ 58/165] make-1:4.4.1-12.fc44.x86_64   100% |   6.0 MiB/s | 588.7 KiB |  00m00s
+[ 59/165] ncurses-c++-libs-0:6.6-1.fc44 100% | 349.2 KiB/s |  39.5 KiB |  00m00s
+[ 60/165] ncurses-devel-0:6.6-1.fc44.x8 100% |   4.1 MiB/s | 591.2 KiB |  00m00s
+[ 61/165] oniguruma-0:6.9.10-4.fc44.x86 100% |   4.9 MiB/s | 220.0 KiB |  00m00s
+[ 62/165] m4-0:1.4.21-1.fc44.x86_64     100% |   1.1 MiB/s | 347.3 KiB |  00m00s
+[ 63/165] patch-0:2.8-4.fc44.x86_64     100% |   4.5 MiB/s | 115.2 KiB |  00m00s
+[ 64/165] openssh-0:10.2p1-16.fc44.x86_ 100% |   7.2 MiB/s | 355.9 KiB |  00m00s
+[ 65/165] openssh-clients-0:10.2p1-16.f 100% |  11.2 MiB/s | 778.5 KiB |  00m00s
+[ 66/165] pcre2-utf16-0:10.47-1.fc44.1. 100% |   2.3 MiB/s | 256.3 KiB |  00m00s
+[ 67/165] perl-AutoLoader-0:5.74-525.fc 100% | 540.7 KiB/s |  20.5 KiB |  00m00s
+[ 68/165] perl-B-0:1.89-525.fc44.x86_64 100% |   4.2 MiB/s | 177.1 KiB |  00m00s
+[ 69/165] pcre2-utf32-0:10.47-1.fc44.1. 100% |   1.4 MiB/s | 242.2 KiB |  00m00s
+[ 70/165] perl-Carp-0:1.54-521.fc44.noa 100% | 654.1 KiB/s |  28.8 KiB |  00m00s
+[ 71/165] perl-Class-Struct-0:0.68-525. 100% | 486.1 KiB/s |  21.4 KiB |  00m00s
+[ 72/165] pcre2-devel-0:10.47-1.fc44.1. 100% |   2.0 MiB/s | 550.9 KiB |  00m00s
+[ 73/165] perl-Data-Dumper-0:2.192-523. 100% |   1.5 MiB/s |  56.3 KiB |  00m00s
+[ 74/165] perl-Digest-0:1.20-521.fc44.n 100% | 671.8 KiB/s |  24.9 KiB |  00m00s
+[ 75/165] perl-Digest-MD5-0:2.59-521.fc 100% | 878.5 KiB/s |  36.0 KiB |  00m00s
+[ 76/165] perl-DynaLoader-0:1.57-525.fc 100% | 684.0 KiB/s |  25.3 KiB |  00m00s
+[ 77/165] perl-Errno-0:1.38-525.fc44.x8 100% | 385.2 KiB/s |  14.3 KiB |  00m00s
+[ 78/165] perl-Encode-4:3.21-521.fc44.x 100% |  14.6 MiB/s |   1.1 MiB |  00m00s
+[ 79/165] perl-Error-1:0.17030-3.fc44.n 100% | 876.3 KiB/s |  40.3 KiB |  00m00s
+[ 80/165] perl-Exporter-0:5.79-521.fc44 100% | 700.4 KiB/s |  30.8 KiB |  00m00s
+[ 81/165] perl-Fcntl-0:1.20-525.fc44.x8 100% | 764.7 KiB/s |  29.1 KiB |  00m00s
+[ 82/165] perl-File-Basename-0:2.86-525 100% | 422.7 KiB/s |  16.5 KiB |  00m00s
+[ 83/165] perl-File-Compare-0:1.100.800 100% | 339.3 KiB/s |  12.6 KiB |  00m00s
+[ 84/165] perl-File-Copy-0:2.41-525.fc4 100% | 525.4 KiB/s |  19.4 KiB |  00m00s
+[ 85/165] perl-File-Find-0:1.44-525.fc4 100% | 632.0 KiB/s |  24.6 KiB |  00m00s
+[ 86/165] perl-File-Path-0:2.18-522.fc4 100% | 927.8 KiB/s |  35.3 KiB |  00m00s
+[ 87/165] perl-File-stat-0:1.14-525.fc4 100% | 454.5 KiB/s |  16.4 KiB |  00m00s
+[ 88/165] perl-File-Temp-1:0.231.200-2. 100% |   1.2 MiB/s |  59.6 KiB |  00m00s
+[ 89/165] perl-FileHandle-0:2.05-525.fc 100% | 411.3 KiB/s |  14.8 KiB |  00m00s
+[ 90/165] perl-Getopt-Long-1:2.58-521.f 100% |   1.8 MiB/s |  63.6 KiB |  00m00s
+[ 91/165] perl-Getopt-Std-0:1.14-525.fc 100% | 416.7 KiB/s |  15.0 KiB |  00m00s
+[ 92/165] perl-Git-0:2.56.0-1.fc44.noar 100% |   1.0 MiB/s |  37.4 KiB |  00m00s
+[ 93/165] perl-IO-0:1.55-525.fc44.x86_6 100% |   2.1 MiB/s |  81.5 KiB |  00m00s
+[ 94/165] perl-HTTP-Tiny-0:0.096-1.fc44 100% |   1.1 MiB/s |  57.8 KiB |  00m00s
+[ 95/165] perl-IO-Socket-IP-0:0.43-522. 100% |   1.5 MiB/s |  42.2 KiB |  00m00s
+[ 96/165] perl-IO-Socket-SSL-0:2.098-2. 100% |   7.6 MiB/s | 234.7 KiB |  00m00s
+[ 97/165] perl-MIME-Base32-0:1.303-25.f 100% | 661.9 KiB/s |  20.5 KiB |  00m00s
+[ 98/165] perl-IPC-Open3-0:1.24-525.fc4 100% | 553.1 KiB/s |  23.2 KiB |  00m00s
+[ 99/165] perl-Net-SSLeay-0:1.94-12.fc4 100% |  13.0 MiB/s | 373.4 KiB |  00m00s
+[100/165] perl-NDBM_File-0:1.18-525.fc4 100% | 559.6 KiB/s |  21.8 KiB |  00m00s
+[101/165] perl-MIME-Base64-0:3.16-521.f 100% | 522.3 KiB/s |  29.8 KiB |  00m00s
+[102/165] perl-PathTools-0:3.94-521.fc4 100% |   3.7 MiB/s |  87.3 KiB |  00m00s
+[103/165] perl-POSIX-0:2.23-525.fc44.x8 100% |   2.4 MiB/s |  96.3 KiB |  00m00s
+[104/165] perl-Pod-Perldoc-0:3.28.01-52 100% |   3.7 MiB/s |  86.1 KiB |  00m00s
+[105/165] perl-Pod-Escapes-1:1.07-521.f 100% | 430.2 KiB/s |  19.8 KiB |  00m00s
+[106/165] perl-Pod-Usage-4:2.05-521.fc4 100% |   1.8 MiB/s |  40.7 KiB |  00m00s
+[107/165] perl-Scalar-List-Utils-5:1.70 100% |   3.2 MiB/s |  75.4 KiB |  00m00s
+[108/165] perl-SelectSaver-0:1.02-525.f 100% | 290.3 KiB/s |  11.0 KiB |  00m00s
+[109/165] perl-Socket-4:2.043-1.fc44.x8 100% |   1.4 MiB/s |  55.4 KiB |  00m00s
+[110/165] perl-Pod-Simple-1:3.47-4.fc44 100% |   2.0 MiB/s | 220.0 KiB |  00m00s
+[111/165] perl-Symbol-0:1.09-525.fc44.n 100% | 365.2 KiB/s |  13.5 KiB |  00m00s
+[112/165] perl-Term-ANSIColor-0:5.01-52 100% |   1.4 MiB/s |  47.7 KiB |  00m00s
+[113/165] perl-Term-Cap-0:1.18-521.fc44 100% | 687.4 KiB/s |  22.0 KiB |  00m00s
+[114/165] perl-TermReadKey-0:2.38-27.fc 100% | 864.7 KiB/s |  35.5 KiB |  00m00s
+[115/165] perl-Text-ParseWords-0:3.31-5 100% | 343.2 KiB/s |  16.5 KiB |  00m00s
+[116/165] perl-Text-Tabs+Wrap-0:2024.00 100% | 750.0 KiB/s |  21.8 KiB |  00m00s
+[117/165] perl-Time-HiRes-4:1.9778-521. 100% |   1.2 MiB/s |  57.2 KiB |  00m00s
+[118/165] perl-Thread-Queue-0:3.14-521. 100% | 277.2 KiB/s |  21.3 KiB |  00m00s
+[119/165] perl-Time-Local-2:1.350-521.f 100% | 821.6 KiB/s |  34.5 KiB |  00m00s
+[120/165] perl-URI-0:5.36-1.fc44.noarch 100% |   3.6 MiB/s | 149.3 KiB |  00m00s
+[121/165] perl-base-0:2.27-525.fc44.noa 100% | 408.6 KiB/s |  15.5 KiB |  00m00s
+[122/165] perl-constant-0:1.33-522.fc44 100% | 602.6 KiB/s |  22.9 KiB |  00m00s
+[123/165] perl-if-0:0.61.000-525.fc44.n 100% | 350.1 KiB/s |  13.3 KiB |  00m00s
+[124/165] perl-interpreter-4:5.42.3-525 100% |   1.8 MiB/s |  71.7 KiB |  00m00s
+[125/165] perl-lib-0:0.65-525.fc44.x86_ 100% | 374.7 KiB/s |  14.2 KiB |  00m00s
+[126/165] perl-Unicode-Normalize-0:1.32 100% | 287.4 KiB/s |  74.4 KiB |  00m00s
+[127/165] perl-Storable-1:3.37-522.fc44 100% | 203.0 KiB/s | 100.9 KiB |  00m00s
+[128/165] perl-libnet-0:3.15-522.fc44.n 100% |   1.8 MiB/s | 128.4 KiB |  00m00s
+[129/165] perl-locale-0:1.13-525.fc44.n 100% | 355.8 KiB/s |  12.8 KiB |  00m00s
+[130/165] perl-overload-0:1.40-525.fc44 100% |   1.2 MiB/s |  44.9 KiB |  00m00s
+[131/165] perl-libs-4:5.42.3-525.fc44.x 100% |  28.0 MiB/s |   2.6 MiB |  00m00s
+[132/165] perl-mro-0:1.29-525.fc44.x86_ 100% | 355.1 KiB/s |  29.1 KiB |  00m00s
+[133/165] perl-overloading-0:0.02-525.f 100% | 348.9 KiB/s |  12.2 KiB |  00m00s
+[134/165] perl-parent-1:0.244-521.fc44. 100% | 381.6 KiB/s |  14.9 KiB |  00m00s
+[135/165] perl-podlators-1:6.0.2-522.fc 100% |   3.3 MiB/s | 128.2 KiB |  00m00s
+[136/165] perl-vars-0:1.05-525.fc44.noa 100% | 332.2 KiB/s |  12.3 KiB |  00m00s
+[137/165] perl-threads-1:2.43-521.fc44. 100% | 819.1 KiB/s |  58.2 KiB |  00m00s
+[138/165] perl-threads-shared-0:1.70-52 100% | 717.3 KiB/s |  45.2 KiB |  00m00s
+[139/165] pkgconf-0:2.5.1-1.fc44.x86_64 100% |   2.1 MiB/s |  48.7 KiB |  00m00s
+[140/165] pkgconf-m4-0:2.5.1-1.fc44.noa 100% | 654.9 KiB/s |  13.8 KiB |  00m00s
+[141/165] pkgconf-pkg-config-0:2.5.1-1. 100% | 430.4 KiB/s |   9.5 KiB |  00m00s
+[142/165] python-pip-wheel-0:26.0.1-3.f 100% |  18.0 MiB/s |   1.1 MiB |  00m00s
+[143/165] psmisc-0:23.7-7.fc44.x86_64   100% |   4.1 MiB/s | 321.2 KiB |  00m00s
+[144/165] python-unversioned-command-0: 100% | 296.7 KiB/s |  11.6 KiB |  00m00s
+[145/165] python3-0:3.14.8-1.fc44.x86_6 100% | 773.7 KiB/s |  29.4 KiB |  00m00s
+[146/165] procps-ng-0:4.0.6-1.fc44.x86_ 100% |   2.9 MiB/s | 398.9 KiB |  00m00s
+[147/165] python3-html2text-0:2025.4.15 100% |   3.5 MiB/s |  81.7 KiB |  00m00s
+[148/165] python3-devel-0:3.14.8-1.fc44 100% |   8.8 MiB/s | 439.4 KiB |  00m00s
+[149/165] python3-iniconfig-0:2.3.0-2.f 100% | 104.3 KiB/s |  26.3 KiB |  00m00s
+[150/165] python3-attrs-0:25.4.0-2.fc44 100% | 469.6 KiB/s | 140.4 KiB |  00m00s
+[151/165] python3-jsonschema-0:4.23.0-7 100% | 528.6 KiB/s | 219.4 KiB |  00m00s
+[152/165] python3-libs-0:3.14.8-1.fc44. 100% |  46.8 MiB/s |  10.2 MiB |  00m00s
+[153/165] python3-pip-0:26.0.1-3.fc44.n 100% |  32.1 MiB/s |   2.7 MiB |  00m00s
+[154/165] python3-pluggy-0:1.6.0-5.fc44 100% | 262.3 KiB/s |  61.6 KiB |  00m00s
+[155/165] python3-jsonschema-specificat 100% |  45.0 KiB/s |  27.6 KiB |  00m01s
+[156/165] python3-packaging-0:25.0-8.fc 100% | 211.3 KiB/s | 161.2 KiB |  00m01s
+[157/165] python3-referencing-0:0.36.2- 100% | 879.7 KiB/s |  88.0 KiB |  00m00s
+[158/165] python3-rpds-py-0:0.29.0-6.fc 100% |   6.6 MiB/s | 292.6 KiB |  00m00s
+[159/165] python3-pytest-0:8.4.2-2.fc44 100% |   2.9 MiB/s |   2.3 MiB |  00m01s
+[160/165] unzip-0:6.0-69.fc44.x86_64    100% |   3.0 MiB/s | 199.6 KiB |  00m00s
+[161/165] util-linux-0:2.41.5-1.fc44.x8 100% |  20.8 MiB/s |   1.2 MiB |  00m00s
+[162/165] which-0:2.25-1.fc44.x86_64    100% |   1.1 MiB/s |  42.1 KiB |  00m00s
+[163/165] python3-pygments-0:2.19.1-9.f 100% |   2.1 MiB/s |   2.7 MiB |  00m01s
+[164/165] zlib-ng-compat-devel-0:2.3.3- 100% |  87.1 KiB/s |  38.1 KiB |  00m00s
+[165/165] readline-devel-0:8.3-4.fc44.x 100% | 144.4 KiB/s | 219.3 KiB |  00m02s
+--------------------------------------------------------------------------------
+[165/165] Total                         100% |  18.3 MiB/s | 149.8 MiB |  00m08s
+Running transaction
+[  1/167] Verify package files          100% | 415.0   B/s | 165.0   B |  00m00s
+[  2/167] Prepare transaction           100% |   2.6 KiB/s | 165.0   B |  00m00s
+[  3/167] Installing cmake-filesystem-0 100% | 360.3 KiB/s |   9.4 KiB |  00m00s
+[  4/167] Installing m4-0:1.4.21-1.fc44 100% |  45.6 MiB/s | 887.6 KiB |  00m00s
+[  5/167] Installing libmpc-0:1.4.1-1.f 100% |  27.7 MiB/s | 170.4 KiB |  00m00s
+[  6/167] Installing libtextstyle-0:0.2 100% |  62.3 MiB/s | 382.8 KiB |  00m00s
+[  7/167] Installing gettext-libs-0:0.2 100% | 214.9 MiB/s |   2.4 MiB |  00m00s
+[  8/167] Installing less-0:710-1.fc44. 100% |  20.9 MiB/s | 491.9 KiB |  00m00s
+[  9/167] Installing expat-0:2.8.5-1.fc 100% |  15.3 MiB/s | 344.3 KiB |  00m00s
+[ 10/167] Installing cpp-0:16.2.1-2.fc4 100% | 468.0 MiB/s |  42.6 MiB |  00m00s
+[ 11/167] Installing python-pip-wheel-0 100% | 203.9 MiB/s |   1.2 MiB |  00m00s
+[ 12/167] Installing psmisc-0:23.7-7.fc 100% |  51.7 MiB/s | 847.2 KiB |  00m00s
+[ 13/167] Installing pkgconf-m4-0:2.5.1 100% |   2.9 MiB/s |  14.7 KiB |  00m00s
+[ 14/167] Installing pcre2-utf32-0:10.4 100% | 101.6 MiB/s | 623.9 KiB |  00m00s
+[ 15/167] Installing pcre2-utf16-0:10.4 100% | 106.8 MiB/s | 656.1 KiB |  00m00s
+[ 16/167] Installing oniguruma-0:6.9.10 100% | 125.8 MiB/s | 773.1 KiB |  00m00s
+[ 17/167] Installing ncurses-c++-libs-0 100% |  26.5 MiB/s | 162.6 KiB |  00m00s
+[ 18/167] Installing ncurses-0:6.6-1.fc 100% |  30.2 MiB/s | 618.0 KiB |  00m00s
+[ 19/167] Installing mpdecimal-0:4.0.1- 100% |  21.4 MiB/s | 218.6 KiB |  00m00s
+[ 20/167] Installing python3-libs-0:3.1 100% | 288.8 MiB/s |  44.5 MiB |  00m00s
+[ 21/167] Installing python3-0:3.14.8-1 100% |   1.4 MiB/s |  30.4 KiB |  00m00s
+[ 22/167] Installing python3-attrs-0:25 100% |  55.1 MiB/s | 451.1 KiB |  00m00s
+[ 23/167] Installing python3-rpds-py-0: 100% |  98.8 MiB/s | 708.0 KiB |  00m00s
+[ 24/167] Installing python3-referencin 100% |  42.3 MiB/s | 346.1 KiB |  00m00s
+[ 25/167] Installing python3-jsonschema 100% |   7.7 MiB/s |  55.6 KiB |  00m00s
+[ 26/167] Installing python3-iniconfig- 100% |   7.6 MiB/s |  54.1 KiB |  00m00s
+[ 27/167] Installing python3-packaging- 100% |  60.5 MiB/s | 619.9 KiB |  00m00s
+[ 28/167] Installing python3-pluggy-0:1 100% |  21.3 MiB/s | 217.9 KiB |  00m00s
+[ 29/167] Installing python3-pygments-0 100% | 194.7 MiB/s |  11.5 MiB |  00m00s
+[ 30/167] Installing make-1:4.4.1-12.fc 100% |  94.7 MiB/s |   1.8 MiB |  00m00s
+[ 31/167] Installing llhttp-0:9.3.1-1.f 100% |  19.1 MiB/s |  98.0 KiB |  00m00s
+[ 32/167] Installing libyang-0:3.13.5-2 100% | 130.3 MiB/s |   1.3 MiB |  00m00s
+[ 33/167] Installing libstdc++-devel-0: 100% | 492.0 MiB/s |  41.3 MiB |  00m00s
+[ 34/167] Installing libssh2-0:1.11.1-9 100% |  55.4 MiB/s | 340.2 KiB |  00m00s
+[ 35/167] Installing libgit2-0:1.9.7-1. 100% | 175.0 MiB/s |   1.4 MiB |  00m00s
+[ 36/167] Installing libpkgconf-0:2.5.1 100% |  17.8 MiB/s |  91.3 KiB |  00m00s
+[ 37/167] Installing pkgconf-0:2.5.1-1. 100% |   6.2 MiB/s |  95.2 KiB |  00m00s
+[ 38/167] Installing pkgconf-pkg-config 100% | 136.4 KiB/s |   1.8 KiB |  00m00s
+[ 39/167] Installing libzstd-devel-0:1. 100% |  35.7 MiB/s | 219.1 KiB |  00m00s
+[ 40/167] Installing ncurses-devel-0:6. 100% |  46.3 MiB/s |   1.0 MiB |  00m00s
+[ 41/167] Installing pcre2-devel-0:10.4 100% | 141.3 MiB/s |   2.1 MiB |  00m00s
+[ 42/167] Installing zlib-ng-compat-dev 100% |  21.2 MiB/s | 108.6 KiB |  00m00s
+[ 43/167] Installing libmnl-0:1.0.5-9.f 100% |  10.2 MiB/s |  52.3 KiB |  00m00s
+[ 44/167] Installing liblastlog2-0:2.41 100% |   3.3 MiB/s |  43.7 KiB |  00m00s
+[ 45/167] Installing libfdisk-0:2.41.5- 100% |  47.5 MiB/s | 389.4 KiB |  00m00s
+[ 46/167] Installing util-linux-0:2.41. 100% |  87.4 MiB/s |   3.6 MiB |  00m00s
+[ 47/167] Installing openssh-0:10.2p1-1 100% |  62.3 MiB/s |   1.4 MiB |  00m00s
+[ 48/167] Installing libedit-0:3.1-59.2 100% |  40.7 MiB/s | 250.0 KiB |  00m00s
+[ 49/167] Installing openssh-clients-0: 100% |  86.8 MiB/s |   2.7 MiB |  00m00s
+[ 50/167] Installing git-core-0:2.56.0- 100% | 231.2 MiB/s |  27.7 MiB |  00m00s
+[ 51/167] Installing git-core-doc-0:2.5 100% |   1.0 GiB/s |  19.3 MiB |  00m00s
+[ 52/167] Installing libbpf-2:1.6.3-2.f 100% |  72.2 MiB/s | 443.5 KiB |  00m00s
+[ 53/167] Installing libatomic-0:16.2.1 100% |   7.6 MiB/s |  46.6 KiB |  00m00s
+[ 54/167] Installing kernel-headers-0:7 100% | 152.1 MiB/s |   7.1 MiB |  00m00s
+[ 55/167] Installing glibc-devel-0:2.43 100% | 103.7 MiB/s |   2.4 MiB |  00m00s
+[ 56/167] Installing libxcrypt-devel-0: 100% |   6.5 MiB/s |  33.3 KiB |  00m00s
+[ 57/167] Installing jansson-0:2.14-4.f 100% |   6.8 MiB/s |  90.3 KiB |  00m00s
+[ 58/167] Installing groff-base-0:1.23. 100% | 105.3 MiB/s |   3.9 MiB |  00m00s
+[ 59/167] Installing perl-Digest-0:1.20 100% |   7.2 MiB/s |  37.1 KiB |  00m00s
+[ 60/167] Installing perl-FileHandle-0: 100% |   1.9 MiB/s |   9.8 KiB |  00m00s
+[ 61/167] Installing perl-B-0:1.89-525. 100% |  82.1 MiB/s | 504.4 KiB |  00m00s
+[ 62/167] Installing perl-Digest-MD5-0: 100% |  12.0 MiB/s |  61.5 KiB |  00m00s
+[ 63/167] Installing perl-libnet-0:3.15 100% |  41.1 MiB/s | 294.7 KiB |  00m00s
+[ 64/167] Installing perl-Data-Dumper-0 100% |  19.1 MiB/s | 117.4 KiB |  00m00s
+[ 65/167] Installing perl-Unicode-Norma 100% |  68.1 MiB/s | 488.3 KiB |  00m00s
+[ 66/167] Installing perl-MIME-Base32-0 100% |   5.2 MiB/s |  32.2 KiB |  00m00s
+[ 67/167] Installing perl-URI-0:5.36-1. 100% |  25.7 MiB/s | 289.5 KiB |  00m00s
+[ 68/167] Installing perl-IO-Socket-IP- 100% |  16.6 MiB/s | 102.2 KiB |  00m00s
+[ 69/167] Installing perl-AutoLoader-0: 100% |   3.4 MiB/s |  21.0 KiB |  00m00s
+[ 70/167] Installing perl-Pod-Escapes-1 100% |   3.6 MiB/s |  25.9 KiB |  00m00s
+[ 71/167] Installing perl-Net-SSLeay-0: 100% |  89.8 MiB/s |   1.3 MiB |  00m00s
+[ 72/167] Installing perl-IO-Socket-SSL 100% |  35.5 MiB/s | 727.6 KiB |  00m00s
+[ 73/167] Installing perl-File-Path-0:2 100% |   6.3 MiB/s |  64.5 KiB |  00m00s
+[ 74/167] Installing perl-Time-Local-2: 100% |   6.3 MiB/s |  70.6 KiB |  00m00s
+[ 75/167] Installing perl-locale-0:1.13 100% | 817.9 KiB/s |   6.5 KiB |  00m00s
+[ 76/167] Installing perl-if-0:0.61.000 100% | 780.3 KiB/s |   6.2 KiB |  00m00s
+[ 77/167] Installing perl-Time-HiRes-4: 100% |   8.2 MiB/s | 117.7 KiB |  00m00s
+[ 78/167] Installing perl-Text-Tabs+Wra 100% |   2.1 MiB/s |  23.9 KiB |  00m00s
+[ 79/167] Installing perl-Pod-Simple-1: 100% |  40.1 MiB/s | 574.9 KiB |  00m00s
+[ 80/167] Installing perl-Term-Cap-0:1. 100% |   4.3 MiB/s |  30.6 KiB |  00m00s
+[ 81/167] Installing perl-HTTP-Tiny-0:0 100% |  17.8 MiB/s | 164.5 KiB |  00m00s
+[ 82/167] Installing perl-File-Temp-1:0 100% |  16.2 MiB/s | 165.5 KiB |  00m00s
+[ 83/167] Installing perl-IPC-Open3-0:1 100% |   3.5 MiB/s |  28.5 KiB |  00m00s
+[ 84/167] Installing perl-POSIX-0:2.23- 100% |  20.5 MiB/s | 230.6 KiB |  00m00s
+[ 85/167] Installing perl-Term-ANSIColo 100% |  10.8 MiB/s |  99.2 KiB |  00m00s
+[ 86/167] Installing perl-Class-Struct- 100% |   2.8 MiB/s |  25.9 KiB |  00m00s
+[ 87/167] Installing perl-Pod-Perldoc-0 100% |   6.4 MiB/s | 169.2 KiB |  00m00s
+[ 88/167] Installing perl-podlators-1:6 100% |  22.4 MiB/s | 321.7 KiB |  00m00s
+[ 89/167] Installing perl-File-stat-0:1 100% |   2.6 MiB/s |  13.1 KiB |  00m00s
+[ 90/167] Installing perl-Symbol-0:1.09 100% |   1.8 MiB/s |   7.3 KiB |  00m00s
+[ 91/167] Installing perl-SelectSaver-0 100% | 522.7 KiB/s |   2.6 KiB |  00m00s
+[ 92/167] Installing perl-Socket-4:2.04 100% |  20.1 MiB/s | 123.8 KiB |  00m00s
+[ 93/167] Installing perl-Pod-Usage-4:2 100% |   4.8 MiB/s |  87.9 KiB |  00m00s
+[ 94/167] Installing perl-overloading-0 100% |   1.1 MiB/s |   5.6 KiB |  00m00s
+[ 95/167] Installing perl-IO-0:1.55-525 100% |  21.1 MiB/s | 151.5 KiB |  00m00s
+[ 96/167] Installing perl-mro-0:1.29-52 100% |   6.9 MiB/s |  42.5 KiB |  00m00s
+[ 97/167] Installing perl-base-0:2.27-5 100% |   2.1 MiB/s |  13.0 KiB |  00m00s
+[ 98/167] Installing perl-Text-ParseWor 100% |   2.0 MiB/s |  14.6 KiB |  00m00s
+[ 99/167] Installing perl-Fcntl-0:1.20- 100% |   6.1 MiB/s |  49.8 KiB |  00m00s
+[100/167] Installing perl-Getopt-Long-1 100% |  16.0 MiB/s | 147.2 KiB |  00m00s
+[101/167] Installing perl-vars-0:1.05-5 100% | 614.4 KiB/s |   4.3 KiB |  00m00s
+[102/167] Installing perl-parent-1:0.24 100% |   1.3 MiB/s |  11.0 KiB |  00m00s
+[103/167] Installing perl-overload-0:1. 100% |   8.8 MiB/s |  72.0 KiB |  00m00s
+[104/167] Installing perl-Storable-1:3. 100% |  19.3 MiB/s | 236.7 KiB |  00m00s
+[105/167] Installing perl-constant-0:1. 100% |   3.3 MiB/s |  27.4 KiB |  00m00s
+[106/167] Installing perl-Scalar-List-U 100% |  14.5 MiB/s | 148.5 KiB |  00m00s
+[107/167] Installing perl-MIME-Base64-0 100% |   4.3 MiB/s |  44.2 KiB |  00m00s
+[108/167] Installing perl-Getopt-Std-0: 100% |   1.4 MiB/s |  11.8 KiB |  00m00s
+[109/167] Installing perl-File-Basename 100% |   1.6 MiB/s |  14.6 KiB |  00m00s
+[110/167] Installing perl-Errno-0:1.38- 100% | 979.2 KiB/s |   8.8 KiB |  00m00s
+[111/167] Installing perl-Encode-4:3.21 100% | 123.5 MiB/s |   4.7 MiB |  00m00s
+[112/167] Installing perl-DynaLoader-0: 100% |   6.3 MiB/s |  32.5 KiB |  00m00s
+[113/167] Installing perl-PathTools-0:3 100% |  30.0 MiB/s | 184.4 KiB |  00m00s
+[114/167] Installing perl-Exporter-0:5. 100% |  10.9 MiB/s |  55.6 KiB |  00m00s
+[115/167] Installing perl-Carp-0:1.54-5 100% |   6.7 MiB/s |  47.7 KiB |  00m00s
+[116/167] Installing perl-libs-4:5.42.3 100% | 253.8 MiB/s |  11.7 MiB |  00m00s
+[117/167] Installing perl-interpreter-4 100% |   8.4 MiB/s | 120.5 KiB |  00m00s
+[118/167] Installing perl-threads-1:2.4 100% |  22.8 MiB/s | 117.0 KiB |  00m00s
+[119/167] Installing perl-threads-share 100% |  16.8 MiB/s |  85.8 KiB |  00m00s
+[120/167] Installing perl-Thread-Queue- 100% |   5.9 MiB/s |  30.4 KiB |  00m00s
+[121/167] Installing perl-Error-1:0.170 100% |  15.6 MiB/s |  80.0 KiB |  00m00s
+[122/167] Installing perl-File-Compare- 100% |   1.2 MiB/s |   6.2 KiB |  00m00s
+[123/167] Installing perl-File-Copy-0:2 100% |   3.9 MiB/s |  20.2 KiB |  00m00s
+[124/167] Installing perl-File-Find-0:1 100% |   8.3 MiB/s |  42.5 KiB |  00m00s
+[125/167] Installing perl-TermReadKey-0 100% |   8.1 MiB/s |  66.1 KiB |  00m00s
+[126/167] Installing perl-lib-0:0.65-52 100% |   1.5 MiB/s |   8.9 KiB |  00m00s
+[127/167] Installing git-0:2.56.0-1.fc4 100% |   8.2 MiB/s |  59.0 KiB |  00m00s
+[128/167] Installing perl-Git-0:2.56.0- 100% |   9.1 MiB/s |  65.4 KiB |  00m00s
+[129/167] Installing gettext-envsubst-0 100% |   3.8 MiB/s |  88.9 KiB |  00m00s
+[130/167] Installing gettext-runtime-0: 100% |  45.7 MiB/s | 748.8 KiB |  00m00s
+[131/167] Installing gettext-0:0.26-5.f 100% | 429.8 MiB/s |  12.9 MiB |  00m00s
+[132/167] Installing gettext-common-dev 100% | 116.0 MiB/s | 593.7 KiB |  00m00s
+[133/167] Installing emacs-filesystem-1 100% | 158.6 KiB/s | 812.0   B |  00m00s
+[134/167] Installing elfutils-debuginfo 100% |   6.0 MiB/s |  86.2 KiB |  00m00s
+[135/167] Installing binutils-0:2.46.1- 100% | 513.8 MiB/s |  28.3 MiB |  00m00s
+[136/167] Installing gcc-0:16.2.1-2.fc4 100% | 625.1 MiB/s | 121.9 MiB |  00m00s
+[137/167] Installing ed-0:1.22.5-2.fc44 100% |  10.6 MiB/s | 152.0 KiB |  00m00s
+[138/167] Installing diffutils-0:3.12-5 100% | 104.8 MiB/s |   1.6 MiB |  00m00s
+[139/167] Installing gettext-devel-0:0. 100% |  91.9 MiB/s |   1.5 MiB |  00m00s
+[140/167] Installing autoconf-0:2.72-10 100% | 155.8 MiB/s |   2.8 MiB |  00m00s
+[141/167] Installing automake-0:1.18.1- 100% |  96.7 MiB/s |   1.8 MiB |  00m00s
+[142/167] Installing c-ares-0:1.34.8-1. 100% |  48.0 MiB/s | 294.7 KiB |  00m00s
+[143/167] Installing c-ares-devel-0:1.3 100% |  37.4 MiB/s | 229.9 KiB |  00m00s
+[144/167] Installing libtool-0:2.5.4-10 100% | 161.5 MiB/s |   2.7 MiB |  00m00s
+[145/167] Installing patch-0:2.8-4.fc44 100% |   8.6 MiB/s | 228.1 KiB |  00m00s
+[146/167] Installing gcc-c++-0:16.2.1-2 100% | 463.8 MiB/s |  46.8 MiB |  00m00s
+[147/167] Installing perl-NDBM_File-0:1 100% |   5.8 MiB/s |  29.5 KiB |  00m00s
+[148/167] Installing iproute-0:6.17.0-2 100% | 106.3 MiB/s |   2.1 MiB |  00m00s
+[149/167] Installing elfutils-libelf-de 100% |  23.7 MiB/s | 121.5 KiB |  00m00s
+[150/167] Installing libyang-devel-0:3. 100% |  93.4 MiB/s | 573.7 KiB |  00m00s
+[151/167] Installing readline-devel-0:8 100% |  98.3 MiB/s | 603.8 KiB |  00m00s
+[152/167] Installing json-c-devel-0:0.1 100% |  25.5 MiB/s | 156.8 KiB |  00m00s
+[153/167] Installing libcap-devel-0:2.7 100% |   7.8 MiB/s |  48.0 KiB |  00m00s
+[154/167] Installing python3-devel-0:3. 100% |  74.3 MiB/s |   2.0 MiB |  00m00s
+[155/167] Installing bat-0:0.26.1-4.fc4 100% | 220.4 MiB/s |   5.3 MiB |  00m00s
+[156/167] Installing python3-pytest-0:8 100% | 581.4 MiB/s |  22.7 MiB |  00m00s
+[157/167] Installing python3-jsonschema 100% |  50.4 MiB/s | 929.4 KiB |  00m00s
+[158/167] Installing python-unversioned 100% |  29.6 KiB/s | 424.0   B |  00m00s
+[159/167] Installing python3-html2text- 100% |  16.2 MiB/s | 297.9 KiB |  00m00s
+[160/167] Installing python3-pip-0:26.0 100% | 150.5 MiB/s |  11.7 MiB |  00m00s
+[161/167] Installing less-color-0:710-1 100% | 132.6 KiB/s |   2.7 KiB |  00m00s
+[162/167] Installing bison-0:3.8.2-15.f 100% | 166.3 MiB/s |   3.5 MiB |  00m00s
+[163/167] Installing flex-0:2.6.4-24.fc 100% |  52.8 MiB/s | 811.1 KiB |  00m00s
+[164/167] Installing which-0:2.25-1.fc4 100% |   4.9 MiB/s |  85.8 KiB |  00m00s
+[165/167] Installing unzip-0:6.0-69.fc4 100% |  25.8 MiB/s | 449.3 KiB |  00m00s
+[166/167] Installing procps-ng-0:4.0.6- 100% |  64.7 MiB/s |   1.1 MiB |  00m00s
+[167/167] Installing 7zip-0:26.04-1.fc4 100% |   2.7 MiB/s |   3.4 MiB |  00m01s
+Complete!
+--> 04e81ecc61bb
+STEP 4/4: USER 65534:65534
+COMMIT localhost/netdoc407-nonroot-builder:v1
+--> 3806db6332b8
+Successfully tagged localhost/netdoc407-nonroot-builder:v1
+3806db6332b838c627a3693d3e7861c47371137e20eb9208755506cd83bc7ad2

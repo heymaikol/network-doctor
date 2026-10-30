@@ -1,0 +1,110 @@
+{
+  "recorded_at_utc": "2026-10-26T02:18:06.204956+00:00",
+  "main": "ff3b1fbbad25aa5d3b0c66f01e725eeeaf4e71ed",
+  "original_pr_head": "2fd17065f461f109a8820d843afe688651463615",
+  "reconciliation_commit": "19d8d38ded17c37da0afafb858b86efd9353dc14",
+  "host": {
+    "uname": [
+      "Linux",
+      "thelio",
+      "7.2.11-200.fc44.x86_64",
+      "#1 SMP PREEMPT_DYNAMIC Thu Oct 15 15:58:58 UTC 2026",
+      "x86_64",
+      ""
+    ],
+    "ip_version": "ip utility, iproute2-6.17.0, libbpf 1.6.3"
+  },
+  "isolation": "unshare -Urnm; rootless user, mount and network namespaces; no host configuration changes",
+  "packages": [
+    {
+      "name": "frr-10.7.0-1.fc44.x86_64.rpm",
+      "url": "https://kojipkgs.fedoraproject.org/packages/frr/10.7.0/1.fc44/x86_64/frr-10.7.0-1.fc44.x86_64.rpm",
+      "sha256": "29bf2f4f901b63a1ee42b99b805fef8775d5aa6db94fb0b2e81ff94fcdedf6f9",
+      "verification": "unsigned Koji RPM; rpm -K reported digests OK; used executable bytes matched fresh extraction"
+    },
+    {
+      "name": "libyang-3.13.5-2.fc44.x86_64.rpm",
+      "url": "https://kojipkgs.fedoraproject.org/packages/libyang/3.13.5/2.fc44/x86_64/libyang-3.13.5-2.fc44.x86_64.rpm",
+      "sha256": "71c191c5297412c339f41abdf7edb34623d64d8578021d537f094aa052ace3ad",
+      "verification": "unsigned Koji RPM; rpm -K reported digests OK; used executable bytes matched fresh extraction"
+    }
+  ],
+  "executable_sha256": {
+    "usr/libexec/frr/bgpd": "15b9bd82aaa47ba62176f9d87ee719c5d8ad09a90898ff46ecda1a366973a8bc",
+    "usr/libexec/frr/zebra": "3b1db60640a96611fbd7b269c276311fbc6838218ac7d72f15a93603aea54487",
+    "usr/libexec/frr/staticd": "79df3c0d5edcb055f40a567e0d5bbe7b8bdad097eecb8794d7e7bc1c89968aff",
+    "usr/libexec/frr/mgmtd": "8c533a79fee73cba7068ebdacf4a3a9458c171448bed20f9c4d933b8f31a061a",
+    "usr/bin/vtysh": "9806dc3ead81e2595ea11289a700e195cefab00d2074dc9bc4573e94b1b378ee"
+  },
+  "producer_sha256": {
+    "testdata/frr/10.7.0/lab/bgp-withdraw.sh": "b804bf5edcf9fa6be86ab73e69f1e0eaa2521bd5244550630c51cba543f13895",
+    "testdata/frr/10.7.0/lab/bgp-session.sh": "b4e1f9b75a20df9b96ff51a10421c0a54b13cdc2780b12c9106558210c6cc6d0",
+    "testdata/frr/10.7.0/lab/bgp-producer-probe.sh": "2b3dbe25586a97b9b71349c02026d2ad13a7e7087cde9088c413955ec7debaf3",
+    "testdata/frr/10.7.0/lab/tcpvty2.py": "42c288f257412274b6ce6af124416d1e282a881873e07791cf1bb3fe43d4c06c",
+    "testdata/frr/10.7.0/lab/etc/group": "581f6ac3aa8df848706d64d847055dfd11a2902af8f3bcc0c0e5f04aa46d7c0a",
+    "testdata/frr/10.7.0/lab/etc/passwd": "3747e6a4f626aa1105292e65ff06bee83a0120fe6c2762f9d1c2829039ea596b"
+  },
+  "runs": [
+    {
+      "name": "withdraw",
+      "command": "SCRATCH=$PWD/.pr407-tmp/live-withdraw-unsandboxed BGPD_VTY_PORT=2605 ZEBRA_VTY_PORT=2611 timeout 600 unshare -Urnm bash .pr407-worktree/testdata/frr/10.7.0/lab/bgp-withdraw.sh",
+      "exit_status": 0,
+      "done": true,
+      "terminal": "withdraw-terminal.log",
+      "original_manifest": "withdraw/SHA256SUMS",
+      "original_manifest_sha256": "450ff92f2b18309b5f81f2cb3d9cc11daaf2d6ddf357d99f158e6ee907c4eb20"
+    },
+    {
+      "name": "session-plain",
+      "command": "SCRATCH=$PWD/.pr407-tmp/live-session BGPD_VTY_PORT=2605 ZEBRA_VTY_PORT=2611 ARM=plain timeout 600 unshare -Urnm bash .pr407-worktree/testdata/frr/10.7.0/lab/bgp-session.sh",
+      "exit_status": 0,
+      "done": true,
+      "terminal": "session-plain-terminal.log",
+      "original_manifest": "session-plain/SHA256SUMS",
+      "original_manifest_sha256": "8f3ce350ce99131804e3dd86d7ffa78c91006d3770a653744e1234313339aa6f"
+    },
+    {
+      "name": "recursive-shared",
+      "command": "SCRATCH=$PWD/.pr407-tmp/live-probe5 BGPD_VTY_PORT=2605 ZEBRA_VTY_PORT=2611 timeout 600 unshare -Urnm bash .pr407-worktree/testdata/frr/10.7.0/lab/bgp-producer-probe.sh",
+      "exit_status": 0,
+      "done": true,
+      "terminal": "recursive-shared-terminal.log",
+      "original_manifest": "recursive-shared/SHA256SUMS",
+      "original_manifest_sha256": "c4fc2a4b68595f7c16c678a495295708a74b96af1adb68f0c55b0185b913c94d"
+    }
+  ],
+  "validation": {
+    "canonical": "TMPDIR=/home/mplaczek/network-doctor/.pr407-tmp/gotmp ./scripts/check",
+    "canonical_exit": 0,
+    "initial_failure": "sandbox cache read-only, then /tmp disk quota exceeded; successful rerun used workspace TMPDIR",
+    "race": "not relevant to evidence-only additions; not run",
+    "forwarding_ratings": "not implemented; existing application and golden-output tests passed",
+    "final_canonical_exit": 0,
+    "focused": [
+      {
+        "command": "python3 -I testdata/frr/10.7.0/bgp/correlation-investigation/verify.py",
+        "exit": 0
+      },
+      {
+        "command": "bash -n testdata/frr/10.7.0/lab/bgp-producer-probe.sh (and bgp-withdraw.sh, bgp-session.sh)",
+        "exit": 0
+      },
+      {
+        "command": "git diff --exit-code ff3b1fb -- internal/app/frr_bgp_session.go internal/app/frr_bgp_withdraw.go internal/netmodel internal/routepath internal/frrbgp",
+        "exit": 0
+      },
+      {
+        "command": "git diff --cached --check -- *.md *.py *.sh *.json",
+        "exit": 0
+      }
+    ]
+  },
+  "preserved_attempts": [
+    ".pr407-tmp/live-withdraw (sandbox netlink refusal)",
+    ".pr407-tmp/live-probe (unsupported staticd -f)",
+    ".pr407-tmp/live-probe2 (successful exploratory run, early after bracket retained resolver)",
+    ".pr407-tmp/live-probe3 (successful exploratory ambiguity/recursion run)",
+    ".pr407-tmp/live-probe4 (observations captured but shutdown exited 123; not accepted)"
+  ],
+  "source_verification": "critical source files re-fetched by immutable upstream commit and byte-compared successfully"
+}

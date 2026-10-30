@@ -1,0 +1,1 @@
+[{"id":14,"gateway":"10.0.1.2","dev":"e1","scope":"link","protocol":"zebra","flags":[]},{"id":21,"group":[{"id":14}],"protocol":"zebra","flags":[]},{"id":22,"gateway":"10.0.3.3","dev":"e3","scope":"link","protocol":"zebra","flags":[]}]

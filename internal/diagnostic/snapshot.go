@@ -165,6 +165,7 @@ func derivedFrom(r ProbeResult) *snapshot.Derived {
 func observedFrom(r ProbeResult) *snapshot.Observed {
 	o := snapshot.Observed{
 		DNSNotFound:        r.DNSNotFound,
+		DNSNameScope:       r.DNSNameScope,
 		Resolver:           r.resolver,
 		ResolverTargets:    append([]string(nil), r.ResolverTargets...),
 		Interface:          r.Iface,

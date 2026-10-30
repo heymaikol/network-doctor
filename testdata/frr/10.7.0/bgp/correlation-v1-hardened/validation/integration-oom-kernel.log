@@ -1,0 +1,1 @@
+Oct 26 01:55:15 thelio kernel: Out of memory: Killed process 825607 (simulation.test) total-vm:16642968kB, anon-rss:10621668kB, file-rss:16kB, shmem-rss:0kB, UID:1000 pgtables:22544kB oom_score_adj:0

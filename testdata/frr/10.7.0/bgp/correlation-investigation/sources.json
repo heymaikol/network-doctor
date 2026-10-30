@@ -1,0 +1,147 @@
+{
+  "tag": "frr-10.7.0",
+  "tag_object": "40ee989f049aecd7ca619b194441b549bbd4ec46",
+  "commit": "87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef",
+  "files": [
+    {
+      "file": "bgpd/bgp_nexthop.c",
+      "sha256": "70e44190226f8175915d6891423bb661dba5cff869c1ce9bbda51174dd0a0fd5",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/bgpd/bgp_nexthop.c"
+    },
+    {
+      "file": "bgpd/bgp_nht.c",
+      "sha256": "3fb9fee713bff2ccfcd63c1cfd57fbf806973cd44a06679245886f860b184ea4",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/bgpd/bgp_nht.c"
+    },
+    {
+      "file": "bgpd/bgp_route.c",
+      "sha256": "a37c76b86b2a6d64857ace7307ef2caa18929d337afc4622b47d956737d3b4f4",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/bgpd/bgp_route.c"
+    },
+    {
+      "file": "bgpd/bgp_trace.h",
+      "sha256": "24ca7de3f52aca69934e1336a54e36eaff7bc0373c63ab47e3d060bd2107d70f",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/bgpd/bgp_trace.h"
+    },
+    {
+      "file": "bgpd/bgp_zebra.c",
+      "sha256": "cd6a3ea1900855ac96ca2ef27165b20f3428e2fff64527d20737710df29579a7",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/bgpd/bgp_zebra.c"
+    },
+    {
+      "file": "doc/developer/fpm.rst",
+      "sha256": "4d553c0c5d2b072500d42ccc60ac5f0ce468627bc0fe855c8cfbb0ad697d8f5a",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/doc/developer/fpm.rst"
+    },
+    {
+      "file": "doc/user/bgp.rst",
+      "sha256": "1135a724810b42e31ba0915e09b9d3cafabe5b6e1fb64833fe935697387fa08a",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/doc/user/bgp.rst"
+    },
+    {
+      "file": "doc/user/zebra.rst",
+      "sha256": "1fcdf51db460ab56152d979cd4bb6d204ce1542c719e0b4a7fee31b4f426bda2",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/doc/user/zebra.rst"
+    },
+    {
+      "file": "lib/libfrr.c",
+      "sha256": "5d939db7d9a17c28b58343786b409958ae1e69c320952eee23cdb5e6057826e8",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/libfrr.c"
+    },
+    {
+      "file": "lib/mgmt_be_client.c",
+      "sha256": "e807b95c5d84630e083c7b05f4d560e8f0bb1cd3faf469efbe4acb0250bf14f1",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/mgmt_be_client.c"
+    },
+    {
+      "file": "lib/nexthop.c",
+      "sha256": "386e35ec4e8f066b42d14737538edc26c68855006ae37526f87739ffe1a12c82",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/nexthop.c"
+    },
+    {
+      "file": "lib/route_opaque.h",
+      "sha256": "8743b6752641e76c35ffc1c9e8821b5c3924bb3d30a7e18a4b990d69b7ad44c7",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/route_opaque.h"
+    },
+    {
+      "file": "lib/zclient.c",
+      "sha256": "b240f756982aac524f94511b4085aca38c3373cb1e59ad9ad12d0ebda84a4d30",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/zclient.c"
+    },
+    {
+      "file": "lib/zclient.h",
+      "sha256": "d7fc81984808c4f333fdbcbc1a3075e0d52e235e776108ef8496914467e6d332",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/lib/zclient.h"
+    },
+    {
+      "file": "mgmtd/mgmt.c",
+      "sha256": "c5c680c0d6dcc455e9f53a8b57dfc7b8696260624cf12223699bf728797be8f5",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/mgmtd/mgmt.c"
+    },
+    {
+      "file": "mgmtd/mgmt_ds.c",
+      "sha256": "039f8f3be49210713ef4e86fea91bf470f63e5526b6b331b0de310d51d0025f8",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/mgmtd/mgmt_ds.c"
+    },
+    {
+      "file": "mgmtd/mgmt_main.c",
+      "sha256": "108f39262272804fc409d516a4f0871476a83a97690762d025a92facf35e6a33",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/mgmtd/mgmt_main.c"
+    },
+    {
+      "file": "mgmtd/mgmt_vty.c",
+      "sha256": "2591581406bf5ebf6c7e2fb0b2a62abd6432e4cd90ffa1b08179ebeb36c2ab21",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/mgmtd/mgmt_vty.c"
+    },
+    {
+      "file": "staticd/static_main.c",
+      "sha256": "5c832815a4aab17e5f7469cb91e25002d4f29f321e3d84fb91369789ca281cec",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/staticd/static_main.c"
+    },
+    {
+      "file": "staticd/static_nht.c",
+      "sha256": "3edfe24ee9f95a3a130bab77fbbea23bb663919f2bd61eab6220d2cf1a051575",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/staticd/static_nht.c"
+    },
+    {
+      "file": "zebra/dplane_fpm_nl.c",
+      "sha256": "6fce9bac2efd00b4f7936c42eb60d71733de3f7fffdc200d7512c98edb6f4de1",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/zebra/dplane_fpm_nl.c"
+    },
+    {
+      "file": "zebra/zebra_dplane.h",
+      "sha256": "c9f058ae516d61ced9d203d22f4c46a6aac8423368a66d221d031f3bbe07580c",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/zebra/zebra_dplane.h"
+    },
+    {
+      "file": "zebra/zebra_nhg.c",
+      "sha256": "e4feb816af2c402c72a38ab6cd7743ca9cbc01861a5e8044f4408adbcfeceba8",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/zebra/zebra_nhg.c"
+    },
+    {
+      "file": "zebra/zebra_rib.c",
+      "sha256": "a775fd08b64a5f6f729b2010fecc14cd7bfb052022276d8eb0786548eb75b6cb",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/zebra/zebra_rib.c"
+    },
+    {
+      "file": "zebra/zebra_rnh.c",
+      "sha256": "78d48674ceb626c5367e27ac8c313337f903476ef30abd3ebfce10f64679b3a2",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/zebra/zebra_rnh.c"
+    },
+    {
+      "file": "zebra/zebra_rnh.h",
+      "sha256": "64d3ddfae1a71922ca187bddf84bbdeaa89cca9c456a5d9db5e0501d21b981e2",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/zebra/zebra_rnh.h"
+    },
+    {
+      "file": "zebra/zebra_trace.h",
+      "sha256": "d7761eee955cb4712b663cd7a8731865c65624f5bcaf6cc76073a33440522ff4",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/zebra/zebra_trace.h"
+    },
+    {
+      "file": "zebra/zebra_vty.c",
+      "sha256": "ad1c881ebc8fcc1f97b94ae6f094028d984f1582d65752d1df34dfe64ffce769",
+      "url": "https://github.com/FRRouting/frr/blob/87fe21fda92ce9e2ba3eaf2b0a327bf71ee183ef/zebra/zebra_vty.c"
+    }
+  ]
+}

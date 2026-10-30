@@ -290,3 +290,22 @@ func TestTwoSidedEvidenceRenderingAndHistory(t *testing.T) {
 		t.Fatalf("old consumer: %+v %v", old, err)
 	}
 }
+
+func TestDNSNameScopeEvidence(t *testing.T) {
+	a := snapshot.Check{ID: "dns_public", Status: snapshot.StatusPass, Observed: &snapshot.Observed{DNSNameScope: snapshot.DNSNameAbsolute}}
+	for _, scope := range []snapshot.DNSNameScope{"", snapshot.DNSNameRootedRelative, snapshot.DNSNameAbsolute} {
+		b := a
+		b.Observed = &snapshot.Observed{DNSNameScope: scope}
+		got := dimension(t, SideRow{Evidence: checkEvidence(a, b, true)}, "dns_name_scope")
+		want := "different"
+		if scope == "" {
+			want = "unknown"
+		}
+		if scope == snapshot.DNSNameAbsolute {
+			want = "equivalent"
+		}
+		if got.Relation != want {
+			t.Fatalf("scope %q relation=%q want %q", scope, got.Relation, want)
+		}
+	}
+}

@@ -1,0 +1,23 @@
+{
+  "additional_code_analysis_finding": {
+    "file": "testdata/frr/10.7.0/bgp/correlation-v1-authorized/validate.sh",
+    "fix": "[[ tree == expected ]] instead of test tree = expected; actual recipe rerun required",
+    "issue": "AaF5Z8hkeZl9SvwJphgy",
+    "line": 15,
+    "rule": "shelldre:S7688",
+    "validity": "Valid Bash style recommendation; prior quoted operands were safe, assertion remains meaningful"
+  },
+  "check_snapshot": "Sonar checks completed; some ordinary CI jobs pending at snapshot; final-head outcomes must be checked independently",
+  "head": "38ab7bc803fa7685a6058662b4840b088e3878da",
+  "high": {
+    "issue": "AaF3ExOYI5fXcO_YEVtK",
+    "issueStatus": "FIXED",
+    "manual_disposition_changes": false,
+    "resolution": "FIXED",
+    "rule": "pythonsecurity:S8707",
+    "status": "CLOSED"
+  },
+  "low_findings_review": "../correlation-v1-authorized/triage.json, same 36 issue identities",
+  "quality_gate_failure": "new_security_rating 2 (B), required <=1 (A)",
+  "security_annotations": 36
+}

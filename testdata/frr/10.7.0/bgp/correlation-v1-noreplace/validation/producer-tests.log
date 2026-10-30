@@ -1,0 +1,34 @@
+test_ack_cannot_name_a_different_generation (test_bundle.ProducerProof.test_ack_cannot_name_a_different_generation) ... ok
+test_boolean_kernel_error_is_not_a_positive_ack (test_bundle.ProducerProof.test_boolean_kernel_error_is_not_a_positive_ack) ... ok
+test_committed_bundle_matches_sources (test_bundle.ProducerProof.test_committed_bundle_matches_sources) ... ok
+test_complete_evidence_manifests (test_bundle.ProducerProof.test_complete_evidence_manifests) ... ok
+test_contradictory_contributor_is_refused (test_bundle.ProducerProof.test_contradictory_contributor_is_refused) ... ok
+test_failed_revocation_marker_refuses_retained_closed_streams (test_bundle.ProducerProof.test_failed_revocation_marker_refuses_retained_closed_streams) ... ok
+test_independent_observations_agree_without_producing_edges (test_bundle.ProducerProof.test_independent_observations_agree_without_producing_edges) ... ok
+test_kernel_failure_gets_no_installation_credit (test_bundle.ProducerProof.test_kernel_failure_gets_no_installation_credit) ... ok
+test_live_identity_chains (test_bundle.ProducerProof.test_live_identity_chains) ... ok
+test_live_restart_capture_is_refused (test_bundle.ProducerProof.test_live_restart_capture_is_refused) ... ok
+test_missing_path_is_refused_even_with_contiguous_sequence (test_bundle.ProducerProof.test_missing_path_is_refused_even_with_contiguous_sequence) ... ok
+test_missing_positive_ack_gets_no_installation_credit (test_bundle.ProducerProof.test_missing_positive_ack_gets_no_installation_credit) ... ok
+test_missing_resolution_object_is_refused (test_bundle.ProducerProof.test_missing_resolution_object_is_refused) ... ok
+test_mixed_genuine_capture_is_refused (test_bundle.ProducerProof.test_mixed_genuine_capture_is_refused) ... ok
+test_output_does_not_overwrite_existing_file_or_symlink (test_bundle.ProducerProof.test_output_does_not_overwrite_existing_file_or_symlink) ... cannot create bundle output: [Errno 17] File exists: '/tmp/tmpy5ixvbo0/logs/zebra.d3273161-6715-c3fc-91ce-08f8afe3a644.jsonl'
+cannot create bundle output: [Errno 17] File exists: '/tmp/tmpy5ixvbo0/output.json'
+ok
+test_output_exclusive_creation_for_success_and_refusal (test_bundle.ProducerProof.test_output_exclusive_creation_for_success_and_refusal) ... ok
+test_partial_stream_is_refused_even_with_two_closed_streams (test_bundle.ProducerProof.test_partial_stream_is_refused_even_with_two_closed_streams) ... ok
+test_shared_group_cannot_substitute_another_routes_resolution (test_bundle.ProducerProof.test_shared_group_cannot_substitute_another_routes_resolution) ... ok
+test_source_read_is_bounded (test_bundle.ProducerProof.test_source_read_is_bounded) ... ok
+test_source_symlink_and_fifo_are_refused (test_bundle.ProducerProof.test_source_symlink_and_fifo_are_refused) ... ok
+test_stale_result_gets_no_installation_credit (test_bundle.ProducerProof.test_stale_result_gets_no_installation_credit) ... ok
+test_truncated_duplicate_key_or_event_gap_is_refused (test_bundle.ProducerProof.test_truncated_duplicate_key_or_event_gap_is_refused) ... ok
+test_unmapped_origin_never_becomes_static (test_bundle.ProducerProof.test_unmapped_origin_never_becomes_static) ... ok
+test_unsupported_build_os_kernel_and_namespace (test_bundle.ProducerProof.test_unsupported_build_os_kernel_and_namespace) ... ok
+test_unsupported_context_was_seen_live (test_bundle.ProducerProof.test_unsupported_context_was_seen_live) ... ok
+test_unverified_operation_is_refused (test_bundle.ProducerProof.test_unverified_operation_is_refused) ... ok
+test_versioned_schema (test_bundle.ProducerProof.test_versioned_schema) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.261s
+
+OK

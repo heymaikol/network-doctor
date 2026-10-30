@@ -88,6 +88,7 @@ func buildReportWithDiagnosis(t *diagnostic.Target, probes []diagnostic.Probe, r
 			Ms:               diagnostic.Ms(r.Dur),
 			Detail:           r.Detail,
 			Fix:              r.Fix,
+			DNSNameScope:     string(r.DNSNameScope),
 			ResolverTargets:  append([]string(nil), r.ResolverTargets...),
 			Iface:            r.Iface,
 			Network:          r.Network,

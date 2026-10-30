@@ -1,0 +1,94 @@
+[
+     {
+          "Id": "3806db6332b838c627a3693d3e7861c47371137e20eb9208755506cd83bc7ad2",
+          "Digest": "sha256:67a80138645044df127765177335ad30e3ee175c1e9134c0b0836df98b99e00e",
+          "RepoTags": [
+               "localhost/netdoc407-nonroot-builder:v1"
+          ],
+          "RepoDigests": [
+               "localhost/netdoc407-nonroot-builder@sha256:67a80138645044df127765177335ad30e3ee175c1e9134c0b0836df98b99e00e"
+          ],
+          "Parent": "04e81ecc61bbaddbdaf4de9afb314ef1e08370d4069f8b30f360d62aa0597a67",
+          "Comment": "",
+          "Created": "2026-07-15T15:51:52Z",
+          "Config": {
+               "User": "65534:65534",
+               "Env": [
+                    "PATH=/usr/local/bin:/usr/bin",
+                    "container=oci"
+               ],
+               "Cmd": [
+                    "/bin/bash"
+               ],
+               "WorkingDir": "/",
+               "Labels": {
+                    "io.buildah.version": "1.43.5",
+                    "org.opencontainers.image.licenses": "MIT",
+                    "org.opencontainers.image.title": "fedora",
+                    "org.opencontainers.image.url": "https://fedoraproject.org/",
+                    "org.opencontainers.image.vendor": "Fedora Project",
+                    "org.opencontainers.image.version": "44"
+               }
+          },
+          "Version": "",
+          "Author": "Fedora Project Contributors <devel@lists.fedoraproject.org>",
+          "Architecture": "amd64",
+          "Os": "linux",
+          "Size": 1314089279,
+          "VirtualSize": 1314089279,
+          "GraphDriver": {
+               "Name": "vfs",
+               "Data": null
+          },
+          "RootFS": {
+               "Type": "layers",
+               "Layers": [
+                    "sha256:7caae5ca96776fa5be93d51ae15cf87750826b2a40db843424f515cd4b4709ed",
+                    "sha256:6141181cb525a8ff0a80d049ab17bc365de3f875b271ba85be2c98f3e34d5dfa",
+                    "sha256:898fd0b434084da126fcb621be581e8546c0c75f6d6f4ce61e841697b3fcd889"
+               ]
+          },
+          "Labels": {
+               "io.buildah.version": "1.43.5",
+               "org.opencontainers.image.licenses": "MIT",
+               "org.opencontainers.image.title": "fedora",
+               "org.opencontainers.image.url": "https://fedoraproject.org/",
+               "org.opencontainers.image.vendor": "Fedora Project",
+               "org.opencontainers.image.version": "44"
+          },
+          "Annotations": {
+               "org.opencontainers.image.base.digest": "sha256:2d894246f63e15be3557d103c50e5fdef67bf50b34e35d54753966b9c1854608",
+               "org.opencontainers.image.base.name": "registry.fedoraproject.org/fedora:44",
+               "org.opencontainers.image.created": "2026-07-15T15:51:52Z"
+          },
+          "ManifestType": "application/vnd.oci.image.manifest.v1+json",
+          "User": "65534:65534",
+          "History": [
+               {
+                    "created": "2026-10-25T06:48:04.245207011Z",
+                    "created_by": "KIWI 11.1.1",
+                    "author": "Fedora Project Contributors <devel@lists.fedoraproject.org>"
+               },
+               {
+                    "created": "2026-07-15T15:51:52Z",
+                    "created_by": "/bin/sh -c #(nop) COPY file:2456884adb263a6064e9b4ae02ba8879c44647ddf47d9d4b94ffbce98866bb75 in /builder-packages.lock     |force-mtime=1784130712 ",
+                    "author": "Fedora Project Contributors <devel@lists.fedoraproject.org>",
+                    "comment": "FROM registry.fedoraproject.org/fedora:44"
+               },
+               {
+                    "created": "2026-07-15T15:51:52Z",
+                    "created_by": "/bin/sh -c sed '/^gpg-pubkey-/d' /builder-packages.lock | xargs dnf -y --setopt=install_weak_deps=False install &&     rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\\n' | LC_ALL=C sort > /actual-packages &&     cmp /builder-packages.lock /actual-packages|force-mtime=1784130712",
+                    "author": "Fedora Project Contributors <devel@lists.fedoraproject.org>"
+               },
+               {
+                    "created": "2026-07-15T15:51:52Z",
+                    "created_by": "/bin/sh -c #(nop) USER 65534:65534|force-mtime=1784130712",
+                    "author": "Fedora Project Contributors <devel@lists.fedoraproject.org>",
+                    "empty_layer": true
+               }
+          ],
+          "NamesHistory": [
+               "localhost/netdoc407-nonroot-builder:v1"
+          ]
+     }
+]

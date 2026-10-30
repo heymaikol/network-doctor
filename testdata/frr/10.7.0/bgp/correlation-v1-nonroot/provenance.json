@@ -1,0 +1,206 @@
+{
+  "baseline_head": "dfbd4b30ccdd2daa0bce4f18bef384de2ebae4a9",
+  "current_implementation_files": {
+    "Containerfile": "0cf20a3baeeabfa9e11e838273d863ca1b7091d4f7bc2daa66a32dd8f857c71e",
+    "README.md": "0ea8ab73a13c3407b42553baa2aaeb98e3c6f5dc5b48d9fc0aa9034c4100fa3e",
+    "SECURITY.md": "bcc68d98235f805bc55418b2fe6fe6e2c4e26f41c3588ec7005ba2dc6df973a9",
+    "bgp.inc": "2deff323205a06bc318f1bb16bf9c44962407facd866a32a6f7a0fc31fb6401f",
+    "build.sh": "a63d4f92c1aa1c0a542e67210b11afd3d25c788c8dc1e5727f1f3e9a17b164fb",
+    "builder-packages.lock": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+    "bundle.py": "0272f21b8f3a6344f6cad8436d2f532157ea1b9a8d0dbab3d8d233237408a24d",
+    "codec_test.c": "7c4e288202e217e7959987b0cdf75e426777325436ece6a3fce96a5736a93c62",
+    "dplane.inc": "23d51bdf26251e1445bef96575983809c08bb32f2aa5c6d5dcdefaae943409d3",
+    "frr.patch": "532531b8fa3a54a099ef6c88376750aea93f1ad26879160e26ea6e62fe88a5eb",
+    "implementation.sha256": "869dff22b71fef5678f24fd8ef0066510ce77db0f0457dfe10b99492b0335b09",
+    "lab.sh": "f676eabe2088d6d167f90e47dd4ca032fdaeab1952e0cb29d022d646fa6bd4ca",
+    "netdoc.c": "a431c1a66571f283e716cc274e45460b44cf4603cf27377f76b51fd66c5e513d",
+    "netdoc.h": "ba11898d1b7dd98afb89d27c19856119d8eae4b6860de03c682cf47303bdf885",
+    "schema.json": "bdb9dd122de51ce32267c979d9623e1267b26fb130abfe75ae6401160f15e40c",
+    "test_bundle.py": "0cec28fa8732c9b71a1f18f822b9c964ce24ed70e22e32e18f3c7d8eaa9ead83",
+    "test_writer.py": "a4fd7b75b9c1597d064775a7f9b77824d9dc6767e69c7187b6df63f5c654d32a",
+    "verified-build.json": "b39a88260f31d6321c26a03003114ea3dc81cf9b2ebccb47a33b2b32f49203ef",
+    "verified-builder.json": "183dc0f0037af93b2f745bbcd811789db224171fef13d71779b6291a6e316348",
+    "writer_test.c": "6621e4a75fe67ba64b028223394a37a2f628f2fac76a365bf6dae2a791af3c7e",
+    "zebra.inc": "c0823e303677447a3d5d16ba9bc9c773b9b6fe57d7201e057afbdc73e0aac5cf"
+  },
+  "final_validation": "Exact final integrated tree and final Go 1.27.3 gate logs retained externally before push to avoid self-reference.",
+  "historical_implementation_verification": "Original authorization verifier passed in isolated dfbd4b3 worktree; no historical hash expectation changed.",
+  "historical_manifests": {
+    "correlation-investigation/SHA256SUMS": "65f75bc0675158f9482e0ad65d6b09d5db443ba894d256f86920f0efb652b4e3",
+    "correlation-investigation/recursive-shared/SHA256SUMS": "c4fc2a4b68595f7c16c678a495295708a74b96af1adb68f0c55b0185b913c94d",
+    "correlation-investigation/session-plain/SHA256SUMS": "8f3ce350ce99131804e3dd86d7ffa78c91006d3770a653744e1234313339aa6f",
+    "correlation-investigation/withdraw/SHA256SUMS": "450ff92f2b18309b5f81f2cb3d9cc11daaf2d6ddf357d99f158e6ee907c4eb20",
+    "correlation-review-38ab7bc/SHA256SUMS": "955a9bc51da15e86eab7651ff4f0c85f07693b1909e513157ba01db2bf9385f3",
+    "correlation-review-7df7be1/SHA256SUMS": "3c1feb9d515ef93892299cca1dc7818370df660710137a81c5ab4447f38bf8c5",
+    "correlation-review-dfbd4b3/SHA256SUMS": "b5a1285daf3759347e6ab1c0064c3c2711adf4b2e3d3265879f4f3fd70179de2",
+    "correlation-v1-authorized/SHA256SUMS": "a0436da43bf0216859e8d3c788b2a26b737729339ae398676aa253157e45e0d2",
+    "correlation-v1-hardened/SHA256SUMS": "c3b68ab79f297e019087e0a845885299e5a28a90de7e0e5dda26bf65b99a2ecc",
+    "correlation-v1-hardened/proof/SHA256SUMS": "2c8382cef3c4b67bb618dd9f067680521e99e169abbac0a43571fa0d25635e4a",
+    "correlation-v1-hardened/restart/SHA256SUMS": "066aab4ada15b108b03d21d78f2461aa9e04c349456c1dd6f5e86dd0e481e91d",
+    "correlation-v1-noreplace/SHA256SUMS": "4fa0879426bbb2054f3743a775f4fdc603087b09a04415820ec48a2c5bff410a",
+    "correlation-v1-noreplace/proof/SHA256SUMS": "bb1fada449cb5bad1db87686dd1745c1bea445829c9f6afe05c1e27aa3002b87",
+    "correlation-v1-noreplace/restart/SHA256SUMS": "c9bff402aa893cacacf2f4099a230437d24b1afb00e57e3fe2eb8daaf795e0a4",
+    "correlation-v1/SHA256SUMS": "aa75f07647b98876a13ca285942ff22e287b6fbeb9a71f340dc3ed772cb15444",
+    "correlation-v1/proof/SHA256SUMS": "fadfe8fb71d035687e424112c5501ea495c1c1cfee16521d628d70d00a46117b",
+    "correlation-v1/restart/SHA256SUMS": "ee36098f22bbec0867c4759ec453037b1164e5d05e383217e7d86f99ee569d13"
+  },
+  "integration_main": "823a91611592c5949d7cb37b26bdf547443cf063",
+  "limitations": [
+    "Local immutable capture trust remains required; no atomic FIB, packet-delivery or convergence guarantee",
+    "Rootless/non-root container security still depends on readonly restricted mounts, no network, dropped capabilities, trusted kernel and compiler inputs",
+    "No container-image bit reproducibility claim across separate RPM provisioning transactions",
+    "C sanitizers not run; runtime-library limitation preserved"
+  ],
+  "live_runs": [
+    {
+      "bundle": "proof-bundle.json",
+      "bundle_exit": 0,
+      "mode": "proof",
+      "raw_manifest_sha256": "469de841161245affba349254b1f402e9c15303d146c36fbc40a158e1380c028",
+      "run_exit": 0,
+      "source": "proof",
+      "terminal_marker": "DONE"
+    },
+    {
+      "bundle": "restart-refusal.json",
+      "bundle_exit": 2,
+      "mode": "restart",
+      "raw_manifest_sha256": "2f598519fc9c6d68856a7b75f474e249179701c62dc70a3c423590452ec6d48e",
+      "run_exit": 0,
+      "source": "restart",
+      "terminal_marker": "DONE"
+    }
+  ],
+  "namespace_lifetime_limitation": {
+    "approval": "Independent ChatGPT review of capture-cohort/lifetime binding required before importer semantics",
+    "certified_runs": "proof namespace retained by waiting shell until restart capture completed, then released; no source record or assertion modified",
+    "claim_limit": "boot ID plus namespace inode is not a permanent namespace lifetime ID; rejection of this mixture does not prove rejection of every possible mixed history",
+    "initial_fresh_suite": "36 pass, 1 expected-message mismatch; actual mixed source histories refused by missing BGP submission, no claims",
+    "initial_runs": "Preserved in initial-proof and initial-restart; genuinely separate namespace creations reused an inode after destruction",
+    "observed_alias_negative": "namespace-alias-negative consists of byte-identical original BGP/Zebra files; actual packaging exits 2 with missing BGP submission"
+  },
+  "new_builder": {
+    "containerfile_sha256": "0cf20a3baeeabfa9e11e838273d863ca1b7091d4f7bc2daa66a32dd8f857c71e",
+    "default_user": "65534:65534",
+    "evidence": "../../../testdata/frr/10.7.0/bgp/correlation-v1-nonroot/README.md",
+    "frr_build_id_unchanged": "89f0152ef221c716119b8b739a6464a96eaf3ff526d54e5e6e0822bea0dc179d",
+    "historical_image": {
+      "image": "localhost/netdoc407-locked-builder:v1",
+      "image_digest": "sha256:2a735793e2a529b3d83f553fe779f144c932e0eb7d9465cefa663b8ae0a3acef",
+      "image_id": "67e00e0327159ba2368a72bc96db80d52d17d0f91020d3544b9d366c71d6a9ff",
+      "status": "preserved unchanged; historical build environment only"
+    },
+    "image": "localhost/netdoc407-nonroot-builder:v1",
+    "image_digest": "sha256:67a80138645044df127765177335ad30e3ee175c1e9134c0b0836df98b99e00e",
+    "image_id": "3806db6332b838c627a3693d3e7861c47371137e20eb9208755506cd83bc7ad2",
+    "packages_sha256": "04b8989c324ad66808d7c86f33e382eccae8b653d75532d18a7cad19302a1781",
+    "required_runtime": {
+      "capabilities": "all dropped",
+      "mounts": {
+        "build_output": "dedicated writable scratch",
+        "producer": "read-only",
+        "source_archive": "read-only"
+      },
+      "network": "none",
+      "no_new_privileges": true,
+      "root_filesystem": "read-only",
+      "rootless": true,
+      "temporary_storage": "private /tmp tmpfs, nosuid,nodev",
+      "user_namespace": "keep-id:uid=65534,gid=65534"
+    },
+    "schema": "netdoc-frr-builder/v1"
+  },
+  "recorded_utc": "2026-10-26T19:10:42.525828+00:00",
+  "runtime_dependency_inspection": {
+    "bgpd": {
+      "files": {
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libfrr.so.0": "8ac012413ca0a3e84af3405c7fc62f9a4784579d3ca5b0ae81007624dc440af5",
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/libyang.so.3": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb",
+        "/lib64/ld-linux-x86-64.so.2": "4e5d39355699e90fa29313d3100e82af4a23290028c58c364d6a249ef6a78e5e",
+        "/lib64/libatomic.so.1": "b08060687ffb5768003b0c283cac5bddaa84ea5526d4d7bcb5994af98af5a130",
+        "/lib64/libc.so.6": "a5c5ad9d59d3c69eda93aa8f82930ba06cc4e893a113e66c85ad6e96243d53c8",
+        "/lib64/libcap.so.2": "045455580153db0de1d2fcafafdcecf2d438844078f3fb6e25d938343d034baf",
+        "/lib64/libcrypt.so.2": "d599ca6de2ff06d1189c47945616fde24cd7816bcafb1c587ca1a51cb0c584e3",
+        "/lib64/libjson-c.so.5": "6dfe4deb41877c38acbe863485614dfafd54b5eda8e0a9187b0874899c44e7e6",
+        "/lib64/libm.so.6": "16a03ce6d24c8a46742206d4a9c1d35bb6577ae2384f153dc6ef4a4b62b5357f",
+        "/lib64/libpcre2-8.so.0": "473aeb0704abc871886650c553b43bb300395d73fe4088620329459b5ddbf4be"
+      },
+      "ldd": "\tlinux-vdso.so.1 (0x00007f691f142000)\n\tlibfrr.so.0 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libfrr.so.0 (0x00007f691ee00000)\n\tlibcrypt.so.2 => /lib64/libcrypt.so.2 (0x00007f691f0e8000)\n\tlibcap.so.2 => /lib64/libcap.so.2 (0x00007f691f0db000)\n\tlibm.so.6 => /lib64/libm.so.6 (0x00007f691ece9000)\n\tlibyang.so.3 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/libyang.so.3 (0x00007f691ebb4000)\n\tlibjson-c.so.5 => /lib64/libjson-c.so.5 (0x00007f691f0c5000)\n\tlibatomic.so.1 => /lib64/libatomic.so.1 (0x00007f691f0ba000)\n\tlibc.so.6 => /lib64/libc.so.6 (0x00007f691e9bb000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f691f144000)\n\tlibpcre2-8.so.0 => /lib64/libpcre2-8.so.0 (0x00007f691e90a000)\n"
+    },
+    "mgmtd": {
+      "files": {
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libfrr.so.0": "8ac012413ca0a3e84af3405c7fc62f9a4784579d3ca5b0ae81007624dc440af5",
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libmgmt_be_nb.so.0": "ac4ea35dfd2283f202f567a70d4e58fe9ac069be8a69b4565852e612a188b86e",
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/libyang.so.3": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb",
+        "/lib64/ld-linux-x86-64.so.2": "4e5d39355699e90fa29313d3100e82af4a23290028c58c364d6a249ef6a78e5e",
+        "/lib64/libatomic.so.1": "b08060687ffb5768003b0c283cac5bddaa84ea5526d4d7bcb5994af98af5a130",
+        "/lib64/libc.so.6": "a5c5ad9d59d3c69eda93aa8f82930ba06cc4e893a113e66c85ad6e96243d53c8",
+        "/lib64/libcap.so.2": "045455580153db0de1d2fcafafdcecf2d438844078f3fb6e25d938343d034baf",
+        "/lib64/libcrypt.so.2": "d599ca6de2ff06d1189c47945616fde24cd7816bcafb1c587ca1a51cb0c584e3",
+        "/lib64/libjson-c.so.5": "6dfe4deb41877c38acbe863485614dfafd54b5eda8e0a9187b0874899c44e7e6",
+        "/lib64/libm.so.6": "16a03ce6d24c8a46742206d4a9c1d35bb6577ae2384f153dc6ef4a4b62b5357f",
+        "/lib64/libpcre2-8.so.0": "473aeb0704abc871886650c553b43bb300395d73fe4088620329459b5ddbf4be"
+      },
+      "ldd": "\tlinux-vdso.so.1 (0x00007faf4c9da000)\n\tlibmgmt_be_nb.so.0 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libmgmt_be_nb.so.0 (0x00007faf4c97b000)\n\tlibfrr.so.0 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libfrr.so.0 (0x00007faf4c600000)\n\tlibcrypt.so.2 => /lib64/libcrypt.so.2 (0x00007faf4c929000)\n\tlibcap.so.2 => /lib64/libcap.so.2 (0x00007faf4c91c000)\n\tlibm.so.6 => /lib64/libm.so.6 (0x00007faf4c4e9000)\n\tlibyang.so.3 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/libyang.so.3 (0x00007faf4c3b4000)\n\tlibjson-c.so.5 => /lib64/libjson-c.so.5 (0x00007faf4c906000)\n\tlibatomic.so.1 => /lib64/libatomic.so.1 (0x00007faf4c8fb000)\n\tlibc.so.6 => /lib64/libc.so.6 (0x00007faf4c1bb000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007faf4c9dc000)\n\tlibpcre2-8.so.0 => /lib64/libpcre2-8.so.0 (0x00007faf4c10a000)\n"
+    },
+    "staticd": {
+      "files": {
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libfrr.so.0": "8ac012413ca0a3e84af3405c7fc62f9a4784579d3ca5b0ae81007624dc440af5",
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/libyang.so.3": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb",
+        "/lib64/ld-linux-x86-64.so.2": "4e5d39355699e90fa29313d3100e82af4a23290028c58c364d6a249ef6a78e5e",
+        "/lib64/libatomic.so.1": "b08060687ffb5768003b0c283cac5bddaa84ea5526d4d7bcb5994af98af5a130",
+        "/lib64/libc.so.6": "a5c5ad9d59d3c69eda93aa8f82930ba06cc4e893a113e66c85ad6e96243d53c8",
+        "/lib64/libcap.so.2": "045455580153db0de1d2fcafafdcecf2d438844078f3fb6e25d938343d034baf",
+        "/lib64/libcrypt.so.2": "d599ca6de2ff06d1189c47945616fde24cd7816bcafb1c587ca1a51cb0c584e3",
+        "/lib64/libjson-c.so.5": "6dfe4deb41877c38acbe863485614dfafd54b5eda8e0a9187b0874899c44e7e6",
+        "/lib64/libm.so.6": "16a03ce6d24c8a46742206d4a9c1d35bb6577ae2384f153dc6ef4a4b62b5357f",
+        "/lib64/libpcre2-8.so.0": "473aeb0704abc871886650c553b43bb300395d73fe4088620329459b5ddbf4be"
+      },
+      "ldd": "\tlinux-vdso.so.1 (0x00007f2549967000)\n\tlibfrr.so.0 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libfrr.so.0 (0x00007f2549600000)\n\tlibcrypt.so.2 => /lib64/libcrypt.so.2 (0x00007f254990d000)\n\tlibm.so.6 => /lib64/libm.so.6 (0x00007f25494e9000)\n\tlibcap.so.2 => /lib64/libcap.so.2 (0x00007f2549900000)\n\tlibyang.so.3 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/libyang.so.3 (0x00007f25493b4000)\n\tlibjson-c.so.5 => /lib64/libjson-c.so.5 (0x00007f25498ea000)\n\tlibatomic.so.1 => /lib64/libatomic.so.1 (0x00007f25498df000)\n\tlibc.so.6 => /lib64/libc.so.6 (0x00007f25491bb000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f2549969000)\n\tlibpcre2-8.so.0 => /lib64/libpcre2-8.so.0 (0x00007f254910a000)\n"
+    },
+    "zebra": {
+      "files": {
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libfrr.so.0": "8ac012413ca0a3e84af3405c7fc62f9a4784579d3ca5b0ae81007624dc440af5",
+        "/home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/libyang.so.3": "452de74f54ca89ba5a9358d8110c3342da0d0e199607c0e49fc47740677f26bb",
+        "/lib64/ld-linux-x86-64.so.2": "4e5d39355699e90fa29313d3100e82af4a23290028c58c364d6a249ef6a78e5e",
+        "/lib64/libatomic.so.1": "b08060687ffb5768003b0c283cac5bddaa84ea5526d4d7bcb5994af98af5a130",
+        "/lib64/libc.so.6": "a5c5ad9d59d3c69eda93aa8f82930ba06cc4e893a113e66c85ad6e96243d53c8",
+        "/lib64/libcap.so.2": "045455580153db0de1d2fcafafdcecf2d438844078f3fb6e25d938343d034baf",
+        "/lib64/libcrypt.so.2": "d599ca6de2ff06d1189c47945616fde24cd7816bcafb1c587ca1a51cb0c584e3",
+        "/lib64/libjson-c.so.5": "6dfe4deb41877c38acbe863485614dfafd54b5eda8e0a9187b0874899c44e7e6",
+        "/lib64/libm.so.6": "16a03ce6d24c8a46742206d4a9c1d35bb6577ae2384f153dc6ef4a4b62b5357f",
+        "/lib64/libpcre2-8.so.0": "473aeb0704abc871886650c553b43bb300395d73fe4088620329459b5ddbf4be"
+      },
+      "ldd": "\tlinux-vdso.so.1 (0x00007f3176bd3000)\n\tlibfrr.so.0 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/frr/libfrr.so.0 (0x00007f3176800000)\n\tlibcrypt.so.2 => /lib64/libcrypt.so.2 (0x00007f3176b79000)\n\tlibm.so.6 => /lib64/libm.so.6 (0x00007f3176a62000)\n\tlibcap.so.2 => /lib64/libcap.so.2 (0x00007f3176a55000)\n\tlibyang.so.3 => /home/mplaczek/network-doctor/.pr407-tmp/least-privilege/builds/nonroot-a/frr-root/usr/lib64/libyang.so.3 (0x00007f31766cb000)\n\tlibjson-c.so.5 => /lib64/libjson-c.so.5 (0x00007f31766b7000)\n\tlibatomic.so.1 => /lib64/libatomic.so.1 (0x00007f31766ac000)\n\tlibc.so.6 => /lib64/libc.so.6 (0x00007f31764b3000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f3176bd5000)\n\tlibpcre2-8.so.0 => /lib64/libpcre2-8.so.0 (0x00007f3176402000)\n"
+    }
+  },
+  "runtime_dependency_scope": "Post-run ldd inspection with the same library search roots; not an atomic process-memory attestation.",
+  "schema": "netdoc-frr-nonroot-provenance/v1",
+  "security_regression": {
+    "filesystem_authority": "unchanged inherited directory capabilities, no path selectors",
+    "fresh_capture_schema_tests": 37,
+    "fresh_capture_skips": 0,
+    "guard_self_tests": 3,
+    "individual_address_mutations": 35,
+    "legacy_producer_schema_tests": 37,
+    "legacy_skips": 0,
+    "writer_modes": 27
+  },
+  "source_archive_sha256": "bf601f8f35b03a49a5a45981721394f00d3b9eac0c5bd77577732c4c4ffffa67",
+  "two_independent_nonroot_builds": {
+    "all_eight_artifacts_identical_and_match_prior_pins": true,
+    "build_json_identical": true,
+    "directories": [
+      "nonroot-a",
+      "nonroot-b"
+    ],
+    "network": "none",
+    "package_lock_verified_each_build": true,
+    "root_filesystem": "read-only",
+    "uid_gid": "65534:65534",
+    "wire_codec_suites_passed": 2
+  },
+  "unchanged_frr_build_id": "89f0152ef221c716119b8b739a6464a96eaf3ff526d54e5e6e0822bea0dc179d",
+  "unchanged_instrumentation_sha256": "51d792997f50558e95fa8c9e918a7424360b3843fe4dec63dca4d9e03b1b6afd",
+  "unchanged_packager_sha256": "0272f21b8f3a6344f6cad8436d2f532157ea1b9a8d0dbab3d8d233237408a24d"
+}

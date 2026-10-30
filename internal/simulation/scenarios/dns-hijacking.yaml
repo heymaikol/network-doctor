@@ -46,7 +46,7 @@ topology:
 tests:
   - name: system resolver redirects the target
     node: client
-    target: hijacked-target.test:80
+    target: hijacked-target.test.:80
 
 expect:
   verdict: degraded

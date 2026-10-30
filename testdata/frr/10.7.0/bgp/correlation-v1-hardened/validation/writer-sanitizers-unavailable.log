@@ -1,0 +1,78 @@
+In file included from ./lib/mgmt_fe_client.h:17,
+                 from ./lib/vty.h:19,
+                 from ./lib/command.h:11,
+                 from ./lib/json.h:13,
+                 from ./lib/netdoc.h:4,
+                 from /producer/writer_test.c:11:
+./lib/mgmt_msg_native.h:269:31: warning: declaration does not declare anything
+  269 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:286:31: warning: declaration does not declare anything
+  286 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:306:31: warning: declaration does not declare anything
+  306 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:341:31: warning: declaration does not declare anything
+  341 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:370:31: warning: declaration does not declare anything
+  370 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:412:31: warning: declaration does not declare anything
+  412 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:436:31: warning: declaration does not declare anything
+  436 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:456:31: warning: declaration does not declare anything
+  456 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:475:31: warning: declaration does not declare anything
+  475 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:514:31: warning: declaration does not declare anything
+  514 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:539:31: warning: declaration does not declare anything
+  539 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:557:31: warning: declaration does not declare anything
+  557 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:570:31: warning: declaration does not declare anything
+  570 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:584:31: warning: declaration does not declare anything
+  584 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:603:31: warning: declaration does not declare anything
+  603 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:621:31: warning: declaration does not declare anything
+  621 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:642:31: warning: declaration does not declare anything
+  642 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:659:31: warning: declaration does not declare anything
+  659 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:671:31: warning: declaration does not declare anything
+  671 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:692:31: warning: declaration does not declare anything
+  692 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:707:31: warning: declaration does not declare anything
+  707 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:716:31: warning: declaration does not declare anything
+  716 |         struct mgmt_msg_header;
+      |                               ^
+./lib/mgmt_msg_native.h:728:31: warning: declaration does not declare anything
+  728 |         struct mgmt_msg_header;
+      |                               ^
+/usr/bin/ld.bfd: cannot find /usr/lib64/libasan.so.8.0.0: No such file or directory
+/usr/bin/ld.bfd: cannot find /usr/lib64/libubsan.so.1.0.0: No such file or directory
+collect2: error: ld returned 1 exit status

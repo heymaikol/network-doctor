@@ -1,0 +1,13 @@
+{
+  "capture": {
+    "complete": false,
+    "snapshot_complete": false
+  },
+  "claims": [],
+  "refusals": [
+    {
+      "reason": "missing BGP submission"
+    }
+  ],
+  "schema": "netdoc-frr-correlation/v1"
+}

@@ -1617,3 +1617,31 @@ func TestPrerequisiteEvidenceRequiresTheSkippedExecutionState(t *testing.T) {
 		t.Error("a prerequisite skip is recorded without calling the probe")
 	}
 }
+
+func TestDNSNameScopeVocabulary(t *testing.T) {
+	for _, scope := range []DNSNameScope{"", DNSNameAbsolute, DNSNameRootedRelative, "inferred"} {
+		for _, id := range []string{"dns_public", "dns"} {
+			t.Run(string(scope)+"/"+id, func(t *testing.T) {
+				s, err := Decode(golden(t))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i := range s.Checks {
+					if s.Checks[i].Observed != nil {
+						s.Checks[i].Observed.DNSNameScope = ""
+					}
+				}
+				for i := range s.Checks {
+					if s.Checks[i].ID == id {
+						s.Checks[i].Observed.DNSNameScope = scope
+					}
+				}
+				_, err = Encode(s)
+				valid := ValidDNSNameScope(scope) && (scope == "" || id == "dns_public")
+				if (err == nil) != valid {
+					t.Fatalf("scope=%q row=%q: %v", scope, id, err)
+				}
+			})
+		}
+	}
+}

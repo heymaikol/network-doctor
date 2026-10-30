@@ -1,0 +1,64 @@
+
+==> gofmt
+
+==> go vet
+
+==> build (CGO_ENABLED=0)
+
+==> cross-compile (darwin)
+
+==> cross-compile (windows)
+
+==> cross-compile (freebsd, portability only)
+
+==> go test
+ok  	github.com/heymaikol/network-doctor/v2	67.852s
+ok  	github.com/heymaikol/network-doctor/v2/cmd/covermerge	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/cmd/docsite	0.014s
+?   	github.com/heymaikol/network-doctor/v2/cmd/netdoc	[no test files]
+ok  	github.com/heymaikol/network-doctor/v2/cmd/netdoc-sim	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/app	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/compare	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/diagnostic	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/fieldcase	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/frrbgp	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/frrospf	8.777s
+ok  	github.com/heymaikol/network-doctor/v2/internal/incident	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/netmodel	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/ospf	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/peer	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/profile	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/remote	(cached)
+?   	github.com/heymaikol/network-doctor/v2/internal/report	[no test files]
+ok  	github.com/heymaikol/network-doctor/v2/internal/routepath	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/simulation	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/snapshot	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/textsafe	(cached)
+ok  	github.com/heymaikol/network-doctor/v2/internal/ui	(cached)
+
+==> go test -race
+ok  	github.com/heymaikol/network-doctor/v2	69.147s
+ok  	github.com/heymaikol/network-doctor/v2/cmd/covermerge	1.009s
+ok  	github.com/heymaikol/network-doctor/v2/cmd/docsite	1.056s
+?   	github.com/heymaikol/network-doctor/v2/cmd/netdoc	[no test files]
+ok  	github.com/heymaikol/network-doctor/v2/cmd/netdoc-sim	61.431s
+ok  	github.com/heymaikol/network-doctor/v2/internal/app	10.505s
+ok  	github.com/heymaikol/network-doctor/v2/internal/compare	2.275s
+ok  	github.com/heymaikol/network-doctor/v2/internal/diagnostic	49.338s
+ok  	github.com/heymaikol/network-doctor/v2/internal/fieldcase	1.189s
+ok  	github.com/heymaikol/network-doctor/v2/internal/frrbgp	1.401s
+ok  	github.com/heymaikol/network-doctor/v2/internal/frrospf	10.668s
+ok  	github.com/heymaikol/network-doctor/v2/internal/incident	1.061s
+ok  	github.com/heymaikol/network-doctor/v2/internal/netmodel	1.020s
+ok  	github.com/heymaikol/network-doctor/v2/internal/ospf	1.035s
+ok  	github.com/heymaikol/network-doctor/v2/internal/peer	1.056s
+ok  	github.com/heymaikol/network-doctor/v2/internal/profile	1.489s
+ok  	github.com/heymaikol/network-doctor/v2/internal/remote	21.477s
+?   	github.com/heymaikol/network-doctor/v2/internal/report	[no test files]
+ok  	github.com/heymaikol/network-doctor/v2/internal/routepath	5.917s
+ok  	github.com/heymaikol/network-doctor/v2/internal/simulation	265.586s
+ok  	github.com/heymaikol/network-doctor/v2/internal/snapshot	53.012s
+ok  	github.com/heymaikol/network-doctor/v2/internal/textsafe	1.011s
+ok  	github.com/heymaikol/network-doctor/v2/internal/ui	44.166s
+
+All checks passed.

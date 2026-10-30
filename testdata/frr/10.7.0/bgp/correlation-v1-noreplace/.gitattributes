@@ -1,0 +1,4 @@
+# Preserve actual terminal and compiler output.
+*.raw -text -whitespace
+*.last -text -whitespace
+*.log -whitespace

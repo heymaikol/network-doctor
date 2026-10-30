@@ -1,0 +1,6 @@
+ok  	github.com/heymaikol/network-doctor/v2/internal/app	12.746s
+ok  	github.com/heymaikol/network-doctor/v2/internal/diagnostic	103.885s
+ok  	github.com/heymaikol/network-doctor/v2/internal/peer	1.304s
+signal: killed
+FAIL	github.com/heymaikol/network-doctor/v2/internal/simulation	124.289s
+FAIL

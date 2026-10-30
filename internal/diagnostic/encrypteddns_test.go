@@ -1548,7 +1548,7 @@ func TestDiagnoseEncryptedDNSBlockedWhilePlainDNSWorks(t *testing.T) {
 		ProbeQUIC:         {Status: StatusPass},
 		ProbeProxy:        {Status: StatusNA},
 		ProbeDNS:          {Status: StatusPass},
-		ProbeDNSPublic:    {Status: StatusPass},
+		ProbeDNSPublic:    {DNSNameScope: "absolute", Status: StatusPass},
 		ProbeDNSEncrypted: {Status: StatusFail, Cause: EncryptedDNSCauseUnavailable, Detail: "no encrypted DNS"},
 	}
 
@@ -1641,7 +1641,7 @@ func TestEncryptedDNSBlockedTruthTable(t *testing.T) {
 		{"plain DNS works and encrypted fails", func(map[ProbeID]ProbeResult) {}, true},
 		{"public plaintext resolver is the only one working", func(r map[ProbeID]ProbeResult) {
 			r[ProbeDNS] = ProbeResult{Status: StatusFail}
-			r[ProbeDNSPublic] = ProbeResult{Status: StatusPass}
+			r[ProbeDNSPublic] = ProbeResult{DNSNameScope: "absolute", Status: StatusPass}
 		}, true},
 		{"all DNS fails", func(r map[ProbeID]ProbeResult) { r[ProbeDNS] = ProbeResult{Status: StatusFail} }, false},
 		{"direct egress fails", func(r map[ProbeID]ProbeResult) { r[ProbeInternet] = ProbeResult{Status: StatusFail} }, false},

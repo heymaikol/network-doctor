@@ -45,6 +45,7 @@ var retainedBySupportPolicy = map[string]bool{
 	".Checks[0].Status":                                                             true,
 	".Checks[0].Cause":                                                              true,
 	".Checks[0].CauseFamily":                                                        true,
+	".Checks[0].Observed.DNSNameScope":                                              true, // closed input-scope vocabulary; no name or address
 	".Checks[0].Derived.AnswerComparison":                                           true,
 	".Checks[0].Observed.Families.IPv4":                                             true,
 	".Checks[0].Observed.Families.IPv6":                                             true,

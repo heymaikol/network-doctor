@@ -12,6 +12,8 @@ TLS, HTTP, proxy, and path-MTU checks into one plain-English diagnosis.
 
 ![Network Doctor diagnosing an office printer hostname that will not resolve: the DNS row fails, every check that depended on it is skipped, and the verdict names the missing DNS record as the fix](assets/hero.gif)
 
+<sub>For GitHub's native pause/play controls, disable <a href="https://github.com/settings/accessibility">Autoplay animated images</a> in accessibility settings.</sub>
+
 Instead of handing you a wall of `ping`, `dig`, and `curl` output, Network
 Doctor answers the useful question: **is the problem on my network, along the
 path, or at the service?**
@@ -295,7 +297,7 @@ documentation, Linux / macOS / Windows testing, and real-network field testing.
 - [Help wanted issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22help+wanted%22)
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, choosing a task, and opening a
-pull request. An ordinary change runs `./scripts/check`; the complete gate and
+pull request. An ordinary change runs `./scripts/check.sh`; the complete gate and
 what each layer of evidence proves are in
 **[docs/validation.md](docs/validation.md)**. Please report suspected
 vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

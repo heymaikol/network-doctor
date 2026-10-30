@@ -77,6 +77,7 @@ func TestCheckScriptIsCommittedExecutable(t *testing.T) {
 	// The filesystem mode cannot be asserted here: a Windows checkout does not
 	// carry it. git's index does, so ask git.
 	for _, path := range []string{checkScript, checkWrapper} {
+		// #nosec G204 -- path comes from the fixed list on the line above.
 		out, err := exec.Command("git", "ls-files", "--stage", "--", path).Output()
 		if err != nil {
 			t.Skipf("git unavailable, or this is not a checkout: %v", err)
@@ -278,6 +279,7 @@ func runSh(t *testing.T, dir, script string, env []string, args ...string) (out 
 	if err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G204 -- script is a path this test built, args are literals.
 	cmd := exec.Command("sh", append([]string{filepath.ToSlash(abs)}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
@@ -305,10 +307,12 @@ func copyScripts(t *testing.T, names ...string) string {
 		t.Fatal(err)
 	}
 	for _, name := range names {
+		// #nosec G304 -- name comes from literals in this file's calls.
 		body, err := os.ReadFile(filepath.Join("scripts", name))
 		if err != nil {
 			t.Fatal(err)
 		}
+		// #nosec G703 -- dir is inside t.TempDir and name is a literal.
 		if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
 			t.Fatal(err)
 		}

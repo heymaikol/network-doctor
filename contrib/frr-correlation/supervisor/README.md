@@ -208,7 +208,10 @@ changing what it measures. The `vtysh` query runs under `timeout` and is killed
 after `QUERY_TIMEOUT` seconds (default 10). A daemon that ignores SIGTERM gets
 `STOP_GRACE` seconds (default 5) and then SIGKILL. A timeout or an escalation
 adds one line to the output, and a normal run prints exactly what it printed
-before. An interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both
+before. Status 124 from `timeout` reads `timed out`. Status 137, a query that
+died of SIGKILL, reads `ended by SIGKILL (status 137), cause not confirmed`: the
+status does not say whether the OOM killer, a person or `timeout` itself sent the
+signal, because `timeout` also returns 137 after a query that ignored SIGTERM. An interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both
 daemons the same way, and any other child still running is killed. A second
 interrupt while the daemons are being stopped is ignored, because stopping is
 already bounded. The script keeps a daemon's PID until `/proc` shows the process

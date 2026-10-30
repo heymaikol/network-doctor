@@ -276,6 +276,32 @@ func TestLaunchPolicyBoundsAStuckQueryAndAnIgnoredSIGTERM(t *testing.T) {
 	noneAlive(t, out)
 }
 
+// timeout reports 124 when its own deadline ended the command, and 137 when the
+// command died of SIGKILL. A 137 does not say who sent the signal: the OOM killer
+// and a person look the same, and so does timeout's own escalation after a command
+// that ignored SIGTERM. The script reports it as SIGKILL with the cause open, and
+// never as a timeout.
+func TestLaunchPolicyReportsAKilledQueryApartFromATimeout(t *testing.T) {
+	sleep := lookPath(t, "sleep")
+	for _, tc := range []struct{ name, vtysh string }{
+		{"killed from outside", "kill -KILL $$"},
+		{"ignored SIGTERM until timeout escalated", "trap '' TERM; " + execLine(sleep, "30")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stage, out := newMockStage(t, "term", "term", tc.vtysh)
+			text, code := startLaunchPolicy(t, stage, out).wait(t)
+			if code != 0 {
+				t.Fatalf("exit %d:\n%s", code, text)
+			}
+			requireLines(t, text, "  bgpd attached to zebra: no", "  vtysh query: ended by SIGKILL (status 137), cause not confirmed", "  bgpd exit: 143", "  zebra exit: 143")
+			if strings.Contains(text, "timed out") {
+				t.Errorf("a SIGKILL was reported as a timeout:\n%s", text)
+			}
+			noneAlive(t, out)
+		})
+	}
+}
+
 // An interrupt while the daemons run must stop both of them, including one that
 // survives SIGTERM, and must not leave either behind. A second interrupt that
 // arrives while the script is already stopping them, as a user pressing Ctrl-C

@@ -89,6 +89,18 @@ proof rests on the supervisor being the only reaper of its children. A third
 party that reaps a child between the probe and the signal is outside what this
 package defends against.
 
+Waiting for a process to exit is bounded too. Reaping blocks until the process
+has exited, so neither a child nor the holder is reaped until its pidfd shows a
+zombie. After signalling, the holder is polled for at most the kill deadline (5
+seconds). A holder that is still running then, or cannot be read, makes
+`Namespace.Close` or `NewNamespace` return `ErrCleanupIncomplete` instead of
+blocking, with the holder, its pidfd and both namespace descriptors kept. The
+holder stays unreaped, so its PID and group ID stay reserved and the next `Close`
+signals it again. `Start` and `Identity` wait behind a `Close` for that long at
+most. A holder that is already gone (`ECHILD`) ends the wait at once, since no
+exit can be proven for it, and stays incomplete. Only the signal path is faulted
+in tests: no test creates a process the kernel refuses to kill.
+
 Observing a child is separate from stopping it. A watcher goroutine blocks in
 `waitid` on the child's pidfd and closes `Done` when it proves the exit. If that
 `waitid` fails, nothing is proven: `Done` stays open, `Lost` is closed instead,
@@ -253,6 +265,9 @@ same test once the fault is turned off. Nothing else is modeled.
 | Watcher lost while a child starts: `ErrObservationLost`, child stopped, namespace usable | `TestWatcherLostDuringStartIsNotALaunchFailure` |
 | `Stop` keeps the pidfd open until the watcher has ended | `TestStopWaitsForTheWatcherBeforeClosingThePidfd` |
 | A leader that cannot be read is never signalled as a group | `TestUnreadableLeaderIsNeverSignalledAsAGroup` |
+| `Close` returns instead of blocking when the holder does not exit, keeps the pins, and finishes on retry | `TestCloseIsBoundedWhenTheHolderDoesNotExit` |
+| A constructor whose holder does not exit returns the unusable namespace and the error, not a hang | `TestConstructorCleanupIsBoundedWhenTheHolderDoesNotExit` |
+| A holder without a pidfd is reaped through its PID within the bound (success path only) | `TestHolderWithoutAPidfdIsReapedWithinTheBound` |
 | A failed final sweep keeps the leader unreaped, the child registered and the surviving grandchild alive until a retry | `TestFailedGroupSweepKeepsTheLeaderUnreapedForARetry` |
 | `ESRCH` from the sweep is an empty group, not a failure (pin, passes before and after) | `TestEmptyGroupAnswerToTheSweepIsNotAFailure` |
 | A child reaped by another process: no group signal, terminal, pinned | `TestChildReapedByAnotherProcessIsTerminalAndNeverSignalledAsAGroup` |

@@ -196,7 +196,9 @@ func (n *Namespace) Identity() (Identity, error) {
 // child or the holder cannot be shown reaped, Close returns an error wrapping
 // ErrCleanupIncomplete and keeps every descriptor, the holder and the child
 // handles, so the next call can finish the job. The namespace refuses new
-// children from the first call on.
+// children from the first call on. Waiting for a process to exit is bounded, so
+// a holder that does not exit makes Close return after the kill deadline, not
+// block; Start and Identity wait for that long at most.
 func (n *Namespace) Close() error {
 	n.closeMu.Lock()
 	defer n.closeMu.Unlock()
@@ -234,8 +236,15 @@ func (n *Namespace) Close() error {
 	return nil
 }
 
-// release kills the holder's group, reaps it last, then closes descriptors. A
-// failure leaves the holder and every descriptor in place, so it can be retried.
+// release kills the holder's group, reaps it once its exit is observed, then
+// closes descriptors. A failure leaves the holder and every descriptor in place,
+// so it can be retried.
+//
+// The holder is signalled, and never waited for blindly: reaping blocks until the
+// process exits, so it happens only after the pidfd shows a zombie, within the
+// kill deadline. A holder that is still running then, or cannot be read, is not
+// reaped and not forgotten. It stays unreaped, so its PID and group ID stay
+// reserved and the next attempt can signal it again.
 func (n *Namespace) release() error {
 	if n.holder != nil && n.holder.Process != nil {
 		switch {
@@ -246,6 +255,9 @@ func (n *Namespace) release() error {
 		default:
 			_ = n.sys.signalLeader(n.holderFD, unix.SIGKILL)
 		}
+		if !awaitExit(n.holderState, n.sys.killDeadline) {
+			return errors.Join(ErrCleanupIncomplete, errors.New("the holder did not exit after SIGKILL"))
+		}
 		if _, err := n.sys.reap(n.holder.Process); err != nil {
 			return errors.Join(ErrCleanupIncomplete, err)
 		}
@@ -255,6 +267,16 @@ func (n *Namespace) release() error {
 	closeFD(&n.netFD)
 	closeFD(&n.userFD)
 	return nil
+}
+
+// holderState reads the holder without reaping it. Without a pidfd it asks about
+// the PID, which is safe only because the holder is an unreaped child of ours.
+func (n *Namespace) holderState() leaderState {
+	if n.holderFD >= 0 {
+		return n.sys.probe(n.holderFD)
+	}
+	var info unix.Siginfo
+	return classify(unix.Waitid(unix.P_PID, n.holder.Process.Pid, &info, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT, nil), &info)
 }
 
 func closeFD(fd *int) {

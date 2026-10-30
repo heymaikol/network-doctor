@@ -72,7 +72,12 @@ func (l leaderState) unreaped() bool { return l == leaderRunning || l == leaderZ
 // without reaping it. An error is never read as an exit.
 func (s *sys) probe(pidfd int) leaderState {
 	var info unix.Siginfo
-	switch err := s.waitid(pidfd, &info, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT); {
+	return classify(s.waitid(pidfd, &info, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT), &info)
+}
+
+// classify reads the result of a non-blocking waitid that does not reap.
+func classify(err error, info *unix.Siginfo) leaderState {
+	switch {
 	case errors.Is(err, unix.ECHILD):
 		return leaderGone
 	case err != nil:
@@ -81,5 +86,25 @@ func (s *sys) probe(pidfd int) leaderState {
 		return leaderRunning
 	default:
 		return leaderZombie
+	}
+}
+
+// awaitExit polls state every exitPoll until it shows a zombie, which is the only
+// result that proves an exit. A process that is gone can never show one, so that
+// ends the wait at once; anything else, an unreadable state included, is retried
+// until d has passed. The decision always follows a fresh look.
+func awaitExit(state func() leaderState, d time.Duration) bool {
+	end := time.Now().Add(d)
+	for {
+		switch state() {
+		case leaderZombie:
+			return true
+		case leaderGone:
+			return false
+		}
+		if !time.Now().Before(end) {
+			return false
+		}
+		time.Sleep(exitPoll)
 	}
 }

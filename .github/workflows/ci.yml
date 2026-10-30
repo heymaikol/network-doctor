@@ -480,6 +480,35 @@ jobs:
             exit 1
           fi
 
+  # Reuse the completed merged coverage report rather than rerunning tests.
+  # This is not a required gate; Codecov needs repository activation before
+  # uploads can be verified. OIDC avoids storing a long-lived upload secret.
+  codecov:
+    name: Publish Go coverage to Codecov
+    needs: [linux]
+    if: ${{ needs.linux.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download merged coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-coverage
+      - name: Require nonempty coverage report
+        run: test -s coverage.out
+      - name: Upload coverage
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: coverage.out
+          use_oidc: true
+          fail_ci_if_error: false
+
   # The container is how macOS and Windows reach Challenge Mode, so the artifact
   # is tested rather than assumed: this job builds the image and runs a real
   # namespace-backed simulation and a real challenge inside it. The runner's

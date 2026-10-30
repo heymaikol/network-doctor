@@ -146,7 +146,12 @@ func vtyshHangs(t *testing.T) string {
 // execLine is a shell line that replaces the shell with the program at path. The
 // path is quoted, so it stays one word whatever characters it holds.
 func execLine(path, arg string) string {
-	return "exec '" + strings.ReplaceAll(path, "'", `'\''`) + "' " + arg
+	return "exec " + shellQuote(path) + " " + arg
+}
+
+// shellQuote is path as one shell word, whatever characters it holds.
+func shellQuote(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
 }
 
 type policyRun struct {

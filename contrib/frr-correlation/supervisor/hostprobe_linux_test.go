@@ -3,13 +3,16 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -38,8 +41,21 @@ func refusedByHost(output string) bool {
 func hostRefusal(ctx context.Context, argv ...string) (refusal string, err error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G204: the callers pass binaries from LookPath and constant arguments.
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	out, runErr := cmd.CombinedOutput()
-	text := strings.TrimSpace(string(out))
+	// The probe gets its own process group, and ending it ends the whole group. Killing only
+	// the shell would leave a child holding the output pipe, and Wait would block on the pipe.
+	// WaitDelay bounds the wait for a process that left the group.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = hostProbeWaitDelay
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	runErr := cmd.Start()
+	if runErr == nil {
+		pgid := cmd.Process.Pid
+		runErr = cmd.Wait()
+		_ = syscall.Kill(-pgid, syscall.SIGKILL) // whatever the probe left behind
+	}
+	text := strings.TrimSpace(out.String())
 	var exit *exec.ExitError
 	switch {
 	case runErr == nil:
@@ -52,6 +68,10 @@ func hostRefusal(ctx context.Context, argv ...string) (refusal string, err error
 		return "", fmt.Errorf("%s failed in a way that is not a host refusal: %w: %s", filepath.Base(argv[0]), runErr, text)
 	}
 }
+
+// hostProbeWaitDelay is how long hostRefusal waits for a probe's output pipe after
+// the probe's own process is gone, before it closes the pipe and reports an error.
+const hostProbeWaitDelay = 2 * time.Second
 
 func TestRefusedByHostRecognisesOnlyCapabilityErrors(t *testing.T) {
 	for _, tc := range []struct {
@@ -118,5 +138,89 @@ func TestHostRefusalSeparatesARefusalFromAFailedProbe(t *testing.T) {
 		if refusal != "" || err == nil {
 			t.Fatalf("refusal %q, error %v; want an error", refusal, err)
 		}
+	})
+}
+
+// probeScript writes an executable stand-in for a probe command.
+func probeScript(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // G306: the stand-in must be executable.
+		t.Fatal(err)
+	}
+	return p
+}
+
+// probeBound is the longest a bounded probe may take: the wait for its output pipe
+// plus time to kill and reap it. It comes from the constant, not from a clock.
+const probeBound = hostProbeWaitDelay + 5*time.Second
+
+// holdsFor is how long the fixture's child keeps the probe's output pipe open. It is
+// far above probeBound, so an unbounded wait cannot pass by finishing on its own.
+const holdsFor = "60"
+
+// fixtureChildGone fails the test unless the fixture child recorded in pidfile is gone soon.
+func fixtureChildGone(t *testing.T, pidfile string) {
+	t.Helper()
+	b, err := os.ReadFile(pidfile) //nolint:gosec // G304: a file in this test's own TempDir.
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	for range 100 {
+		if !alive(pid) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("fixture child %d is still running after the probe returned", pid)
+}
+
+// A probe shell that has started a child holding the output pipe open is the case
+// CombinedOutput alone cannot bound: killing the shell leaves the pipe open.
+func TestHostRefusalIsBoundedWhenAChildHoldsTheOutputPipe(t *testing.T) {
+	dir := t.TempDir()
+	sleep := lookPath(t, "sleep")
+	hold := shellQuote(sleep) + " " + holdsFor + " &\necho $! > \"$1\"\n"
+
+	t.Run("the shell exits and leaves the child", func(t *testing.T) {
+		pidfile := filepath.Join(t.TempDir(), "pid")
+		start := time.Now()
+		refusal, err := hostRefusal(context.Background(), probeScript(t, dir, "leaves", hold+"exit 0"), pidfile)
+		if took := time.Since(start); took > probeBound {
+			t.Errorf("hostRefusal took %v, want at most %v", took, probeBound)
+		}
+		if refusal != "" || err == nil {
+			t.Errorf("refusal %q, error %v; a probe that leaves a process on its output pipe is an error", refusal, err)
+		}
+		fixtureChildGone(t, pidfile)
+	})
+
+	t.Run("the context ends while the shell waits for the child", func(t *testing.T) {
+		pidfile := filepath.Join(t.TempDir(), "pid")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() { // end the probe only once the child exists, so the test does not race the shell
+			for range 500 {
+				if b, err := os.ReadFile(pidfile); err == nil && len(b) > 0 { //nolint:gosec // G304: a file in this test's own TempDir.
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			cancel()
+		}()
+		start := time.Now()
+		refusal, err := hostRefusal(ctx, probeScript(t, dir, "waits", hold+"wait"), pidfile)
+		if took := time.Since(start); took > probeBound {
+			t.Errorf("hostRefusal took %v, want at most %v", took, probeBound)
+		}
+		if refusal != "" || !errors.Is(err, context.Canceled) {
+			t.Errorf("refusal %q, error %v; want an error that wraps context.Canceled", refusal, err)
+		}
+		fixtureChildGone(t, pidfile)
 	})
 }

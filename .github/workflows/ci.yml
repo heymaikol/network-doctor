@@ -313,7 +313,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # The contributor-facing fast gate, run as the real command so the script
-      # cannot rot unnoticed. Contributors are told to run `scripts/check`, and
+      # cannot rot unnoticed. Contributors are told to run `scripts/check.sh`, and
       # running the real script is the only thing that proves it still works.
       # Asserting on its text cannot. It is its own shard because most of its
       # work is repeated by the shards below, so paying for it no longer delays
@@ -322,7 +322,7 @@ jobs:
       # on the hosts that have no shard here.
       - if: matrix.shard == 'check'
         name: Run the fast local check contributors are asked to run
-        run: ./scripts/check
+        run: ./scripts/check.sh
 
       # Every coverage-producing suite runs in this one shard, so the merge
       # below still sees all four profiles without moving them between jobs.

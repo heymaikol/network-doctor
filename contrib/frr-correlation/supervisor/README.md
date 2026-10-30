@@ -342,11 +342,11 @@ The descriptor scan also has a rootless unit test in `fds_linux_test.go`.
 go test -count=1 ./contrib/frr-correlation/supervisor
 go test -race -count=1 -tags netns_integration ./contrib/frr-correlation/supervisor
 NETDOC_FRR_STAGE=<private copy> go test -count=1 -tags netns_integration -run FRR ./contrib/frr-correlation/supervisor
-./scripts/check --race
+./scripts/check.sh --race
 ```
 
 Without the `netns_integration` tag only the descriptor-scan unit test runs.
-`scripts/check` compile-checks the other supported platforms, where the package
+`scripts/check.sh` compile-checks the other supported platforms, where the package
 reduces to a stub that returns `ErrUnsupported`.
 
 The hosted `linux (coverage)` job runs a probe test first, with

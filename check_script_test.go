@@ -17,8 +17,7 @@ import (
 // exception: --help is checked by executing it, which is safe because usage()
 // prints and exits before the first check step. Running the script bare from a
 // test would recurse, because its own `go test ./...` step runs this file.
-
-const checkScript = "scripts/check"
+const checkScript = "scripts/check.sh"
 
 func readCheckScript(t *testing.T) string {
 	t.Helper()
@@ -63,21 +62,23 @@ func readCheckScriptCode(t *testing.T) string {
 }
 
 func TestCheckScriptIsCommittedExecutable(t *testing.T) {
-	// The documented invocation is `./scripts/check`, which needs the execute
+	// The documented invocation is `./scripts/check.sh`, which needs the execute
 	// bit in the committed tree. The filesystem mode cannot be asserted here:
 	// a Windows checkout does not carry it. git's index does, so ask git.
-	out, err := exec.Command("git", "ls-files", "--stage", "--", checkScript).Output()
-	if err != nil {
-		t.Skipf("git unavailable, or this is not a checkout: %v", err)
-	}
-	fields := strings.Fields(string(out))
-	if len(fields) == 0 {
-		t.Fatalf("%s is not tracked by git", checkScript)
-	}
-	if fields[0] != "100755" {
-		t.Errorf("%s is committed as mode %s, want 100755: ./%s would not be "+
-			"directly executable for a contributor who just cloned",
-			checkScript, fields[0], checkScript)
+	for _, path := range []string{checkScript} {
+		out, err := exec.Command("git", "ls-files", "--stage", "--", path).Output()
+		if err != nil {
+			t.Skipf("git unavailable, or this is not a checkout: %v", err)
+		}
+		fields := strings.Fields(string(out))
+		if len(fields) == 0 {
+			t.Fatalf("%s is not tracked by git", path)
+		}
+		if fields[0] != "100755" {
+			t.Errorf("%s is committed as mode %s, want 100755: ./%s would not be "+
+				"directly executable for a contributor who just cloned",
+				path, fields[0], path)
+		}
 	}
 }
 
@@ -167,7 +168,7 @@ func TestCheckScriptUsageMatchesTheOptionsItAccepts(t *testing.T) {
 		t.Fatalf("%s --help: %v\n%s", checkScript, err, out)
 	}
 	help := string(out)
-	for _, want := range []string{"./scripts/check", "--race", "--help"} {
+	for _, want := range []string{"./scripts/check.sh", "--race", "--help"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("the usage text printed by --help does not mention %q:\n%s", want, help)
 		}
@@ -251,5 +252,14 @@ func TestContributingAndREADMEPointAtTheCheckScript(t *testing.T) {
 		if !strings.Contains(string(body), checkScript) {
 			t.Errorf("%s does not mention %s", doc, checkScript)
 		}
+	}
+}
+
+func TestCheckScriptChangesIntoTheRepositoryRoot(t *testing.T) {
+	// The checks run against the repository, not the caller's directory. That
+	// is what lets ./scripts/check.sh work from anywhere, and it cannot be
+	// proved by running the script, so pin the line that does it.
+	if !strings.Contains(readCheckScriptCode(t), `cd "$(dirname "$0")/.."`) {
+		t.Errorf("%s no longer changes into the repository root before its checks", checkScript)
 	}
 }

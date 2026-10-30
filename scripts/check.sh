@@ -28,9 +28,9 @@ download on first run. Making this script the whole gate would make it too
 slow to run, which is the way a check like this stops being run at all.
 
 Usage:
-  ./scripts/check            fast checks
-  ./scripts/check --race     also run the race detector (slower, still local)
-  ./scripts/check --help     print this message
+  ./scripts/check.sh            fast checks
+  ./scripts/check.sh --race     also run the race detector (slower, still local)
+  ./scripts/check.sh --help     print this message
 EOF
 }
 
@@ -43,7 +43,7 @@ for arg in "$@"; do
             exit 0
             ;;
         *)
-            printf 'check: unknown option %s\n' "$arg" >&2
+            printf 'check.sh: unknown option %s\n' "$arg" >&2
             exit 2
             ;;
     esac

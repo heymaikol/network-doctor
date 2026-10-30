@@ -135,7 +135,13 @@ const vtyshAttached = `echo "Client: bgp"`
 // vtyshHangs never answers. The stand-in is bounded by exec'ing sleep with an
 // absolute path (the script clears PATH) and a short life of its own.
 func vtyshHangs(t *testing.T) string {
-	return "exec " + lookPath(t, "sleep") + " 30"
+	return execLine(lookPath(t, "sleep"), "30")
+}
+
+// execLine is a shell line that replaces the shell with the program at path. The
+// path is quoted, so it stays one word whatever characters it holds.
+func execLine(path, arg string) string {
+	return "exec '" + strings.ReplaceAll(path, "'", `'\''`) + "' " + arg
 }
 
 type policyRun struct {

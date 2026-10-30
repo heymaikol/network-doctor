@@ -61,7 +61,7 @@ func TestFRRRunsUnderTheSupervisor(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer f.Close()
-		wrapped := append([]string{unshare, "--mount", "--", sh, "-c", mount + ` -t tmpfs tmpfs /var/tmp && exec "$@"`, "sh"}, argv...)
+		wrapped := append([]string{unshare, "--mount", "--"}, withTmpfsVarTmp(sh, mount, argv)...)
 		c, err := n.Start(context.Background(), Options{Argv: wrapped, Env: env, Stdout: f, Stderr: f})
 		if err != nil {
 			t.Fatalf("start %s: %v", name, err)
@@ -153,4 +153,11 @@ func tail(path string) string {
 		b = b[len(b)-1500:]
 	}
 	return string(b)
+}
+
+// withTmpfsVarTmp wraps argv in a shell that first mounts tmpfs over /var/tmp,
+// where FRR writes unconditionally. The mount path is $0, a word of its own, and
+// argv follows as "$@", so no path is ever read as shell syntax.
+func withTmpfsVarTmp(sh, mount string, argv []string) []string {
+	return append([]string{sh, "-c", `"$0" -t tmpfs tmpfs /var/tmp && exec "$@"`, mount}, argv...)
 }

@@ -185,6 +185,13 @@ func TestChildRunsInTheRetainedNamespaces(t *testing.T) {
 	}
 }
 
+// holdOpenArgv runs script in sh and then turns the shell into sleep, so the
+// process stays until the test stops it. The sleep path is $0, a word of its own,
+// so a directory name with a space or a quote cannot split it.
+func holdOpenArgv(sh, script, sleep string) []string {
+	return []string{sh, "-c", script + `; exec "$0" 3600`, sleep}
+}
+
 // fdProbe prints the number of every descriptor the shell holds, with no upper
 // bound. The glob lists /proc/<pid>/fd, which includes the directory descriptor
 // the glob itself opens; that one is closed before the loop starts, so the
@@ -256,7 +263,7 @@ func TestChildInheritsNoDescriptors(t *testing.T) {
 	// into sleep so that it stays until the test has read the file and stops it.
 	const end = "end\n"
 	c, err := n.Start(context.Background(), Options{
-		Argv:   []string{sh, "-c", fdProbe + "; echo end; exec " + lookPath(t, "sleep") + " 3600"},
+		Argv:   holdOpenArgv(sh, fdProbe+"; echo end", lookPath(t, "sleep")),
 		Stdout: out,
 	})
 	if err != nil {

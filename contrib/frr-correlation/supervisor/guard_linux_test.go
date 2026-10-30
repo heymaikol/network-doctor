@@ -70,6 +70,7 @@ func TestChildReapedByAnotherProcessIsTerminalAndNeverSignalledAsAGroup(t *testi
 		t.Fatalf("Close: %v, want ErrCleanupIncomplete", err)
 	}
 	assertPinsHeld(t, n)
+	_ = c.cmd.Process.Release() // Go's own handle for a child it never waited for
 	_ = n.holder.Process.Kill()
 	_, _ = n.holder.Process.Wait()
 	for _, fd := range []*int{&c.pidfd, &n.holderFD, &n.netFD, &n.userFD} {

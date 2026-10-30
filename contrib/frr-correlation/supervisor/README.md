@@ -212,7 +212,9 @@ SIGTERM gets `STOP_GRACE` seconds (default 5 when unset) and then SIGKILL. Each
 is a whole number from 1 to 60. Any other value, an empty one included, exits 9
 before the script mounts or starts anything. A timeout or an escalation
 adds one line to the output, and a normal run prints exactly what it printed
-before. Status 124 from `timeout` reads `timed out`. Status 137, a query that
+before. Status 124 reads `status 124 (timeout or command exit)`: `timeout`
+returns it when it ends the query at the deadline, and a query can exit 124 by
+itself, so the status does not say which. Status 137, a query that
 died of SIGKILL, reads `ended by SIGKILL (status 137), cause not confirmed`: the
 status does not say whether the OOM killer, a person or `timeout` itself sent the
 signal, because `timeout` also returns 137 after a query that ignored SIGTERM. An interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both

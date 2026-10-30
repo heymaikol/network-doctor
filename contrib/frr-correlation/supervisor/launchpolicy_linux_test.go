@@ -292,7 +292,7 @@ func TestLaunchPolicyBoundsAStuckQueryAndAnIgnoredSIGTERM(t *testing.T) {
 	}
 	requireLines(t, text,
 		"  bgpd attached to zebra: no",
-		"  vtysh query: timed out after 1s",
+		"  vtysh query: status 124 (timeout or command exit)",
 		"  bgpd exit: 137",
 		"  bgpd stop: SIGKILL after 1s",
 		"  zebra exit: 143")
@@ -304,6 +304,23 @@ func TestLaunchPolicyBoundsAStuckQueryAndAnIgnoredSIGTERM(t *testing.T) {
 // and a person look the same, and so does timeout's own escalation after a command
 // that ignored SIGTERM. The script reports it as SIGKILL with the cause open, and
 // never as a timeout.
+// timeout returns 124 when it ends the query at the deadline, and a query can exit 124 by
+// itself, so the status alone does not say which. The line must not claim a timeout. The
+// deadline is 60 seconds and the run ends well inside the 40 second limit of the harness,
+// so the deadline cannot be what ended this query.
+func TestLaunchPolicyDoesNotCallAnExitOf124ATimeout(t *testing.T) {
+	stage, out := newMockStage(t, "term", "term", "exit 124")
+	text, code := startLaunchPolicy(t, stage, out, "QUERY_TIMEOUT=60").wait(t)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, text)
+	}
+	requireLines(t, text, "  bgpd attached to zebra: no", "  vtysh query: status 124 (timeout or command exit)", "  bgpd exit: 143", "  zebra exit: 143")
+	if strings.Contains(text, "timed out") {
+		t.Errorf("an exit of 124 was reported as a timeout:\n%s", text)
+	}
+	noneAlive(t, out)
+}
+
 func TestLaunchPolicyReportsAKilledQueryApartFromATimeout(t *testing.T) {
 	sleep := lookPath(t, "sleep")
 	for _, tc := range []struct{ name, vtysh string }{

@@ -16,7 +16,9 @@
 #   STOP_GRACE     whole seconds a daemon gets after SIGTERM before SIGKILL (default 5; unset, not empty).
 # Both are from 1 to 60. Anything else exits 9 before the script mounts or starts anything.
 # A timeout or an escalation adds one line to the output; a normal run prints none. A query
-# that timeout ended at its deadline (status 124) reads "timed out". A query that died of
+# that returned status 124 reads "status 124 (timeout or command exit)": timeout returns it
+# when it ends the query at the deadline, and a query can exit 124 by itself, so the status
+# alone does not say which. A query that died of
 # SIGKILL (status 137) reads "ended by SIGKILL ... cause not confirmed": the status does not
 # say who sent the signal, and timeout returns it too after a query that ignored SIGTERM.
 # The daemons are also stopped, in the same way, if the script is interrupted or exits early.
@@ -178,7 +180,7 @@ query_rc=$?
 grep -q 'Client: bgp' <<< "$reply" && attached=yes
 echo "  bgpd attached to zebra: $attached"
 case $query_rc in # 137 is SIGKILL from anyone (the OOM killer, a person, or timeout after a query that ignored SIGTERM)
-  124) echo "  vtysh query: timed out after ${QUERY_TIMEOUT}s" ;;
+  124) echo "  vtysh query: status 124 (timeout or command exit)" ;; # timeout returns 124, and so can a query
   137) echo "  vtysh query: ended by SIGKILL (status 137), cause not confirmed" ;;
 esac
 stop bgpd BP

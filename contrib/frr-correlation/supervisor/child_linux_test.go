@@ -3,6 +3,7 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,11 +180,60 @@ func TestChildRunsInTheRetainedNamespaces(t *testing.T) {
 	}
 }
 
+// fdProbe prints the number of every descriptor the shell holds, with no upper
+// bound. The glob lists /proc/<pid>/fd, which includes the directory descriptor
+// the glob itself opens; that one is closed before the loop starts, so the
+// builtin test -L, an lstat of the entry, drops it. Only builtins run, so the
+// shell opens nothing else and the result does not depend on which ls the host
+// ships. The glob sorts as text, so callers sort the numbers.
+const fdProbe = `for f in /proc/$$/fd/*; do if [ -L "$f" ]; then echo "${f##*/}"; fi; done`
+
+func fdList(t *testing.T, out string) []int {
+	t.Helper()
+	var fds []int
+	for _, f := range strings.Fields(out) {
+		n, err := strconv.Atoi(f)
+		if err != nil {
+			t.Fatalf("descriptor probe printed %q", f)
+		}
+		fds = append(fds, n)
+	}
+	slices.Sort(fds)
+	return fds
+}
+
+// The probe must see a descriptor far above the old ceiling of 1023, or a
+// descriptor leaked to that number would pass TestChildInheritsNoDescriptors
+// unseen. Go maps ExtraFiles entry i to descriptor 3+i and leaves a nil entry
+// closed, so a long slice with one file at the end puts it at 1100.
+func TestDescriptorProbeSeesDescriptorsAbove1023(t *testing.T) {
+	const leaked = 1100
+	sh := lookPath(t, "sh")
+	var lim unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &lim); err != nil || lim.Cur <= leaked {
+		unavailable(t, "the descriptor limit %d is too low to hold descriptor %d (%v)", lim.Cur, leaked, err)
+	}
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	extra := make([]*os.File, leaked-3+1)
+	extra[leaked-3] = null
+	var out bytes.Buffer
+	cmd := exec.Command(sh, "-c", fdProbe) //nolint:gosec // G204: sh comes from LookPath and the script is a constant.
+	cmd.ExtraFiles, cmd.Stdout = extra, &out
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if got := fdList(t, out.String()); fmt.Sprint(got) != "[0 1 2 1100]" {
+		t.Fatalf("descriptor table %v, want [0 1 2 1100]", got)
+	}
+}
+
 // The Go runtime holds descriptors of its own (a cgroup file and the poller),
 // so inheritance is measured with a shell that never opens one: its table is
-// exactly what nsenter left. The shell probes each descriptor number with the
-// builtin test -L, which is an lstat of /proc/<pid>/fd/<n>, so the result does
-// not depend on which ls the host ships.
+// exactly what nsenter left.
 func TestChildInheritsNoDescriptors(t *testing.T) {
 	n := newNamespace(t)
 	sh, err := exec.LookPath("sh")
@@ -195,7 +246,7 @@ func TestChildInheritsNoDescriptors(t *testing.T) {
 	}
 	defer out.Close()
 	c, err := n.Start(context.Background(), Options{
-		Argv:   []string{sh, "-c", `i=0; while [ "$i" -lt 1024 ]; do [ -L "/proc/$$/fd/$i" ] && echo "$i"; i=$((i+1)); done`},
+		Argv:   []string{sh, "-c", fdProbe},
 		Stdout: out,
 	})
 	if err != nil {
@@ -206,7 +257,7 @@ func TestChildInheritsNoDescriptors(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(out.Name())
-	if got := strings.Fields(string(b)); fmt.Sprint(got) != "[0 1 2]" {
+	if got := fdList(t, string(b)); fmt.Sprint(got) != "[0 1 2]" {
 		t.Fatalf("child descriptor table %v, want [0 1 2]", got)
 	}
 }

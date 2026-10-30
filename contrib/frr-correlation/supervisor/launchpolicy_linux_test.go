@@ -296,8 +296,9 @@ func TestLaunchPolicyStopsBothDaemonsWhenInterrupted(t *testing.T) {
 }
 
 // The script mounts tmpfs over /run, /var/lib and /var/tmp, which hides anything
-// there, and its waits need whole seconds. It refuses both mistakes before it
-// mounts or starts anything.
+// there, and its waits are whole seconds from 1 to 60: a larger number is not an
+// operational bound, and one past 18 digits overflows the shell's arithmetic.
+// It refuses all of these before it mounts or starts anything.
 func TestLaunchPolicyRefusesUnusableSettings(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -308,6 +309,19 @@ func TestLaunchPolicyRefusesUnusableSettings(t *testing.T) {
 		{"stage under /run", func(string) []string { return []string{"STAGE=/run/launch-policy-test"} }, "hidden"},
 		{"grace is not a number", func(string) []string { return []string{"STOP_GRACE=soon"} }, "STOP_GRACE"},
 		{"query bound is not a number", func(string) []string { return []string{"QUERY_TIMEOUT=-1"} }, "QUERY_TIMEOUT"},
+		{"grace is zero", func(string) []string { return []string{"STOP_GRACE=0"} }, "STOP_GRACE"},
+		{"grace is one past the limit", func(string) []string { return []string{"STOP_GRACE=61"} }, "STOP_GRACE"},
+		{"grace has three digits", func(string) []string { return []string{"STOP_GRACE=100"} }, "STOP_GRACE"},
+		{"grace overflows the arithmetic", func(string) []string { return []string{"STOP_GRACE=1000000000000000000"} }, "STOP_GRACE"},
+		{"grace has twenty digits", func(string) []string { return []string{"STOP_GRACE=99999999999999999999"} }, "STOP_GRACE"},
+		{"grace has a leading zero", func(string) []string { return []string{"STOP_GRACE=05"} }, "STOP_GRACE"},
+		{"grace has a fraction", func(string) []string { return []string{"STOP_GRACE=1.5"} }, "STOP_GRACE"},
+		{"grace has a space", func(string) []string { return []string{"STOP_GRACE= 5"} }, "STOP_GRACE"},
+		{"grace has a trailing newline", func(string) []string { return []string{"STOP_GRACE=5\n"} }, "STOP_GRACE"},
+		{"query bound is zero", func(string) []string { return []string{"QUERY_TIMEOUT=0"} }, "QUERY_TIMEOUT"},
+		{"query bound is one past the limit", func(string) []string { return []string{"QUERY_TIMEOUT=61"} }, "QUERY_TIMEOUT"},
+		{"query bound overflows the arithmetic", func(string) []string { return []string{"QUERY_TIMEOUT=1000000000000000000"} }, "QUERY_TIMEOUT"},
+		{"query bound has twenty digits", func(string) []string { return []string{"QUERY_TIMEOUT=99999999999999999999"} }, "QUERY_TIMEOUT"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stage, out := newMockStage(t, "term", "term", vtyshAttached)
@@ -320,4 +334,15 @@ func TestLaunchPolicyRefusesUnusableSettings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The limit itself is allowed, so the bound is not off by one.
+func TestLaunchPolicyAcceptsTheLargestSettings(t *testing.T) {
+	stage, out := newMockStage(t, "term", "term", vtyshAttached)
+	text, code := startLaunchPolicy(t, stage, out, "STOP_GRACE=60", "QUERY_TIMEOUT=60").wait(t)
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, text)
+	}
+	requireLines(t, text, "  bgpd exit: 143", "  zebra exit: 143")
+	noneAlive(t, out)
 }

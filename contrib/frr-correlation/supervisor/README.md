@@ -212,9 +212,10 @@ before. An interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both
 daemons the same way, and any other child still running is killed, so no daemon
 outlives the script. A second interrupt while the daemons are being stopped is
 ignored, because stopping is already bounded. Only SIGKILL sent to the script
-itself can leave a daemon behind. Both settings must be whole numbers. The script exits with
-status 9, before it mounts anything, if `STAGE` or `OUT` lies under a directory
-the tmpfs mounts would hide. `launchpolicy_linux_test.go` runs the script
+itself can leave a daemon behind. Both settings must be whole numbers of seconds
+from 1 to 60. The script exits with status 9, before it mounts or starts anything,
+for any other value, and for a `STAGE` or `OUT` under a directory the tmpfs
+mounts would hide. `launchpolicy_linux_test.go` runs the script
 against stand-in daemons that are symlinks to the test binary, never against
 FRR or an evidence archive. One run of the revised script against a private
 copy of the FRR 10.7.0 install gave the control row below.

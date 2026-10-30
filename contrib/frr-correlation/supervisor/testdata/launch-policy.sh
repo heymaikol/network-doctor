@@ -14,6 +14,7 @@
 # Every wait is bounded, and no daemon outlives the script:
 #   QUERY_TIMEOUT  whole seconds the vtysh query may run before it is killed (default 10).
 #   STOP_GRACE     whole seconds a daemon gets after SIGTERM before SIGKILL (default 5).
+# Both are from 1 to 60. Anything else exits 9 before the script mounts or starts anything.
 # A timeout or an escalation adds one line to the output; a normal run prints none. The
 # daemons are also stopped, in the same way, if the script is interrupted or exits early.
 #
@@ -27,8 +28,10 @@ ST=${STAGE:?set STAGE to a private copy of the FRR install}
 OUT=${OUT:?set OUT to a scratch directory}
 QUERY_TIMEOUT=${QUERY_TIMEOUT:-10}
 STOP_GRACE=${STOP_GRACE:-5}
-for v in QUERY_TIMEOUT STOP_GRACE; do
-  [[ ${!v} =~ ^[1-9][0-9]*$ ]] || { echo "$v must be a whole number of seconds, not '${!v}'" >&2; exit 9; }
+for v in QUERY_TIMEOUT STOP_GRACE; do # at most two digits, so the arithmetic in await cannot overflow
+  if ! [[ ${!v} =~ ^[1-9][0-9]?$ ]] || ((${!v} > 60)); then
+    echo "$v must be a whole number of seconds from 1 to 60, not '${!v}'" >&2; exit 9
+  fi
 done
 read -r uid_in uid_out uid_n < /proc/self/uid_map || exit 9
 [[ "$uid_in $uid_out $uid_n" != "0 0 4294967295" ]] || { echo "run under unshare -Urnm" >&2; exit 9; }

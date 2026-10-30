@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -25,13 +26,12 @@ const (
 // setns on a Go thread: a holder child creates the namespaces and the
 // supervisor retains descriptors to them. Methods are safe for concurrent use.
 type Namespace struct {
-	mu       sync.Mutex
-	closing  bool // set once; new children are refused from then on
+	mu       sync.Mutex // guards closing, closed and the descriptors
+	closeMu  sync.Mutex // serializes Close, which can be retried
+	closing  bool       // set once; new children are refused from then on
 	closed   bool
-	unclean  bool
-	once     sync.Once
-	closeErr error
-	cmu      sync.Mutex // guards children; never held across a stop
+	unclean  atomic.Bool // cleanup is incomplete: no launches, and Close must be retried
+	cmu      sync.Mutex  // guards children; never held across a stop
 	children map[*Child]struct{}
 	sys      *sys
 	holder   *exec.Cmd
@@ -45,7 +45,9 @@ type Namespace struct {
 var testHookAfterHolderStart func(pidfd int)
 
 // NewNamespace starts a holder in new rootless user and network namespaces and
-// retains descriptors to both. Any failure releases everything it created.
+// retains descriptors to both. A failure releases everything it created. If that
+// release is itself incomplete, NewNamespace returns the unusable Namespace
+// together with the error, so the caller can still call Close to retry it.
 func NewNamespace(ctx context.Context) (*Namespace, error) {
 	return newNamespaceWith(ctx, realSys())
 }
@@ -77,19 +79,26 @@ func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 		return nil, ErrUnsupported
 	}
 	if n.holderFD < 0 { // kernel without CLONE_PIDFD
-		_ = n.release()
-		return nil, ErrUnsupported
+		return n.failed(ErrUnsupported)
 	}
 	if testHookAfterHolderStart != nil {
 		testHookAfterHolderStart(n.holderFD)
 	}
 	if err := n.retain(ctx); err != nil {
-		if cerr := n.release(); cerr != nil {
-			return nil, errors.Join(err, cerr)
-		}
-		return nil, err
+		return n.failed(err)
 	}
 	return n, nil
+}
+
+// failed releases what the constructor created. When the release is incomplete
+// the caller still receives the Namespace, marked unusable, because it holds the
+// only handles that can finish the job.
+func (n *Namespace) failed(err error) (*Namespace, error) {
+	if cerr := n.release(); cerr != nil {
+		n.unclean.Store(true)
+		return n, errors.Join(err, cerr)
+	}
+	return nil, err
 }
 
 // retain opens both namespaces through the holder's pidfd and proves they are
@@ -175,57 +184,64 @@ func selfIdentity() (Identity, error) {
 func (n *Namespace) Identity() (Identity, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.closing || n.closed || n.unclean {
+	if n.closing || n.closed || n.unclean.Load() {
 		return Identity{}, ErrClosed
 	}
 	return n.id, nil
 }
 
 // Close stops and reaps every child, then kills and reaps the holder and
-// releases every descriptor. It is safe to call concurrently and repeatedly;
-// every call returns the first result. Anything that cannot be shown reaped
-// keeps its pidfd, makes the namespace unusable and yields ErrCleanupIncomplete.
+// releases every descriptor. Calls are serialized and Close can be retried: it
+// returns nil once everything is released, and keeps returning nil. If any
+// child or the holder cannot be shown reaped, Close returns an error wrapping
+// ErrCleanupIncomplete and keeps every descriptor, the holder and the child
+// handles, so the next call can finish the job. The namespace refuses new
+// children from the first call on.
 func (n *Namespace) Close() error {
-	n.once.Do(func() {
-		n.mu.Lock()
-		n.closing = true
+	n.closeMu.Lock()
+	defer n.closeMu.Unlock()
+	n.mu.Lock()
+	n.closing = true
+	if n.closed {
 		n.mu.Unlock()
-		n.cmu.Lock()
-		kids := make([]*Child, 0, len(n.children))
-		for c := range n.children {
-			kids = append(kids, c)
+		return nil
+	}
+	n.mu.Unlock()
+	n.cmu.Lock()
+	kids := make([]*Child, 0, len(n.children))
+	for c := range n.children {
+		kids = append(kids, c)
+	}
+	n.cmu.Unlock()
+	var errs []error
+	for _, c := range kids {
+		if _, err := c.Stop(context.Background()); err != nil {
+			errs = append(errs, err)
 		}
-		n.cmu.Unlock()
-		var errs []error
-		for _, c := range kids {
-			if _, err := c.Stop(context.Background()); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		n.mu.Lock()
-		defer n.mu.Unlock()
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(errs) == 0 { // pins are released only once every child is proven reaped
 		if err := n.release(); err != nil {
 			errs = append(errs, err)
 		}
-		if len(errs) > 0 {
-			n.unclean = true
-			n.closeErr = errors.Join(errs...)
-			return
-		}
-		n.closed = true
-	})
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.closeErr
+	}
+	if len(errs) > 0 {
+		n.unclean.Store(true)
+		return errors.Join(errs...)
+	}
+	n.closed = true
+	return nil
 }
 
-// release kills the holder's group, reaps it last, then closes descriptors.
+// release kills the holder's group, reaps it last, then closes descriptors. A
+// failure leaves the holder and every descriptor in place, so it can be retried.
 func (n *Namespace) release() error {
 	if n.holder != nil && n.holder.Process != nil {
 		_ = n.sys.killGroup(n.holder.Process.Pid, unix.SIGKILL) // leader unreaped, so the pgid is still ours
 		_ = n.holder.Process.Kill()
 		if _, err := n.sys.reap(n.holder.Process); err != nil {
-			return ErrCleanupIncomplete
+			return errors.Join(ErrCleanupIncomplete, err)
 		}
 		n.holder = nil
 	}

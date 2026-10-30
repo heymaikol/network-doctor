@@ -32,9 +32,31 @@ closing, closed or unclean.
 `Child.Stop` sends SIGTERM to the child's process group while the leader is
 still unreaped, waits the grace period, escalates to SIGKILL, sweeps the group
 once the leader is a zombie, and reaps last. `Namespace.Close` stops every
-child, then kills and reaps the holder and closes both descriptors. Any step it
-cannot prove complete leaves the namespace unusable and returns
-`ErrCleanupIncomplete`.
+child, then kills and reaps the holder and closes both descriptors.
+
+## Cleanup that cannot be proven complete
+
+A child is registered with its namespace as soon as the process exists, before
+its namespaces are verified, and leaves the registry only when `Stop` has reaped
+it. So a child whose verification failed and whose stop then also failed is still
+accounted for. Whenever a leader cannot be shown reaped, `Stop` returns an error
+wrapping `ErrCleanupIncomplete`, and:
+
+- the namespace refuses new children from then on, whether `Stop` was called by
+  `Close`, by `Start` cleaning up a refused child, or by the caller;
+- the child keeps its pidfd and stays registered, and `Stop` can be called again;
+- `Close` does not release the namespace descriptors or the holder while any
+  child is unaccounted for. It returns the error and keeps every handle, and the
+  next `Close` retries. `Close` returns nil, and keeps returning nil, only after
+  everything is released;
+- `NewNamespace` has the same rule: if releasing a half-built namespace fails, it
+  returns the unusable `Namespace` together with the error so `Close` can retry.
+  Check the namespace before the error when handling a failed constructor.
+
+A retry is the supervised recovery path. If the process is already gone and
+reaped by someone else, nothing can prove its cleanup and every retry fails the
+same way. The namespace then stays pinned until the supervisor process exits,
+and the holder and the children die with it through `Pdeathsig`.
 
 The supervisor never calls `unshare` or `setns` on a Go thread. Everything that
 changes namespaces happens in a child process.
@@ -145,7 +167,10 @@ counts as passed on a machine without FRR.
 ## Tested failure cases
 
 All of these run in the `netns_integration` tests against real rootless
-namespaces on the test host. Nothing below is modeled unless it says so.
+namespaces on the test host. The cleanup-failure rows inject the failure of one
+kernel operation (a dropped signal, a failed reap) through a per-namespace table
+in `sys_linux.go`; the process itself is real and is stopped and reaped by the
+same test once the fault is turned off. Nothing else is modeled.
 
 | Case | Test |
 | --- | --- |
@@ -166,6 +191,13 @@ namespaces on the test host. Nothing below is modeled unless it says so.
 | Relative program path | `TestRelativeProgramIsRefused` |
 | `Close` stops running children and refuses new ones | `TestCloseStopsRunningChildrenAndRefusesNewOnes` |
 | Concurrent `Start`, `Stop` and `Close` under the race detector | `TestConcurrentStartStopAndClose` |
+| Verification fails, then the stop fails: child stays registered, launches refused | `TestVerifyFailureThenStopFailureKeepsTheChildAccounted` |
+| A failed `Close` keeps the pins and succeeds on retry | `TestCloseKeepsPinsWhileAChildIsNotProvenReaped` |
+| A holder that cannot be reaped is retried by another `Close` | `TestFailedHolderReapIsRetriedByAnotherClose` |
+| Constructor cleanup fails: the namespace is returned with the error | `TestConstructorCleanupFailureKeepsTheHolderHandle` |
+| A failed reap is an error, not a panic, and is retryable | `TestReapFailureIsReportedAndRetryable` |
+| A failed `Stop` made by the caller blocks launches | `TestStopFailureByTheCallerBlocksFurtherLaunches` |
+| Concurrent `Close` and `Start` while cleanup keeps failing | `TestConcurrentCloseRetriesAfterFailure` |
 | Supervisor killed: holder and a Go helper child die with it | `TestSupervisorKilledTakesHolderAndChildWithIt` |
 | Exited child and holder keep their PID as zombies until reaped | `TestExitedProcessesKeepTheirPIDUntilReaped` |
 | FRR launch, attach, clean stop, reaping | `TestFRRRunsUnderTheSupervisor` (needs `NETDOC_FRR_STAGE`) |

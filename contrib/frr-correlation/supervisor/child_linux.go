@@ -50,10 +50,9 @@ type Child struct {
 	grace time.Duration
 	done  chan struct{} // closed when the leader has exited, still unreaped
 
-	stopMu  sync.Mutex
-	stopped bool
-	status  ExitStatus
-	err     error
+	stopMu sync.Mutex // serializes Stop, which can be retried
+	reaped bool       // the leader was reaped; status is final
+	status ExitStatus
 }
 
 // testNsenterArgs lets tests launch without nsenter to model a child that lands
@@ -67,7 +66,7 @@ var testNsenterArgs func(holderPID int) []string
 func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.closing || n.closed || n.unclean {
+	if n.closing || n.closed || n.unclean.Load() {
 		return nil, ErrClosed
 	}
 	if len(o.Argv) == 0 || !filepath.IsAbs(o.Argv[0]) {
@@ -103,10 +102,21 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 	}
 	if c.pidfd < 0 { // kernel without CLONE_PIDFD
 		_ = c.cmd.Process.Kill()
-		_, _ = c.cmd.Process.Wait()
+		if _, err := n.sys.reap(c.cmd.Process); err != nil {
+			// Only a process that is not ours to reap fails here, and no handle
+			// could help with that, so the namespace just stops accepting children.
+			n.unclean.Store(true)
+			return nil, errors.Join(ErrUnsupported, ErrCleanupIncomplete, err)
+		}
 		return nil, ErrUnsupported
 	}
 	c.pgid = c.cmd.Process.Pid
+	// The process is the supervisor's responsibility from here. It stays
+	// registered until Stop proves it reaped, so a failed cleanup is never an
+	// orphan that Close cannot see.
+	n.cmu.Lock()
+	n.children[c] = struct{}{}
+	n.cmu.Unlock()
 	go c.watch()
 	if err := c.verify(ctx, n.id); err != nil {
 		if _, serr := c.Stop(context.Background()); serr != nil {
@@ -114,9 +124,6 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 		}
 		return nil, err
 	}
-	n.cmu.Lock()
-	n.children[c] = struct{}{}
-	n.cmu.Unlock()
 	return c, nil
 }
 
@@ -192,33 +199,33 @@ func (c *Child) PID() int { return c.pgid }
 
 // Stop terminates the child's process group with SIGTERM, escalates to SIGKILL
 // after the grace period, sweeps the group once the leader has exited, and
-// reaps last. It is idempotent: later calls return the first result. If the
-// leader cannot be shown exited it is left unreaped and Stop returns
-// ErrCleanupIncomplete.
+// reaps last. After a success it returns the same status on every call. If the
+// leader cannot be shown reaped, Stop returns an error wrapping
+// ErrCleanupIncomplete, marks the namespace unusable for new children, and keeps
+// the pidfd and the child registered: a later Stop or Namespace.Close retries.
 func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 	c.stopMu.Lock()
 	defer c.stopMu.Unlock()
-	if c.stopped {
-		return c.status, c.err
+	if c.reaped {
+		return c.status, nil
 	}
-	_ = c.ns.sys.killGroup(c.pgid, unix.SIGTERM)
+	s := c.ns.sys
+	_ = s.killGroup(c.pgid, unix.SIGTERM)
 	if !c.waitDone(ctx, c.grace) {
 		c.status.Escalated = true
-		_ = c.ns.sys.killGroup(c.pgid, unix.SIGKILL)
-		if !c.waitDone(context.Background(), c.ns.sys.killDeadline) {
-			c.stopped, c.err = true, ErrCleanupIncomplete
-			return c.status, c.err
+		_ = s.killGroup(c.pgid, unix.SIGKILL)
+		if !c.waitDone(context.Background(), s.killDeadline) {
+			return c.incomplete(nil)
 		}
 	}
-	_ = c.ns.sys.killGroup(c.pgid, unix.SIGKILL) // leader is a zombie, so the group ID is still held
-	ps, werr := c.ns.sys.reap(c.cmd.Process)
-	_ = unix.Close(c.pidfd)
-	c.pidfd, c.stopped = -1, true
-	ws, ok := ps.Sys().(syscall.WaitStatus)
-	if !ok || werr != nil {
-		c.err = ErrCleanupIncomplete
-		return c.status, c.err
+	_ = s.killGroup(c.pgid, unix.SIGKILL) // leader is a zombie, so the group ID is still held
+	ps, err := s.reap(c.cmd.Process)
+	if err != nil || ps == nil {
+		return c.incomplete(err)
 	}
+	_ = unix.Close(c.pidfd)
+	c.pidfd, c.reaped = -1, true
+	ws := ps.Sys().(syscall.WaitStatus) // always a WaitStatus on Linux
 	c.status.Code = ws.ExitStatus()
 	if ws.Signaled() {
 		c.status.Code, c.status.Signal = -1, ws.Signal()
@@ -227,6 +234,13 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 	delete(c.ns.children, c)
 	c.ns.cmu.Unlock()
 	return c.status, nil
+}
+
+// incomplete records that the leader is not proven reaped. It keeps the pidfd and
+// the registry entry, and stops the namespace from launching more children.
+func (c *Child) incomplete(cause error) (ExitStatus, error) {
+	c.ns.unclean.Store(true)
+	return c.status, errors.Join(ErrCleanupIncomplete, cause)
 }
 
 func (c *Child) waitDone(ctx context.Context, d time.Duration) bool {

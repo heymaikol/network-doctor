@@ -240,10 +240,20 @@ func (c *Child) PID() int { return c.pgid }
 // Stop terminates the child's process group with SIGTERM, escalates to SIGKILL
 // after the grace period, sweeps the group once the leader has exited, and
 // reaps last. The group is signalled only while the pidfd shows the leader
-// unreaped. After a success Stop returns the same status on every call. If the
-// leader cannot be shown reaped, Stop returns an error wrapping
-// ErrCleanupIncomplete, marks the namespace unusable for new children, and keeps
-// the pidfd and the child registered: a later Stop or Namespace.Close retries.
+// unreaped. After a success Stop returns the same status on every call.
+//
+// Success means the leader is reaped and the sweep SIGKILL went to the group. It
+// does not mean the group's other members have exited or been reaped: delivery is
+// asynchronous, their reaper is init or a subreaper, and the kernel reports
+// success as long as one member, the zombie leader included, accepted the signal.
+// A member the supervisor may not signal is therefore not detected when another
+// accepted it.
+//
+// If the sweep fails, or the leader cannot be shown reaped, Stop returns an error
+// wrapping ErrCleanupIncomplete, marks the namespace unusable for new children,
+// and keeps the pidfd and the child registered: a later Stop or Namespace.Close
+// retries. A failed sweep leaves the leader unreaped on purpose, because the
+// zombie is what keeps its group ID from being reissued.
 func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 	c.stopMu.Lock()
 	defer c.stopMu.Unlock()
@@ -251,18 +261,21 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 		return c.status, nil
 	}
 	s := c.ns.sys
-	c.signalGroup(unix.SIGTERM)
+	// The first two signals are requests; the sweep below repeats the SIGKILL and
+	// its result is the one that decides.
+	_ = c.signalGroup(unix.SIGTERM)
 	if !c.waitDone(ctx, c.grace) {
 		c.status.Escalated = true
-		c.signalGroup(unix.SIGKILL)
+		_ = c.signalGroup(unix.SIGKILL)
 		if !c.waitDone(context.Background(), s.killDeadline) {
 			return c.incomplete(c.unobservable())
 		}
 	}
 	// The sweep needs the leader proven unreaped, and reaping first would make it
-	// impossible, so without the proof the child is left for a later attempt.
-	if !c.signalGroup(unix.SIGKILL) {
-		return c.incomplete(ErrObservationLost)
+	// impossible, so without the proof, or without a sweep, the child is left for a
+	// later attempt with its group ID still held by the zombie leader.
+	if err := c.signalGroup(unix.SIGKILL); err != nil {
+		return c.incomplete(err)
 	}
 	ps, err := s.reap(c.cmd.Process)
 	if err != nil || ps == nil {
@@ -288,16 +301,22 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 // signalGroup signals the child's process group, but only while the pidfd proves
 // the leader is still an unreaped child, so the group ID cannot belong to anyone
 // else. Otherwise it signals the leader alone through the pidfd, which can only
-// ever name that process, and reports false. The proof rests on the supervisor
-// being the only reaper of its children.
-func (c *Child) signalGroup(sig unix.Signal) bool {
+// ever name that process, and returns ErrObservationLost. The proof rests on the
+// supervisor being the only reaper of its children.
+//
+// ESRCH means the group has no member, so there is nothing left to signal. EPERM
+// means no member could be signalled. Both come from kill(2) and neither is a
+// partial result: a signal that reached at least one member returns nil.
+func (c *Child) signalGroup(sig unix.Signal) error {
 	s := c.ns.sys
-	if s.probe(c.pidfd).unreaped() {
-		_ = s.killGroup(c.pgid, sig)
-		return true
+	if !s.probe(c.pidfd).unreaped() {
+		_ = s.signalLeader(c.pidfd, sig)
+		return ErrObservationLost
 	}
-	_ = s.signalLeader(c.pidfd, sig)
-	return false
+	if err := s.killGroup(c.pgid, sig); err != nil && !errors.Is(err, unix.ESRCH) {
+		return err
+	}
+	return nil
 }
 
 // incomplete records that the leader is not proven reaped. It keeps the pidfd and

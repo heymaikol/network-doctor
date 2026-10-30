@@ -21,11 +21,12 @@ import (
 // it was, so turning the fault off lets the supervisor finish the cleanup. Every
 // test ends the same way, through recovered.
 type faults struct {
-	dropSignals atomic.Bool  // group signals report success and reach nobody
-	failWaitid  atomic.Bool  // every waitid fails, so no process state can be observed
-	failWatch   atomic.Bool  // the blocking waitid of a child's watcher fails
-	failReap    atomic.Bool  // reaping reports failure and leaves the process unreaped
-	groupKills  atomic.Int32 // group signals attempted
+	dropSignals atomic.Bool    // group signals report success and reach nobody
+	groupErrno  atomic.Uintptr // when set, group signals fail with this errno and reach nobody
+	failWaitid  atomic.Bool    // every waitid fails, so no process state can be observed
+	failWatch   atomic.Bool    // the blocking waitid of a child's watcher fails
+	failReap    atomic.Bool    // reaping reports failure and leaves the process unreaped
+	groupKills  atomic.Int32   // group signals attempted
 	gate        chan struct{}
 	once        sync.Once
 	identity    func(pidfd int) (Identity, error) // replaces the namespace read of a child when set
@@ -60,6 +61,9 @@ func (f *faults) sys() *sys {
 	}
 	s.killGroup = func(pgid int, sig unix.Signal) error {
 		f.groupKills.Add(1)
+		if e := f.groupErrno.Load(); e != 0 {
+			return unix.Errno(e)
+		}
 		if f.dropSignals.Load() {
 			return nil
 		}
@@ -78,6 +82,7 @@ func (f *faults) open() {
 
 func (f *faults) clear() {
 	f.dropSignals.Store(false)
+	f.groupErrno.Store(0)
 	f.failWaitid.Store(false)
 	f.failWatch.Store(false)
 	f.failReap.Store(false)

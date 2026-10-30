@@ -46,6 +46,15 @@ still unreaped, waits the grace period, escalates to SIGKILL, sweeps the group
 once the leader is a zombie, and reaps last. `Namespace.Close` stops every
 child, then kills and reaps the holder and closes both descriptors.
 
+A successful `Stop` means the leader is reaped and the sweep SIGKILL went to the
+group. It does not mean the group's other members have exited or been reaped:
+delivery is asynchronous, their reaper is init or a subreaper, and `kill(2)`
+reports success once any one member, the zombie leader included, accepted the
+signal. A member the supervisor may not signal goes unnoticed while another
+accepted it. A sweep that fails is not a success: `ESRCH` means the group has no
+member and counts as an empty group, and any other error, `EPERM` included,
+leaves the leader unreaped and `Stop` incomplete.
+
 ## Cleanup that cannot be proven complete
 
 A child is registered with its namespace as soon as the process exists, before
@@ -72,7 +81,10 @@ the leader's pidfd whether it is still an unreaped child, through a non-blocking
 as an exit. Without that proof the group is not signalled: only the leader is
 signalled, through the pidfd, which names exactly that process. The final sweep
 needs the proof, so a leader that cannot be shown unreaped is not reaped either
-(`ErrObservationLost` joins `ErrCleanupIncomplete`) and is left for a retry. The
+(`ErrObservationLost` joins `ErrCleanupIncomplete`) and is left for a retry. A
+sweep that fails leaves the leader unreaped too: the zombie is what keeps the
+group ID from being reissued, so reaping before a successful sweep would make a
+retry unable to name the group. The
 proof rests on the supervisor being the only reaper of its children. A third
 party that reaps a child between the probe and the signal is outside what this
 package defends against.
@@ -241,6 +253,8 @@ same test once the fault is turned off. Nothing else is modeled.
 | Watcher lost while a child starts: `ErrObservationLost`, child stopped, namespace usable | `TestWatcherLostDuringStartIsNotALaunchFailure` |
 | `Stop` keeps the pidfd open until the watcher has ended | `TestStopWaitsForTheWatcherBeforeClosingThePidfd` |
 | A leader that cannot be read is never signalled as a group | `TestUnreadableLeaderIsNeverSignalledAsAGroup` |
+| A failed final sweep keeps the leader unreaped, the child registered and the surviving grandchild alive until a retry | `TestFailedGroupSweepKeepsTheLeaderUnreapedForARetry` |
+| `ESRCH` from the sweep is an empty group, not a failure (pin, passes before and after) | `TestEmptyGroupAnswerToTheSweepIsNotAFailure` |
 | A child reaped by another process: no group signal, terminal, pinned | `TestChildReapedByAnotherProcessIsTerminalAndNeverSignalledAsAGroup` |
 | Supervisor killed: holder and a Go helper child die with it | `TestSupervisorKilledTakesHolderAndChildWithIt` |
 | Exited child and holder keep their PID as zombies until reaped | `TestExitedProcessesKeepTheirPIDUntilReaped` |

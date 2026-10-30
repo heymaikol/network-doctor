@@ -25,9 +25,13 @@ type sys struct {
 	killGroup func(pgid int, sig unix.Signal) error
 	// signalLeader signals exactly the process behind pidfd, and nothing else.
 	signalLeader func(pidfd int, sig unix.Signal) error
+	// identity reads the namespaces of the process behind pidfd.
+	identity func(pidfd int) (Identity, error)
 	// startDeadline bounds how long a launched child may take to enter the
 	// namespaces. killDeadline bounds the wait for a SIGKILLed process to exit.
-	startDeadline, killDeadline time.Duration
+	// exitSettle bounds how long a leader whose namespaces cannot be read gets to
+	// show that it is exiting.
+	startDeadline, killDeadline, exitSettle time.Duration
 }
 
 func realSys() *sys {
@@ -42,8 +46,10 @@ func realSys() *sys {
 		reap:          func(p *os.Process) (*os.ProcessState, error) { return p.Wait() },
 		killGroup:     func(pgid int, sig unix.Signal) error { return unix.Kill(-pgid, sig) },
 		signalLeader:  func(pidfd int, sig unix.Signal) error { return unix.PidfdSendSignal(pidfd, sig, nil, 0) },
+		identity:      pidfdIdentity,
 		startDeadline: 5 * time.Second,
 		killDeadline:  5 * time.Second,
+		exitSettle:    50 * time.Millisecond,
 	}
 }
 

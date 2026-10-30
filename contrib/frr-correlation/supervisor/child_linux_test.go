@@ -339,9 +339,46 @@ func TestCancelWhileChildIsInTheSupervisorsNamespaces(t *testing.T) {
 	}
 }
 
+// A child that exits before it ever reaches the retained namespaces is refused
+// and reaped. It is launched without nsenter, so it is only ever in the
+// supervisor's namespaces and the outcome does not depend on timing.
 func TestChildThatExitsDuringStartIsRefused(t *testing.T) {
 	n := newNamespace(t)
-	if _, err := n.Start(context.Background(), Options{Argv: []string{"/nonexistent/frr"}}); !errors.Is(err, ErrLaunchFailed) {
+	env, truePath := lookPath(t, "env"), lookPath(t, "true")
+	testNsenterArgs = func(int) []string { return []string{env} }
+	defer func() { testNsenterArgs = nil }()
+	if _, err := n.Start(context.Background(), Options{Argv: []string{truePath}}); !errors.Is(err, ErrLaunchFailed) {
+		t.Fatalf("got %v", err)
+	}
+	if got := registered(n); got != 0 {
+		t.Fatalf("%d children registered after the refusal", got)
+	}
+	_ = n.Close()
+	if !reaped() {
+		t.Fatal("failed child was not reaped")
+	}
+}
+
+// nsenter enters the namespaces and only then execs, so a program it cannot run
+// leaves a window in which the child already holds the retained pair. Start may
+// refuse the child (it exited first) or return it (the identity matched first),
+// and either is correct: verification is point in time. What must hold in both
+// cases is that the failure is visible and nothing is left behind.
+func TestChildThatFailsToExecAfterEnteringTheNamespaces(t *testing.T) {
+	n := newNamespace(t)
+	c, err := n.Start(context.Background(), Options{Argv: []string{"/nonexistent/frr"}})
+	switch {
+	case errors.Is(err, ErrLaunchFailed):
+	case err == nil:
+		select {
+		case <-c.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("Done is still open for a child whose exec failed")
+		}
+		if st, err := c.Stop(context.Background()); err != nil || st.Code == 0 {
+			t.Fatalf("Stop: %+v %v, want the nsenter failure status", st, err)
+		}
+	default:
 		t.Fatalf("got %v", err)
 	}
 	_ = n.Close()

@@ -163,15 +163,9 @@ func (c *Child) verify(ctx context.Context, want Identity) error {
 			return ErrIdentityMismatch
 		default:
 		}
-		got, err := pidfdIdentity(c.pidfd)
+		got, err := c.ns.sys.identity(c.pidfd)
 		if err != nil {
-			switch c.ns.sys.probe(c.pidfd) {
-			case leaderZombie, leaderGone:
-				return ErrLaunchFailed
-			case leaderUnknown:
-				return ErrObservationLost
-			}
-			return ErrIdentityMismatch
+			return c.unreadable()
 		}
 		if got == want {
 			return nil
@@ -184,6 +178,24 @@ func (c *Child) verify(ctx context.Context, want Identity) error {
 			return ErrIdentityMismatch
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// unreadable classifies a child whose namespaces cannot be read. A process that
+// is exiting loses its namespaces a moment before it becomes a zombie, so a
+// leader that still looks running gets a short, bounded chance to show its exit
+// before the failure is blamed on the namespaces.
+func (c *Child) unreadable() error {
+	for end := time.Now().Add(c.ns.sys.exitSettle); ; time.Sleep(time.Millisecond) {
+		switch c.ns.sys.probe(c.pidfd) {
+		case leaderZombie, leaderGone:
+			return ErrLaunchFailed
+		case leaderUnknown:
+			return ErrObservationLost
+		}
+		if !time.Now().Before(end) {
+			return ErrIdentityMismatch
+		}
 	}
 }
 

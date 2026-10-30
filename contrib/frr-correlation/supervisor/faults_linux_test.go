@@ -28,11 +28,19 @@ type faults struct {
 	groupKills  atomic.Int32 // group signals attempted
 	gate        chan struct{}
 	once        sync.Once
+	identity    func(pidfd int) (Identity, error) // replaces the namespace read of a child when set
+	settle      time.Duration                     // replaces the exit settle time when set
 }
 
 func (f *faults) sys() *sys {
 	s := realSys()
 	s.killDeadline = 200 * time.Millisecond
+	if f.identity != nil {
+		s.identity = f.identity
+	}
+	if f.settle > 0 {
+		s.exitSettle = f.settle
+	}
 	waitid, reap, kill := s.waitid, s.reap, s.killGroup
 	s.waitid = func(pidfd int, info *unix.Siginfo, options int) error {
 		watcher := options&unix.WNOHANG == 0 && options&unix.WNOWAIT != 0

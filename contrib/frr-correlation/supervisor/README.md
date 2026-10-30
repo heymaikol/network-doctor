@@ -21,8 +21,18 @@ cannot be reissued while the supervisor uses it.
 `Namespace.Start` launches a program through `nsenter --target <holder> --user
 --net --preserve-credentials` and accepts the child only after the child's own
 `pidfd` reports exactly the retained pair. A child that stays in the
-supervisor's namespaces, lands in a third pair, or exits during startup is
-killed, reaped and refused. The child runs in its own process group with
+supervisor's namespaces, lands in a third pair, or exits before it reaches the
+retained pair is killed, reaped and refused. A leader whose namespaces cannot be
+read is given up to 50 ms to show that it is exiting, because a dying process
+loses its namespaces just before it becomes a zombie, and is refused as a launch
+failure if it does. One that stays alive and unreadable is refused as a
+namespace mismatch.
+
+`nsenter` enters the namespaces and only then execs, so a program it cannot run
+leaves a window in which the child already holds the retained pair. `Start` may
+refuse such a child or return it with `Done` closing at once, depending on which
+the supervisor sees first. Verification is a point in time, and a caller treats
+a child that exits right after `Start` like any other exit. The child runs in its own process group with
 `Pdeathsig` set. It gets exactly the environment the caller passes, standard
 input from `/dev/null`, and only the standard output and error files the caller
 passes. `Start` refuses if the supervisor holds any inheritable
@@ -211,7 +221,10 @@ same test once the fault is turned off. Nothing else is modeled.
 | Daemonized grandchild that ignores SIGTERM dies with the group | `TestDaemonizedGrandchildDiesWithTheGroup` |
 | Child in a third namespace pair: refused and reaped | `TestChildInAThirdNamespaceIsRefusedAndReaped` |
 | Child left in the supervisor's namespaces: killed and reaped on deadline | `TestCancelWhileChildIsInTheSupervisorsNamespaces` |
-| Child exits during startup | `TestChildThatExitsDuringStartIsRefused` |
+| Child exits before reaching the retained pair: refused and reaped | `TestChildThatExitsDuringStartIsRefused` |
+| Program `nsenter` cannot exec: refused, or returned with `Done` closing, and reaped either way | `TestChildThatFailsToExecAfterEnteringTheNamespaces` |
+| Child that dies while its namespaces are unreadable is a launch failure | `TestChildLeavingWhileItsNamespacesAreUnreadableIsALaunchFailure` |
+| Child that stays alive and unreadable is a mismatch | `TestRunningChildWithUnreadableNamespacesIsAMismatch` |
 | Relative program path | `TestRelativeProgramIsRefused` |
 | `Close` stops running children and refuses new ones | `TestCloseStopsRunningChildrenAndRefusesNewOnes` |
 | Concurrent `Start`, `Stop` and `Close` under the race detector | `TestConcurrentStartStopAndClose` |

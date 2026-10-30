@@ -200,6 +200,22 @@ copied first, and the SHA-256 of the eight binaries and libraries copied from
 it was unchanged afterwards. No file under the archive tree had a newer
 modification time.
 
+**Bounds.** The script was later made safe to leave unattended, without
+changing what it measures. The `vtysh` query runs under `timeout` and is killed
+after `QUERY_TIMEOUT` seconds (default 10). A daemon that ignores SIGTERM gets
+`STOP_GRACE` seconds (default 5) and then SIGKILL. A timeout or an escalation
+adds one line to the output, and a normal run prints exactly what it printed
+before. An interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both
+daemons the same way, and any other child still running is killed, so no daemon
+outlives the script. A second interrupt while the daemons are being stopped is
+ignored, because stopping is already bounded. Only SIGKILL sent to the script
+itself can leave a daemon behind. Both settings must be whole numbers. The script exits with
+status 9, before it mounts anything, if `STAGE` or `OUT` lies under a directory
+the tmpfs mounts would hide. `launchpolicy_linux_test.go` runs the script
+against stand-in daemons that are symlinks to the test binary, never against
+FRR or an evidence archive. One run of the revised script against a private
+copy of the FRR 10.7.0 install gave the control row below.
+
 | Policy (`setpriv`) | Daemons start | bgpd attached to zebra | SIGTERM exit |
 | --- | --- | --- | --- |
 | `--keep-groups` (control) | yes | yes | 0 and 0 |

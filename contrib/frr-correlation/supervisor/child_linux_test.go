@@ -25,6 +25,11 @@ import (
 // TestMain doubles as the child program: Start launches the test binary itself
 // with SUPERVISOR_HELPER set, so the namespaces are exercised by a real exec.
 func TestMain(m *testing.M) {
+	// launch-policy.sh clears the environment, so its stand-in daemons are told
+	// apart by the name they were started under, before any other mode.
+	if name := filepath.Base(os.Args[0]); name == "zebra" || name == "bgpd" {
+		mockDaemon(name)
+	}
 	out := os.Getenv("SUPERVISOR_OUT")
 	switch os.Getenv("SUPERVISOR_HELPER") {
 	case "":

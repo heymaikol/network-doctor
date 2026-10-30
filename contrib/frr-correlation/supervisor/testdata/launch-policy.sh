@@ -23,7 +23,7 @@
 # ignored SIGTERM, but a query can also exit 137 by itself.
 # The daemons are also stopped, in the same way, if the script is interrupted or exits early.
 #
-# The script keeps a daemon's PID until /proc shows the process gone, and signals a PID only
+# The script keeps a daemon's PID until the daemon is shown to have exited, and signals a PID only
 # while that process is still its own child. When the /proc entry cannot be read, kill -0
 # says whether a process holds the number: none means it exited and was reaped, and any
 # process there leaves the state unknown. An unknown daemon is not signalled and not waited

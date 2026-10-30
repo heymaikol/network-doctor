@@ -31,12 +31,13 @@ import (
 const killShim = `timeout() {
   command timeout "$@"
   local rc=$?
-  [[ -z ${FAULT_ALL_PROC:-} ]] || mount -t tmpfs tmpfs /proc
+  [[ -z ${FAULT_ALL_PROC:-} ]] || ! mount -t tmpfs tmpfs /proc 2> /dev/null || echo "proc-broken all" >> "$KILL_LOG"
   return $rc
 }
 break_proc() {
-  mount -t tmpfs tmpfs "/proc/$1" || return
-  [[ ${FAULT_KIND:-} != directory ]] || mkdir "/proc/$1/stat"
+  mount -t tmpfs tmpfs "/proc/$1" 2> /dev/null || return
+  [[ ${FAULT_KIND:-} != directory ]] || mkdir "/proc/$1/stat" || return
+  echo "proc-broken $1" >> "$KILL_LOG"
 }
 kill() {
   local a
@@ -155,6 +156,20 @@ func TestLaunchPolicyDoesNotSignalADaemonThatAlreadyExited(t *testing.T) {
 	}
 }
 
+// requireLogged fails the test unless the shim logged line, which it does only once the fault
+// it was asked for is in place. A swallowed mount failure would otherwise leave a test passing
+// without ever having lost sight of a daemon.
+func requireLogged(t *testing.T, killLog, line string) {
+	t.Helper()
+	log, err := os.ReadFile(killLog) //nolint:gosec // G304: a file in this test's own TempDir.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(strings.Split(string(log), "\n"), line) {
+		t.Fatalf("the shim never logged %q, so procfs was not broken:\n%s", line, log)
+	}
+}
+
 // signalled reports whether the script's kill log holds a call that sends sig to pid.
 func signalled(t *testing.T, killLog, sig string, pid int) bool {
 	t.Helper()
@@ -182,6 +197,7 @@ func TestLaunchPolicyDoesNotAssumeAnUnreadableDaemonIsGone(t *testing.T) {
 	if code != 10 {
 		t.Fatalf("exit %d, want 10:\n%s", code, text)
 	}
+	requireLogged(t, killLog, "proc-broken all")
 	requireLines(t, text,
 		fmt.Sprintf("  zebra stop: cannot read the state of pid %d, not signalled and not waited for", zebra),
 		fmt.Sprintf("  bgpd stop: cannot read the state of pid %d, not signalled and not waited for", bgpd),
@@ -212,6 +228,7 @@ func TestLaunchPolicyDoesNotKillADaemonItCannotObserveAfterTerm(t *testing.T) {
 	if code != 10 {
 		t.Fatalf("exit %d, want 10:\n%s", code, text)
 	}
+	requireLogged(t, killLog, fmt.Sprintf("proc-broken %d", bgpd))
 	requireLines(t, text,
 		fmt.Sprintf("  bgpd stop: cannot read the state of pid %d after SIGTERM, not killed and not waited for", bgpd),
 		fmt.Sprintf("  bgpd stop: cannot read the state of pid %d, not signalled and not waited for", bgpd),
@@ -239,6 +256,7 @@ func TestLaunchPolicyStillReapsADaemonWhoseProcEntryDisappears(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, text)
 	}
+	requireLogged(t, killLog, fmt.Sprintf("proc-broken %d", pidOf(t, out, "bgpd")))
 	requireLines(t, text, "  bgpd exit: 143", "  zebra exit: 143")
 	if signalled(t, killLog, "-KILL", pidOf(t, out, "bgpd")) {
 		t.Errorf("the script killed a daemon that had already exited:\n%s", text)

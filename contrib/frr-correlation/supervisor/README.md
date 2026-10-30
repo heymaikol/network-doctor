@@ -209,16 +209,26 @@ after `QUERY_TIMEOUT` seconds (default 10). A daemon that ignores SIGTERM gets
 `STOP_GRACE` seconds (default 5) and then SIGKILL. A timeout or an escalation
 adds one line to the output, and a normal run prints exactly what it printed
 before. An interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both
-daemons the same way, and any other child still running is killed, so no daemon
-outlives the script. A second interrupt while the daemons are being stopped is
-ignored, because stopping is already bounded. Only SIGKILL sent to the script
-itself can leave a daemon behind. Both settings must be whole numbers of seconds
-from 1 to 60. The script exits with status 9, before it mounts or starts anything,
-for any other value, and for a `STAGE` or `OUT` under a directory the tmpfs
-mounts would hide. `launchpolicy_linux_test.go` runs the script
-against stand-in daemons that are symlinks to the test binary, never against
-FRR or an evidence archive. One run of the revised script against a private
-copy of the FRR 10.7.0 install gave the control row below.
+daemons the same way, and any other child still running is killed. A second
+interrupt while the daemons are being stopped is ignored, because stopping is
+already bounded. The script keeps a daemon's PID until `/proc` shows the process
+gone, and signals a PID only while that process is still its own child, so a
+reused PID is not hit. It cannot promise that every daemon is gone. A daemon
+still running 2 seconds after SIGKILL, a process in uninterruptible sleep for
+one, cannot be stopped by a script: the exit trap tries it once more, then the
+script names it on stderr (`may still be running`) and exits 10 in place of any
+other status, so a failed cleanup never reads as success. A SIGKILL sent to the
+script itself runs no trap and leaves the daemons behind. The `/proc` check is
+not a `pidfd`, so a PID reused between the check and the signal is possible in
+principle. The tests simulate a survivor by dropping SIGKILL in a `kill`
+wrapper, because a test cannot put a process into uninterruptible sleep. Both
+settings must be whole numbers of seconds from 1 to 60. The script exits with
+status 9, before it mounts or starts anything, for any other value, and for a
+`STAGE` or `OUT` under a directory the tmpfs mounts would hide.
+`launchpolicy_linux_test.go` runs the script against stand-in daemons that are
+symlinks to the test binary, never against FRR or an evidence archive. One run
+of the revised script against a private copy of the FRR 10.7.0 install gave the
+control row below.
 
 | Policy (`setpriv`) | Daemons start | bgpd attached to zebra | SIGTERM exit |
 | --- | --- | --- | --- |

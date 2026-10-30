@@ -50,6 +50,11 @@ func mockDaemon(name string) {
 	}
 	switch strings.TrimSpace(string(mode)) {
 	case "term": // the default action for SIGTERM ends the process
+	case "exit-soon": // ends by itself, as a daemon that crashed would, before the script stops it
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			os.Exit(7)
+		}()
 	case "ignore-term":
 		signal.Ignore(syscall.SIGTERM)
 	case "note-term": // survives SIGTERM and says it arrived, so a test can act on the script's stop phase

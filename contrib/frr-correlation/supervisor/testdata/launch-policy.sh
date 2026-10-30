@@ -11,12 +11,20 @@
 #   NAME   a label for the output.
 # With no setpriv arguments the policy is --keep-groups (the control).
 #
-# Every wait is bounded, and no daemon outlives the script:
+# Every wait is bounded, and the script stops both daemons before it ends:
 #   QUERY_TIMEOUT  whole seconds the vtysh query may run before it is killed (default 10).
 #   STOP_GRACE     whole seconds a daemon gets after SIGTERM before SIGKILL (default 5).
 # Both are from 1 to 60. Anything else exits 9 before the script mounts or starts anything.
 # A timeout or an escalation adds one line to the output; a normal run prints none. The
 # daemons are also stopped, in the same way, if the script is interrupted or exits early.
+#
+# The script keeps a daemon's PID until /proc shows the process gone, and signals a PID only
+# while that process is still its own child. A daemon that is still running 2 seconds after
+# SIGKILL (a process in uninterruptible sleep, for one) cannot be stopped by any script: the
+# exit trap tries it once more, then the script names it on stderr ("may still be running")
+# and exits 10 in place of any other status. SIGKILL sent to the script itself runs no trap
+# and leaves the daemons behind. The check of /proc is not a pidfd, so a PID reused between
+# the check and the signal is possible in principle.
 #
 # FRR writes /var/tmp/frr/<daemon>.<pid>/ unconditionally, so the script mounts tmpfs over
 # /run, /var/lib and /var/tmp inside the private mount namespace. It refuses to run in the
@@ -44,12 +52,11 @@ done
 FRR=$ST/usr/libexec/frr
 LD="$ST/usr/lib64/frr:$ST/usr/lib64:$ST/runtime/usr/lib64"
 ZP='' BP=''
-gone() { # gone PID: true once the process has exited, a zombie included
-  local k v state=
-  while IFS=: read -r k v; do
-    [[ $k == State ]] && { state=${v//[[:space:]]/}; break; }
-  done 2> /dev/null < "/proc/$1/status"
-  [[ -z $state || $state == [ZX]* ]]
+gone() { # gone PID: true once PID is not a live child of this script (exited, reaped by bash, or the number reused)
+  local stat state ppid
+  read -r stat 2> /dev/null < "/proc/$1/stat" || return 0
+  read -r state ppid _ <<< "${stat##*) }" # the fields after "(comm) ", which may itself hold a ")"
+  [[ $ppid != "$$" || $state == [ZX]* ]]
 }
 await() { # await PID SECONDS: true if the process exits within the time
   local i
@@ -57,34 +64,48 @@ await() { # await PID SECONDS: true if the process exits within the time
   gone "$1"
 }
 stop() { # stop LABEL VAR: SIGTERM the process whose PID is in VAR, SIGKILL it after STOP_GRACE, reap it
-  local label=$1 pid=${!2} note=
+  # VAR keeps the PID until the process is confirmed gone, so a later call can try again. A
+  # process that is no longer a child of this script is never signalled: its PID may be someone else's.
+  local label=$1 pid=${!2} note='' rc
   [[ -n $pid ]] || return 0
-  printf -v "$2" ''
-  kill -TERM "$pid" 2> /dev/null
-  if ! await "$pid" "$STOP_GRACE"; then
-    kill -KILL "$pid" 2> /dev/null
-    note="  $label stop: SIGKILL after ${STOP_GRACE}s"
-    if ! await "$pid" 2; then # only an uninterruptible process gets here, and wait would not return
-      echo "$note"; echo "  $label stop: still running after SIGKILL, not waited for"
-      return 0
+  if ! gone "$pid"; then
+    kill -TERM "$pid" 2> /dev/null
+    if ! await "$pid" "$STOP_GRACE"; then
+      kill -KILL "$pid" 2> /dev/null
+      note="  $label stop: SIGKILL after ${STOP_GRACE}s"
+      if ! await "$pid" 2; then # only an uninterruptible process gets here, and wait would not return
+        echo "$note"; echo "  $label stop: still running after SIGKILL, not waited for"
+        return 1
+      fi
     fi
   fi
+  printf -v "$2" '' # before wait: once the process is gone nothing is left to retry
   wait "$pid"
-  echo "  $label exit: $?"
+  rc=$?
+  echo "  $label exit: $rc"
   [[ -z $note ]] || echo "$note"
 }
 cleanup() {
   trap - EXIT
   trap '' INT TERM HUP # a second interrupt must not cut the stop short; it is bounded by the grace periods
-  stop bgpd BP
+  stop bgpd BP # a call that already failed is tried once more here, because VAR still holds the PID
   stop zebra ZP
-  local left # a child the two variables missed, such as one forked just before a signal
-  left=$(jobs -p)
-  if [[ -n $left ]]; then
-    echo "  killed unaccounted children: ${left//$'\n'/ }"
-    # shellcheck disable=SC2086 # one word per PID is the point
-    kill -KILL $left 2> /dev/null
+  local p left=() strays=()
+  for p in $(jobs -p); do # a child the two variables missed, such as one forked just before a signal
+    [[ $p == "$BP" || $p == "$ZP" ]] || gone "$p" || left+=("$p")
+  done
+  if ((${#left[@]})); then
+    echo "  killed unaccounted children: ${left[*]}"
+    kill -KILL "${left[@]}" 2> /dev/null
+    for p in "${left[@]}"; do await "$p" 2 || strays+=("$p"); done
   fi
+  [[ -n $BP$ZP || ${#strays[@]} -gt 0 ]] || return 0
+  { # a failed cleanup is never silent and never ends in a success status
+    [[ -z $BP ]] || echo "launch-policy: bgpd (pid $BP) may still be running"
+    [[ -z $ZP ]] || echo "launch-policy: zebra (pid $ZP) may still be running"
+    [[ ${#strays[@]} -eq 0 ]] || echo "launch-policy: unaccounted children may still be running: ${strays[*]}"
+  } >&2
+  exit 10
 }
 trap cleanup EXIT
 trap 'exit 130' INT

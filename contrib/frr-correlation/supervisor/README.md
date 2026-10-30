@@ -65,6 +65,18 @@ proof rests on the supervisor being the only reaper of its children. A third
 party that reaps a child between the probe and the signal is outside what this
 package defends against.
 
+Observing a child is separate from stopping it. A watcher goroutine blocks in
+`waitid` on the child's pidfd and closes `Done` when it proves the exit. If that
+`waitid` fails, nothing is proven: `Done` stays open, `Lost` is closed instead,
+and `Start` reports `ErrObservationLost` for a child it was still verifying, not
+`ErrLaunchFailed`. `Stop` does not depend on the watcher. It reads the pidfd
+itself every 10 ms, so a lost watcher cannot hide an exit, and it ends the wait
+at once if the pidfd reports that the child was reaped elsewhere. A caller that
+waits on `Done` alone can wait forever after an observation failure, so it should
+also select on `Lost`. `Stop` waits for the watcher to finish before it closes
+the pidfd, so the descriptor number cannot be reused under a watcher that is
+still reading it.
+
 A retry is the supervised recovery path. If the process is already gone and
 reaped by someone else, nothing can prove its cleanup and every retry fails the
 same way. The namespace then stays pinned until the supervisor process exits,
@@ -210,6 +222,8 @@ same test once the fault is turned off. Nothing else is modeled.
 | A failed reap is an error, not a panic, and is retryable | `TestReapFailureIsReportedAndRetryable` |
 | A failed `Stop` made by the caller blocks launches | `TestStopFailureByTheCallerBlocksFurtherLaunches` |
 | Concurrent `Close` and `Start` while cleanup keeps failing | `TestConcurrentCloseRetriesAfterFailure` |
+| A failed watcher `waitid` is not an exit: `Done` stays open, `Stop` still proves it | `TestUnexpectedWaitErrorIsNotReportedAsAnExit` |
+| Watcher lost while a child starts: `ErrObservationLost`, child stopped, namespace usable | `TestWatcherLostDuringStartIsNotALaunchFailure` |
 | A leader that cannot be read is never signalled as a group | `TestUnreadableLeaderIsNeverSignalledAsAGroup` |
 | A child reaped by another process: no group signal, terminal, pinned | `TestChildReapedByAnotherProcessIsTerminalAndNeverSignalledAsAGroup` |
 | Supervisor killed: holder and a Go helper child die with it | `TestSupervisorKilledTakesHolderAndChildWithIt` |

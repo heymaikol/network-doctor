@@ -48,7 +48,8 @@ type Child struct {
 	pidfd int
 	pgid  int
 	grace time.Duration
-	done  chan struct{} // closed when the leader has exited, still unreaped
+	done  chan struct{} // closed only when the leader is proven exited, still unreaped
+	lost  chan struct{} // closed if the watcher failed to observe, with the exit unproven
 
 	stopMu sync.Mutex // serializes Stop, which can be retried
 	reaped bool       // the leader was reaped; status is final
@@ -89,7 +90,7 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 	if testNsenterArgs != nil {
 		args = testNsenterArgs(n.holder.Process.Pid)
 	}
-	c := &Child{ns: n, pidfd: -1, grace: o.StopGrace, done: make(chan struct{})}
+	c := &Child{ns: n, pidfd: -1, grace: o.StopGrace, done: make(chan struct{}), lost: make(chan struct{})}
 	if c.grace == 0 {
 		c.grace = DefaultStopGrace
 	}
@@ -127,10 +128,16 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 	return c, nil
 }
 
-// watch closes done when the leader exits, without reaping it.
+// watch closes done when the leader is proven to have exited, without reaping
+// it. A waitid that fails proves nothing about the child, so done stays open and
+// lost is closed instead. Exactly one of the two is closed, and watch touches
+// the pidfd no more after that.
 func (c *Child) watch() {
 	var info unix.Siginfo
-	_ = c.ns.sys.waitid(c.pidfd, &info, unix.WEXITED|unix.WNOWAIT)
+	if err := c.ns.sys.waitid(c.pidfd, &info, unix.WEXITED|unix.WNOWAIT); err != nil || info.Signo == 0 {
+		close(c.lost)
+		return
+	}
 	close(c.done)
 }
 
@@ -148,6 +155,8 @@ func (c *Child) verify(ctx context.Context, want Identity) error {
 		select {
 		case <-c.done:
 			return ErrLaunchFailed
+		case <-c.lost:
+			return ErrObservationLost
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
@@ -193,8 +202,15 @@ func pidfdIdentity(pidfd int) (Identity, error) {
 	return identityOf(net, user)
 }
 
-// Done is closed when the child's leader process has exited.
+// Done is closed when the supervisor has observed the child's leader exit. A
+// failed observation is not an exit, so Done stays open then and Lost is closed
+// instead. Done is closed at most once and never by an error.
 func (c *Child) Done() <-chan struct{} { return c.done }
+
+// Lost is closed if the supervisor could no longer observe the child, so Done may
+// never close although the child has exited. Stop still works: it reads the
+// pidfd itself.
+func (c *Child) Lost() <-chan struct{} { return c.lost }
 
 // PID is an observation for reading /proc while Done is open. It is never
 // authentication and is meaningless after Stop returns.
@@ -219,7 +235,7 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 		c.status.Escalated = true
 		c.signalGroup(unix.SIGKILL)
 		if !c.waitDone(context.Background(), s.killDeadline) {
-			return c.incomplete(nil)
+			return c.incomplete(c.unobservable())
 		}
 	}
 	// The sweep needs the leader proven unreaped, and reaping first would make it
@@ -230,6 +246,10 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 	ps, err := s.reap(c.cmd.Process)
 	if err != nil || ps == nil {
 		return c.incomplete(err)
+	}
+	select { // the watcher ends once the child is reaped; only then is the pidfd number safe to reuse
+	case <-c.done:
+	case <-c.lost:
 	}
 	_ = unix.Close(c.pidfd)
 	c.pidfd, c.reaped = -1, true
@@ -266,19 +286,52 @@ func (c *Child) incomplete(cause error) (ExitStatus, error) {
 	return c.status, errors.Join(ErrCleanupIncomplete, cause)
 }
 
+// exitPoll is how often waitDone reads the pidfd itself as well as waiting for
+// the watcher, so a watcher that lost its observation cannot hide an exit.
+const exitPoll = 10 * time.Millisecond
+
+// waitDone reports whether the leader is proven exited within d: the watcher saw
+// it, or the pidfd shows a zombie. A leader that is gone or cannot be read is not
+// an exit. Once it is gone, no exit can ever be proven, so the wait ends at once.
 func (c *Child) waitDone(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
+	poll := time.NewTicker(exitPoll)
+	defer poll.Stop()
+	for {
+		select {
+		case <-c.done:
+			return true
+		case <-poll.C:
+			switch c.ns.sys.probe(c.pidfd) {
+			case leaderZombie:
+				return true
+			case leaderGone:
+				return false
+			}
+		case <-t.C:
+			return c.exitSeen()
+		case <-ctx.Done():
+			return c.exitSeen() // a final look so a cancelled context does not hide an exit
+		}
+	}
+}
+
+func (c *Child) exitSeen() bool {
 	select {
 	case <-c.done:
 		return true
-	case <-t.C:
-	case <-ctx.Done():
-	}
-	select { // a final look so a cancelled context does not hide an exit
-	case <-c.done:
-		return true
 	default:
-		return false
+		return c.ns.sys.probe(c.pidfd) == leaderZombie
 	}
+}
+
+// unobservable explains a leader that never showed as exited: ErrObservationLost
+// when its pidfd cannot be read as a live child, and nothing when it is simply
+// still running.
+func (c *Child) unobservable() error {
+	if c.ns.sys.probe(c.pidfd).unreaped() {
+		return nil
+	}
+	return ErrObservationLost
 }

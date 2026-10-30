@@ -308,6 +308,12 @@ func TestConcurrentCloseRetriesAfterFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.dropSignals.Store(true)
+	// A Start that wins the race against the very first Close legitimately
+	// succeeds, so the first failed Close runs alone. From then on every Start
+	// must be refused, however many Close calls run beside it.
+	if err := n.Close(); !errors.Is(err, ErrCleanupIncomplete) {
+		t.Fatalf("first Close: %v, want ErrCleanupIncomplete", err)
+	}
 	run := func(want func(error) bool, what string) {
 		t.Helper()
 		var wg sync.WaitGroup
@@ -316,15 +322,17 @@ func TestConcurrentCloseRetriesAfterFailure(t *testing.T) {
 			wg.Add(1)
 			go func() { defer wg.Done(); errs[i] = n.Close() }()
 		}
-		o, _ := helperOptions(t, "sleep")
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if c, err := n.Start(context.Background(), o); err == nil {
-				_, _ = c.Stop(context.Background())
-				t.Error("Start succeeded during Close")
-			}
-		}()
+		for range 2 {
+			o, _ := helperOptions(t, "sleep")
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if c, err := n.Start(context.Background(), o); err == nil {
+					_, _ = c.Stop(context.Background())
+					t.Error("Start succeeded after a failed Close")
+				}
+			}()
+		}
 		wg.Wait()
 		for _, err := range errs {
 			if !want(err) {

@@ -250,19 +250,31 @@ func TestChildInheritsNoDescriptors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer out.Close()
+	// Start returns only once it has seen the child inside the namespaces, and the
+	// bare probe ends within a millisecond, so under load the child could be gone
+	// before that check. The shell prints its table and an end marker, then turns
+	// into sleep so that it stays until the test has read the file and stops it.
+	const end = "end\n"
 	c, err := n.Start(context.Background(), Options{
-		Argv:   []string{sh, "-c", fdProbe},
+		Argv:   []string{sh, "-c", fdProbe + "; echo end; exec " + lookPath(t, "sleep") + " 3600"},
 		Stdout: out,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	<-c.Done()
+	var table string
+	for i := 0; !strings.HasSuffix(table, end); i++ {
+		if i > 500 {
+			t.Fatalf("the descriptor table never ended: %q", table)
+		}
+		time.Sleep(10 * time.Millisecond)
+		b, _ := os.ReadFile(out.Name())
+		table = string(b)
+	}
 	if _, err := c.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := os.ReadFile(out.Name())
-	if got := fdList(t, string(b)); fmt.Sprint(got) != "[0 1 2]" {
+	if got := fdList(t, strings.TrimSuffix(table, end)); fmt.Sprint(got) != "[0 1 2]" {
 		t.Fatalf("child descriptor table %v, want [0 1 2]", got)
 	}
 }

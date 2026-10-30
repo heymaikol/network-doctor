@@ -224,6 +224,7 @@ same test once the fault is turned off. Nothing else is modeled.
 | Concurrent `Close` and `Start` while cleanup keeps failing | `TestConcurrentCloseRetriesAfterFailure` |
 | A failed watcher `waitid` is not an exit: `Done` stays open, `Stop` still proves it | `TestUnexpectedWaitErrorIsNotReportedAsAnExit` |
 | Watcher lost while a child starts: `ErrObservationLost`, child stopped, namespace usable | `TestWatcherLostDuringStartIsNotALaunchFailure` |
+| `Stop` keeps the pidfd open until the watcher has ended | `TestStopWaitsForTheWatcherBeforeClosingThePidfd` |
 | A leader that cannot be read is never signalled as a group | `TestUnreadableLeaderIsNeverSignalledAsAGroup` |
 | A child reaped by another process: no group signal, terminal, pinned | `TestChildReapedByAnotherProcessIsTerminalAndNeverSignalledAsAGroup` |
 | Supervisor killed: holder and a Go helper child die with it | `TestSupervisorKilledTakesHolderAndChildWithIt` |

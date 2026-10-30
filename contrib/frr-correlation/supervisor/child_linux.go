@@ -257,6 +257,11 @@ func (c *Child) PID() int { return c.pgid }
 // and keeps the pidfd and the child registered: a later Stop or Namespace.Close
 // retries. A failed sweep leaves the leader unreaped on purpose, because the
 // zombie is what keeps its group ID from being reissued.
+//
+// ctx bounds the grace period only. Once SIGKILL has been sent, the wait for the
+// leader to exit ignores ctx on purpose and is bounded by the kill deadline: a
+// caller that cancels must not leave a process that was just sent SIGKILL
+// unobserved and unreaped, because Stop's job is to account for it.
 func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 	c.stopMu.Lock()
 	defer c.stopMu.Unlock()
@@ -270,6 +275,7 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 	if !c.waitDone(ctx, c.grace) {
 		c.status.Escalated = true
 		_ = c.signalGroup(unix.SIGKILL)
+		// Not ctx: see the Stop documentation. The wait is bounded by killDeadline.
 		if !c.waitDone(context.Background(), s.killDeadline) {
 			return c.incomplete(c.unobservable())
 		}

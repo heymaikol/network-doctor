@@ -160,7 +160,7 @@ Forwarding impact remains unknown until those separate acceptance gates pass.
 go test -count=1 ./contrib/frr-correlation/collector
 go test -race -count=1 ./contrib/frr-correlation/collector
 go test -run='^$' -fuzz=FuzzDecode -fuzztime=10s ./contrib/frr-correlation/collector
-./scripts/check --race
+./scripts/check.sh --race
 ```
 
 Tests cover exact integers through MaxUint64, required/non-null fields, strict

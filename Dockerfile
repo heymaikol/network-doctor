@@ -12,7 +12,7 @@
 # run"), which is why they share a directory and why nothing else named netdoc
 # is on PATH.
 
-FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.3-alpine3.23@sha256:754d5200fc3edae76d3b6598a9a3fac7e74981ee6a5413ab955025f185753ef2 AS build
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.3-alpine3.23@sha256:8a5046497cda39860b832ffdbe8dd66018a0f05bb01352f533a36e7e2ced66a0 AS build
 
 WORKDIR /src
 # Dependencies first: the module graph changes far less often than the code, so
@@ -37,7 +37,7 @@ ENV CGO_ENABLED=0 GOOS=linux
 RUN GOARCH="$TARGETARCH" go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/netdoc . && \
     GOARCH="$TARGETARCH" go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/netdoc-sim ./cmd/netdoc-sim
 
-FROM docker.io/library/alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM docker.io/library/alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
 # Two sets of tools, both required.
 #

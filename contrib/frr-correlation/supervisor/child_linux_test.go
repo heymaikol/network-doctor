@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 	case "ignore-term":
 		signal.Ignore(syscall.SIGTERM)
 		if ready := os.Getenv("SUPERVISOR_READY"); ready != "" {
-			_ = os.WriteFile(ready, []byte("ready"), 0o600)
+			_ = os.WriteFile(ready, []byte("ready"), 0o600) //nolint:gosec // G703: the path is this test's own TempDir, passed through the helper environment.
 		}
 		time.Sleep(time.Hour)
 	case "report":
@@ -49,7 +49,7 @@ func TestMain(m *testing.M) {
 			}
 		}
 		fmt.Fprintf(&b, "uid %d\nfds %s\n", os.Getuid(), fds)
-		_ = os.WriteFile(out, []byte(b.String()), 0o600)
+		_ = os.WriteFile(out, []byte(b.String()), 0o600) //nolint:gosec // G703: the path is this test's own TempDir, passed through the helper environment.
 	case "supervise":
 		// A supervisor that dies abruptly: it reports its holder and child, then kills itself.
 		n, err := NewNamespace(context.Background())
@@ -63,17 +63,17 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, "supervise:", err)
 			os.Exit(3)
 		}
-		_ = os.WriteFile(out, []byte(fmt.Sprintf("%d %d", n.holder.Process.Pid, c.PID())), 0o600)
+		_ = os.WriteFile(out, []byte(fmt.Sprintf("%d %d", n.holder.Process.Pid, c.PID())), 0o600) //nolint:gosec // G703: the path is this test's own TempDir, passed through the helper environment.
 		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
 		time.Sleep(time.Hour)
 	case "daemonize":
-		g := exec.Command(os.Args[0])
+		g := exec.Command(os.Args[0]) //nolint:gosec // G204: re-executes this test binary as the grandchild.
 		// The grandchild ignores SIGTERM, so only the SIGKILL sweep removes it.
 		g.Env = []string{"SUPERVISOR_HELPER=ignore-term", "SUPERVISOR_READY=" + out + ".ready"}
 		if err := g.Start(); err != nil {
 			os.Exit(2)
 		}
-		_ = os.WriteFile(out, []byte(strconv.Itoa(g.Process.Pid)), 0o600)
+		_ = os.WriteFile(out, []byte(strconv.Itoa(g.Process.Pid)), 0o600) //nolint:gosec // G703: the path is this test's own TempDir, passed through the helper environment.
 	}
 	os.Exit(0)
 }
@@ -85,7 +85,7 @@ func rawInheritedFDs() string {
 	if err != nil {
 		return "error"
 	}
-	defer unix.Close(dir)
+	defer func() { _ = unix.Close(dir) }()
 	buf := make([]byte, 4096)
 	var names []string
 	for {
@@ -134,7 +134,7 @@ func startHelper(t *testing.T, n *Namespace, mode string) (*Child, string) {
 func waitFile(t *testing.T, path string) string {
 	t.Helper()
 	for range 500 {
-		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
+		if b, err := os.ReadFile(path); err == nil && len(b) > 0 { //nolint:gosec // G304: a file in this test's own TempDir.
 			return string(b)
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -216,12 +216,12 @@ func TestLeakedDescriptorRefusesStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer unix.Close(fd)
+	defer func() { _ = unix.Close(fd) }()
 	o, _ := helperOptions(t, "sleep")
 	if _, err := n.Start(context.Background(), o); !errors.Is(err, ErrFDLeak) {
 		t.Fatalf("got %v", err)
 	}
-	n.Close()
+	_ = n.Close()
 	if !reaped() {
 		t.Fatal("a child was launched anyway")
 	}
@@ -306,7 +306,7 @@ func TestChildInAThirdNamespaceIsRefusedAndReaped(t *testing.T) {
 	if !errors.Is(err, ErrIdentityMismatch) {
 		t.Fatalf("got %v", err)
 	}
-	n.Close()
+	_ = n.Close()
 	if !reaped() {
 		t.Fatal("refused child was not reaped")
 	}
@@ -326,7 +326,7 @@ func TestCancelWhileChildIsInTheSupervisorsNamespaces(t *testing.T) {
 	if _, err := n.Start(ctx, o); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("got %v", err)
 	}
-	n.Close()
+	_ = n.Close()
 	if !reaped() {
 		t.Fatal("cancelled child was not reaped")
 	}
@@ -337,7 +337,7 @@ func TestChildThatExitsDuringStartIsRefused(t *testing.T) {
 	if _, err := n.Start(context.Background(), Options{Argv: []string{"/nonexistent/frr"}}); !errors.Is(err, ErrLaunchFailed) {
 		t.Fatalf("got %v", err)
 	}
-	n.Close()
+	_ = n.Close()
 	if !reaped() {
 		t.Fatal("failed child was not reaped")
 	}
@@ -381,12 +381,12 @@ func TestConcurrentStartStopAndClose(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			if c, err := n.Start(context.Background(), o); err == nil {
-				c.Stop(context.Background())
+				_, _ = c.Stop(context.Background())
 			}
 		}()
 	}
 	wg.Add(1)
-	go func() { defer wg.Done(); time.Sleep(20 * time.Millisecond); n.Close() }()
+	go func() { defer wg.Done(); time.Sleep(20 * time.Millisecond); _ = n.Close() }()
 	wg.Wait()
 	if err := n.Close(); err != nil {
 		t.Fatal(err)
@@ -400,9 +400,9 @@ func TestConcurrentStartStopAndClose(t *testing.T) {
 // fires when the creating thread exits, so this proves only the whole-process
 // kill case, not a supervisor that retires one thread.
 func TestSupervisorKilledTakesHolderAndChildWithIt(t *testing.T) {
-	newNamespace(t).Close() // skip when namespaces are unavailable
+	_ = newNamespace(t).Close() // skip when namespaces are unavailable
 	o, out := helperOptions(t, "supervise")
-	cmd := exec.Command(o.Argv[0])
+	cmd := exec.Command(o.Argv[0])                     //nolint:gosec // G204: re-executes this test binary as the supervisor.
 	cmd.Env = append(o.Env, "PATH="+os.Getenv("PATH")) // the helper resolves sleep and nsenter
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

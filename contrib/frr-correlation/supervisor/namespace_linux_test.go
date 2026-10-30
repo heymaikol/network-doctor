@@ -29,7 +29,7 @@ func newNamespace(t *testing.T) *Namespace {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { n.Close() })
+	t.Cleanup(func() { _ = n.Close() })
 	return n
 }
 
@@ -118,7 +118,7 @@ func TestHolderKilledBeforeInspectionRefusesAndLeaksNothing(t *testing.T) {
 	defer func() { testHookAfterHolderStart = nil }()
 	n, err := NewNamespace(context.Background())
 	if err == nil {
-		n.Close()
+		_ = n.Close()
 		t.Fatal("dead holder was accepted")
 	}
 	if errors.Is(err, ErrUnsupported) {
@@ -152,8 +152,8 @@ func TestConcurrentCloseIsSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Add(2)
-		go func() { defer wg.Done(); n.Close() }()
-		go func() { defer wg.Done(); n.Identity() }()
+		go func() { defer wg.Done(); _ = n.Close() }()
+		go func() { defer wg.Done(); _, _ = n.Identity() }()
 	}
 	wg.Wait()
 	if err := n.Close(); err != nil {

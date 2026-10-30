@@ -25,5 +25,5 @@ func TestCheckInheritanceRefusesPlainDescriptor(t *testing.T) {
 	if err := checkInheritance(); err != nil {
 		t.Fatalf("close-on-exec descriptor refused: %v", err)
 	}
-	unix.Close(fd)
+	_ = unix.Close(fd)
 }

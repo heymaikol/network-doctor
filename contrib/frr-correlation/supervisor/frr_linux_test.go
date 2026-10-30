@@ -25,7 +25,7 @@ func TestFRRRunsUnderTheSupervisor(t *testing.T) {
 	}
 	frr := filepath.Join(stage, "usr", "libexec", "frr")
 	for _, p := range []string{"zebra", "bgpd"} {
-		if _, err := os.Stat(filepath.Join(frr, p)); err != nil {
+		if _, err := os.Stat(filepath.Join(frr, p)); err != nil { //nolint:gosec // G703: NETDOC_FRR_STAGE is the operator's own private copy.
 			t.Fatalf("NETDOC_FRR_STAGE: %v", err)
 		}
 	}
@@ -56,7 +56,7 @@ func TestFRRRunsUnderTheSupervisor(t *testing.T) {
 	launch := func(name string, argv ...string) (*Child, string) {
 		t.Helper()
 		log := filepath.Join(dir, name+".log")
-		f, err := os.Create(log)
+		f, err := os.Create(log) //nolint:gosec // G304: a log in this test's own TempDir.
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,7 +97,7 @@ func TestFRRRunsUnderTheSupervisor(t *testing.T) {
 	out := filepath.Join(dir, "vtysh.out")
 	var seen bool
 	for i := 0; i < 50 && !seen; i++ {
-		f, err := os.Create(out)
+		f, err := os.Create(out) //nolint:gosec // G304: a capture in this test's own TempDir.
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +105,7 @@ func TestFRRRunsUnderTheSupervisor(t *testing.T) {
 			Argv: []string{filepath.Join(stage, "usr", "bin", "vtysh"), "-H", "/dev/null", "--vty_socket", dir, "-c", "show zebra client"},
 			Env:  env, Stdout: f, Stderr: f,
 		})
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +113,7 @@ func TestFRRRunsUnderTheSupervisor(t *testing.T) {
 		if _, err := v.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		b, _ := os.ReadFile(out)
+		b, _ := os.ReadFile(out) //nolint:gosec // G304: a capture in this test's own TempDir.
 		seen = strings.Contains(string(b), "Client: bgp")
 		if !seen {
 			time.Sleep(100 * time.Millisecond)
@@ -148,7 +148,7 @@ func TestFRRRunsUnderTheSupervisor(t *testing.T) {
 }
 
 func tail(path string) string {
-	b, _ := os.ReadFile(path)
+	b, _ := os.ReadFile(path) //nolint:gosec // G304: a log in this test's own TempDir.
 	if len(b) > 1500 {
 		b = b[len(b)-1500:]
 	}

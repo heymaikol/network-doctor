@@ -3,6 +3,7 @@
 package supervisor
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"syscall"
@@ -24,7 +25,7 @@ func checkInheritance() error {
 			continue
 		}
 		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
-		if err == unix.EBADF {
+		if errors.Is(err, unix.EBADF) {
 			continue // the directory descriptor used for this listing
 		}
 		if err != nil || flags&unix.FD_CLOEXEC == 0 {

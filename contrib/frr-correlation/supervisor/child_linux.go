@@ -168,8 +168,9 @@ func (c *Child) verify(ctx context.Context, want Identity) error {
 		}
 		// nsenter enters the namespaces one at a time, so a component may still
 		// be the supervisor's. Any component that is neither is a third namespace.
-		if !(got.NetDev == want.NetDev && got.NetIno == want.NetIno || got.NetDev == self.NetDev && got.NetIno == self.NetIno) ||
-			!(got.UserDev == want.UserDev && got.UserIno == want.UserIno || got.UserDev == self.UserDev && got.UserIno == self.UserIno) {
+		netOK := got.NetDev == want.NetDev && got.NetIno == want.NetIno || got.NetDev == self.NetDev && got.NetIno == self.NetIno
+		userOK := got.UserDev == want.UserDev && got.UserIno == want.UserIno || got.UserDev == self.UserDev && got.UserIno == self.UserIno
+		if !netOK || !userOK {
 			return ErrIdentityMismatch
 		}
 		time.Sleep(time.Millisecond)
@@ -182,12 +183,12 @@ func pidfdIdentity(pidfd int) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	defer unix.Close(net)
+	defer func() { _ = unix.Close(net) }()
 	user, err := pidfdNamespace(pidfd, pidfdGetUserNamespace)
 	if err != nil {
 		return Identity{}, err
 	}
-	defer unix.Close(user)
+	defer func() { _ = unix.Close(user) }()
 	return identityOf(net, user)
 }
 

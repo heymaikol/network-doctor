@@ -57,7 +57,7 @@ func NewNamespace(ctx context.Context) (*Namespace, error) {
 		return nil, ErrUnsupported
 	}
 	n := &Namespace{holderFD: -1, netFD: -1, userFD: -1, children: map[*Child]struct{}{}}
-	n.holder = exec.Command(sleep, "infinity")
+	n.holder = exec.Command(sleep, "infinity") //nolint:gosec // G204: sleep comes from LookPath and the argument is constant.
 	n.holder.Env = []string{}
 	n.holder.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags:  syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
@@ -109,7 +109,7 @@ func (n *Namespace) retain(ctx context.Context) error {
 	if err != nil {
 		return ErrNotIsolated
 	}
-	defer unix.Close(owner)
+	defer func() { _ = unix.Close(owner) }()
 	if n.id, err = identityOf(n.netFD, n.userFD); err != nil {
 		return err
 	}
@@ -157,12 +157,12 @@ func selfIdentity() (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	defer unix.Close(net)
+	defer func() { _ = unix.Close(net) }()
 	user, err := unix.Open("/proc/self/ns/user", unix.O_RDONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return Identity{}, err
 	}
-	defer unix.Close(user)
+	defer func() { _ = unix.Close(user) }()
 	return identityOf(net, user)
 }
 

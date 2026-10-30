@@ -214,10 +214,11 @@ before the script mounts or starts anything. A timeout or an escalation
 adds one line to the output, and a normal run prints exactly what it printed
 before. Status 124 reads `status 124 (timeout or command exit)`: `timeout`
 returns it when it ends the query at the deadline, and a query can exit 124 by
-itself, so the status does not say which. Status 137, a query that
-died of SIGKILL, reads `ended by SIGKILL (status 137), cause not confirmed`: the
-status does not say whether the OOM killer, a person or `timeout` itself sent the
-signal, because `timeout` also returns 137 after a query that ignored SIGTERM. An interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both
+itself, so the status does not say which. Status 137 reads `status 137` and
+nothing more. SIGKILL gives it, whether the OOM killer, a person or `timeout`
+sent the signal, and `timeout` returns it after a query that ignored SIGTERM, but
+a query can also exit 137 by itself, so the status does not show a signal. An
+interrupt (SIGINT, SIGTERM or SIGHUP) or an early exit stops both
 daemons the same way, and any other child still running is killed. A second
 interrupt while the daemons are being stopped is ignored, because stopping is
 already bounded. The script keeps a daemon's PID until the daemon is shown to

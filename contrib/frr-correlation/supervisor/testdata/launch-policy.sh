@@ -18,9 +18,9 @@
 # A timeout or an escalation adds one line to the output; a normal run prints none. A query
 # that returned status 124 reads "status 124 (timeout or command exit)": timeout returns it
 # when it ends the query at the deadline, and a query can exit 124 by itself, so the status
-# alone does not say which. A query that died of
-# SIGKILL (status 137) reads "ended by SIGKILL ... cause not confirmed": the status does not
-# say who sent the signal, and timeout returns it too after a query that ignored SIGTERM.
+# alone does not say which. A query that returned status 137 reads "status 137" and nothing
+# more: SIGKILL gives it, whether from the OOM killer, a person or timeout after a query that
+# ignored SIGTERM, but a query can also exit 137 by itself.
 # The daemons are also stopped, in the same way, if the script is interrupted or exits early.
 #
 # The script keeps a daemon's PID until /proc shows the process gone, and signals a PID only
@@ -179,9 +179,9 @@ reply=$(timeout --kill-after=2 "$QUERY_TIMEOUT" env -i LD_LIBRARY_PATH="$LD" ASA
 query_rc=$?
 grep -q 'Client: bgp' <<< "$reply" && attached=yes
 echo "  bgpd attached to zebra: $attached"
-case $query_rc in # 137 is SIGKILL from anyone (the OOM killer, a person, or timeout after a query that ignored SIGTERM)
+case $query_rc in # both statuses are reported as numbers: neither proves its usual cause
   124) echo "  vtysh query: status 124 (timeout or command exit)" ;; # timeout returns 124, and so can a query
-  137) echo "  vtysh query: ended by SIGKILL (status 137), cause not confirmed" ;;
+  137) echo "  vtysh query: status 137" ;; # 128 plus SIGKILL, from the OOM killer, a person or timeout, or an exit of 137
 esac
 stop bgpd BP
 stop zebra ZP

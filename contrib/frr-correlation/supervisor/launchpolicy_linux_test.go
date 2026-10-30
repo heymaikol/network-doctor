@@ -321,11 +321,16 @@ func TestLaunchPolicyDoesNotCallAnExitOf124ATimeout(t *testing.T) {
 	noneAlive(t, out)
 }
 
-func TestLaunchPolicyReportsAKilledQueryApartFromATimeout(t *testing.T) {
+// Status 137 is 128 plus SIGKILL, but a query can also exit 137 by itself, so the status
+// does not say that a signal ended it. The line states the status and nothing else, for a
+// query killed from outside, one that timeout killed after SIGTERM was ignored, and one
+// that simply exited 137.
+func TestLaunchPolicyReportsStatus137WithoutAssertingASignal(t *testing.T) {
 	sleep := lookPath(t, "sleep")
 	for _, tc := range []struct{ name, vtysh string }{
 		{"killed from outside", "kill -KILL $$"},
 		{"ignored SIGTERM until timeout escalated", "trap '' TERM; " + execLine(sleep, "30")},
+		{"plain exit of 137", "exit 137"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stage, out := newMockStage(t, "term", "term", tc.vtysh)
@@ -333,9 +338,9 @@ func TestLaunchPolicyReportsAKilledQueryApartFromATimeout(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("exit %d:\n%s", code, text)
 			}
-			requireLines(t, text, "  bgpd attached to zebra: no", "  vtysh query: ended by SIGKILL (status 137), cause not confirmed", "  bgpd exit: 143", "  zebra exit: 143")
-			if strings.Contains(text, "timed out") {
-				t.Errorf("a SIGKILL was reported as a timeout:\n%s", text)
+			requireLines(t, text, "  bgpd attached to zebra: no", "  vtysh query: status 137", "  bgpd exit: 143", "  zebra exit: 143")
+			if strings.Contains(text, "timed out") || strings.Contains(text, "SIGKILL") {
+				t.Errorf("status 137 was reported as a timeout or a signal:\n%s", text)
 			}
 			noneAlive(t, out)
 		})

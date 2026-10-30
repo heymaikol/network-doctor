@@ -28,9 +28,14 @@ func TestStagedLaunchProbeRunsTheLaunchWrapperAndSeparatesRefusals(t *testing.T)
 		{"fails without saying why", "exit 1", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
+			// The directory name holds an apostrophe and spaces, so a path pasted between quotes in the
+			// stand-in script cannot parse. The assertions below are unchanged.
+			dir := filepath.Join(t.TempDir(), "it's a dir")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
 			argvFile := filepath.Join(dir, "argv")
-			shim := probeScript(t, dir, "unshare", `printf '%s\n' "$@" > '`+argvFile+`'`+"\n"+tc.body)
+			shim := probeScript(t, dir, "unshare", `printf '%s\n' "$@" > `+shellQuote(argvFile)+"\n"+tc.body)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			refusal, err := stagedLaunchProbe(ctx, shim, "/bin/sh", "/bin/mount", "/bin/true")

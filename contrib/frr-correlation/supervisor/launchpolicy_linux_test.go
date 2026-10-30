@@ -256,8 +256,6 @@ func noneAlive(t *testing.T, out string) {
 	}
 }
 
-// The control: nothing is stuck, so the output keeps the shape it had before the
-// script was bounded, and both daemons are stopped by SIGTERM alone.
 // Only an unset setting takes its default. An empty one is refused (see the table below).
 func TestLaunchPolicyUnsetSettingsTakeTheirDefaults(t *testing.T) {
 	stage, out := newMockStage(t, "term", "term", vtyshAttached)
@@ -269,6 +267,8 @@ func TestLaunchPolicyUnsetSettingsTakeTheirDefaults(t *testing.T) {
 	noneAlive(t, out)
 }
 
+// The control: nothing is stuck, so the output keeps the shape it had before the
+// script was bounded, and both daemons are stopped by SIGTERM alone.
 func TestLaunchPolicyControlStopsBothDaemonsWithSIGTERM(t *testing.T) {
 	stage, out := newMockStage(t, "term", "term", vtyshAttached)
 	text, code := startLaunchPolicy(t, stage, out).wait(t)

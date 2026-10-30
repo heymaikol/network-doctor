@@ -42,7 +42,7 @@ go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer .
 go test -tags acceptance -count=1 -run '^TestNative' . ./internal/ui
 go test -tags netns_integration -count=1 -v ./internal/simulation
 go test -tags netns_integration -count=1 -run '^Test(RouteEvents|PublicDNSSearchIsolation)' ./internal/diagnostic
-go test -race -tags netns_integration -count=1 ./contrib/frr-correlation/supervisor
+go test -race -tags netns_integration -count=1 -v ./contrib/frr-correlation/supervisor
 go test -race ./...
 go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
 go test -run='^$' -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe

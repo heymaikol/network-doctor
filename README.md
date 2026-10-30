@@ -297,7 +297,7 @@ documentation, Linux / macOS / Windows testing, and real-network field testing.
 - [Help wanted issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22help+wanted%22)
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, choosing a task, and opening a
-pull request. An ordinary change runs `./scripts/check`; the complete gate and
+pull request. An ordinary change runs `./scripts/check.sh`; the complete gate and
 what each layer of evidence proves are in
 **[docs/validation.md](docs/validation.md)**. Please report suspected
 vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

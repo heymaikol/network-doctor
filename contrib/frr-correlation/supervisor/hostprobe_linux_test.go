@@ -69,6 +69,50 @@ func hostRefusal(ctx context.Context, argv ...string) (refusal string, err error
 	}
 }
 
+// A probe that never finishes must end at the context deadline, and only that proves
+// the deadline worked. The test checks that the shell reached the sleep, that the
+// error wraps context.DeadlineExceeded, and that a shell which failed at once, as an
+// unquoted path with a space does, is told apart from a timeout.
+func TestHostRefusalEndsAProbeAtTheDeadline(t *testing.T) {
+	dir := t.TempDir()
+	spaced := filepath.Join(dir, "a b'c", "sleep")
+	if err := os.MkdirAll(filepath.Dir(spaced), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(lookPath(t, "sleep"), spaced); err != nil {
+		t.Fatal(err)
+	}
+	// started records that the shell ran far enough to reach the sleep line.
+	started := func(body string) string { return "echo started > \"$1\"\n" + body }
+	for _, tc := range []struct {
+		name         string
+		body         string
+		wantStarted  bool
+		wantDeadline bool
+	}{
+		{"sleep on the search path", started(execLine(lookPath(t, "sleep"), "30")), true, true},
+		{"sleep path with a space and a quote", started(execLine(spaced, "30")), true, true},
+		{"the same path unquoted fails at once", started("exec " + spaced + " 30"), true, false},
+		{"sleep that does not exist fails at once", started(execLine(filepath.Join(dir, "absent", "sleep"), "30")), true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "started")
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			refusal, err := hostRefusal(ctx, probeScript(t, dir, strings.ReplaceAll(tc.name, " ", "-"), tc.body), marker)
+			if refusal != "" || err == nil {
+				t.Fatalf("refusal %q, error %v; want an error", refusal, err)
+			}
+			if got := errors.Is(err, context.DeadlineExceeded); got != tc.wantDeadline {
+				t.Errorf("error %v wraps DeadlineExceeded = %v, want %v", err, got, tc.wantDeadline)
+			}
+			if _, statErr := os.Stat(marker); (statErr == nil) != tc.wantStarted {
+				t.Errorf("the shell started = %v, want %v", statErr == nil, tc.wantStarted)
+			}
+		})
+	}
+}
+
 // hostProbeWaitDelay is how long hostRefusal waits for a probe's output pipe after
 // the probe's own process is gone, before it closes the pipe and reports an error.
 const hostProbeWaitDelay = 2 * time.Second
@@ -101,14 +145,7 @@ func TestRefusedByHostRecognisesOnlyCapabilityErrors(t *testing.T) {
 // failure, or a broken probe would hide a host that could have run the test.
 func TestHostRefusalSeparatesARefusalFromAFailedProbe(t *testing.T) {
 	dir := t.TempDir()
-	script := func(name, body string) string {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // G306: the stand-in must be executable.
-			t.Fatal(err)
-		}
-		return p
-	}
-	sleep := lookPath(t, "sleep")
+	script := func(name, body string) string { return probeScript(t, dir, name, body) }
 	for _, tc := range []struct {
 		name        string
 		body        string
@@ -122,7 +159,6 @@ func TestHostRefusalSeparatesARefusalFromAFailedProbe(t *testing.T) {
 		{"unrecognised failure", `echo "unshare: unrecognized option '-Urnm'" >&2; exit 1`, time.Second, false, true},
 		{"fails without saying why", "exit 1", time.Second, false, true},
 		{"resource limit", `echo "unshare: unshare failed: Resource temporarily unavailable" >&2; exit 1`, time.Second, false, true},
-		{"never finishes", "exec " + sleep + " 30", 200 * time.Millisecond, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)

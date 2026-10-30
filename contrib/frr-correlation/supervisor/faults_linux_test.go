@@ -170,7 +170,7 @@ func TestVerifyFailureThenStopFailureKeepsTheChildAccounted(t *testing.T) {
 	base := openFDs(t)
 	f := &faults{}
 	n := newFaultNamespace(t, f)
-	unshare, sleep := lookPath(t, "unshare"), lookPath(t, "sleep")
+	unshare, sleep := thirdNamespaceUnshare(t), lookPath(t, "sleep")
 	testNsenterArgs = func(int) []string { return []string{unshare, "--user", "--map-root-user", "--net", "--"} }
 	defer func() { testNsenterArgs = nil }()
 	f.dropSignals.Store(true)

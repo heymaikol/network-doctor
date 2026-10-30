@@ -306,11 +306,28 @@ func lookPath(t *testing.T, name string) string {
 	return p
 }
 
+// thirdNamespaceUnshare returns the unshare binary a test uses as its stand-in
+// for a child that lands in a third user and network namespace. If this host
+// refuses to let unshare create that pair, the test could only end in
+// ErrLaunchFailed, which says nothing about the supervisor, so it ends through
+// unavailable instead: a skip with the reason, or a failure in a job that must
+// run the namespace tests. Where unshare can create the pair, the test runs.
+func thirdNamespaceUnshare(t *testing.T) string {
+	t.Helper()
+	unshare, noop := lookPath(t, "unshare"), lookPath(t, "true")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, unshare, "--user", "--map-root-user", "--net", "--", noop).CombinedOutput(); err != nil { //nolint:gosec // G204: both binaries come from LookPath and the arguments are constant.
+		unavailable(t, "unshare cannot create a user and network namespace here: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return unshare
+}
+
 // A child that creates its own user and network namespaces is in neither the
 // supervisor's nor the retained pair, so it is refused and reaped.
 func TestChildInAThirdNamespaceIsRefusedAndReaped(t *testing.T) {
 	n := newNamespace(t)
-	unshare, sleep := lookPath(t, "unshare"), lookPath(t, "sleep")
+	unshare, sleep := thirdNamespaceUnshare(t), lookPath(t, "sleep")
 	testNsenterArgs = func(int) []string { return []string{unshare, "--user", "--map-root-user", "--net", "--"} }
 	defer func() { testNsenterArgs = nil }()
 	_, err := n.Start(context.Background(), Options{Argv: []string{sleep, "3600"}})

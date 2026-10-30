@@ -30,6 +30,7 @@ func TestFRRRunsUnderTheSupervisor(t *testing.T) {
 		}
 	}
 	unshare, sh, mount := lookPath(t, "unshare"), lookPath(t, "sh"), lookPath(t, "mount")
+	requireStagedLaunchHost(t, unshare, sh, mount)
 	n := newNamespace(t)
 	dir := t.TempDir()
 	conf := func(name, body string) string {
@@ -153,6 +154,33 @@ func tail(path string) string {
 		b = b[len(b)-1500:]
 	}
 	return string(b)
+}
+
+// stagedLaunchProbe runs the wrapper a staged FRR launch uses, around true, in a
+// throwaway user and network namespace. That namespace maps root and holds the same
+// capabilities as the retained one, and the wrapper is the same unshare --mount and
+// tmpfs mount over /var/tmp, so a host that refuses one refuses the other. It
+// touches neither the stage nor the supervisor's namespaces.
+func stagedLaunchProbe(ctx context.Context, unshare, sh, mount, truePath string) (refusal string, err error) {
+	argv := append([]string{unshare, "-Urn", "--", unshare, "--mount", "--"}, withTmpfsVarTmp(sh, mount, []string{truePath})...)
+	return hostRefusal(ctx, argv...)
+}
+
+// requireStagedLaunchHost ends the test through unavailable when the host refuses
+// what a staged launch needs once the namespaces exist: a mount namespace and a
+// tmpfs. That skips, and fails under NETDOC_SIM_REQUIRE_NETNS. Every other probe
+// failure fails the test, so a broken probe never hides a host that could run it.
+func requireStagedLaunchHost(t *testing.T, unshare, sh, mount string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	refusal, err := stagedLaunchProbe(ctx, unshare, sh, mount, lookPath(t, "true"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refusal != "" {
+		unavailable(t, "a staged FRR launch needs a mount namespace with tmpfs over /var/tmp: %s", refusal)
+	}
 }
 
 // withTmpfsVarTmp wraps argv in a shell that first mounts tmpfs over /var/tmp,

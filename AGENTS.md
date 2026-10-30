@@ -7,7 +7,8 @@ Before considering an ordinary change complete, run `./scripts/check.sh`. Use
 
 `scripts/check.sh` is the canonical fast local validation command. It does not
 replace the exhaustive validation documented in `docs/validation.md`; run
-additional checks there when they apply to the change.
+additional checks there when they apply to the change. `scripts/check` remains a
+thin wrapper that forwards to `scripts/check.sh` for older callers.
 
 Before changing behavior, verify the reported issue against the current HEAD. Do not assume an audit finding, issue description, or suggested implementation is still accurate.
 

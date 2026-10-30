@@ -1,0 +1,5 @@
+#!/bin/sh
+# Compatibility alias for scripts/check.sh. Older docs, scripts and recorded
+# evidence (testdata/frr/**) still invoke ./scripts/check. It adds no output of
+# its own, so what those callers captured stays reproducible.
+exec sh "$(dirname -- "$0")/check.sh" "$@"

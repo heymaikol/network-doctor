@@ -99,6 +99,7 @@ func TestConstructorCleanupIsBoundedWhenTheHolderDoesNotExit(t *testing.T) {
 	var n *Namespace
 	var err error
 	finishesWithin(t, rescue, func() { n, err = newNamespaceWith(ctx, f.sys()) })
+	closeAtEnd(t, n, f.clear)
 	if errors.Is(err, ErrUnsupported) {
 		unavailable(t, "namespaces unavailable") // not the refusal under test
 	}
@@ -108,7 +109,6 @@ func TestConstructorCleanupIsBoundedWhenTheHolderDoesNotExit(t *testing.T) {
 	if n == nil {
 		t.Fatal("constructor dropped the holder handle together with its error")
 	}
-	t.Cleanup(func() { f.clear(); _ = n.Close() })
 	holderRunning(t, n)
 	assertPinsHeld(t, n)
 	assertUnusable(t, n)

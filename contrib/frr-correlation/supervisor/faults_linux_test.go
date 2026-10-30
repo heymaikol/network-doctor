@@ -92,13 +92,13 @@ func (f *faults) clear() {
 func newFaultNamespace(t *testing.T, f *faults) *Namespace {
 	t.Helper()
 	n, err := newNamespaceWith(context.Background(), f.sys())
+	closeAtEnd(t, n, f.clear)
 	if errors.Is(err, ErrUnsupported) {
 		unavailable(t, "rootless namespaces or pidfd namespace ioctls unavailable")
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { f.clear(); _ = n.Close() })
 	return n
 }
 
@@ -244,6 +244,7 @@ func TestConstructorCleanupFailureKeepsTheHolderHandle(t *testing.T) {
 	f := &faults{}
 	f.failReap.Store(true)
 	n, err := newNamespaceWith(context.Background(), f.sys())
+	closeAtEnd(t, n, f.clear)
 	if errors.Is(err, ErrUnsupported) {
 		unavailable(t, "namespaces unavailable") // not the refusal under test
 	}

@@ -28,9 +28,33 @@ func unavailable(t *testing.T, format string, args ...any) {
 	t.Skipf(format, args...)
 }
 
+// closeAtEnd registers the cleanup of the Namespace a constructor returned. A
+// constructor whose own release was incomplete returns the unusable Namespace
+// together with its error, and that Namespace holds the only handles that can
+// finish the job, so this runs before any error branch can end the test. Close
+// is idempotent, so a test that closed the Namespace already is unaffected. A
+// Close that still fails means a process or descriptor was left behind, which is
+// a test failure and not something to discard. before runs first, for tests that
+// have injected a fault the cleanup would otherwise meet.
+func closeAtEnd(t *testing.T, n *Namespace, before func()) {
+	t.Helper()
+	if n == nil {
+		return
+	}
+	t.Cleanup(func() {
+		if before != nil {
+			before()
+		}
+		if err := n.Close(); err != nil {
+			t.Errorf("cleanup Close: %v", err)
+		}
+	})
+}
+
 func newNamespace(t *testing.T) *Namespace {
 	t.Helper()
 	n, err := NewNamespace(context.Background())
+	closeAtEnd(t, n, nil)
 	if errors.Is(err, ErrUnsupported) {
 		unavailable(t, "rootless namespaces or pidfd namespace ioctls unavailable")
 	}
@@ -125,8 +149,8 @@ func TestHolderKilledBeforeInspectionRefusesAndLeaksNothing(t *testing.T) {
 	}
 	defer func() { testHookAfterHolderStart = nil }()
 	n, err := NewNamespace(context.Background())
+	closeAtEnd(t, n, nil)
 	if err == nil {
-		_ = n.Close()
 		t.Fatal("dead holder was accepted")
 	}
 	if errors.Is(err, ErrUnsupported) {

@@ -73,6 +73,7 @@ func TestChildReapedByAnotherProcessIsTerminalAndNeverSignalledAsAGroup(t *testi
 	_ = c.cmd.Process.Release() // Go's own handle for a child it never waited for
 	_ = n.holder.Process.Kill()
 	_, _ = n.holder.Process.Wait()
+	n.holder = nil // reaped by hand, so the cleanup Close has no holder left to wait for
 	for _, fd := range []*int{&c.pidfd, &n.holderFD, &n.netFD, &n.userFD} {
 		closeFD(fd)
 	}

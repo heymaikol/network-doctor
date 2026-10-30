@@ -379,14 +379,19 @@ func lookPath(t *testing.T, name string) string {
 // refuses to let unshare create that pair, the test could only end in
 // ErrLaunchFailed, which says nothing about the supervisor, so it ends through
 // unavailable instead: a skip with the reason, or a failure in a job that must
-// run the namespace tests. Where unshare can create the pair, the test runs.
+// run the namespace tests. A probe that fails for any other reason is a failure
+// in every job. Where unshare can create the pair, the test runs.
 func thirdNamespaceUnshare(t *testing.T) string {
 	t.Helper()
 	unshare, noop := lookPath(t, "unshare"), lookPath(t, "true")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, unshare, "--user", "--map-root-user", "--net", "--", noop).CombinedOutput(); err != nil { //nolint:gosec // G204: both binaries come from LookPath and the arguments are constant.
-		unavailable(t, "unshare cannot create a user and network namespace here: %v: %s", err, strings.TrimSpace(string(out)))
+	refusal, err := hostRefusal(ctx, unshare, "--user", "--map-root-user", "--net", "--", noop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refusal != "" {
+		unavailable(t, "unshare cannot create a user and network namespace here: %s", refusal)
 	}
 	return unshare
 }

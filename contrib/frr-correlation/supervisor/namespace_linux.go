@@ -97,6 +97,12 @@ func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 	return n, nil
 }
 
+// capabilityErrnos are the errors that say the host does not allow rootless user
+// and network namespaces. They are the only ones the supervisor and its test
+// probes read as "this host cannot run this", which a test or CI probe turns
+// into a skip.
+var capabilityErrnos = []syscall.Errno{syscall.EPERM, syscall.EACCES, syscall.EINVAL, syscall.ENOSPC, syscall.ENOSYS}
+
 // holderStartError classifies a failed holder start and keeps its cause. An error
 // that says the host does not allow rootless user and network namespaces is
 // ErrUnsupported, the one class a test or CI probe turns into a skip. Anything
@@ -105,7 +111,7 @@ func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 // the suite. An errno cannot tell a refused clone from a refused exec, so a
 // permission error from either reads as unsupported.
 func holderStartError(err error) error {
-	for _, e := range []syscall.Errno{syscall.EPERM, syscall.EACCES, syscall.EINVAL, syscall.ENOSPC, syscall.ENOSYS} {
+	for _, e := range capabilityErrnos {
 		if errors.Is(err, e) {
 			return fmt.Errorf("%w: %w", ErrUnsupported, err)
 		}

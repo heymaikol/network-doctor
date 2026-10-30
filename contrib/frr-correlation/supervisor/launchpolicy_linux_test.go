@@ -32,6 +32,10 @@ import (
 
 const launchPolicyScript = "testdata/launch-policy.sh"
 
+// launchPolicyHostNeeds is the part of the script that depends on the host: the
+// three tmpfs mounts, made in the private mount namespace the probe runs in.
+const launchPolicyHostNeeds = "mount -t tmpfs tmpfs /run && mount -t tmpfs tmpfs /var/lib && mount -t tmpfs tmpfs /var/tmp"
+
 // mockDaemon never returns. It fails closed: without its mode file it exits at
 // once, so a run that reaches it by mistake cannot start the whole test suite.
 func mockDaemon(name string) {
@@ -149,6 +153,20 @@ func startLaunchPolicy(t *testing.T, stage, out string, extraEnv ...string) poli
 	unshare, bash := lookPath(t, "unshare"), lookPath(t, "bash")
 	lookPath(t, "setpriv")
 	lookPath(t, "timeout")
+	lookPath(t, "mount")
+	// The script needs rootless user, network and mount namespaces and the three
+	// tmpfs mounts. A host that refuses them ends the test through unavailable,
+	// which is a skip, or a failure where NETDOC_SIM_REQUIRE_NETNS demands the
+	// namespace tests. A probe that fails any other way is a failure.
+	probeCtx, stopProbe := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stopProbe()
+	refusal, err := hostRefusal(probeCtx, unshare, "-Urnm", bash, "-c", launchPolicyHostNeeds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refusal != "" {
+		unavailable(t, "launch-policy.sh needs user, network and mount namespaces with tmpfs: %s", refusal)
+	}
 	script, err := filepath.Abs(launchPolicyScript)
 	if err != nil {
 		t.Fatal(err)

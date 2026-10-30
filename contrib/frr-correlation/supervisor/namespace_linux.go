@@ -26,8 +26,13 @@ const (
 // supervisor retains descriptors to them. Methods are safe for concurrent use.
 type Namespace struct {
 	mu       sync.Mutex
+	closing  bool // set once; new children are refused from then on
 	closed   bool
 	unclean  bool
+	once     sync.Once
+	closeErr error
+	cmu      sync.Mutex // guards children; never held across a stop
+	children map[*Child]struct{}
 	holder   *exec.Cmd
 	holderFD int // pidfd, closed only after the holder is reaped
 	netFD    int
@@ -51,7 +56,7 @@ func NewNamespace(ctx context.Context) (*Namespace, error) {
 	if err != nil {
 		return nil, ErrUnsupported
 	}
-	n := &Namespace{holderFD: -1, netFD: -1, userFD: -1}
+	n := &Namespace{holderFD: -1, netFD: -1, userFD: -1, children: map[*Child]struct{}{}}
 	n.holder = exec.Command(sleep, "infinity")
 	n.holder.Env = []string{}
 	n.holder.SysProcAttr = &syscall.SysProcAttr{
@@ -165,27 +170,48 @@ func selfIdentity() (Identity, error) {
 func (n *Namespace) Identity() (Identity, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.closed || n.unclean {
+	if n.closing || n.closed || n.unclean {
 		return Identity{}, ErrClosed
 	}
 	return n.id, nil
 }
 
-// Close kills and reaps the holder, then releases every descriptor. It is safe
-// to call more than once. If the holder cannot be shown reaped it keeps the
-// pidfd, marks the namespace unusable and returns ErrCleanupIncomplete.
+// Close stops and reaps every child, then kills and reaps the holder and
+// releases every descriptor. It is safe to call concurrently and repeatedly;
+// every call returns the first result. Anything that cannot be shown reaped
+// keeps its pidfd, makes the namespace unusable and yields ErrCleanupIncomplete.
 func (n *Namespace) Close() error {
+	n.once.Do(func() {
+		n.mu.Lock()
+		n.closing = true
+		n.mu.Unlock()
+		n.cmu.Lock()
+		kids := make([]*Child, 0, len(n.children))
+		for c := range n.children {
+			kids = append(kids, c)
+		}
+		n.cmu.Unlock()
+		var errs []error
+		for _, c := range kids {
+			if _, err := c.Stop(context.Background()); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		if err := n.release(); err != nil {
+			errs = append(errs, err)
+		}
+		if len(errs) > 0 {
+			n.unclean = true
+			n.closeErr = errors.Join(errs...)
+			return
+		}
+		n.closed = true
+	})
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.closed {
-		return nil
-	}
-	if err := n.release(); err != nil {
-		n.unclean = true
-		return err
-	}
-	n.closed = true
-	return nil
+	return n.closeErr
 }
 
 // release kills the holder's group, reaps it last, then closes descriptors.

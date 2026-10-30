@@ -18,6 +18,7 @@ var (
 	ErrIdentityMismatch  = errors.New("supervisor: process is not in the retained namespaces")
 	ErrFDLeak            = errors.New("supervisor: inheritable descriptor refused")
 	ErrCleanupIncomplete = errors.New("supervisor: cleanup incomplete")
+	ErrLaunchFailed      = errors.New("supervisor: child did not start in the namespaces")
 )
 
 // Identity holds device and inode numbers of the retained user and network

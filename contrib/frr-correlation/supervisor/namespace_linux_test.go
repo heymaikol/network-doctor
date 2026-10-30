@@ -17,14 +17,22 @@ import (
 // them fails instead of skipping when namespaces are unavailable.
 const requireNetnsEnv = "NETDOC_SIM_REQUIRE_NETNS"
 
+// unavailable ends a test whose host cannot run it. It skips, unless the job
+// declared that this host must run the namespace tests: then it fails, so a
+// gated job can never pass by skipping. Every environmental skip goes through it.
+func unavailable(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv(requireNetnsEnv) != "" {
+		t.Fatalf("%s is set but the host cannot run this test: "+format, append([]any{requireNetnsEnv}, args...)...)
+	}
+	t.Skipf(format, args...)
+}
+
 func newNamespace(t *testing.T) *Namespace {
 	t.Helper()
 	n, err := NewNamespace(context.Background())
 	if errors.Is(err, ErrUnsupported) {
-		if os.Getenv(requireNetnsEnv) != "" {
-			t.Fatalf("%s is set but namespaces are unavailable", requireNetnsEnv)
-		}
-		t.Skip("rootless namespaces or pidfd namespace ioctls unavailable")
+		unavailable(t, "rootless namespaces or pidfd namespace ioctls unavailable")
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +130,7 @@ func TestHolderKilledBeforeInspectionRefusesAndLeaksNothing(t *testing.T) {
 		t.Fatal("dead holder was accepted")
 	}
 	if errors.Is(err, ErrUnsupported) {
-		t.Skip("namespaces unavailable") // not the refusal under test
+		unavailable(t, "namespaces unavailable") // not the refusal under test
 	}
 	if !errors.Is(err, ErrIdentityMismatch) {
 		t.Fatalf("got %v, want ErrIdentityMismatch", err)

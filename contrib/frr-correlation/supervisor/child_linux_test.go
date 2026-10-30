@@ -183,7 +183,7 @@ func TestChildInheritsNoDescriptors(t *testing.T) {
 	n := newNamespace(t)
 	sh, err := exec.LookPath("sh")
 	if err != nil {
-		t.Skip("no sh")
+		unavailable(t, "no sh")
 	}
 	out, err := os.Create(filepath.Join(t.TempDir(), "fds"))
 	if err != nil {
@@ -210,7 +210,7 @@ func TestChildInheritsNoDescriptors(t *testing.T) {
 func TestLeakedDescriptorRefusesStart(t *testing.T) {
 	n := newNamespace(t)
 	if checkInheritance() != nil {
-		t.Skip("test process already holds an inheritable descriptor")
+		unavailable(t, "test process already holds an inheritable descriptor")
 	}
 	fd, err := unix.Open(os.DevNull, unix.O_RDONLY, 0)
 	if err != nil {
@@ -297,7 +297,7 @@ func lookPath(t *testing.T, name string) string {
 	t.Helper()
 	p, err := exec.LookPath(name)
 	if err != nil {
-		t.Skipf("no %s", name)
+		unavailable(t, "no %s", name)
 	}
 	return p
 }

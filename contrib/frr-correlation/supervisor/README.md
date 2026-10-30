@@ -257,7 +257,14 @@ NETDOC_FRR_STAGE=<private copy> go test -count=1 -tags netns_integration -run FR
 
 Without the `netns_integration` tag only the descriptor-scan unit test runs.
 `scripts/check` compile-checks the other supported platforms, where the package
-reduces to a stub that returns `ErrUnsupported`. The hosted CI workflow does not run the `netns_integration` tests for this package: its
-namespace steps name `./internal/simulation` and `./internal/diagnostic`
-explicitly, and whether the hosted runner kernel and policy allow rootless
-namespaces with the `pidfd` ioctls has not been checked.
+reduces to a stub that returns `ErrUnsupported`.
+
+The hosted `linux (coverage)` job runs a probe test first, with
+`NETDOC_SIM_REQUIRE_NETNS` cleared. If the probe passes, the runner can host
+rootless namespaces, and the whole tagged package then runs with `-race` and the
+variable set, so a skip or a failure fails the job. If the probe skips, the job
+prints a warning that names the reason and passes, so a runner without the
+required kernel or policy does not turn the job permanently red. The job log
+shows which of the two happened on a given run. Every host-dependent skip in the
+tagged tests goes through one helper that fails instead when the variable is set. The
+FRR test still skips there, because no FRR copy is staged.

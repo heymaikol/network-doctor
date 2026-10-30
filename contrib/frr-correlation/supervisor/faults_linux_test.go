@@ -88,10 +88,7 @@ func newFaultNamespace(t *testing.T, f *faults) *Namespace {
 	t.Helper()
 	n, err := newNamespaceWith(context.Background(), f.sys())
 	if errors.Is(err, ErrUnsupported) {
-		if os.Getenv(requireNetnsEnv) != "" {
-			t.Fatalf("%s is set but namespaces are unavailable", requireNetnsEnv)
-		}
-		t.Skip("rootless namespaces or pidfd namespace ioctls unavailable")
+		unavailable(t, "rootless namespaces or pidfd namespace ioctls unavailable")
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +240,7 @@ func TestConstructorCleanupFailureKeepsTheHolderHandle(t *testing.T) {
 	f.failReap.Store(true)
 	n, err := newNamespaceWith(context.Background(), f.sys())
 	if errors.Is(err, ErrUnsupported) {
-		t.Skip("namespaces unavailable") // not the refusal under test
+		unavailable(t, "namespaces unavailable") // not the refusal under test
 	}
 	if !errors.Is(err, ErrIdentityMismatch) || !errors.Is(err, ErrCleanupIncomplete) {
 		t.Fatalf("got %v, want the mismatch joined with the cleanup failure", err)

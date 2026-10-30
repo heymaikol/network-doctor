@@ -387,6 +387,36 @@ jobs:
         run: go test -count=1 -tags netns_integration -run '^Test(RouteEvents|PublicDNSSearchIsolation)' ./internal/diagnostic
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
+      # The supervisor's namespace tests need rootless user namespaces and the pidfd
+      # namespace ioctls (Linux 6.11 or later). The package decides whether this
+      # runner has them, not a shell guess about the kernel: one probe test runs
+      # without NETDOC_SIM_REQUIRE_NETNS. If it passes, the whole package must pass
+      # with the variable set, and a failure then is a real failure. If it skips, the
+      # step prints a warning that names the reason and succeeds, so a runner that
+      # cannot host namespaces never turns this job permanently red. Anything other
+      # than a pass or a skip fails, so a renamed probe cannot make the step vacuous.
+      - if: matrix.shard == 'coverage'
+        name: Run supervisor namespace tests
+        run: |
+          set -uo pipefail
+          probe_test=TestNamespaceIsRetainedIsolatedAndReleased
+          echo "kernel: $(uname -r)"
+          probe=$(env -u NETDOC_SIM_REQUIRE_NETNS go test -count=1 -tags netns_integration -run "^${probe_test}\$" -v ./contrib/frr-correlation/supervisor 2>&1)
+          status=$?
+          printf '%s\n' "$probe"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::supervisor probe test failed"
+            exit 1
+          fi
+          if grep -q -- "--- PASS: ${probe_test} " <<<"$probe"; then
+            NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -tags netns_integration ./contrib/frr-correlation/supervisor
+          elif grep -q -- "--- SKIP: ${probe_test} " <<<"$probe"; then
+            reason=$(grep -B1 -- "--- SKIP: ${probe_test} " <<<"$probe" | head -n1 | sed 's/^ *//')
+            echo "::warning::supervisor namespace tests did not run on kernel $(uname -r): ${reason}"
+          else
+            echo "::error::supervisor probe test neither passed nor skipped"
+            exit 1
+          fi
       - if: matrix.shard == 'coverage'
         name: Merge coverage
         run: |

@@ -67,8 +67,8 @@ func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 		return nil, err
 	}
 	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrUnsupported, err)
+	if err != nil { // not installed: a broken setup, not a kernel without the capability
+		return nil, fmt.Errorf("%w: %w", ErrLaunchFailed, err)
 	}
 	n := &Namespace{made: true, holderFD: -1, netFD: -1, userFD: -1, children: map[*Child]struct{}{}, sys: s}
 	n.holder = exec.Command(sleep, "infinity") //nolint:gosec // G204: sleep comes from LookPath and the argument is constant.

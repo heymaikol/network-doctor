@@ -5,6 +5,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,8 +88,8 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 		return nil, err
 	}
 	enter, err := exec.LookPath("nsenter")
-	if err != nil {
-		return nil, ErrUnsupported
+	if err != nil { // not installed: a broken setup, not a kernel without the capability
+		return nil, fmt.Errorf("%w: %w", ErrLaunchFailed, err)
 	}
 	args := []string{enter, "--target", strconv.Itoa(n.holder.Process.Pid), "--user", "--net", "--preserve-credentials", "--"}
 	if testNsenterArgs != nil {

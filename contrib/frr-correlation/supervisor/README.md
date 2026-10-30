@@ -16,7 +16,10 @@ new user and network namespaces. It reads the holder's namespaces through
 `/proc/<pid>` lookup is involved, and keeps both descriptors open. It refuses a
 pair unless the user namespace owns the network namespace and both differ from
 the supervisor's own. The holder is never reaped until `Close`, so its PID
-cannot be reissued while the supervisor uses it.
+cannot be reissued while the supervisor uses it. Only `NewNamespace` builds a
+usable `Namespace`: a nil or zero-value one returns `ErrClosed` from `Start`,
+`Identity` and `Close` and releases nothing, because its descriptor fields would
+read 0, the standard input.
 
 `Namespace.Start` launches a program through `nsenter --target <holder> --user
 --net --preserve-credentials` and accepts the child only after the child's own

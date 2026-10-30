@@ -66,6 +66,9 @@ var testNsenterArgs func(holderPID int) []string
 // its own pidfd shows both retained namespaces. A child that exits, or sits in
 // any other namespace, is killed, reaped and refused.
 func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
+	if !n.constructed() {
+		return nil, ErrClosed
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.closing || n.closed || n.unclean.Load() {

@@ -25,7 +25,13 @@ const (
 // Namespace owns one user and network namespace pair. It never calls unshare or
 // setns on a Go thread: a holder child creates the namespaces and the
 // supervisor retains descriptors to them. Methods are safe for concurrent use.
+//
+// Only NewNamespace builds a usable Namespace. The zero value holds descriptor 0
+// in every descriptor field, which would be the process's standard input, so a
+// nil or zero-value Namespace refuses Start, Identity and Close with ErrClosed
+// and releases nothing.
 type Namespace struct {
+	made     bool       // set by the constructor alone; the descriptors below are valid only then
 	mu       sync.Mutex // guards closing, closed and the descriptors
 	closeMu  sync.Mutex // serializes Close, which can be retried
 	closing  bool       // set once; new children are refused from then on
@@ -63,7 +69,7 @@ func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 	if err != nil {
 		return nil, ErrUnsupported
 	}
-	n := &Namespace{holderFD: -1, netFD: -1, userFD: -1, children: map[*Child]struct{}{}, sys: s}
+	n := &Namespace{made: true, holderFD: -1, netFD: -1, userFD: -1, children: map[*Child]struct{}{}, sys: s}
 	n.holder = exec.Command(sleep, "infinity") //nolint:gosec // G204: sleep comes from LookPath and the argument is constant.
 	n.holder.Env = []string{}
 	n.holder.SysProcAttr = &syscall.SysProcAttr{
@@ -180,8 +186,15 @@ func selfIdentity() (Identity, error) {
 	return identityOf(net, user)
 }
 
+// constructed reports whether NewNamespace built n. It reads a field no method
+// writes after construction, so it needs no lock.
+func (n *Namespace) constructed() bool { return n != nil && n.made }
+
 // Identity returns the retained namespace observations.
 func (n *Namespace) Identity() (Identity, error) {
+	if !n.constructed() {
+		return Identity{}, ErrClosed
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.closing || n.closed || n.unclean.Load() {
@@ -200,6 +213,9 @@ func (n *Namespace) Identity() (Identity, error) {
 // a holder that does not exit makes Close return after the kill deadline, not
 // block; Start and Identity wait for that long at most.
 func (n *Namespace) Close() error {
+	if !n.constructed() {
+		return ErrClosed
+	}
 	n.closeMu.Lock()
 	defer n.closeMu.Unlock()
 	n.mu.Lock()

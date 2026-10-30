@@ -216,7 +216,7 @@ daemons the same way, and any other child still running is killed. A second
 interrupt while the daemons are being stopped is ignored, because stopping is
 already bounded. The script keeps a daemon's PID until `/proc` shows the process
 gone, and signals a PID only while that process is still its own child, so a
-reused PID is not hit. It cannot promise that every daemon is gone. A daemon
+process that is not its child is never signalled. It cannot promise that every daemon is gone. A daemon
 still running 2 seconds after SIGKILL, a process in uninterruptible sleep for
 one, cannot be stopped by a script: the exit trap tries it once more, then the
 script names it on stderr (`may still be running`) and exits 10 in place of any

@@ -11,7 +11,7 @@
 #   NAME   a label for the output.
 # With no setpriv arguments the policy is --keep-groups (the control).
 #
-# Every wait is bounded, and the script stops both daemons before it ends:
+# Every wait is bounded, and the script tries to stop both daemons before it ends:
 #   QUERY_TIMEOUT  whole seconds the vtysh query may run before it is killed (default 10).
 #   STOP_GRACE     whole seconds a daemon gets after SIGTERM before SIGKILL (default 5).
 # Both are from 1 to 60. Anything else exits 9 before the script mounts or starts anything.

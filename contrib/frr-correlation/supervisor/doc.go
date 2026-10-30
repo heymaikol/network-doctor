@@ -18,6 +18,7 @@ var (
 	ErrIdentityMismatch  = errors.New("supervisor: process is not in the retained namespaces")
 	ErrFDLeak            = errors.New("supervisor: inheritable descriptor refused")
 	ErrCleanupIncomplete = errors.New("supervisor: cleanup incomplete")
+	ErrObservationLost   = errors.New("supervisor: process state could not be observed")
 	ErrLaunchFailed      = errors.New("supervisor: child did not start in the namespaces")
 )
 

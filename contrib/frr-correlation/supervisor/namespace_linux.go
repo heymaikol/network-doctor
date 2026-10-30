@@ -238,8 +238,14 @@ func (n *Namespace) Close() error {
 // failure leaves the holder and every descriptor in place, so it can be retried.
 func (n *Namespace) release() error {
 	if n.holder != nil && n.holder.Process != nil {
-		_ = n.sys.killGroup(n.holder.Process.Pid, unix.SIGKILL) // leader unreaped, so the pgid is still ours
-		_ = n.holder.Process.Kill()
+		switch {
+		case n.holderFD < 0: // no pidfd: the unreaped child is still ours by PID
+			_ = n.holder.Process.Kill()
+		case n.sys.probe(n.holderFD).unreaped(): // so the group ID is still ours
+			_ = n.sys.killGroup(n.holder.Process.Pid, unix.SIGKILL)
+		default:
+			_ = n.sys.signalLeader(n.holderFD, unix.SIGKILL)
+		}
 		if _, err := n.sys.reap(n.holder.Process); err != nil {
 			return errors.Join(ErrCleanupIncomplete, err)
 		}

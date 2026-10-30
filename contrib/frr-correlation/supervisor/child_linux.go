@@ -72,7 +72,7 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 	if len(o.Argv) == 0 || !filepath.IsAbs(o.Argv[0]) {
 		return nil, ErrLaunchFailed
 	}
-	if n.sys.exited(n.holderFD) {
+	if n.sys.probe(n.holderFD) != leaderRunning {
 		return nil, ErrIdentityMismatch
 	}
 	if err := ctx.Err(); err != nil {
@@ -156,8 +156,11 @@ func (c *Child) verify(ctx context.Context, want Identity) error {
 		}
 		got, err := pidfdIdentity(c.pidfd)
 		if err != nil {
-			if c.ns.sys.exited(c.pidfd) {
+			switch c.ns.sys.probe(c.pidfd) {
+			case leaderZombie, leaderGone:
 				return ErrLaunchFailed
+			case leaderUnknown:
+				return ErrObservationLost
 			}
 			return ErrIdentityMismatch
 		}
@@ -199,7 +202,8 @@ func (c *Child) PID() int { return c.pgid }
 
 // Stop terminates the child's process group with SIGTERM, escalates to SIGKILL
 // after the grace period, sweeps the group once the leader has exited, and
-// reaps last. After a success it returns the same status on every call. If the
+// reaps last. The group is signalled only while the pidfd shows the leader
+// unreaped. After a success Stop returns the same status on every call. If the
 // leader cannot be shown reaped, Stop returns an error wrapping
 // ErrCleanupIncomplete, marks the namespace unusable for new children, and keeps
 // the pidfd and the child registered: a later Stop or Namespace.Close retries.
@@ -210,15 +214,19 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 		return c.status, nil
 	}
 	s := c.ns.sys
-	_ = s.killGroup(c.pgid, unix.SIGTERM)
+	c.signalGroup(unix.SIGTERM)
 	if !c.waitDone(ctx, c.grace) {
 		c.status.Escalated = true
-		_ = s.killGroup(c.pgid, unix.SIGKILL)
+		c.signalGroup(unix.SIGKILL)
 		if !c.waitDone(context.Background(), s.killDeadline) {
 			return c.incomplete(nil)
 		}
 	}
-	_ = s.killGroup(c.pgid, unix.SIGKILL) // leader is a zombie, so the group ID is still held
+	// The sweep needs the leader proven unreaped, and reaping first would make it
+	// impossible, so without the proof the child is left for a later attempt.
+	if !c.signalGroup(unix.SIGKILL) {
+		return c.incomplete(ErrObservationLost)
+	}
 	ps, err := s.reap(c.cmd.Process)
 	if err != nil || ps == nil {
 		return c.incomplete(err)
@@ -234,6 +242,21 @@ func (c *Child) Stop(ctx context.Context) (ExitStatus, error) {
 	delete(c.ns.children, c)
 	c.ns.cmu.Unlock()
 	return c.status, nil
+}
+
+// signalGroup signals the child's process group, but only while the pidfd proves
+// the leader is still an unreaped child, so the group ID cannot belong to anyone
+// else. Otherwise it signals the leader alone through the pidfd, which can only
+// ever name that process, and reports false. The proof rests on the supervisor
+// being the only reaper of its children.
+func (c *Child) signalGroup(sig unix.Signal) bool {
+	s := c.ns.sys
+	if s.probe(c.pidfd).unreaped() {
+		_ = s.killGroup(c.pgid, sig)
+		return true
+	}
+	_ = s.signalLeader(c.pidfd, sig)
+	return false
 }
 
 // incomplete records that the leader is not proven reaped. It keeps the pidfd and

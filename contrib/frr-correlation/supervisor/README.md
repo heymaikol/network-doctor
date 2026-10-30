@@ -53,6 +53,18 @@ wrapping `ErrCleanupIncomplete`, and:
   returns the unusable `Namespace` together with the error so `Close` can retry.
   Check the namespace before the error when handling a failed constructor.
 
+Process groups are signalled by number, so a retry must never signal a group ID
+that was reissued. Before every group signal, `Stop` and the holder cleanup ask
+the leader's pidfd whether it is still an unreaped child, through a non-blocking
+`waitid` that never reaps. A state that cannot be read is treated as unknown, not
+as an exit. Without that proof the group is not signalled: only the leader is
+signalled, through the pidfd, which names exactly that process. The final sweep
+needs the proof, so a leader that cannot be shown unreaped is not reaped either
+(`ErrObservationLost` joins `ErrCleanupIncomplete`) and is left for a retry. The
+proof rests on the supervisor being the only reaper of its children. A third
+party that reaps a child between the probe and the signal is outside what this
+package defends against.
+
 A retry is the supervised recovery path. If the process is already gone and
 reaped by someone else, nothing can prove its cleanup and every retry fails the
 same way. The namespace then stays pinned until the supervisor process exits,
@@ -198,6 +210,8 @@ same test once the fault is turned off. Nothing else is modeled.
 | A failed reap is an error, not a panic, and is retryable | `TestReapFailureIsReportedAndRetryable` |
 | A failed `Stop` made by the caller blocks launches | `TestStopFailureByTheCallerBlocksFurtherLaunches` |
 | Concurrent `Close` and `Start` while cleanup keeps failing | `TestConcurrentCloseRetriesAfterFailure` |
+| A leader that cannot be read is never signalled as a group | `TestUnreadableLeaderIsNeverSignalledAsAGroup` |
+| A child reaped by another process: no group signal, terminal, pinned | `TestChildReapedByAnotherProcessIsTerminalAndNeverSignalledAsAGroup` |
 | Supervisor killed: holder and a Go helper child die with it | `TestSupervisorKilledTakesHolderAndChildWithIt` |
 | Exited child and holder keep their PID as zombies until reaped | `TestExitedProcessesKeepTheirPIDUntilReaped` |
 | FRR launch, attach, clean stop, reaping | `TestFRRRunsUnderTheSupervisor` (needs `NETDOC_FRR_STAGE`) |

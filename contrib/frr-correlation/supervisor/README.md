@@ -168,9 +168,11 @@ These are deliberate scope cuts, not oversights. None is claimed to hold.
   `NETDOC_SIM_REQUIRE_NETNS` is set, in which case they fail. Only kernel
   7.2.11 was exercised.
 - **Only a capability error reads as unsupported.** A helper that is not
-  installed is not one: `NewNamespace` without `sleep` and `Start` without
-  `nsenter` return `ErrLaunchFailed` and keep the lookup error, so the tests fail
-  and the CI probe fails instead of skipping. A failed holder start is
+  installed is not one. `NewNamespace` without `sleep` returns `ErrLaunchFailed`
+  and keeps the lookup error, so the tests fail, and so does the CI probe, which
+  calls it. `Start` without `nsenter` fails the same way, but the probe never
+  calls `Start`: the probe still passes, and the gated suite fails in the tests
+  that start a child. A failed holder start is
   `ErrUnsupported` for `EPERM`, `EACCES`, `EINVAL`, `ENOSPC` or `ENOSYS`, which
   say the host does not allow the namespaces. Every other failure, whether a
   resource limit (`EAGAIN`, `ENOMEM`, `EMFILE`, `ENFILE`), a failed exec or an

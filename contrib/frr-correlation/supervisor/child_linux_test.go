@@ -277,13 +277,20 @@ func TestDaemonizedGrandchildDiesWithTheGroup(t *testing.T) {
 }
 
 // alive reports whether pid is a running (not zombie) process.
-func alive(pid int) bool {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+// procState returns the one-letter state from /proc/<pid>/stat, or 0 when the
+// PID is not in use.
+func procState(pid int) byte {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)) //nolint:gosec // G304: a /proc path built from a PID this test launched.
 	if err != nil {
-		return false
+		return 0
 	}
 	s := string(b)
-	return s[strings.LastIndex(s, ")")+2] != 'Z'
+	return s[strings.LastIndex(s, ")")+2]
+}
+
+func alive(pid int) bool {
+	st := procState(pid)
+	return st != 0 && st != 'Z'
 }
 
 func lookPath(t *testing.T, name string) string {
@@ -420,5 +427,44 @@ func TestSupervisorKilledTakesHolderAndChildWithIt(t *testing.T) {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
+	}
+}
+
+// An exited leader or holder stays a zombie, so the kernel cannot give its PID
+// or process group ID to another process until the supervisor reaps it. This
+// checks that hold. It does not force PID wraparound.
+func TestExitedProcessesKeepTheirPIDUntilReaped(t *testing.T) {
+	n := newNamespace(t)
+	c, _ := startHelper(t, n, "report")
+	<-c.Done()
+	pid := c.PID()
+	if st := procState(pid); st != 'Z' {
+		t.Fatalf("exited child is in state %q, want a zombie", st)
+	}
+	if _, err := c.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if st := procState(pid); st != 0 {
+		t.Fatalf("reaped child still holds its PID in state %q", st)
+	}
+
+	holder := n.holder.Process.Pid
+	if err := syscall.Kill(holder, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; !exited(n.holderFD); i++ {
+		if i > 200 {
+			t.Fatal("holder did not exit")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st := procState(holder); st != 'Z' {
+		t.Fatalf("exited holder is in state %q, want a zombie", st)
+	}
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if st := procState(holder); st != 0 {
+		t.Fatalf("closed namespace still holds the holder PID in state %q", st)
 	}
 }

@@ -41,9 +41,17 @@ func TestUnexpectedWaitErrorIsNotReportedAsAnExit(t *testing.T) {
 
 // Losing the watcher while a child starts is not a launch failure: the child
 // did not exit. It is stopped and the namespace stays usable.
+//
+// Start runs the watcher beside verify, so which of them reaches its result
+// first is a scheduling matter: a real nsenter can finish entering the retained
+// namespaces before the watcher goroutine has run. The test removes the choice.
+// The child reads as still in the supervisor's own namespaces, which verify
+// accepts as a step on the way and never as the retained pair, so verify cannot
+// succeed and only the watcher's loss can end the wait.
 func TestWatcherLostDuringStartIsNotALaunchFailure(t *testing.T) {
 	base := openFDs(t)
 	f := &faults{}
+	f.identity = func(int) (Identity, error) { return selfIdentity() }
 	n := newFaultNamespace(t, f)
 	f.failWatch.Store(true)
 	_, err := n.Start(context.Background(), quickOptions(t))

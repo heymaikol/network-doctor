@@ -10,7 +10,7 @@ page explains why each stage exists.
 ## What an ordinary pull request needs
 
 ```sh
-./scripts/check
+./scripts/check.sh
 ```
 
 That is gofmt, `go vet`, a `CGO_ENABLED=0` build, macOS and Windows

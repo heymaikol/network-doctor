@@ -5,6 +5,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"sync"
@@ -67,7 +68,7 @@ func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 	}
 	sleep, err := exec.LookPath("sleep")
 	if err != nil {
-		return nil, ErrUnsupported
+		return nil, fmt.Errorf("%w: %w", ErrUnsupported, err)
 	}
 	n := &Namespace{made: true, holderFD: -1, netFD: -1, userFD: -1, children: map[*Child]struct{}{}, sys: s}
 	n.holder = exec.Command(sleep, "infinity") //nolint:gosec // G204: sleep comes from LookPath and the argument is constant.
@@ -82,7 +83,7 @@ func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 	}
 	if err := n.holder.Start(); err != nil {
 		closeFD(&n.holderFD)
-		return nil, ErrUnsupported
+		return nil, holderStartError(err)
 	}
 	if n.holderFD < 0 { // kernel without CLONE_PIDFD
 		return n.failed(ErrUnsupported)
@@ -94,6 +95,22 @@ func newNamespaceWith(ctx context.Context, s *sys) (*Namespace, error) {
 		return n.failed(err)
 	}
 	return n, nil
+}
+
+// holderStartError classifies a failed holder start and keeps its cause. An error
+// that says the host does not allow rootless user and network namespaces is
+// ErrUnsupported, the one class a test or CI probe turns into a skip. Anything
+// else, whether a resource limit, a failed exec or an error nobody listed, is
+// ErrLaunchFailed, so a genuine failure never passes for a host that cannot run
+// the suite. An errno cannot tell a refused clone from a refused exec, so a
+// permission error from either reads as unsupported.
+func holderStartError(err error) error {
+	for _, e := range []syscall.Errno{syscall.EPERM, syscall.EACCES, syscall.EINVAL, syscall.ENOSPC, syscall.ENOSYS} {
+		if errors.Is(err, e) {
+			return fmt.Errorf("%w: %w", ErrUnsupported, err)
+		}
+	}
+	return fmt.Errorf("%w: holder start: %w", ErrLaunchFailed, err)
 }
 
 // failed releases what the constructor created. When the release is incomplete

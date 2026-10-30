@@ -167,6 +167,14 @@ These are deliberate scope cuts, not oversights. None is claimed to hold.
   Without them `NewNamespace` returns `ErrUnsupported` and the tests skip, unless
   `NETDOC_SIM_REQUIRE_NETNS` is set, in which case they fail. Only kernel
   7.2.11 was exercised.
+- **Only a capability error reads as unsupported.** A failed holder start is
+  `ErrUnsupported` for `EPERM`, `EACCES`, `EINVAL`, `ENOSPC` or `ENOSYS`, which
+  say the host does not allow the namespaces. Every other failure, whether a
+  resource limit (`EAGAIN`, `ENOMEM`, `EMFILE`, `ENFILE`), a failed exec or an
+  error nobody listed, is `ErrLaunchFailed`, so the tests fail and the CI probe
+  fails instead of skipping. Both keep the cause. An errno cannot tell a refused
+  clone from a refused exec, so a permission error from either reads as
+  unsupported.
 
 ## FRR 10.7.0 launch policy
 

@@ -35,7 +35,9 @@ the supervisor sees first. Verification is a point in time, and a caller treats
 a child that exits right after `Start` like any other exit. The child runs in its own process group with
 `Pdeathsig` set. It gets exactly the environment the caller passes, standard
 input from `/dev/null`, and only the standard output and error files the caller
-passes. `Start` refuses if the supervisor holds any inheritable
+passes. A standard output or error the caller leaves unset is `/dev/null`, never
+a closed descriptor, which would hand the child's next opened file the number of
+a standard stream. `Start` refuses if the supervisor holds any inheritable
 descriptor above 2, if the program path is not absolute, or if the namespace is
 closing, closed or unclean.
 
@@ -215,7 +217,7 @@ same test once the fault is turned off. Nothing else is modeled.
 | Context cancelled during creation | `TestCancelledStartCreatesNothing` |
 | Concurrent close | `TestConcurrentCloseIsSafe` |
 | Child runs in the retained pair, as root in the user namespace | `TestChildRunsInTheRetainedNamespaces` |
-| Child inherits no descriptor above 2 | `TestChildInheritsNoDescriptors` |
+| Child inherits no descriptor above 2 and has descriptors 0, 1 and 2 open, an unset stdout or stderr being /dev/null | `TestChildInheritsNoDescriptors` |
 | Leaked non-`CLOEXEC` descriptor refuses `Start` | `TestLeakedDescriptorRefusesStart` |
 | SIGKILL only when SIGTERM is ignored | `TestStopEscalatesOnlyWhenTermIsIgnored` |
 | Daemonized grandchild that ignores SIGTERM dies with the group | `TestDaemonizedGrandchildDiesWithTheGroup` |

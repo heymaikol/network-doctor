@@ -23,7 +23,8 @@ const (
 
 // Options describes one child. Argv[0] must be an absolute path. Env is used
 // as given; nothing is inherited. Stdout and Stderr, when set, are the only
-// descriptors beyond stdin that the child receives, and stdin is /dev/null.
+// descriptors beyond stdin that the child receives, and stdin is /dev/null. An
+// unset Stdout or Stderr is /dev/null too, never a closed descriptor.
 type Options struct {
 	Argv           []string
 	Env            []string
@@ -96,7 +97,15 @@ func (n *Namespace) Start(ctx context.Context, o Options) (*Child, error) {
 	}
 	c.cmd = &exec.Cmd{Path: args[0], Args: append(args, o.Argv...)}
 	c.cmd.Env = append([]string{}, o.Env...)
-	c.cmd.Stdout, c.cmd.Stderr = o.Stdout, o.Stderr
+	// A nil *os.File stored in the io.Writer fields would count as set and leave
+	// that descriptor closed in the child. Unset must stay a nil interface so Go
+	// connects the null device.
+	if o.Stdout != nil {
+		c.cmd.Stdout = o.Stdout
+	}
+	if o.Stderr != nil {
+		c.cmd.Stderr = o.Stderr
+	}
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL, PidFD: &c.pidfd}
 	if err := c.cmd.Start(); err != nil {
 		return nil, ErrLaunchFailed

@@ -178,8 +178,11 @@ func TestChildRunsInTheRetainedNamespaces(t *testing.T) {
 	}
 }
 
-// The Go runtime may hold descriptors of its own, so inheritance is measured
-// with a shell that never opens one: its table is exactly what nsenter left.
+// The Go runtime holds descriptors of its own (a cgroup file and the poller),
+// so inheritance is measured with a shell that never opens one: its table is
+// exactly what nsenter left. The shell probes each descriptor number with the
+// builtin test -L, which is an lstat of /proc/<pid>/fd/<n>, so the result does
+// not depend on which ls the host ships.
 func TestChildInheritsNoDescriptors(t *testing.T) {
 	n := newNamespace(t)
 	sh, err := exec.LookPath("sh")
@@ -192,7 +195,7 @@ func TestChildInheritsNoDescriptors(t *testing.T) {
 	}
 	defer out.Close()
 	c, err := n.Start(context.Background(), Options{
-		Argv:   []string{sh, "-c", "ls -1 /proc/$$/fd"},
+		Argv:   []string{sh, "-c", `i=0; while [ "$i" -lt 1024 ]; do [ -L "/proc/$$/fd/$i" ] && echo "$i"; i=$((i+1)); done`},
 		Stdout: out,
 	})
 	if err != nil {

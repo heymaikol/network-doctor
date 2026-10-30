@@ -26,6 +26,7 @@ func TestMain(m *testing.M) {
 	out := os.Getenv("SUPERVISOR_OUT")
 	switch os.Getenv("SUPERVISOR_HELPER") {
 	case "":
+		markInheritedCloseOnExec()
 		os.Exit(m.Run())
 	case "sleep":
 		time.Sleep(time.Hour)

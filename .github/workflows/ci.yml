@@ -401,8 +401,8 @@ jobs:
           set -uo pipefail
           probe_test=TestNamespaceIsRetainedIsolatedAndReleased
           echo "kernel: $(uname -r)"
-          probe=$(env -u NETDOC_SIM_REQUIRE_NETNS go test -count=1 -tags netns_integration -run "^${probe_test}\$" -v ./contrib/frr-correlation/supervisor 2>&1)
-          status=$?
+          status=0
+          probe=$(env -u NETDOC_SIM_REQUIRE_NETNS go test -count=1 -tags netns_integration -run "^${probe_test}\$" -v ./contrib/frr-correlation/supervisor 2>&1) || status=$?
           printf '%s\n' "$probe"
           if [ "$status" -ne 0 ]; then
             echo "::error::supervisor probe test failed"

@@ -421,6 +421,12 @@ func TestSealDetectsChangesWhileItReads(t *testing.T) {
 	}{
 		{name: "replaced after the copy", hook: forge, want: Modified},
 		{name: "removed after the copy", hook: func(t *testing.T, _ *Inbox, p string) { _ = os.Remove(p) }, want: Modified},
+		{name: "linked outside then replaced after the copy", hook: func(t *testing.T, in *Inbox, p string) {
+			if err := os.Link(p, filepath.Join(t.TempDir(), "alias")); err != nil {
+				t.Error(err)
+			}
+			forge(t, in, p)
+		}, want: Modified},
 		{name: "write open attempted while leased", hook: func(t *testing.T, _ *Inbox, p string) {
 			if err := writable(p); !errors.Is(err, unix.EWOULDBLOCK) {
 				t.Errorf("write open under lease: %v", err)

@@ -15,8 +15,9 @@ deliberately offers no way to make it one.
 When `Seal` returns a `Snapshot`:
 
 - The bytes are a private copy in a sealed anonymous file. The seals (shrink,
-  grow, write, seal) cannot be removed, and a writable reopen through `/proc` or
-  a writable mapping is refused by the kernel. Mutating, replacing, truncating
+  grow, write, seal) cannot be removed. A reopen of the anonymous file through
+  `/proc` can still be opened for writing, but every write, truncate, writable
+  shared mapping and further seal on it fails with `EPERM`. Mutating, replacing, truncating
   or unlinking the source cannot change it.
 - At one instant, no file description open for writing existed on the source
   inode. The proof is a read lease taken before the copy and checked unbroken
@@ -59,6 +60,11 @@ When `Seal` returns a `Snapshot`:
 | 9 | Namespaces are neither held nor released | Unchanged | `TestSealAndCloseDoNotTouchTheNamespace`. |
 | 10 | Content never steers the capture | Enforced by construction | No parser; the package imports no JSON. |
 
+The change checks in step 5 below compare the inode, size, link count, mode,
+owner, name-to-inode binding and lease directly. `ctime` is compared as well, but
+only as a best-effort extra signal: its resolution depends on the kernel, so no
+case relies on it alone.
+
 ## How a Seal runs
 
 1. List the inbox through a fresh description of the retained directory, at most
@@ -70,8 +76,9 @@ When `Seal` returns a `Snapshot`:
 3. Take `F_SETLEASE(F_RDLCK)`. `EAGAIN` means a writer exists: `writer_present`.
 4. Record a baseline `fstat`, admit only a regular, single-link file owned by
    the collector within the size cap, and copy it into a memfd.
-5. Recheck the inode, size, link count, `mtime` and `ctime`, confirm
-   `F_GETLEASE` still reports the read lease, and list the inbox again.
+5. Recheck the inode, size, link count, mode, owner, `mtime` and `ctime`,
+   confirm the name still maps to the same inode, confirm `F_GETLEASE` still
+   reports the read lease, and list the inbox again.
 6. Add every seal, verify them, hash the sealed bytes, and release the lease on
    every path.
 

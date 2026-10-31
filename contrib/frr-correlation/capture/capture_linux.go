@@ -331,14 +331,19 @@ func (i *Inbox) copyOut(ctx context.Context, src int, size int64) (*os.File, err
 // finish rechecks everything that could show the read raced a writer, then seals
 // and hashes. The checks are conservative: any difference refuses.
 func (i *Inbox) finish(fd int, name string, base *unix.Stat_t, m *os.File) (*Snapshot, error) {
-	var now unix.Stat_t
-	if unix.Fstat(fd, &now) != nil {
+	var now, byName unix.Stat_t
+	if unix.Fstat(fd, &now) != nil || unix.Fstatat(int(i.dir.Fd()), name, &byName, unix.AT_SYMLINK_NOFOLLOW) != nil {
 		return nil, refuse(Modified)
 	}
-	// A name that now points elsewhere left this inode with no link, so the link
-	// count and the single-name listing below cover replacement as well.
+	// The name must still map to the inode that was read. A hard link made outside
+	// the inbox before a forged file is renamed over the name would leave the old
+	// inode with one link, so the link count alone does not show replacement.
+	// ctime is only a best-effort extra signal: its resolution depends on the
+	// kernel, so the mode and owner are compared directly.
 	if now.Dev != base.Dev || now.Ino != base.Ino || now.Size != base.Size || now.Nlink != 1 ||
-		now.Mtim != base.Mtim || now.Ctim != base.Ctim {
+		now.Mode != base.Mode || now.Uid != base.Uid || now.Gid != base.Gid ||
+		now.Mtim != base.Mtim || now.Ctim != base.Ctim ||
+		byName.Dev != base.Dev || byName.Ino != base.Ino {
 		return nil, refuse(Modified)
 	}
 	if l, err := unix.FcntlInt(uintptr(fd), unix.F_GETLEASE, 0); err != nil || l != unix.F_RDLCK {

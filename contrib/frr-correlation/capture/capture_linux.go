@@ -41,23 +41,34 @@ var readableFS = map[int64]bool{
 // descriptor; Path exists for the producer and is never used to open anything.
 // It is safe for concurrent use. Callers must Close it: dropping it leaves the
 // directory on disk.
+//
+// An Inbox moves one way through its states. It starts open. Seal moves it to
+// used, whether the Seal succeeds or refuses, and later Seals return already_used.
+// The first call to Close moves it to closing, whether or not that call finishes
+// the removal, and from then on Seal returns closed and accepts nothing new, even
+// if the producer changes the directory between Close attempts. A closing Inbox
+// keeps its directory descriptor so that later Close calls can finish the removal;
+// it becomes closed once the directory is proven removed. None of these moves
+// affects a Snapshot already returned.
 type Inbox struct {
-	role   Role
-	re     *regexp.Regexp
-	path   string
-	mu     sync.Mutex // guards the fields below and serializes Seal and Close
-	dir    *os.File
-	dev    uint64
-	ino    uint64
-	euid   int // the collector's user, which must own the directory and the stream
-	used   bool
-	closed bool
+	role    Role
+	re      *regexp.Regexp
+	path    string
+	mu      sync.Mutex // guards the fields below and serializes Seal and Close
+	dir     *os.File
+	dev     uint64
+	ino     uint64
+	euid    int // the collector's user, which must own the directory and the stream
+	used    bool
+	closing bool // Close has begun: Seal accepts nothing new, Close may still be retried
+	closed  bool // the directory is proven removed and the descriptor is released
 
 	// Test seams. Production leaves them nil and uses the real values.
 	maxBytes  int64
 	statfs    func(fd int, st *unix.Statfs_t) error
-	afterList func() // after the listing, before the stream is opened
-	afterCopy func() // after the bytes are copied, before they are rechecked
+	afterList func()         // after the listing, before the stream is opened
+	afterCopy func()         // after the bytes are copied, before they are rechecked
+	reorder   func([]string) // permutes the names Close is about to remove
 }
 
 // NewInbox creates an empty 0700 directory for role under the temporary
@@ -148,7 +159,7 @@ func (i *Inbox) Seal(ctx context.Context) (*Snapshot, error) {
 	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.dir == nil || i.closed {
+	if i.dir == nil || i.closing || i.closed {
 		return nil, refuse(Closed)
 	}
 	if i.used {
@@ -368,12 +379,17 @@ func (i *Inbox) finish(fd int, name string, base *unix.Stat_t, m *os.File) (*Sna
 	return s, nil
 }
 
-// Close removes the inbox's stream and directory without following anything: each
-// call unlinks at most maxEntries names through the retained descriptor and does
-// not descend into a subdirectory. If anything remains, or the pathname no longer
-// names this directory, it returns CleanupIncomplete, keeps the descriptor, and a
-// later Close retries and makes further progress. It returns nil, and keeps
+// Close removes the inbox's entries and directory without following anything.
+// Each call makes a bounded, best-effort pass over the first maxEntries names
+// through the retained descriptor: it unlinks every plain entry and removes every
+// empty subdirectory it can, and a name it cannot remove does not stop the rest.
+// It never descends into a subdirectory. If anything remains, or the pathname no
+// longer names this directory, it returns CleanupIncomplete, keeps the descriptor,
+// and a later Close retries and makes further progress. It returns nil, and keeps
 // returning nil, once all is gone.
+//
+// The first call also ends the inbox's acceptance of new capture: from then on
+// Seal returns closed, even if this call was incomplete.
 func (i *Inbox) Close() error {
 	if i == nil {
 		return nil
@@ -383,20 +399,22 @@ func (i *Inbox) Close() error {
 	if i.dir == nil || i.closed {
 		return nil
 	}
-	names, more, err := i.list()
+	i.closing = true
+	names, incomplete, err := i.list()
 	if err != nil {
 		return refuse(CleanupIncomplete)
 	}
+	if i.reorder != nil {
+		i.reorder(names)
+	}
 	dirfd := int(i.dir.Fd())
 	for _, n := range names {
-		if err := unix.Unlinkat(dirfd, n, 0); err != nil {
-			if err = unix.Unlinkat(dirfd, n, unix.AT_REMOVEDIR); err != nil { // an empty subdirectory only
-				return refuse(CleanupIncomplete)
-			}
+		if unix.Unlinkat(dirfd, n, 0) != nil && unix.Unlinkat(dirfd, n, unix.AT_REMOVEDIR) != nil { // an empty subdirectory only
+			incomplete = true // keep going: later names may still be removable
 		}
 	}
 	var st unix.Stat_t
-	if left, _, err := i.list(); more || err != nil || len(left) != 0 || unix.Lstat(i.path, &st) != nil ||
+	if left, _, err := i.list(); incomplete || err != nil || len(left) != 0 || unix.Lstat(i.path, &st) != nil ||
 		uint64(st.Dev) != i.dev || st.Ino != i.ino || unix.Rmdir(i.path) != nil { //nolint:unconvert // Dev is uint32 on some architectures.
 		return refuse(CleanupIncomplete)
 	}

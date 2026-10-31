@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -730,8 +731,8 @@ func TestCloseIsBoundedAndRetryable(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(in.Path(), "file")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("plain entries were not removed")
 	}
-	if _, err := in.Seal(context.Background()); code(err) != AlreadyUsed && code(err) != UnexpectedEntry {
-		t.Fatalf("an unfinished Close must not close the inbox: %v", err)
+	if _, err := in.Seal(context.Background()); code(err) != Closed {
+		t.Fatalf("an inbox whose Close has begun accepts no new capture: %v", err)
 	}
 	if err := os.Remove(inner); err != nil {
 		t.Fatal(err)
@@ -860,5 +861,131 @@ func TestRefusalTextIsFixedAndBounded(t *testing.T) {
 	var r *Refusal
 	if !errors.As(fmt.Errorf("wrapped: %w", refuse(Closed)), &r) {
 		t.Fatal("not an error value")
+	}
+}
+
+func permutations(n int) [][]int {
+	if n == 0 {
+		return [][]int{{}}
+	}
+	var out [][]int
+	for _, p := range permutations(n - 1) {
+		for at := 0; at <= len(p); at++ {
+			q := append(append(append([]int{}, p[:at]...), n-1), p[at:]...)
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// Close must remove every entry it can in one call, whatever order the
+// filesystem lists them in. A nonempty subdirectory that is met first must not
+// stop the removal of the files behind it.
+func TestCloseRemovesEveryRemovableEntryInAnyOrder(t *testing.T) {
+	names := []string{"sub0", "sub1", "file", "fifo", "link"}
+	for _, perm := range permutations(len(names)) {
+		order := map[string]int{}
+		for pos, idx := range perm {
+			order[names[idx]] = pos
+		}
+		label := make([]string, len(perm))
+		for pos, idx := range perm {
+			label[pos] = names[idx]
+		}
+		in := inboxFor(t, BGPD)
+		var inners []string
+		for _, sub := range []string{"sub0", "sub1"} {
+			if err := os.Mkdir(filepath.Join(in.Path(), sub), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			inner := filepath.Join(in.Path(), sub, "x")
+			if err := os.WriteFile(inner, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			inners = append(inners, inner)
+		}
+		put(t, in, "file", "x")
+		if err := unix.Mkfifo(filepath.Join(in.Path(), "fifo"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("/nonexistent", filepath.Join(in.Path(), "link")); err != nil {
+			t.Fatal(err)
+		}
+		in.reorder = func(ns []string) {
+			slices.SortFunc(ns, func(a, b string) int { return order[a] - order[b] })
+		}
+		if err := in.Close(); code(err) != CleanupIncomplete {
+			t.Fatalf("order %v: Close with nonempty subdirectories: %v", label, err)
+		}
+		left, _ := os.ReadDir(in.Path())
+		if len(left) != 2 || left[0].Name() != "sub0" || left[1].Name() != "sub1" {
+			t.Fatalf("order %v: only the nonempty subdirectories may remain, got %v", label, left)
+		}
+		for _, inner := range inners {
+			if _, err := os.Stat(inner); err != nil {
+				t.Fatalf("order %v: Close descended into a subdirectory: %v", label, err)
+			}
+			_ = os.Remove(inner)
+		}
+		if err := in.Close(); err != nil {
+			t.Fatalf("order %v: retry: %v", label, err)
+		}
+	}
+}
+
+// Once Close has begun the inbox accepts no new capture, even when the attempt
+// was incomplete and the descriptor is kept for a retry. Otherwise a producer
+// could add a stream between attempts and have it sealed from a directory that is
+// being torn down.
+func TestCloseBeginningIsTerminalForSeal(t *testing.T) {
+	in := inboxFor(t, BGPD)
+	sub := filepath.Join(in.Path(), "sub")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inner := filepath.Join(sub, "x")
+	if err := os.WriteFile(inner, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := in.Close(); code(err) != CleanupIncomplete {
+		t.Fatalf("first Close: %v", err)
+	}
+	// The producer finishes its own cleanup and drops a complete, valid stream into
+	// what is now an empty directory, between the two Close attempts.
+	if err := os.Remove(inner); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(sub); err != nil {
+		t.Fatal(err)
+	}
+	put(t, in, stream(BGPD), streamBody)
+	s, err := in.Seal(context.Background())
+	if s != nil {
+		_ = s.Close()
+		t.Fatal("Seal produced a snapshot after Close began")
+	}
+	refused(t, err, Closed)
+	// The retry still finishes the teardown, and Seal keeps refusing.
+	if err := in.Close(); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if _, err := in.Seal(context.Background()); code(err) != Closed {
+		t.Fatalf("Seal after teardown: %v", err)
+	}
+	if _, err := os.Stat(in.Path()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("directory remains")
+	}
+}
+
+// Close of an inbox that already produced a Snapshot leaves the Snapshot alone.
+func TestCloseDoesNotAffectAnExistingSnapshot(t *testing.T) {
+	in := inboxFor(t, BGPD)
+	put(t, in, stream(BGPD), streamBody)
+	s := mustSeal(t, in)
+	if err := in.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, s) != streamBody {
+		t.Fatal("snapshot changed")
 	}
 }

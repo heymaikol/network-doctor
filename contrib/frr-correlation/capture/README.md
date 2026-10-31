@@ -82,11 +82,30 @@ case relies on it alone.
 6. Add every seal, verify them, hash the sealed bytes, and release the lease on
    every path.
 
-`Seal` is one-shot. Success and failure both consume the inbox, so a restarted
-producer cannot be spliced in after a refusal. Only filesystems whose writers
-the lease can see are accepted (tmpfs, ext4, btrfs, xfs). FUSE, NFS, overlayfs,
-9p and unknown types are refused. The check runs on the directory and on the
-opened file, and is tested through a `statfs` hook, not a real FUSE mount.
+Only filesystems whose writers the lease can see are accepted (tmpfs, ext4,
+btrfs, xfs). FUSE, NFS, overlayfs, 9p and unknown types are refused. The check
+runs on the directory and on the opened file, and is tested through a `statfs`
+hook, not a real FUSE mount.
+
+## Inbox states
+
+An `Inbox` moves one way: open, then used, then closing, then closed.
+
+- `Seal` moves an open inbox to used. Success and failure both consume it, so a
+  restarted producer cannot be spliced in after a refusal, and a second `Seal`
+  returns `already_used`.
+- The first `Close` moves the inbox to closing, whether or not that call
+  finishes. From then on `Seal` returns `closed` and accepts nothing new, even if
+  the producer changes the directory between `Close` attempts. This is
+  `TestCloseBeginningIsTerminalForSeal`.
+- A closing inbox keeps its directory descriptor. Each `Close` call makes a
+  bounded, best-effort pass over at most 8 names: it removes every plain entry
+  and every empty subdirectory it can, does not stop at one it cannot remove, and
+  never descends into a subdirectory. It returns `cleanup_incomplete` until the
+  directory is proven removed, then becomes closed and returns nil from then on.
+  `TestCloseRemovesEveryRemovableEntryInAnyOrder` runs every listing order of a
+  mix of nonempty subdirectories and removable entries.
+- None of this affects a `Snapshot` that was already returned.
 
 ## Known gaps, each asserted by a test
 

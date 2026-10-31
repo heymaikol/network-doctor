@@ -42,7 +42,7 @@ go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer .
 go test -tags acceptance -count=1 -run '^TestNative' . ./internal/ui
 go test -tags netns_integration -count=1 -v ./internal/simulation
 go test -tags netns_integration -count=1 -run '^Test(RouteEvents|PublicDNSSearchIsolation)' ./internal/diagnostic
-go test -race -tags netns_integration -count=1 -v ./contrib/frr-correlation/supervisor
+go test -race -tags netns_integration -count=1 -v ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture
 go test -race ./...
 go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
 go test -run='^$' -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
@@ -73,10 +73,20 @@ result would not have exercised any namespace at all.
 
 The supervisor package under `contrib/frr-correlation/supervisor` is the one
 namespace suite CI starts with a probe. The `linux (coverage)` job runs a single
-test first, and only if it passes does it run the whole package with
-`NETDOC_SIM_REQUIRE_NETNS=1`. If the probe skips, the job warns with the reason
-and passes, so check that job's log to see whether the package ran. Its FRR test
-needs `NETDOC_FRR_STAGE` and always skips in CI.
+test first, and only if it passes does it run the whole package, together with
+`contrib/frr-correlation/capture`, with `NETDOC_SIM_REQUIRE_NETNS=1`. If the
+probe skips, the job warns with the reason and passes, so check that job's log
+to see whether the packages ran. The supervisor's FRR test needs
+`NETDOC_FRR_STAGE` and always skips in CI.
+
+The capture package's lease and sealed-memory tests also run in the ordinary
+`go test ./...` on Linux, rootless. They skip when the temporary directory sits
+on a filesystem the lease proof refuses (for example overlayfs or FUSE), and
+fail instead of skipping when `NETDOC_SIM_REQUIRE_NETNS` is set. Its
+`netns_integration` tests start real children in the supervisor's namespaces.
+The `.golangci.yml` configuration sets no build tags, so CI lint does not see
+those files. Lint them locally with `golangci-lint run --build-tags
+netns_integration ./contrib/frr-correlation/...`.
 
 `-run='^$'` on the fuzz commands matches no ordinary test, so each one builds
 the package and starts fuzzing rather than replaying that package's whole unit

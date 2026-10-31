@@ -49,7 +49,7 @@ func TestCaptureHasNoPathToTrustPromotion(t *testing.T) {
 // returns a collector type, must be a deliberate edit of this list in review.
 func TestExportedSurfaceIsPinned(t *testing.T) {
 	want := []string{
-		"BGPD", "Cancelled", "CleanupIncomplete", "Closed", "Code", "AlreadyUsed", "FilesystemRefused",
+		"BGPD", "Cancelled", "CleanupIncomplete", "Closed", "CloseFailure", "Code", "AlreadyUsed", "FilesystemRefused",
 		"Inbox", "Inbox.Close", "Inbox.Path", "Inbox.Seal", "InvalidRole", "LinkRefused", "MaxDiagnosticBytes",
 		"MaxStreamBytes", "MixedEpochs", "Modified", "NewInbox", "NotRegular", "OwnerRefused", "ReadFailure",
 		"Refusal", "Refusal.Code", "Refusal.Error", "ResourceLimit", "Role", "SealFailure", "Snapshot",

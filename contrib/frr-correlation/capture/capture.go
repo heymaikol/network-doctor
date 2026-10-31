@@ -47,6 +47,7 @@ const (
 	SealFailure       Code = "seal_failure"
 	Cancelled         Code = "cancelled"
 	CleanupIncomplete Code = "cleanup_incomplete"
+	CloseFailure      Code = "close_failure"
 
 	// MaxDiagnosticBytes bounds every Refusal message.
 	MaxDiagnosticBytes = 160
@@ -83,6 +84,7 @@ var messages = map[Code]string{
 	SealFailure:       "seal_failure: the snapshot could not be made immutable",
 	Cancelled:         "cancelled: sealing was cancelled",
 	CleanupIncomplete: "cleanup_incomplete: the inbox could not be fully removed, retry Close",
+	CloseFailure:      "close_failure: the sealed bytes were released but the close reported an error",
 }
 
 func refuse(code Code) *Refusal { return &Refusal{code: code} }

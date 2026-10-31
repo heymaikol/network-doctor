@@ -87,7 +87,13 @@ btrfs, xfs). FUSE, NFS, overlayfs, 9p and unknown types are refused. The check
 runs on the directory and on the opened file, and is tested through a `statfs`
 hook, not a real FUSE mount.
 
-## Inbox states
+The context is checked before every 1 MiB chunk of the copy. A cancelled `Seal`
+returns `cancelled`, closes the partial memfd and releases the lease.
+`TestSealStopsWhenCancelledBeforeTheCopy` cancels before any byte is copied, and
+`TestSealStopsWhenCancelledAfterACopiedChunk` cancels after the first chunk and
+requires the copy to stop at the next boundary.
+
+## Inbox states and errors
 
 An `Inbox` moves one way: open, then used, then closing, then closed.
 
@@ -106,6 +112,11 @@ An `Inbox` moves one way: open, then used, then closing, then closed.
   `TestCloseRemovesEveryRemovableEntryInAnyOrder` runs every listing order of a
   mix of nonempty subdirectories and removable entries.
 - None of this affects a `Snapshot` that was already returned.
+
+Every error these types return is a `*Refusal` with fixed text, except that
+`Snapshot.ReadAt` may also return `io.EOF` with its usual meaning. A failing
+close of the sealed bytes is reported as `close_failure`, and no system error text
+is passed through.
 
 ## Known gaps, each asserted by a test
 

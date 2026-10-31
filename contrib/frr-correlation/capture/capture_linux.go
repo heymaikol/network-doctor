@@ -64,11 +64,12 @@ type Inbox struct {
 	closed  bool // the directory is proven removed and the descriptor is released
 
 	// Test seams. Production leaves them nil and uses the real values.
-	maxBytes  int64
-	statfs    func(fd int, st *unix.Statfs_t) error
-	afterList func()         // after the listing, before the stream is opened
-	afterCopy func()         // after the bytes are copied, before they are rechecked
-	reorder   func([]string) // permutes the names Close is about to remove
+	maxBytes   int64
+	statfs     func(fd int, st *unix.Statfs_t) error
+	afterList  func()         // after the listing, before the stream is opened
+	afterCopy  func()         // after the bytes are copied, before they are rechecked
+	afterChunk func()         // after each chunk is written to the sealed copy
+	reorder    func([]string) // permutes the names Close is about to remove
 }
 
 // NewInbox creates an empty 0700 directory for role under the temporary
@@ -331,6 +332,9 @@ func (i *Inbox) copyOut(ctx context.Context, src int, size int64) (*os.File, err
 			return nil, refuse(ReadFailure)
 		}
 		off += int64(n)
+		if i.afterChunk != nil {
+			i.afterChunk()
+		}
 	}
 	if n, err := unix.Pread(src, buf[:1], size); err != nil || n != 0 {
 		_ = m.Close()
@@ -450,7 +454,9 @@ func (s *Snapshot) SHA256() [sha256.Size]byte {
 	return s.sum
 }
 
-// ReadAt reads the sealed bytes. It returns a Closed refusal after Close.
+// ReadAt reads the sealed bytes. It returns a Closed refusal after Close. Its
+// only other errors are io.EOF, with the usual io.ReaderAt meaning, and a
+// ReadFailure refusal; no system error is passed through.
 func (s *Snapshot) ReadAt(p []byte, off int64) (int, error) {
 	if s == nil {
 		return 0, refuse(Closed)
@@ -468,7 +474,9 @@ func (s *Snapshot) ReadAt(p []byte, off int64) (int, error) {
 	return n, err
 }
 
-// Close releases the sealed bytes. It is idempotent.
+// Close releases the sealed bytes. It is idempotent. If the kernel reports an
+// error closing the descriptor it returns a CloseFailure refusal and does not
+// retain the descriptor, so a second Close returns nil.
 func (s *Snapshot) Close() error {
 	if s == nil {
 		return nil
@@ -480,5 +488,8 @@ func (s *Snapshot) Close() error {
 	}
 	err := s.f.Close()
 	s.f = nil
-	return err
+	if err != nil {
+		return refuse(CloseFailure)
+	}
+	return nil
 }

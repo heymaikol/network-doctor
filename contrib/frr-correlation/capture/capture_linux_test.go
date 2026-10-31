@@ -554,7 +554,10 @@ func TestSealIsOneShot(t *testing.T) {
 	})
 }
 
-func TestSealStopsWhenCancelledMidCopy(t *testing.T) {
+// This covers a context cancelled after the listing and before any byte is
+// copied. TestSealStopsWhenCancelledAfterACopiedChunk covers cancellation once
+// the copy has started.
+func TestSealStopsWhenCancelledBeforeTheCopy(t *testing.T) {
 	in := inboxFor(t, BGPD)
 	p := put(t, in, stream(BGPD), "")
 	if err := os.Truncate(p, 3*chunkBytes); err != nil {
@@ -562,11 +565,50 @@ func TestSealStopsWhenCancelledMidCopy(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	in.afterList = cancel
+	chunks := 0
+	in.afterChunk = func() { chunks++ }
 	before := fdCount(t)
 	_, err := in.Seal(ctx)
 	refused(t, err, Cancelled)
+	if chunks != 0 {
+		t.Fatalf("copied %d chunks after the context was cancelled", chunks)
+	}
 	if after := fdCount(t); after != before {
 		t.Fatalf("descriptors %d before, %d after", before, after)
+	}
+	if err := writable(p); err != nil {
+		t.Fatalf("lease outlived a cancelled seal: %v", err)
+	}
+}
+
+// The context is cancelled after the first chunk reached the sealed copy. The
+// copy must stop at the next chunk boundary, release the partial memfd and the
+// lease, and return no Snapshot.
+func TestSealStopsWhenCancelledAfterACopiedChunk(t *testing.T) {
+	in := inboxFor(t, BGPD)
+	p := put(t, in, stream(BGPD), "")
+	if err := os.Truncate(p, 3*chunkBytes); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	chunks := 0
+	in.afterChunk = func() {
+		chunks++
+		if chunks == 1 {
+			cancel()
+		}
+	}
+	before := fdCount(t)
+	s, err := in.Seal(ctx)
+	refused(t, err, Cancelled)
+	if s != nil {
+		t.Fatal("cancelled seal returned a snapshot")
+	}
+	if chunks != 1 {
+		t.Fatalf("%d chunks were copied; the copy must stop after the first", chunks)
+	}
+	if after := fdCount(t); after != before {
+		t.Fatalf("partial copy leaked descriptors: %d before, %d after", before, after)
 	}
 	if err := writable(p); err != nil {
 		t.Fatalf("lease outlived a cancelled seal: %v", err)
@@ -987,5 +1029,41 @@ func TestCloseDoesNotAffectAnExistingSnapshot(t *testing.T) {
 	}
 	if read(t, s) != streamBody {
 		t.Fatal("snapshot changed")
+	}
+}
+
+// Every error the exported methods return is a fixed Refusal, except that ReadAt
+// may also return io.EOF. A failing close of the sealed bytes is no exception.
+func TestSnapshotErrorsAreFixedRefusals(t *testing.T) {
+	in := inboxFor(t, BGPD)
+	put(t, in, stream(BGPD), streamBody)
+	s := mustSeal(t, in)
+	if err := s.f.Close(); err != nil { // the descriptor goes away behind the Snapshot's back
+		t.Fatal(err)
+	}
+	_, err := s.ReadAt(make([]byte, 4), 0)
+	refused(t, err, ReadFailure, "closed", "file")
+	if errors.Is(err, os.ErrClosed) || errors.Is(err, io.EOF) {
+		t.Fatalf("ReadAt leaked a system error: %v", err)
+	}
+	err = s.Close()
+	refused(t, err, CloseFailure, "already", "file")
+	if errors.Is(err, os.ErrClosed) {
+		t.Fatalf("Close leaked a system error: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if _, err := s.ReadAt(make([]byte, 1), 0); code(err) != Closed {
+		t.Fatalf("read after Close: %v", err)
+	}
+	// A healthy Snapshot returns only nil or io.EOF from ReadAt.
+	in2 := inboxFor(t, Zebra)
+	put(t, in2, stream(Zebra), streamBody)
+	s2 := mustSeal(t, in2)
+	for _, off := range []int64{0, s2.Size() - 1, s2.Size(), s2.Size() + 5} {
+		if _, err := s2.ReadAt(make([]byte, 8), off); err != nil && !errors.Is(err, io.EOF) {
+			t.Fatalf("ReadAt(%d): %v", off, err)
+		}
 	}
 }

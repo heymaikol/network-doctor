@@ -1067,3 +1067,119 @@ func TestSnapshotErrorsAreFixedRefusals(t *testing.T) {
 		}
 	}
 }
+
+// swapDuringClose arranges, with the seam placed immediately before Close removes
+// the pathname, what a same-user producer can do in that window: move the original
+// directory away and put an empty one at its name.
+func swapDuringClose(t *testing.T) (in *Inbox, moved string) {
+	t.Helper()
+	in = inboxFor(t, BGPD)
+	moved = in.Path() + ".moved"
+	path := in.Path()
+	in.beforeRmdir = func() {
+		if err := os.Rename(path, moved); err != nil {
+			t.Error(err)
+		}
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Error(err)
+		}
+	}
+	return in, moved
+}
+
+func linked(t *testing.T, path string, in *Inbox) bool {
+	t.Helper()
+	var st unix.Stat_t
+	if err := unix.Lstat(path, &st); err != nil {
+		return false
+	}
+	return uint64(st.Dev) == in.dev && st.Ino == in.ino && st.Nlink > 0 //nolint:unconvert // Dev is uint32 on some architectures.
+}
+
+// Close may return nil only when the retained directory is proven unlinked. A
+// producer that moves the original away and installs an empty directory at its
+// name between the check and the removal must not turn the removal of the
+// replacement into a success.
+func TestCloseDoesNotReportSuccessForAReplacedPathname(t *testing.T) {
+	in, moved := swapDuringClose(t)
+	err := in.Close()
+	if !linked(t, moved, in) {
+		t.Fatal("setup: the original directory is not linked at the moved name")
+	}
+	if err == nil {
+		t.Fatalf("Close returned nil while the original directory is still linked at %s", filepath.Base(moved))
+	}
+	refused(t, err, CleanupIncomplete)
+	if in.dir == nil || in.closed {
+		t.Fatal("Close released the retained descriptor without proving the removal")
+	}
+	if err := in.Close(); code(err) != CleanupIncomplete {
+		t.Fatalf("retry while the original is still linked: %v", err)
+	}
+	if !linked(t, moved, in) {
+		t.Fatal("a retry unlinked the original")
+	}
+	// Once the original is removed by anyone, the retained descriptor proves it.
+	if err := os.Remove(moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := in.Close(); err != nil {
+		t.Fatalf("Close after the original was removed: %v", err)
+	}
+	if !in.closed {
+		t.Fatal("Close returned nil but the inbox is not closed")
+	}
+}
+
+// KNOWN GAP. Linux removes a directory by name and not by descriptor, so no
+// check before the removal can stop a same-user process from winning the window.
+// Here the empty directory it installed is removed. The blast radius is an empty,
+// non-symlink directory at the inbox's own name, which that user could delete
+// anyway, so no capability is gained. Preventing it needs per-producer
+// confinement or a different user, and when that lands this test must flip.
+func TestKnownGapCloseCanRemoveADirectorySwappedIntoItsName(t *testing.T) {
+	in, moved := swapDuringClose(t)
+	_ = in.Close()
+	if _, err := os.Lstat(in.Path()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the gap is closed: the swapped-in directory survived (%v)", err)
+	}
+	_ = os.Remove(moved)
+}
+
+// A producer that removes its own emptied inbox leaves nothing for Close to
+// clean up. Close proves it through the retained descriptor instead of reporting
+// an incomplete cleanup forever.
+func TestCloseSucceedsWhenTheOriginalWasRemovedByAnotherProcess(t *testing.T) {
+	in := inboxFor(t, BGPD)
+	if err := os.Remove(in.Path()); err != nil {
+		t.Fatal(err)
+	}
+	if err := in.Close(); err != nil {
+		t.Fatalf("Close of an inbox whose directory is already gone: %v", err)
+	}
+	if err := in.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestCloseDoesNotMistakeAReplacementForTheOriginal(t *testing.T) {
+	in := inboxFor(t, BGPD)
+	moved := in.Path() + ".moved"
+	if err := os.Rename(in.Path(), moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(in.Path(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := in.Close(); code(err) != CleanupIncomplete {
+		t.Fatalf("Close with the original alive elsewhere: %v", err)
+	}
+	if _, err := os.Lstat(in.Path()); err != nil {
+		t.Fatalf("Close removed a directory that is not the inbox: %v", err)
+	}
+	_ = os.Remove(in.Path())
+	_ = os.Remove(moved)
+	if err := in.Close(); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+}

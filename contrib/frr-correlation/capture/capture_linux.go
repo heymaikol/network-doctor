@@ -64,12 +64,13 @@ type Inbox struct {
 	closed  bool // the directory is proven removed and the descriptor is released
 
 	// Test seams. Production leaves them nil and uses the real values.
-	maxBytes   int64
-	statfs     func(fd int, st *unix.Statfs_t) error
-	afterList  func()         // after the listing, before the stream is opened
-	afterCopy  func()         // after the bytes are copied, before they are rechecked
-	afterChunk func()         // after each chunk is written to the sealed copy
-	reorder    func([]string) // permutes the names Close is about to remove
+	maxBytes    int64
+	statfs      func(fd int, st *unix.Statfs_t) error
+	afterList   func()         // after the listing, before the stream is opened
+	afterCopy   func()         // after the bytes are copied, before they are rechecked
+	afterChunk  func()         // after each chunk is written to the sealed copy
+	reorder     func([]string) // permutes the names Close is about to remove
+	beforeRmdir func()         // after Close checked the pathname, immediately before it removes it
 }
 
 // NewInbox creates an empty 0700 directory for role under the temporary
@@ -387,10 +388,17 @@ func (i *Inbox) finish(fd int, name string, base *unix.Stat_t, m *os.File) (*Sna
 // Each call makes a bounded, best-effort pass over the first maxEntries names
 // through the retained descriptor: it unlinks every plain entry and removes every
 // empty subdirectory it can, and a name it cannot remove does not stop the rest.
-// It never descends into a subdirectory. If anything remains, or the pathname no
-// longer names this directory, it returns CleanupIncomplete, keeps the descriptor,
-// and a later Close retries and makes further progress. It returns nil, and keeps
-// returning nil, once all is gone.
+// It never descends into a subdirectory.
+//
+// Close returns nil only when the retained descriptor proves that the original
+// directory is unlinked, whoever unlinked it. The result of the removal by
+// pathname is not that proof, because a user that can write the inbox's parent
+// can move the original away and install another directory at its name, and the
+// removal then deletes the replacement. In that case, or if anything remains, or
+// the pathname no longer names this directory, Close returns CleanupIncomplete,
+// keeps the descriptor, and a later Close retries. A producer that moved the
+// original away leaves Close incomplete until that directory is removed or the
+// process exits.
 //
 // The first call also ends the inbox's acceptance of new capture: from then on
 // Seal returns closed, even if this call was incomplete.
@@ -404,6 +412,9 @@ func (i *Inbox) Close() error {
 		return nil
 	}
 	i.closing = true
+	if i.gone() { // removed already, by a producer or by an earlier attempt
+		return i.release()
+	}
 	names, incomplete, err := i.list()
 	if err != nil {
 		return refuse(CleanupIncomplete)
@@ -419,12 +430,49 @@ func (i *Inbox) Close() error {
 	}
 	var st unix.Stat_t
 	if left, _, err := i.list(); incomplete || err != nil || len(left) != 0 || unix.Lstat(i.path, &st) != nil ||
-		uint64(st.Dev) != i.dev || st.Ino != i.ino || unix.Rmdir(i.path) != nil { //nolint:unconvert // Dev is uint32 on some architectures.
+		uint64(st.Dev) != i.dev || st.Ino != i.ino { //nolint:unconvert // Dev is uint32 on some architectures.
 		return refuse(CleanupIncomplete)
 	}
+	// Linux removes a directory by name, never by descriptor, so the check above
+	// and this removal cannot be made one step. If the name was swapped in between,
+	// this removes the replacement, and only the proof below decides the result.
+	if i.beforeRmdir != nil {
+		i.beforeRmdir()
+	}
+	_ = unix.Rmdir(i.path)
+	if !i.gone() {
+		return refuse(CleanupIncomplete)
+	}
+	return i.release()
+}
+
+// release records that the original directory is proven gone and drops the
+// retained descriptor.
+func (i *Inbox) release() error {
 	i.closed = true
 	_ = i.dir.Close()
 	return nil
+}
+
+// gone reports whether the retained directory has been unlinked. The kernel
+// marks a directory dead only when an rmdir succeeds on it or a rename replaces
+// it, and reading a dead directory fails with ENOENT while its link count is
+// zero. A directory that was merely moved, or whose name now belongs to another
+// directory, is still alive and reads normally. Anything unexpected counts as not
+// gone.
+func (i *Inbox) gone() bool {
+	fd := int(i.dir.Fd())
+	var st unix.Stat_t
+	if unix.Fstat(fd, &st) != nil || st.Nlink != 0 {
+		return false
+	}
+	nfd, err := unix.Openat(fd, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = unix.Close(nfd) }()
+	_, err = unix.ReadDirent(nfd, make([]byte, 1024))
+	return errors.Is(err, unix.ENOENT)
 }
 
 // Snapshot holds sealed, immutable bytes in an anonymous memory file. No path and

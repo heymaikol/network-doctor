@@ -38,6 +38,9 @@ When `Seal` returns a `Snapshot`:
   exit and may revoke a published stream afterwards (rename the final name back
   to `.partial`, create `.failed`). The `Snapshot` taken before cannot see that.
   Proving quiescence needs a PID namespace whose init death can be observed.
+- **That `Close` removed exactly the directory it made.** It proves the original
+  is gone, not that the removal by name hit the original. A same-user process can
+  make it delete an empty replacement directory (see the known gaps).
 - **That anything outside the sealed bytes is intact.** The packager install,
   `verified-build.json`, the repository checkout, the supervisor binary and
   the `nsenter` and `sleep` found through `PATH` are the trusted computing base
@@ -55,7 +58,7 @@ When `Seal` returns a `Snapshot`:
 | 4 | No writer exists when the snapshot is taken | Enforced per inode at one instant; process quiescence **not** provable | Read lease, plus a gap test for late revocation. |
 | 5 | Name-to-inode binding cannot be redirected | Enforced | Retained directory descriptor, `openat` relative to it, `fstat` on the opened file, `dev/ino` recheck, single-name relisting. |
 | 6 | Only a plain owned file is read | Enforced for the snapshot path | `O_NOFOLLOW`, `S_ISREG`, `nlink == 1`, owner equals euid, close-on-exec, no blocking open of a FIFO. |
-| 7 | Resource bounds | Partial | 64 MiB cap, at most 8 entries, bounded cleanup. A producer's own writes are unbounded and `/tmp` may be RAM. |
+| 7 | Resource bounds | Partial | 64 MiB cap, at most 8 entries, bounded cleanup. A producer's own writes are unbounded and `/tmp` may be RAM. A producer that moves its inbox away leaves `Close` incomplete and one descriptor held until exit. |
 | 8 | Diagnostics carry no producer bytes | Enforced | Fixed codes and text of at most 160 bytes; no name, path or errno is echoed. |
 | 9 | Namespaces are neither held nor released | Unchanged | `TestSealAndCloseDoNotTouchTheNamespace`. |
 | 10 | Content never steers the capture | Enforced by construction | No parser; the package imports no JSON. |
@@ -108,7 +111,15 @@ An `Inbox` moves one way: open, then used, then closing, then closed.
   bounded, best-effort pass over at most 8 names: it removes every plain entry
   and every empty subdirectory it can, does not stop at one it cannot remove, and
   never descends into a subdirectory. It returns `cleanup_incomplete` until the
-  directory is proven removed, then becomes closed and returns nil from then on.
+  original directory is proven unlinked, then becomes closed and returns nil from
+  then on.
+- The proof is made through the retained descriptor, not through the result of
+  removing the pathname. The kernel marks a directory dead only when an rmdir
+  succeeds on it or a rename replaces it, and reading a dead directory fails with
+  `ENOENT` while its link count is zero. A directory that was only moved away
+  still reads normally. So `Close` returns nil when the original is gone, whoever
+  removed it (a producer may remove its own emptied inbox), and never when a
+  removal by name hit a different directory.
   `TestCloseRemovesEveryRemovableEntryInAnyOrder` runs every listing order of a
   mix of nonempty subdirectories and removable entries.
 - None of this affects a `Snapshot` that was already returned.
@@ -119,6 +130,21 @@ close of the sealed bytes is reported as `close_failure`, and no system error te
 is passed through.
 
 ## Known gaps, each asserted by a test
+
+- `TestKnownGapCloseCanRemoveADirectorySwappedIntoItsName`: Linux removes a
+  directory by name, not by descriptor, so no check before the removal can stop a
+  process running as the same user from winning the window. If it moves the
+  original away and installs an empty directory at the inbox's name just before
+  `Close` removes it, `Close` removes that replacement. It then returns
+  `cleanup_incomplete`, because the retained descriptor shows the original is
+  still linked (`TestCloseDoesNotReportSuccessForAReplacedPathname`). The reach is
+  an empty, non-symlink directory at the inbox's own name, which that user could
+  delete anyway, so no capability is gained. Renaming to a random name first, or
+  keeping the parent open, only narrows the window, so neither is done. Only
+  per-producer confinement or a different user prevents it. `NewInbox` has the
+  same kind of window between creating the directory and opening it. If the
+  producer moved the original away, `Close` stays incomplete and the inbox holds
+  one descriptor until the process exits.
 
 - `TestKnownGapPeerProducerCanRewriteAnotherInbox` (netns): a child in the
   supervisor's namespaces rewrites a sibling inbox before it is sealed. Flip the

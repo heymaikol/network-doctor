@@ -339,13 +339,20 @@ func TestPagesWorkflowBuildsBothSourcesAndPinsItsActions(t *testing.T) {
 // pagesDeployCondition is the only condition under which pages.yml publishes.
 const pagesDeployCondition = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
 
+// pagesDeployAction is the action that publishes the site.
+const pagesDeployAction = "actions/deploy-pages@"
+
 // deployGateError returns nil only when the deploy job in a pages workflow has
-// exactly pagesDeployCondition as its if. A missing deploy job, a missing if, or
-// any edit to the condition is an error.
+// exactly pagesDeployCondition as its if, and pagesDeployAction is the one
+// publishing step in the whole workflow. The condition is checked only on the
+// deploy job, so any other job that publishes is an error, whatever its own if.
 func deployGateError(data []byte) error {
 	var workflow struct {
 		Jobs map[string]struct {
-			If string `yaml:"if"`
+			If    string `yaml:"if"`
+			Steps []struct {
+				Uses string `yaml:"uses"`
+			} `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal(data, &workflow); err != nil {
@@ -357,6 +364,17 @@ func deployGateError(data []byte) error {
 	}
 	if deploy.If != pagesDeployCondition {
 		return fmt.Errorf("jobs.deploy.if is %q, want %q: push, pull_request and gollum must not deploy", deploy.If, pagesDeployCondition)
+	}
+	var publishers []string
+	for name, job := range workflow.Jobs {
+		for _, step := range job.Steps {
+			if strings.HasPrefix(strings.ToLower(step.Uses), pagesDeployAction) {
+				publishers = append(publishers, name)
+			}
+		}
+	}
+	if len(publishers) != 1 || publishers[0] != "deploy" {
+		return fmt.Errorf("pages.yml must run %s exactly once, in jobs.deploy; found in jobs %v", pagesDeployAction, publishers)
 	}
 	return nil
 }
@@ -382,6 +400,16 @@ func TestPagesDeployGateIsReadFromTheDeployJob(t *testing.T) {
 		return strings.Replace(string(repoWorkflow), old, replacement, 1)
 	}
 	laterJob := "\n  publish:\n    runs-on: ubuntu-latest\n    if: " + pagesDeployCondition + "\n    steps:\n      - run: true\n"
+	const publishUses = "actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1"
+	deployUse := "        uses: " + publishUses + "\n"
+	// extraJob publishes from a job other than deploy, with the given if (none if empty).
+	extraJob := func(cond string) string {
+		job := "\n  publish:\n    runs-on: ubuntu-latest\n"
+		if cond != "" {
+			job += "    if: " + cond + "\n"
+		}
+		return job + "    steps:\n      - uses: " + publishUses + "\n"
+	}
 
 	for _, tc := range []struct {
 		name    string
@@ -392,6 +420,11 @@ func TestPagesDeployGateIsReadFromTheDeployJob(t *testing.T) {
 		{"deploy condition removed", edit(gate, ""), true},
 		{"deploy condition widened", edit(gate, "    if: "+pagesDeployCondition+" || github.event_name == 'push'\n"), true},
 		{"correct condition only on a later job", edit(gate, "") + laterJob, true},
+		{"additional job publishes with no condition", string(repoWorkflow) + extraJob(""), true},
+		{"additional job publishes with widened condition", string(repoWorkflow) + extraJob(pagesDeployCondition+" || github.event_name == 'push'"), true},
+		{"deploy job has no publishing step", edit(deployUse, "        run: true\n"), true},
+		{"deploy job publishes twice", edit(deployUse, deployUse+"      - uses: "+publishUses+"\n"), true},
+		{"additional job publishes under an upper-case action name", string(repoWorkflow) + strings.Replace(extraJob(""), "actions/deploy-pages@", "Actions/Deploy-Pages@", 1), true},
 		{"unrelated job appended after deploy", string(repoWorkflow) + "\n  lint-docs:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

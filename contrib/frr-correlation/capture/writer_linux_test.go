@@ -30,7 +30,7 @@ type pinnedWriter struct {
 }
 
 // pinWriter pins the process a PID file names, and accepts it only if it holds
-// the stream open. The pidfd is opened first and the check made second. If the
+// the stream open for writing. The pidfd is opened first and the check made second. If the
 // number was reused before the open, the process behind the pidfd does not hold
 // the stream and is refused. If the process was reaped between the open and the
 // check, the check may read whichever process took the number next. The signal 0
@@ -93,23 +93,27 @@ func fdWritable(pid int, fd string) bool {
 	return false
 }
 
-// requirePidfd skips the test as unavailable when the host cannot open a pidfd.
-// Call it before any detached writer starts, so a skip leaves no process behind.
-// Any other failure fails the test.
+// requirePidfd skips the test as unavailable when the host cannot open a pidfd or
+// send a signal through one, which pinWriter needs. Call it before any detached
+// writer starts, so a skip leaves no process behind. Any other failure fails the
+// test.
 func requirePidfd(t *testing.T) {
 	t.Helper()
 	fd, err := unix.PidfdOpen(os.Getpid(), 0)
 	if err == nil {
+		err = unix.PidfdSendSignal(fd, 0, nil, 0)
 		_ = unix.Close(fd)
+	}
+	if err == nil {
 		return
 	}
 	if errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EPERM) {
-		unavailable(t, "pidfd_open: %v", err)
+		unavailable(t, "pidfd: %v", err)
 	}
-	t.Fatalf("pidfd_open: %v", err)
+	t.Fatalf("pidfd: %v", err)
 }
 
-// holders lists the processes that have the stream open.
+// holders lists the processes that have the stream open for writing.
 func holders(stream string) []int {
 	entries, _ := os.ReadDir("/proc")
 	var pids []int
@@ -121,11 +125,29 @@ func holders(stream string) []int {
 	return pids
 }
 
+// reap kills each listed process that a pin can still prove holds the stream for
+// writing. A PID that was reused or has exited is never signaled, and the test
+// process never is, even when it holds the stream open itself.
+func reap(stream string, pids []int) {
+	for _, pid := range pids {
+		if pid == os.Getpid() {
+			continue
+		}
+		if w, err := pinWriter(pid, stream); err == nil {
+			_ = w.kill()
+			w.close()
+		}
+	}
+}
+
 // adoptWriter pins the detached writer a producer helper recorded in pidfile. A
 // writer that cannot be pinned fails the test: there is no fallback to signaling
-// the number. Cleanup kills the writer through the pin.
+// the number. Cleanup kills the writer through the pin. A second cleanup reaps any
+// writer still holding the stream, including one the PID file could not identify,
+// so no failure leaves a sleeper with the stream open.
 func adoptWriter(t *testing.T, pidfile, stream string) *pinnedWriter {
 	t.Helper()
+	t.Cleanup(func() { reap(stream, holders(stream)) })
 	raw, err := os.ReadFile(pidfile) //nolint:gosec // G304: the path is this test's own TempDir.
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +192,7 @@ func startHold(t *testing.T, stream string) (*exec.Cmd, <-chan error) {
 // took the number after the writer was reaped. Pinning must refuse it, and
 // nothing may be signaled.
 func TestPinWriterRefusesAProcessThatDoesNotHoldTheStream(t *testing.T) {
+	requirePidfd(t)
 	stream := filepath.Join(t.TempDir(), "stream")
 	if err := os.WriteFile(stream, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -191,6 +214,7 @@ func TestPinWriterRefusesAProcessThatDoesNotHoldTheStream(t *testing.T) {
 // A read-only descriptor on the stream does not make a process the writer. The
 // test process stands in for a producer, and nothing is signaled.
 func TestPinWriterRefusesAReadOnlyHolder(t *testing.T) {
+	requirePidfd(t)
 	stream := filepath.Join(t.TempDir(), "stream")
 	if err := os.WriteFile(stream, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -221,6 +245,7 @@ func TestPinWriterRefusesAReadOnlyHolder(t *testing.T) {
 // Real number reuse is not simulated here: it takes a PID namespace with its own
 // procfs, and this shows the kernel's answer for a process that exited.
 func TestPinnedWriterSignalsNobodyOnceTheWriterIsGone(t *testing.T) {
+	requirePidfd(t)
 	stream := filepath.Join(t.TempDir(), "stream")
 	writer, exited := startHold(t, stream)
 	w, err := pinWriter(writer.Process.Pid, stream)
@@ -240,6 +265,7 @@ func TestPinnedWriterSignalsNobodyOnceTheWriterIsGone(t *testing.T) {
 // If the helper cannot record the PID of the descendant it started, it must not
 // leave that descendant behind, sleeping with the writable stream open.
 func TestDetachHelperLeavesNoWriterWhenItCannotRecordItsPID(t *testing.T) {
+	requirePidfd(t)
 	stream := filepath.Join(t.TempDir(), "stream")
 	cmd := exec.Command(os.Args[0]) //nolint:gosec // G204: re-executes this test binary.
 	cmd.Env = []string{"CAPTURE_HELPER=detach", "CAPTURE_FILE=" + stream, "CAPTURE_PIDFILE=" + filepath.Join(t.TempDir(), "missing", "pid")}

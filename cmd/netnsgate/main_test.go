@@ -116,12 +116,15 @@ func TestGate(t *testing.T) {
 		{name: "test failure", input: build(map[string][]string{otherPass: {ev(supervisorPkg, "fail", "TestOther", "")}}), why: "TestOther failed"},
 		{name: "required test failure", input: build(map[string][]string{nsPass: {ev(supervisorPkg, "fail", nsTest, "")}}), why: nsTest + " failed"},
 		{name: "package failure", input: build(map[string][]string{supDone: {ev(supervisorPkg, "fail", "", "")}}), why: "ended with fail"},
-		{name: "build failure event", input: build(nil) + ev(supervisorPkg, "build-fail", "", ""), why: `unexpected action "build-fail"`},
+		{name: "build failure event", input: build(map[string][]string{supDone: {ev(supervisorPkg, "build-fail", "", ""), supDone}}), why: `unexpected action "build-fail"`},
 		{name: "run without terminal event", input: build(map[string][]string{otherPass: nil}), why: "TestOther did not finish"},
 		{name: "run twice", input: build(map[string][]string{otherRun: {otherRun, otherRun}}), why: "ran 2 times"},
 		{name: "terminal before run", input: build(map[string][]string{nsRun: nil}), why: "ended with pass before it ran"},
 		{name: "unexpected package", input: build(nil) + ev("example.com/other", "pass", "", ""), why: "unexpected package"},
 		{name: "package-level skip", input: build(map[string][]string{supDone: {ev(supervisorPkg, "skip", "", "")}}), why: "ended with skip"},
+		{name: "run after its package pass", input: build(map[string][]string{supDone: {supDone, otherRun}}), why: "after its package pass"},
+		{name: "output after its package pass", input: build(map[string][]string{supDone: {supDone, ev(supervisorPkg, "output", "", "late\n")}}), why: "after its package pass"},
+		{name: "package passes may interleave", input: build(map[string][]string{supDone: nil, capDone: {supDone, capDone}})},
 	}
 
 	for _, tc := range cases {

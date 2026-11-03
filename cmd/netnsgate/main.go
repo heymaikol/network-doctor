@@ -112,6 +112,11 @@ func (c *checker) event(e event) error {
 	if _, ok := required[e.Package]; !ok {
 		return fmt.Errorf("unexpected package %q", e.Package)
 	}
+	// go test -json writes a package's pass last, so anything after it did not come
+	// from a finished run. Events for the other package may still interleave.
+	if c.passes[e.Package] > 0 {
+		return fmt.Errorf("%s event in %s after its package pass", e.Action, e.Package)
+	}
 	if !actions[e.Action] {
 		return fmt.Errorf("unexpected action %q in %s", e.Action, e.Package)
 	}

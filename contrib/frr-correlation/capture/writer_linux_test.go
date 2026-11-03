@@ -140,14 +140,19 @@ func reap(stream string, pids []int) {
 	}
 }
 
-// adoptWriter pins the detached writer a producer helper recorded in pidfile. A
-// writer that cannot be pinned fails the test: there is no fallback to signaling
-// the number. Cleanup kills the writer through the pin. A second cleanup reaps any
-// writer still holding the stream, including one the PID file could not identify,
-// so no failure leaves a sleeper with the stream open.
-func adoptWriter(t *testing.T, pidfile, stream string) *pinnedWriter {
+// reapStreamWritersAtCleanup kills every writer still holding stream when t ends,
+// adopted or not. Call it before the producer starts: the producer can fail after
+// its writer has started, and then the test never reaches adoptWriter.
+func reapStreamWritersAtCleanup(t *testing.T, stream string) {
 	t.Helper()
 	t.Cleanup(func() { reap(stream, holders(stream)) })
+}
+
+// adoptWriter pins the detached writer a producer helper recorded in pidfile. A
+// writer that cannot be pinned fails the test: there is no fallback to signaling
+// the number. Cleanup kills the writer through the pin.
+func adoptWriter(t *testing.T, pidfile, stream string) *pinnedWriter {
+	t.Helper()
 	raw, err := os.ReadFile(pidfile) //nolint:gosec // G304: the path is this test's own TempDir.
 	if err != nil {
 		t.Fatal(err)
@@ -259,6 +264,36 @@ func TestPinnedWriterSignalsNobodyOnceTheWriterIsGone(t *testing.T) {
 	<-exited
 	if err := w.kill(); !errors.Is(err, unix.ESRCH) {
 		t.Fatalf("kill after the writer was reaped: %v, want ESRCH", err)
+	}
+}
+
+// A detached writer can start before its test has adopted it, when the producer
+// fails after the start. Ending the test without adopting must still reap it.
+func TestDetachedWriterIsReapedWhenItsTestEndsWithoutAdoptingIt(t *testing.T) {
+	requirePidfd(t)
+	dir := t.TempDir()
+	stream := filepath.Join(dir, "stream")
+	pidfile := filepath.Join(dir, "pid")
+	// Backstop for a broken helper: it runs after the subtest, so the leak
+	// cannot outlive the test binary.
+	t.Cleanup(func() { reap(stream, holders(stream)) })
+	t.Run("ends without adopting", func(t *testing.T) {
+		reapStreamWritersAtCleanup(t, stream)
+		cmd := exec.Command(os.Args[0]) //nolint:gosec // G204: re-executes this test binary.
+		cmd.Env = []string{"CAPTURE_HELPER=detach", "CAPTURE_FILE=" + stream, "CAPTURE_PIDFILE=" + pidfile}
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("producer: %v", err)
+		}
+		if len(holders(stream)) == 0 {
+			t.Fatal("no writer holds the stream, so the test proves nothing")
+		}
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	for len(holders(stream)) > 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("a writer still holds the stream after its test ended")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

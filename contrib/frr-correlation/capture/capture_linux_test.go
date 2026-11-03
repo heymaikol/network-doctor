@@ -360,6 +360,7 @@ func TestSealRefusesAnEscapedWriterAfterTheProducerExited(t *testing.T) {
 			requirePidfd(t)
 			in := inboxFor(t, BGPD)
 			path := filepath.Join(in.Path(), stream(BGPD))
+			reapStreamWritersAtCleanup(t, path)
 			pidfile := filepath.Join(t.TempDir(), "pid")
 			cmd := exec.Command(os.Args[0]) //nolint:gosec // G204: re-executes this test binary.
 			cmd.Env = []string{"CAPTURE_HELPER=detach", "CAPTURE_FILE=" + path, "CAPTURE_PIDFILE=" + pidfile}

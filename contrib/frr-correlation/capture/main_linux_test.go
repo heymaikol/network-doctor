@@ -32,6 +32,11 @@ func TestMain(m *testing.M) {
 		helperProbe()
 	case "report":
 		helperReport()
+	default:
+		// The name is not echoed: it comes from the environment, and a suite that
+		// skips every test must not pass on an unknown helper.
+		fmt.Fprintln(os.Stderr, "unknown CAPTURE_HELPER")
+		os.Exit(7)
 	}
 	os.Exit(0)
 }
@@ -70,6 +75,10 @@ func helperDetach() {
 		os.Exit(5)
 	}
 	if err := os.WriteFile(os.Getenv("CAPTURE_PIDFILE"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil { //nolint:gosec // G703: the path is this test's own TempDir, passed through the helper environment.
+		// Reap the descendant before exiting. Left running, it would keep the
+		// writable stream open after this helper is gone.
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		os.Exit(6)
 	}
 	_ = f.Close()

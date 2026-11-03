@@ -146,6 +146,14 @@ is passed through.
   producer moved the original away, `Close` stays incomplete and the inbox holds
   one descriptor until the process exits.
 
+- `TestKnownGapNewInboxKeepsADirectoryAnEntryReachedFirst`: a same-user process
+  that writes an entry into the new directory before `adopt` reads it makes
+  `NewInbox` refuse, and the directory stays in the temporary directory. Each lost
+  race leaves one directory, and repeated attempts accumulate them. The leak is not
+  bounded. Removing the directory would delete entries this package cannot
+  attribute to a producer, and a delete by path is open to a swap. Fixing it needs
+  a decision on the ownership boundary, or on an API that hands the directory to the
+  caller.
 - `TestKnownGapPeerProducerCanRewriteAnotherInbox` (netns): a child in the
   supervisor's namespaces rewrites a sibling inbox before it is sealed. Flip the
   assertion when mount and PID confinement lands.
@@ -191,7 +199,9 @@ NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -tags netns_integration ./cont
 golangci-lint run --build-tags netns_integration ./contrib/frr-correlation/...
 ```
 
-The package builds with `CGO_ENABLED=0` for every supported target. Off Linux
-every operation refuses with `unsupported`. The Linux tests skip when the
+The package builds with `CGO_ENABLED=0` for every supported target. Off Linux,
+`NewInbox`, `Seal`, `Inbox.Close` and `Snapshot.ReadAt` return `unsupported`.
+`Path`, `Size` and `SHA256` return zero values, and `Snapshot.Close` returns nil.
+The Linux tests skip when the
 temporary directory is on a filesystem the lease proof refuses, and fail
 instead of skipping when `NETDOC_SIM_REQUIRE_NETNS` is set.

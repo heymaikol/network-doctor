@@ -5,7 +5,9 @@ package capture
 import "context"
 
 // Inbox and Snapshot are unavailable off Linux: the proof they give needs file
-// leases and sealed memory files, so every operation refuses.
+// leases and sealed memory files. NewInbox, Seal, Inbox.Close and Snapshot.ReadAt
+// refuse with unsupported. Path, Size and SHA256 return zero values, and
+// Snapshot.Close returns nil.
 type Inbox struct{}
 
 type Snapshot struct{}

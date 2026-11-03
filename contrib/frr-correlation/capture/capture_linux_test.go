@@ -365,21 +365,16 @@ func TestSealRefusesAnEscapedWriterAfterTheProducerExited(t *testing.T) {
 			if err := cmd.Run(); err != nil {
 				t.Fatalf("producer: %v", err)
 			}
-			raw, err := os.ReadFile(pidfile) //nolint:gosec // G304: the path is this test's own TempDir.
-			if err != nil {
-				t.Fatal(err)
-			}
-			pid, _ := strconv.Atoi(string(raw))
-			t.Cleanup(func() { _ = unix.Kill(pid, unix.SIGKILL) })
+			w := adoptWriter(t, pidfile, path)
 			if killFirst {
-				if err := unix.Kill(pid, unix.SIGKILL); err != nil {
+				if err := w.kill(); err != nil {
 					t.Fatal(err)
 				}
 				waitForNoWriter(t, path)
 				mustSeal(t, in)
 				return
 			}
-			_, err = in.Seal(context.Background())
+			_, err := in.Seal(context.Background())
 			refused(t, err, WriterPresent)
 		})
 	}
@@ -591,6 +586,7 @@ func TestSealStopsWhenCancelledAfterACopiedChunk(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	chunks := 0
 	in.afterChunk = func() {
 		chunks++
@@ -660,12 +656,11 @@ func TestSealOnlyTrustsFilesystemsWhoseWritersItCanSee(t *testing.T) {
 	}
 	for name, magic := range map[string]int64{"tmpfs": unix.TMPFS_MAGIC, "ext4": unix.EXT4_SUPER_MAGIC, "btrfs": unix.BTRFS_SUPER_MAGIC, "xfs": unix.XFS_SUPER_MAGIC} {
 		t.Run(name, func(t *testing.T) {
-			in, err := newInbox2(t, statfsAs(magic))
-			if err != nil {
+			// The allowlist alone. Sealing needs file leases the host may refuse, and
+			// inboxFor covers sealing on the real filesystem, skipping where it refuses.
+			if _, err := newInbox2(t, statfsAs(magic)); err != nil {
 				t.Fatalf("%s refused: %v", name, err)
 			}
-			put(t, in, stream(BGPD), streamBody)
-			mustSeal(t, in)
 		})
 	}
 }
@@ -678,6 +673,33 @@ func newInbox2(t *testing.T, statfs func(int, *unix.Statfs_t) error) (*Inbox, er
 		t.Cleanup(func() { _ = in.Close() })
 	}
 	return in, err
+}
+
+// KNOWN GAP, asserted so that it cannot be forgotten. A same-user process can
+// write an entry into the new directory after MkdirTemp and before adopt reads
+// it. newInbox then refuses with a fixed code and keeps the directory, one per
+// lost race. Removing it would delete entries this package cannot attribute to
+// a producer, so the directory stays until the ownership boundary is settled.
+func TestKnownGapNewInboxKeepsADirectoryAnEntryReachedFirst(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	intruder := func(fd int, st *unix.Statfs_t) error {
+		f, err := unix.Openat(fd, "intruder", unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC, 0o600)
+		if err != nil {
+			return err
+		}
+		_ = unix.Close(f)
+		reflect.ValueOf(&st.Type).Elem().SetInt(unix.TMPFS_MAGIC)
+		return nil
+	}
+	in, err := newInbox(BGPD, intruder)
+	if in != nil {
+		t.Fatal("an inbox was built around a producer's entry")
+	}
+	refused(t, err, UnexpectedEntry)
+	left, _ := filepath.Glob(filepath.Join(os.Getenv("TMPDIR"), "netdoc-bgpd-*"))
+	if len(left) != 1 {
+		t.Fatalf("%d directories left, want the one the race leaves: %v", len(left), left)
+	}
 }
 
 func TestInboxesAreDistinctPrivateAndEmpty(t *testing.T) {

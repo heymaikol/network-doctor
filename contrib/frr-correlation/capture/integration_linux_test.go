@@ -77,25 +77,20 @@ func TestStopSucceedsWhileADetachedWriterHoldsTheStream(t *testing.T) {
 			if st := run(t, n, "CAPTURE_HELPER=detach", "CAPTURE_FILE="+path, "CAPTURE_PIDFILE="+pidfile); st.Code != 0 || st.Escalated {
 				t.Fatalf("producer exit %+v", st)
 			}
-			raw, err := os.ReadFile(pidfile) //nolint:gosec // G304: the path is this test's own TempDir.
-			if err != nil {
-				t.Fatal(err)
-			}
-			pid, _ := strconv.Atoi(string(raw))
-			t.Cleanup(func() { _ = unix.Kill(pid, unix.SIGKILL) })
-			state, _ := os.ReadFile("/proc/" + string(raw) + "/stat") //nolint:gosec // G304, G703: a /proc path built from a PID this test launched.
+			w := adoptWriter(t, pidfile, path)
+			state, _ := os.ReadFile("/proc/" + strconv.Itoa(w.pid) + "/stat") //nolint:gosec // G304, G703: a /proc path built from a PID this test pinned.
 			if !strings.Contains(string(state), ") S ") && !strings.Contains(string(state), ") R ") {
 				t.Fatalf("the detached writer is not running: %q", state)
 			}
 			if killFirst {
-				if err := unix.Kill(pid, unix.SIGKILL); err != nil {
+				if err := w.kill(); err != nil {
 					t.Fatal(err)
 				}
 				waitForNoWriter(t, path)
 				mustSeal(t, in)
 				return
 			}
-			_, err = in.Seal(context.Background())
+			_, err := in.Seal(context.Background())
 			refused(t, err, WriterPresent)
 		})
 	}

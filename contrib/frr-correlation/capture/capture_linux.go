@@ -78,6 +78,15 @@ type Inbox struct {
 // as the collector's user and are not kept out by it.
 func NewInbox(role Role) (*Inbox, error) { return newInbox(role, unix.Fstatfs) }
 
+// newInbox removes the directory it made only while the directory is empty. If
+// adopt refuses after a same-user process wrote an entry into it, the removal
+// fails and the directory stays in the temporary directory. Each lost race leaves
+// one directory, and repeated attempts accumulate them: the leak is not bounded.
+// Removing the entries would delete content this package cannot attribute to a
+// producer, and a delete by path is open to a swap. Fixing it needs a decision on
+// the ownership boundary or on the API that hands the directory to the caller.
+// TestKnownGapNewInboxKeepsADirectoryAnEntryReachedFirst asserts the current
+// behavior.
 func newInbox(role Role, statfs func(int, *unix.Statfs_t) error) (*Inbox, error) {
 	if role != BGPD && role != Zebra {
 		return nil, refuse(InvalidRole)

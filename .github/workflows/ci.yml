@@ -390,32 +390,26 @@ jobs:
       # The supervisor and capture namespace tests need rootless user namespaces and
       # the pidfd namespace ioctls (Linux 6.11 or later). NETDOC_SIM_REQUIRE_NETNS=1
       # turns every capability refusal into a failure, so a runner without them fails
-      # this job instead of skipping. The output is verbose, and the step fails on any
-      # SKIP except TestFRRRunsUnderTheSupervisor, which skips until an FRR-staged CI
-      # environment exists. Two tests must report PASS, so a renamed or deleted test
-      # cannot leave the step green without running anything.
+      # this job instead of skipping. cmd/netnsgate reads the go test -json stream and
+      # refuses it unless both packages pass, both required tests run and pass, and the
+      # only skip is TestFRRRunsUnderTheSupervisor reporting that no FRR copy is staged.
+      # go test's own exit status still fails the step, and the gate runs either way so
+      # the log shows the output.
       - if: matrix.shard == 'coverage'
         name: Run supervisor namespace tests
         run: |
-          set -euo pipefail
+          set -uo pipefail
           echo "runner: ${RUNNER_OS:-unknown} image ${ImageOS:-unknown} ${ImageVersion:-unknown}"
           echo "kernel: $(uname -r)"
           echo "max_user_namespaces: $(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo absent)"
           echo "apparmor_restrict_unprivileged_userns: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
-          NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -v -tags netns_integration \
-            ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture 2>&1 | tee supervisor-netns.log
-          for t in TestNamespaceIsRetainedIsolatedAndReleased TestStopSucceedsWhileADetachedWriterHoldsTheStream; do
-            if ! grep -q -- "--- PASS: ${t} " supervisor-netns.log; then
-              echo "::error::required namespace test ${t} did not pass"
-              exit 1
-            fi
-          done
-          unexpected=$(grep -E -- '--- SKIP: ' supervisor-netns.log | grep -v -E -- '--- SKIP: TestFRRRunsUnderTheSupervisor( |/)' || true)
-          if [ -n "$unexpected" ]; then
-            printf '%s\n' "$unexpected"
-            echo "::error::namespace tests skipped with NETDOC_SIM_REQUIRE_NETNS=1"
-            exit 1
-          fi
+          rc=0
+          NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -v -json -tags netns_integration \
+            ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture \
+            > "$RUNNER_TEMP/supervisor-netns.json" 2> "$RUNNER_TEMP/supervisor-netns.err" || rc=$?
+          cat "$RUNNER_TEMP/supervisor-netns.err" >&2
+          go run ./cmd/netnsgate < "$RUNNER_TEMP/supervisor-netns.json" || rc=$?
+          exit "$rc"
       - if: matrix.shard == 'coverage'
         name: Merge coverage
         run: |

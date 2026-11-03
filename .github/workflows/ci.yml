@@ -387,36 +387,29 @@ jobs:
         run: go test -count=1 -tags netns_integration -run '^Test(RouteEvents|PublicDNSSearchIsolation)' ./internal/diagnostic
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
-      # The supervisor's namespace tests need rootless user namespaces and the pidfd
-      # namespace ioctls (Linux 6.11 or later). The package decides whether this
-      # runner has them, not a shell guess about the kernel: one probe test runs
-      # without NETDOC_SIM_REQUIRE_NETNS. If it passes, the whole package must pass
-      # with the variable set, and a failure then is a real failure. If it skips, the
-      # step prints a warning that names the reason and succeeds, so a runner that
-      # cannot host namespaces never turns this job permanently red. Anything other
-      # than a pass or a skip fails, so a renamed probe cannot make the step vacuous.
+      # The supervisor and capture namespace tests need rootless user namespaces and
+      # the pidfd namespace ioctls (Linux 6.11 or later). NETDOC_SIM_REQUIRE_NETNS=1
+      # turns every capability refusal into a failure, so a runner without them fails
+      # this job instead of skipping. cmd/netnsgate reads the go test -json stream and
+      # refuses it unless both packages pass, both required tests run and pass, and the
+      # only skip is TestFRRRunsUnderTheSupervisor reporting that no FRR copy is staged.
+      # go test's own exit status still fails the step, and the gate runs either way so
+      # the log shows the output.
       - if: matrix.shard == 'coverage'
         name: Run supervisor namespace tests
         run: |
           set -uo pipefail
-          probe_test=TestNamespaceIsRetainedIsolatedAndReleased
+          echo "runner: ${RUNNER_OS:-unknown} image ${ImageOS:-unknown} ${ImageVersion:-unknown}"
           echo "kernel: $(uname -r)"
-          status=0
-          probe=$(env -u NETDOC_SIM_REQUIRE_NETNS go test -count=1 -tags netns_integration -run "^${probe_test}\$" -v ./contrib/frr-correlation/supervisor 2>&1) || status=$?
-          printf '%s\n' "$probe"
-          if [ "$status" -ne 0 ]; then
-            echo "::error::supervisor probe test failed"
-            exit 1
-          fi
-          if grep -q -- "--- PASS: ${probe_test} " <<<"$probe"; then
-            NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -tags netns_integration ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture
-          elif grep -q -- "--- SKIP: ${probe_test} " <<<"$probe"; then
-            reason=$(grep -B1 -- "--- SKIP: ${probe_test} " <<<"$probe" | head -n1 | sed 's/^ *//')
-            echo "::warning::supervisor namespace tests did not run on kernel $(uname -r): ${reason}"
-          else
-            echo "::error::supervisor probe test neither passed nor skipped"
-            exit 1
-          fi
+          echo "max_user_namespaces: $(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo absent)"
+          echo "apparmor_restrict_unprivileged_userns: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
+          rc=0
+          NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -v -json -tags netns_integration \
+            ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture \
+            > "$RUNNER_TEMP/supervisor-netns.json" 2> "$RUNNER_TEMP/supervisor-netns.err" || rc=$?
+          cat "$RUNNER_TEMP/supervisor-netns.err" >&2
+          go run ./cmd/netnsgate < "$RUNNER_TEMP/supervisor-netns.json" || rc=$?
+          exit "$rc"
       - if: matrix.shard == 'coverage'
         name: Merge coverage
         run: |

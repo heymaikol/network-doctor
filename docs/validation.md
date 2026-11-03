@@ -71,13 +71,27 @@ namespaces; they never need root. That gate keeps `-v` because a skipped run and
 a real one both print just `ok` otherwise, and `-count=1` because a cached
 result would not have exercised any namespace at all.
 
-The supervisor package under `contrib/frr-correlation/supervisor` is the one
-namespace suite CI starts with a probe. The `linux (coverage)` job runs a single
-test first, and only if it passes does it run the whole package, together with
-`contrib/frr-correlation/capture`, with `NETDOC_SIM_REQUIRE_NETNS=1`. If the
-probe skips, the job warns with the reason and passes, so check that job's log
-to see whether the packages ran. The supervisor's FRR test needs
-`NETDOC_FRR_STAGE` and always skips in CI.
+The supervisor and capture namespace suites run on the `linux (coverage)` job with
+`NETDOC_SIM_REQUIRE_NETNS=1`, so a host that cannot create namespaces fails the job
+rather than skipping. `cmd/netnsgate` reads the `go test -json` stream and fails
+the job unless both packages pass, both required namespace tests run and pass, and
+the only skip is the supervisor's FRR test reporting that `NETDOC_FRR_STAGE` is
+unset. The FRR test needs a staged FRR copy, so it always skips in CI.
+
+The gate trusts the tree it runs on. It catches accidental skips, missing tests and
+failed runs. It does not authenticate test output. The CI step runs
+`go test -json -v`, and under `-v` raw framing that a running test body writes to
+stdout or stderr becomes `run` and `pass` events, which the gate accepts. Without
+`-v` the same text stays ordinary output, and the gate refuses it. Framing written
+from `init`, or from `TestMain` before `m.Run`, becomes events with or without
+`-v`, because no test is running yet. Text a test process derives from its
+environment and writes unescaped, such as an inherited descriptor's path name, can
+carry the same framing into that early window. Text in an `Output` field never
+counts as an event, whether a test logs it with `t.Log` or fails with it through
+`t.Fatalf`. Closing the raw-output gap needs a record the test binary cannot write
+itself, which this gate does not attempt. `TestKnownGapRawFramingIsAccepted`
+reproduces the framing cases with the installed Go toolchain. The `t.Fatalf` case
+and the environment-derived case were checked by hand, not in that test.
 
 The capture package's lease and sealed-memory tests also run in the ordinary
 `go test ./...` on Linux, rootless. They skip when the temporary directory sits

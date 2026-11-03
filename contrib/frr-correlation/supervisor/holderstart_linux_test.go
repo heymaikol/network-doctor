@@ -10,9 +10,9 @@ import (
 )
 
 // Only a failure that says the host cannot make the namespaces may read as
-// unsupported, because that is the one class a test or CI probe turns into a
-// skip. A resource limit, a failed exec or an error nobody listed must stay a
-// failure, and the cause must survive in both classes.
+// unsupported, because that is the one class a test turns into a skip. A resource
+// limit, a failed exec or an error nobody listed must stay a failure, and the
+// cause must survive in both classes.
 func TestHolderStartErrorSeparatesUnsupportedFromGenuineFailures(t *testing.T) {
 	start := func(e error) error { return &fs.PathError{Op: "fork/exec", Path: "/usr/bin/sleep", Err: e} }
 	for _, tc := range []struct {

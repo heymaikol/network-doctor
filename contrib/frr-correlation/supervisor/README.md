@@ -169,17 +169,14 @@ These are deliberate scope cuts, not oversights. None is claimed to hold.
   7.2.11 was exercised.
 - **Only a capability error reads as unsupported.** A helper that is not
   installed is not one. `NewNamespace` without `sleep` returns `ErrLaunchFailed`
-  and keeps the lookup error, so the tests fail, and so does the CI probe, which
-  calls it. `Start` without `nsenter` fails the same way, but the probe never
-  calls `Start`: the probe still passes, and the gated suite fails in the tests
-  that start a child. A failed holder start is
+  and keeps the lookup error, so the tests fail. `Start` without `nsenter` fails
+  the same way, in the tests that start a child. A failed holder start is
   `ErrUnsupported` for `EPERM`, `EACCES`, `EINVAL`, `ENOSPC` or `ENOSYS`, which
   say the host does not allow the namespaces. Every other failure, whether a
   resource limit (`EAGAIN`, `ENOMEM`, `EMFILE`, `ENFILE`), a failed exec or an
-  error nobody listed, is `ErrLaunchFailed`, so the tests fail and the CI probe
-  fails instead of skipping. Both keep the cause. An errno cannot tell a refused
-  clone from a refused exec, so a permission error from either reads as
-  unsupported.
+  error nobody listed, is `ErrLaunchFailed`, so the tests fail instead of
+  skipping. Both keep the cause. An errno cannot tell a refused clone from a
+  refused exec, so a permission error from either reads as unsupported.
 
 ## FRR 10.7.0 launch policy
 
@@ -349,12 +346,14 @@ Without the `netns_integration` tag only the descriptor-scan unit test runs.
 `scripts/check.sh` compile-checks the other supported platforms, where the package
 reduces to a stub that returns `ErrUnsupported`.
 
-The hosted `linux (coverage)` job runs a probe test first, with
-`NETDOC_SIM_REQUIRE_NETNS` cleared. If the probe passes, the runner can host
-rootless namespaces, and the whole tagged package then runs with `-race` and the
-variable set, so a skip or a failure fails the job. If the probe skips, the job
-prints a warning that names the reason and passes, so a runner without the
-required kernel or policy does not turn the job permanently red. The job log
-shows which of the two happened on a given run. Every host-dependent skip in the
-tagged tests goes through one helper that fails instead when the variable is set. The
-FRR test still skips there, because no FRR copy is staged.
+The hosted `linux (coverage)` job runs both packages with `-race`,
+`NETDOC_SIM_REQUIRE_NETNS=1`, and `go test -json`. `cmd/netnsgate` then checks the
+stream. Both packages must pass, `TestNamespaceIsRetainedIsolatedAndReleased` and
+`TestStopSucceedsWhileADetachedWriterHoldsTheStream` must run and pass, and the
+only skip allowed is `TestFRRRunsUnderTheSupervisor` with its exact
+`NETDOC_FRR_STAGE not set` reason. Any other skip, a failure, or a malformed or
+incomplete stream fails the job, so a runner without the required kernel or policy
+goes red instead of passing without running the namespace tests. Every
+host-dependent skip in the tagged tests goes through one helper that fails instead
+when the variable is set. The FRR test is the exception: it skips on purpose,
+because no FRR copy is staged.

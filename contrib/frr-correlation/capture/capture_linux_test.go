@@ -357,6 +357,7 @@ func TestSealRefusesAWriterThatIsStillOpen(t *testing.T) {
 func TestSealRefusesAnEscapedWriterAfterTheProducerExited(t *testing.T) {
 	for _, killFirst := range []bool{false, true} {
 		t.Run(fmt.Sprintf("killed first=%v", killFirst), func(t *testing.T) {
+			requirePidfd(t)
 			in := inboxFor(t, BGPD)
 			path := filepath.Join(in.Path(), stream(BGPD))
 			pidfile := filepath.Join(t.TempDir(), "pid")
@@ -696,7 +697,17 @@ func TestKnownGapNewInboxKeepsADirectoryAnEntryReachedFirst(t *testing.T) {
 		t.Fatal("an inbox was built around a producer's entry")
 	}
 	refused(t, err, UnexpectedEntry)
-	left, _ := filepath.Glob(filepath.Join(os.Getenv("TMPDIR"), "netdoc-bgpd-*"))
+	dir := os.Getenv("TMPDIR")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "netdoc-bgpd-") {
+			left = append(left, filepath.Join(dir, e.Name()))
+		}
+	}
 	if len(left) != 1 {
 		t.Fatalf("%d directories left, want the one the race leaves: %v", len(left), left)
 	}

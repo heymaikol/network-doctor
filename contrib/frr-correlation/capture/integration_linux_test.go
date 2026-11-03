@@ -73,6 +73,7 @@ func TestStopSucceedsWhileADetachedWriterHoldsTheStream(t *testing.T) {
 			n := newNS(t)
 			in := inboxFor(t, BGPD)
 			path := filepath.Join(in.Path(), stream(BGPD))
+			requirePidfd(t)
 			pidfile := filepath.Join(t.TempDir(), "pid")
 			if st := run(t, n, "CAPTURE_HELPER=detach", "CAPTURE_FILE="+path, "CAPTURE_PIDFILE="+pidfile); st.Code != 0 || st.Escalated {
 				t.Fatalf("producer exit %+v", st)

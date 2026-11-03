@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,9 +53,11 @@ func (w *pinnedWriter) kill() error { return unix.PidfdSendSignal(w.fd, unix.SIG
 
 func (w *pinnedWriter) close() { _ = unix.Close(w.fd) }
 
-// holdsStream reports whether the process has the stream open under any
-// descriptor. It compares the inode that following each /proc link reaches, so it
-// does not depend on how the path reads from the process's own mount namespace.
+// holdsStream reports whether the process has the stream open for writing under
+// any descriptor. It compares the inode that following each /proc link reaches, so
+// it does not depend on how the path reads from the process's own mount namespace.
+// A read-only descriptor does not count: a pin is a kill capability, and only a
+// writer may receive it.
 func holdsStream(pid int, stream string) bool {
 	want, err := os.Stat(stream)
 	if err != nil {
@@ -66,11 +69,44 @@ func holdsStream(pid int, stream string) bool {
 		return false
 	}
 	for _, e := range entries {
-		if got, err := os.Stat(filepath.Join(dir, e.Name())); err == nil && os.SameFile(got, want) {
+		if got, err := os.Stat(filepath.Join(dir, e.Name())); err == nil && os.SameFile(got, want) && fdWritable(pid, e.Name()) {
 			return true
 		}
 	}
 	return false
+}
+
+// fdWritable reports whether descriptor fd of pid was opened for writing. The
+// access mode is the low two bits of the octal "flags:" field in fdinfo.
+func fdWritable(pid int, fd string) bool {
+	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/fdinfo/" + fd) //nolint:gosec // G304: a /proc path built from a PID and descriptor number.
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.HasPrefix(line, "flags:") {
+			continue
+		}
+		flags, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(line, "flags:")), 8, 64)
+		return err == nil && flags&unix.O_ACCMODE != unix.O_RDONLY
+	}
+	return false
+}
+
+// requirePidfd skips the test as unavailable when the host cannot open a pidfd.
+// Call it before any detached writer starts, so a skip leaves no process behind.
+// Any other failure fails the test.
+func requirePidfd(t *testing.T) {
+	t.Helper()
+	fd, err := unix.PidfdOpen(os.Getpid(), 0)
+	if err == nil {
+		_ = unix.Close(fd)
+		return
+	}
+	if errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EPERM) {
+		unavailable(t, "pidfd_open: %v", err)
+	}
+	t.Fatalf("pidfd_open: %v", err)
 }
 
 // holders lists the processes that have the stream open.
@@ -150,6 +186,34 @@ func TestPinWriterRefusesAProcessThatDoesNotHoldTheStream(t *testing.T) {
 		t.Fatal("the bystander was signaled")
 	case <-time.After(300 * time.Millisecond):
 	}
+}
+
+// A read-only descriptor on the stream does not make a process the writer. The
+// test process stands in for a producer, and nothing is signaled.
+func TestPinWriterRefusesAReadOnlyHolder(t *testing.T) {
+	stream := filepath.Join(t.TempDir(), "stream")
+	if err := os.WriteFile(stream, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ro, err := os.Open(stream) //nolint:gosec // G304: a path in this test's own TempDir.
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ro.Close() }()
+	if w, err := pinWriter(os.Getpid(), stream); err == nil {
+		w.close()
+		t.Fatal("pinned a process whose only descriptor is read-only")
+	}
+	rw, err := os.OpenFile(stream, os.O_WRONLY, 0) //nolint:gosec // G304: a path in this test's own TempDir.
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rw.Close() }()
+	w, err := pinWriter(os.Getpid(), stream)
+	if err != nil {
+		t.Fatalf("refused a process holding the stream for writing: %v", err)
+	}
+	w.close()
 }
 
 // Once the writer is gone a pin signals nobody. A number that was reused cannot

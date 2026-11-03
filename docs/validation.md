@@ -78,6 +78,13 @@ the job unless both packages pass, both required namespace tests run and pass, a
 the only skip is the supervisor's FRR test reporting that `NETDOC_FRR_STAGE` is
 unset. The FRR test needs a staged FRR copy, so it always skips in CI.
 
+The gate trusts the tree it runs on. It catches accidental skips, missing tests and
+failed runs. It does not authenticate test output: framing that a test binary writes
+to raw stdout becomes `run` and `pass` events, and the gate accepts them. Text in an
+`Output` field never counts as an event. Closing the raw-stdout gap needs a record
+the test binary cannot write itself, which this gate does not attempt.
+`TestKnownGapRawFramingIsAccepted` reproduces the gap.
+
 The capture package's lease and sealed-memory tests also run in the ordinary
 `go test ./...` on Linux, rootless. They skip when the temporary directory sits
 on a filesystem the lease proof refuses (for example overlayfs or FUSE), and

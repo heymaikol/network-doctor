@@ -11,9 +11,9 @@ import (
 )
 
 // A helper binary that is not installed is a broken setup, not a kernel that
-// lacks a capability. ErrUnsupported is the one class a test or the CI probe
-// turns into a skip, so it must not describe a missing sleep or nsenter: the job
-// would pass without running the suite. Each error keeps the lookup failure.
+// lacks a capability. ErrUnsupported is the one class a test turns into a skip,
+// so it must not describe a missing sleep or nsenter: the job would pass without
+// running the suite. Each error keeps the lookup failure.
 func requireLaunchFailure(t *testing.T, err error) {
 	t.Helper()
 	switch {

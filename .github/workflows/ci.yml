@@ -409,7 +409,7 @@ jobs:
             exit 1
           fi
           if grep -q -- "--- PASS: ${probe_test} " <<<"$probe"; then
-            NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -tags netns_integration ./contrib/frr-correlation/supervisor
+            NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -tags netns_integration ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture
           elif grep -q -- "--- SKIP: ${probe_test} " <<<"$probe"; then
             reason=$(grep -B1 -- "--- SKIP: ${probe_test} " <<<"$probe" | head -n1 | sed 's/^ *//')
             echo "::warning::supervisor namespace tests did not run on kernel $(uname -r): ${reason}"

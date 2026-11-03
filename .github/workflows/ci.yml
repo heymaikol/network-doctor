@@ -387,34 +387,33 @@ jobs:
         run: go test -count=1 -tags netns_integration -run '^Test(RouteEvents|PublicDNSSearchIsolation)' ./internal/diagnostic
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
-      # The supervisor's namespace tests need rootless user namespaces and the pidfd
-      # namespace ioctls (Linux 6.11 or later). The package decides whether this
-      # runner has them, not a shell guess about the kernel: one probe test runs
-      # without NETDOC_SIM_REQUIRE_NETNS. If it passes, the whole package must pass
-      # with the variable set, and a failure then is a real failure. If it skips, the
-      # step prints a warning that names the reason and succeeds, so a runner that
-      # cannot host namespaces never turns this job permanently red. Anything other
-      # than a pass or a skip fails, so a renamed probe cannot make the step vacuous.
+      # The supervisor and capture namespace tests need rootless user namespaces and
+      # the pidfd namespace ioctls (Linux 6.11 or later). NETDOC_SIM_REQUIRE_NETNS=1
+      # turns every capability refusal into a failure, so a runner without them fails
+      # this job instead of skipping. The output is verbose, and the step fails on any
+      # SKIP except TestFRRRunsUnderTheSupervisor, which skips until an FRR-staged CI
+      # environment exists. Two tests must report PASS, so a renamed or deleted test
+      # cannot leave the step green without running anything.
       - if: matrix.shard == 'coverage'
         name: Run supervisor namespace tests
         run: |
-          set -uo pipefail
-          probe_test=TestNamespaceIsRetainedIsolatedAndReleased
+          set -euo pipefail
+          echo "runner: ${RUNNER_OS:-unknown} image ${ImageOS:-unknown} ${ImageVersion:-unknown}"
           echo "kernel: $(uname -r)"
-          status=0
-          probe=$(env -u NETDOC_SIM_REQUIRE_NETNS go test -count=1 -tags netns_integration -run "^${probe_test}\$" -v ./contrib/frr-correlation/supervisor 2>&1) || status=$?
-          printf '%s\n' "$probe"
-          if [ "$status" -ne 0 ]; then
-            echo "::error::supervisor probe test failed"
-            exit 1
-          fi
-          if grep -q -- "--- PASS: ${probe_test} " <<<"$probe"; then
-            NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -tags netns_integration ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture
-          elif grep -q -- "--- SKIP: ${probe_test} " <<<"$probe"; then
-            reason=$(grep -B1 -- "--- SKIP: ${probe_test} " <<<"$probe" | head -n1 | sed 's/^ *//')
-            echo "::warning::supervisor namespace tests did not run on kernel $(uname -r): ${reason}"
-          else
-            echo "::error::supervisor probe test neither passed nor skipped"
+          echo "max_user_namespaces: $(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo absent)"
+          echo "apparmor_restrict_unprivileged_userns: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
+          NETDOC_SIM_REQUIRE_NETNS=1 go test -race -count=1 -v -tags netns_integration \
+            ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture 2>&1 | tee supervisor-netns.log
+          for t in TestNamespaceIsRetainedIsolatedAndReleased TestStopSucceedsWhileADetachedWriterHoldsTheStream; do
+            if ! grep -q -- "--- PASS: ${t} " supervisor-netns.log; then
+              echo "::error::required namespace test ${t} did not pass"
+              exit 1
+            fi
+          done
+          unexpected=$(grep -E -- '--- SKIP: ' supervisor-netns.log | grep -v -E -- '--- SKIP: TestFRRRunsUnderTheSupervisor( |/)' || true)
+          if [ -n "$unexpected" ]; then
+            printf '%s\n' "$unexpected"
+            echo "::error::namespace tests skipped with NETDOC_SIM_REQUIRE_NETNS=1"
             exit 1
           fi
       - if: matrix.shard == 'coverage'

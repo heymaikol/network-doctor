@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -328,10 +329,80 @@ func TestPagesWorkflowBuildsBothSourcesAndPinsItsActions(t *testing.T) {
 			t.Errorf("the deploy job is missing %q, which Pages deployment requires", scope)
 		}
 	}
-	// The exact line, not a substring: adding `|| github.event_name == 'push'`
-	// or dropping the dispatch test would still contain the old fragment.
-	if !strings.Contains(deploy, "\n    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'\n") {
-		t.Error("the deploy job is not limited to a manual dispatch on main; push, pull_request and gollum must not deploy")
+	// Read from the deploy job's own condition. A substring search of the text
+	// after `deploy:` would also accept the same line on a job declared later.
+	if err := deployGateError(data); err != nil {
+		t.Error(err)
+	}
+}
+
+// pagesDeployCondition is the only condition under which pages.yml publishes.
+const pagesDeployCondition = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
+
+// deployGateError returns nil only when the deploy job in a pages workflow has
+// exactly pagesDeployCondition as its if. A missing deploy job, a missing if, or
+// any edit to the condition is an error.
+func deployGateError(data []byte) error {
+	var workflow struct {
+		Jobs map[string]struct {
+			If string `yaml:"if"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		return err
+	}
+	deploy, ok := workflow.Jobs["deploy"]
+	if !ok {
+		return errors.New("pages.yml has no deploy job")
+	}
+	if deploy.If != pagesDeployCondition {
+		return fmt.Errorf("jobs.deploy.if is %q, want %q: push, pull_request and gollum must not deploy", deploy.If, pagesDeployCondition)
+	}
+	return nil
+}
+
+// Each case edits the workflow in the repository, so a case fails only for the
+// reason its name gives. The last case is the one a substring check passes: the
+// right condition on a job after deploy, and none on deploy itself.
+func TestPagesDeployGateIsReadFromTheDeployJob(t *testing.T) {
+	repoWorkflow, err := os.ReadFile(".github/workflows/pages.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deployGateError(repoWorkflow); err != nil {
+		t.Fatalf("the workflow in the repository fails its own gate: %v", err)
+	}
+
+	gate := "    if: " + pagesDeployCondition + "\n"
+	edit := func(old, replacement string) string {
+		t.Helper()
+		if n := strings.Count(string(repoWorkflow), old); n != 1 {
+			t.Fatalf("test edit %q matches %d times in pages.yml, want 1", old, n)
+		}
+		return strings.Replace(string(repoWorkflow), old, replacement, 1)
+	}
+	laterJob := "\n  publish:\n    runs-on: ubuntu-latest\n    if: " + pagesDeployCondition + "\n    steps:\n      - run: true\n"
+
+	for _, tc := range []struct {
+		name    string
+		src     string
+		wantErr bool
+	}{
+		{"deploy job renamed", edit("\n  deploy:\n", "\n  publish:\n"), true},
+		{"deploy condition removed", edit(gate, ""), true},
+		{"deploy condition widened", edit(gate, "    if: "+pagesDeployCondition+" || github.event_name == 'push'\n"), true},
+		{"correct condition only on a later job", edit(gate, "") + laterJob, true},
+		{"unrelated job appended after deploy", string(repoWorkflow) + "\n  lint-docs:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := deployGateError([]byte(tc.src))
+			if tc.wantErr && err == nil {
+				t.Error("the gate accepted this workflow; push, pull_request and gollum could deploy")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("the gate rejected a workflow it should accept: %v", err)
+			}
+		})
 	}
 }
 

@@ -165,53 +165,109 @@ func TestEchoesTestOutput(t *testing.T) {
 	}
 }
 
+// framingPkgs are the two packages the gate reads, as go test arguments.
+var framingPkgs = []string{"./contrib/frr-correlation/supervisor", "./contrib/frr-correlation/capture"}
+
 // TestKnownGapRawFramingIsAccepted reproduces the gate's trust boundary with the
-// real toolchain. Framing that a test binary writes to raw stdout becomes run and
-// pass events for a test that does not exist, and the gate accepts them. That is
-// the accepted limit for trusted CI: the gate catches accidental skips and missing
-// tests, not forged output. The control writes the same text through t.Log. It
-// stays Output text and cannot satisfy the gate.
+// real toolchain. Framing that a test binary writes to stdout or stderr can become
+// run and pass events for a test that does not exist, and the gate accepts those
+// events. Framing from init or TestMain does so with or without -v. Framing from a
+// running test body does so only under -v, which CI uses. The gate accepts this for
+// trusted CI; it does not authenticate output. Text in an Output field never counts
+// as an event, so the t.Log rows stay refused.
 func TestKnownGapRawFramingIsAccepted(t *testing.T) {
-	t.Run("raw stdout framing becomes accepted events", func(t *testing.T) {
-		dir := framingModule(t, rawFraming)
-		for pkg, names := range required {
-			listed := goTest(t, dir, "-list", ".", pkg)
-			if !bytes.Contains(listed, []byte("TestPlaceholder\n")) {
-				t.Fatalf("%s listed no TestPlaceholder:\n%s", pkg, listed)
-			}
-			if regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(names[0]) + `$`).Match(listed) {
-				t.Fatalf("%s is a real test; the reproduction needs it absent", names[0])
-			}
-		}
-		stream := goTest(t, dir, "-json", "-count=1", "-v", "./contrib/frr-correlation/supervisor", "./contrib/frr-correlation/capture")
-		evs := decodeStream(t, stream)
-		for pkg, names := range required {
-			for _, action := range []string{"run", "pass"} {
-				if !hasEvent(evs, action, pkg, names[0]) {
-					t.Fatalf("no %s event for %s: framing did not reach the stream", action, names[0])
+	for _, tc := range []struct {
+		name    string
+		fixture func(pkgName, test string) string
+		verbose bool
+		forged  bool // the stream carries run and pass events for the required tests
+	}{
+		{"init framing under -v", rawFraming, true, true},
+		{"init framing without -v", rawFraming, false, true},
+		{"TestMain framing before m.Run under -v", testMainFraming, true, true},
+		{"TestMain framing before m.Run without -v", testMainFraming, false, true},
+		{"stdout framing from a running test under -v", bodyFraming("os.Stdout"), true, true},
+		{"stderr framing from a running test under -v", bodyFraming("os.Stderr"), true, true},
+		{"stdout framing from a running test without -v stays output", bodyFraming("os.Stdout"), false, false},
+		{"stderr framing from a running test without -v stays output", bodyFraming("os.Stderr"), false, false},
+		{"t.Log text under -v stays output", loggedFraming, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := framingModule(t, tc.fixture)
+			for pkg, names := range required {
+				listed := goTest(t, dir, "-list", ".", pkg)
+				if !bytes.Contains(listed, []byte("TestPlaceholder\n")) {
+					t.Fatalf("%s listed no TestPlaceholder:\n%s", pkg, listed)
+				}
+				if regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(names[0]) + `$`).Match(listed) {
+					t.Fatalf("%s is a real test; the reproduction needs it absent", names[0])
 				}
 			}
-		}
-		if code, _, stderr := gate(string(stream), nil); code != 0 {
-			t.Fatalf("gate exit %d, want 0 for test2json-shaped framing: %s", code, stderr)
-		}
-	})
-	t.Run("the same text in Output fields cannot satisfy the gate", func(t *testing.T) {
-		dir := framingModule(t, loggedFraming)
-		stream := goTest(t, dir, "-json", "-count=1", "-v", "./contrib/frr-correlation/supervisor", "./contrib/frr-correlation/capture")
-		evs := decodeStream(t, stream)
-		for pkg, names := range required {
-			if hasEvent(evs, "run", pkg, names[0]) || hasEvent(evs, "pass", pkg, names[0]) {
-				t.Fatalf("Output text became an action event for %s", names[0])
+			args := []string{"-json", "-count=1"}
+			if tc.verbose {
+				args = append(args, "-v")
 			}
-			if !outputHas(evs, pkg, "--- PASS: "+names[0]) {
-				t.Fatalf("control lost its text in %s: no Output event", pkg)
+			stream := goTest(t, dir, append(args, framingPkgs...)...)
+			evs := decodeStream(t, stream)
+			for pkg, names := range required {
+				for _, action := range []string{"run", "pass"} {
+					if hasEvent(evs, action, pkg, names[0]) != tc.forged {
+						t.Fatalf("%s event for %s: present=%v, want %v", action, names[0], !tc.forged, tc.forged)
+					}
+				}
+				if !tc.forged && !outputHas(evs, pkg, "--- PASS: "+names[0]) {
+					t.Fatalf("framing text is not Output of %s", pkg)
+				}
 			}
-		}
-		if code, _, stderr := gate(string(stream), nil); code == 0 || !strings.Contains(stderr, "did not run and pass") {
-			t.Fatalf("exit %d, stderr %q; want refusal for missing required tests", code, stderr)
-		}
-	})
+			code, _, stderr := gate(string(stream), nil)
+			if tc.forged && code != 0 {
+				t.Fatalf("gate exit %d, want 0: %s", code, stderr)
+			}
+			if !tc.forged && (code == 0 || !strings.Contains(stderr, "did not run and pass")) {
+				t.Fatalf("exit %d, stderr %q; want refusal for missing required tests", code, stderr)
+			}
+		})
+	}
+}
+
+// testMainFraming prints framing before m.Run, so no test is running yet.
+func testMainFraming(pkgName, test string) string {
+	return fmt.Sprintf(`package %[1]s
+
+import (
+	"fmt"
+	"os"
+	"testing"
+)
+
+func TestMain(m *testing.M) {
+	fmt.Println("=== RUN   %[2]s")
+	fmt.Println("--- PASS: %[2]s (0.00s)")
+	os.Exit(m.Run())
+}
+
+func TestPlaceholder(t *testing.T) {}
+`, pkgName, test)
+}
+
+// bodyFraming writes framing to stream, an os.Stdout or os.Stderr expression,
+// from inside the running test body.
+func bodyFraming(stream string) func(pkgName, test string) string {
+	return func(pkgName, test string) string {
+		return fmt.Sprintf(`package %[1]s
+
+import (
+	"fmt"
+	"os"
+	"testing"
+)
+
+func TestPlaceholder(t *testing.T) {
+	fmt.Fprintln(%[3]s, "=== RUN   %[2]s")
+	fmt.Fprintln(%[3]s, "--- PASS: %[2]s (0.00s)")
+}
+`, pkgName, test, stream)
+	}
 }
 
 // framingModule writes a throwaway module at the real import paths. Each required

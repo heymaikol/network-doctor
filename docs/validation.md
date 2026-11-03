@@ -79,11 +79,19 @@ the only skip is the supervisor's FRR test reporting that `NETDOC_FRR_STAGE` is
 unset. The FRR test needs a staged FRR copy, so it always skips in CI.
 
 The gate trusts the tree it runs on. It catches accidental skips, missing tests and
-failed runs. It does not authenticate test output: framing that a test binary writes
-to raw stdout becomes `run` and `pass` events, and the gate accepts them. Text in an
-`Output` field never counts as an event. Closing the raw-stdout gap needs a record
-the test binary cannot write itself, which this gate does not attempt.
-`TestKnownGapRawFramingIsAccepted` reproduces the gap.
+failed runs. It does not authenticate test output. The CI step runs
+`go test -json -v`, and under `-v` raw framing that a running test body writes to
+stdout or stderr becomes `run` and `pass` events, which the gate accepts. Without
+`-v` the same text stays ordinary output, and the gate refuses it. Framing written
+from `init`, or from `TestMain` before `m.Run`, becomes events with or without
+`-v`, because no test is running yet. Text a test process derives from its
+environment and writes unescaped, such as an inherited descriptor's path name, can
+carry the same framing into that early window. Text in an `Output` field never
+counts as an event, whether a test logs it with `t.Log` or fails with it through
+`t.Fatalf`. Closing the raw-output gap needs a record the test binary cannot write
+itself, which this gate does not attempt. `TestKnownGapRawFramingIsAccepted`
+reproduces the framing cases with the installed Go toolchain. The `t.Fatalf` case
+and the environment-derived case were checked by hand, not in that test.
 
 The capture package's lease and sealed-memory tests also run in the ordinary
 `go test ./...` on Linux, rootless. They skip when the temporary directory sits

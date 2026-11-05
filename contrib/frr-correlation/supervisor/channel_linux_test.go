@@ -40,10 +40,10 @@ func chanStatusRec(kind string, value int) string {
 // with spaces. Fds lists the descriptors the message carries. Every kind is sent as a pipe end: under the slice 1
 // fake identity only the count matters, so the pidfd kinds are named as the harness names them and not inspected.
 type chanTestMsg struct {
-	Payload string   `json:"payload"`
-	Bytes   []byte   `json:"bytes,omitempty"`
-	Pad     int      `json:"pad,omitempty"`
-	Fds     []string `json:"fds,omitempty"`
+	Payload string
+	Bytes   []byte
+	Pad     int
+	Fds     []string
 }
 
 func chanPayload(m chanTestMsg) []byte {
@@ -411,13 +411,7 @@ func chanFramingRows() []chanRow {
 
 // TestChannelFramingRows runs the 45 production framing rows. Each row runs once.
 func TestChannelFramingRows(t *testing.T) {
-	var rows []chanRow
-	for _, r := range chanFramingRows() {
-		if r.name == "init_pidfd_not_sender" || r.name == "producer_not_child" {
-			continue
-		}
-		rows = append(rows, r)
-	}
+	rows := chanFramingRows()
 	if len(rows) != 45 {
 		t.Fatalf("framing rows: got %d, want 45", len(rows))
 	}

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"encoding/binary"
 	"errors"
 	"slices"
 	"testing"
@@ -100,6 +101,84 @@ func TestRecvOneCallCeiling(t *testing.T) {
 			}
 			if calls.recvs != c.recvs || calls.polls != c.polls {
 				t.Fatalf("recvmsg %d polls %d, want recvmsg %d polls %d", calls.recvs, calls.polls, c.recvs, c.polls)
+			}
+		})
+	}
+}
+
+// seamLen converts a small non-negative length to the native size_t word.
+func seamLen(n int) uint64 {
+	return uint64(n) //nolint:gosec // G115: test lengths are small and non-negative
+}
+
+// seamCmsg returns one control message. The length word is written as given, so a test can make it disagree with the
+// body. The message is padded to the next size_t boundary, as the kernel pads it.
+func seamCmsg(length uint64, lvl, typ int, body []byte) []byte {
+	buf := make([]byte, unix.CmsgLen(0)+len(body))
+	if unix.SizeofPtr == 8 {
+		binary.NativeEndian.PutUint64(buf, length)
+	} else {
+		binary.NativeEndian.PutUint32(buf, uint32(length)) //nolint:gosec // G115: a 32-bit size_t keeps its low word
+	}
+	binary.NativeEndian.PutUint32(buf[unix.SizeofPtr:], uint32(lvl))   //nolint:gosec // G115: SOL_SOCKET and SCM_* are small constants
+	binary.NativeEndian.PutUint32(buf[unix.SizeofPtr+4:], uint32(typ)) //nolint:gosec // G115: SOL_SOCKET and SCM_* are small constants
+	copy(buf[unix.CmsgLen(0):], body)
+	for len(buf)%unix.SizeofPtr != 0 {
+		buf = append(buf, 0)
+	}
+	return buf
+}
+
+// TestWalkChanCmsgs pins the cmsg walk on malformed control buffers (contract 3.4, A8). The walk stops at a header it
+// cannot trust and keeps the descriptors of the complete messages before it. The descriptor numbers are synthetic, and
+// the walk never closes them. The padding case relies on a 64-bit size_t, where the last message ends at a boundary.
+func TestWalkChanCmsgs(t *testing.T) {
+	word32 := func(v uint32) []byte {
+		b := make([]byte, 4)
+		binary.NativeEndian.PutUint32(b, v)
+		return b
+	}
+	// partial is a rights message whose length covers one descriptor and two stray bytes.
+	partial := func() []byte {
+		body := append(word32(7), 0xaa, 0xbb)
+		return seamCmsg(seamLen(unix.CmsgLen(6)), unix.SOL_SOCKET, unix.SCM_RIGHTS, body)
+	}
+	// short is a credentials message whose body is n bytes. The walk accepts credentials only from 12 bytes.
+	short := func(n int) []byte {
+		body := make([]byte, n)
+		binary.NativeEndian.PutUint32(body, 42)
+		return seamCmsg(seamLen(unix.CmsgLen(n)), unix.SOL_SOCKET, unix.SCM_CREDENTIALS, body)
+	}
+	cases := []struct {
+		name    string
+		oob     []byte
+		fds     []int
+		wantPid int32 // zero means no credentials
+	}{
+		{"empty", nil, nil, 0},
+		{"shorter_than_a_header", []byte{1, 2, 3}, nil, 0},
+		{"length_zero", seamCmsg(0, unix.SOL_SOCKET, unix.SCM_RIGHTS, nil), nil, 0},
+		{"length_past_end_keeps_earlier_fds", append(unix.UnixRights(7), seamCmsg(1<<20, unix.SOL_SOCKET, unix.SCM_RIGHTS, nil)...), []int{7}, 0},
+		{"length_wraps_negative_keeps_earlier_fds", append(unix.UnixRights(7), seamCmsg(^uint64(0), unix.SOL_SOCKET, unix.SCM_RIGHTS, nil)...), []int{7}, 0},
+		{"partial_descriptor_is_ignored", partial(), []int{7}, 0},
+		{"credentials_body_8_bytes_is_not_accepted", short(8), nil, 0},
+		{"credentials_body_11_bytes_is_not_accepted", short(11), nil, 0},
+		{"credentials_body_12_bytes_is_accepted", unix.UnixCredentials(&unix.Ucred{Pid: 42, Uid: 1000, Gid: 1000}), nil, 42},
+		{"rights_then_truncated_header_keeps_fds", append(unix.UnixRights(7, 8), 1, 2, 3, 4), []int{7, 8}, 0},
+		{"three_descriptors", unix.UnixRights(7, 8, 9), []int{7, 8, 9}, 0},
+		{"last_message_padding_past_end_keeps_its_fd", seamCmsg(seamLen(unix.CmsgLen(4)), unix.SOL_SOCKET, unix.SCM_RIGHTS, word32(7))[:unix.CmsgLen(4)], []int{7}, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fds, creds := walkChanCmsgs(c.oob)
+			if !slices.Equal(fds, c.fds) {
+				t.Fatalf("fds %v, want %v", fds, c.fds)
+			}
+			if (creds != nil) != (c.wantPid != 0) {
+				t.Fatalf("credentials %v, want pid %d or none", creds, c.wantPid)
+			}
+			if creds != nil && creds.Pid != c.wantPid {
+				t.Fatalf("pid %d, want %d", creds.Pid, c.wantPid)
 			}
 		})
 	}

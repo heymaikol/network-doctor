@@ -312,11 +312,7 @@ func chanOraclePayload(seed uint64) []byte {
 		v = pick(chanOracleNumbers)
 	}
 	typ := pick(chanOracleTypes)
-	typeName := `"type"`
-	if r.IntN(12) == 0 {
-		typeName = `"type"`
-	}
-	members := []string{`"v":` + v, typeName + `:"` + typ + `"`}
+	members := []string{`"v":` + v, `"type":"` + typ + `"`}
 	if typ == "status" || r.IntN(5) == 0 {
 		kind := pick(chanOracleKinds)
 		if r.IntN(16) == 0 {

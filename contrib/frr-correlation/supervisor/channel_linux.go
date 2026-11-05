@@ -135,8 +135,8 @@ func walkChanCmsgs(oob []byte) ([]int, *unix.Ucred) {
 		if l < hdr || l > len(oob) {
 			break
 		}
-		lvl := int32(binary.NativeEndian.Uint32(oob[unix.SizeofPtr:]))   //nolint:gosec // G115: cmsg level is an int32 by ABI
-		typ := int32(binary.NativeEndian.Uint32(oob[unix.SizeofPtr+4:])) //nolint:gosec // G115: cmsg type is an int32 by ABI
+		lvl := binary.NativeEndian.Uint32(oob[unix.SizeofPtr:])
+		typ := binary.NativeEndian.Uint32(oob[unix.SizeofPtr+4:])
 		body := oob[hdr:l]
 		if lvl == unix.SOL_SOCKET {
 			switch typ {

@@ -352,3 +352,50 @@ func TestChanParseOracleSeeds(t *testing.T) {
 		t.Fatalf("generator degenerate: %d accepted, %d rejected", accepted, rejected)
 	}
 }
+
+// chanStubIdent answers chanDecide's identity question. err wins over pid and ppid.
+type chanStubIdent struct {
+	pid, ppid int
+	err       error
+}
+
+func (s chanStubIdent) pidInfo(int) (int, int, error) { return s.pid, s.ppid, s.err }
+
+// TestChanDecideIdentityRules covers the identity branches of chanDecide (3.3 checks 2, 4 and 7). The real identity
+// is slice 2, so the real-socket tests never reach these branches.
+func TestChanDecideIdentityRules(t *testing.T) {
+	initRec := chanParse{W: chanWire{V: 1, Type: "init"}, OK: true}
+	prodRec := chanParse{W: chanWire{V: 1, Type: "producer"}, OK: true}
+	creds := func(pid int) chanFacts { return chanFacts{N: 20, HasCreds: true, CredsPid: pid} }
+	cases := []struct {
+		name  string
+		st    chanState
+		f     chanFacts
+		p     chanParse
+		fds   []int
+		id    chanIdentity
+		want  string
+		stage int
+	}{
+		{"init_nil_identity_refused", chanState{}, creds(42), initRec, []int{5}, nil, "CLOSE:pidfd_info", 4},
+		{"init_identity_error", chanState{}, creds(42), initRec, []int{5}, chanStubIdent{err: ErrObservation}, "CLOSE:pidfd_info", 4},
+		{"init_pidfd_pid_mismatch", chanState{}, creds(42), initRec, []int{5}, chanStubIdent{pid: 7, ppid: 1}, "CLOSE:creds_pidfd", 4},
+		{"init_accepted", chanState{}, creds(42), initRec, []int{5}, chanStubIdent{pid: 42, ppid: 1}, "ACCEPT_INIT", 1},
+		{"init_two_fds_count_first", chanState{}, creds(42), initRec, []int{5, 6}, nil, "CLOSE:count", 4},
+		{"producer_nil_identity_refused", chanState{stage: 1, pidI: 42}, creds(42), prodRec, []int{6}, nil, "CLOSE:pidfd_info", 4},
+		{"producer_ppid_mismatch", chanState{stage: 1, pidI: 42}, creds(42), prodRec, []int{6}, chanStubIdent{pid: 9, ppid: 7}, "CLOSE:ppid", 4},
+		{"producer_creds_mismatch", chanState{stage: 1, pidI: 42}, creds(43), prodRec, []int{6}, chanStubIdent{pid: 9, ppid: 42}, "CLOSE:creds", 4},
+		{"producer_accepted", chanState{stage: 1, pidI: 42}, creds(42), prodRec, []int{6}, chanStubIdent{pid: 9, ppid: 42}, "ACCEPT_PRODUCER", 2},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := c.st
+			if got := chanDecide(&st, c.f, c.p, c.fds, c.id); got != c.want {
+				t.Fatalf("decided %q, want %q", got, c.want)
+			}
+			if st.stage != c.stage {
+				t.Errorf("stage %d, want %d", st.stage, c.stage)
+			}
+		})
+	}
+}

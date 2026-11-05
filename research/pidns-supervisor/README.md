@@ -13,6 +13,8 @@ Nothing here is wired into the supervisor. The harness is a separate Go module (
 | `contract-v6.1.md` | Design contract: topology, admission, channel framing, descriptor ownership, close ladder, test plan, gates, disposition tables. |
 | `src/frame61/` | Scratch harness and prototype (Go, module `frame61`, Linux only). Parser, receiver, and drain functions (`parseWire`, `decodeInt`, `decodeStr`, `objectMembers`, `receiveOne`, `drain`, `poisonDrain`). Decision and status rules (`decide`, `decidePost`, `statusGate`). Close-status rule (`commitExit`, `commitDrain`). Unit, stop-suite, and fuzz tests. |
 | `out/frame-r6-final2/` | Sanitized run record for R6 final-2: commands, results, label summaries, scan output, and the logs of the runs listed under Tests. |
+| `out/branch-scan.txt` | Branch scan record for this branch: counts only, with the scanned commit. |
+| `out/frame61-manifest.txt` | SHA-256 of each file under `src/frame61` at the scanned commit. |
 | `CHECKLIST.md` | Draft-start gates and production merge gates, each with its status. |
 
 ## Not published here
@@ -126,5 +128,6 @@ The contract cites these paths. They are NOT PUBLISHED here, and they are not ev
 - The incident process identifier is not in the current tree. Commits 98c0d511 through 4ea69f82 carry the earlier wording, including the pseudonymous label. The history is not rewritten.
 - The working-copy folder name is removed from the contract's S4 wording.
 - Historical diffs are not published.
-- Host paths, user names, session identifiers, addresses, and credentials were scanned for. None were found. Credential pointers in the logs are replaced with `creds:<pointer>` (see `RUN-INFO.txt`).
+- Home and scratch paths, user and account names, the host name, the working-copy folder name, IPv4 addresses, and dashes were scanned for in the tracked files of this branch. None were found. Session identifiers were not scanned for. The scan record is `out/branch-scan.txt`.
+- Credential pointers in the historical logs were replaced with a placeholder (see `out/frame-r6-final2/RUN-INFO.txt`).
 - Dash scan (em dash and en dash): none.

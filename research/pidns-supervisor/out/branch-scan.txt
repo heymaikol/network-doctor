@@ -1,0 +1,26 @@
+Branch scan record for research/pidns-supervisor (counts only)
+
+Scanned commit: 3a1b4f14, the branch head before this record was added.
+Base: origin/main 153e7236.
+Date: 2026-11-05.
+Scope: the 33 files that git diff --name-only origin/main...HEAD lists at the scanned commit, including .github/workflows/ci.yml; and the commit messages in origin/main..HEAD (12 commits).
+Not in scope: this record and out/frame61-manifest.txt, which are added after the scan; the pull request body, which is checked when it is published (the result is not in this file).
+Method: a short script over the text of each file at the scanned commit. It prints counts only. No matched value is copied into this record.
+
+Results:
+1. Incident label shape (letters INC, a hyphen, digits, a hyphen, digits): 0 hits.
+2. Process-identifier label followed by a number within 12 non-digit characters: 26 raw hits in 8 files, plus 37 raw hits whose value is 0 to 3. Each of the 26 was reviewed by hand. Classes: one container resource flag, three PIDFD_GET_INFO struct offsets, nine references to check numbers or contract rows, five measured counts, two count or bound statements, and six Go type names. Process-identifier values: 0.
+3. Home path, scratch path, user name, account name, working-copy folder name, review folder name, and host name: 0 hits for each pattern.
+4. Em dash: 0 hits. En dash: 0 hits.
+5. Credential label followed by text: 16 raw hits in 7 files. They are Go struct literals, placeholders written in the angle-bracket form, and prose or code. No credential value appears.
+6. IPv4 address, any class: 0 hits.
+
+Not checked: session identifiers. This scan defines no pattern for them.
+
+Historical records, not this tree:
+- out/frame-r6-final2/scan.txt covers the 109-file R6 candidate bundle, not this tree.
+- out/frame-r6-final2/RUN-INFO.txt is historical. Its H2 value and its stop_test.go value refer to files held outside this branch.
+
+Manifest: out/frame61-manifest.txt lists the SHA-256 of each of the 13 tracked files under src/frame61 at the scanned commit, in path order.
+The stop_test.go file in this branch has SHA-256 25547c0ec37a923b61f91ed868400c7b86272a3958b1c8bd6814d640a02b2ac0.
+The value 818ae2bd91a5ca477a5b11cb133823609568010713ad2f0b8cb86b0fcc39a929 names the frozen file held outside this branch. The build tag added in commit a356a15b changed the file, so the two values differ.

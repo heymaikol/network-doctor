@@ -215,19 +215,6 @@ func chanLeak(t *testing.T, before int) []string {
 	return nil
 }
 
-// chanRecvLabel names the close reason of an admission receive that ended the channel.
-func chanRecvLabel(k chanKind, err error) string {
-	switch {
-	case k == chanEOF:
-		return "CLOSE:eof"
-	case errors.Is(err, errChanDeadline):
-		return "CLOSE:timeout"
-	case errors.Is(err, errChanBudget), errors.Is(err, errChanCallBound):
-		return "CLOSE:budget"
-	}
-	return "CLOSE:recv_error"
-}
-
 // chanFakeIdent is the test identity. It answers for the record's own sender: the pid is the record's pid, and the
 // ppid is the admitted init pid. The real identity (PIDFD_GET_INFO) is slice 2 and is not tested here.
 type chanFakeIdent func(fd int) (pid, ppid int, err error)

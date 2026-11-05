@@ -201,11 +201,12 @@ func (e chanEnd) waitReadable(deadline time.Time) error {
 func (e chanEnd) recvOne(deadline time.Time) (chanKind, chanRecvd, error) {
 	calls, eintr := 0, 0
 	for {
-		if err := e.waitReadable(deadline); err != nil {
-			return chanErr, chanRecvd{}, err
-		}
+		// The ceiling comes before the wait, so a spent call budget never polls again.
 		if calls == chanMaxCalls {
 			return chanErr, chanRecvd{}, errChanCallBound
+		}
+		if err := e.waitReadable(deadline); err != nil {
+			return chanErr, chanRecvd{}, err
 		}
 		calls++
 		k, r, err := e.recvNB()

@@ -2,7 +2,9 @@
 
 Status words:
 
-- RUN HERE: run in this publication, on the published copy, on 2026-11-04.
+- RUN HERE: run on the branch in this round, on 2026-11-05, against the Go source as of commit a356a15b. No Go file has changed since then.
+- SOURCE-VERIFIED: checked by reading the branch source. Not run.
+- NOT PUBLISHED: cited in the contract and held outside this branch. Not evidence for this branch.
 - RECORDED: from `out/frame-r6-final2/`, not re-run here.
 - PENDING, OPEN, NOT RUN, NOT CLEARED: as the contract states.
 
@@ -20,9 +22,9 @@ Draft implementation status: NOT CLEARED until gates (a) and (b) pass. This pull
 
 | ID | Check | Status in this branch |
 |---|---|---|
-| CS1 | gofmt, go vet, unit suite, stop suite, build | RUN HERE: gofmt clean, vet clean, build pass, unit 43 top-level entries (41 Test, 2 Fuzz), 52 subtests, 95 PASS, 0 FAIL; stop suite 9 PASS, 0 FAIL. arm64 compile and vet: RECORDED. arm64 execution: NOT RUN. |
-| CS2 | `TestR6FinalUnknownIsFrozen`: green on the candidate, red on the R6 baseline, mutants red | Green: RUN HERE (inside the unit suite). Red run and mutants: RECORDED. The red run used a scratch shim that is not published. |
-| CS3 | 47-row matrix, 47 of 47, 0 label differences | RECORDED. Not re-run here. The matrix does not call `commitExit` and is not evidence for S2. |
+| CS1 | gofmt, go vet, unit suite, stop suite, build | RUN HERE on 2026-11-05: gofmt clean; vet clean (default and integration tags); build pass; integration-tagged suite 43 top-level (41 Test, 2 Fuzz), 52 subtests, 95 PASS, 0 FAIL; default build 6 top-level (4 Test, 2 Fuzz), 35 subtests, 41 PASS, 0 FAIL; stop suite 9 PASS, 0 FAIL; race with CGO_ENABLED=1 and the integration tag: ok, no data race. arm64 compile and vet: RECORDED. arm64 execution: NOT RUN. |
+| CS2 | `TestR6FinalUnknownIsFrozen`: green on the candidate, red on the R6 baseline, mutants red | Green: RUN HERE (integration-tagged suite, 5 subtests PASS). Red run and mutants: RECORDED, not re-run here. The red run used a scratch shim that is NOT PUBLISHED. The mutant logs (out/frame-r6-tests/mutation-a-log.txt, mutation-b-log.txt) are NOT PUBLISHED; whether they ran on the candidate source is not verified in this round. |
+| CS3 | 47-row matrix, 47 of 47, 0 label differences | RECORDED. Not re-run here. The matrix does not call `commitExit` and is not evidence for CS2. |
 | CS4 | Owner notice (0.3) changed from the carried text, identifier removed | Text corrected with a change record in the contract. Status: OPEN, tied to CS9. |
 | CS5 | Field scan: no process-identifier label followed by a value, no incident identifier, no host name, no dashes | RUN HERE on the published tree: no incident identifier; no process-identifier label followed by 3 or more digits; no host or user paths; no em or en dashes. Recorded scan: `out/frame-r6-final2/scan.txt`. |
 | CS6 | Tier A and E10 rows cite E10-R6 (47 rows) | Contract text. Not re-verified here. |

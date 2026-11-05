@@ -133,6 +133,39 @@ jobs:
         run: |
           "$RUNNER_TEMP/gohawk" ./...
 
+  # frame61 is a separate Go module (research/pidns-supervisor/src/frame61). The root ./... patterns do not reach it.
+  frame61:
+    name: PID namespace harness (frame61)
+    runs-on: ubuntu-26.04
+    env:
+      GOTOOLCHAIN: go1.27.3
+      CGO_ENABLED: "0"
+    defaults:
+      run:
+        working-directory: research/pidns-supervisor/src/frame61
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: research/pidns-supervisor/src/frame61/go.mod
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Vet and build both build tag sets
+        run: |
+          go vet .
+          go vet -tags integration .
+          go build -o /dev/null .
+      - name: Run default tests
+        run: go test -count=1 .
+      - name: Run integration-tagged tests
+        run: go test -count=1 -tags integration .
+      - name: Run race tests with cgo
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 -tags integration .
+
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

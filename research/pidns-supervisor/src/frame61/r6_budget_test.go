@@ -1,3 +1,5 @@
+//go:build integration
+
 package main
 
 // Per-receive and per-drain call budgets (R6 final; D control-flow review, item 2). Each budget applies to the operation

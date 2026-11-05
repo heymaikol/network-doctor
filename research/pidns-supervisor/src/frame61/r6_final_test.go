@@ -1,3 +1,5 @@
+//go:build integration
+
 package main
 
 // Regression for the final ExitStatus commit (R6 final; A52 (11)). CL0a is the commit point: the value it returns is

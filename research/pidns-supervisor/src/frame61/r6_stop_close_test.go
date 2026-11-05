@@ -1,3 +1,5 @@
+//go:build integration
+
 package main
 
 // Regression for CLOSE as the terminal decision of runCase (R6 final; D control-flow review, item 1). A CLOSE decision

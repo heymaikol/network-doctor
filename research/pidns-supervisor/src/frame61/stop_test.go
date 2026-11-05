@@ -1,3 +1,5 @@
+//go:build integration
+
 package main
 
 // Scratch regression tests for runCase stopping (issue 390). Test only; identical in every harness copy.

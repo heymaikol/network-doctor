@@ -1,3 +1,5 @@
+//go:build integration
+
 package main
 
 // Receive-path tests for R5 (contract 3.2, A40, A50). Real SOCK_SEQPACKET pairs; seams only where a test needs
@@ -426,13 +428,6 @@ func TestDrainCallCeiling(t *testing.T) {
 	if seamsArmed != 0 {
 		t.Fatalf("seams still armed: %d", seamsArmed)
 	}
-}
-
-// t2Known is the one-drain T2 rule: commitExit on a fresh handle whose poison is the drain's own error (R6-1).
-// Production code calls commitExit with the handle. The drain sets st.poison to the same error it returns in o.Err,
-// so this form cannot differ from the handle.
-func t2Known(o drainOut, pidI int) bool {
-	return commitExit(&state{poison: o.Err}, o, pidI, false) == "KNOWN"
 }
 
 func TestT2KnownOnlyForOneCleanStatus(t *testing.T) {

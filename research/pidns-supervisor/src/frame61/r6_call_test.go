@@ -1,3 +1,5 @@
+//go:build integration
+
 package main
 
 // Deterministic R6 final tests (contract 3.2, 3.4, 6.3, 6.4). The receive-call ceiling is an observation error, not a

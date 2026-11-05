@@ -149,6 +149,8 @@ func TestChanRecordGrammar(t *testing.T) {
 		{"short unicode escape in name", `{"v":1,"\u00":1,"type":"init"}`, false, false},
 		{"lone surrogate name is an unknown member", `{"v":1,"\ud800":1,"type":"init"}`, false, false},
 		{"duplicate type status", `{"v":1,"type":"status","type":"status","kind":"exit","value":0}`, false, false},
+		{"plain duplicate v", `{"v":1,"v":1,"type":"init"}`, false, false},
+		{"plain unknown member", `{"v":1,"x":1,"type":"init"}`, false, false},
 		{"uppercase name", `{"v":1,"TYPE":"status","kind":"exit","value":0}`, false, false},
 		{"extra member on init", `{"v":1,"type":"init","x":1}`, false, false},
 		{"extra member on status", `{"v":1,"type":"status","kind":"exit","value":0,"x":1}`, false, true},

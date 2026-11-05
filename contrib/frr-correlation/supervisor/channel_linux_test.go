@@ -1,0 +1,408 @@
+//go:build integration
+
+package supervisor
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"slices"
+	"strings"
+	"testing"
+
+	"golang.org/x/sys/unix"
+)
+
+// Real-socket tests for the channel receive path (contract 12.2: T32, T-DRAIN-UNIT, T-ADM-FRAMING). They carry the
+// integration tag and use only AF_UNIX socketpairs. Every test is rootless and deterministic.
+
+// Control buffer sizes, computed with CmsgSpace (contract A4). chanBufV6 holds one descriptor and no credentials.
+// chanBuf56 and chanBufV61 hold the credentials with two and four descriptors.
+var (
+	chanBufV6  = unix.CmsgSpace(4)
+	chanBuf56  = unix.CmsgSpace(12) + unix.CmsgSpace(8)
+	chanBufV61 = unix.CmsgSpace(12) + unix.CmsgSpace(16)
+)
+
+const (
+	chanInitRec = `{"v":1,"type":"init"}`
+	chanProdRec = `{"v":1,"type":"producer"}`
+)
+
+func chanStatusRec(kind string, value int) string {
+	return fmt.Sprintf(`{"v":1,"type":"status","kind":%q,"value":%d}`, kind, value)
+}
+
+// chanReadEOF reports whether a nonblocking pipe read end is at EOF: no writer is left and nothing is buffered.
+func chanReadEOF(rd int) bool {
+	buf := make([]byte, 1)
+	n, err := unix.Read(rd, buf)
+	return n == 0 && err == nil
+}
+
+// chanSocketPair returns an AF_UNIX SOCK_SEQPACKET socketpair. The parent end has SO_PASSCRED set when passcred is
+// true. The caller closes both ends.
+func chanSocketPair(t *testing.T, passcred bool) (parent, child int) {
+	t.Helper()
+	pair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if passcred {
+		if err := unix.SetsockoptInt(pair[0], unix.SOL_SOCKET, unix.SO_PASSCRED, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return pair[0], pair[1]
+}
+
+func chanClose(fds ...int) {
+	for _, fd := range fds {
+		if fd >= 0 {
+			_ = unix.Close(fd)
+		}
+	}
+}
+
+// chanSend sends one message from fd. The kernel attaches the sender's credentials when the receiver has
+// SO_PASSCRED set.
+func chanSend(t *testing.T, fd int, payload []byte, fds ...int) {
+	t.Helper()
+	var oob []byte
+	if len(fds) > 0 {
+		oob = unix.UnixRights(fds...)
+	}
+	if err := unix.Sendmsg(fd, payload, oob, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// chanPipe returns a pipe for descriptor tests. The read end is nonblocking, so chanReadEOF can run without a wait.
+func chanPipe(t *testing.T) (rd, wr int) {
+	t.Helper()
+	var p [2]int
+	if err := unix.Pipe2(p[:], unix.O_CLOEXEC); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.SetNonblock(p[0], true); err != nil {
+		t.Fatal(err)
+	}
+	return p[0], p[1]
+}
+
+// chanScripted returns a recvmsg seam that answers each call with the next entry. A nil entry calls the kernel, and
+// the test fails on any call beyond the script.
+func chanScripted(t *testing.T, seq ...error) func(int, []byte, []byte, int) (int, int, int, error) {
+	i := 0
+	return func(fd int, p, oob []byte, flags int) (int, int, int, error) {
+		if i >= len(seq) {
+			t.Fatalf("recvmsg called %d times, script has %d", i+1, len(seq))
+		}
+		err := seq[i]
+		i++
+		if err == nil {
+			return chanRecvmsg(fd, p, oob, flags)
+		}
+		return 0, 0, 0, err
+	}
+}
+
+// chanCounted wraps the real recvmsg and counts the calls.
+type chanCounted struct{ calls int }
+
+func (c *chanCounted) recvmsg(fd int, p, oob []byte, flags int) (int, int, int, error) {
+	c.calls++
+	return chanRecvmsg(fd, p, oob, flags)
+}
+
+// chanDecideRec decides one record received by a drain, with no identity call.
+func chanDecideRec(st *chanState, r chanRecvd) string {
+	return chanDecide(st, r.facts(), parseChanRecord(r.data), r.fds, nil)
+}
+
+func chanStatus(value int) string { return chanStatusRec("exit", value) }
+
+// TestChannelDrainCapAndOverflow is T-DRAIN-UNIT: the drain cases of 12.2 on real socketpairs. Case (l), the POLLNVAL
+// readiness case, is in T-T2-POLL, not here. Cases (e), (f), (k), (o) and (p) replace the recvmsg call with a seam, so
+// no signal is needed. Admitted state is set in every case that needs it, so the decision rules run on the drained
+// records.
+func TestChannelDrainCapAndOverflow(t *testing.T) {
+	self := os.Getpid()
+	admitted := func() *chanState { return &chanState{stage: 2, pidI: self} }
+
+	t.Run("a_eight_records_then_eagain", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		for range chanMaxRecords {
+			chanSend(t, child, []byte("r"))
+		}
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		o := end.drain(&chanState{})
+		if o.End != "EAGAIN" || o.Err != nil || len(o.Recs) != 8 || o.Calls != 9 {
+			t.Fatalf("End %s err %v recs %d calls %d, want EAGAIN clean with 8 records and 9 calls",
+				o.End, o.Err, len(o.Recs), o.Calls)
+		}
+	})
+
+	t.Run("b_nine_records_overflow", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		for range chanMaxRecords + 1 {
+			chanSend(t, child, []byte(chanStatus(0)))
+		}
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		st := admitted()
+		o := end.drain(st)
+		if o.End != "OVERFLOW_RECORD" || len(o.Recs) != 8 || !errors.Is(o.Err, ErrProtocolViolation) {
+			t.Fatalf("End %s recs %d err %v, want OVERFLOW_RECORD with 8 records and ErrProtocolViolation",
+				o.End, len(o.Recs), o.Err)
+		}
+		if got := chanDecideRec(st, o.Recs[0]); got != "UNKNOWN:observed" {
+			t.Fatalf("status after overflow decided %q, want UNKNOWN:observed", got)
+		}
+	})
+
+	t.Run("c_empty_queue_eagain_without_poll", func(t *testing.T) {
+		for run := range 5 {
+			parent, child := chanSocketPair(t, true)
+			sys := realChanSys()
+			sys.poll = func(int, int) (int16, error) {
+				t.Fatalf("run %d: drain called poll", run)
+				return 0, nil
+			}
+			end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: sys}
+			o := end.drain(&chanState{})
+			chanClose(parent, child)
+			if o.End != "EAGAIN" || o.Err != nil || len(o.Recs) != 0 || o.Calls != 1 {
+				t.Fatalf("run %d: End %s err %v recs %d calls %d, want EAGAIN at the first call",
+					run, o.End, o.Err, len(o.Recs), o.Calls)
+			}
+		}
+	})
+
+	t.Run("d_eof_is_clean", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent)
+		chanClose(child)
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		o := end.drain(&chanState{})
+		if o.End != "EOF" || o.Err != nil || len(o.Recs) != 0 {
+			t.Fatalf("End %s err %v recs %d, want clean EOF", o.End, o.Err, len(o.Recs))
+		}
+	})
+
+	t.Run("e_eight_eintr_then_eagain_is_clean", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		seq := slices.Concat(slices.Repeat([]error{unix.EINTR}, chanMaxEINTR), []error{unix.EAGAIN})
+		sys := realChanSys()
+		sys.recvmsg = chanScripted(t, seq...)
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: sys}
+		o := end.drain(&chanState{})
+		if o.End != "EAGAIN" || o.Err != nil || o.EINTR != 8 || o.Calls != 9 {
+			t.Fatalf("End %s err %v eintr %d calls %d, want clean EAGAIN after 8 EINTR", o.End, o.Err, o.EINTR, o.Calls)
+		}
+	})
+
+	t.Run("f_nine_eintr_overflow", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		sys := realChanSys()
+		sys.recvmsg = chanScripted(t, slices.Repeat([]error{unix.EINTR}, chanMaxEINTR+1)...)
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: sys}
+		o := end.drain(&chanState{})
+		if o.End != "OVERFLOW_EINTR" || !errors.Is(o.Err, ErrProtocolViolation) {
+			t.Fatalf("End %s err %v, want OVERFLOW_EINTR and ErrProtocolViolation", o.End, o.Err)
+		}
+	})
+
+	t.Run("g_received_descriptors_closed_at_once", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		rd, wr := chanPipe(t)
+		defer chanClose(rd)
+		chanSend(t, child, []byte(chanStatus(0)), wr)
+		chanClose(wr)
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		o := end.drain(&chanState{})
+		if o.End != "EAGAIN" || len(o.Recs) != 1 || o.Recs[0].nfds != 1 || o.Recs[0].fds != nil || !o.CloexecOK {
+			t.Fatalf("End %s recs %d cloexec %v, want one record with a count of 1, no descriptors kept, and FD_CLOEXEC", o.End, len(o.Recs), o.CloexecOK)
+		}
+		if !chanReadEOF(rd) {
+			t.Fatal("the received pipe writer is still open after the drain")
+		}
+	})
+
+	t.Run("h_zero_length_with_creds_is_a_record", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		chanSend(t, child, nil)
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		o := end.drain(&chanState{})
+		if o.End != "EAGAIN" || len(o.Recs) != 1 || o.Recs[0].n != 0 {
+			t.Fatalf("End %s recs %d, want one zero-length record and EAGAIN", o.End, len(o.Recs))
+		}
+		if got := chanDecideRec(&chanState{}, o.Recs[0]); got != "CLOSE:empty" {
+			t.Fatalf("decided %q, want CLOSE:empty", got)
+		}
+	})
+
+	t.Run("i_zero_length_without_creds_is_a_record", func(t *testing.T) {
+		parent, child := chanSocketPair(t, false)
+		defer chanClose(parent, child)
+		chanSend(t, child, nil)
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: false, sys: realChanSys()}
+		o := end.drain(&chanState{})
+		if o.End != "EAGAIN" || len(o.Recs) != 1 {
+			t.Fatalf("End %s recs %d, want one record and EAGAIN (not EOF)", o.End, len(o.Recs))
+		}
+		if got := chanDecideRec(&chanState{}, o.Recs[0]); got != "CLOSE:nocreds" {
+			t.Fatalf("decided %q, want CLOSE:nocreds", got)
+		}
+	})
+
+	t.Run("j_truncated_record_counts_and_closes", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		chanSend(t, child, []byte(strings.Repeat(" ", chanDataBuf+100)))
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		o := end.drain(&chanState{})
+		if o.End != "EAGAIN" || len(o.Recs) != 1 || o.Recs[0].flags&unix.MSG_TRUNC == 0 {
+			t.Fatalf("End %s recs %d, want one truncated record and EAGAIN", o.End, len(o.Recs))
+		}
+		if got := chanDecideRec(&chanState{}, o.Recs[0]); got != "CLOSE:trunc" {
+			t.Fatalf("decided %q, want CLOSE:trunc", got)
+		}
+	})
+
+	t.Run("k_recvmsg_error_is_observation", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		sys := realChanSys()
+		sys.recvmsg = chanScripted(t, unix.EIO)
+		st := admitted()
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: sys}
+		o := end.drain(st)
+		if o.End != "ERR" || !errors.Is(o.Err, ErrObservation) || len(o.Recs) != 0 || st.poison == nil {
+			t.Fatalf("End %s err %v recs %d poison %v, want ERR wrapping ErrObservation and a poisoned state",
+				o.End, o.Err, len(o.Recs), st.poison)
+		}
+	})
+
+	t.Run("m_status_with_fd_and_truncated_status_are_not_known", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		rd, wr := chanPipe(t)
+		defer chanClose(rd)
+		chanSend(t, child, []byte(chanStatus(0)), wr)
+		chanClose(wr)
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		st := admitted()
+		o := end.drain(st)
+		if len(o.Recs) != 1 || o.Recs[0].nfds != 1 {
+			t.Fatalf("recs %d, want one record that kept its descriptor count", len(o.Recs))
+		}
+		if got := chanDecideRec(st, o.Recs[0]); got != "CLOSE:status_fd" {
+			t.Fatalf("decided %q, want CLOSE:status_fd", got)
+		}
+		if !chanReadEOF(rd) {
+			t.Fatal("the status descriptor is still open after the drain")
+		}
+
+		tparent, tchild := chanSocketPair(t, true)
+		defer chanClose(tparent, tchild)
+		chanSend(t, tchild, []byte(chanStatus(0)+strings.Repeat(" ", chanDataBuf)))
+		tend := chanEnd{fd: tparent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		to := tend.drain(admitted())
+		if len(to.Recs) != 1 || to.Recs[0].flags&unix.MSG_TRUNC == 0 {
+			t.Fatalf("recs %d, want one truncated record", len(to.Recs))
+		}
+		if got := chanDecideRec(admitted(), to.Recs[0]); got != "CLOSE:trunc" {
+			t.Fatalf("decided %q, want CLOSE:trunc", got)
+		}
+	})
+
+	t.Run("n_overflow_poisons_later_status", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		for range chanMaxRecords + 1 {
+			chanSend(t, child, []byte(chanStatus(0)))
+		}
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: realChanSys()}
+		st := admitted()
+		if o := end.drain(st); o.End != "OVERFLOW_RECORD" {
+			t.Fatalf("first drain End %s, want OVERFLOW_RECORD", o.End)
+		}
+		chanSend(t, child, []byte(chanStatus(0)))
+		var counted chanCounted
+		end.sys.recvmsg = counted.recvmsg
+		o := end.drain(st)
+		if o.End != "POISONED" || counted.calls != 0 || !errors.Is(o.Err, ErrProtocolViolation) {
+			t.Fatalf("later drain End %s calls %d err %v, want POISONED with 0 calls", o.End, counted.calls, o.Err)
+		}
+		late := chanRecvd{data: []byte(chanStatus(0)), n: len(chanStatus(0)), creds: &unix.Ucred{Pid: int32(self)}}
+		if got := chanDecideRec(st, late); got != "UNKNOWN:observed" {
+			t.Fatalf("later status decided %q, want UNKNOWN:observed", got)
+		}
+	})
+
+	t.Run("o_observation_error_poisons_later_status", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		sys := realChanSys()
+		sys.recvmsg = chanScripted(t, unix.EIO)
+		st := admitted()
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: sys}
+		if o := end.drain(st); !errors.Is(o.Err, ErrObservation) {
+			t.Fatalf("first drain err %v, want ErrObservation", o.Err)
+		}
+		chanSend(t, child, []byte(chanStatus(0)))
+		var counted chanCounted
+		end.sys.recvmsg = counted.recvmsg
+		o := end.drain(st)
+		if o.End != "POISONED" || counted.calls != 0 {
+			t.Fatalf("later drain End %s calls %d, want POISONED with 0 calls", o.End, counted.calls)
+		}
+		late := chanRecvd{data: []byte(chanStatus(0)), n: len(chanStatus(0)), creds: &unix.Ucred{Pid: int32(self)}}
+		if got := chanDecideRec(st, late); got != "UNKNOWN:observed" {
+			t.Fatalf("later status decided %q, want UNKNOWN:observed", got)
+		}
+	})
+
+	t.Run("p_ninth_eintr_in_one_drain_is_protocol_violation", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		chanSend(t, child, []byte(chanStatus(0)))
+		// Five EINTR, one real record, then four EINTR: the ninth EINTR of this drain overflows.
+		seq := slices.Concat(
+			slices.Repeat([]error{unix.EINTR}, 5),
+			[]error{nil},
+			slices.Repeat([]error{unix.EINTR}, 4),
+		)
+		sys := realChanSys()
+		sys.recvmsg = chanScripted(t, seq...)
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: sys}
+		o := end.drain(&chanState{})
+		if o.End != "OVERFLOW_EINTR" || o.EINTR != 8 || len(o.Recs) != 1 || !errors.Is(o.Err, ErrProtocolViolation) {
+			t.Fatalf("End %s eintr %d recs %d err %v, want OVERFLOW_EINTR at 8 EINTR with ErrProtocolViolation",
+				o.End, o.EINTR, len(o.Recs), o.Err)
+		}
+	})
+
+	t.Run("q_status_then_observation_error_is_not_known", func(t *testing.T) {
+		parent, child := chanSocketPair(t, true)
+		defer chanClose(parent, child)
+		chanSend(t, child, []byte(chanStatus(0)))
+		sys := realChanSys()
+		sys.recvmsg = chanScripted(t, nil, unix.EIO)
+		st := admitted()
+		end := chanEnd{fd: parent, ctl: chanBufV61, credsOn: true, sys: sys}
+		o := end.drain(st)
+		if o.End != "ERR" || len(o.Recs) != 1 || !errors.Is(o.Err, ErrObservation) {
+			t.Fatalf("End %s recs %d err %v, want ERR after one status", o.End, len(o.Recs), o.Err)
+		}
+		if got := chanDecideRec(st, o.Recs[0]); got != "UNKNOWN:observed" {
+			t.Fatalf("status before the error decided %q, want UNKNOWN:observed", got)
+		}
+	})
+}

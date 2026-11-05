@@ -72,7 +72,7 @@ T117 is listed in contract 12.2 (Tier B) and is NOT RUN. Slices 3 and 4 merge as
 
 - [ ] `./scripts/check` passes (gate A).
 - [ ] `./scripts/check --race` for launcher or channel changes (gate C).
-- [ ] Real-socket tests carry the `integration` build tag and stay loopback-only (gate B, AGENTS.md). The harness in this branch does not yet (see README, limitation 3).
+- [ ] Real-socket tests carry the `integration` build tag and stay loopback-only (gate B, AGENTS.md). The frame61 socket tests carry the tag (commit a356a15b); production slices still need it.
 - [ ] No em dashes in tracked text (`TestNoEmDashInTrackedTextFiles`).
 - [ ] Commit subjects are short and imperative, with no Conventional Commit prefix. No attribution trailers.
 - [ ] `CGO_ENABLED=0`. Go 1.27.3 through the module.

@@ -1,4 +1,3 @@
-//nolint:unused // ponytail: no production caller until the slice 3 launcher; drop this line then.
 package supervisor
 
 import (
@@ -46,10 +45,12 @@ type chanSys struct {
 	poll    func(fd, ms int) (int16, error)
 }
 
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 func realChanSys() chanSys {
 	return chanSys{recvmsg: chanRecvmsg, poll: chanPoll}
 }
 
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 func chanRecvmsg(fd int, p, oob []byte, flags int) (int, int, int, error) {
 	n, oobn, rflags, _, err := unix.Recvmsg(fd, p, oob, flags)
 	return n, oobn, rflags, err
@@ -57,6 +58,8 @@ func chanRecvmsg(fd int, p, oob []byte, flags int) (int, int, int, error) {
 
 // chanPoll waits up to ms milliseconds for fd to become readable and returns the revents bits. It uses ppoll,
 // because poll is absent on linux/arm64.
+//
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 func chanPoll(fd, ms int) (int16, error) {
 	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} //nolint:gosec // G115: fd is an open descriptor, far below int32 range
 	ts := unix.NsecToTimespec(int64(ms) * int64(time.Millisecond))
@@ -87,6 +90,8 @@ type chanRecvd struct {
 }
 
 // facts returns what the kernel reported for r, for the decision rules. It does not own the descriptors.
+//
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 func (r chanRecvd) facts() chanFacts {
 	f := chanFacts{
 		N:      r.n,
@@ -227,6 +232,8 @@ func (e chanEnd) recvOne(deadline time.Time) (chanKind, chanRecvd, error) {
 
 // chanDrainOut is the result of one drain (A40). Recs holds the accepted records. Their descriptors are closed before
 // the drain returns. Each record keeps its length, flags, descriptor count and credentials.
+//
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 type chanDrainOut struct {
 	Recs      []chanRecvd
 	EINTR     int
@@ -239,6 +246,8 @@ type chanDrainOut struct {
 // drain reads without blocking until EAGAIN or EOF, or until an overflow or an observation error (A40). It never polls
 // or sleeps. An overflow or an observation error poisons st (R6), so every later drain returns POISONED without a
 // recvmsg call. Every recvmsg of the drain counts toward chanMaxCalls, including the terminal call.
+//
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 func (e chanEnd) drain(st *chanState) chanDrainOut {
 	o := chanDrainOut{CloexecOK: true}
 	if st.poison != nil {
@@ -277,6 +286,7 @@ func (e chanEnd) drain(st *chanState) chanDrainOut {
 	}
 }
 
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 func chanPoison(o chanDrainOut, st *chanState, end string, err error) chanDrainOut {
 	o.End, o.Err = end, err
 	st.poison = err
@@ -284,6 +294,8 @@ func chanPoison(o chanDrainOut, st *chanState, end string, err error) chanDrainO
 }
 
 // chanCloexecAll reports whether every descriptor has FD_CLOEXEC. Call it before the descriptors are closed.
+//
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 func chanCloexecAll(fds []int) bool {
 	for _, fd := range fds {
 		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
@@ -294,6 +306,7 @@ func chanCloexecAll(fds []int) bool {
 	return true
 }
 
+//nolint:unused // slice 3 launcher is the first production caller; delete this line then.
 func chanCloseFds(fds []int) {
 	for _, fd := range fds {
 		_ = unix.Close(fd)

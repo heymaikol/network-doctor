@@ -145,12 +145,6 @@ func TestChanRecordGrammar(t *testing.T) {
 		{"status signal", `{"v":1,"type":"status","kind":"signal","value":9}`, true, true},
 		{"status unknown kind is grammatical", `{"v":1,"type":"status","kind":"bogus","value":0}`, true, true},
 		{"surrounding whitespace", " {\"v\":1,\"type\":\"init\"}\n", true, false},
-		{"escaped name decodes to type", `{"v":1,"type":"init"}`, true, false},
-		{"escaped value decodes", `{"v":1,"type":"init"}`, true, false},
-		{"escaped kind and value on status", `{"v":1,"type":"status","kind":"exit","value":0}`, true, true},
-		{"escaped duplicate type", `{"v":1,"type":"init","type":"init"}`, false, false},
-		{"escaped duplicate v", `{"v":1,"v":1,"type":"init"}`, false, false},
-		{"escaped unknown member", `{"v":1,"x":1,"type":"init"}`, false, false},
 		{"invalid escape in name", `{"v":1,"\x":1,"type":"init"}`, false, false},
 		{"short unicode escape in name", `{"v":1,"\u00":1,"type":"init"}`, false, false},
 		{"lone surrogate name is an unknown member", `{"v":1,"\ud800":1,"type":"init"}`, false, false},
@@ -185,6 +179,48 @@ func TestChanRecordGrammar(t *testing.T) {
 			ref := refChanParse([]byte(c.in))
 			if ref.OK != c.ok || ref.Cand != c.cand {
 				t.Fatalf("refChanParse(%q) ok=%v cand=%v, want ok=%v cand=%v", c.in, ref.OK, ref.Cand, c.ok, c.cand)
+			}
+		})
+	}
+}
+
+// TestChanEscapedRecordGrammar feeds member names and values written with JSON \u escapes. The inputs are raw strings,
+// so the escapes reach the parser as written. An interpreted string would decode them at compile time and the row
+// would test plain names. lit is the escape the input must contain, and the guard fails a row whose input lost it.
+func TestChanEscapedRecordGrammar(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		lit  string
+		ok   bool
+		cand bool
+	}{
+		{"escaped type name", `{"v":1,"\u0074ype":"init"}`, `\u0074`, true, false},
+		{"escaped type value", `{"v":1,"type":"\u0069nit"}`, `\u0069`, true, false},
+		{"escaped type and status value make a candidate", `{"v":1,"\u0074ype":"\u0073tatus","\u006bind":"\u0065xit","value":0}`, `\u0074`, true, true},
+		{"escaped duplicate type", `{"v":1,"type":"init","\u0074ype":"init"}`, `\u0074`, false, false},
+		{"escaped duplicate v", `{"v":1,"\u0076":1,"type":"init"}`, `\u0076`, false, false},
+		{"escaped duplicate type on a status is not a candidate", `{"v":1,"type":"status","\u0074ype":"status","kind":"exit","value":0}`, `\u0074`, false, false},
+		{"escaped unknown member", `{"v":1,"\u0078":1,"type":"init"}`, `\u0078`, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if len(c.lit) != 6 || c.lit[:2] != `\u` {
+				t.Fatalf("lit %q is not a six-character unicode escape", c.lit)
+			}
+			if _, err := strconv.ParseUint(c.lit[2:], 16, 16); err != nil {
+				t.Fatalf("lit %q is not a unicode escape: %v", c.lit, err)
+			}
+			if !strings.Contains(c.in, c.lit) {
+				t.Fatalf("input %s lacks its literal escape %s, so the row would test plain names", c.in, c.lit)
+			}
+			got := parseChanRecord([]byte(c.in))
+			if got.OK != c.ok || got.Cand != c.cand {
+				t.Fatalf("parseChanRecord(%s) ok=%v cand=%v, want ok=%v cand=%v", c.in, got.OK, got.Cand, c.ok, c.cand)
+			}
+			ref := refChanParse([]byte(c.in))
+			if ref.OK != c.ok || ref.Cand != c.cand {
+				t.Fatalf("refChanParse(%s) ok=%v cand=%v, want ok=%v cand=%v", c.in, ref.OK, ref.Cand, c.ok, c.cand)
 			}
 		})
 	}

@@ -78,7 +78,7 @@ Not run anywhere: `-fuzz` runs, the 150-seed differential oracle, race runs, 32-
 2. Linux only. The harness has no build tags and no non-Linux stubs. Arm64 is compile and vet only. There is no 32-bit build.
 3. Socket tests lack the `integration` build tag. The tests open `AF_UNIX` `SOCK_SEQPACKET` pairs with `socketpair`. They are loopback-only (no network), but `AGENTS.md` requires the tag for real-socket tests. Fix this before any slice uses this code.
 4. Process-number signals. The harness calls `Process.Kill()` on its own child processes (`main.go` lines 854 and 1235). That is `exec.Cmd` cleanup, not a process-number signal to a producer. The base supervisor still signals by process number and by process group (`namespace_linux.go` lines 289 to 292, `child_linux.go` lines 275, 278, and 287). Slice 4 removes those paths. The contract forbids a process-number signal in any production code, and this branch adds none.
-5. Owner notice D9 is open. The process identifier in the notice is replaced by `INC-390-01`, and the original stays in restricted storage. The notice text changed from the carried wording. The contract's 0.3 change record lists each change.
+5. Owner notice D9 is open. The process identifier in the notice is removed from this branch, and the original stays in restricted storage. The notice text changed from the carried wording. The contract's 0.3 change record lists each change.
 6. Host residual D11. A producer in the namespace shares the host procfs view. Cross-uid visibility is predicted, not measured.
 7. Documentation status. The contract's header lines (`DESIGN ONLY`, "No draft code has been written", "no PR") were written before this publication. The harness is the scratch code the contract describes. This pull request does not clear any gate.
 8. Reviewer attributions (B, C, D) in the contract were not re-verified in this publication.
@@ -102,7 +102,7 @@ No deployment, release, tag, or merge is authorized by this branch or this pull 
 
 ## Sanitization
 
-- The incident process identifier is replaced by `INC-390-01`. The identifier is not in this branch.
+- The incident process identifier is not in the current tree. Commits 98c0d511 through 4ea69f82 carry the earlier wording, including the pseudonymous label. The history is not rewritten.
 - The working-copy folder name is removed from the contract's S4 wording.
 - Historical diffs are not published.
 - Host paths, user names, session identifiers, addresses, and credentials were scanned for. None were found. Credential pointers in the logs are replaced with `creds:<pointer>` (see `RUN-INFO.txt`).

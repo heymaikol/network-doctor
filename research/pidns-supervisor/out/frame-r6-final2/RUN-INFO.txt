@@ -1,0 +1,80 @@
+R6 final-2 run record (contract v6.1, revision R6 final-2, corrective pass 88ac)
+
+Source hash H2:
+  6bf96406d39fe730239c4646e1f811300befa15f89537b604f8e9ed831a5246d
+  H2 is the SHA-256 of src-manifest.txt in this folder. That manifest lists the SHA-256 of each
+  file of src/frame61 in path order, excluding SHA256SUMS.
+
+Change against R6 final (the frozen extraction):
+  Changed: main.go (commitExit takes a final flag; the value is stored and frozen at the commit point),
+  r6_call_test.go and receive_test.go (call sites pass the final flag).
+  Added: r6_final_test.go (TestR6FinalUnknownIsFrozen, five subtests).
+  Unchanged: stop_test.go, SHA-256 818ae2bd91a5ca477a5b11cb133823609568010713ad2f0b8cb86b0fcc39a929.
+
+Toolchain:
+  go version go1.27.3 linux/amd64
+  Environment for every step: GOTOOLCHAIN=go1.27.3 GOPROXY=off CGO_ENABLED=0 GOFLAGS=-buildvcs=false
+  Executed architecture: linux/amd64. arm64: compile and vet only. No 386 build.
+
+Commands and results (each step in a copy of src/frame61 or the candidate build):
+
+  #   Step                                              Result                                         File                    Status
+  1   gofmt -l .                                        rc 0, no output                                gofmt.txt               PASS
+  2   go vet .                                          rc 0, no output                                vet.txt                 PASS
+  3   go test -count=1 -timeout 300s -v .               rc 0. 43 top-level tests, 95 PASS lines        unit-full.txt           PASS
+                                                        (with subtests), 0 FAIL.
+  4   go test -count=1 -timeout 120s                    rc 0. 9 PASS lines, 0 FAIL.                    stop-suite.txt          PASS
+      -run '^TestStopRunCase$' -v .
+  5   GOOS=linux GOARCH=arm64 go test -c -o arm64.test . rc 0, no output                               arm64-compile.txt       PASS (compile only)
+  6   GOOS=linux GOARCH=arm64 go vet .                  rc 0, no output                                arm64-vet.txt           PASS (vet only)
+  7   go build -o bin-frame61 .                         rc 0, no output                                build.txt               PASS
+  8   Red, before the fix: R6 source with commitExit    rc 1. Fails: cl0a_no_record_then_status_       red-final.txt           EXPECTED FAIL
+      renamed to commitExitR6 and the red shim below;   stays_unknown, final_known_is_frozen (and the
+      go test -count=1 -v -run TestR6FinalUnknownIsFrozen .   parent test). Passes: t2_no_record_then_
+                                                        cl0a_status_is_known, protocol_violation_then_
+                                                        status_stays_unknown, observation_error_then_
+                                                        status_stays_unknown.
+  9   Green, after the fix: candidate source;           rc 0. 5 subtests PASS, 0 FAIL.                 green-focused.txt       PASS
+      go test -count=1 -v -run '^TestR6FinalUnknownIsFrozen$' .
+  10  Mutant A, final store removed: main.go with       FAIL cl0a_no_record_then_status_stays_unknown  mut-nofinalstore.txt   EXPECTED FAIL
+      "st.committed = true" in place of the final store
+      of the commit value.
+  11  Mutant B, freeze removed: "if false && st.committed"  FAIL final_known_is_frozen                mut-nofreeze.txt       EXPECTED FAIL
+  12  Matrix, FRAME61_CASES unset, bin-frame61 built   SUMMARY pass=47 total=47. Label comparison       summary-r6-final2-labels.txt,  PASS (labels)
+      after the final edit of main.go                   with the frozen R6 summary: 47 rows, 47 rows,  label-comparison-r6.txt
+                                                        0 label differences.
+  13  Scan of the candidate (scan.txt)                 Incident identifier: none. Process-identifier   scan.txt               PASS
+                                                        labels: only namespace-local values 0 to 3.
+                                                        Dash files: none. Host words: none. IPv4: none.
+
+Red shim (scratch only, not in the bundle). The red copy used this file in place of the final-aware rule:
+  func commitExit(st *state, o drainOut, pidI int, final bool) string { return commitExitR6(st, o, pidI) }
+  It ignores the final flag, so the new test compiles against the R6 rule. Only step 8 uses it.
+
+What the matrix does not show: the 47-row matrix does not call commitExit. It is not evidence for
+the commit fix (steps 8 to 11 are the evidence for that).
+
+Log sanitizing:
+  Test dumps print credential pointers (creds:0x...). The shipped copies replace each pointer value with
+  creds:<pointer>. No other text is changed. Command: sed -i 's/creds:0x[0-9a-f]\+/creds:<pointer>/g'
+  Applied to: unit-full.txt, stop-suite.txt, green-focused.txt, red-final.txt, mut-nofinalstore.txt,
+  mut-nofreeze.txt.
+
+Not in this folder, on purpose:
+  The raw matrix output. It holds kernel process identifiers and stays in scratch. Only the label
+  summary and the label comparison are shipped.
+
+Not run (NOT RUN):
+  - arm64 test execution (production slices 3 to 5; the scratch harness has arm64 compile and vet only).
+  - 32-bit build.
+  - The generated differential oracle (150 seeds).
+  - -fuzz runs (the fuzz seed corpora run as part of step 3).
+  - Production gates: T-DRAIN-UNIT, T-T2-POLL, T-CL7-RELEASE, T-CL6-JOIN, T-FINAL-COMMIT,
+    T-ADM-FRAMING (production), T32, T-CL0, T-ZAP-ORDER, T-CLOSE-BOUND, T-CLOSE-LIVE, T08,
+    slice 1 integration and race gates.
+
+Disclosures:
+  - src/flat61/chain61.py (scratch tool, unchanged) has a PID-number fallback (Popen.kill, line 385) that
+    runs only after a pidfd SIGKILL and a 5 s wait both fail. Whether it ran in any recorded run is not
+    recorded. The header line that says "pidfd_send_signal only" is inaccurate. Contract 0.3 states both.
+  - Advisor calls are not evidence for any row in this record.

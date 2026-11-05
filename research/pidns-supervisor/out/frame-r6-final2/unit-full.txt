@@ -1,0 +1,193 @@
+=== RUN   TestAcceptPathsWithInjectedIdentity
+--- PASS: TestAcceptPathsWithInjectedIdentity (0.00s)
+=== RUN   TestParseWireEscapedNames
+--- PASS: TestParseWireEscapedNames (0.00s)
+=== RUN   TestR6BudgetPerReceiveRestarts
+--- PASS: TestR6BudgetPerReceiveRestarts (0.00s)
+=== RUN   TestR6BudgetDrainEndsOnFirstEAGAIN
+--- PASS: TestR6BudgetDrainEndsOnFirstEAGAIN (0.00s)
+=== RUN   TestR6CallCeilingIsObservation
+--- PASS: TestR6CallCeilingIsObservation (0.00s)
+=== RUN   TestR6PollRawOnSocketPair
+--- PASS: TestR6PollRawOnSocketPair (0.00s)
+=== RUN   TestR6FinalExitCommit
+=== RUN   TestR6FinalExitCommit/clean_cl0a_keeps_known
+=== RUN   TestR6FinalExitCommit/observation_error_at_cl0a_is_final_unknown
+=== RUN   TestR6FinalExitCommit/second_record_at_cl0a_is_unknown
+=== RUN   TestR6FinalExitCommit/poisoned_handle_is_never_known
+--- PASS: TestR6FinalExitCommit (0.00s)
+    --- PASS: TestR6FinalExitCommit/clean_cl0a_keeps_known (0.00s)
+    --- PASS: TestR6FinalExitCommit/observation_error_at_cl0a_is_final_unknown (0.00s)
+    --- PASS: TestR6FinalExitCommit/second_record_at_cl0a_is_unknown (0.00s)
+    --- PASS: TestR6FinalExitCommit/poisoned_handle_is_never_known (0.00s)
+=== RUN   TestR6FinalUnknownIsFrozen
+=== RUN   TestR6FinalUnknownIsFrozen/cl0a_no_record_then_status_stays_unknown
+=== RUN   TestR6FinalUnknownIsFrozen/t2_no_record_then_cl0a_status_is_known
+=== RUN   TestR6FinalUnknownIsFrozen/final_known_is_frozen
+=== RUN   TestR6FinalUnknownIsFrozen/protocol_violation_then_status_stays_unknown
+=== RUN   TestR6FinalUnknownIsFrozen/observation_error_then_status_stays_unknown
+--- PASS: TestR6FinalUnknownIsFrozen (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/cl0a_no_record_then_status_stays_unknown (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/t2_no_record_then_cl0a_status_is_known (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/final_known_is_frozen (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/protocol_violation_then_status_stays_unknown (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/observation_error_then_status_stays_unknown (0.00s)
+=== RUN   TestR6CloseIsTerminalInRunCase
+--- PASS: TestR6CloseIsTerminalInRunCase (0.00s)
+=== RUN   TestR6DrainKeepsMetadataAndClosesFds
+--- PASS: TestR6DrainKeepsMetadataAndClosesFds (0.00s)
+=== RUN   TestR6OverflowPoisonsLaterStatus
+--- PASS: TestR6OverflowPoisonsLaterStatus (0.00s)
+=== RUN   TestR6ObservationErrorWrapsAndPoisons
+--- PASS: TestR6ObservationErrorWrapsAndPoisons (0.00s)
+=== RUN   TestR6EINTROverflowIsProtocolViolation
+--- PASS: TestR6EINTROverflowIsProtocolViolation (0.00s)
+=== RUN   TestR6PostStatusErrorIsNotKnown
+--- PASS: TestR6PostStatusErrorIsNotKnown (0.00s)
+=== RUN   TestR6StatusGateSameForDecideAndT2
+--- PASS: TestR6StatusGateSameForDecideAndT2 (0.00s)
+=== RUN   TestR6IntegerGrammarMatchesRefParse
+--- PASS: TestR6IntegerGrammarMatchesRefParse (0.00s)
+=== RUN   TestRecvNBNeverBlocks
+--- PASS: TestRecvNBNeverBlocks (0.00s)
+=== RUN   TestReceiveDeadlineIsBounded
+--- PASS: TestReceiveDeadlineIsBounded (0.08s)
+=== RUN   TestRecvEINTRBudget
+--- PASS: TestRecvEINTRBudget (0.00s)
+=== RUN   TestPollEINTRRetriedInsideDeadline
+--- PASS: TestPollEINTRRetriedInsideDeadline (0.00s)
+=== RUN   TestPollEINTRForeverStopsAtDeadline
+--- PASS: TestPollEINTRForeverStopsAtDeadline (0.08s)
+=== RUN   TestPollInvalidDescriptorFailsClosed
+--- PASS: TestPollInvalidDescriptorFailsClosed (0.00s)
+=== RUN   TestEAGAINAfterReadablePollRepolls
+--- PASS: TestEAGAINAfterReadablePollRepolls (0.00s)
+=== RUN   TestReceiveCallCapIsSeventeen
+--- PASS: TestReceiveCallCapIsSeventeen (0.00s)
+=== RUN   TestRecvErrorIsNeverEOF
+--- PASS: TestRecvErrorIsNeverEOF (0.00s)
+=== RUN   TestDrainEOFNeedsCreds
+--- PASS: TestDrainEOFNeedsCreds (0.00s)
+=== RUN   TestDrainZeroLengthIsRecordWithoutCreds
+--- PASS: TestDrainZeroLengthIsRecordWithoutCreds (0.00s)
+=== RUN   TestDrainZeroLengthWithCreds
+--- PASS: TestDrainZeroLengthWithCreds (0.00s)
+=== RUN   TestDrainStatusThenZeroLengthIsNotKnown
+--- PASS: TestDrainStatusThenZeroLengthIsNotKnown (0.00s)
+=== RUN   TestDrainZeroLengthWithCtruncIsRecord
+--- PASS: TestDrainZeroLengthWithCtruncIsRecord (0.00s)
+=== RUN   TestZeroByteBufferTruncIsRecordAndConsumes
+--- PASS: TestZeroByteBufferTruncIsRecordAndConsumes (0.00s)
+=== RUN   TestRecordCapCountsZeroLength
+--- PASS: TestRecordCapCountsZeroLength (0.00s)
+=== RUN   TestRecordCapSevenStatusPlusZeroLength
+--- PASS: TestRecordCapSevenStatusPlusZeroLength (0.00s)
+=== RUN   TestDrainEINTRBudget
+--- PASS: TestDrainEINTRBudget (0.00s)
+=== RUN   TestDrainCallCeiling
+--- PASS: TestDrainCallCeiling (0.00s)
+=== RUN   TestT2KnownOnlyForOneCleanStatus
+--- PASS: TestT2KnownOnlyForOneCleanStatus (0.00s)
+=== RUN   TestR6ReproDrainStatusWithFdIsNotKnown
+--- PASS: TestR6ReproDrainStatusWithFdIsNotKnown (0.00s)
+=== RUN   TestR6ReproDrainTruncatedStatusIsNotKnown
+--- PASS: TestR6ReproDrainTruncatedStatusIsNotKnown (0.00s)
+=== RUN   TestR6ReproObservationNotRestoredByLaterStatus
+--- PASS: TestR6ReproObservationNotRestoredByLaterStatus (0.00s)
+=== RUN   TestR6ReproReadContinuesAfterObservation
+--- PASS: TestR6ReproReadContinuesAfterObservation (0.00s)
+=== RUN   TestStopRunCase
+=== RUN   TestStopRunCase/control_one_step
+=== RUN   TestStopRunCase/control_two_steps
+=== RUN   TestStopRunCase/observation_error_same_step
+=== RUN   TestStopRunCase/observation_error_later_step
+=== RUN   TestStopRunCase/protocol_violation_later_step
+=== RUN   TestStopRunCase/call_ceiling_later_step
+=== RUN   TestStopRunCase/eof_later_step
+=== RUN   TestStopRunCase/close_then_later_step_probe
+    stop_test.go:198: probe: launches=1 recvmsg=1 decisions=["CLOSE:early_status"]
+--- PASS: TestStopRunCase (0.00s)
+    --- PASS: TestStopRunCase/control_one_step (0.00s)
+    --- PASS: TestStopRunCase/control_two_steps (0.00s)
+    --- PASS: TestStopRunCase/observation_error_same_step (0.00s)
+    --- PASS: TestStopRunCase/observation_error_later_step (0.00s)
+    --- PASS: TestStopRunCase/protocol_violation_later_step (0.00s)
+    --- PASS: TestStopRunCase/call_ceiling_later_step (0.00s)
+    --- PASS: TestStopRunCase/eof_later_step (0.00s)
+    --- PASS: TestStopRunCase/close_then_later_step_probe (0.00s)
+=== RUN   FuzzDecideOracle
+=== RUN   FuzzDecideOracle/seed#0
+=== RUN   FuzzDecideOracle/seed#1
+=== RUN   FuzzDecideOracle/seed#2
+=== RUN   FuzzDecideOracle/seed#3
+=== RUN   FuzzDecideOracle/seed#4
+=== RUN   FuzzDecideOracle/seed#5
+=== RUN   FuzzDecideOracle/seed#6
+=== RUN   FuzzDecideOracle/seed#7
+=== RUN   FuzzDecideOracle/seed#8
+=== RUN   FuzzDecideOracle/seed#9
+=== RUN   FuzzDecideOracle/seed#10
+=== RUN   FuzzDecideOracle/seed#11
+=== RUN   FuzzDecideOracle/seed#12
+=== RUN   FuzzDecideOracle/seed#13
+=== RUN   FuzzDecideOracle/seed#14
+--- PASS: FuzzDecideOracle (0.00s)
+    --- PASS: FuzzDecideOracle/seed#0 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#1 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#2 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#3 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#4 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#5 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#6 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#7 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#8 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#9 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#10 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#11 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#12 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#13 (0.00s)
+    --- PASS: FuzzDecideOracle/seed#14 (0.00s)
+=== RUN   FuzzParseWireAgreement
+=== RUN   FuzzParseWireAgreement/seed#0
+=== RUN   FuzzParseWireAgreement/seed#1
+=== RUN   FuzzParseWireAgreement/seed#2
+=== RUN   FuzzParseWireAgreement/seed#3
+=== RUN   FuzzParseWireAgreement/seed#4
+=== RUN   FuzzParseWireAgreement/seed#5
+=== RUN   FuzzParseWireAgreement/seed#6
+=== RUN   FuzzParseWireAgreement/seed#7
+=== RUN   FuzzParseWireAgreement/seed#8
+=== RUN   FuzzParseWireAgreement/seed#9
+=== RUN   FuzzParseWireAgreement/seed#10
+=== RUN   FuzzParseWireAgreement/seed#11
+=== RUN   FuzzParseWireAgreement/seed#12
+=== RUN   FuzzParseWireAgreement/seed#13
+=== RUN   FuzzParseWireAgreement/seed#14
+=== RUN   FuzzParseWireAgreement/seed#15
+=== RUN   FuzzParseWireAgreement/seed#16
+=== RUN   FuzzParseWireAgreement/seed#17
+=== RUN   FuzzParseWireAgreement/seed#18
+=== RUN   FuzzParseWireAgreement/seed#19
+--- PASS: FuzzParseWireAgreement (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#0 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#1 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#2 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#3 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#4 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#5 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#6 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#7 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#8 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#9 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#10 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#11 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#12 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#13 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#14 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#15 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#16 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#17 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#18 (0.00s)
+    --- PASS: FuzzParseWireAgreement/seed#19 (0.00s)
+PASS
+ok  	frame61	0.171s

@@ -1,0 +1,48 @@
+full_exit | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN | pass True
+full_signal | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN | pass True
+init_one_fd_v6_buf24 | expect CLOSE:ctrunc | actual CLOSE:ctrunc | pass True
+init_one_fd_buf56 | expect ACCEPT_INIT | actual ACCEPT_INIT | pass True
+init_two_fds_v6_buf24 | expect CLOSE:ctrunc | actual CLOSE:ctrunc | pass True
+init_two_fds_buf56 | expect CLOSE:count | actual CLOSE:count | pass True
+init_two_fds_buf64 | expect CLOSE:count | actual CLOSE:count | pass True
+init_three_fds_buf56 | expect CLOSE:ctrunc | actual CLOSE:ctrunc | pass True
+init_three_fds_buf64 | expect CLOSE:count | actual CLOSE:count | pass True
+init_five_fds_buf64 | expect CLOSE:ctrunc | actual CLOSE:ctrunc | pass True
+init_oversize_1500 | expect CLOSE:trunc | actual CLOSE:trunc | pass True
+init_pidfd_not_sender | expect CLOSE:creds_pidfd | actual CLOSE:creds_pidfd | pass True
+init_no_fd | expect CLOSE:count | actual CLOSE:count | pass True
+passcred_readback_zero | expect CLOSE:passcred_unverified | actual CLOSE:passcred_unverified | pass True
+producer_first | expect CLOSE:order | actual CLOSE:order | pass True
+malformed_init | expect CLOSE:order | actual CLOSE:order | pass True
+status_before_producer | expect ACCEPT_INIT CLOSE:early_status | actual ACCEPT_INIT CLOSE:early_status | pass True
+status_with_fd_after_producer | expect ACCEPT_INIT ACCEPT_PRODUCER CLOSE:status_fd | actual ACCEPT_INIT ACCEPT_PRODUCER CLOSE:status_fd | pass True
+status_bad_kind | expect ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:status_shape | actual ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:status_shape | pass True
+duplicate_producer | expect ACCEPT_INIT ACCEPT_PRODUCER CLOSE:late_record | actual ACCEPT_INIT ACCEPT_PRODUCER CLOSE:late_record | pass True
+record_after_known | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN UNKNOWN:after_terminal | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN UNKNOWN:after_terminal | pass True
+creds_mismatch_producer | expect ACCEPT_INIT CLOSE:creds | actual ACCEPT_INIT CLOSE:creds | pass True
+producer_not_child | expect ACCEPT_INIT CLOSE:ppid | actual ACCEPT_INIT CLOSE:ppid | pass True
+known_then_status_with_fd | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:status_fd | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:status_fd | pass True
+known_then_status_truncated | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:trunc | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:trunc | pass True
+known_then_status_ctrunc | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:ctrunc | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:ctrunc | pass True
+known_then_status_foreign_creds | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:creds | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:creds | pass True
+known_then_producer | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:late_record | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:late_record | pass True
+known_then_unparseable | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:malformed | pass True
+known_then_status_type_mismatch | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN UNKNOWN:after_terminal | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN UNKNOWN:after_terminal | pass True
+malformed_status_then_valid | expect ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed UNKNOWN:after_terminal | actual ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed UNKNOWN:after_terminal | pass True
+producer_then_unparseable | expect ACCEPT_INIT ACCEPT_PRODUCER CLOSE:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER CLOSE:malformed | pass True
+producer_then_status_type_mismatch | expect ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | pass True
+init_zero_length | expect CLOSE:empty | actual CLOSE:empty | pass True
+producer_then_zero_length | expect ACCEPT_INIT ACCEPT_PRODUCER CLOSE:empty | actual ACCEPT_INIT ACCEPT_PRODUCER CLOSE:empty | pass True
+known_then_zero_length | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:empty | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:empty | pass True
+init_escaped_type_name | expect ACCEPT_INIT | actual ACCEPT_INIT | pass True
+init_duplicate_type_name | expect CLOSE:order | actual CLOSE:order | pass True
+status_dup_type_after_producer | expect ACCEPT_INIT ACCEPT_PRODUCER CLOSE:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER CLOSE:malformed | pass True
+status_case_variant_after_producer | expect ACCEPT_INIT ACCEPT_PRODUCER CLOSE:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER CLOSE:malformed | pass True
+status_case_variant_key_candidate | expect ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | pass True
+status_missing_value_after_producer | expect ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | pass True
+status_extra_member_after_producer | expect ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | pass True
+status_null_value_after_producer | expect ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | pass True
+status_nested_value_after_producer | expect ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER UNKNOWN:malformed | pass True
+status_invalid_utf8_after_producer | expect ACCEPT_INIT ACCEPT_PRODUCER CLOSE:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER CLOSE:malformed | pass True
+known_then_status_dup_type | expect ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:malformed | actual ACCEPT_INIT ACCEPT_PRODUCER KNOWN CLOSE:malformed | pass True
+SUMMARY pass=47 total=47

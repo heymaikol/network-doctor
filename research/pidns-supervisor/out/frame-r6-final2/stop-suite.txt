@@ -1,0 +1,21 @@
+=== RUN   TestStopRunCase
+=== RUN   TestStopRunCase/control_one_step
+=== RUN   TestStopRunCase/control_two_steps
+=== RUN   TestStopRunCase/observation_error_same_step
+=== RUN   TestStopRunCase/observation_error_later_step
+=== RUN   TestStopRunCase/protocol_violation_later_step
+=== RUN   TestStopRunCase/call_ceiling_later_step
+=== RUN   TestStopRunCase/eof_later_step
+=== RUN   TestStopRunCase/close_then_later_step_probe
+    stop_test.go:198: probe: launches=1 recvmsg=1 decisions=["CLOSE:early_status"]
+--- PASS: TestStopRunCase (0.00s)
+    --- PASS: TestStopRunCase/control_one_step (0.00s)
+    --- PASS: TestStopRunCase/control_two_steps (0.00s)
+    --- PASS: TestStopRunCase/observation_error_same_step (0.00s)
+    --- PASS: TestStopRunCase/observation_error_later_step (0.00s)
+    --- PASS: TestStopRunCase/protocol_violation_later_step (0.00s)
+    --- PASS: TestStopRunCase/call_ceiling_later_step (0.00s)
+    --- PASS: TestStopRunCase/eof_later_step (0.00s)
+    --- PASS: TestStopRunCase/close_then_later_step_probe (0.00s)
+PASS
+ok  	frame61	0.004s

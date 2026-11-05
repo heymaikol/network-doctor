@@ -1,0 +1,16 @@
+=== RUN   TestR6FinalUnknownIsFrozen
+=== RUN   TestR6FinalUnknownIsFrozen/cl0a_no_record_then_status_stays_unknown
+    r6_final_test.go:31: status after the final commit: , want UNKNOWN
+=== RUN   TestR6FinalUnknownIsFrozen/t2_no_record_then_cl0a_status_is_known
+=== RUN   TestR6FinalUnknownIsFrozen/final_known_is_frozen
+=== RUN   TestR6FinalUnknownIsFrozen/protocol_violation_then_status_stays_unknown
+=== RUN   TestR6FinalUnknownIsFrozen/observation_error_then_status_stays_unknown
+--- FAIL: TestR6FinalUnknownIsFrozen (0.00s)
+    --- FAIL: TestR6FinalUnknownIsFrozen/cl0a_no_record_then_status_stays_unknown (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/t2_no_record_then_cl0a_status_is_known (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/final_known_is_frozen (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/protocol_violation_then_status_stays_unknown (0.00s)
+    --- PASS: TestR6FinalUnknownIsFrozen/observation_error_then_status_stays_unknown (0.00s)
+FAIL
+FAIL	frame61	0.002s
+FAIL

@@ -1,0 +1,2 @@
+frozen rows 47, candidate rows 47, label differences 0, other 0
+no differences

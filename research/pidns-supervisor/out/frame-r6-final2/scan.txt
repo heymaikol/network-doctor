@@ -1,0 +1,35 @@
+Scan of the R6 final-2 candidate bundle (scratch scanner; not shipped). Rules: incident identifier (hard fail); whole-word process-identifier labels with values other than namespace-local 0 to 3 (hard fail); dashes (hard fail); host words (hard fail); IPv4 lines (listed); integers at or above 65536 outside fuzz exec counters (listed for review, values not printed).
+files scanned: 109
+incident identifier hits (hard fail): none
+em/en dash files: none
+host identifier hits: none
+IPv4-looking lines: none
+namespace-local field values (allowed): {'contract-v6.1.md': ['1', '2'], 'diffs/contract-r5-vs-r4.diff': ['1', '2'], 'diffs/contract-r5-vs-r6.diff': ['1', '2'], 'diffs/contract-r6-final-vs-final2.diff': ['1', '2'], 'diffs/contract-r6-precorrection-vs-final.diff': ['1'], 'out/chain/results.normalized.jsonl': ['1', '2'], 'out/frame-rerun-r4/results.normalized.jsonl': ['0'], 'out/frame-rerun-r5/results.normalized.jsonl': ['0'], 'out/frame/results.normalized.jsonl': ['0'], 'src/flat61/chain61.py': ['1']}
+process-identifier field hits (file:line, label; values not printed):
+   none
+integers >= 65536 by file (line numbers; outside fuzz exec counters):
+   README-r5.md [139, 140, 172] count 3
+   README.md [162, 162] count 2
+   contract-v6.1.md [79, 80, 140, 141, 161, 164, 486, 767] count 21
+   diffs/contract-r5-vs-r4.diff [63, 64, 77, 257, 257, 435, 436, 476] count 8
+   diffs/contract-r5-vs-r6.diff [28, 48, 52, 191, 191, 203, 438] count 7
+   diffs/contract-r6-final-vs-final2.diff [24, 25, 26, 74, 126, 274, 283, 283] count 17
+   diffs/contract-r6-precorrection-vs-final.diff [290, 291] count 2
+   diffs/frame61-r5-vs-r6.diff [865, 866, 867, 868] count 4
+   out/chain/results.normalized.jsonl [1, 1, 2, 2, 3, 3, 4, 4] count 105
+   out/evidence61_v61.txt [9, 10, 10] count 3
+   out/frame-r5-tests/fuzz-decide-r5-final.txt [3, 6] count 2
+   out/frame-r6-final2/scan.txt [1, 10] count 2
+   out/frame-r6-frozen/mut-drainrepoll.txt [7, 7, 7, 7, 7, 7, 7, 7] count 8
+   out/frame-r6-frozen/mut-drainreset.txt [6, 6, 6, 6, 6, 6, 6, 6] count 8
+   out/frame-r6-tests/fuzz-decide-r6b.txt [3] count 1
+   out/frame-rerun-r5/e10-repeat-analysis.txt [6, 13, 20, 27, 32] count 5
+   out/frame-rerun-r5/summary.txt [3] count 1
+   out/frame-rerun-r5/vmstat.txt [3, 3, 3, 4, 4, 4, 4, 4] count 40
+   out/host_metadata.txt [8, 9] count 2
+   src/frame61-red-r5/receive_test.go [338] count 1
+   src/frame61/r6_test.go [195, 196, 197, 198] count 4
+   src/frame61/receive_test.go [339] count 1
+   src/tools/bundle61.py [5, 21] count 2
+   src/tools/frame_rerun_r5.py [3, 8, 64] count 3
+RESULT: PASS (integer hits listed for review)

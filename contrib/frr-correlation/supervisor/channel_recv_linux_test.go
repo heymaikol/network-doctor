@@ -67,14 +67,15 @@ func TestRecvOneCallCeiling(t *testing.T) {
 		steps     []error
 		kind      chanKind
 		wantErr   error
+		sentinel  error
 		wantLabel string
 		recvs     int
 		polls     int
 	}{
-		{"17_eagain_hits_ceiling", eagain(17), chanErr, errChanCallBound, "CLOSE:budget", 17, 17},
-		{"16_eagain_then_record_on_call_17", append(eagain(16), nil), chanRecord, nil, "", 17, 17},
-		{"8_eintr_then_9_eagain_hits_ceiling", append(eintr(8), eagain(9)...), chanErr, errChanCallBound, "CLOSE:budget", 17, 17},
-		{"9_eintr_hits_eintr_budget", eintr(9), chanErr, errChanBudget, "CLOSE:budget", 9, 9},
+		{"17_eagain_hits_ceiling", eagain(17), chanErr, errChanCallBound, ErrObservation, "CLOSE:budget", 17, 17},
+		{"16_eagain_then_record_on_call_17", append(eagain(16), nil), chanRecord, nil, nil, "", 17, 17},
+		{"8_eintr_then_9_eagain_hits_ceiling", append(eintr(8), eagain(9)...), chanErr, errChanCallBound, ErrObservation, "CLOSE:budget", 17, 17},
+		{"9_eintr_hits_eintr_budget", eintr(9), chanErr, errChanBudget, ErrProtocolViolation, "CLOSE:budget", 9, 9},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -85,6 +86,9 @@ func TestRecvOneCallCeiling(t *testing.T) {
 			}
 			if c.wantErr == nil && err != nil || c.wantErr != nil && !errors.Is(err, c.wantErr) {
 				t.Fatalf("err %v, want %v", err, c.wantErr)
+			}
+			if c.sentinel != nil && !errors.Is(err, c.sentinel) {
+				t.Fatalf("err %v does not wrap %v", err, c.sentinel)
 			}
 			if c.wantLabel != "" {
 				if got := chanRecvLabel(k, err); got != c.wantLabel {

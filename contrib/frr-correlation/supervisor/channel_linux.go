@@ -20,12 +20,12 @@ const (
 	chanMaxCalls   = 17   // recvmsg calls per receive and per drain (3.4)
 )
 
-// Receive failures. Admission reports them as CLOSE reasons. A drain reports them as ErrObservation or
-// ErrProtocolViolation (drain).
+// Receive failures. Admission maps each to a CLOSE reason (chanRecvLabel). The budget errors wrap the sentinels that
+// 3.4 names: the EINTR ceiling is ErrProtocolViolation, the call ceiling is ErrObservation.
 var (
 	errChanDeadline  = errors.New("channel receive deadline passed")
-	errChanBudget    = errors.New("channel receive EINTR budget spent")
-	errChanCallBound = errors.New("channel receive call ceiling reached")
+	errChanBudget    = fmt.Errorf("%w: receive EINTR ceiling reached", ErrProtocolViolation)
+	errChanCallBound = fmt.Errorf("%w: receive call ceiling reached", ErrObservation)
 	errChanPollNval  = fmt.Errorf("%w: poll reports an invalid descriptor", ErrObservation)
 )
 

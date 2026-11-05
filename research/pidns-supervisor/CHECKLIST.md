@@ -18,6 +18,8 @@ Nothing on this list is checked off by this pull request, except where the statu
 
 Draft implementation status: NOT CLEARED until gates (a) and (b) pass. This pull request publishes existing scratch code for review.
 
+Reviewer record: reviewers B and C reviewed head 4ea69f82 (reviews 5780443003 and 5780450917). Neither has issued unconditional draft-start approval. At head 6a04c6a0, reviews 5780996316 and 5781023228 differ on gate (b). See contract 17.1.
+
 ## 2. Specification checks (contract section 20, CS1 to CS9)
 
 | ID | Check | Status in this branch |
@@ -26,7 +28,7 @@ Draft implementation status: NOT CLEARED until gates (a) and (b) pass. This pull
 | CS2 | `TestR6FinalUnknownIsFrozen`: green on the candidate, red on the R6 baseline, mutants red | Green: RUN HERE (integration-tagged suite, 5 subtests PASS). Red run and mutants: RECORDED, not re-run here. The red run used a scratch shim that is NOT PUBLISHED. The mutant logs (out/frame-r6-tests/mutation-a-log.txt, mutation-b-log.txt) are NOT PUBLISHED; whether they ran on the candidate source is not verified in this round. |
 | CS3 | 47-row matrix, 47 of 47, 0 label differences | RECORDED. Not re-run here. The matrix does not call `commitExit` and is not evidence for CS2. |
 | CS4 | Owner notice (0.3) changed from the carried text, identifier removed | Text corrected with a change record in the contract. Status: OPEN, tied to CS9. |
-| CS5 | Field scan: no incident identifier, no process-identifier value, no host, user or scratch path, no em or en dash | RUN HERE on 2026-11-05 at commit 3a1b4f14: out/branch-scan.txt. Incident label 0; process-identifier values 0 (26 raw hits, each reviewed by hand, none a value); home, scratch, user, account and host names 0; dashes 0; IPv4 0. Credential-label hits are code or placeholders, with no credential value. Session identifiers not scanned. The earlier scan of the R6 candidate bundle is historical (out/frame-r6-final2/scan.txt covers 109 bundle files). |
+| CS5 | Field scan: no incident identifier, no process-identifier value, no host, user or scratch path, no em or en dash | RUN HERE on 2026-11-05 at commit 3a1b4f14: out/branch-scan.txt. Incident label 0; process-identifier values 0 (26 raw hits, each reviewed by hand, none a value); home, scratch, user, account and host names 0, dashes 0 and IPv4 0, all within the scanned set (the 33 files changed at 3a1b4f14 and the commit messages in origin/main..3a1b4f14). Credential-label hits are code or placeholders, with no credential value. Session identifiers not scanned. The earlier scan of the R6 candidate bundle is historical (out/frame-r6-final2/scan.txt covers 109 bundle files). |
 | CS6 | Tier A and E10 rows cite E10-R6 (47 rows) | Contract text. Not re-verified here. |
 | CS7 | No advisor call is cited as evidence | Contract text. |
 | CS8 | E10 acceptance met for draft-start readiness only. Production T-ADM-FRAMING NOT RUN. | Status as stated. |
@@ -62,7 +64,7 @@ Every slice merge gate is NOT RUN. The slice list is in the contract. Slice 0 is
 | 3 | Namespace launch and init (`launcher_linux.go`, `init_linux.go`, both new) | T-N8, T-CAP-INH, T-PTRACE (with the drift guard), T-PTRACE-GO, T-GETFD, T-HOST-REACH-D, T-SIG-INIT; negative: fork-only path absent (S21). Before the first production merge of slices 3 and 4 together: T-DEATH (5 runs) and T-ORPHAN. | NOT RUN |
 | 4 | Launcher hardening, Pdeathsig, removal of base group and PID-number signal paths | T-DEATH (5 runs), T-HOLDER, T-HELPER, T-HOLDER-KILL-GROUP-ABSENT, T-ORPHAN | NOT RUN |
 | 5 | Lifecycle: Done, Lost, Stop, Close CL0 to CL7, watcher, mutex, Start(ctx) | T-DONE, T-CL0, T-WATCH (T07), T08, T-CLOSE-BOUND, T-ZAP-ORDER, T-CLOSE-LIVE, T-STOP, T-REENTRY, T-DRAIN-FLOOD, T-CTX, T-NO-BYPASS (slice 5 part), T-T2-POLL, T-CL7-RELEASE, T-CL6-JOIN, TestCloseCommitIsFrozenAtCL0a | NOT RUN |
-| 6 | Admission order, sender credentials, post-admission status | T06b, T-ADM-ORDER, T-A-ADM (userns part), T-ADM-PPID, T-SENDER, T-STATUS-POST (must read the final value through the path that produces the labels), T-DRAIN-STATUS, T-STOP-KNOWN, T-FINAL-COMMIT, T-NO-BYPASS (slice 6 part) | NOT RUN |
+| 6 | Admission order, sender credentials, post-admission status | T06b, T-ADM-ORDER, T-A-ADM (userns part), T-ADM-PPID, T-SENDER, T-STATUS-POST (rows (a) to (o); row (o) is one valid status at T2 then a second status at CL0a, final Unknown; the final value is read through the path that produces the labels), T-DRAIN-STATUS, T-STOP-KNOWN, T-FINAL-COMMIT, T-NO-BYPASS (slice 6 part) | NOT RUN |
 | 7 | RLIMIT policy | T-LAUNCH-LIMIT, T-RL-AGG, T-F6b. Blocked by D2 and D12. | NOT RUN |
 | 8 | Lease and metadata | T-LEASE, T-HOST-REACH same-uid rows. Cross-uid rows deferred. | NOT RUN |
 

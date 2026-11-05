@@ -97,7 +97,7 @@ Not run anywhere: `-fuzz` runs (the seed corpora run), a 32-bit build, and arm64
 - (b) PENDING: independent review in contract section 20.
 - (c) Met for draft-start readiness only (R6-1).
 
-Draft implementation status is NOT CLEARED. This pull request publishes existing scratch code for review. It does not clear gate (a) or (b).
+Draft implementation status is NOT CLEARED. This pull request publishes existing scratch code for review. It does not clear gate (a) or (b). Reviewers B and C reviewed head 4ea69f82. Neither has issued unconditional draft-start approval; at head 6a04c6a0 the two latest reviews differ on gate (b) (see contract 17.1).
 
 ## Production merge gates: NOT RUN
 
@@ -121,13 +121,14 @@ The contract cites these paths. They are NOT PUBLISHED here, and they are not ev
 - Archives: `contract-v6-bundle.tar.gz`, `contract-v6.1-bundle.tar.gz`, `contract-v6.1-bundle-r3.tar.gz`, `contract-v6.1-bundle-r4.tar.gz`, `contract-v6.1-bundle-r5.tar.gz`.
 - Run records: `out/chain/`, `out/drain-probe/`, `out/evidence61_v61.txt`, `out/frame/`, `out/frame-r5-tests/`, `out/frame-r6-frozen/` (including `src-manifest.txt`), `out/frame-r6-tests/` (including `mutation-a-log.txt`, `mutation-b-log.txt`, `red-r5-final.txt`, `unit-amd64-round1-authoritative.txt`), `out/frame-rerun-d15/`, `out/frame-rerun-r3/`, `out/frame-rerun-r4/`, `out/frame-rerun-r5/`, `out/frame-rerun-r6/`, `out/gocaps/`, `out/host_metadata.txt`.
 - Red-run source: `red/red_shim.go` and `red/green`.
+- Bundle README: `contract-v6.1-bundle/README.md` (bundle check commands, cited in contract section 18.1).
 - Helper tools: `src/flat61/` (Python), `src/tools/bundle61.py`, `src/gocaps/`.
 
 ## Sanitization
 
-- The incident process identifier is not in the current tree. Commits 98c0d511 through 4ea69f82 carry the earlier wording, including the pseudonymous label. The history is not rewritten.
+- The incident process identifier is not in the current tree. The label was added in the diffs of two commits, 98c0d511 (13 added lines) and 4ea69f82 (2 added lines). Six commit trees contain it: 98c0d511, 3bc52800, 502d0e11, 4ea69f82, a356a15b and 28e53a17. d8f8ac35 removes it. The counts come from a pattern scan of research/ and .github/ at each commit; they are not a review of every historical blob. The history is not rewritten.
 - The working-copy folder name is removed from the contract's S4 wording.
 - Historical diffs are not published.
-- Home and scratch paths, user and account names, the host name, the working-copy folder name, IPv4 addresses, and dashes were scanned for in the tracked files of this branch. None were found. Session identifiers were not scanned for. The scan record is `out/branch-scan.txt`.
+- Home and scratch paths, user and account names, the working-copy and review folder names, the host name, IPv4 addresses, and dashes were scanned for in the 33 files changed at commit 3a1b4f14 (including `.github/workflows/ci.yml`) and in the commit messages of origin/main..3a1b4f14. None were found in that set. The scan says nothing about other files. Session identifiers were not scanned for. The scan record is `out/branch-scan.txt`.
 - Credential pointers in the historical logs were replaced with a placeholder (see `out/frame-r6-final2/RUN-INFO.txt`).
-- Dash scan (em dash and en dash): none.
+- Dash scan (em dash and en dash) over the same set: none.

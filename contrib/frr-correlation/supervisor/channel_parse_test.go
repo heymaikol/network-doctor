@@ -146,7 +146,14 @@ func TestChanRecordGrammar(t *testing.T) {
 		{"status unknown kind is grammatical", `{"v":1,"type":"status","kind":"bogus","value":0}`, true, true},
 		{"surrounding whitespace", " {\"v\":1,\"type\":\"init\"}\n", true, false},
 		{"escaped name decodes to type", `{"v":1,"type":"init"}`, true, false},
+		{"escaped value decodes", `{"v":1,"type":"init"}`, true, false},
+		{"escaped kind and value on status", `{"v":1,"type":"status","kind":"exit","value":0}`, true, true},
 		{"escaped duplicate type", `{"v":1,"type":"init","type":"init"}`, false, false},
+		{"escaped duplicate v", `{"v":1,"v":1,"type":"init"}`, false, false},
+		{"escaped unknown member", `{"v":1,"x":1,"type":"init"}`, false, false},
+		{"invalid escape in name", `{"v":1,"\x":1,"type":"init"}`, false, false},
+		{"short unicode escape in name", `{"v":1,"\u00":1,"type":"init"}`, false, false},
+		{"lone surrogate name is an unknown member", `{"v":1,"\ud800":1,"type":"init"}`, false, false},
 		{"duplicate type status", `{"v":1,"type":"status","type":"status","kind":"exit","value":0}`, false, false},
 		{"uppercase name", `{"v":1,"TYPE":"status","kind":"exit","value":0}`, false, false},
 		{"extra member on init", `{"v":1,"type":"init","x":1}`, false, false},
@@ -174,6 +181,10 @@ func TestChanRecordGrammar(t *testing.T) {
 			got := parseChanRecord([]byte(c.in))
 			if got.OK != c.ok || got.Cand != c.cand {
 				t.Fatalf("parseChanRecord(%q) ok=%v cand=%v, want ok=%v cand=%v", c.in, got.OK, got.Cand, c.ok, c.cand)
+			}
+			ref := refChanParse([]byte(c.in))
+			if ref.OK != c.ok || ref.Cand != c.cand {
+				t.Fatalf("refChanParse(%q) ok=%v cand=%v, want ok=%v cand=%v", c.in, ref.OK, ref.Cand, c.ok, c.cand)
 			}
 		})
 	}

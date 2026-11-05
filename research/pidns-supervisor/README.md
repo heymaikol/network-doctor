@@ -49,7 +49,7 @@ These functions live in `package main` of the harness. Moving them into a produc
 
 ## Tests
 
-Run on 2026-11-04 in this publication, from the published copy:
+Run on 2026-11-05 in this branch, on the Go source as of commit a356a15b. No Go file has changed since then.
 
 ```
 GOTOOLCHAIN=go1.27.3 GOPROXY=off CGO_ENABLED=0 GOFLAGS=-buildvcs=false
@@ -59,18 +59,23 @@ go version go1.27.3 linux/amd64
 | Step | Result |
 |---|---|
 | `gofmt -l .` | No output. |
-| `go vet .` | No output. |
+| `go vet .` and `go vet -tags integration .` | Pass. |
 | `go build -o /dev/null .` | Pass. |
-| Unit suite (`go test -count=1 -v .`) | 43 top-level entries (41 `Test` and 2 `Fuzz` functions; the fuzz targets run their seed corpora only). 52 subtests. 95 PASS lines. 0 FAIL. `TestMain` is not a test. |
-| Stop suite (`-run '^TestStopRunCase$'`) | 1 top-level entry and 8 subtests. 9 PASS lines. 0 FAIL. |
+| Default build, `go test -count=1 -v .` | 6 top-level entries (4 `Test`, 2 `Fuzz`; the fuzz targets run their seed corpora only). 35 subtests. 41 PASS lines, 0 FAIL. |
+| Integration build, `go test -count=1 -v -tags integration .` | 43 top-level entries (41 `Test`, 2 `Fuzz`). 52 subtests. 95 PASS lines, 0 FAIL. |
+| Stop suite, `-tags integration -run '^TestStopRunCase$'` | 1 top-level entry and 8 subtests. 9 PASS, 0 FAIL. |
+| `TestR6FinalUnknownIsFrozen`, `-tags integration` | 1 top-level entry and 5 subtests. 6 PASS, 0 FAIL. |
+| Race, `CGO_ENABLED=1 go test -race -count=1 -tags integration .` | ok. No data race reported. |
 
-Recorded in `out/frame-r6-final2/RUN-INFO.txt`, not re-run in this publication:
+The CI job `frame61` in `.github/workflows/ci.yml` runs the same steps on the branch. Its result is in the pull request checks, not in this file.
+
+Recorded in `out/frame-r6-final2/RUN-INFO.txt`, not re-run in this round:
 
 - 47-row matrix: 47 of 47 pass, 0 label differences against the frozen R6 summary. The matrix does not call `commitExit`, so it is not evidence for the commit rule.
-- `TestR6FinalUnknownIsFrozen`: the 5 subtests pass on this candidate. Its red run against the R6 baseline used a scratch shim, which is not published. The two mutants (final store removed, freeze removed) fail as expected.
+- Red run of `TestR6FinalUnknownIsFrozen` and its two mutants. The red run used a scratch shim, and the mutant logs are held outside this branch (see CHECKLIST CS2).
 - Arm64: compile and vet only. Execution not run.
 
-Not run anywhere: `-fuzz` runs, the 150-seed differential oracle, race runs, 32-bit build, and every production test listed in `CHECKLIST.md`.
+Not run anywhere: `-fuzz` runs (the seed corpora run), the 150-seed differential oracle, a 32-bit build, and arm64 execution of the production tests.
 
 ## Known limitations
 
@@ -99,6 +104,22 @@ Every production and Tier B test is NOT RUN. The list is in `CHECKLIST.md`. It i
 ## Authorization
 
 No deployment, release, tag, or merge is authorized by this branch or this pull request.
+
+## Evidence classes
+
+- RUN HERE: run in this branch on the date given, against the Go source as of commit a356a15b.
+- RECORDED: taken from a run record. Records in `out/frame-r6-final2/` are in this branch. Other records are held outside it. Not re-run here.
+- SOURCE-VERIFIED: checked by reading the branch source. Not run.
+- NOT PUBLISHED: cited by the contract and held outside this branch. Not evidence for this branch.
+
+## Cited paths held outside this branch
+
+The contract cites these paths. They are NOT PUBLISHED here, and they are not evidence for this branch.
+
+- Archives: `contract-v6-bundle.tar.gz`, `contract-v6.1-bundle.tar.gz`, `contract-v6.1-bundle-r3.tar.gz`, `contract-v6.1-bundle-r4.tar.gz`, `contract-v6.1-bundle-r5.tar.gz`.
+- Run records: `out/chain/`, `out/drain-probe/`, `out/evidence61_v61.txt`, `out/frame/`, `out/frame-r5-tests/`, `out/frame-r6-frozen/` (including `src-manifest.txt`), `out/frame-r6-tests/` (including `mutation-a-log.txt`, `mutation-b-log.txt`, `red-r5-final.txt`, `unit-amd64-round1-authoritative.txt`), `out/frame-rerun-d15/`, `out/frame-rerun-r3/`, `out/frame-rerun-r4/`, `out/frame-rerun-r5/`, `out/frame-rerun-r6/`, `out/gocaps/`, `out/host_metadata.txt`.
+- Red-run source: `red/red_shim.go` and `red/green`.
+- Helper tools: `src/flat61/` (Python), `src/tools/bundle61.py`, `src/gocaps/`.
 
 ## Sanitization
 

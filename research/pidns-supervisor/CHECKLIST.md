@@ -16,31 +16,31 @@ Nothing on this list is checked off by this pull request, except where the statu
 
 Draft implementation status: NOT CLEARED until gates (a) and (b) pass. This pull request publishes existing scratch code for review.
 
-## 2. Specification checks (contract section 20, S1 to S9)
+## 2. Specification checks (contract section 20, CS1 to CS9)
 
 | ID | Check | Status in this branch |
 |---|---|---|
-| S1 | gofmt, go vet, unit suite, stop suite, build | RUN HERE: gofmt clean, vet clean, build pass, unit 43 top-level entries (41 Test, 2 Fuzz), 52 subtests, 95 PASS, 0 FAIL; stop suite 9 PASS, 0 FAIL. arm64 compile and vet: RECORDED. arm64 execution: NOT RUN. |
-| S2 | `TestR6FinalUnknownIsFrozen`: green on the candidate, red on the R6 baseline, mutants red | Green: RUN HERE (inside the unit suite). Red run and mutants: RECORDED. The red run used a scratch shim that is not published. |
-| S3 | 47-row matrix, 47 of 47, 0 label differences | RECORDED. Not re-run here. The matrix does not call `commitExit` and is not evidence for S2. |
-| S4 | Owner notice (0.3) changed from the carried text, identifier replaced | Text corrected with a change record in the contract. Status: OPEN, tied to S9. |
-| S5 | Field scan: no process-identifier label followed by a value, no incident identifier, no host name, no dashes | RUN HERE on the published tree: no incident identifier; no process-identifier label followed by 3 or more digits; no host or user paths; no em or en dashes. Recorded scan: `out/frame-r6-final2/scan.txt`. |
-| S6 | Tier A and E10 rows cite E10-R6 (47 rows) | Contract text. Not re-verified here. |
-| S7 | No advisor call is cited as evidence | Contract text. |
-| S8 | E10 acceptance met for draft-start readiness only. Production T-ADM-FRAMING NOT RUN. | Status as stated. |
-| S9 | D9 owner notice | OPEN. Maintainer action. |
+| CS1 | gofmt, go vet, unit suite, stop suite, build | RUN HERE: gofmt clean, vet clean, build pass, unit 43 top-level entries (41 Test, 2 Fuzz), 52 subtests, 95 PASS, 0 FAIL; stop suite 9 PASS, 0 FAIL. arm64 compile and vet: RECORDED. arm64 execution: NOT RUN. |
+| CS2 | `TestR6FinalUnknownIsFrozen`: green on the candidate, red on the R6 baseline, mutants red | Green: RUN HERE (inside the unit suite). Red run and mutants: RECORDED. The red run used a scratch shim that is not published. |
+| CS3 | 47-row matrix, 47 of 47, 0 label differences | RECORDED. Not re-run here. The matrix does not call `commitExit` and is not evidence for S2. |
+| CS4 | Owner notice (0.3) changed from the carried text, identifier removed | Text corrected with a change record in the contract. Status: OPEN, tied to CS9. |
+| CS5 | Field scan: no process-identifier label followed by a value, no incident identifier, no host name, no dashes | RUN HERE on the published tree: no incident identifier; no process-identifier label followed by 3 or more digits; no host or user paths; no em or en dashes. Recorded scan: `out/frame-r6-final2/scan.txt`. |
+| CS6 | Tier A and E10 rows cite E10-R6 (47 rows) | Contract text. Not re-verified here. |
+| CS7 | No advisor call is cited as evidence | Contract text. |
+| CS8 | E10 acceptance met for draft-start readiness only. Production T-ADM-FRAMING NOT RUN. | Status as stated. |
+| CS9 | D9 owner notice | OPEN. Maintainer action. |
 
-## 3. Production test requirements (contract section 20, P1 to P7)
+## 3. Production test requirements (contract section 20, CP1 to CP7)
 
 None of these has been run. The scratch harness is not evidence for them.
 
-- [ ] P1. Slice 5, 5 runs: T-T2-POLL (`TestStopT2ReadinessPoll`). NOT RUN.
-- [ ] P2. Slice 5: T-CL7-RELEASE. Release only after CleanupComplete. A later Close returns the retained sticky error. Pidfd slots are invalid after release, so a later Close sends no signal. NOT RUN.
-- [ ] P3. Slice 5: T-CL6-JOIN. One joint watcher-join deadline of 1 s. A watcher not joined by then is Lost. NOT RUN.
-- [ ] P4. Slice 5: full production cleanup tests T-CL0, T-ZAP-ORDER, T-CLOSE-BOUND, T-CLOSE-LIVE, and T08. NOT RUN.
-- [ ] P5. Slice 6: T-FINAL-COMMIT, the production form of S2. NOT RUN.
-- [ ] P6. Slices 3 to 5: arm64 execution of the production tests. NOT RUN.
-- [ ] P7. Slice 1: production T-ADM-FRAMING and T32. NOT RUN.
+- [ ] CP1. Slice 5, 5 runs: T-T2-POLL (`TestStopT2ReadinessPoll`). NOT RUN.
+- [ ] CP2. Slice 5: T-CL7-RELEASE. Release only after CleanupComplete. A later Close returns the retained sticky error. Pidfd slots are invalid after release, so a later Close sends no signal. NOT RUN.
+- [ ] CP3. Slice 5: T-CL6-JOIN. One joint watcher-join deadline of 1 s. A watcher not joined by then is Lost. NOT RUN.
+- [ ] CP4. Slice 5: full production cleanup tests T-CL0, T-ZAP-ORDER, T-CLOSE-BOUND, T-CLOSE-LIVE, and T08. NOT RUN.
+- [ ] CP5. Slice 6: T-FINAL-COMMIT, the production form of S2. NOT RUN.
+- [ ] CP6. Slices 3 to 5: arm64 execution of the production tests. NOT RUN.
+- [ ] CP7. Slice 1: production T-ADM-FRAMING and T32. NOT RUN.
 
 Also added in R6 final-2 and not run: TestCloseCommitIsFrozenAtCL0a and TestCloseWatcherJoinSharesOneDeadline (slice 5). Both are named in the contract and do not exist yet.
 
@@ -75,7 +75,7 @@ T117 is listed in contract 12.2 (Tier B) and is NOT RUN. Slices 3 and 4 merge as
 - [ ] Commit subjects are short and imperative, with no Conventional Commit prefix. No attribution trailers.
 - [ ] `CGO_ENABLED=0`. Go 1.27.3 through the module.
 - [ ] OS behavior in build-tagged or platform-suffixed files.
-- [ ] No process-number signal in any production code (contract 0.2 and S9).
+- [ ] No process-number signal in any production code (contract 0.2 and section 15 S9).
 - [ ] No exported path reaches Running without checks 1 to 10 (T-NO-BYPASS).
 - [ ] `--help` keeps standard `fs.PrintDefaults` formatting. Version injection through `-ldflags "-X main.version=..."` is preserved.
 

@@ -293,7 +293,7 @@ var (
 // chanOraclePayload builds one payload from seed. Most payloads use v=1 so that the status and admission rules are
 // reached, and the rest carry a grammar break picked from the tables above.
 func chanOraclePayload(seed uint64) []byte {
-	r := rand.New(rand.NewPCG(seed, 0x6368616e6f726163))
+	r := rand.New(rand.NewPCG(seed, 0x6368616e6f726163)) //nolint:gosec // G404: seeded oracle generator, not a security value
 	pick := func(list []string) string { return list[r.IntN(len(list))] }
 
 	v := "1"

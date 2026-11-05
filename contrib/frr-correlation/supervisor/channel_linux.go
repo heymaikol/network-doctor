@@ -1,3 +1,4 @@
+//nolint:unused // ponytail: no production caller until the slice 3 launcher; drop this line then.
 package supervisor
 
 import (
@@ -57,7 +58,7 @@ func chanRecvmsg(fd int, p, oob []byte, flags int) (int, int, int, error) {
 // chanPoll waits up to ms milliseconds for fd to become readable and returns the revents bits. It uses ppoll,
 // because poll is absent on linux/arm64.
 func chanPoll(fd, ms int) (int16, error) {
-	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} //nolint:gosec // G115: fd is an open descriptor, far below int32 range
 	ts := unix.NsecToTimespec(int64(ms) * int64(time.Millisecond))
 	if _, err := unix.Ppoll(fds, &ts, nil); err != nil {
 		return 0, err
@@ -134,19 +135,19 @@ func walkChanCmsgs(oob []byte) ([]int, *unix.Ucred) {
 		if l < hdr || l > len(oob) {
 			break
 		}
-		lvl := int32(binary.NativeEndian.Uint32(oob[unix.SizeofPtr:]))
-		typ := int32(binary.NativeEndian.Uint32(oob[unix.SizeofPtr+4:]))
+		lvl := int32(binary.NativeEndian.Uint32(oob[unix.SizeofPtr:]))   //nolint:gosec // G115: cmsg level is an int32 by ABI
+		typ := int32(binary.NativeEndian.Uint32(oob[unix.SizeofPtr+4:])) //nolint:gosec // G115: cmsg type is an int32 by ABI
 		body := oob[hdr:l]
 		if lvl == unix.SOL_SOCKET {
 			switch typ {
 			case unix.SCM_RIGHTS:
 				for i := 0; i+4 <= len(body); i += 4 {
-					fds = append(fds, int(int32(binary.NativeEndian.Uint32(body[i:]))))
+					fds = append(fds, int(int32(binary.NativeEndian.Uint32(body[i:])))) //nolint:gosec // G115: SCM_RIGHTS entries are kernel fds, int32 by ABI
 				}
 			case unix.SCM_CREDENTIALS:
 				if len(body) >= 12 {
 					creds = &unix.Ucred{
-						Pid: int32(binary.NativeEndian.Uint32(body[0:4])),
+						Pid: int32(binary.NativeEndian.Uint32(body[0:4])), //nolint:gosec // G115: pid_t is an int32 by ABI
 						Uid: binary.NativeEndian.Uint32(body[4:8]),
 						Gid: binary.NativeEndian.Uint32(body[8:12]),
 					}
@@ -165,7 +166,7 @@ func walkChanCmsgs(oob []byte) ([]int, *unix.Ucred) {
 // chanCmsgLen reads cmsg_len, a size_t in native byte order.
 func chanCmsgLen(b []byte) int {
 	if unix.SizeofPtr == 8 {
-		return int(binary.NativeEndian.Uint64(b))
+		return int(binary.NativeEndian.Uint64(b)) //nolint:gosec // G115: a cmsg_len above MaxInt wraps negative, and walkChanCmsgs breaks on l < hdr
 	}
 	return int(binary.NativeEndian.Uint32(b))
 }
@@ -257,7 +258,7 @@ func (e chanEnd) drain(st *chanState) chanDrainOut {
 			o.End = "EAGAIN"
 			return o
 		case chanErr:
-			return chanPoison(o, st, "ERR", fmt.Errorf("%w: %v", ErrObservation, err))
+			return chanPoison(o, st, "ERR", fmt.Errorf("%w: %w", ErrObservation, err))
 		case chanEINTR:
 			if o.EINTR == chanMaxEINTR {
 				return chanPoison(o, st, "OVERFLOW_EINTR", fmt.Errorf("%w: EINTR cap", ErrProtocolViolation))

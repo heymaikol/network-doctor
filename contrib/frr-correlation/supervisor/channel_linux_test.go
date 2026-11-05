@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,9 +66,22 @@ type chanRow struct {
 // chanAdmission is the admission deadline (3.3).
 const chanAdmission = 5 * time.Second
 
+// chanPollerOnce starts the runtime network poller before the first count. The poller is an epoll descriptor and an
+// eventfd, created once per process by the first pollable descriptor (here, the first exec pipe). Without this, that
+// one-time pair lands between a baseline and the leak check and reads as a leak of two.
+var chanPollerOnce sync.Once
+
 // chanFdCount counts the descriptors of this process through /proc/self/fd.
 func chanFdCount(t *testing.T) int {
 	t.Helper()
+	chanPollerOnce.Do(func() {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = r.Close()
+		_ = w.Close()
+	})
 	ents, err := os.ReadDir("/proc/self/fd")
 	if err != nil {
 		t.Fatal(err)

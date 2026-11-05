@@ -429,13 +429,17 @@ func TestChannelFramingRows(t *testing.T) {
 }
 
 // TestChannelRejectsWrongDescriptorCount is T32: a production init receive with 0 to 5 descriptors at both control
-// buffer sizes. Only one descriptor is accepted. Every other count closes the channel, with CLOSE:count or
-// CLOSE:ctrunc.
+// buffer sizes. Each cell has one expected label. Only one descriptor is accepted (3.3 check 1).
 func TestChannelRejectsWrongDescriptorCount(t *testing.T) {
+	// want[n] is the label for n descriptors. The control buffer size decides between CLOSE:count and CLOSE:ctrunc.
 	sizes := []struct {
 		name string
 		size int
-	}{{"buf56", chanBuf56}, {"bufV61", chanBufV61}}
+		want [6]string
+	}{
+		{"buf56", chanBuf56, [6]string{"CLOSE:count", "ACCEPT_INIT", "CLOSE:count", "CLOSE:ctrunc", "CLOSE:ctrunc", "CLOSE:ctrunc"}},
+		{"bufV61", chanBufV61, [6]string{"CLOSE:count", "ACCEPT_INIT", "CLOSE:count", "CLOSE:count", "CLOSE:count", "CLOSE:ctrunc"}},
+	}
 	for _, sz := range sizes {
 		for n := 0; n <= 5; n++ {
 			row := chanRow{
@@ -443,15 +447,12 @@ func TestChannelRejectsWrongDescriptorCount(t *testing.T) {
 				passcred: true,
 				buf:      sz.size,
 				steps:    [][]chanTestMsg{{{Payload: chanInitRec, Fds: slices.Repeat([]string{"pipe"}, n)}}},
+				expect:   []string{sz.want[n]},
 			}
 			t.Run(row.name, func(t *testing.T) {
 				actual, problems := chanRunRow(t, row)
-				if n == 1 {
-					if !slices.Equal(actual, []string{"ACCEPT_INIT"}) {
-						t.Errorf("labels %v, want [ACCEPT_INIT]", actual)
-					}
-				} else if len(actual) != 1 || (actual[0] != "CLOSE:count" && actual[0] != "CLOSE:ctrunc") {
-					t.Errorf("labels %v, want one CLOSE:count or CLOSE:ctrunc", actual)
+				if !slices.Equal(actual, row.expect) {
+					t.Errorf("labels %v, want %v", actual, row.expect)
 				}
 				for _, p := range problems {
 					t.Errorf("%s", p)

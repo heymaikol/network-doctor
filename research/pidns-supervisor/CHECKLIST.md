@@ -57,12 +57,12 @@ Every slice merge gate is NOT RUN. The slice list is in the contract. Slice 0 is
 | Slice | Scope (short) | Mandatory tests before merge | Status |
 |---|---|---|---|
 | 0 | Decisions D2, D9, D10, D12, D13 to D18 | None (no code) | NOT RUN |
-| 1 | Channel framing, count rule, creds, class a and b records, drain (A40) | Framing rows of T-ADM-FRAMING except init_pidfd_not_sender and producer_not_child; production T32; production T-ADM-FRAMING with the 47-row E10-R6 set; T-DRAIN-UNIT (cases a to k and m to q; case l is in T-T2-POLL); differential parser oracle (ported to the R6 grammar, 18.2 item 19) and seed runs of TestR6IntegerGrammarMatchesRefParse and FuzzParseWireAgreement; arm64 compile of the channel files | NOT RUN |
+| 1 | Channel framing, count rule, creds, class a and b records, drain (A40) | Framing rows of T-ADM-FRAMING except init_pidfd_not_sender and producer_not_child; production T32; production T-ADM-FRAMING with the 47-row E10-R6 set; T-DRAIN-UNIT (cases a to k and m to q; case l is in T-T2-POLL); differential parser oracle (to be ported to the R6 grammar, 18.2 item 19; generator not in this branch, NOT RUN) and seed runs of TestR6IntegerGrammarMatchesRefParse and FuzzParseWireAgreement; arm64 compile of the channel files | NOT RUN |
 | 2 | pidfd admission primitives, PIDFD_GET_INFO wrapper, namespace fds | T-A-ADM rootless part, fail-closed tests, T120 | NOT RUN |
 | 3 | Namespace launch and init (`launcher_linux.go`, `init_linux.go`, both new) | T-N8, T-CAP-INH, T-PTRACE (with the drift guard), T-PTRACE-GO, T-GETFD, T-HOST-REACH-D, T-SIG-INIT; negative: fork-only path absent (S21). Before the first production merge of slices 3 and 4 together: T-DEATH (5 runs) and T-ORPHAN. | NOT RUN |
 | 4 | Launcher hardening, Pdeathsig, removal of base group and PID-number signal paths | T-DEATH (5 runs), T-HOLDER, T-HELPER, T-HOLDER-KILL-GROUP-ABSENT, T-ORPHAN | NOT RUN |
 | 5 | Lifecycle: Done, Lost, Stop, Close CL0 to CL7, watcher, mutex, Start(ctx) | T-DONE, T-CL0, T-WATCH (T07), T08, T-CLOSE-BOUND, T-ZAP-ORDER, T-CLOSE-LIVE, T-STOP, T-REENTRY, T-DRAIN-FLOOD, T-CTX, T-NO-BYPASS (slice 5 part), T-T2-POLL, T-CL7-RELEASE, T-CL6-JOIN, TestCloseCommitIsFrozenAtCL0a | NOT RUN |
-| 6 | Admission order, sender credentials, post-admission status | T06b, T-ADM-ORDER, T-A-ADM (userns part), T-ADM-PPID, T-SENDER, T-STATUS-POST, T-DRAIN-STATUS, T-STOP-KNOWN, T-FINAL-COMMIT, T-NO-BYPASS (slice 6 part) | NOT RUN |
+| 6 | Admission order, sender credentials, post-admission status | T06b, T-ADM-ORDER, T-A-ADM (userns part), T-ADM-PPID, T-SENDER, T-STATUS-POST (must read the final value through the path that produces the labels), T-DRAIN-STATUS, T-STOP-KNOWN, T-FINAL-COMMIT, T-NO-BYPASS (slice 6 part) | NOT RUN |
 | 7 | RLIMIT policy | T-LAUNCH-LIMIT, T-RL-AGG, T-F6b. Blocked by D2 and D12. | NOT RUN |
 | 8 | Lease and metadata | T-LEASE, T-HOST-REACH same-uid rows. Cross-uid rows deferred. | NOT RUN |
 

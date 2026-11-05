@@ -77,7 +77,7 @@ Recorded in `out/frame-r6-final2/RUN-INFO.txt`, not re-run in this round:
 - Red run of `TestR6FinalUnknownIsFrozen` and its two mutants. The red run used a scratch shim, and the mutant logs are held outside this branch (see CHECKLIST CS2).
 - Arm64: compile and vet only. Execution not run.
 
-Not run anywhere: `-fuzz` runs (the seed corpora run), the 150-seed differential oracle, a 32-bit build, and arm64 execution of the production tests.
+Not run anywhere: `-fuzz` runs (the seed corpora run), a 32-bit build, and arm64 execution of the production tests. The 150-seed differential oracle is not in this branch. Its generator is in unpublished tooling (`src/flat61/`), and it has not been ported to the R6 grammar, so the slice 1 oracle gate cannot run from this branch.
 
 ## Known limitations
 

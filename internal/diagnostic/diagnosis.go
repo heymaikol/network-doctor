@@ -423,7 +423,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			}
 			return blame(DiagnosisDirectEgressDegraded, ProbeInternet, summary, gv, ProbeDNS)
 		case hasInternet && !directOK() && dn:
-			return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "DNS resolves but there's no direct TCP egress to the egress check's reference endpoints (proxy-only or filtered network?).", gv, ProbeDNS)
+			return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "DNS resolves, but direct TCP connections to the egress check's reference endpoints failed during this run (proxy-only or filtered network?). That could be a lasting block or a temporary problem: run the check again to see whether it persists.", gv, ProbeDNS)
 		case fail(ProbeInternet) && fail(ProbeDNS):
 			// Egress, not the resolver: nothing this machine sends is
 			// arriving, so the resolver has not been given a fair test yet.
@@ -714,7 +714,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 				"The target answered a direct connection, so direct egress works; the egress check's own fixed reference endpoints are what did not answer.",
 				VerdictDegraded, evidence)
 		}
-		return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "The target works but direct TCP egress to the egress check's reference endpoints is blocked (proxy-only or filtered network?).", VerdictDegraded, endpoint...)
+		return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "The target works, but direct TCP connections to the egress check's reference endpoints failed during this run. That could be a lasting block (proxy-only or filtered network?) or a temporary problem: run the check again to see whether it persists.", VerdictDegraded, endpoint...)
 	case targetOK && prxDown && directOK():
 		return blame(DiagnosisProxyFailure, ProbeProxy, "The target and direct egress work, but the configured environment proxy check failed, so apps that use the proxy will fail (see the proxy row).", VerdictDegraded, ProbeInternet)
 	case targetOK && warn(ProbeInternet):

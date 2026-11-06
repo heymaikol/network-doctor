@@ -88,8 +88,8 @@ var plainTexts = map[DiagnosisID]plainText{
 		"Disconnect and reconnect this computer's Wi-Fi or cable. If a VPN is on, reconnect it or turn it off briefly.",
 	},
 	DiagnosisDirectEgressBlocked: {
-		"Direct internet connections are blocked",
-		"Website names can be looked up, but Network Doctor's test connections to the internet were blocked. Some work and school networks only allow internet access through a proxy (a go-between server) or a filter.",
+		"Direct internet connections failed during this check",
+		"Website names can be looked up, but Network Doctor's test connections to the internet did not get through during this check. Some work and school networks only allow internet access through a proxy (a go-between server) or a filter.",
 		"If this is a work or school network, ask its IT staff whether internet access needs a proxy.",
 	},
 	DiagnosisDirectEgressDegraded: {

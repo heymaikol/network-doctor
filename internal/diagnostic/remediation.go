@@ -367,7 +367,7 @@ var remedies = map[remedyKey]remedy{
 	{id: DiagnosisDirectEgressBlocked}: {
 		id:     RemedyUseProxyPath,
 		action: "Send this traffic the way this network allows",
-		why:    "Something else on this machine is carrying traffic while direct TCP egress is not, which is what a proxy-only or filtered network looks like from here. netdoc cannot tell an intended policy from an outage, so both are still open.",
+		why:    "Something else on this machine carried traffic during this run while direct TCP egress did not get through, which is what a proxy-only or filtered network looks like from here. netdoc cannot tell an intended policy from an outage, so both are still open.",
 		steps: []string{
 			"Set HTTPS_PROXY, HTTP_PROXY and NO_PROXY for the tools that need the internet, if this network runs a proxy.",
 			"If direct egress is meant to work, ask whoever runs the network which destinations are filtered.",

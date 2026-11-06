@@ -21,7 +21,7 @@ func TestDiagnoseGeneric(t *testing.T) {
 	}{
 		{"online", StatusPass, StatusPass, "Online"},
 		{"dns down", StatusPass, StatusFail, "DNS resolution is failing"},
-		{"no egress", StatusFail, StatusPass, "no direct TCP egress"},
+		{"no egress", StatusFail, StatusPass, "failed during this run"},
 		{"offline", StatusFail, StatusFail, "Offline"},
 	}
 	for _, c := range cases {

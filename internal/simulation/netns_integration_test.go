@@ -2471,7 +2471,7 @@ func TestProxyOnlyNetworkHTTPProxyScenario(t *testing.T) {
 	// The user-visible half of the claim. No proxy carried traffic, so the summary
 	// may not describe a proxy-only network, and no finding may say it is one.
 	summary := out.Diagnosis.Summary
-	want := "DNS resolves but there's no direct TCP egress to the egress check's reference endpoints (proxy-only or filtered network?)."
+	want := "DNS resolves, but direct TCP connections to the egress check's reference endpoints failed during this run (proxy-only or filtered network?). That could be a lasting block or a temporary problem: run the check again to see whether it persists."
 	if summary != want {
 		t.Errorf("summary = %q, want %q", summary, want)
 	}

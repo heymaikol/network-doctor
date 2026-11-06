@@ -775,9 +775,12 @@ func analyzeHuntCase(manifest GeneratedCaseManifest, report *Report, truth Obser
 	for _, finding := range unsupportedConditionFindings(report, truth) {
 		add(finding)
 	}
-	if truth.TCP == "reset" && !diagnosisClassifiedReset(report) {
+	// A reset is a diagnostic miss only when a check that could read from the
+	// service ran. Otherwise netdoc never met it: it stays in truth and in
+	// ObservedFaults, and no finding is raised.
+	if probe := protocolProbe(report); probe != "" && truth.TCP == "reset" && !diagnosisClassifiedReset(report) {
 		add(HuntCaseFinding{Category: FindingCoverageGap, Severity: SeverityLow, Code: "tcp_reset_not_distinguished",
-			Probe: protocolProbe(report), Expected: "connection_reset",
+			Probe: probe, Expected: "connection_reset",
 			Summary:  "The simulator observed a TCP reset, but no protocol diagnosis classified it as a reset.",
 			Evidence: "TCP reset service recorded connection_reset"})
 	}
@@ -894,19 +897,31 @@ func diagnosisClassifiedReset(report *Report) bool {
 	return false
 }
 
+// protocolProbe names the first protocol check that ran, in report order, and
+// falls back to target_tcp when only that ran. It returns "" when neither did.
+// internet_tcp is left out: it dials 443 and sends nothing, so it cannot see a
+// reset on the injected service.
+// ponytail: check rows carry no port, so this matches by protocol, not endpoint.
 func protocolProbe(report *Report) string {
+	fallback := ""
 	for _, test := range report.Tests {
 		if test.Diagnosis == nil {
 			continue
 		}
 		for _, check := range test.Diagnosis.Checks {
+			// SKIP and N/A rows never ran, so they say nothing about the network.
+			if check.Status != "PASS" && check.Status != "WARN" && check.Status != "FAIL" {
+				continue
+			}
 			switch check.ID {
 			case "http", "https", "ssh_banner", "smtp_banner", "tls":
 				return check.ID
+			case "target_tcp":
+				fallback = "target_tcp"
 			}
 		}
 	}
-	return "target_tcp"
+	return fallback
 }
 
 func huntSuggestionClass(code string) (string, HuntSeverity, bool) {

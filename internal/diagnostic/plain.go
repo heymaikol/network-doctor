@@ -103,8 +103,8 @@ var plainTexts = map[DiagnosisID]plainText{
 		"",
 	},
 	DiagnosisProxyOnlyNetwork: {
-		"This network appears to allow internet access only through a proxy",
-		"A proxy is a go-between server that some work and school networks require. Direct connections failed during this run, but the proxy this computer is set to use carried traffic, so apps that use it should work.",
+		"Direct connections failed during this run, but the proxy carried traffic",
+		"A proxy is a go-between server that some work and school networks require. Direct connections failed during this run, but the proxy this computer is set to use carried traffic, so apps that use it may work.",
 		"If an app cannot connect, check that it is set to use the system's proxy settings. Run the check again to see whether direct connections still fail.",
 	},
 	DiagnosisProbablePathMTU: {

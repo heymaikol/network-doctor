@@ -590,7 +590,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			return withEvidence(DiagnosisTargetUnreachable, ProbeTargetTCP, hp+" is unreachable though DNS and reference egress work: filtering, target-specific routing, a broken return path, or server silence remain possible.", VerdictService, evidence)
 		}
 		if prx {
-			return blame(DiagnosisProxyOnlyNetwork, ProbeTargetTCP, hp+" was unreachable directly during this run, but the environment proxy has egress: this looks like a proxy-only network, so route traffic through the proxy. That could be a lasting block or a temporary problem: run the check again to see whether it persists.", VerdictNetwork, ProbeProxy, ProbeInternet)
+			return blame(DiagnosisProxyOnlyNetwork, ProbeTargetTCP, hp+" was unreachable directly during this run. The environment proxy carried traffic to the egress check's reference endpoint, which does not show that it reaches "+hp+". This may be a proxy-only network, or a temporary problem: run the check again to see whether direct connections still fail. Routing "+hp+" through the proxy is worth trying.", VerdictNetwork, ProbeProxy, ProbeInternet)
 		}
 		if !has(ProbeInternet) {
 			evidence := addEvidence(supportRows(ProbeTargetTCP),

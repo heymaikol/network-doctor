@@ -377,8 +377,8 @@ var remedies = map[remedyKey]remedy{
 	},
 	{id: DiagnosisProxyOnlyNetwork}: {
 		id:     RemedyUseProxyPath,
-		action: "Use the environment proxy for this traffic",
-		why:    "Direct connections failed during this run, but the configured proxy carried traffic, so the proxy is the path that worked.",
+		action: "Try the environment proxy for this traffic",
+		why:    "Direct connections failed during this run, but the configured proxy carried traffic, so the proxy is a path that worked during this run.",
 		steps: []string{
 			"Point the failing application at the same proxy the environment variables name.",
 			"Check NO_PROXY for an entry that sends this destination direct.",

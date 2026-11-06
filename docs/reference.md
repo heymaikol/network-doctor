@@ -1059,7 +1059,7 @@ The array is omitted when the run reached no specific conclusion: everything pas
 | `direct_egress_blocked` | Direct TCP egress to the reference endpoints failed while something else still works, and nothing in the run reached a public destination directly |
 | `reference_egress_unreachable` | The reference endpoints are unreachable while the endpoint under test answered a direct connection, so egress itself works |
 | `direct_egress_degraded` | Direct egress carries traffic but is impaired |
-| `proxy_only_network` | Only the environment proxy has egress |
+| `proxy_only_network` | Direct egress failed during this run and the environment proxy carried traffic |
 | `local_egress_failure` | Local routing state classified this machine's own path as broken, so nothing beyond it was fairly tested |
 | `probable_path_mtu_problem` | A protocol exchange and a bulk write both stall, which is what a path MTU black hole looks like |
 | `system_dns_failure` | The configured resolver fails on a name public DNS resolves |

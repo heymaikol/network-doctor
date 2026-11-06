@@ -146,6 +146,55 @@ func TestProxyPathRemediationOffersARerun(t *testing.T) {
 	}
 }
 
+// lastingPhrases are sentences that state a standing property, a requirement or
+// a recovery from one run. None may appear in a text a user reads for a
+// proxy-only run.
+var lastingPhrases = []string{
+	"only through a proxy",
+	"allow internet access only",
+	"has egress",
+	"route traffic through the proxy",
+	"Use the environment proxy",
+	"is the path that worked",
+	"should work",
+	"recovered",
+	"now works",
+	"back online",
+}
+
+// Issue 438: every user-visible sentence for a proxy-only run is scoped to the
+// run. The headline of a proxy-only finding must say what was observed in this
+// run, and no sentence may state a standing property or a recovery.
+func TestProxyOnlyWordingStaysWithinTheRun(t *testing.T) {
+	for _, c := range proxyOnlyShapes {
+		t.Run(c.name, func(t *testing.T) {
+			res, order := proxyOnlyRunFor(c.dns, c.target)
+			d := Interpret(c.target, order, res)
+			e := Explain(c.target, order, res)
+			rem, _ := Remediate(d, res, "linux")
+			texts := map[string]string{
+				"summary":       d.Summary,
+				"headline":      e.Headline,
+				"meaning":       e.Meaning,
+				"next step":     e.TryFirst,
+				"remedy action": rem.Action,
+				"remedy why":    rem.Why,
+				"remedy steps":  strings.Join(rem.Steps, " "),
+			}
+			for label, text := range texts {
+				for _, s := range lastingPhrases {
+					if strings.Contains(text, s) {
+						t.Errorf("%s %q states a standing property or a recovery: contains %q", label, text, s)
+					}
+				}
+			}
+			if c.want == DiagnosisProxyOnlyNetwork && !strings.Contains(e.Headline, "during this run") {
+				t.Errorf("headline %q does not say what was observed in this run", e.Headline)
+			}
+		})
+	}
+}
+
 // The direct-egress finding already says the failure may be temporary, so its
 // remediation, which shares the proxy path, must offer the same rerun.
 func TestDirectEgressRemediationOffersARerun(t *testing.T) {

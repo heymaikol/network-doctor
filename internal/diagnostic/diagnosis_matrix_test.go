@@ -531,7 +531,7 @@ func diagnosisMatrix() []matrixCase {
 			res: with(map[ProbeID]ProbeResult{
 				ProbeInternet: ok(StatusFail), ProbeProxy: ok(StatusPass), ProbeTargetTCP: ok(StatusFail),
 			}),
-			summary: "example.com:443 was unreachable directly during this run, but the environment proxy has egress: this looks like a proxy-only network, so route traffic through the proxy. That could be a lasting block or a temporary problem: run the check again to see whether it persists.",
+			summary: "example.com:443 was unreachable directly during this run. The environment proxy carried traffic to the egress check's reference endpoint, which does not show that it reaches example.com:443. This may be a proxy-only network, or a temporary problem: run the check again to see whether direct connections still fail. Routing example.com:443 through the proxy is worth trying.",
 			verdict: VerdictNetwork, focus: ProbeTargetTCP,
 			id: "proxy_only_network", evidence: []ProbeID{ProbeTargetTCP, ProbeProxy, ProbeInternet},
 		},

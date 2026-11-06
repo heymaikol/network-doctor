@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"os"
 	"os/exec"
 	"regexp"
@@ -14,7 +15,13 @@ import (
 // The README's hero GIF is recorded by .github/workflows/demo.yml from
 // hero.tape. These tests hold the parts of that arrangement that break
 // silently: a recording is still produced when the tape has drifted off the
-// program, and each release tag's recording can refresh the tracked GIF.
+// program, and only a manual run from main can publish the tracked media.
+
+// demoPublishCondition is the whole condition on every step that commits or
+// pushes. success() is written out although GitHub applies it by default to
+// an if without a status function, so the pinned string is the full gate.
+// Release tags still record and upload; they never publish.
+const demoPublishCondition = "success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
 
 func demoWorkflow(t *testing.T) string {
 	t.Helper()
@@ -195,7 +202,7 @@ func TestDemoWorkflowPinsItsActionsAndItsVHS(t *testing.T) {
 	}
 }
 
-func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
+func TestDemoWorkflowPublishesOnlyFromManualMainRuns(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/demo.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -216,6 +223,7 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 			CancelInProgress *bool  `yaml:"cancel-in-progress"`
 		} `yaml:"concurrency"`
 		Jobs map[string]struct {
+			If          string            `yaml:"if"`
 			Permissions map[string]string `yaml:"permissions"`
 			Steps       []step            `yaml:"steps"`
 		} `yaml:"jobs"`
@@ -275,8 +283,18 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 	if commit == nil {
 		t.Fatal("demo.yml does not commit the changed recording")
 	}
-	if commit.If != "" {
-		t.Errorf("demo.yml commit condition = %q; a release tag is the only trigger that reaches this step", commit.If)
+	if workflow.Jobs["hero"].If != "" {
+		t.Errorf("demo.yml hero job is conditional (%q); release tags must still record and upload", workflow.Jobs["hero"].If)
+	}
+	for _, s := range workflow.Jobs["hero"].Steps {
+		label := cmp.Or(s.Name, s.Uses)
+		publishes := strings.Contains(s.Run, "git commit") || strings.Contains(s.Run, "git push")
+		switch {
+		case publishes && s.If != demoPublishCondition:
+			t.Errorf("demo.yml step %q publishes under condition %q; want %q so a release tag can never push to main", label, s.If, demoPublishCondition)
+		case !publishes && s.If != "":
+			t.Errorf("demo.yml step %q is conditional (%q); only the publishing step may depend on the event", label, s.If)
+		}
 	}
 	if checkout.With["fetch-depth"] != "0" {
 		t.Error("demo.yml checkout is shallow; the ancestry check needs main's history")
@@ -355,8 +373,8 @@ func TestDemoWorkflowValidatesDerivativesBeforePublishing(t *testing.T) {
 				}
 			}
 		}
-		if strings.Contains(step.Run, "git push") && (!converted || step.If != "") {
-			t.Fatal("publication must require successful media conversion")
+		if strings.Contains(step.Run, "git push") && (!converted || step.If != demoPublishCondition) {
+			t.Fatal("publication must require successful media conversion and a manual run from main")
 		}
 	}
 	if !converted {

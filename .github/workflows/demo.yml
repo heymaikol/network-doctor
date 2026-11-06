@@ -5,12 +5,14 @@ name: demo
 # from the official action.
 #
 # The recording uses live probes, so latencies and spinner phases make fresh
-# recordings differ byte for byte. After verification, the GIF, website video
-# and final-frame poster follow the newest successful recording together.
+# recordings differ byte for byte. Every run verifies the GIF, website video
+# and final-frame poster and uploads them. Only a manual run from main commits
+# them back, so the tracked media follow the newest recording together.
 #
-# Checkout persists the job's GITHUB_TOKEN for the final git push. The tag a
-# release is cut from is already on main, so the refreshed recording lands
-# there; release.yml has verified that ancestry by the time this runs.
+# Checkout persists the job's GITHUB_TOKEN for the final git push, which only a
+# manual run from main reaches. A release tag starts this workflow alongside
+# release.yml and does not wait for it, so the commit step checks ancestry
+# against main itself.
 
 on:
   push:
@@ -91,7 +93,9 @@ jobs:
             assets/hero.mp4
             assets/hero-poster.png
           if-no-files-found: error
+      # Release tags stop before this step: they record and upload, never push.
       - name: Commit the changed recording
+        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         env:
           EXPECTED_HEAD: ${{ github.sha }}
         run: |

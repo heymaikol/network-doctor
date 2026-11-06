@@ -4029,6 +4029,9 @@ func findCheck(checks []DiagnosisCheck, id string) (DiagnosisCheck, bool) {
 // A challenge is not a kept simulation: when the command returns, the
 // namespaces, the workspace and any record of them are gone.
 func TestChallengeLeavesNothingBehind(t *testing.T) {
+	// The leftover scan and the state count must see only this run's dirs,
+	// not another simulation's that happens to share the temp dir.
+	stateSandbox(t)
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
 	before := stateEntries(t)

@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -218,9 +219,26 @@ func (r *Report) permanentWording(test *TestOutcome, recoveries []FaultEventEvid
 	if len(healed) == 0 {
 		return nil
 	}
+	// The simulator's own dial from this test's node to its target port ran
+	// after every scheduled event had been applied or skipped. If it still
+	// cannot reach the port, a netem or link recovery healed nothing target_tcp
+	// was failing on. Other checks keep their pairing: a link that dropped
+	// internet_tcp is still a transient even when the target stays down.
+	// ponytail: suppresses when any dial to the port is unreachable, not only the
+	// diagnosed address. A second endpoint on the same port that stays down, or
+	// an IPv6 dial that has not settled after link-up, can also hide a target_tcp
+	// transient that did heal. Key on the diagnosed address once the check
+	// records one.
+	stillDown := false
+	if target, err := diagnostic.ParseTarget(test.Target); err == nil {
+		stillDown = slices.ContainsFunc(r.Evidence.ControlledTargets, func(item ControlledTargetEvidence) bool {
+			addr, err := netip.ParseAddrPort(item.To)
+			return err == nil && item.From == test.Node && int(addr.Port()) == target.Port && !item.Reachable
+		})
+	}
 	failed, restored := "", FaultEventEvidence{}
 	for _, check := range test.Diagnosis.Checks {
-		if check.Status != "FAIL" {
+		if check.Status != "FAIL" || (stillDown && check.ID == string(diagnostic.ProbeTargetTCP)) {
 			continue
 		}
 		if i := slices.IndexFunc(healed, func(h FaultEventEvidence) bool { return h.Event.explains(check.ID) }); i >= 0 {

@@ -503,6 +503,54 @@ jobs:
             exit 1
           fi
 
+  # Runs the supervisor's default and integration-tagged tests on a native arm64
+  # runner. Until this job, arm64 was only cross-compiled and vetted. Rootless:
+  # neither build compiles a test that needs user namespaces, so the AppArmor
+  # sysctl the namespace jobs use is not needed here. Not a linux-gate shard.
+  supervisor-arm64:
+    name: supervisor (linux/arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+      - name: Print runner and toolchain identity
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          echo "uname -m: $(uname -m)"
+          echo "uname -r: $(uname -r)"
+          go version
+          echo "GOARCH: $(go env GOARCH)"
+          echo "checked out: $(git rev-parse HEAD)"
+          echo "pull request head: $PR_HEAD_SHA"
+      # The PASS and SKIP line counts are printed so a run made only of skips is
+      # visible. The step fails if no test passed.
+      - name: Run default supervisor package tests
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -o pipefail
+          go test -count=1 -v ./contrib/frr-correlation/supervisor | tee "$RUNNER_TEMP/default.txt"
+          pass=$(grep -c -- '--- PASS:' "$RUNNER_TEMP/default.txt" || true)
+          skip=$(grep -c -- '--- SKIP:' "$RUNNER_TEMP/default.txt" || true)
+          echo "default: $pass PASS lines, $skip SKIP lines"
+          test "$pass" -gt 0
+      - name: Run integration-tagged supervisor package tests
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -o pipefail
+          go test -count=1 -v -tags integration ./contrib/frr-correlation/supervisor | tee "$RUNNER_TEMP/integration.txt"
+          pass=$(grep -c -- '--- PASS:' "$RUNNER_TEMP/integration.txt" || true)
+          skip=$(grep -c -- '--- SKIP:' "$RUNNER_TEMP/integration.txt" || true)
+          echo "integration: $pass PASS lines, $skip SKIP lines"
+          test "$pass" -gt 0
+
   # The container is how macOS and Windows reach Challenge Mode, so the artifact
   # is tested rather than assumed: this job builds the image and runs a real
   # namespace-backed simulation and a real challenge inside it. The runner's

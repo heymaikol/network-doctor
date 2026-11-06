@@ -219,26 +219,46 @@ func (r *Report) permanentWording(test *TestOutcome, recoveries []FaultEventEvid
 	if len(healed) == 0 {
 		return nil
 	}
-	// The simulator's own dial from this test's node to its target port ran
-	// after every scheduled event had been applied or skipped. If it still
-	// cannot reach the port, a netem or link recovery healed nothing target_tcp
-	// was failing on. Other checks keep their pairing: a link that dropped
+	// target_tcp is still down only when every address it tried has a post-run
+	// dial from this test's node that is unreachable. The simulator dials after
+	// every scheduled event has been applied or skipped, so that dial says where
+	// each address ended. One reachable address means the recovery healed part of
+	// what the check reported. A missing, duplicated or contradictory record keeps
+	// the finding. Other checks keep their pairing: a link that dropped
 	// internet_tcp is still a transient even when the target stays down.
-	// ponytail: suppresses when any dial to the port is unreachable, not only the
-	// diagnosed address. A second endpoint on the same port that stays down, or
-	// an IPv6 dial that has not settled after link-up, can also hide a target_tcp
-	// transient that did heal. Key on the diagnosed address once the check
-	// records one.
-	stillDown := false
-	if target, err := diagnostic.ParseTarget(test.Target); err == nil {
-		stillDown = slices.ContainsFunc(r.Evidence.ControlledTargets, func(item ControlledTargetEvidence) bool {
-			addr, err := netip.ParseAddrPort(item.To)
-			return err == nil && item.From == test.Node && int(addr.Port()) == target.Port && !item.Reachable
-		})
+	// ponytail: the dial is the state at the end of the run, not during it, so an
+	// address that recovered and failed again before the end, or an IPv6 dial still
+	// settling after link-up, reads as down.
+	stillDown := func(check DiagnosisCheck) bool {
+		target, err := diagnostic.ParseTarget(test.Target)
+		if err != nil || len(check.Attempts) == 0 {
+			return false
+		}
+		for _, attempt := range check.Attempts {
+			ip, err := netip.ParseAddr(attempt.IP)
+			if err != nil {
+				return false
+			}
+			seen := false
+			for _, item := range r.Evidence.ControlledTargets {
+				addr, err := netip.ParseAddrPort(item.To)
+				if err != nil || item.From != test.Node || addr.Addr() != ip || int(addr.Port()) != target.Port {
+					continue
+				}
+				if item.Reachable {
+					return false
+				}
+				seen = true
+			}
+			if !seen {
+				return false
+			}
+		}
+		return true
 	}
 	failed, restored := "", FaultEventEvidence{}
 	for _, check := range test.Diagnosis.Checks {
-		if check.Status != "FAIL" || (stillDown && check.ID == string(diagnostic.ProbeTargetTCP)) {
+		if check.Status != "FAIL" || (check.ID == string(diagnostic.ProbeTargetTCP) && stillDown(check)) {
 			continue
 		}
 		if i := slices.IndexFunc(healed, func(h FaultEventEvidence) bool { return h.Event.explains(check.ID) }); i >= 0 {

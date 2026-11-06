@@ -214,7 +214,9 @@ func targetDial(to, outcome string) ControlledTargetEvidence {
 // The four Hunt cases recorded in #437, rebuilt from their stored reports. Each
 // has a target fault that stays in place for the whole run and an unrelated
 // netem spike that clears inside it. The diagnosis and the dials are the
-// recorded values; the offsets are rounded to the millisecond.
+// recorded values; the offsets are rounded to the millisecond. Each attempt list is
+// rebuilt from the address list in its Detail, because stored hunt reports drop
+// attempts in canonicalization and the live report carries them.
 func TestPermanentWordingIgnoresAnUnrelatedRecoveryOfAPersistentTargetFault(t *testing.T) {
 	refused := "refused"
 	for _, tc := range []struct {
@@ -229,7 +231,7 @@ func TestPermanentWordingIgnoresAnUnrelatedRecoveryOfAPersistentTargetFault(t *t
 			test: TestOutcome{Name: "both address families cross the router", Node: "client", Target: "dual-target.test:80",
 				StartOffset: 4 * time.Millisecond, EndOffset: 2077 * time.Millisecond,
 				Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{{ID: "target_tcp", Status: "FAIL", Cause: "connection_refused",
-					Detail: "connection to port 80 was refused on all 2 attempted address(es): 10.78.2.20, 2001:db8:77:2::20"}}}},
+					Attempts: []DiagnosisAttempt{{IP: "10.78.2.20", Cause: "refused"}, {IP: "2001:db8:77:2::20", Cause: "refused"}}, Detail: "connection to port 80 was refused on all 2 attempted address(es): 10.78.2.20, 2001:db8:77:2::20"}}}},
 			dials: []ControlledTargetEvidence{targetDial("10.78.2.20:80", refused), targetDial("[2001:db8:77:2::20]:80", refused)},
 		},
 		{
@@ -238,7 +240,7 @@ func TestPermanentWordingIgnoresAnUnrelatedRecoveryOfAPersistentTargetFault(t *t
 			test: TestOutcome{Name: "both address families cross the router", Node: "client", Target: "dual-target.test:80",
 				StartOffset: 6 * time.Millisecond, EndOffset: 2078 * time.Millisecond,
 				Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{{ID: "target_tcp", Status: "FAIL", Cause: "connection_refused",
-					Detail: "connection to port 80 was refused on all 2 attempted address(es): 10.78.2.20, 2001:db8:77:2::20"}}}},
+					Attempts: []DiagnosisAttempt{{IP: "10.78.2.20", Cause: "refused"}, {IP: "2001:db8:77:2::20", Cause: "refused"}}, Detail: "connection to port 80 was refused on all 2 attempted address(es): 10.78.2.20, 2001:db8:77:2::20"}}}},
 			dials: []ControlledTargetEvidence{targetDial("10.78.2.20:80", refused), targetDial("[2001:db8:77:2::20]:80", refused)},
 		},
 		{
@@ -247,7 +249,7 @@ func TestPermanentWordingIgnoresAnUnrelatedRecoveryOfAPersistentTargetFault(t *t
 			test: TestOutcome{Name: "healthy traffic crosses the router", Node: "client", Target: "routed-target.test:80",
 				StartOffset: 6 * time.Millisecond, EndOffset: 1405 * time.Millisecond,
 				Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{{ID: "target_tcp", Status: "FAIL", Cause: "connection_refused",
-					Detail: "connection to port 80 was refused on all 1 attempted address(es): 10.77.2.20"}}}},
+					Attempts: []DiagnosisAttempt{{IP: "10.77.2.20", Cause: "refused"}}, Detail: "connection to port 80 was refused on all 1 attempted address(es): 10.77.2.20"}}}},
 			dials: []ControlledTargetEvidence{targetDial("10.77.2.20:80", refused)},
 		},
 		{
@@ -259,7 +261,7 @@ func TestPermanentWordingIgnoresAnUnrelatedRecoveryOfAPersistentTargetFault(t *t
 			test: TestOutcome{Name: "the target subnet and the internet are both routed", Node: "client", Target: "subnet-target.test:80",
 				StartOffset: 4 * time.Millisecond, EndOffset: 4327 * time.Millisecond,
 				Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{{ID: "target_tcp", Status: "FAIL",
-					Detail: "port 80 unreachable on all 1 address(es): 10.80.3.20"}}}},
+					Attempts: []DiagnosisAttempt{{IP: "10.80.3.20", Cause: "timeout"}}, Detail: "port 80 unreachable on all 1 address(es): 10.80.3.20"}}}},
 			dials: []ControlledTargetEvidence{targetDial("10.80.3.20:80", FamilyStateUnreachable), targetDial("10.80.2.20:80", FamilyStateReachable)},
 		},
 	} {
@@ -281,7 +283,7 @@ func TestPermanentWordingKeepsARecoveryThatHealedTheEndpoint(t *testing.T) {
 		Tests: []TestOutcome{{Name: "healthy traffic crosses the router", Node: "client", Target: "routed-target.test:80",
 			StartOffset: 6 * time.Millisecond, EndOffset: 1405 * time.Millisecond,
 			Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{{ID: "target_tcp", Status: "FAIL",
-				Detail: "port 80 unreachable on all 1 address(es): 10.77.2.20"}}}}},
+				Attempts: []DiagnosisAttempt{{IP: "10.77.2.20", Cause: "timeout"}}, Detail: "port 80 unreachable on all 1 address(es): 10.77.2.20"}}}}},
 		Evidence: Evidence{ControlledTargets: []ControlledTargetEvidence{targetDial("10.77.2.20:80", FamilyStateReachable)}},
 	}
 	if !codes(healedNetem.timelineSuggestions())[SuggestTransientReportedPermanent] {
@@ -297,7 +299,7 @@ func TestPermanentWordingKeepsARecoveryThatHealedTheEndpoint(t *testing.T) {
 		},
 		Tests: []TestOutcome{{Name: "t", Node: "client", Target: "routed-target.test:80", EndOffset: time.Second,
 			Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{{ID: "target_tcp", Status: "FAIL",
-				Detail: "port 80 unreachable on all 1 address(es): 10.77.2.20"}}}}},
+				Attempts: []DiagnosisAttempt{{IP: "10.77.2.20", Cause: "timeout"}}, Detail: "port 80 unreachable on all 1 address(es): 10.77.2.20"}}}}},
 		Evidence: Evidence{ControlledTargets: []ControlledTargetEvidence{targetDial("10.77.2.20:80", FamilyStateReachable)}},
 	}
 	if !codes(link.timelineSuggestions())[SuggestTransientReportedPermanent] {
@@ -315,7 +317,7 @@ func TestPermanentWordingKeepsARecoveryThatHealedTheEndpoint(t *testing.T) {
 		Tests: []TestOutcome{{Name: "t", Node: "client", Target: "dual-target.test:80", StartOffset: 4 * time.Millisecond, EndOffset: 4024 * time.Millisecond,
 			Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{
 				{ID: "internet_tcp", Status: "FAIL", Detail: "no direct TCP egress to 1.1.1.1"},
-				{ID: "target_tcp", Status: "FAIL", Detail: "port 80 unreachable on all 2 address(es): 10.78.2.20, 2001:db8:77:2::20"},
+				{ID: "target_tcp", Status: "FAIL", Attempts: []DiagnosisAttempt{{IP: "10.78.2.20", Cause: "timeout"}, {IP: "2001:db8:77:2::20", Cause: "timeout"}}, Detail: "port 80 unreachable on all 2 address(es): 10.78.2.20, 2001:db8:77:2::20"},
 			}}}},
 		Evidence: Evidence{ControlledTargets: []ControlledTargetEvidence{
 			targetDial("10.78.2.20:80", FamilyStateUnreachable), targetDial("[2001:db8:77:2::20]:80", FamilyStateUnreachable)}},
@@ -331,7 +333,7 @@ func TestPermanentWordingKeepsARecoveryThatHealedTheEndpoint(t *testing.T) {
 		Tests: []TestOutcome{{Name: "t", Node: "client", Target: "routed-target.test:80", EndOffset: 1405 * time.Millisecond,
 			Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{
 				{ID: "dns", Status: "FAIL", Detail: "resolver did not answer"},
-				{ID: "target_tcp", Status: "FAIL", Cause: "connection_refused", Detail: "connection to port 80 was refused on all 1 attempted address(es): 10.77.2.20"},
+				{ID: "target_tcp", Status: "FAIL", Cause: "connection_refused", Attempts: []DiagnosisAttempt{{IP: "10.77.2.20", Cause: "refused"}}, Detail: "connection to port 80 was refused on all 1 attempted address(es): 10.77.2.20"},
 			}}}},
 		Evidence: Evidence{ControlledTargets: []ControlledTargetEvidence{targetDial("10.77.2.20:80", "refused")}},
 	}
@@ -358,6 +360,91 @@ func TestPermanentWordingKeepsARecoveryWhenAnotherEndpointStaysDown(t *testing.T
 	}
 	if !codes(rep.timelineSuggestions())[SuggestTransientReportedPermanent] {
 		t.Errorf("a recovered endpoint was hidden by another endpoint on the same port that stayed down: %+v", rep.timelineSuggestions())
+	}
+}
+
+// The suppression reads each address target_tcp tried, not every endpoint that
+// shares its port. A record that is missing, duplicated or contradictory keeps the
+// finding, and so does a recovered address beside one that stayed down.
+func TestPermanentWordingReadsEveryAttemptedAddress(t *testing.T) {
+	timeline := []FaultEventEvidence{
+		applied(100*time.Millisecond, TimedEvent{Type: FaultScheduledLink, Node: "client", Segment: "client-lan", State: LinkStateDown}),
+		applied(500*time.Millisecond, TimedEvent{Type: FaultScheduledLink, Node: "client", Segment: "client-lan", State: LinkStateUp}),
+	}
+	v4, v4Addr := "10.78.2.20", "10.78.2.20:80"
+	v6, v6Addr := "2001:db8:77:2::20", "[2001:db8:77:2::20]:80"
+	for _, tc := range []struct {
+		name     string
+		attempts []DiagnosisAttempt
+		dials    []ControlledTargetEvidence
+		kept     bool
+	}{
+		{
+			name:     "IPv4-only client: a v6 record it never tried cannot veto a recovered v4 address",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateReachable), targetDial(v6Addr, FamilyStateUnreachable)},
+			kept:     true,
+		},
+		{
+			name:     "IPv4-only client: a v6 record it never tried cannot rescue a v4 address that stayed down",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable), targetDial(v6Addr, FamilyStateReachable)},
+		},
+		{
+			name:     "dual-stack: one family recovered while the other stayed down",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "refused"}, {IP: v6, Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateReachable), targetDial(v6Addr, FamilyStateUnreachable)},
+			kept:     true,
+		},
+		{
+			name:     "dual-stack: both families still down",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "refused"}, {IP: v6, Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable), targetDial(v6Addr, FamilyStateUnreachable)},
+		},
+		{
+			name:     "stale duplicate disagrees with a fresh reachable record",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable), targetDial(v4Addr, FamilyStateReachable)},
+			kept:     true,
+		},
+		{
+			name:     "aborted attempt whose address is still down",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout", Aborted: true}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable)},
+		},
+		{
+			name:     "aborted attempt whose address recovered",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout", Aborted: true}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateReachable)},
+			kept:     true,
+		},
+		{
+			name:     "no attempts recorded",
+			attempts: nil,
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable)},
+			kept:     true,
+		},
+		{
+			name:     "attempted address with no post-run record",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}, {IP: "10.78.3.21", Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable)},
+			kept:     true,
+		},
+		{
+			name:     "another node's reachable record cannot rescue an attempted address",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}},
+			dials: []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable),
+				{From: "gateway", To: v4Addr, Reachable: true, Outcome: FamilyStateReachable}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := &Report{Timeline: timeline, Evidence: Evidence{ControlledTargets: tc.dials},
+				Tests: []TestOutcome{{Name: "t", Node: "client", Target: "pair-target.test:80", EndOffset: time.Second,
+					Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{{ID: "target_tcp", Status: "FAIL", Attempts: tc.attempts}}}}}}
+			if got := codes(rep.timelineSuggestions())[SuggestTransientReportedPermanent]; got != tc.kept {
+				t.Errorf("transient finding = %v, want %v: %+v", got, tc.kept, rep.timelineSuggestions())
+			}
+		})
 	}
 }
 

@@ -55,7 +55,7 @@ func TestDiagnoseProxy(t *testing.T) {
 		{"no proxy configured", StatusPass, StatusNA, StatusPass, false, "Online: direct TCP egress"},
 		// A downgraded egress row is a dead direct route wearing a Warn, so a
 		// resolver failure beside it cannot be prefaced with working egress.
-		{"proxy-only network with broken DNS", StatusWarn, StatusPass, StatusFail, true, "Direct egress is blocked and DNS resolution is failing"},
+		{"proxy-only network with broken DNS", StatusWarn, StatusPass, StatusFail, true, "DNS resolution failed too"},
 		// The probe's own Warn, with no proxy in the picture: direct egress
 		// genuinely carries traffic, so the older wording still holds.
 		{"degraded direct, no proxy, broken DNS", StatusWarn, StatusNA, StatusFail, false, "Internet egress works (degraded)"},
@@ -109,7 +109,7 @@ func TestDiagnoseProxyOnlyBrokenDNS(t *testing.T) {
 	}
 
 	d := Interpret(nil, order, res)
-	want := "Direct egress is blocked and DNS resolution is failing; only the environment proxy is carrying traffic."
+	want := "Direct egress failed during this run and DNS resolution failed too, so only the environment proxy carried traffic. That could be a lasting block or a temporary problem: run the check again to see whether it persists."
 	if d.Summary != want {
 		t.Errorf("summary = %q, want %q", d.Summary, want)
 	}

@@ -371,16 +371,18 @@ var remedies = map[remedyKey]remedy{
 		steps: []string{
 			"Set HTTPS_PROXY, HTTP_PROXY and NO_PROXY for the tools that need the internet, if this network runs a proxy.",
 			"If direct egress is meant to work, ask whoever runs the network which destinations are filtered.",
+			"Run the check again to see whether direct connections still fail.",
 		},
 		expect: "Traffic leaving through the path this network intends, or a confirmed filter.",
 	},
 	{id: DiagnosisProxyOnlyNetwork}: {
 		id:     RemedyUseProxyPath,
 		action: "Use the environment proxy for this traffic",
-		why:    "Direct connections do not leave this network, but the configured proxy does carry traffic, so the proxy is the path that works.",
+		why:    "Direct connections failed during this run, but the configured proxy carried traffic, so the proxy is the path that worked.",
 		steps: []string{
 			"Point the failing application at the same proxy the environment variables name.",
 			"Check NO_PROXY for an entry that sends this destination direct.",
+			"Run the check again to see whether direct connections still fail.",
 		},
 		expect: "The destination reachable through the proxy.",
 	},

@@ -103,9 +103,9 @@ var plainTexts = map[DiagnosisID]plainText{
 		"",
 	},
 	DiagnosisProxyOnlyNetwork: {
-		"This network allows internet access only through a proxy",
-		"A proxy is a go-between server that some work and school networks require. Direct connections are blocked, but the proxy this computer is set to use works, so apps that use it should work.",
-		"If an app cannot connect, check that it is set to use the system's proxy settings.",
+		"This network appears to allow internet access only through a proxy",
+		"A proxy is a go-between server that some work and school networks require. Direct connections failed during this run, but the proxy this computer is set to use carried traffic, so apps that use it should work.",
+		"If an app cannot connect, check that it is set to use the system's proxy settings. Run the check again to see whether direct connections still fail.",
 	},
 	DiagnosisProbablePathMTU: {
 		"Larger transfers are getting stuck on the way to {host}",
@@ -314,8 +314,8 @@ func (d Diagnosis) Explain(t *Target, order []ProbeID, res map[ProbeID]ProbeResu
 		case ok && r.downgraded:
 			// A proxy-only network: the direct path is closed by design and
 			// the proxy carries traffic, so the router is not the suspect.
-			e.Meaning += " This network allows internet access only through a proxy (a go-between server)."
-			e.TryFirst = "If this is a work or school network, ask its IT staff."
+			e.Meaning += " Direct connections failed during this run, and only a proxy (a go-between server) carried traffic."
+			e.TryFirst = "If this is a work or school network, ask its IT staff. Run the check again to see whether direct connections still fail."
 		}
 	}
 	switch f.Confidence {

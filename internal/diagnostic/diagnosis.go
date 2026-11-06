@@ -398,7 +398,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		case ip && dn:
 			return plain("Online: direct TCP egress and DNS both work.", gv)
 		case warn(ProbeInternet) && res[ProbeInternet].downgraded && dn && prx:
-			return blame(DiagnosisProxyOnlyNetwork, ProbeInternet, "Online via the environment proxy: direct egress is blocked (proxy-only network).", gv, ProbeProxy, ProbeDNS)
+			return blame(DiagnosisProxyOnlyNetwork, ProbeInternet, "Online via the environment proxy: direct egress failed during this run (proxy-only network). That could be a lasting block or a temporary problem: run the check again to see whether it persists.", gv, ProbeProxy, ProbeDNS)
 		case warn(ProbeInternet) && res[ProbeInternet].downgraded && fail(ProbeDNS) && prx:
 			// The same proxy-only network as the case above, with its resolver
 			// gone too. The Warn here is downgradeEgress's, not the probe's, so
@@ -410,7 +410,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			// designed, which is why downgradeEgress already took the routing
 			// repair off the egress row. The resolver is the half of this
 			// sentence there is still something to do about.
-			return blame(DiagnosisDNSFailure, ProbeDNS, "Direct egress is blocked and DNS resolution is failing; only the environment proxy is carrying traffic.", gv, ProbeInternet, ProbeProxy)
+			return blame(DiagnosisDNSFailure, ProbeDNS, "Direct egress failed during this run and DNS resolution failed too, so only the environment proxy carried traffic. That could be a lasting block or a temporary problem: run the check again to see whether it persists.", gv, ProbeInternet, ProbeProxy)
 		case directOK() && warn(ProbeInternet) && dn:
 			// One conclusion, two sentences, because the row warns for two
 			// materially different reasons. The cause is recorded only where a
@@ -590,7 +590,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			return withEvidence(DiagnosisTargetUnreachable, ProbeTargetTCP, hp+" is unreachable though DNS and reference egress work: filtering, target-specific routing, a broken return path, or server silence remain possible.", VerdictService, evidence)
 		}
 		if prx {
-			return blame(DiagnosisProxyOnlyNetwork, ProbeTargetTCP, hp+" is unreachable directly, but the environment proxy has egress: this is a proxy-only network, so route traffic through the proxy.", VerdictNetwork, ProbeProxy, ProbeInternet)
+			return blame(DiagnosisProxyOnlyNetwork, ProbeTargetTCP, hp+" was unreachable directly during this run, but the environment proxy has egress: this looks like a proxy-only network, so route traffic through the proxy. That could be a lasting block or a temporary problem: run the check again to see whether it persists.", VerdictNetwork, ProbeProxy, ProbeInternet)
 		}
 		if !has(ProbeInternet) {
 			evidence := addEvidence(supportRows(ProbeTargetTCP),

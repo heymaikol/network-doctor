@@ -94,6 +94,8 @@ func TestSemanticOracleScopedFailuresInNamespaces(t *testing.T) {
 			switch family {
 			case "dns":
 				scenario.Faults = []Fault{{Type: FaultScheduledDNS, Service: "dual-resolver", Events: []ScheduledEvent{{At: "0ms", Outcome: DNSOutcomeSERVFAIL}}}}
+				// Absolute input: only then may system and public DNS be compared.
+				scenario.Tests[0].Target = "dual-target.test.:80"
 				want = ConditionSystemDNSFailure
 			default:
 				address := "10.78.2.20"
@@ -118,5 +120,30 @@ func TestSemanticOracleScopedFailuresInNamespaces(t *testing.T) {
 				t.Fatal("positive DNS answers failed to contradict fabricated name absence")
 			}
 		})
+	}
+}
+
+// The Hunt base names dual-target.test without a trailing dot. The diagnosis
+// does not compare system and public DNS for that input (docs/reference.md),
+// so the oracle must not claim system_dns_failure for it, even though the
+// lookups match the absolute case. This is the reproduction behind the
+// system_dns_failure reports from the Hunt.
+func TestRelativeDNSNameMakesNoSystemDNSClaimInNamespaces(t *testing.T) {
+	t.Parallel()
+	requireBackend(t)
+	netdoc, sim := buildBinaries(t)
+	scenario, err := LibraryScenario("dual-stack-healthy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario.Faults = []Fault{{Type: FaultScheduledDNS, Service: "dual-resolver", Events: []ScheduledEvent{{At: "0ms", Outcome: DNSOutcomeSERVFAIL}}}}
+	report := runScenarioDefinition(t, sim, netdoc, scenario)
+	truth := collectObservedTruth(GeneratedCaseManifest{}, &report)
+	established, _, _ := caseConditions(&report, truth)
+	if slices.Contains(established, ConditionSystemDNSFailure) {
+		t.Fatalf("relative name established system_dns_failure: %v", established)
+	}
+	if d := finalClientDiagnosis(&report); !findingRecognizes(diagnostic.DiagnosisDNSFailure)(d) {
+		t.Fatalf("diagnosis is not the plain DNS failure the policy allows: %+v", d)
 	}
 }

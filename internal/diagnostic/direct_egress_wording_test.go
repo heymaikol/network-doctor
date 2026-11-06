@@ -77,7 +77,7 @@ var lastingPhrases = []string{
 	"are blocked",
 	"is blocked",
 	"only through a proxy",
-	"allow internet access only",
+	"internet access only",
 	"has egress",
 	"is unreachable directly, but",
 	"this is a proxy-only network",

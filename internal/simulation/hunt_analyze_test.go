@@ -850,17 +850,23 @@ func TestObservedTruthRequiresAnActualTCPReset(t *testing.T) {
 
 func TestHuntAnalysisReportsAnUnclassifiedTCPReset(t *testing.T) {
 	for _, tc := range []struct {
-		name, checkID, cause, wantProbe string
-		wantFinding                     bool
+		name, checkID, status, cause, wantProbe string
+		wantFinding                             bool
 	}{
-		{name: "classified reset", checkID: "http", cause: "connection_reset"},
-		{name: "protocol probe", checkID: "http", wantProbe: "http", wantFinding: true},
-		{name: "generic TCP probe", checkID: "internet_tcp", wantProbe: "target_tcp", wantFinding: true},
+		{name: "classified reset", checkID: "http", status: "FAIL", cause: "connection_reset"},
+		{name: "protocol probe", checkID: "http", status: "FAIL", wantProbe: "http", wantFinding: true},
+		{name: "target TCP probe", checkID: "target_tcp", status: "FAIL", wantProbe: "target_tcp", wantFinding: true},
+		// Generic egress dials port 443 and sends nothing, so it cannot see a
+		// reset on the service Hunt injected. This row used to expect target_tcp,
+		// which was the false positive reported in #436.
+		{name: "generic TCP egress probe", checkID: "internet_tcp", status: "PASS"},
+		// A protocol row that did not execute is no evidence of a missed reset.
+		{name: "skipped protocol probe", checkID: "http", status: "SKIP"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			report := &Report{Cleanup: CleanupInfo{Done: true}, Tests: []TestOutcome{{
 				ProcessOutcome: ProcessExited,
-				Diagnosis:      &Diagnosis{Checks: []DiagnosisCheck{{ID: tc.checkID, Cause: tc.cause}}},
+				Diagnosis:      &Diagnosis{Checks: []DiagnosisCheck{{ID: tc.checkID, Status: tc.status, Cause: tc.cause}}},
 			}}}
 			findings := analyzeHuntCase(huntManifest(), report, ObservedTruth{TCP: "reset"})
 			if !tc.wantFinding {
@@ -873,6 +879,57 @@ func TestHuntAnalysisReportsAnUnclassifiedTCPReset(t *testing.T) {
 				t.Fatalf("findings = %+v, want reset gap for %s", findings, tc.wantProbe)
 			}
 		})
+	}
+}
+
+// TestHuntAnalysisDoesNotExpectAResetNoProbeObserved replays the Oct 28
+// two-path-healthy case 1 from #436 (case e622e73f7af5fd94). Three tests ran
+// generic checks only; no protocol or target_tcp row executed. The reset stays
+// in truth and ObservedFaults, but it is not a diagnostic miss.
+func TestHuntAnalysisDoesNotExpectAResetNoProbeObserved(t *testing.T) {
+	check := func(id, status string) DiagnosisCheck { return DiagnosisCheck{ID: id, Status: status} }
+	checks := func(dnsPublic string) []DiagnosisCheck {
+		return []DiagnosisCheck{
+			check("iface", "PASS"), check("internet_tcp", "PASS"), check("quic_udp_443", "PASS"),
+			check("proxy_connect", "N/A"), check("dns", "PASS"), check("dns_public", dnsPublic),
+			check("dns_encrypted", "PASS"), check("ssid", "N/A"),
+		}
+	}
+	tests := []TestOutcome{
+		{ProcessOutcome: ProcessExited, Diagnosis: &Diagnosis{Checks: checks("PASS")}},
+		{ProcessOutcome: ProcessExited, Diagnosis: &Diagnosis{Checks: checks("N/A")}},
+		{ProcessOutcome: ProcessExited, Diagnosis: &Diagnosis{Checks: checks("PASS")}},
+	}
+	report := &Report{Cleanup: CleanupInfo{Done: true}, Tests: tests, Evidence: Evidence{TCPResets: []TCPResetEvidence{
+		{Node: "target", Service: "routed-http", Event: "accepted", Result: "connected", Count: 2},
+		{Node: "target", Service: "routed-http", Event: "reset", Result: "connection_reset", Count: 2},
+	}}}
+	manifest := huntManifest(
+		GeneratedMutation{ID: "service.tcp_reset", Node: "target", TargetPort: 80},
+		GeneratedMutation{ID: "timeline.dns_outage"},
+	)
+	truth := collectObservedTruth(manifest, report)
+	if truth.TCP != "reset" || !slices.Contains(truth.ObservedFaults, "service.tcp_reset") {
+		t.Fatalf("injected reset lost from truth: %+v", truth)
+	}
+	if findings := analyzeHuntCase(manifest, report, truth); len(findings) != 0 {
+		t.Fatalf("unprobed reset reported as a diagnostic miss: %+v", findings)
+	}
+}
+
+// TestHuntAnalysisNamesTheFirstExecutedProtocolProbe pins report-order naming.
+// Probe feeds the finding fingerprint, so a different order would split triage
+// for findings that were already reported.
+func TestHuntAnalysisNamesTheFirstExecutedProtocolProbe(t *testing.T) {
+	report := &Report{Cleanup: CleanupInfo{Done: true}, Tests: []TestOutcome{{
+		ProcessOutcome: ProcessExited,
+		Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{
+			{ID: "target_tcp", Status: "FAIL"}, {ID: "tls", Status: "FAIL"}, {ID: "http", Status: "FAIL"},
+		}},
+	}}}
+	findings := analyzeHuntCase(huntManifest(), report, ObservedTruth{TCP: "reset"})
+	if len(findings) != 1 || findings[0].Probe != "tls" {
+		t.Fatalf("want probe tls (first protocol row in report order), got %+v", findings)
 	}
 }
 

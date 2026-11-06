@@ -340,6 +340,27 @@ func TestPermanentWordingKeepsARecoveryThatHealedTheEndpoint(t *testing.T) {
 	}
 }
 
+// target_tcp tried two addresses on port 80. One recovered during the run and
+// the other is still down afterwards. The recovery is real, so another endpoint
+// on the same port staying down must not hide it.
+func TestPermanentWordingKeepsARecoveryWhenAnotherEndpointStaysDown(t *testing.T) {
+	rep := &Report{
+		Timeline: []FaultEventEvidence{
+			applied(100*time.Millisecond, TimedEvent{Type: FaultScheduledLink, Node: "client", Segment: "client-lan", State: LinkStateDown}),
+			applied(500*time.Millisecond, TimedEvent{Type: FaultScheduledLink, Node: "client", Segment: "client-lan", State: LinkStateUp}),
+		},
+		Tests: []TestOutcome{{Name: "t", Node: "client", Target: "pair-target.test:80", EndOffset: time.Second,
+			Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{{ID: "target_tcp", Status: "FAIL",
+				Attempts: []DiagnosisAttempt{{IP: "10.78.2.20", Cause: "timeout"}, {IP: "10.78.3.21", Cause: "timeout"}},
+				Detail:   "port 80 unreachable on all 2 address(es): 10.78.2.20, 10.78.3.21"}}}}},
+		Evidence: Evidence{ControlledTargets: []ControlledTargetEvidence{
+			targetDial("10.78.2.20:80", FamilyStateReachable), targetDial("10.78.3.21:80", FamilyStateUnreachable)}},
+	}
+	if !codes(rep.timelineSuggestions())[SuggestTransientReportedPermanent] {
+		t.Errorf("a recovered endpoint was hidden by another endpoint on the same port that stayed down: %+v", rep.timelineSuggestions())
+	}
+}
+
 func TestMissedWindowFiresOnlyWhenNothingWasFlagged(t *testing.T) {
 	timeline := []FaultEventEvidence{
 		applied(0, TimedEvent{Type: FaultScheduledNetem, Node: "client", Segment: "lan", Latency: 10 * time.Millisecond}),

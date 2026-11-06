@@ -58,104 +58,33 @@ func proxyOnlyRunFor(dns Status, target *Target) (map[ProbeID]ProbeResult, []Pro
 
 // The three proxy-only shapes a single failed direct sample can produce: the
 // generic no-target branch, the same branch with a broken resolver, and the
-// target-mode branch. banned lists sentences that claim a lasting condition.
+// target-mode branch.
 var proxyOnlyShapes = []struct {
 	name   string
 	target *Target
 	dns    Status
 	want   DiagnosisID
-	banned []string
 }{
-	{"generic proxy-only", nil, StatusPass, DiagnosisProxyOnlyNetwork, []string{"is blocked"}},
-	{"proxy-only with broken DNS", nil, StatusFail, DiagnosisDNSFailure, []string{"is blocked", "is failing"}},
-	{"target behind proxy-only", &Target{Raw: "routed-target.test", Host: "routed-target.test", Port: 80, Proto: ProtoHTTP}, StatusPass, DiagnosisProxyOnlyNetwork, []string{"is unreachable directly, but", "this is a proxy-only network"}},
-}
-
-// Issue 438: a single failed direct sample must not be stated as a lasting
-// proxy-only network. The summary keeps the observed scope and says the check
-// can be run again to see whether the failure persists.
-func TestProxyOnlySummariesDoNotCallOneFailureLasting(t *testing.T) {
-	for _, c := range proxyOnlyShapes {
-		t.Run(c.name, func(t *testing.T) {
-			res, order := proxyOnlyRunFor(c.dns, c.target)
-			d := Interpret(c.target, order, res)
-			if len(d.Findings) == 0 || d.Findings[0].ID != c.want {
-				t.Fatalf("lead finding: got %+v, want %s", d.Findings, c.want)
-			}
-			for _, s := range c.banned {
-				if strings.Contains(d.Summary, s) {
-					t.Errorf("summary %q states a lasting condition from one run: contains %q", d.Summary, s)
-				}
-			}
-			for _, s := range []string{"during this run", "again"} {
-				if !strings.Contains(d.Summary, s) {
-					t.Errorf("summary %q does not say the failure was seen in this run and may be retried: missing %q", d.Summary, s)
-				}
-			}
-		})
-	}
-}
-
-// Issue 438: the plain headline and body must not state the block as a fact,
-// and the next step must offer a rerun for the same reason.
-func TestProxyOnlyPlainTextDoesNotStateALastingBlock(t *testing.T) {
-	for _, c := range proxyOnlyShapes {
-		t.Run(c.name, func(t *testing.T) {
-			res, order := proxyOnlyRunFor(c.dns, c.target)
-			d := Interpret(c.target, order, res)
-			if len(d.Findings) == 0 || d.Findings[0].ID != c.want {
-				t.Fatalf("lead finding: got %+v, want %s", d.Findings, c.want)
-			}
-			res2, _ := proxyOnlyRunFor(c.dns, c.target)
-			e := Explain(c.target, order, res2)
-			text := e.Headline + " " + e.Meaning
-			for _, s := range []string{"are blocked", "is blocked", "allows internet access only"} {
-				if strings.Contains(text, s) {
-					t.Errorf("plain text %q states a lasting condition from one run: contains %q", text, s)
-				}
-			}
-			if !strings.Contains(e.TryFirst, "again") {
-				t.Errorf("plain next step %q does not offer a rerun", e.TryFirst)
-			}
-		})
-	}
-}
-
-// Issue 438: remediation for the proxy path must offer a rerun, and must not
-// describe direct connections as leaving the network in the present tense.
-func TestProxyPathRemediationOffersARerun(t *testing.T) {
-	for _, c := range proxyOnlyShapes {
-		if c.want != DiagnosisProxyOnlyNetwork {
-			continue
-		}
-		t.Run(c.name, func(t *testing.T) {
-			res, order := proxyOnlyRunFor(c.dns, c.target)
-			d := Interpret(c.target, order, res)
-			res2, _ := proxyOnlyRunFor(c.dns, c.target)
-			rem, ok := Remediate(d, res2, "linux")
-			if !ok || rem.ID != RemedyUseProxyPath {
-				t.Fatalf("remediation: got ok=%v %+v, want %s", ok, rem, RemedyUseProxyPath)
-			}
-			if strings.Contains(rem.Why, "do not leave this network") {
-				t.Errorf("remediation why states a lasting condition: %q", rem.Why)
-			}
-			if !strings.Contains(strings.Join(rem.Steps, " "), "again") {
-				t.Errorf("remediation steps %q do not offer a rerun", rem.Steps)
-			}
-		})
-	}
+	{"generic proxy-only", nil, StatusPass, DiagnosisProxyOnlyNetwork},
+	{"proxy-only with broken DNS", nil, StatusFail, DiagnosisDNSFailure},
+	{"target behind proxy-only", &Target{Raw: "routed-target.test", Host: "routed-target.test", Port: 80, Proto: ProtoHTTP}, StatusPass, DiagnosisProxyOnlyNetwork},
 }
 
 // lastingPhrases are sentences that state a standing property, a requirement or
-// a recovery from one run. None may appear in a text a user reads for a
-// proxy-only run.
+// a recovery from one run, or that present one failed sample as a block. None
+// may appear in a text a user reads for a proxy-only run.
 var lastingPhrases = []string{
+	"are blocked",
+	"is blocked",
 	"only through a proxy",
 	"allow internet access only",
 	"has egress",
+	"is unreachable directly, but",
+	"this is a proxy-only network",
 	"route traffic through the proxy",
 	"Use the environment proxy",
 	"is the path that worked",
+	"do not leave this network",
 	"should work",
 	"recovered",
 	"now works",
@@ -163,15 +92,20 @@ var lastingPhrases = []string{
 }
 
 // Issue 438: every user-visible sentence for a proxy-only run is scoped to the
-// run. The headline of a proxy-only finding must say what was observed in this
-// run, and no sentence may state a standing property or a recovery.
-func TestProxyOnlyWordingStaysWithinTheRun(t *testing.T) {
+// run. A single failed direct sample is not stated as a lasting condition, the
+// proxy is not presented as a requirement, and no recovery is claimed. The
+// headline of a proxy-only finding names what was observed in this run, and the
+// summary, next step and remedy all offer a rerun.
+func TestProxyOnlyWordingIsRunScoped(t *testing.T) {
 	for _, c := range proxyOnlyShapes {
 		t.Run(c.name, func(t *testing.T) {
 			res, order := proxyOnlyRunFor(c.dns, c.target)
 			d := Interpret(c.target, order, res)
+			if len(d.Findings) == 0 || d.Findings[0].ID != c.want {
+				t.Fatalf("lead finding: got %+v, want %s", d.Findings, c.want)
+			}
 			e := Explain(c.target, order, res)
-			rem, _ := Remediate(d, res, "linux")
+			rem, ok := Remediate(d, res, "linux")
 			texts := map[string]string{
 				"summary":       d.Summary,
 				"headline":      e.Headline,
@@ -188,8 +122,26 @@ func TestProxyOnlyWordingStaysWithinTheRun(t *testing.T) {
 					}
 				}
 			}
-			if c.want == DiagnosisProxyOnlyNetwork && !strings.Contains(e.Headline, "during this run") {
+			if !strings.Contains(d.Summary, "during this run") || !strings.Contains(d.Summary, "again") {
+				t.Errorf("summary %q does not say the failure was seen in this run and may be retried", d.Summary)
+			}
+			if strings.Contains(d.Summary, "is failing") {
+				t.Errorf("summary %q states a lasting failure from one run", d.Summary)
+			}
+			if !strings.Contains(e.TryFirst, "again") {
+				t.Errorf("next step %q does not offer a rerun", e.TryFirst)
+			}
+			if c.want != DiagnosisProxyOnlyNetwork {
+				return
+			}
+			if !strings.Contains(e.Headline, "during this run") {
 				t.Errorf("headline %q does not say what was observed in this run", e.Headline)
+			}
+			if !ok || rem.ID != RemedyUseProxyPath {
+				t.Fatalf("remediation: got ok=%v %+v, want %s", ok, rem, RemedyUseProxyPath)
+			}
+			if !strings.Contains(strings.Join(rem.Steps, " "), "again") {
+				t.Errorf("remediation steps %q do not offer a rerun", rem.Steps)
 			}
 		})
 	}
@@ -210,14 +162,7 @@ func TestDirectEgressRemediationOffersARerun(t *testing.T) {
 	if len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisDirectEgressBlocked {
 		t.Fatalf("lead finding: got %+v, want %s", d.Findings, DiagnosisDirectEgressBlocked)
 	}
-	res2 := map[ProbeID]ProbeResult{
-		ProbeIface:    ok(StatusPass),
-		ProbeInternet: {Status: StatusFail, Cause: RouteCauseSelectedPathFailed},
-		ProbeProxy:    ok(StatusNA),
-		ProbeDNS:      ok(StatusPass),
-	}
-	Finalize(res2)
-	rem, ok := Remediate(d, res2, "linux")
+	rem, ok := Remediate(d, res, "linux")
 	if !ok {
 		t.Fatalf("no remediation for %s", DiagnosisDirectEgressBlocked)
 	}

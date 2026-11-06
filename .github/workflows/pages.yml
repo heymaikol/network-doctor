@@ -5,9 +5,10 @@ name: pages
 # The site has two sources and copies neither into this repository: docs/*.md
 # lives here, and the explanatory pages live in the GitHub wiki, which is its own
 # git repository. cmd/docsite reads both and writes one Jekyll source tree, so a
-# page is still edited exactly where it was always edited. That is also why the
-# `gollum` trigger is here: editing a wiki page republishes the site without
-# anyone remembering to.
+# page is still edited exactly where it was always edited. The `gollum` trigger is
+# here so a wiki edit builds and verifies the site, and runs the em dash check on
+# the wiki, before anyone publishes anything. Publishing is a manual dispatch from
+# main; see the deploy job.
 #
 # Every step before deployment can fail the deployment. A wiki that will not
 # clone, a link that resolves to nothing, a heading anchor that moved, or a link
@@ -15,17 +16,20 @@ name: pages
 # rather than publishing a site with holes in it.
 
 on:
+  # Build and verify only. A push to main does not publish; see the deploy job.
   push:
     branches: [main]
-  # Build and verify on every pull request. The deploy job is gated on
-  # refs/heads/main, which a pull request ref never is, so this checks the site
-  # without publishing one. Unfiltered by branch or path on purpose: the site is
-  # staged from docs/, the wiki, site/, cmd/docsite, and the summaries in
+  # Build and verify on every pull request. Only a manual dispatch on
+  # refs/heads/main publishes, and a pull request ref never is that, so this checks
+  # the site without publishing one. Unfiltered by branch or path on purpose: the
+  # site is staged from docs/, the wiki, site/, cmd/docsite, and the summaries in
   # internal/diagnostic, so there is no subset of this repository that cannot
   # break a link.
   pull_request:
-  # A wiki page was created or edited.
+  # A wiki page was created or edited. Builds and verifies the site, never publishes.
   gollum:
+  # Publishes when dispatched on main. Dispatched from any other branch, it builds
+  # and verifies only.
   workflow_dispatch:
 
 permissions:
@@ -33,14 +37,13 @@ permissions:
 
 # Never cancel a deploy in flight: a half-replaced site is worse than a late one.
 #
-# Keyed by ref so pull request runs do not share the deploying runs' group. Every
-# event that can reach the deploy job runs on refs/heads/main, so those still
-# serialize against each other exactly as before. Sharing one group with pull
-# requests would not: a queued run cancels the group's previously pending run, so
-# a busy pull request could discard a pending main deploy and leave the published
-# site stale with nothing red to show for it.
+# Only a manual dispatch on refs/heads/main deploys, and those share one group, so
+# they serialize against each other. Every other run gets a group of its own. A
+# queued run cancels the group's previously pending run, so a push, a wiki edit or
+# a pull request in the deploy group could discard a pending main deploy and leave
+# the published site stale with nothing red to show for it.
 concurrency:
-  group: pages-${{ github.ref }}
+  group: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && 'pages-deploy' || format('pages-build-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -89,9 +92,12 @@ jobs:
         with:
           path: _site
 
+  # Publishes the site. Only a manual dispatch on main reaches it. A push to main,
+  # a pull request, a wiki edit (gollum), or a dispatch from another branch builds
+  # and verifies, then skips this job.
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

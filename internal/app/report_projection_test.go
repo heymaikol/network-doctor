@@ -108,9 +108,7 @@ var reportProjection = map[string]decision{
 		"on; carrying the raw spelling beside it would put two statements of one target in the same document."},
 	"diagnostic.Target.IP": {category: redundant, why: "non-nil only when the target is an IP literal, in which " +
 		"case Host already holds that literal. target.host carries it either way."},
-	"diagnostic.Target.Zone": {category: absent, why: "the interface a link-local target was dialed through. " +
-		"It is no part of the address target.host publishes, and it names local configuration rather than the " +
-		"endpoint, so the document leaves it out instead of growing a field only link-local targets fill."},
+	"diagnostic.Target.Zone": {category: published},
 	"diagnostic.Target.PortExplicit": {category: absent, why: "whether the port was typed or came from a scheme " +
 		"default. It is how the parser reached target.port, not what it reached, and the TUI reads it to offer an " +
 		"ssh command. The document publishes the effective port."},
@@ -500,6 +498,7 @@ func maximalRowScenario(t *testing.T) reportScenario {
 	if err != nil {
 		t.Fatal(err)
 	}
+	target.Zone = "eth0"
 	return reportScenario{
 		name:    "maximal row",
 		target:  target,
@@ -614,6 +613,7 @@ func proveRowProjection(t *testing.T, proven map[string]bool) {
 	crossed(t, proven, "report.Target.Host", rep.Target.Host, "2001:db8::c0de")
 	crossed(t, proven, "report.Target.Port", rep.Target.Port, 8443)
 	crossed(t, proven, "report.Target.Protocol", rep.Target.Protocol, "tls+http")
+	crossed(t, proven, "diagnostic.Target.Zone", rep.Target.Zone, sc.target.Zone)
 	scoped, err := diagnostic.ParseTarget("[fe80::1%eth0]:22")
 	if err != nil {
 		t.Fatal(err)

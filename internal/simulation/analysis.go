@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -218,9 +219,50 @@ func (r *Report) permanentWording(test *TestOutcome, recoveries []FaultEventEvid
 	if len(healed) == 0 {
 		return nil
 	}
+	// target_tcp is still down only when every address it tried has a post-run
+	// dial from this test's node that is unreachable. The simulator dials after
+	// every scheduled event has been applied or skipped, so that dial says where
+	// each address ended. A reachable record for an attempted address means the
+	// recovery healed part of what the check reported, whichever record comes
+	// first. A missing record keeps the finding. Identical unreachable records
+	// agree, so they still count as down. A record whose To does not parse is
+	// skipped, which a live run cannot produce: a live run records one dial per
+	// node, address and port, so duplicates come only from a hand-built report.
+	// Other checks keep their pairing: a link that dropped internet_tcp is still
+	// a transient even when the target stays down.
+	// ponytail: the dial is the state at the end of the run, not during it, so an
+	// address that recovered and failed again before the end, or an IPv6 dial still
+	// settling after link-up, reads as down.
+	stillDown := func(check DiagnosisCheck) bool {
+		target, err := diagnostic.ParseTarget(test.Target)
+		if err != nil || len(check.Attempts) == 0 {
+			return false
+		}
+		for _, attempt := range check.Attempts {
+			ip, err := netip.ParseAddr(attempt.IP)
+			if err != nil {
+				return false
+			}
+			seen := false
+			for _, item := range r.Evidence.ControlledTargets {
+				addr, err := netip.ParseAddrPort(item.To)
+				if err != nil || item.From != test.Node || addr.Addr() != ip || int(addr.Port()) != target.Port {
+					continue
+				}
+				if item.Reachable {
+					return false
+				}
+				seen = true
+			}
+			if !seen {
+				return false
+			}
+		}
+		return true
+	}
 	failed, restored := "", FaultEventEvidence{}
 	for _, check := range test.Diagnosis.Checks {
-		if check.Status != "FAIL" {
+		if check.Status != "FAIL" || (check.ID == string(diagnostic.ProbeTargetTCP) && stillDown(check)) {
 			continue
 		}
 		if i := slices.IndexFunc(healed, func(h FaultEventEvidence) bool { return h.Event.explains(check.ID) }); i >= 0 {

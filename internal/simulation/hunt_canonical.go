@@ -1,6 +1,9 @@
 package simulation
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"net/netip"
+)
 
 // The canonical hunt report.
 //
@@ -241,7 +244,8 @@ func canonicalTests(tests []TestOutcome) []TestOutcome {
 // row's id, status, cause and address families; the oracle reads each finding's
 // id and the same per-row fields; one finding quotes a row's detail. Nothing
 // reads the row's name, its timing, its fix hint, its per-address attempts or
-// its route dump, and those are most of what a diagnosis weighs.
+// its route dump, and those are most of what a diagnosis weighs. The reset gate
+// reads the row's selected address, so that one field is kept, normalized.
 func canonicalDiagnosis(d *Diagnosis) *Diagnosis {
 	if d == nil {
 		return nil
@@ -257,7 +261,8 @@ func canonicalDiagnosis(d *Diagnosis) *Diagnosis {
 		out.Checks = make([]DiagnosisCheck, len(d.Checks))
 		for i, check := range d.Checks {
 			out.Checks[i] = DiagnosisCheck{ID: huntCanonicalName(check.ID), Status: huntCanonicalName(check.Status),
-				Cause: huntCanonicalName(check.Cause), Detail: huntCanonicalText(check.Detail)}
+				Cause: huntCanonicalName(check.Cause), Detail: huntCanonicalText(check.Detail),
+				SelectedIP: huntCanonicalAddress(check.SelectedIP)}
 			if check.Families != nil {
 				out.Checks[i].Families = &DiagnosisFamilies{
 					IPv4: huntCanonicalName(check.Families.IPv4),
@@ -266,6 +271,17 @@ func canonicalDiagnosis(d *Diagnosis) *Diagnosis {
 		}
 	}
 	return out
+}
+
+// huntCanonicalAddress keeps one dialed address as its canonical text: unmapped,
+// without a zone, and at most 39 bytes. Text that does not parse is dropped, so
+// a row with no usable address carries none.
+func huntCanonicalAddress(text string) string {
+	addr, err := netip.ParseAddr(text)
+	if err != nil {
+		return ""
+	}
+	return addr.WithZone("").Unmap().String()
 }
 
 // canonicalHuntEvidence projects each evidence list to the fields its readers

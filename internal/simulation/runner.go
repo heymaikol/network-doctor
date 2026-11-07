@@ -467,7 +467,7 @@ func decodeDiagnosis(res ExecResult) (*Diagnosis, error) {
 	}
 	for i, check := range wire.Checks {
 		d.Checks[i] = DiagnosisCheck{ID: check.ID, Name: check.Name, Status: check.Status, Cause: check.Cause,
-			Ms: check.Ms, Detail: check.Detail, Fix: check.Fix}
+			Ms: check.Ms, Detail: check.Detail, Fix: check.Fix, SelectedIP: check.SelectedIP}
 		if check.Families != nil {
 			d.Checks[i].Families = &DiagnosisFamilies{IPv4: check.Families.IPv4, IPv6: check.Families.IPv6}
 		}

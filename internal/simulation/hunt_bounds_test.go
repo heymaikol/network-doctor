@@ -106,7 +106,9 @@ func saturatedCanonicalHuntCase(t *testing.T) HuntCaseResult {
 	checks := make([]DiagnosisCheck, huntMaxDiagnosisChecks)
 	for i := range checks {
 		checks[i] = DiagnosisCheck{ID: name, Status: name, Cause: name, Detail: text,
-			Families: &DiagnosisFamilies{IPv4: name, IPv6: name}}
+			Families: &DiagnosisFamilies{IPv4: name, IPv6: name},
+			// The longest canonical address: a full IPv6 text, 39 bytes.
+			SelectedIP: "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
 	}
 	diagnosisFindings := make([]DiagnosisFinding, huntMaxDiagnosisFindings)
 	for i := range diagnosisFindings {

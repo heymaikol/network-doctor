@@ -173,7 +173,7 @@ const (
 	// structural allowance nobody derived.
 	// TestHuntCaseCeilingIsTheSaturatedCanonicalCase builds that case from the
 	// cardinality constants above and fails unless it encodes to exactly this.
-	HuntMaxCaseResultBytes = 837394
+	HuntMaxCaseResultBytes = 842258
 	// huntMaxCasesBytes is the case_results section: HuntMaxCases entries at
 	// what one entry may weigh, plus the two bytes an empty list occupies. It
 	// is the product rather than an independent ceiling on purpose. Two

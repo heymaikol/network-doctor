@@ -226,7 +226,11 @@ func profileText(result profile.Result) string {
 	for _, component := range result.Components {
 		endpoint := "unknown target"
 		if component.Target != nil {
-			endpoint = net.JoinHostPort(clean(component.Target.Host), strconv.Itoa(component.Target.Port))
+			host := clean(component.Target.Host)
+			if component.Target.Zone != "" {
+				host += "%" + clean(component.Target.Zone)
+			}
+			endpoint = net.JoinHostPort(host, strconv.Itoa(component.Target.Port))
 		}
 		fmt.Fprintf(&b, "[%s] %s  %s\n", clean(component.Status), clean(component.Label), endpoint)
 	}

@@ -148,6 +148,16 @@ func reportScenarios() []reportScenario {
 			},
 		},
 		{
+			// A scoped IPv6 link-local target: the zone it is reached through is
+			// the one optional Target key that a plain host never carries.
+			name:   "scoped link-local target",
+			target: &diagnostic.Target{Host: "fe80::1", IP: net.ParseIP("fe80::1"), Zone: "eth0", Port: 22, Proto: diagnostic.ProtoSSH},
+			probes: []diagnostic.Probe{probe(diagnostic.ProbeTargetTCP, "TCP [fe80::1%eth0]:22")},
+			results: map[diagnostic.ProbeID]diagnostic.ProbeResult{
+				diagnostic.ProbeTargetTCP: {Status: diagnostic.StatusPass, Dur: 20 * time.Millisecond, Detail: "connected"},
+			},
+		},
+		{
 			// The healthy one-shot report, which is what most consumers see
 			// most of the time: no findings, no failed stage, minimal rows.
 			name:   "healthy target",

@@ -260,6 +260,7 @@ var reportProjection = map[string]decision{
 	"report.Target.Host":     {category: published},
 	"report.Target.Port":     {category: published},
 	"report.Target.Protocol": {category: published},
+	"report.Target.Zone":     {category: published},
 
 	"report.Check.ID":               {category: published},
 	"report.Check.Name":             {category: published},
@@ -613,6 +614,11 @@ func proveRowProjection(t *testing.T, proven map[string]bool) {
 	crossed(t, proven, "report.Target.Host", rep.Target.Host, "2001:db8::c0de")
 	crossed(t, proven, "report.Target.Port", rep.Target.Port, 8443)
 	crossed(t, proven, "report.Target.Protocol", rep.Target.Protocol, "tls+http")
+	scoped, err := diagnostic.ParseTarget("[fe80::1%eth0]:22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossed(t, proven, "report.Target.Zone", buildReport(scoped, nil, nil).Target.Zone, "eth0")
 
 	crossed(t, proven, "diagnostic.ProbeResult.Status", c.Status, live.Status.String())
 	crossed(t, proven, "diagnostic.ProbeResult.Cause", c.Cause, live.Cause)

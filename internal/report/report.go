@@ -113,6 +113,9 @@ type Target struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Protocol string `json:"protocol"`
+	// Zone is the interface an IPv6 link-local Host is reached through, as in
+	// eth0 for fe80::1%eth0. It is absent for every other target.
+	Zone string `json:"zone,omitempty"`
 }
 
 type Check struct {

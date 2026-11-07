@@ -60,7 +60,7 @@ func buildReport(t *diagnostic.Target, probes []diagnostic.Probe, results map[di
 func buildReportWithDiagnosis(t *diagnostic.Target, probes []diagnostic.Probe, results map[diagnostic.ProbeID]diagnostic.ProbeResult, d diagnostic.Diagnosis) report.Report {
 	rep := report.Report{Version: version, Checks: []report.Check{}, OK: true}
 	if t != nil {
-		rep.Target = &report.Target{Host: t.Host, Port: t.Port, Protocol: t.Proto.String()}
+		rep.Target = &report.Target{Host: t.Host, Port: t.Port, Protocol: t.Proto.String(), Zone: t.Zone}
 	}
 	for _, p := range probes {
 		// reported, not the result itself, is the fact this loop turns on: a

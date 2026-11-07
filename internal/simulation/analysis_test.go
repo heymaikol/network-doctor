@@ -364,8 +364,9 @@ func TestPermanentWordingKeepsARecoveryWhenAnotherEndpointStaysDown(t *testing.T
 }
 
 // The suppression reads each address target_tcp tried, not every endpoint that
-// shares its port. A record that is missing, duplicated or contradictory keeps the
-// finding, and so does a recovered address beside one that stayed down.
+// shares its port. A reachable record for an attempted address keeps the finding
+// whichever record comes first, and so does a missing one. Identical unreachable
+// records for an address agree, so they still count as down.
 func TestPermanentWordingReadsEveryAttemptedAddress(t *testing.T) {
 	timeline := []FaultEventEvidence{
 		applied(100*time.Millisecond, TimedEvent{Type: FaultScheduledLink, Node: "client", Segment: "client-lan", State: LinkStateDown}),
@@ -406,6 +407,17 @@ func TestPermanentWordingReadsEveryAttemptedAddress(t *testing.T) {
 			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}},
 			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable), targetDial(v4Addr, FamilyStateReachable)},
 			kept:     true,
+		},
+		{
+			name:     "reachable record listed before an unreachable duplicate keeps the finding",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateReachable), targetDial(v4Addr, FamilyStateUnreachable)},
+			kept:     true,
+		},
+		{
+			name:     "identical unreachable duplicates agree, so the address stays down",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable), targetDial(v4Addr, FamilyStateUnreachable)},
 		},
 		{
 			name:     "aborted attempt whose address is still down",

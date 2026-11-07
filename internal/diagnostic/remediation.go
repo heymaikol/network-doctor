@@ -366,19 +366,19 @@ var remedies = map[remedyKey]remedy{
 	},
 	{id: DiagnosisDirectEgressBlocked}: {
 		id:     RemedyUseProxyPath,
-		action: "Send this traffic the way this network allows",
+		action: "Send this traffic through the path this network intends, if it has one",
 		why:    "Something else on this machine carried traffic during this run while direct TCP egress did not get through, which is what a proxy-only or filtered network looks like from here. netdoc cannot tell an intended policy from an outage, so both are still open.",
 		steps: []string{
 			"Set HTTPS_PROXY, HTTP_PROXY and NO_PROXY for the tools that need the internet, if this network runs a proxy.",
 			"If direct egress is meant to work, ask whoever runs the network which destinations are filtered.",
 			"Run the check again to see whether direct connections still fail.",
 		},
-		expect: "Traffic leaving through the path this network intends, or a confirmed filter.",
+		expect: "Traffic leaving through the path this network intends, if it has one, or a confirmed filter.",
 	},
 	{id: DiagnosisProxyOnlyNetwork}: {
 		id:     RemedyUseProxyPath,
 		action: "Try the environment proxy for this traffic",
-		why:    "Direct connections failed during this run, but the configured proxy carried traffic, so the proxy is a path that worked during this run.",
+		why:    "Direct connections failed during this run, but the configured proxy carried a test connection at the same time.",
 		steps: []string{
 			"Point the failing application at the same proxy the environment variables name.",
 			"Check NO_PROXY for an entry that sends this destination direct.",

@@ -89,7 +89,7 @@ var plainTexts = map[DiagnosisID]plainText{
 	},
 	DiagnosisDirectEgressBlocked: {
 		"Direct internet connections failed during this check",
-		"Website names can be looked up, but Network Doctor's test connections to the internet did not get through during this check. Some work and school networks only allow internet access through a proxy (a go-between server) or a filter.",
+		"Website names can be looked up, but Network Doctor's test connections to the internet did not get through during this check. Some work and school networks restrict direct internet access, using a proxy (a go-between server) or a filter.",
 		"If this is a work or school network, ask its IT staff whether internet access needs a proxy.",
 	},
 	DiagnosisDirectEgressDegraded: {
@@ -104,7 +104,7 @@ var plainTexts = map[DiagnosisID]plainText{
 	},
 	DiagnosisProxyOnlyNetwork: {
 		"Direct connections failed during this run, but the proxy carried traffic",
-		"A proxy is a go-between server that some work and school networks require. Direct connections failed during this run, but the proxy this computer is set to use carried traffic, so apps that use it may work.",
+		"A proxy is a go-between server that some work and school networks use. Direct connections failed during this run, but the proxy this computer is set to use carried traffic, so apps that use it may work.",
 		"If an app cannot connect, check that it is set to use the system's proxy settings. Run the check again to see whether direct connections still fail.",
 	},
 	DiagnosisProbablePathMTU: {

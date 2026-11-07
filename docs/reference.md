@@ -919,7 +919,7 @@ Those lines add a `ts` field (RFC 3339, UTC) saying when the pass ran; nothing e
 | `verdict` | Meaning |
 |---|---|
 | `ok` | Every check passed |
-| `degraded` | Everything asked for works, but some rung is impaired: high latency, a proxy-only network, direct egress blocked while the target is fine |
+| `degraded` | Everything asked for works, but some rung is impaired: high latency, a proxy-only network, direct egress failed during this run while the target is fine |
 | `dns` | The name did not resolve |
 | `network` | **The path is unavailable**: the link is down, there's no egress, or the target is unreachable with nothing else proving the network usable |
 | `service` | **The path works, the far end does not**: TCP refused while the general internet is reachable, or TLS/HTTP/banner failing on top of a good connection |
@@ -1212,7 +1212,7 @@ In the TUI the action and its `command` appear in the answer block at the top of
 | `check_router_uplink` | Check the router's own uplink |
 | `fix_preferred_route` | Check the interface holding the preferred default route |
 | `fix_local_egress_first` | Fix this machine's connection before judging the target |
-| `use_proxy_path` | Send the traffic the way this network allows |
+| `use_proxy_path` | Send the traffic through the path this network intends, if it has one |
 | `check_proxy_config` | Check the configured proxy |
 | `check_proxy_reachable` | Check that the proxy itself is up |
 | `check_proxy_resolution` | Check name resolution on the proxy |

@@ -235,7 +235,7 @@ func diagnosisMatrix() []matrixCase {
 				ProbeIface: ok(StatusPass), ProbeInternet: {Status: StatusWarn, downgraded: true},
 				ProbeProxy: ok(StatusPass), ProbeDNS: ok(StatusPass),
 			},
-			summary: "Online via the environment proxy: direct egress failed during this run (proxy-only network). That could be a lasting block or a temporary problem: run the check again to see whether it persists.",
+			summary: "Online via the environment proxy: direct egress failed during this run. That could be a lasting block or a temporary problem: run the check again to see whether it persists.",
 			verdict: VerdictDegraded, focus: ProbeInternet,
 			id: "proxy_only_network", evidence: []ProbeID{ProbeInternet, ProbeProxy, ProbeDNS},
 		},
@@ -531,7 +531,7 @@ func diagnosisMatrix() []matrixCase {
 			res: with(map[ProbeID]ProbeResult{
 				ProbeInternet: ok(StatusFail), ProbeProxy: ok(StatusPass), ProbeTargetTCP: ok(StatusFail),
 			}),
-			summary: "example.com:443 was unreachable directly during this run. The environment proxy carried traffic to the egress check's reference endpoint, which does not show that it reaches example.com:443. This may be a proxy-only network, or a temporary problem: run the check again to see whether direct connections still fail. Routing example.com:443 through the proxy is worth trying.",
+			summary: "example.com:443 was unreachable directly during this run. The environment proxy carried a test connection for connectivitycheck.gstatic.com:443, which does not show that it reaches example.com:443. This may be a proxy-only network, or a temporary problem: run the check again to see whether direct connections still fail. Routing example.com:443 through the proxy is worth trying.",
 			verdict: VerdictNetwork, focus: ProbeTargetTCP,
 			id: "proxy_only_network", evidence: []ProbeID{ProbeTargetTCP, ProbeProxy, ProbeInternet},
 		},

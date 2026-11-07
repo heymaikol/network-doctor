@@ -222,10 +222,14 @@ func (r *Report) permanentWording(test *TestOutcome, recoveries []FaultEventEvid
 	// target_tcp is still down only when every address it tried has a post-run
 	// dial from this test's node that is unreachable. The simulator dials after
 	// every scheduled event has been applied or skipped, so that dial says where
-	// each address ended. One reachable address means the recovery healed part of
-	// what the check reported. A missing, duplicated or contradictory record keeps
-	// the finding. Other checks keep their pairing: a link that dropped
-	// internet_tcp is still a transient even when the target stays down.
+	// each address ended. A reachable record for an attempted address means the
+	// recovery healed part of what the check reported, whichever record comes
+	// first. A missing record keeps the finding. Identical unreachable records
+	// agree, so they still count as down. A record whose To does not parse is
+	// skipped, which a live run cannot produce: a live run records one dial per
+	// node, address and port, so duplicates come only from a hand-built report.
+	// Other checks keep their pairing: a link that dropped internet_tcp is still
+	// a transient even when the target stays down.
 	// ponytail: the dial is the state at the end of the run, not during it, so an
 	// address that recovered and failed again before the end, or an IPv6 dial still
 	// settling after link-up, reads as down.

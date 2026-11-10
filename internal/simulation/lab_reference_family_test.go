@@ -172,19 +172,23 @@ func TestLabOracleRejectsAControlFromAnotherFamily(t *testing.T) {
 		evidence []d.CausalEvidence
 		rejected bool
 		answered string // the address the target's plain-HTTP row reached, if it passed
+		// targetReached is the address the target row connected to, on runs
+		// where the failed row is the QUIC one.
+		targetReached string
 	}{
-		{"silent IPv4-only target read against IPv6-only egress", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, ""},
-		{"silent IPv4-only QUIC endpoint read against IPv6-only egress", d.ProbeQUIC, d.ProbeResult{Status: d.StatusFail, Cause: d.QUICCauseTimeout, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, ""},
-		{"the same silence as a real dialer records it, cut off at the probe deadline", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: []d.Attempt{{IP: net.ParseIP("203.0.113.10"), Err: context.DeadlineExceeded, Cause: d.ConnectionCauseTimeout, Aborted: true}}}, v4Dead, egressAsAWhole, true, ""},
-		{"an explicitly canceled attempt in the other family is not a second family tried", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: append(failed(d.ConnectionCauseTimeout, "203.0.113.10"), d.Attempt{IP: net.ParseIP("2001:db8::10"), Err: context.Canceled, Cause: d.ConnectionCauseCanceled, Aborted: true})}, v4Dead, egressAsAWhole, true, ""},
-		{"the same target, citing what egress measured per family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, perFamily, false, ""},
-		{"a refusal is a peer answering in that family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Cause: d.ConnectionCauseRefused, Attempts: failed(d.ConnectionCauseRefused, "203.0.113.10")}, v4Dead, egressAsAWhole, false, ""},
-		{"one refused address beside a silent one is a peer answering too", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: append(failed(d.ConnectionCauseRefused, "203.0.113.10"), failed(d.ConnectionCauseTimeout, "203.0.113.11")...)}, v4Dead, egressAsAWhole, false, ""},
-		{"the target answering plain HTTP in that family is a reference too", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, false, "203.0.113.10"},
-		{"plain HTTP answering in the other family is not", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "2001:db8::10"},
-		{"plain HTTP says nothing about a QUIC endpoint", d.ProbeQUIC, d.ProbeResult{Status: d.StatusFail, Cause: d.QUICCauseTimeout, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "203.0.113.10"},
-		{"a target tried in both families has a reference in one", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10", "2001:db8::10")}, v4Dead, egressAsAWhole, false, ""},
-		{"egress reached the target's family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, bothUp, egressAsAWhole, false, ""},
+		{"silent IPv4-only target read against IPv6-only egress", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "", ""},
+		{"silent IPv4-only QUIC endpoint read against IPv6-only egress", d.ProbeQUIC, d.ProbeResult{Status: d.StatusFail, Cause: d.QUICCauseTimeout, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "", ""},
+		{"the same silence as a real dialer records it, cut off at the probe deadline", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: []d.Attempt{{IP: net.ParseIP("203.0.113.10"), Err: context.DeadlineExceeded, Cause: d.ConnectionCauseTimeout, Aborted: true}}}, v4Dead, egressAsAWhole, true, "", ""},
+		{"an explicitly canceled attempt in the other family is not a second family tried", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: append(failed(d.ConnectionCauseTimeout, "203.0.113.10"), d.Attempt{IP: net.ParseIP("2001:db8::10"), Err: context.Canceled, Cause: d.ConnectionCauseCanceled, Aborted: true})}, v4Dead, egressAsAWhole, true, "", ""},
+		{"the same target, citing what egress measured per family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, perFamily, false, "", ""},
+		{"a refusal is a peer answering in that family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Cause: d.ConnectionCauseRefused, Attempts: failed(d.ConnectionCauseRefused, "203.0.113.10")}, v4Dead, egressAsAWhole, false, "", ""},
+		{"one refused address beside a silent one is a peer answering too", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: append(failed(d.ConnectionCauseRefused, "203.0.113.10"), failed(d.ConnectionCauseTimeout, "203.0.113.11")...)}, v4Dead, egressAsAWhole, false, "", ""},
+		{"the target answering plain HTTP in that family is a reference too", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, false, "203.0.113.10", ""},
+		{"plain HTTP answering in the other family is not", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "2001:db8::10", ""},
+		{"plain HTTP says nothing about a QUIC endpoint", d.ProbeQUIC, d.ProbeResult{Status: d.StatusFail, Cause: d.QUICCauseTimeout, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "203.0.113.10", ""},
+		{"a target that answered over TCP in that family is another host, and no reference for the QUIC row", d.ProbeQUIC, d.ProbeResult{Status: d.StatusFail, Cause: d.QUICCauseTimeout, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "", "203.0.113.20"},
+		{"a target tried in both families has a reference in one", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10", "2001:db8::10")}, v4Dead, egressAsAWhole, false, "", ""},
+		{"egress reached the target's family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, bothUp, egressAsAWhole, false, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res := map[d.ProbeID]d.ProbeResult{
@@ -195,6 +199,10 @@ func TestLabOracleRejectsAControlFromAnotherFamily(t *testing.T) {
 			if tc.answered != "" {
 				res[d.ProbeHTTP] = d.ProbeResult{Status: d.StatusPass, SelectedIP: net.ParseIP(tc.answered)}
 				probes = append(probes, d.Probe{ID: d.ProbeHTTP})
+			}
+			if tc.focus == d.ProbeQUIC && tc.targetReached != "" {
+				res[d.ProbeTargetTCP] = d.ProbeResult{Status: d.StatusPass, SelectedIP: net.ParseIP(tc.targetReached)}
+				probes = append(probes, d.Probe{ID: d.ProbeTargetTCP})
 			}
 			snap := d.BuildSnapshot(nil, probes, res)
 			finding := d.DiagnosisFinding{ID: d.DiagnosisTargetUnreachable, Verdict: d.VerdictService, Focus: tc.focus, Evidence: tc.evidence}

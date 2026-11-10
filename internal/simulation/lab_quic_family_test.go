@@ -159,3 +159,73 @@ func TestLabFuzzVariesTheQUICReferenceAnswerFamily(t *testing.T) {
 		t.Fatalf("first dual-stack case with an IPv4-only QUIC reference = %d, digest %s; review and version deliberate generator changes", index, digest)
 	}
 }
+
+// Through the production runner: a QUIC endpoint answered in one family, on a
+// dual-stack network that loses that family, is not UDP/443 being blocked. The
+// same endpoint with UDP/443 dropped, on a network whose families both work,
+// still is.
+func TestLabQUICIsNotCalledUnavailableWithoutAReferenceInItsFamily(t *testing.T) {
+	familyDrop := func(family string) LabFault {
+		return LabFault{ID: "family-drop", Layer: "transport", Scope: "gateway", Network: &Fault{Type: FaultDrop, Node: "gateway", Direction: DirectionInbound, Family: family}}
+	}
+	udpDrop := LabFault{ID: "quic-drop", Layer: "transport", Scope: "internet", Network: &Fault{Type: FaultDrop, Node: "internet", Protocol: "udp", Port: 443, Direction: DirectionInbound}}
+	for _, tc := range []struct {
+		name    string
+		answers []string
+		fault   LabFault
+		generic bool
+		want    d.DiagnosisID
+	}{
+		{"IPv4-only QUIC answer, IPv4 dropped", []string{"10.20.2.20"}, familyDrop("ipv4"), false, d.DiagnosisFamilyReachabilityUnlocalized},
+		{"IPv6-only QUIC answer, IPv6 dropped", []string{labReference6}, familyDrop("ipv6"), false, d.DiagnosisFamilyReachabilityUnlocalized},
+		{"IPv4-only QUIC answer, IPv4 dropped, no target", []string{"10.20.2.20"}, familyDrop("ipv4"), true, d.DiagnosisFamilyReachabilityUnlocalized},
+		{"dual-stack QUIC answer, UDP/443 dropped", []string{"10.20.2.20", labReference6}, udpDrop, false, d.DiagnosisQUICUnavailable},
+		{"IPv4-only QUIC answer, UDP/443 dropped", []string{"10.20.2.20"}, udpDrop, false, d.DiagnosisQUICUnavailable},
+		{"dual-stack QUIC answer, UDP/443 dropped, no target", []string{"10.20.2.20", labReference6}, udpDrop, true, d.DiagnosisQUICUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := FindLabScenario("healthy-dual-stack")
+			if err != nil {
+				t.Fatal(err)
+			}
+			labQUICAnswers(&s, tc.answers...)
+			s.Faults = []LabFault{tc.fault}
+			if tc.generic {
+				s.Views[0].Target = ""
+			}
+			r, err := RunLab(context.Background(), s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snap := r.Views[0].Snapshot
+			got, err := d.ReplaySnapshot(snap)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Findings) == 0 || got.Findings[0].ID != tc.want || got.Blamed != d.ProbeQUIC || got.Verdict != d.VerdictDegraded {
+				t.Fatalf("verdict = %s, blamed = %s, findings = %+v, want %s on the QUIC row (summary: %s)", got.Verdict, got.Blamed, got.Findings, tc.want, got.Summary)
+			}
+			if problems := ValidateLabEvidence(snap, got); len(problems) > 0 {
+				t.Errorf("evidence problems: %v", problems)
+			}
+			if err := snapshot.Validate(snap); err != nil {
+				t.Fatalf("snapshot: %v", err)
+			}
+			data, err := json.Marshal(snapshot.SanitizeForSupport(snap))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var back snapshot.Snapshot
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatal(err)
+			}
+			replayed, err := d.ReplaySnapshot(back)
+			if err != nil {
+				t.Fatalf("sanitized replay: %v", err)
+			}
+			if replayed.Verdict != got.Verdict || replayed.Blamed != got.Blamed || len(replayed.Findings) == 0 || replayed.Findings[0].ID != tc.want {
+				t.Errorf("sanitized replay = %s %s %+v", replayed.Verdict, replayed.Blamed, replayed.Findings)
+			}
+		})
+	}
+}

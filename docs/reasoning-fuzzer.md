@@ -60,7 +60,7 @@ unlocalized target silence. It never requires either claim to be produced.
 
 ## Generator and reproducibility
 
-The experimental identifier is `reasoning-v2`. It differs from `reasoning-v1` in the base network only: the reference endpoint the QUIC row dials has an IPv6 address in dual-stack worlds, as it does on the real internet. Its PRNG is explicit SplitMix64:
+The experimental identifier is `reasoning-v2`. It differs from `reasoning-v1` in the base network only: the reference endpoint the QUIC row dials has an IPv6 address in dual-stack worlds, as it does on the real internet, and a dual-stack world draws which of the two families that endpoint is answered in from a stream of its own (the per-case state XOR `0x6a09e667f3bcc909`), so no other choice of a case moves. Its PRNG is explicit SplitMix64:
 unsigned 64-bit wraparound, increment `0x9e3779b97f4a7c15`, xor shifts 30, 27,
 and 31, and multipliers `0xbf58476d1ce4e5b9` and `0x94d049bb133111eb`.
 The initial per-case state is `seed XOR (case * 0xd1342543de82ef95)`, modulo

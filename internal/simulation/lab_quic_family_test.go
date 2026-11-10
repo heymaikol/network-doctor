@@ -2,6 +2,10 @@ package simulation
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	d "github.com/heymaikol/network-doctor/v2/internal/diagnostic"
@@ -100,5 +104,58 @@ func TestLabQUICReferenceIsDualStack(t *testing.T) {
 	labQUICAnswers(&v4Only, labReference6)
 	if row := labQUICRow(t, v4Only); row.Status != snapshot.StatusNA || row.Observed != nil && len(row.Observed.Attempts) != 0 {
 		t.Errorf("QUIC row on an IPv4-only source with an IPv6-only endpoint = %+v, want not applicable and nothing tried", row)
+	}
+}
+
+// The generator reaches a dual-stack world whose QUIC reference endpoint is
+// answered in one family only, in both families, and the first such case is
+// pinned the way the generator's own vector is.
+func TestLabFuzzVariesTheQUICReferenceAnswerFamily(t *testing.T) {
+	seen := map[string]uint64{}
+	for i := uint64(0); i < 200; i++ {
+		c, err := GenerateLabFuzz(847293, i, 4, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dual := false
+		var v4, v6 bool
+		for _, n := range c.Worlds[0].Network.Topology.Nodes {
+			if n.Name == "client" {
+				dual = n.Interfaces[0].IPv4 != "" && n.Interfaces[0].IPv6 != ""
+			}
+			for _, svc := range n.Services {
+				for _, r := range svc.Records {
+					if svc.Name == "system-dns" && r.Name == d.ConnectivityProbeHost {
+						if strings.Contains(r.Address, ":") {
+							v6 = true
+						} else {
+							v4 = true
+						}
+					}
+				}
+			}
+		}
+		if !dual {
+			continue
+		}
+		key := fmt.Sprintf("ipv4=%v ipv6=%v", v4, v6)
+		if _, ok := seen[key]; !ok {
+			seen[key] = i
+		}
+	}
+	for _, key := range []string{"ipv4=true ipv6=true", "ipv4=true ipv6=false", "ipv4=false ipv6=true"} {
+		if _, ok := seen[key]; !ok {
+			t.Errorf("no dual-stack world with QUIC reference answers %s in the first 200 cases: %v", key, seen)
+		}
+	}
+	const wantIndex, wantDigest = uint64(18), "0b9c2ae0a36ceacec243bc001e5ae0ec5aa284e43b79f4ed4e8863ec2a48fbbb"
+	index := seen["ipv4=true ipv6=false"]
+	c, err := GenerateLabFuzz(847293, index, 4, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(c)
+	if digest := fmt.Sprintf("%x", sha256.Sum256(data)); index != wantIndex || digest != wantDigest {
+		t.Fatalf("first dual-stack case with an IPv4-only QUIC reference = %d, digest %s; review and version deliberate generator changes", index, digest)
 	}
 }

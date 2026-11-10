@@ -505,6 +505,19 @@ func diagnosisMatrix() []matrixCase {
 			id: "target_unreachable", evidence: []ProbeID{ProbeTargetTCP, ProbeInternet, ProbeDNS},
 		},
 		{
+			// A reference is a control only in the family it was dialed in:
+			// the target has one IPv4 address, and the egress row reached its
+			// reference endpoints over IPv6 alone.
+			name: "target tried in a family the reference endpoints were silent in", target: tls, order: webOrder,
+			res: with(map[ProbeID]ProbeResult{
+				ProbeInternet:  {Status: StatusWarn, Cause: FamilyCauseIPv4Unreachable, causeFamily: counterfactualIPv4, Families: &FamilyConnectivity{IPv4: FamilyUnreachable, IPv6: FamilyReachable}},
+				ProbeTargetTCP: {Status: StatusFail, Attempts: []Attempt{{IP: net.ParseIP("203.0.113.10"), Err: errors.New("i/o timeout"), Cause: ConnectionCauseTimeout}}},
+			}),
+			summary: "example.com:443 was tried only over IPv4, and the egress check reached its reference endpoints over IPv6 but not over IPv4, so a problem with this machine's IPv4 path cannot be told apart from one at the target.",
+			verdict: VerdictNetwork, focus: ProbeTargetTCP,
+			id: "family_reachability_unlocalized", evidence: []ProbeID{ProbeTargetTCP, ProbeDNS, ProbeInternet},
+		},
+		{
 			// The targeted half of the same scope question, where the DNS rows
 			// are the target's own answers and the endpoint row is what used
 			// them.

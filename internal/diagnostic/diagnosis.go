@@ -560,6 +560,22 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 					rulesOut(DiagnosisLocalEgressFailure, ProbeInternet, ObservationStatusPass))
 				return withEvidence(DiagnosisTCPConnectionRefused, ProbeTargetTCP, "Every TCP connection attempt to "+hp+" was explicitly refused: the service may not be listening, or a firewall may be actively rejecting it.", VerdictService, evidence)
 			}
+			// The egress row is the control that lets a silent target be read
+			// as the target's own silence, and a control speaks only for the
+			// address family it was measured in. With every attempt made in a
+			// family whose reference endpoints were silent too, egress in the
+			// other family says this machine is online and nothing about the
+			// path this target needs: the unlocalized picture below, confined
+			// to one family. Under the refusal, which is a peer answering in
+			// that family. A finding on the target row and not a plain answer,
+			// because the sentence has a subject and the first failed row in
+			// probe order is often a sibling that failed for the same reason.
+			if failed, worked, ok := targetFamilyWithoutReference(res); ok {
+				evidence := addEvidence(supportRows(ProbeTargetTCP, ProbeDNS),
+					CausalEvidence{Kind: EvidenceSupport, Check: ProbeInternet, Observation: ObservationFamilyFailed, Value: failed},
+					CausalEvidence{Kind: EvidenceSupport, Check: ProbeInternet, Observation: ObservationFamilyReachable, Value: worked})
+				return withEvidence(DiagnosisFamilyReachabilityUnlocalized, ProbeTargetTCP, hp+" was tried only over "+familyLabel(failed)+", and the egress check reached its reference endpoints over "+familyLabel(worked)+" but not over "+familyLabel(failed)+", so a problem with this machine's "+familyLabel(failed)+" path cannot be told apart from one at the target.", VerdictNetwork, evidence)
+			}
 			// The same scope question as the generic QUIC arm, on the rung
 			// where the DNS rows are the target's own answers. Below the
 			// refusal above it, because a refusal is a peer answering for the
@@ -975,6 +991,36 @@ func directEgressOK(res map[ProbeID]ProbeResult) bool {
 func publicTargetReachedDirectly(res map[ProbeID]ProbeResult) bool {
 	r, ok := res[ProbeTargetTCP]
 	return ok && functional(r.Status) && r.SelectedIP != nil && !localIP(r.SelectedIP)
+}
+
+// targetFamilyWithoutReference names the one address family every attempt at
+// the target was made in, and the other one, when the egress row dialed its
+// reference endpoints in both and reached them only in the other. A family the
+// egress row did not test, and a result that recorded no family states, say
+// nothing either way.
+func targetFamilyWithoutReference(res map[ProbeID]ProbeResult) (failed, worked string, ok bool) {
+	reference := res[ProbeInternet].Families
+	if reference == nil {
+		return "", "", false
+	}
+	var v4, v6 bool
+	for _, attempt := range res[ProbeTargetTCP].Attempts {
+		if isCanceledAttempt(attempt) {
+			continue
+		}
+		if attempt.IP.To4() != nil {
+			v4 = true
+		} else {
+			v6 = true
+		}
+	}
+	switch {
+	case v4 && !v6 && reference.IPv4 == FamilyUnreachable && reference.IPv6 == FamilyReachable:
+		return counterfactualIPv4, counterfactualIPv6, true
+	case v6 && !v4 && reference.IPv6 == FamilyUnreachable && reference.IPv4 == FamilyReachable:
+		return counterfactualIPv6, counterfactualIPv4, true
+	}
+	return "", "", false
 }
 
 // localPathObserved requires a missing usable default or an independently

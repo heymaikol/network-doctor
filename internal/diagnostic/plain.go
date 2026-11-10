@@ -181,6 +181,11 @@ var plainTexts = map[DiagnosisID]plainText{
 		"Some of the addresses behind this name answered and others did not. Apps usually try another address, but connections may be slow or fail now and then.",
 		"",
 	},
+	DiagnosisFamilyReachabilityUnlocalized: {
+		"{host} did not answer",
+		"Computers connect using two kinds of internet address, the older IPv4 and the newer IPv6. Network Doctor could try {host} over only one kind, and its own test connections of that kind did not get through from this network either. The problem may be on this side or on {host}'s side.",
+		"Try {host} from a different network, such as a phone's mobile data.",
+	},
 	DiagnosisUncorroboratedEndpointFailure: {
 		"The addresses this computer was given did not answer",
 		"This computer's name lookup service gave addresses that did not answer, while a public lookup service gave different ones that this run did not try.",

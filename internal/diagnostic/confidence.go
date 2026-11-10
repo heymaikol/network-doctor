@@ -161,6 +161,9 @@ var diagnosisConfidence = map[DiagnosisID]confidenceClass{
 	// evidence, and the addresses that would have told them apart were never
 	// tried. Being sure of that is not an explanation.
 	DiagnosisUncorroboratedEndpointFailure: classUnresolved,
+	// The same shape one family over: the silence is measured, and the
+	// reference that would say whose it is failed alongside it.
+	DiagnosisFamilyReachabilityUnlocalized: classUnresolved,
 
 	// TLS. Where the handshake classified the rejection, the classification is
 	// the observation. A timeout, a close, and a dial that could not reach a

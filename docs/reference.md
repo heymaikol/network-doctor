@@ -926,7 +926,7 @@ Those lines add a `ts` field (RFC 3339, UTC) saying when the pass ran; nothing e
 | `service` | **The path works, the far end does not**: TCP refused while the general internet is reachable, or TLS/HTTP/banner failing on top of a good connection |
 | `incomplete` | A check has no result (the chain did not finish) |
 
-The `network`/`service` split is decided by evidence, not guesswork: an unreachable target is only blamed on the service when direct egress independently succeeded. With no working egress to compare against, netdoc says `network` rather than accusing a host it never reached.
+The `network`/`service` split is decided by evidence, not guesswork: an unreachable target is only blamed on the service when direct egress independently succeeded. With no working egress to compare against, netdoc says `network` rather than accusing a host it never reached. The comparison is made per address family: egress that works only over IPv6 is no reference for a target tried only over IPv4, and the reverse.
 
 ### Diagnosis findings
 
@@ -1075,6 +1075,7 @@ The array is omitted when the run reached no specific conclusion: everything pas
 | `local_device_unreachable` | A device on the local network is silent while this machine's network works |
 | `reachability_untested` | The target is silent and direct egress was not checked, so neither end can be blamed |
 | `reachability_unlocalized` | The target and the reference endpoints were both silent and nothing observed where the path breaks |
+| `family_reachability_unlocalized` | The target was tried in one address family only, and the reference endpoints in that family were silent too while the other family carried traffic |
 | `ipv4_target_unreachable` | The target works over IPv6 while its IPv4 alternatives fail despite an independently proved IPv4 path |
 | `ipv6_target_unreachable` | The target works over IPv4 while its IPv6 alternatives fail despite an independently proved IPv6 path |
 | `partial_endpoint_reachability` | An attempted resolved address fails while another address for the same target and port succeeds |

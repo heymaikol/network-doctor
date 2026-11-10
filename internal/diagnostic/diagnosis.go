@@ -998,6 +998,11 @@ func publicTargetReachedDirectly(res map[ProbeID]ProbeResult) bool {
 // reference endpoints in both and reached them only in the other. A family the
 // egress row did not test, and a result that recorded no family states, say
 // nothing either way.
+//
+// An attempt that ended at the probe deadline was tried: the dialer has no
+// timeout of its own, so that is how every silent address is recorded, and
+// leaving those out would leave out exactly the targets this is for. Only an
+// attempt that was explicitly canceled says nothing about its family.
 func targetFamilyWithoutReference(res map[ProbeID]ProbeResult) (failed, worked string, ok bool) {
 	reference := res[ProbeInternet].Families
 	if reference == nil {
@@ -1005,7 +1010,7 @@ func targetFamilyWithoutReference(res map[ProbeID]ProbeResult) (failed, worked s
 	}
 	var v4, v6 bool
 	for _, attempt := range res[ProbeTargetTCP].Attempts {
-		if isCanceledAttempt(attempt) {
+		if attemptCause(attempt) == ConnectionCauseCanceled {
 			continue
 		}
 		if attempt.IP.To4() != nil {

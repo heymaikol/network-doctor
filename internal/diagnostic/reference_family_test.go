@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A reference dial is a control only for the address family it was made in.
@@ -74,6 +75,10 @@ func TestSilentTargetIsNotBlamedWithoutAReferenceInItsFamily(t *testing.T) {
 		{"IPv4-only target, IPv4 egress black-holed", []string{v4}, false, v4BlackHoled, VerdictNetwork, DiagnosisFamilyReachabilityUnlocalized, "IPv4"},
 		{"IPv6-only target, IPv6 egress black-holed", []string{v6}, false, v6BlackHoled, VerdictNetwork, DiagnosisFamilyReachabilityUnlocalized, "IPv6"},
 		{"IPv6-only target, network without IPv6", []string{v6}, false, v6Absent, VerdictNetwork, DiagnosisFamilyReachabilityUnlocalized, "IPv6"},
+		// A silent address as the dialer records it: ended by the probe
+		// deadline, not by an answer of its own.
+		{"IPv4-only target cut off at the probe deadline, IPv4 egress black-holed", []string{v4}, false, v4BlackHoled, VerdictNetwork, DiagnosisFamilyReachabilityUnlocalized, "IPv4"},
+		{"IPv6-only target cut off at the probe deadline, IPv6 egress black-holed", []string{v6}, false, v6BlackHoled, VerdictNetwork, DiagnosisFamilyReachabilityUnlocalized, "IPv6"},
 		// The control holds in each of these, so the conclusion it supports stays.
 		{"IPv4-only target, both families up", []string{v4}, false, bothUp, VerdictService, DiagnosisTargetUnreachable, ""},
 		{"IPv4-only target, IPv6 egress black-holed", []string{v4}, false, v6BlackHoled, VerdictService, DiagnosisTargetUnreachable, ""},
@@ -89,7 +94,13 @@ func TestSilentTargetIsNotBlamedWithoutAReferenceInItsFamily(t *testing.T) {
 			if tc.refused {
 				cause = ConnectionCauseRefused
 			}
-			target, order, res := referenceFamilyRun(failedAttempts(cause, tc.addrs...), tc.internet)
+			attempts := failedAttempts(cause, tc.addrs...)
+			if strings.Contains(tc.name, "probe deadline") {
+				for i := range attempts {
+					attempts[i].Err, attempts[i].Aborted = context.DeadlineExceeded, true
+				}
+			}
+			target, order, res := referenceFamilyRun(attempts, tc.internet)
 			d := Interpret(target, order, res)
 			var got DiagnosisID
 			if len(d.Findings) > 0 {
@@ -215,5 +226,53 @@ func TestFamilyUnlocalizedTargetIsTheRowBlamed(t *testing.T) {
 	}
 	if collateral := d.Collateral(order, res); !collateral[ProbeHTTP] || collateral[ProbeQUIC] {
 		t.Errorf("collateral = %v: the HTTP row follows from the target row, and the QUIC row from neither", collateral)
+	}
+}
+
+// The production probes, runner and Finalize over the in-memory network, with
+// one family turned into a black hole: its dials block until the probe gives
+// up, which is what a silent address does. The hand-built rows above can
+// record a timeout however they like, and the lab models one as an answer of
+// its own; this is the shape a real run produces.
+func TestBlackHoledFamilyIsNotBlamedOnTheTarget(t *testing.T) {
+	for _, tc := range []struct{ name, dead, addr, family string }{
+		{"IPv4", "tcp4", "203.0.113.10", "IPv4"},
+		{"IPv6", "tcp6", "2001:db8::10", "IPv6"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newBudgetFixture(t)
+			f.loopbacks = []net.IP{net.ParseIP(tc.addr)}
+			o := f.ops()
+			dial := o.dialContext
+			o.dialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if network == tc.dead {
+					<-ctx.Done()
+					return nil, &net.OpError{Op: "dial", Net: network, Err: context.DeadlineExceeded}
+				}
+				return dial(ctx, network, addr)
+			}
+			target, err := ParseTarget(budgetTargetHost + ":443")
+			if err != nil {
+				t.Fatal(err)
+			}
+			probes := o.buildProbes(target, DefaultPublicDNS, true)
+			res := RunAll(context.Background(), probes, time.Second)
+			order := make([]ProbeID, len(probes))
+			for i, p := range probes {
+				order[i] = p.ID
+			}
+			attempts := res[ProbeTargetTCP].Attempts
+			if len(attempts) != 1 || !attempts[0].Aborted || attempts[0].Cause != ConnectionCauseTimeout {
+				t.Fatalf("target attempts = %+v, want one timeout ended by the probe deadline", attempts)
+			}
+			d := Interpret(target, order, res)
+			if d.Verdict != VerdictNetwork || d.Focus() != ProbeTargetTCP || len(d.Findings) == 0 || d.Findings[0].ID != DiagnosisFamilyReachabilityUnlocalized {
+				t.Fatalf("verdict = %s, findings = %+v (egress row: %s, summary: %s)", d.Verdict, d.Findings, res[ProbeInternet].Detail, d.Summary)
+			}
+			if !strings.Contains(d.Summary, "only over "+tc.family) {
+				t.Errorf("summary does not name %s: %s", tc.family, d.Summary)
+			}
+		})
 	}
 }

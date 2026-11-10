@@ -385,6 +385,17 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 		r.Detail = "modeled proxy tunnel"
 	case diagnostic.ProbeQUIC:
 		answers, _ := p.resolve(node.Name, node.Resolver, diagnostic.ConnectivityProbeHost)
+		// A view is bound to its source the way --iface binds a live run, and
+		// the live probe never dials a family that source has no address for.
+		// With every answer in such a family there is nothing to try, which
+		// is not a failure.
+		resolved := len(answers)
+		answers = slices.DeleteFunc(answers, func(a netip.Addr) bool { return !p.hasFamily(a.Is4()) })
+		if resolved > 0 && len(answers) == 0 {
+			r.Status = diagnostic.StatusNA
+			r.Detail = "QUIC endpoint has no address family available on the selected interface"
+			return r
+		}
 		r.Status = diagnostic.StatusFail
 		r.Cause = diagnostic.QUICCauseTimeout
 		// Every address tried leaves an attempt, in the shape the live dialer

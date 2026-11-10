@@ -10,7 +10,7 @@ import (
 
 // LabFuzzVersion versions this experimental construction algorithm. Artifacts
 // carry concrete worlds as well, so replay does not invoke the generator.
-const LabFuzzVersion = "reasoning-v1"
+const LabFuzzVersion = "reasoning-v2"
 
 type LabFuzzCase struct {
 	Version  string
@@ -25,7 +25,7 @@ type LabFuzzCase struct {
 // test allows.
 const labMaxInt = uint64(^uint(0) >> 1)
 
-// SplitMix64, including overflow modulo 2^64, is part of reasoning-v1.
+// SplitMix64, including overflow modulo 2^64, is part of reasoning-v2.
 type labRandom uint64
 
 func (r *labRandom) next() uint64 {

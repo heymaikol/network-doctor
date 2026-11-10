@@ -276,3 +276,38 @@ func TestBlackHoledFamilyIsNotBlamedOnTheTarget(t *testing.T) {
 		})
 	}
 }
+
+// One address refused and the rest silent is not the all-silent picture. The
+// refusal came back in the family that was tried, so that family carried a
+// round trip whatever the reference endpoints did, and the run keeps the
+// reading it has always given a target that is partly refused. Silence alone,
+// in the same run shape, stays unlocalized.
+func TestARefusedAddressIsAReferenceInItsFamily(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		silent, refused string
+		reference       FamilyConnectivity
+	}{
+		{"IPv4", "203.0.113.11", "203.0.113.10", FamilyConnectivity{IPv4: FamilyUnreachable, IPv6: FamilyReachable}},
+		{"IPv6", "2001:db8::11", "2001:db8::10", FamilyConnectivity{IPv4: FamilyReachable, IPv6: FamilyUnreachable}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			silent := failedAttempts(ConnectionCauseTimeout, tc.silent)
+			silent[0].Err, silent[0].Aborted = context.DeadlineExceeded, true
+			for _, withRefusal := range []bool{true, false} {
+				attempts := silent
+				want, wantVerdict := DiagnosisFamilyReachabilityUnlocalized, VerdictNetwork
+				if withRefusal {
+					attempts = append(slices.Clone(silent), failedAttempts(ConnectionCauseRefused, tc.refused)...)
+					want, wantVerdict = DiagnosisTargetUnreachable, VerdictService
+				}
+				reference := tc.reference
+				target, order, res := referenceFamilyRun(attempts, ProbeResult{Status: StatusPass, Families: &reference})
+				d := Interpret(target, order, res)
+				if d.Verdict != wantVerdict || len(d.Findings) == 0 || d.Findings[0].ID != want {
+					t.Errorf("refusal present = %v: verdict = %s, findings = %+v, want %s and %s", withRefusal, d.Verdict, d.Findings, wantVerdict, want)
+				}
+			}
+		})
+	}
+}

@@ -1003,6 +1003,11 @@ func publicTargetReachedDirectly(res map[ProbeID]ProbeResult) bool {
 // timeout of its own, so that is how every silent address is recorded, and
 // leaving those out would leave out exactly the targets this is for. Only an
 // attempt that was explicitly canceled says nothing about its family.
+//
+// A refused attempt ends the question the other way. A refusal is a peer
+// answering in the family that was tried, so one refused address beside
+// silent ones is the reference the egress row could not supply, and the
+// reading stays what it was before this guard existed.
 func targetFamilyWithoutReference(res map[ProbeID]ProbeResult) (failed, worked string, ok bool) {
 	reference := res[ProbeInternet].Families
 	if reference == nil {
@@ -1010,8 +1015,11 @@ func targetFamilyWithoutReference(res map[ProbeID]ProbeResult) (failed, worked s
 	}
 	var v4, v6 bool
 	for _, attempt := range res[ProbeTargetTCP].Attempts {
-		if attemptCause(attempt) == ConnectionCauseCanceled {
+		switch attemptCause(attempt) {
+		case ConnectionCauseCanceled:
 			continue
+		case ConnectionCauseRefused:
+			return "", "", false
 		}
 		if attempt.IP.To4() != nil {
 			v4 = true

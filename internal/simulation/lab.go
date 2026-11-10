@@ -587,7 +587,9 @@ func labCounterfactualHolds(cf diagnostic.Counterfactual, evidence []diagnostic.
 // itself could not reach, a finding may cite the egress row for what it
 // measured in each family and for nothing else: its status, its cause and
 // anything it rules out all describe the other family. A refusal is exempt,
-// because it is a peer answering in the family that was tried.
+// because it is a peer answering in the family that was tried, and one
+// refused address beside silent ones is enough: the family carried a round
+// trip, so the row has a reference of its own.
 func labCrossFamilyControl(f diagnostic.DiagnosisFinding, checks map[string]snapshot.Check) string {
 	focus, egress := checks[string(f.Focus)], checks[string(diagnostic.ProbeInternet)]
 	if f.Focus != diagnostic.ProbeTargetTCP && f.Focus != diagnostic.ProbeQUIC ||
@@ -602,6 +604,9 @@ func labCrossFamilyControl(f diagnostic.DiagnosisFinding, checks map[string]snap
 		// real run records every silent address.
 		if a.Cause == diagnostic.ConnectionCauseCanceled {
 			continue
+		}
+		if a.Cause == diagnostic.ConnectionCauseRefused {
+			return ""
 		}
 		tried := "ipv4"
 		if strings.Contains(a.IP, ":") {

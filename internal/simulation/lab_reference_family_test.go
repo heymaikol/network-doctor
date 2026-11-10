@@ -118,6 +118,7 @@ func TestLabOracleRejectsAControlFromAnotherFamily(t *testing.T) {
 		{"an explicitly canceled attempt in the other family is not a second family tried", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: append(failed(d.ConnectionCauseTimeout, "203.0.113.10"), d.Attempt{IP: net.ParseIP("2001:db8::10"), Err: context.Canceled, Cause: d.ConnectionCauseCanceled, Aborted: true})}, v4Dead, egressAsAWhole, true},
 		{"the same target, citing what egress measured per family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, perFamily, false},
 		{"a refusal is a peer answering in that family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Cause: d.ConnectionCauseRefused, Attempts: failed(d.ConnectionCauseRefused, "203.0.113.10")}, v4Dead, egressAsAWhole, false},
+		{"one refused address beside a silent one is a peer answering too", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: append(failed(d.ConnectionCauseRefused, "203.0.113.10"), failed(d.ConnectionCauseTimeout, "203.0.113.11")...)}, v4Dead, egressAsAWhole, false},
 		{"a target tried in both families has a reference in one", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10", "2001:db8::10")}, v4Dead, egressAsAWhole, false},
 		{"egress reached the target's family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, bothUp, egressAsAWhole, false},
 	} {

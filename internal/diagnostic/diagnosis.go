@@ -1007,7 +1007,10 @@ func publicTargetReachedDirectly(res map[ProbeID]ProbeResult) bool {
 // A refused attempt ends the question the other way. A refusal is a peer
 // answering in the family that was tried, so one refused address beside
 // silent ones is the reference the egress row could not supply, and the
-// reading stays what it was before this guard existed.
+// reading stays what it was before this guard existed. The target answering
+// plain HTTP at a public address in that family is the same thing from the
+// other port: the host was reached over the family, so its silence on this
+// port is not this machine's path.
 func targetFamilyWithoutReference(res map[ProbeID]ProbeResult) (failed, worked string, ok bool) {
 	reference := res[ProbeInternet].Families
 	if reference == nil {
@@ -1026,6 +1029,10 @@ func targetFamilyWithoutReference(res map[ProbeID]ProbeResult) (failed, worked s
 		} else {
 			v6 = true
 		}
+	}
+	if answered := res[ProbeHTTP]; functional(answered.Status) && answered.SelectedIP != nil && !localIP(answered.SelectedIP) &&
+		(answered.SelectedIP.To4() != nil) == v4 {
+		return "", "", false
 	}
 	switch {
 	case v4 && !v6 && reference.IPv4 == FamilyUnreachable && reference.IPv6 == FamilyReachable:

@@ -110,6 +110,39 @@ func TestLabDoesNotBlameATargetWhoseOnlyFamilyHasNoEgress(t *testing.T) {
 	}
 }
 
+// The reference endpoints are silent in the target's only family and the
+// target drops its TLS port, but answers plain HTTP over that same family. The
+// host was reached, so this is the target's port and not this machine's path.
+func TestLabBlamesATargetThatAnsweredOnAnotherPort(t *testing.T) {
+	for _, tc := range []struct{ name, target, family string }{
+		{"IPv4", labTarget4, "ipv4"},
+		{"IPv6", labTarget6, "ipv6"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := singleFamilyTargetLab(t, tc.target, "")
+			s.Faults = []LabFault{
+				{ID: "reference-family-drop", Layer: "transport", Scope: "internet", Network: &Fault{Type: FaultDrop, Node: "internet", Direction: DirectionInbound, Family: tc.family}},
+				{ID: "target-port-drop", Layer: "transport", Scope: "target", Network: &Fault{Type: FaultDrop, Node: "target", Protocol: "tcp", Port: 443, Direction: DirectionInbound}},
+			}
+			r, err := RunLab(context.Background(), s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snap := r.Views[0].Snapshot
+			got, err := d.ReplaySnapshot(snap)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Verdict != d.VerdictService || len(got.Findings) == 0 || got.Findings[0].ID != d.DiagnosisTargetUnreachable {
+				t.Errorf("verdict = %s, findings = %+v (summary: %s)", got.Verdict, got.Findings, got.Summary)
+			}
+			if problems := ValidateLabEvidence(snap, got); len(problems) > 0 {
+				t.Errorf("evidence problems: %v", problems)
+			}
+		})
+	}
+}
+
 // The oracle is held to hand-written findings and not to whatever the engine
 // produces today, so it keeps failing the claim it exists to catch after the
 // engine has stopped making it.

@@ -311,3 +311,44 @@ func TestARefusedAddressIsAReferenceInItsFamily(t *testing.T) {
 		})
 	}
 }
+
+// A secure target's plain-HTTP row dials the same host on port 80. When that
+// answered at a public address in the family the TCP row failed in, the host
+// was reached over that family, and its silence on the other port is the
+// target's. An answer at a local address is not the internet path, and an
+// HTTP row that failed too leaves the picture unlocalized.
+func TestTheTargetAnsweringOnAnotherPortIsAReference(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		addr      string
+		reference FamilyConnectivity
+	}{
+		{"IPv4", "203.0.113.10", FamilyConnectivity{IPv4: FamilyUnreachable, IPv6: FamilyReachable}},
+		{"IPv6", "2001:db8::10", FamilyConnectivity{IPv4: FamilyReachable, IPv6: FamilyUnreachable}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, http := range []struct {
+				name string
+				row  ProbeResult
+				want DiagnosisID
+			}{
+				{"answered in the family", ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP(tc.addr)}, DiagnosisTargetUnreachable},
+				{"answered at a local address", ProbeResult{Status: StatusPass, SelectedIP: net.ParseIP("192.168.1.5")}, DiagnosisFamilyReachabilityUnlocalized},
+				{"failed too", ProbeResult{Status: StatusFail, SelectedIP: net.ParseIP(tc.addr)}, DiagnosisFamilyReachabilityUnlocalized},
+			} {
+				if tc.name == "IPv6" && http.name == "answered at a local address" {
+					http.row.SelectedIP = net.ParseIP("fd00::5")
+				}
+				attempts := failedAttempts(ConnectionCauseTimeout, tc.addr)
+				attempts[0].Err, attempts[0].Aborted = context.DeadlineExceeded, true
+				reference := tc.reference
+				target, order, res := referenceFamilyRun(attempts, ProbeResult{Status: StatusPass, Families: &reference})
+				res[ProbeHTTP] = http.row
+				d := Interpret(target, order, res)
+				if len(d.Findings) == 0 || d.Findings[0].ID != http.want {
+					t.Errorf("HTTP row %s: verdict = %s, findings = %+v, want %s", http.name, d.Verdict, d.Findings, http.want)
+				}
+			}
+		})
+	}
+}

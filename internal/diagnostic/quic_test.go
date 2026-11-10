@@ -382,3 +382,44 @@ func TestPacketConnWriteToIgnoresTheCallerAddress(t *testing.T) {
 		})
 	}
 }
+
+// A failed attempt is read back from an artifact by its cause, and one without
+// a cause reads as an address that answered. Each way an attempt can fail has
+// to leave one: the route, a refusal, and an exchange that got as far as a
+// socket and then failed.
+func TestQUICProbeRecordsATypedCauseOnEachFailedAttempt(t *testing.T) {
+	noRoute, refuses, garbles := net.ParseIP("2001:db8::44"), net.ParseIP("192.0.2.44"), net.ParseIP("192.0.2.45")
+	ops := &netops{
+		interfaces: func() ([]net.Interface, error) { return nil, nil },
+		lookupIP: func(context.Context, string) ([]net.IP, []string, error) {
+			return []net.IP{noRoute, refuses, garbles}, []string{"192.0.2.53:53"}, nil
+		},
+		dialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
+			if network == "udp6" {
+				return nil, errors.New("connect: network is unreachable")
+			}
+			family := 4
+			if strings.HasPrefix(addr, garbles.String()) {
+				family = 5
+			}
+			return &quicTestConn{fakeConn: fakeConn{local: &net.UDPAddr{IP: net.ParseIP("192.0.2.10")}}, family: family, closed: make(chan struct{})}, nil
+		},
+		quicHandshake: func(_ context.Context, conn net.Conn, _ *tls.Config) (quicState, error) {
+			if conn.(*quicTestConn).family == 4 {
+				return quicState{}, &net.OpError{Op: "read", Net: "udp4", Err: connectionRefusedErrno}
+			}
+			return quicState{}, errors.New("tls: no application protocol")
+		},
+	}
+
+	r := ops.quicProbe(ConnectivityProbeHost, quicProbePort)(context.Background(), nil)
+	want := map[string]string{noRoute.String(): ConnectionCauseUnreachable, refuses.String(): ConnectionCauseRefused, garbles.String(): QUICCauseHandshake}
+	if r.Status != StatusFail || len(r.Attempts) != len(want) {
+		t.Fatalf("result = %+v, want three failed attempts", r)
+	}
+	for _, a := range r.Attempts {
+		if a.Cause != want[a.IP.String()] || a.Aborted {
+			t.Errorf("attempt %s: cause = %q, aborted = %v, want %q and an attempt that ended by itself", a.IP, a.Cause, a.Aborted, want[a.IP.String()])
+		}
+	}
+}

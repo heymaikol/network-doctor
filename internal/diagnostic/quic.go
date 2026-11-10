@@ -138,12 +138,26 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 				conn, err := o.dialContext(dctx, network, o.hostPort(ip, port))
 				var source net.IP
 				var state quicState
-				if err == nil {
+				// The cause is recorded beside the error text, as the TCP
+				// dialer records it: a refusal, a timeout and a cancellation
+				// are read back from an artifact by this field, and an attempt
+				// without one reads as an address that answered.
+				cause := ""
+				if err != nil {
+					cause = ConnectionFailureCause(err)
+				} else {
 					source = connIP(conn.LocalAddr())
 					state, err = handshake(dctx, conn, &tls.Config{ServerName: host, NextProtos: []string{"h3"}, RootCAs: o.tlsRootCAs})
 					_ = conn.Close()
+					if err != nil {
+						// The socket opened, so an error the classifier cannot
+						// name came from the exchange and not from the route.
+						if cause = ConnectionFailureCause(err); cause == ConnectionCauseUnreachable {
+							cause = QUICCauseHandshake
+						}
+					}
 				}
-				result := quicAttempt{state: state, source: source, attempt: Attempt{IP: ip, Dur: since(start), Err: err}, index: index}
+				result := quicAttempt{state: state, source: source, attempt: Attempt{IP: ip, Dur: since(start), Err: err, Cause: cause}, index: index}
 				results <- result
 				if err != nil {
 					next <- struct{}{}

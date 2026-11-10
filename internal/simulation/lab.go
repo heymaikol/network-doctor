@@ -589,7 +589,9 @@ func labCounterfactualHolds(cf diagnostic.Counterfactual, evidence []diagnostic.
 // anything it rules out all describe the other family. A refusal is exempt,
 // because it is a peer answering in the family that was tried, and one
 // refused address beside silent ones is enough: the family carried a round
-// trip, so the row has a reference of its own.
+// trip, so the row has a reference of its own. So is the target answering
+// plain HTTP at an address in that family, which is the same host on another
+// port.
 func labCrossFamilyControl(f diagnostic.DiagnosisFinding, checks map[string]snapshot.Check) string {
 	focus, egress := checks[string(f.Focus)], checks[string(diagnostic.ProbeInternet)]
 	if f.Focus != diagnostic.ProbeTargetTCP && f.Focus != diagnostic.ProbeQUIC ||
@@ -622,6 +624,11 @@ func labCrossFamilyControl(f diagnostic.DiagnosisFinding, checks map[string]snap
 		reference = egress.Observed.Families.IPv6
 	}
 	if family == "" || reference != diagnostic.FamilyUnreachable {
+		return ""
+	}
+	if answered := checks[string(diagnostic.ProbeHTTP)]; f.Focus == diagnostic.ProbeTargetTCP && answered.Observed != nil &&
+		(answered.Status == snapshot.StatusPass || answered.Status == snapshot.StatusWarn) && answered.Observed.SelectedIP != "" &&
+		strings.Contains(answered.Observed.SelectedIP, ":") == (family == "ipv6") {
 		return ""
 	}
 	for _, e := range f.Evidence {

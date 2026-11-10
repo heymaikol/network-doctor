@@ -598,7 +598,9 @@ func labCrossFamilyControl(f diagnostic.DiagnosisFinding, checks map[string]snap
 	}
 	family := ""
 	for _, a := range focus.Observed.Attempts {
-		if a.Aborted || a.Cause == diagnostic.ConnectionCauseCanceled {
+		// An attempt cut off by the probe deadline was tried, and is how a
+		// real run records every silent address.
+		if a.Cause == diagnostic.ConnectionCauseCanceled {
 			continue
 		}
 		tried := "ipv4"

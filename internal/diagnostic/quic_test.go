@@ -423,3 +423,56 @@ func TestQUICProbeRecordsATypedCauseOnEachFailedAttempt(t *testing.T) {
 		}
 	}
 }
+
+// A silent endpoint does not fail inside the probe deadline: the deadline ends
+// the attempt. Those attempts were tried all the same, and a record that keeps
+// only the addresses that failed at once shows a run that tried both families
+// as one that tried a single family.
+func TestQUICProbeRecordsAttemptsCutOffAtTheProbeDeadline(t *testing.T) {
+	v4, v6 := net.ParseIP("192.0.2.44"), net.ParseIP("2001:db8::44")
+	for _, tc := range []struct {
+		name      string
+		v6NoRoute bool
+	}{
+		{"both families silent", false},
+		{"IPv6 has no route, IPv4 is silent", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := &netops{
+				interfaces: func() ([]net.Interface, error) { return nil, nil },
+				lookupIP: func(context.Context, string) ([]net.IP, []string, error) {
+					return []net.IP{v6, v4}, []string{"192.0.2.53:53"}, nil
+				},
+				dialContext: func(_ context.Context, network, _ string) (net.Conn, error) {
+					if network == "udp6" && tc.v6NoRoute {
+						return nil, errors.New("connect: network is unreachable")
+					}
+					return fakeConn{local: &net.UDPAddr{IP: net.ParseIP("192.0.2.10")}}, nil
+				},
+				quicHandshake: func(ctx context.Context, _ net.Conn, _ *tls.Config) (quicState, error) {
+					<-ctx.Done()
+					return quicState{}, ctx.Err()
+				},
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			start := time.Now()
+			r := ops.quicProbe(ConnectivityProbeHost, quicProbePort)(ctx, nil)
+			if elapsed := time.Since(start); elapsed > 2*time.Second {
+				t.Fatalf("the probe took %v, long past its deadline", elapsed)
+			}
+			if r.Status != StatusFail || r.Cause != QUICCauseTimeout || len(r.Attempts) != 2 {
+				t.Fatalf("result = %+v, want a timeout that records both attempts", r)
+			}
+			for _, a := range r.Attempts {
+				silent := a.IP.Equal(v4) || !tc.v6NoRoute
+				switch {
+				case silent && (!a.Aborted || a.Cause != ConnectionCauseTimeout):
+					t.Errorf("silent attempt %s: cause = %q, aborted = %v, want a timeout the deadline ended", a.IP, a.Cause, a.Aborted)
+				case !silent && (a.Aborted || a.Cause != ConnectionCauseUnreachable):
+					t.Errorf("attempt %s with no route: cause = %q, aborted = %v, want its own failure", a.IP, a.Cause, a.Aborted)
+				}
+			}
+		})
+	}
+}

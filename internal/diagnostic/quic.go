@@ -108,12 +108,15 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 	defer cancel()
 	results := make(chan quicAttempt, len(ips))
 	next := make(chan struct{}, len(ips))
+	started := make(chan struct{}, len(ips))
+	scheduled := make(chan struct{})
 	handshake := o.quicHandshake
 	if handshake == nil {
 		handshake = handshakeQUIC
 	}
 
 	go func() {
+		defer close(scheduled)
 		for i, ip := range ips {
 			if i > 0 {
 				timer := time.NewTimer(attemptDelay)
@@ -129,6 +132,7 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 			if dctx.Err() != nil {
 				return
 			}
+			started <- struct{}{}
 			go func(index int, ip net.IP) {
 				start := time.Now()
 				network := "udp6"
@@ -168,15 +172,38 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 
 	var attempts []Attempt
 	failures := make([]error, len(ips))
+	completed := 0
 	for pending := len(ips); pending > 0; pending-- {
 		select {
 		case result := <-results:
+			completed++
 			attempts = append(attempts, result.attempt)
 			if result.attempt.Err == nil {
 				return result.state, result.attempt.IP, result.source, attempts, result.attempt.Dur, nil
 			}
 			failures[result.index] = result.attempt.Err
 		case <-ctx.Done():
+			// The handshakes still in flight were tried. A silent endpoint
+			// never fails by itself inside the probe deadline, so leaving
+			// these out records only the addresses that failed at once and
+			// makes a run that tried both families look like it tried one.
+			// Cancel them, wait for the ones that started, and keep each as
+			// what it was: an attempt the deadline ended, not this address.
+			cancel()
+			<-scheduled
+			aborted := ConnectionFailureCause(ctx.Err())
+			for completed < len(started) {
+				result := <-results
+				completed++
+				if result.attempt.Err == nil {
+					continue
+				}
+				result.attempt.Aborted = true
+				if errors.Is(result.attempt.Err, context.Canceled) {
+					result.attempt.Cause = aborted
+				}
+				attempts = append(attempts, result.attempt)
+			}
 			return quicState{}, nil, nil, attempts, 0, ctx.Err()
 		}
 	}

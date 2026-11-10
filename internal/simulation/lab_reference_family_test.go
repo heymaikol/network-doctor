@@ -2,12 +2,14 @@ package simulation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"strings"
 	"testing"
 
 	d "github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // The healthy dual-stack lab with a target that has addresses in one family
@@ -78,6 +80,31 @@ func TestLabDoesNotBlameATargetWhoseOnlyFamilyHasNoEgress(t *testing.T) {
 			}
 			if problems := ValidateLabEvidence(snap, got); len(problems) > 0 {
 				t.Errorf("evidence problems: %v", problems)
+			}
+			// The published artifact: valid as written, and the same answer
+			// after support sanitization, a JSON round trip and a replay.
+			if err := snapshot.Validate(snap); err != nil {
+				t.Fatalf("snapshot: %v", err)
+			}
+			clean := snapshot.SanitizeForSupport(snap)
+			if err := snapshot.Validate(clean); err != nil {
+				t.Fatalf("sanitized snapshot: %v", err)
+			}
+			data, err := json.Marshal(clean)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var back snapshot.Snapshot
+			if err := json.Unmarshal(data, &back); err != nil {
+				t.Fatal(err)
+			}
+			replayed, err := d.ReplaySnapshot(back)
+			if err != nil {
+				t.Fatalf("sanitized replay: %v", err)
+			}
+			if replayed.Verdict != got.Verdict || replayed.Blamed != got.Blamed || len(replayed.Findings) != len(got.Findings) ||
+				len(got.Findings) > 0 && replayed.Findings[0].ID != got.Findings[0].ID {
+				t.Errorf("sanitized replay = %s %s %+v, want %s %s %+v", replayed.Verdict, replayed.Blamed, replayed.Findings, got.Verdict, got.Blamed, got.Findings)
 			}
 		})
 	}

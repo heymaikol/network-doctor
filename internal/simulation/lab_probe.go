@@ -387,15 +387,29 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 		answers, _ := p.resolve(node.Name, node.Resolver, diagnostic.ConnectivityProbeHost)
 		r.Status = diagnostic.StatusFail
 		r.Cause = diagnostic.QUICCauseTimeout
+		// Every address tried leaves an attempt, in the shape the live dialer
+		// records: an address with no route fails at once, and a silent one
+		// is ended by the probe deadline. Without them the row says nothing
+		// about which family it was tried in.
 		for _, a := range answers {
-			if p.send(node.Name, a, "udp", 443, 1200) == labDelivered {
+			attempt := diagnostic.Attempt{IP: labIP(a), Dur: time.Millisecond}
+			outcome := p.send(node.Name, a, "udp", 443, 1200)
+			if outcome == labDelivered {
 				if s := p.network.service(a, 443, "quic"); s != nil && s.Type == ServiceQUIC {
+					r.Attempts = append(r.Attempts, attempt)
 					r.Status = diagnostic.StatusPass
 					r.Cause = ""
 					r.SelectedIP = labIP(a)
 					break
 				}
+				outcome = "timeout"
 			}
+			attempt.Cause = diagnostic.ConnectionCauseUnreachable
+			if outcome == "timeout" {
+				attempt.Cause, attempt.Aborted = diagnostic.ConnectionCauseTimeout, true
+			}
+			attempt.Err = errors.New(attempt.Cause)
+			r.Attempts = append(r.Attempts, attempt)
 		}
 	case diagnostic.ProbeDNSEncrypted:
 		r.Status = diagnostic.StatusFail

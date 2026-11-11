@@ -41,7 +41,7 @@ func routeEvidence(id DiagnosisID, order []ProbeID, res map[ProbeID]ProbeResult)
 	switch id {
 	case DiagnosisTargetUnreachable, DiagnosisLocalDeviceUnreachable, DiagnosisTLSTCPUnreachable,
 		DiagnosisIPv4TargetUnreachable, DiagnosisIPv6TargetUnreachable, DiagnosisPartialReachability,
-		DiagnosisProbablePathMTU:
+		DiagnosisProbablePathMTU, DiagnosisFamilyReachabilityUnlocalized:
 		target, ok := selectedTargetRoute(res)
 		if !ok {
 			return nil

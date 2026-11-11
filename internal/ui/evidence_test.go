@@ -111,6 +111,28 @@ func TestPerAddressAttemptsAreDetailsOnly(t *testing.T) {
 	}
 }
 
+// The egress row's family observations are about its reference endpoints. A
+// run that reached them over IPv4 has not reached an IPv6-only target over
+// anything, and the line must not say it did.
+func TestEgressFamilyEvidenceNamesTheReferenceEndpoints(t *testing.T) {
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	for _, tt := range []struct {
+		observation diagnostic.ObservationID
+		family      string
+		want        string
+	}{
+		{diagnostic.ObservationFamilyReachable, "ipv4", "✓ Internet (TCP egress) reached its reference endpoints over IPv4"},
+		{diagnostic.ObservationFamilyFailed, "ipv6", "✗ Internet (TCP egress) could not reach its reference endpoints over IPv6"},
+		{diagnostic.ObservationFamilyReachable, "ipv6", "✓ Internet (TCP egress) reached its reference endpoints over IPv6"},
+		{diagnostic.ObservationFamilyFailed, "ipv4", "✗ Internet (TCP egress) could not reach its reference endpoints over IPv4"},
+	} {
+		got := m.causalEvidenceLine(diagnostic.CausalEvidence{Kind: diagnostic.EvidenceSupport, Check: diagnostic.ProbeInternet, Observation: tt.observation, Value: tt.family})
+		if got != tt.want {
+			t.Errorf("line = %q, want %q", got, tt.want)
+		}
+	}
+}
+
 func TestCounterfactualEvidenceUsesTheExistingWhyView(t *testing.T) {
 	m := newModel(mustTarget(t, "example.com:443"), false)
 	m.results[diagnostic.ProbeTargetTCP] = diagnostic.ProbeResult{}

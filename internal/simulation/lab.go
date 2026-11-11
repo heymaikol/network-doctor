@@ -451,6 +451,9 @@ func validateLabDiagnosis(e LabExpected, s snapshot.Snapshot, d diagnostic.Diagn
 		if !support {
 			problems = append(problems, "finding has no measured support: "+string(f.ID))
 		}
+		if family := labCrossFamilyControl(f, checks); family != "" {
+			problems = append(problems, fmt.Sprintf("%s reads %s against egress that failed over %s", f.ID, f.Focus, family))
+		}
 	}
 	for _, id := range e.Required {
 		if _, ok := found[id]; !ok {
@@ -574,6 +577,66 @@ func labCounterfactualHolds(cf diagnostic.Counterfactual, evidence []diagnostic.
 		}
 	}
 	return true
+}
+
+// labCrossFamilyControl names the address family in which a finding uses the
+// egress row as a control it is not. The reachability rows are read against
+// the egress row: a silent target beside working egress is the target's
+// silence. That holds only in the family the reference endpoints answered in.
+// When every attempt on the focus row was made in a family the egress row
+// itself could not reach, a finding may cite the egress row for what it
+// measured in each family and for nothing else: its status, its cause and
+// anything it rules out all describe the other family. A refusal is exempt,
+// because it is a peer answering in the family that was tried, and one
+// refused address beside silent ones is enough: the family carried a round
+// trip, so the row has a reference of its own. So is the target answering
+// plain HTTP at an address in that family, which is the same host on another
+// port.
+func labCrossFamilyControl(f diagnostic.DiagnosisFinding, checks map[string]snapshot.Check) string {
+	focus, egress := checks[string(f.Focus)], checks[string(diagnostic.ProbeInternet)]
+	if f.Focus != diagnostic.ProbeTargetTCP && f.Focus != diagnostic.ProbeQUIC ||
+		focus.Status != snapshot.StatusFail || focus.Cause == diagnostic.ConnectionCauseRefused || focus.Observed == nil ||
+		egress.Status != snapshot.StatusPass && egress.Status != snapshot.StatusWarn ||
+		egress.Derived != nil && egress.Derived.StatusDowngraded || egress.Observed == nil || egress.Observed.Families == nil {
+		return ""
+	}
+	family := ""
+	for _, a := range focus.Observed.Attempts {
+		// An attempt cut off by the probe deadline was tried, and is how a
+		// real run records every silent address.
+		if a.Cause == diagnostic.ConnectionCauseCanceled {
+			continue
+		}
+		if a.Cause == diagnostic.ConnectionCauseRefused {
+			return ""
+		}
+		tried := "ipv4"
+		if strings.Contains(a.IP, ":") {
+			tried = "ipv6"
+		}
+		if family != "" && family != tried {
+			return ""
+		}
+		family = tried
+	}
+	reference := egress.Observed.Families.IPv4
+	if family == "ipv6" {
+		reference = egress.Observed.Families.IPv6
+	}
+	if family == "" || reference != diagnostic.FamilyUnreachable {
+		return ""
+	}
+	if answered := checks[string(diagnostic.ProbeHTTP)]; f.Focus == diagnostic.ProbeTargetTCP && answered.Observed != nil &&
+		(answered.Status == snapshot.StatusPass || answered.Status == snapshot.StatusWarn) && answered.Observed.SelectedIP != "" &&
+		strings.Contains(answered.Observed.SelectedIP, ":") == (family == "ipv6") {
+		return ""
+	}
+	for _, e := range f.Evidence {
+		if e.Check == diagnostic.ProbeInternet && e.Observation != diagnostic.ObservationFamilyFailed && e.Observation != diagnostic.ObservationFamilyReachable {
+			return family
+		}
+	}
+	return ""
 }
 
 func labEvidenceHolds(c snapshot.Check, e diagnostic.CausalEvidence) bool {

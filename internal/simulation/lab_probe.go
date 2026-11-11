@@ -417,15 +417,15 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 		var silent []diagnostic.Attempt
 		for _, a := range answers {
 			attempt := diagnostic.Attempt{IP: labIP(a), Dur: time.Millisecond}
-			switch outcome := p.send(node.Name, a, "udp", 443, 1200); {
-			case outcome == labDelivered:
+			switch p.send(node.Name, a, "udp", 443, 1200) {
+			case labDelivered:
 				if s := p.network.service(a, 443, "quic"); s != nil && s.Type == ServiceQUIC {
 					r.Status = diagnostic.StatusPass
 					r.SelectedIP = labIP(a)
 				} else {
 					attempt.Cause = diagnostic.ConnectionCauseRefused
 				}
-			case outcome == "timeout":
+			case "timeout":
 				attempt.Cause, attempt.Aborted = diagnostic.ConnectionCauseTimeout, true
 			default:
 				attempt.Cause = diagnostic.ConnectionCauseUnreachable

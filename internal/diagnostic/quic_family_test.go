@@ -312,11 +312,7 @@ func TestQUICFamilyReadingNeedsATypedRecord(t *testing.T) {
 		t.Fatalf("live: findings = %v, want %q (summary: %s)", got, DiagnosisQUICUnavailable, d.Summary)
 	}
 	// The same row as an artifact holds it: error text and no cause.
-	var probes []Probe
-	for _, p := range ProbePlan(nil, DefaultPublicDNS, true) {
-		probes = append(probes, p)
-	}
-	snap := BuildSnapshot(nil, probes, res)
+	snap := BuildSnapshot(nil, ProbePlan(nil, DefaultPublicDNS, true), res)
 	for _, c := range snap.Checks {
 		if c.ID == string(ProbeQUIC) && (c.Observed == nil || len(c.Observed.Attempts) != 1 || c.Observed.Attempts[0].Cause != "" || c.Observed.Attempts[0].Error == "") {
 			t.Fatalf("stored QUIC row = %+v, want one attempt with error text and no cause", c.Observed)

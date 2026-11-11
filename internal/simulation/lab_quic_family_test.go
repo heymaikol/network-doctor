@@ -93,8 +93,10 @@ func TestLabQUICReferenceIsDualStack(t *testing.T) {
 	if row.Status != snapshot.StatusPass || row.Observed == nil || row.Observed.SelectedIP != labReference6 {
 		t.Fatalf("QUIC row with IPv4 dropped = %+v, want a handshake over IPv6", row)
 	}
-	if len(row.Observed.Attempts) != 2 || row.Observed.Attempts[0].Cause != d.ConnectionCauseTimeout || !row.Observed.Attempts[0].Aborted {
-		t.Errorf("attempts = %+v, want the silent IPv4 address and then the IPv6 one that answered", row.Observed.Attempts)
+	// IPv6 is tried first and wins, so the IPv4 handshake never reaches a
+	// deadline and the live dialer would record nothing for it.
+	if len(row.Observed.Attempts) != 1 || row.Observed.Attempts[0].IP != labReference6 || row.Observed.Attempts[0].Cause != "" {
+		t.Errorf("attempts = %+v, want only the IPv6 address that answered", row.Observed.Attempts)
 	}
 
 	v4Only, err := FindLabScenario("healthy-ipv4")
@@ -225,6 +227,65 @@ func TestLabQUICIsNotCalledUnavailableWithoutAReferenceInItsFamily(t *testing.T)
 			}
 			if replayed.Verdict != got.Verdict || replayed.Blamed != got.Blamed || len(replayed.Findings) == 0 || replayed.Findings[0].ID != tc.want {
 				t.Errorf("sanitized replay = %s %s %+v", replayed.Verdict, replayed.Blamed, replayed.Findings)
+			}
+		})
+	}
+}
+
+// What each way of failing leaves on the modeled row, held to what the live
+// dialer records for the same thing.
+func TestLabQUICAttemptsMatchTheLiveDialer(t *testing.T) {
+	dual := func(t *testing.T) LabScenario {
+		t.Helper()
+		s, err := FindLabScenario("healthy-dual-stack")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	udpDrop := LabFault{ID: "quic-drop", Layer: "transport", Scope: "internet", Network: &Fault{Type: FaultDrop, Node: "internet", Protocol: "udp", Port: 443, Direction: DirectionInbound}}
+	noDefault4 := LabFault{ID: "no-default", Layer: "routing", Scope: "client", Network: &Fault{Type: FaultNoDefaultRoute, Node: "client", Family: "ipv4"}}
+	type want struct {
+		ip, cause string
+		aborted   bool
+	}
+	for _, tc := range []struct {
+		name    string
+		answers []string
+		faults  []LabFault
+		status  string
+		cause   string
+		want    []want
+	}{
+		// Both silent: the probe runs to its deadline, which ends both.
+		{"both families silent", []string{"10.20.2.20", labReference6}, []LabFault{udpDrop}, snapshot.StatusFail, d.QUICCauseTimeout,
+			[]want{{labReference6, d.ConnectionCauseTimeout, true}, {"10.20.2.20", d.ConnectionCauseTimeout, true}}},
+		// No route fails at once and by itself, so the run never waits.
+		{"IPv4 only, no IPv4 route", []string{"10.20.2.20"}, []LabFault{noDefault4}, snapshot.StatusFail, d.QUICCauseHandshake,
+			[]want{{"10.20.2.20", d.ConnectionCauseUnreachable, false}}},
+		// A host that is reached and has nothing on UDP/443 refuses.
+		{"endpoint name answered with a host that has no QUIC", []string{labTarget4}, nil, snapshot.StatusFail, d.QUICCauseHandshake,
+			[]want{{labTarget4, d.ConnectionCauseRefused, false}}},
+		// A refusal and a silence in one run: the refusal first, as it
+		// completed first, and the deadline cause for the row.
+		{"one address refuses and one is silent", []string{labTarget4, labReference6}, []LabFault{udpDrop}, snapshot.StatusFail, d.QUICCauseTimeout,
+			[]want{{labTarget4, d.ConnectionCauseRefused, false}, {labReference6, d.ConnectionCauseTimeout, true}}},
+		// A fast failure before the winner is kept beside it.
+		{"IPv6 answers after IPv4 had no route", []string{"10.20.2.20", labReference6}, []LabFault{noDefault4}, snapshot.StatusPass, "",
+			[]want{{labReference6, "", false}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := dual(t)
+			labQUICAnswers(&s, tc.answers...)
+			s.Faults = tc.faults
+			row := labQUICRow(t, s)
+			if row.Status != tc.status || row.Cause != tc.cause || row.Observed == nil || len(row.Observed.Attempts) != len(tc.want) {
+				t.Fatalf("row = %s cause %q, observed %+v; want %s cause %q with %d attempts", row.Status, row.Cause, row.Observed, tc.status, tc.cause, len(tc.want))
+			}
+			for i, w := range tc.want {
+				if a := row.Observed.Attempts[i]; a.IP != w.ip || a.Cause != w.cause || a.Aborted != w.aborted {
+					t.Errorf("attempt %d = %+v, want %+v", i, a, w)
+				}
 			}
 		})
 	}

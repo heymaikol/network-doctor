@@ -397,30 +397,58 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 			return r
 		}
 		r.Status = diagnostic.StatusFail
-		r.Cause = diagnostic.QUICCauseTimeout
 		// Every address tried leaves an attempt, in the shape the live dialer
-		// records: an address with no route fails at once, and a silent one
-		// is ended by the probe deadline. Without them the row says nothing
-		// about which family it was tried in.
+		// records, because without them the row says nothing about which
+		// family it was tried in. The live dialer starts with IPv6. An address
+		// with no route fails at once with its own cause. A host that is
+		// reached and has nothing on UDP/443 answers port-unreachable, which
+		// is a refusal. A silent address never fails by itself: it is recorded
+		// only when the probe deadline ends it, and on a run another address
+		// won the handshakes still in flight are dropped unrecorded.
+		slices.SortStableFunc(answers, func(a, b netip.Addr) int {
+			switch {
+			case a.Is4() == b.Is4():
+				return 0
+			case a.Is4():
+				return 1
+			}
+			return -1
+		})
+		var silent []diagnostic.Attempt
 		for _, a := range answers {
 			attempt := diagnostic.Attempt{IP: labIP(a), Dur: time.Millisecond}
-			outcome := p.send(node.Name, a, "udp", 443, 1200)
-			if outcome == labDelivered {
+			switch outcome := p.send(node.Name, a, "udp", 443, 1200); {
+			case outcome == labDelivered:
 				if s := p.network.service(a, 443, "quic"); s != nil && s.Type == ServiceQUIC {
-					r.Attempts = append(r.Attempts, attempt)
 					r.Status = diagnostic.StatusPass
-					r.Cause = ""
 					r.SelectedIP = labIP(a)
-					break
+				} else {
+					attempt.Cause = diagnostic.ConnectionCauseRefused
 				}
-				outcome = "timeout"
-			}
-			attempt.Cause = diagnostic.ConnectionCauseUnreachable
-			if outcome == "timeout" {
+			case outcome == "timeout":
 				attempt.Cause, attempt.Aborted = diagnostic.ConnectionCauseTimeout, true
+			default:
+				attempt.Cause = diagnostic.ConnectionCauseUnreachable
 			}
-			attempt.Err = errors.New(attempt.Cause)
+			if attempt.Cause != "" {
+				attempt.Err = errors.New(attempt.Cause)
+			}
+			if attempt.Aborted {
+				silent = append(silent, attempt)
+				continue
+			}
 			r.Attempts = append(r.Attempts, attempt)
+			if r.Status == diagnostic.StatusPass {
+				break
+			}
+		}
+		if r.Status == diagnostic.StatusFail {
+			// The run reached its deadline exactly when something was silent.
+			r.Cause = diagnostic.QUICCauseHandshake
+			if len(silent) > 0 {
+				r.Cause = diagnostic.QUICCauseTimeout
+			}
+			r.Attempts = append(r.Attempts, silent...)
 		}
 	case diagnostic.ProbeDNSEncrypted:
 		r.Status = diagnostic.StatusFail

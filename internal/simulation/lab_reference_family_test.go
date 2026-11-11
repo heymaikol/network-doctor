@@ -187,6 +187,7 @@ func TestLabOracleRejectsAControlFromAnotherFamily(t *testing.T) {
 		{"plain HTTP answering in the other family is not", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "2001:db8::10", ""},
 		{"plain HTTP says nothing about a QUIC endpoint", d.ProbeQUIC, d.ProbeResult{Status: d.StatusFail, Cause: d.QUICCauseTimeout, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "203.0.113.10", ""},
 		{"a target that answered over TCP in that family is another host, and no reference for the QUIC row", d.ProbeQUIC, d.ProbeResult{Status: d.StatusFail, Cause: d.QUICCauseTimeout, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, v4Dead, egressAsAWhole, true, "", "203.0.113.20"},
+		{"an attempt with no cause is a record that says nothing about the families tried", d.ProbeQUIC, d.ProbeResult{Status: d.StatusFail, Cause: d.QUICCauseTimeout, Attempts: []d.Attempt{{IP: net.ParseIP("203.0.113.10"), Err: errors.New("network is unreachable")}}}, v4Dead, egressAsAWhole, false, "", ""},
 		{"a target tried in both families has a reference in one", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10", "2001:db8::10")}, v4Dead, egressAsAWhole, false, "", ""},
 		{"egress reached the target's family", d.ProbeTargetTCP, d.ProbeResult{Status: d.StatusFail, Attempts: failed(d.ConnectionCauseTimeout, "203.0.113.10")}, bothUp, egressAsAWhole, false, "", ""},
 	} {

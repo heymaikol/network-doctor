@@ -290,3 +290,35 @@ func TestLabQUICAttemptsMatchTheLiveDialer(t *testing.T) {
 		})
 	}
 }
+
+// A generated case says which construction made it, generating it twice gives
+// the same bytes, and a case that claims the earlier construction is refused
+// instead of being read as one of this one's: the two build different worlds
+// for the same seed and case number.
+func TestLabFuzzCasesAreVersionedAndDeterministic(t *testing.T) {
+	if LabFuzzVersion != "reasoning-v2" {
+		t.Fatalf("generator version = %q; a construction change needs a version review and this test updated", LabFuzzVersion)
+	}
+	for _, index := range []uint64{0, 18, 4187} {
+		c, err := GenerateLabFuzz(847293, index, 4, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		again, err := GenerateLabFuzz(847293, index, 4, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, _ := json.Marshal(c)
+		second, _ := json.Marshal(again)
+		if c.Version != LabFuzzVersion || string(first) != string(second) {
+			t.Fatalf("case %d: version %q, generated twice equal = %v", index, c.Version, string(first) == string(second))
+		}
+		if err := c.Validate(); err != nil {
+			t.Fatalf("case %d: %v", index, err)
+		}
+		c.Version = "reasoning-v1"
+		if err := c.Validate(); err == nil {
+			t.Fatalf("case %d: a reasoning-v1 case was accepted as %s", index, LabFuzzVersion)
+		}
+	}
+}

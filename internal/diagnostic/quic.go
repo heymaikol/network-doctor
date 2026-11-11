@@ -161,7 +161,11 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 						}
 					}
 				}
-				result := quicAttempt{state: state, source: source, attempt: Attempt{IP: ip, Dur: since(start), Err: err, Cause: cause}, index: index}
+				// Marked here, as the TCP dialer marks it: when the deadline
+				// lands while another failure is being handled, this result
+				// can be read before the deadline is, outside the drain below.
+				aborted := err != nil && dctx.Err() != nil
+				result := quicAttempt{state: state, source: source, attempt: Attempt{IP: ip, Dur: since(start), Err: err, Cause: cause, Aborted: aborted}, index: index}
 				results <- result
 				if err != nil {
 					next <- struct{}{}

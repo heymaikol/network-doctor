@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -471,6 +472,52 @@ func TestQUICProbeRecordsAttemptsCutOffAtTheProbeDeadline(t *testing.T) {
 					t.Errorf("silent attempt %s: cause = %q, aborted = %v, want a timeout the deadline ended", a.IP, a.Cause, a.Aborted)
 				case !silent && (a.Aborted || a.Cause != ConnectionCauseUnreachable):
 					t.Errorf("attempt %s with no route: cause = %q, aborted = %v, want its own failure", a.IP, a.Cause, a.Aborted)
+				}
+			}
+		})
+	}
+}
+
+// The deadline can end a silent attempt while the probe is still handling
+// another address's failure, and then the probe can read that result before
+// it reads the deadline. It is an attempt the deadline ended all the same.
+func TestQUICProbeMarksADeadlineEndedAttemptReadBeforeTheDeadline(t *testing.T) {
+	silent := net.ParseIP("2001:db8::44")
+	// The refusal and the deadline land at the same virtual instant, so the
+	// order the probe reads them in varies from run to run.
+	for range 1000 {
+		synctest.Test(t, func(t *testing.T) {
+			ops := &netops{
+				interfaces: func() ([]net.Interface, error) { return nil, nil },
+				lookupIP: func(context.Context, string) ([]net.IP, []string, error) {
+					return []net.IP{silent, net.ParseIP("192.0.2.44")}, []string{"192.0.2.53:53"}, nil
+				},
+				dialContext: func(_ context.Context, network, _ string) (net.Conn, error) {
+					local := net.ParseIP("192.0.2.10")
+					if network == "udp6" {
+						local = net.ParseIP("2001:db8::10")
+					}
+					return fakeConn{local: &net.UDPAddr{IP: local}}, nil
+				},
+				quicHandshake: func(ctx context.Context, conn net.Conn, _ *tls.Config) (quicState, error) {
+					if conn.LocalAddr().(*net.UDPAddr).IP.To4() != nil {
+						deadline, _ := ctx.Deadline()
+						time.Sleep(time.Until(deadline))
+						return quicState{}, &net.OpError{Op: "read", Net: "udp4", Err: connectionRefusedErrno}
+					}
+					<-ctx.Done()
+					return quicState{}, ctx.Err()
+				},
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*attemptDelay)
+			defer cancel()
+			r := ops.quicProbe(ConnectivityProbeHost, quicProbePort)(ctx, nil)
+			if len(r.Attempts) != 2 {
+				t.Fatalf("attempts = %+v, want both", r.Attempts)
+			}
+			for _, a := range r.Attempts {
+				if a.IP.Equal(silent) && (!a.Aborted || a.Cause != ConnectionCauseTimeout) {
+					t.Fatalf("silent attempt: cause = %q, aborted = %v, want a timeout the deadline ended", a.Cause, a.Aborted)
 				}
 			}
 		})

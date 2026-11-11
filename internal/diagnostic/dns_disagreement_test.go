@@ -166,14 +166,9 @@ func TestQUICFailureOnACorroboratedAddressKeepsItsDiagnosis(t *testing.T) {
 		// prefix, and a shared prefix is agreement. Replay restores the
 		// recorded outcome and the addresses separately, so an artifact can
 		// carry the pair, and the clause that tells them apart has to hold.
-		//
-		// Egress works in both families. The attempted address is the IPv6
-		// one, and with IPv6 egress down this would be a QUIC row tried only
-		// in a family with no reference, which is a different question from
-		// the one this test asks.
 		order := planOrder(t, nil)
 		res := settle(t, nil, order, map[ProbeID]ProbeResult{
-			ProbeInternet:  egress(FamilyReachable, FamilyReachable),
+			ProbeInternet:  egress(FamilyReachable, FamilyUnreachable),
 			ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poison4, real6}},
 			ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{real4, real6}, resolver: "8.8.8.8"},
 			ProbeQUIC:      {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{{IP: real6}}},

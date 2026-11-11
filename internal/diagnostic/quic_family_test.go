@@ -292,3 +292,41 @@ func TestSilentQUICAttemptAtADisputedAddressIsTheDisagreement(t *testing.T) {
 		})
 	}
 }
+
+// A QUIC row written before the dialer typed its attempts is not a record of
+// which families were tried. That dialer dropped every attempt the probe
+// deadline ended and kept only the ones that failed at once, so on an
+// IPv4-only network that blocks UDP/443 it recorded the IPv6 attempt with no
+// route and nothing for the silent IPv4 one. Such rows reach this engine from
+// stored artifacts and from a --via host running an earlier netdoc, and they
+// keep the conclusion they were given.
+func TestQUICFamilyReadingNeedsATypedRecord(t *testing.T) {
+	untyped := Attempt{IP: net.ParseIP("2001:db8::10"), Err: errors.New("dial udp6 [2001:db8::10]:443: connect: network is unreachable")}
+	order := planOrder(t, nil)
+	res := settle(t, nil, order, map[ProbeID]ProbeResult{
+		ProbeInternet: egress(FamilyReachable, FamilyUnreachable),
+		ProbeQUIC:     {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{untyped}},
+	})
+	d := Interpret(nil, order, res)
+	if got := findingIDs(d); len(got) == 0 || got[0] != DiagnosisQUICUnavailable {
+		t.Fatalf("live: findings = %v, want %q (summary: %s)", got, DiagnosisQUICUnavailable, d.Summary)
+	}
+	// The same row as an artifact holds it: error text and no cause.
+	var probes []Probe
+	for _, p := range ProbePlan(nil, DefaultPublicDNS, true) {
+		probes = append(probes, p)
+	}
+	snap := BuildSnapshot(nil, probes, res)
+	for _, c := range snap.Checks {
+		if c.ID == string(ProbeQUIC) && (c.Observed == nil || len(c.Observed.Attempts) != 1 || c.Observed.Attempts[0].Cause != "" || c.Observed.Attempts[0].Error == "") {
+			t.Fatalf("stored QUIC row = %+v, want one attempt with error text and no cause", c.Observed)
+		}
+	}
+	replayed, err := ReplaySnapshot(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingIDs(replayed); len(got) == 0 || got[0] != DiagnosisQUICUnavailable {
+		t.Fatalf("replay: findings = %v, want %q (summary: %s)", got, DiagnosisQUICUnavailable, replayed.Summary)
+	}
+}

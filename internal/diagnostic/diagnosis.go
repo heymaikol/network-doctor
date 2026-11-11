@@ -1061,6 +1061,15 @@ func familyWithoutReference(res map[ProbeID]ProbeResult, row, reached ProbeID) (
 		case ConnectionCauseRefused:
 			return "", "", false
 		}
+		// Every attempt on a failed row carries the cause its dialer gave it.
+		// One without a cause was written before the QUIC dialer typed its
+		// attempts, by a dialer that also dropped every attempt a deadline
+		// ended, so the row is not a record of which families were tried. It
+		// reaches here from a stored artifact or a --via host on an earlier
+		// netdoc, and it keeps the reading it was given.
+		if attempt.Cause == "" {
+			return "", "", false
+		}
 		if attempt.IP.To4() != nil {
 			v4 = true
 		} else {

@@ -179,6 +179,11 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 			completed++
 			attempts = append(attempts, result.attempt)
 			if result.attempt.Err == nil {
+				// Stop scheduling and wait for the scheduler so no attempt
+				// starts after the probe returns. The handshakes still in
+				// flight are left out, as before: the winner settles the row.
+				cancel()
+				<-scheduled
 				return result.state, result.attempt.IP, result.source, attempts, result.attempt.Dur, nil
 			}
 			failures[result.index] = result.attempt.Err
@@ -207,6 +212,7 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 			return quicState{}, nil, nil, attempts, 0, ctx.Err()
 		}
 	}
+	<-scheduled
 	return quicState{}, nil, nil, attempts, 0,
 		fmt.Errorf("all %d QUIC address attempts failed (%s): %w", len(ips), joinIPs(ips), failures[0])
 }

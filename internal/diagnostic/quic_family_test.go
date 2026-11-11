@@ -146,6 +146,12 @@ func TestQUICFamilyReadingThroughTheRealProbes(t *testing.T) {
 		// An IPv4-only network that blocks UDP/443. QUIC is tried in both
 		// families: IPv6 has no route and fails at once, IPv4 is silent.
 		{"both families tried on an IPv4-only network that blocks UDP/443", []string{v6, v4}, "udp4", "6", DiagnosisQUICUnavailable},
+		// A dual-stack network that blocks UDP/443 and nothing else: TCP works
+		// in both families and QUIC is silent in both.
+		{"both families silent on a dual-stack network that blocks UDP/443", []string{v6, v4}, "udp", "", DiagnosisQUICUnavailable},
+		// The same block with the endpoint answered in one family, which has
+		// a working reference.
+		{"one family silent on a dual-stack network that blocks UDP/443", []string{v4}, "udp", "", DiagnosisQUICUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -198,6 +204,90 @@ func TestQUICFamilyReadingThroughTheRealProbes(t *testing.T) {
 			}
 			if len(res[ProbeQUIC].Attempts) != len(tc.quicAnswers) {
 				t.Errorf("QUIC attempts = %+v, want one per address tried", res[ProbeQUIC].Attempts)
+			}
+		})
+	}
+}
+
+// The dialer used to record nothing for a silent QUIC endpoint, so these runs
+// are the first that carry such attempts into the two arms that read QUIC
+// attempts against the DNS rows. Both arms need the resolvers' answers to be
+// comparable, and for the generic test name they never are: the public row
+// asks for the rooted name while the system lookup may apply search suffixes.
+// A real generic run therefore reaches neither arm, with or without recorded
+// attempts, and the QUIC conclusion is what it was.
+func TestRecordedSilentQUICAttemptsDoNotMoveAGenericRun(t *testing.T) {
+	f := newBudgetFixture(t)
+	o := f.ops()
+	// The resolvers return addresses in different allocations.
+	o.lookupIP = func(context.Context, string) ([]net.IP, []string, error) {
+		return []net.IP{net.ParseIP("192.0.2.123")}, []string{"192.0.2.53:53"}, nil
+	}
+	o.lookupPublicIP = func(context.Context, string, string) ([]net.IP, []string, error) {
+		return []net.IP{net.ParseIP("142.250.9.94")}, []string{"8.8.8.8:53"}, nil
+	}
+	o.quicHandshake = func(ctx context.Context, _ net.Conn, _ *tls.Config) (quicState, error) {
+		<-ctx.Done()
+		return quicState{}, ctx.Err()
+	}
+	probes := o.buildProbes(nil, DefaultPublicDNS, true)
+	res := RunAll(context.Background(), probes, time.Second)
+	order := make([]ProbeID, len(probes))
+	for i, p := range probes {
+		order[i] = p.ID
+	}
+	attempts := res[ProbeQUIC].Attempts
+	if len(attempts) != 1 || !attempts[0].Aborted || attempts[0].Cause != ConnectionCauseTimeout {
+		t.Fatalf("QUIC attempts = %+v, want the one silent attempt the deadline ended", attempts)
+	}
+	if dnsNamesComparable(res) || res[ProbeDNSPublic].answerComparison != comparisonUnrecorded {
+		t.Fatalf("public DNS row = scope %q, comparison %v; the generic name is not comparable", res[ProbeDNSPublic].DNSNameScope, res[ProbeDNSPublic].answerComparison)
+	}
+	d := Interpret(nil, order, res)
+	if got := findingIDs(d); len(got) != 1 || got[0] != DiagnosisQUICUnavailable || d.Blamed != ProbeQUIC || d.Findings[0].Confidence != ConfidenceHigh {
+		t.Fatalf("findings = %v, blamed = %s, confidence = %s (summary: %s)", got, d.Blamed, d.Findings[0].Confidence, d.Summary)
+	}
+	if r, ok := Remediate(d, res, "linux"); !ok || r.ID != RemedyExpectTCPFallback {
+		t.Errorf("remediation = %+v, ok = %v", r, ok)
+	}
+}
+
+// Where the answers are comparable, which an artifact or a hand-built state can
+// carry, a silent attempt is read like any other attempt by the arm that asks
+// which address QUIC used: the address is what that arm is about, not how the
+// attempt ended. The verdict, the blamed row, the confidence and the advice are
+// the ones that arm has always given.
+func TestSilentQUICAttemptAtADisputedAddressIsTheDisagreement(t *testing.T) {
+	poison4, real4 := net.ParseIP("192.0.2.123"), net.ParseIP("142.250.9.94")
+	for _, tc := range []struct {
+		name    string
+		attempt Attempt
+		want    DiagnosisID
+		blamed  ProbeID
+	}{
+		{"silent at the address only the system resolver gave", quicSilent(poison4.String()), DiagnosisDNSDisagreement, ProbeDNSPublic},
+		{"silent at an address both resolvers gave", quicSilent(real4.String()), DiagnosisQUICUnavailable, ProbeQUIC},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			order := planOrder(t, nil)
+			res := settle(t, nil, order, map[ProbeID]ProbeResult{
+				ProbeInternet:  egress(FamilyReachable, FamilyReachable),
+				ProbeDNS:       {Status: StatusPass, Addrs: []net.IP{poison4, real4}},
+				ProbeDNSPublic: {DNSNameScope: "absolute", Status: StatusPass, Addrs: []net.IP{real4}, resolver: "8.8.8.8"},
+				ProbeQUIC:      {Status: StatusFail, Cause: QUICCauseTimeout, Attempts: []Attempt{tc.attempt}},
+			})
+			// Stamped, as the existing disagreement tests stamp it: a shared
+			// address is a shared prefix, so the live comparison cannot reach
+			// a disagreement that also has an address in common.
+			public := res[ProbeDNSPublic]
+			public.Status, public.answerComparison = StatusWarn, comparisonDisagree
+			res[ProbeDNSPublic] = public
+			d := Interpret(nil, order, res)
+			if got := findingIDs(d); len(got) == 0 || got[0] != tc.want || d.Blamed != tc.blamed || d.Verdict != VerdictDegraded {
+				t.Fatalf("verdict = %s, blamed = %s, findings = %v, want %q blaming %s (summary: %s)", d.Verdict, d.Blamed, got, tc.want, tc.blamed, d.Summary)
+			}
+			if _, ok := Remediate(d, res, "linux"); !ok {
+				t.Error("no remediation")
 			}
 		})
 	}

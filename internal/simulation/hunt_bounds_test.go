@@ -122,6 +122,10 @@ func saturatedCanonicalHuntCase(t *testing.T) HuntCaseResult {
 		for j := 0; j < huntMaxNodeInterfaces; j++ {
 			node.Interfaces = append(node.Interfaces, InterfaceInfo{Segment: name, Address: name, IPv4: name, IPv6: name})
 		}
+		// The longest canonical address, 39 bytes, as the reset rule stores it.
+		for j := 0; j < huntMaxNodeAliases; j++ {
+			node.Aliases = append(node.Aliases, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff")
+		}
 		for j := 0; j < huntMaxNodeRoutes; j++ {
 			node.Routes = append(node.Routes, RouteInfo{Destination: name, Via: name, Segment: name,
 				Metric: math.MaxInt32, Family: name})
@@ -302,6 +306,23 @@ func saturatedHuntManifest(text, name string) GeneratedCaseManifest {
 	return manifest
 }
 
+// TestHuntAliasesPastTheModelMaximumAreRefused: aliases are bounded per node
+// like interfaces and routes, so one alias past huntMaxNodeAliases on one node
+// is refused by name, on writing and on reading, and the saturated case is not.
+func TestHuntAliasesPastTheModelMaximumAreRefused(t *testing.T) {
+	item := saturatedCanonicalHuntCase(t)
+	if err := checkHuntCaseCardinality(&item); err != nil {
+		t.Fatalf("the saturated case is refused: %v", err)
+	}
+	node := &item.Report.Topology[0]
+	for len(node.Aliases) <= huntMaxNodeAliases {
+		node.Aliases = append(node.Aliases, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff")
+	}
+	if err := checkHuntCaseCardinality(&item); err == nil || !strings.Contains(err.Error(), "node aliases") {
+		t.Fatalf("%d aliases on one node: err = %v, want a refusal naming node aliases", len(node.Aliases), err)
+	}
+}
+
 // TestHuntCaseCeilingIsTheSaturatedCanonicalCase is what HuntMaxCaseResultBytes
 // means. It is not a round number with headroom and it is not a measurement of
 // real cases: it is the encoded size of the case the model's own cardinality
@@ -324,7 +345,7 @@ func TestHuntCaseCeilingIsTheSaturatedCanonicalCase(t *testing.T) {
 // base is the largest hunt topology. This recomputes that from the library
 // rather than trusting the numbers in the comment beside the constants.
 func TestHuntModelCardinalityCoversTheHuntBases(t *testing.T) {
-	nodes, interfaces, routes, tests, faults := 0, 0, 0, 0, 0
+	nodes, interfaces, aliases, routes, tests, faults := 0, 0, 0, 0, 0, 0
 	for _, base := range HuntBaseNames() {
 		scenario := loadHuntBase(t, base)
 		validated := cloneScenario(scenario)
@@ -344,6 +365,7 @@ func TestHuntModelCardinalityCoversTheHuntBases(t *testing.T) {
 		}
 		for _, node := range validated.Topology.Nodes {
 			interfaces = max(interfaces, len(node.Interfaces))
+			aliases = max(aliases, len(node.Aliases))
 		}
 	}
 	// timeline.dns_outage is the one operator that rewrites the test list, and
@@ -358,6 +380,7 @@ func TestHuntModelCardinalityCoversTheHuntBases(t *testing.T) {
 	}{
 		{"topology nodes", nodes, huntMaxTopologyNodes},
 		{"interfaces on one node", interfaces, huntMaxNodeInterfaces},
+		{"aliases on one node", aliases, huntMaxNodeAliases},
 		{"routes on one node", routes, huntMaxNodeRoutes},
 		{"tests", tests, huntMaxCanonicalTests},
 		{"faults", faults, huntMaxReportFaults},

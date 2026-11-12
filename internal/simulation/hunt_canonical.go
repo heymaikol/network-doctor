@@ -126,10 +126,12 @@ func canonicalNames(items []string) []string {
 	return out
 }
 
-// canonicalTopology keeps the node identity the oracle measures from and the
+// canonicalTopology keeps the node identity the oracle measures from, the
 // configured interfaces and routes the routing operators check themselves
-// against. Addresses, aliases, service names and the run's process ids are a
-// description of the namespace rather than anything a hunt function reads.
+// against, and each declared alias as a canonical address. A reset service
+// answers on every address its node holds, so the reset rule reads aliases.
+// Service names and the run's process ids are a description of the namespace
+// rather than anything a hunt function reads.
 func canonicalTopology(nodes []NodeInfo) []NodeInfo {
 	if nodes == nil {
 		return nil
@@ -137,6 +139,11 @@ func canonicalTopology(nodes []NodeInfo) []NodeInfo {
 	out := make([]NodeInfo, len(nodes))
 	for i, node := range nodes {
 		out[i] = NodeInfo{Name: huntCanonicalName(node.Name), Role: huntCanonicalName(node.Role)}
+		for _, alias := range node.Aliases {
+			if text := huntCanonicalAddress(alias); text != "" {
+				out[i].Aliases = append(out[i].Aliases, text)
+			}
+		}
 		if node.Interfaces != nil {
 			out[i].Interfaces = make([]InterfaceInfo, len(node.Interfaces))
 			for j, iface := range node.Interfaces {

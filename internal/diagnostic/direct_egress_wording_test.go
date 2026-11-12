@@ -168,7 +168,10 @@ func TestFailedDirectEgressWordingIsRunScopedAndCategoryFree(t *testing.T) {
 					t.Errorf("%s %q makes a standing claim about this network: contains %q", label, text, m)
 				}
 			}
-			if !strings.Contains(d.Summary, "during this run") || !strings.Contains(d.Summary, "again") {
+			// "again" alone would accept "if it fails again, ask IT", which offers
+			// no rerun.
+			offersRerun := func(s string) bool { return strings.Contains(strings.ToLower(s), "run the check again") }
+			if !strings.Contains(d.Summary, "during this run") || !offersRerun(d.Summary) {
 				t.Errorf("summary %q does not say the failure was seen in this run and may be retried", d.Summary)
 			}
 			if strings.Contains(d.Summary, "is failing") {
@@ -177,13 +180,13 @@ func TestFailedDirectEgressWordingIsRunScopedAndCategoryFree(t *testing.T) {
 			// The next step offers a rerun on the proxy-only shapes, as it always
 			// has. The DNS-failure shape is remedied by the resolver row, which
 			// this wording does not own, so its remedy steps are not checked here.
-			if c.want != DiagnosisDirectEgressBlocked && !strings.Contains(e.TryFirst, "again") {
+			if c.want != DiagnosisDirectEgressBlocked && !offersRerun(e.TryFirst) {
 				t.Errorf("next step %q does not offer a rerun", e.TryFirst)
 			}
 			if !ok {
 				t.Fatalf("no remediation for %s", c.want)
 			}
-			if c.want != DiagnosisDNSFailure && !strings.Contains(strings.Join(rem.Steps, " "), "again") {
+			if c.want != DiagnosisDNSFailure && !offersRerun(strings.Join(rem.Steps, " ")) {
 				t.Errorf("remediation steps %q do not offer a rerun", rem.Steps)
 			}
 		})

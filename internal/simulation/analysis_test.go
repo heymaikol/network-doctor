@@ -448,6 +448,12 @@ func TestPermanentWordingReadsEveryAttemptedAddress(t *testing.T) {
 			dials: []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable),
 				{From: "gateway", To: v4Addr, Reachable: true, Outcome: FamilyStateReachable}},
 		},
+		{
+			// A live run dials every port its tests name: pmtu-blackhole names 80 and 443.
+			name:     "another port's reachable record cannot rescue an attempted address",
+			attempts: []DiagnosisAttempt{{IP: v4, Cause: "timeout"}},
+			dials:    []ControlledTargetEvidence{targetDial(v4Addr, FamilyStateUnreachable), targetDial(v4+":443", FamilyStateReachable)},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rep := &Report{Timeline: timeline, Evidence: Evidence{ControlledTargets: tc.dials},

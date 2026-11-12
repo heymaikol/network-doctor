@@ -6,15 +6,18 @@ on:
   schedule:
     - cron: "30 3 * * 6"
 
-permissions: read-all
+# The job declares its own token. api.scorecard.dev re-reads this file before
+# accepting published results: no top-level writes, env, or defaults, and
+# every step must be an allowlisted `uses:` action.
+permissions: {}
 
 jobs:
   scorecard:
     name: Supply chain analysis
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
-      id-token: write
+      security-events: write # Upload SARIF to code scanning.
+      id-token: write # Sign the results published to api.scorecard.dev.
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

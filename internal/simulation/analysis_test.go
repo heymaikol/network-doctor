@@ -340,6 +340,29 @@ func TestPermanentWordingKeepsARecoveryThatHealedTheEndpoint(t *testing.T) {
 	if !codes(dnsWhileRefused.timelineSuggestions())[SuggestTransientReportedPermanent] {
 		t.Errorf("a DNS failure healed by a netem recovery was not paired with DNS: %+v", dnsWhileRefused.timelineSuggestions())
 	}
+
+	// A check listed after target_tcp keeps its pairing too. For an https target
+	// the http row dials port 80 and depends only on DNS, so it can fail beside a
+	// refused 443. No post-run dial covers port 80, so, as with a missing record,
+	// the simulator cannot call that failure lasting.
+	afterTarget := &Report{
+		Timeline: unrelatedSpike("gateway", "upstream", 237*time.Millisecond, 1178*time.Millisecond, 643*time.Millisecond, 21.67),
+		Tests: []TestOutcome{{Name: "t", Node: "client", Target: "https://routed-target.test", EndOffset: 1405 * time.Millisecond,
+			Diagnosis: &Diagnosis{Checks: []DiagnosisCheck{
+				{ID: "target_tcp", Status: "FAIL", Cause: "connection_refused", Attempts: []DiagnosisAttempt{{IP: "10.77.2.20", Cause: "refused"}}, Detail: "connection to port 443 was refused on all 1 attempted address(es): 10.77.2.20"},
+				{ID: "http", Status: "FAIL", Detail: "no http response from routed-target.test"},
+			}}}},
+		Evidence: Evidence{ControlledTargets: []ControlledTargetEvidence{targetDial("10.77.2.20:443", "refused")}},
+	}
+	probe := ""
+	for _, s := range afterTarget.timelineSuggestions() {
+		if s.Code == SuggestTransientReportedPermanent {
+			probe = s.Probe
+		}
+	}
+	if probe != "http" {
+		t.Errorf("a check after a target that stayed down lost its pairing: %+v", afterTarget.timelineSuggestions())
+	}
 }
 
 // target_tcp tried two addresses on port 80. One recovered during the run and

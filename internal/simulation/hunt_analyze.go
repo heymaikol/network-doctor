@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
@@ -775,10 +776,10 @@ func analyzeHuntCase(manifest GeneratedCaseManifest, report *Report, truth Obser
 	for _, finding := range unsupportedConditionFindings(report, truth) {
 		add(finding)
 	}
-	// A reset is a diagnostic miss only when a check that could read from the
-	// service ran. Otherwise netdoc never met it: it stays in truth and in
-	// ObservedFaults, and no finding is raised.
-	if probe := protocolProbe(report); probe != "" && truth.TCP == "reset" && !diagnosisClassifiedReset(report) {
+	// A reset is a diagnostic miss only when a check read it. Otherwise netdoc
+	// never met it: it stays in truth and in ObservedFaults, and no finding is
+	// raised.
+	if probe := resetReader(manifest, report); probe != "" && truth.TCP == "reset" && !diagnosisClassifiedReset(report) {
 		add(HuntCaseFinding{Category: FindingCoverageGap, Severity: SeverityLow, Code: "tcp_reset_not_distinguished",
 			Probe: probe, Expected: "connection_reset",
 			Summary:  "The simulator observed a TCP reset, but no protocol diagnosis classified it as a reset.",
@@ -897,31 +898,56 @@ func diagnosisClassifiedReset(report *Report) bool {
 	return false
 }
 
-// protocolProbe names the first protocol check that ran, in report order, and
-// falls back to target_tcp when only that ran. It returns "" when neither did.
-// internet_tcp is left out: it dials 443 and sends nothing, so it cannot see a
-// reset on the injected service.
-// ponytail: check rows carry no port, so this matches by protocol, not endpoint.
-func protocolProbe(report *Report) string {
-	fallback := ""
+// resetReader names the first check that read the injected reset: an http,
+// https or tls row of a netdoc that exited, failed with connection_closed on
+// the reset's port, against an address (selected_ip) the reset node owns. Any
+// other row never met the reset service: target_tcp connects and reads
+// nothing, a timeout or a pass is another endpoint's answer, and a row with no
+// address claims none. "" means no check read the reset.
+func resetReader(manifest GeneratedCaseManifest, report *Report) string {
 	for _, test := range report.Tests {
-		if test.Diagnosis == nil {
+		target, err := diagnostic.ParseTarget(test.Target)
+		if test.Diagnosis == nil || test.ProcessOutcome != ProcessExited || err != nil {
 			continue
 		}
 		for _, check := range test.Diagnosis.Checks {
-			// SKIP and N/A rows never ran, so they say nothing about the network.
-			if check.Status != "PASS" && check.Status != "WARN" && check.Status != "FAIL" {
-				continue
+			port := target.Port
+			// A TLS-and-HTTP target's HTTP row dials port 80, see the
+			// ProtoTLSHTTP graph in internal/diagnostic.
+			if check.ID == "http" && target.Proto == diagnostic.ProtoTLSHTTP {
+				port = 80
 			}
-			switch check.ID {
-			case "http", "https", "ssh_banner", "smtp_banner", "tls":
+			if slices.Contains([]string{"http", "https", "tls"}, check.ID) && check.Status == "FAIL" &&
+				check.Cause == diagnostic.ConnectionCauseClosed && resetEndpoint(manifest, report, check.SelectedIP, port) {
 				return check.ID
-			case "target_tcp":
-				fallback = "target_tcp"
 			}
 		}
 	}
-	return fallback
+	return ""
+}
+
+// resetEndpoint reports whether a TCP reset was injected on port of the node
+// that owns the dialed address. A declared alias counts: the reset service
+// binds the wildcard address, so its node answers there too.
+func resetEndpoint(manifest GeneratedCaseManifest, report *Report, dialed string, port int) bool {
+	addr := huntCanonicalAddress(dialed)
+	if addr == "" {
+		return false
+	}
+	owns := func(node NodeInfo) bool {
+		for _, iface := range node.Interfaces {
+			for _, text := range []string{iface.IPv4, iface.IPv6} {
+				if prefix, err := netip.ParsePrefix(text); err == nil && huntCanonicalAddress(prefix.Addr().String()) == addr {
+					return true
+				}
+			}
+		}
+		return slices.ContainsFunc(node.Aliases, func(alias string) bool { return huntCanonicalAddress(alias) == addr })
+	}
+	return slices.ContainsFunc(manifest.Mutations, func(m GeneratedMutation) bool {
+		return m.ID == "service.tcp_reset" && m.TargetPort == port &&
+			slices.ContainsFunc(report.Topology, func(node NodeInfo) bool { return node.Name == m.Node && owns(node) })
+	})
 }
 
 func huntSuggestionClass(code string) (string, HuntSeverity, bool) {

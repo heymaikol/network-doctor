@@ -220,19 +220,21 @@ func (r *Report) permanentWording(test *TestOutcome, recoveries []FaultEventEvid
 		return nil
 	}
 	// target_tcp is still down only when every address it tried has a post-run
-	// dial from this test's node that is unreachable. The simulator dials after
-	// every scheduled event has been applied or skipped, so that dial says where
-	// each address ended. A reachable record for an attempted address means the
-	// recovery healed part of what the check reported, whichever record comes
-	// first. A missing record keeps the finding. Identical unreachable records
-	// agree, so they still count as down. A record whose To does not parse is
-	// skipped, which a live run cannot produce: a live run records one dial per
-	// node, address and port, so duplicates come only from a hand-built report.
-	// Other checks keep their pairing: a link that dropped internet_tcp is still
-	// a transient even when the target stays down.
-	// ponytail: the dial is the state at the end of the run, not during it, so an
-	// address that recovered and failed again before the end, or an IPv6 dial still
-	// settling after link-up, reads as down.
+	// dial from this test's node that is unreachable. The simulator dials once,
+	// after the scenario's last test, when every scheduled event has been applied
+	// or skipped, so that dial says where each address ended. A reachable record
+	// for an attempted address means the recovery healed part of what the check
+	// reported, whichever record comes first. A missing record keeps the
+	// finding. Identical unreachable records agree, so they still count as down;
+	// a live run records one dial per node, address and port, so duplicates come
+	// only from a hand-built report. A record whose To does not parse is skipped;
+	// a live run builds To with netip.AddrPortFrom, so it cannot produce one.
+	// Other checks keep their pairing, before or after target_tcp: a link that
+	// dropped internet_tcp is still a transient even when the target stays down.
+	// ponytail: the dial is the state after the scenario's last test, not during
+	// this one, so an address that recovered and failed again before then, an IPv6
+	// dial still settling after link-up, or a later test's lasting fault reads as
+	// down.
 	stillDown := func(check DiagnosisCheck) bool {
 		target, err := diagnostic.ParseTarget(test.Target)
 		if err != nil || len(check.Attempts) == 0 {

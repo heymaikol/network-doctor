@@ -517,7 +517,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
       - name: Print runner and toolchain identity
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -610,7 +610,7 @@ jobs:
           # matrix above still proves the code builds on that minimum.
           # Pin the patched release so setup-go cannot reuse an older,
           # vulnerable toolchain from the runner cache.
-          go-version: "1.27.3"
+          go-version: "1.27.4"
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.14.0

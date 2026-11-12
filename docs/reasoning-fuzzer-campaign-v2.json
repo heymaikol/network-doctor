@@ -1,0 +1,69 @@
+{
+  "Generator": "reasoning-v2",
+  "Campaigns": [
+    {
+      "Version": "reasoning-v2",
+      "Options": {
+        "Seed": 847293,
+        "Start": 0,
+        "Cases": 50000,
+        "MaxFaults": 4,
+        "Workers": 8,
+        "TwoSided": true,
+        "StopOnFirst": false,
+        "Property": ""
+      },
+      "Cases": 50000,
+      "FailingCases": 0,
+      "Violations": 0,
+      "UniqueOriginalFailures": 0,
+      "Evaluations": {
+        "counterfactual-indistinguishability": 2299,
+        "determinism": 50000,
+        "fault-commutativity": 597,
+        "ground-truth-isolation": 50000,
+        "observational-equivalence": 2299,
+        "replay-equivalence": 50000,
+        "two-sided-cause-preservation": 22901,
+        "two-sided-symmetry": 22901,
+        "unobservable-perturbation": 50000,
+        "unsupported-claim-safety": 50000
+      },
+      "Failures": null,
+      "Seconds": 188.574434067,
+      "CasesPerSecond": 265.14728917195174
+    },
+    {
+      "Version": "reasoning-v2",
+      "Options": {
+        "Seed": 20260906,
+        "Start": 0,
+        "Cases": 50000,
+        "MaxFaults": 4,
+        "Workers": 8,
+        "TwoSided": true,
+        "StopOnFirst": false,
+        "Property": ""
+      },
+      "Cases": 50000,
+      "FailingCases": 0,
+      "Violations": 0,
+      "UniqueOriginalFailures": 0,
+      "Evaluations": {
+        "counterfactual-indistinguishability": 2381,
+        "determinism": 50000,
+        "fault-commutativity": 603,
+        "ground-truth-isolation": 50000,
+        "observational-equivalence": 2381,
+        "replay-equivalence": 50000,
+        "two-sided-cause-preservation": 22921,
+        "two-sided-symmetry": 22921,
+        "unobservable-perturbation": 50000,
+        "unsupported-claim-safety": 50000
+      },
+      "Failures": null,
+      "Seconds": 190.850886217,
+      "CasesPerSecond": 261.98463623139446
+    }
+  ]
+}

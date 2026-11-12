@@ -69,12 +69,13 @@ const (
 	// separates them.
 	DiagnosisUncorroboratedEndpointFailure DiagnosisID = "uncorroborated_endpoint_failure"
 	// DiagnosisFamilyReachabilityUnlocalized is the unlocalized picture
-	// confined to one address family. Every attempt at the target was made in
-	// one family, and the egress check's reference endpoints in that family
-	// were silent too while the other family carried traffic. The reference
-	// that would have separated the target from this machine's path was not
-	// available in the only family the target was tried in, so the failure is
-	// established and neither end is accused.
+	// confined to one address family. Every attempt on the failed row, the
+	// target's or the QUIC check's, was made in one family, and the egress
+	// check's reference endpoints in that family were silent too while the
+	// other family carried traffic. The reference that would have separated
+	// the far end from this machine's path was not available in the only
+	// family the row was tried in, so the failure is established and neither
+	// end is accused.
 	DiagnosisFamilyReachabilityUnlocalized DiagnosisID = "family_reachability_unlocalized"
 
 	// TLS, which keeps the fine-grained causes the handshake already

@@ -610,6 +610,11 @@ func labCrossFamilyControl(f diagnostic.DiagnosisFinding, checks map[string]snap
 		if a.Cause == diagnostic.ConnectionCauseRefused {
 			return ""
 		}
+		// An attempt with no cause on a failed row is from a record that did
+		// not type its attempts, which says nothing about the families tried.
+		if a.Cause == "" {
+			return ""
+		}
 		tried := "ipv4"
 		if strings.Contains(a.IP, ":") {
 			tried = "ipv6"

@@ -288,6 +288,14 @@ func (d Diagnosis) Explain(t *Target, order []ProbeID, res map[ProbeID]ProbeResu
 			Meaning:  "Normal connections work. A newer method some apps prefer (QUIC) failed, but only against addresses this computer's name lookup service gave, not the different ones a public lookup service gave.",
 		}
 	}
+	// The same finding on the QUIC row is about a sibling path, not the target,
+	// and the connection itself works.
+	if f.ID == DiagnosisFamilyReachabilityUnlocalized && f.Focus == ProbeQUIC {
+		e = Explanation{
+			Headline: "A faster connection method could not be tested fairly",
+			Meaning:  "Normal connections work. A newer method some apps prefer (QUIC) failed, but Network Doctor could try it over only one of the two kinds of internet address (IPv4 and IPv6), and its own test connections of that kind did not get through from this network either. The problem may be that kind of address here and not QUIC.",
+		}
+	}
 	// Plain HTTP failing beside working HTTPS is the old address alone.
 	if f.ID == DiagnosisHTTPNoResponse && res[ProbeHTTPS].Status == StatusPass {
 		e = Explanation{

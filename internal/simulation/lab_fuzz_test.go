@@ -324,7 +324,7 @@ func TestLabFuzzVersionVector(t *testing.T) {
 	}
 	data, _ := json.Marshal(c)
 	digest := fmt.Sprintf("%x", sha256.Sum256(data))
-	const want = "87ccad67c65847f819c60badc80bf9caf89b65f67dd4a70a696c0a65cffc80b0"
+	const want = "b7bc33334566a39d786821c6cde4fab293a89fef1ca97711b86d5df21dee5aa5"
 	if digest != want {
 		t.Fatalf("generator vector changed: %s; review and version deliberate generator changes", digest)
 	}

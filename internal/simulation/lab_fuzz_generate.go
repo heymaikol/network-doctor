@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/heymaikol/network-doctor/v2/internal/compare"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 // LabFuzzVersion versions this experimental construction algorithm. Artifacts
 // carry concrete worlds as well, so replay does not invoke the generator.
-const LabFuzzVersion = "reasoning-v1"
+const LabFuzzVersion = "reasoning-v2"
 
 type LabFuzzCase struct {
 	Version  string
@@ -25,7 +27,7 @@ type LabFuzzCase struct {
 // test allows.
 const labMaxInt = uint64(^uint(0) >> 1)
 
-// SplitMix64, including overflow modulo 2^64, is part of reasoning-v1.
+// SplitMix64, including overflow modulo 2^64, is part of reasoning-v2.
 type labRandom uint64
 
 func (r *labRandom) next() uint64 {
@@ -106,6 +108,25 @@ func GenerateLabFuzz(seed, index uint64, maxFaults int, twoSided bool) (LabFuzzC
 			}
 			if dual && r.n(2) == 1 {
 				svc.Records = append(svc.Records, DNSRecord{Name: labHost, Address: labTarget6})
+			}
+		}
+	}
+	// Which families the QUIC reference endpoint answers in. A resolver that
+	// returns one family for a dual-stack name is ordinary, and it is the only
+	// way a dual-stack world tries QUIC in a single family. Drawn from a stream
+	// of its own, so every other choice a case makes is the one it made before
+	// this dimension existed.
+	if familyMode == 1 {
+		q := labRandom(seed ^ (index * 0xd1342543de82ef95) ^ 0x6a09e667f3bcc909)
+		if keep := q.n(4); keep >= 2 {
+			dropV6 := keep == 2
+			for ni := range s.Network.Topology.Nodes {
+				for si := range s.Network.Topology.Nodes[ni].Services {
+					svc := &s.Network.Topology.Nodes[ni].Services[si]
+					svc.Records = slices.DeleteFunc(svc.Records, func(d DNSRecord) bool {
+						return d.Name == diagnostic.ConnectivityProbeHost && strings.Contains(d.Address, ":") == dropV6
+					})
+				}
 			}
 		}
 	}

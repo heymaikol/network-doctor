@@ -1,7 +1,9 @@
 package main
 
 import (
+	"cmp"
 	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,7 +15,13 @@ import (
 // The README's hero GIF is recorded by .github/workflows/demo.yml from
 // hero.tape. These tests hold the parts of that arrangement that break
 // silently: a recording is still produced when the tape has drifted off the
-// program, and each release tag's recording can refresh the tracked GIF.
+// program, and only a manual run from main can publish the tracked media.
+
+// demoPublishCondition is the whole condition on every step that commits or
+// pushes. success() is written out although GitHub applies it by default to
+// an if without a status function, so the pinned string is the full gate.
+// Release tags still record and upload; they never publish.
+const demoPublishCondition = "success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
 
 func demoWorkflow(t *testing.T) string {
 	t.Helper()
@@ -194,7 +202,7 @@ func TestDemoWorkflowPinsItsActionsAndItsVHS(t *testing.T) {
 	}
 }
 
-func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
+func TestDemoWorkflowPublishesOnlyFromManualMainRuns(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/demo.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -215,6 +223,7 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 			CancelInProgress *bool  `yaml:"cancel-in-progress"`
 		} `yaml:"concurrency"`
 		Jobs map[string]struct {
+			If          string            `yaml:"if"`
 			Permissions map[string]string `yaml:"permissions"`
 			Steps       []step            `yaml:"steps"`
 		} `yaml:"jobs"`
@@ -274,8 +283,18 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 	if commit == nil {
 		t.Fatal("demo.yml does not commit the changed recording")
 	}
-	if commit.If != "" {
-		t.Errorf("demo.yml commit condition = %q; a release tag is the only trigger that reaches this step", commit.If)
+	if workflow.Jobs["hero"].If != "" {
+		t.Errorf("demo.yml hero job is conditional (%q); release tags must still record and upload", workflow.Jobs["hero"].If)
+	}
+	for _, s := range workflow.Jobs["hero"].Steps {
+		label := cmp.Or(s.Name, s.Uses)
+		publishes := strings.Contains(s.Run, "git commit") || strings.Contains(s.Run, "git push")
+		switch {
+		case publishes && s.If != demoPublishCondition:
+			t.Errorf("demo.yml step %q publishes under condition %q; want %q so a release tag can never push to main", label, s.If, demoPublishCondition)
+		case !publishes && s.If != "":
+			t.Errorf("demo.yml step %q is conditional (%q); only the publishing step may depend on the event", label, s.If)
+		}
 	}
 	if checkout.With["fetch-depth"] != "0" {
 		t.Error("demo.yml checkout is shallow; the ancestry check needs main's history")
@@ -284,15 +303,16 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 		t.Errorf("demo.yml expected head = %q, want the revision that was recorded", commit.Env["EXPECTED_HEAD"])
 	}
 
-	noChange := strings.Index(commit.Run, "git diff --quiet -- assets/hero.gif")
+	media := "assets/hero.gif assets/hero.mp4 assets/hero-poster.png"
+	noChange := strings.Index(commit.Run, "git diff --quiet -- "+media)
 	remoteHead := strings.Index(commit.Run, "git fetch origin main")
 	compareHead := strings.Index(commit.Run, `if ! git merge-base --is-ancestor "$EXPECTED_HEAD" origin/main; then`)
 	rejectStale := strings.Index(commit.Run, "exit 1")
-	addGIF := strings.Index(commit.Run, "git add assets/hero.gif")
-	commitGIF := strings.Index(commit.Run, `git commit -m "Refresh README hero GIF"`)
+	addGIF := strings.Index(commit.Run, "git add "+media)
+	commitGIF := strings.Index(commit.Run, `git commit -m "Refresh homepage demo media"`)
 	pushGIF := strings.Index(commit.Run, "git push origin HEAD:main")
 	if noChange < 0 || remoteHead < 0 || noChange > remoteHead || !strings.Contains(commit.Run[noChange:remoteHead], "exit 0") {
-		t.Error("demo.yml does not exit without a commit when assets/hero.gif is unchanged")
+		t.Error("demo.yml does not exit without a commit when all demo media are unchanged")
 	}
 	ordered := []int{noChange, remoteHead, compareHead, rejectStale, addGIF, commitGIF, pushGIF}
 	prev := -1
@@ -305,8 +325,8 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 	for _, want := range []string{
 		`git config user.name "github-actions[bot]"`,
 		`git config user.email "41898282+github-actions[bot]@users.noreply.github.com"`,
-		"git add assets/hero.gif",
-		`git commit -m "Refresh README hero GIF"`,
+		"git add " + media,
+		`git commit -m "Refresh homepage demo media"`,
 	} {
 		if !strings.Contains(commit.Run, want) {
 			t.Errorf("demo.yml commit step lacks %q", want)
@@ -315,6 +335,59 @@ func TestDemoWorkflowRefreshesTheTrackedGIFOnRelease(t *testing.T) {
 	indiscriminateAdd := regexp.MustCompile(`(?m)^\s*git add\s+(?:-A|--all|\.(?:\s|$))`)
 	indiscriminateCommit := regexp.MustCompile(`(?m)^\s*git commit\s+(?:-a|--all)(?:\s|$)`)
 	if indiscriminateAdd.MatchString(commit.Run) || indiscriminateCommit.MatchString(commit.Run) {
-		t.Error("demo.yml indiscriminately stages files instead of adding only assets/hero.gif")
+		t.Error("demo.yml indiscriminately stages files instead of adding only the three demo assets")
+	}
+}
+
+func TestDemoWorkflowValidatesDerivativesBeforePublishing(t *testing.T) {
+	workflow := demoWorkflow(t)
+	var document struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Run             string            `yaml:"run"`
+				If              string            `yaml:"if"`
+				Uses            string            `yaml:"uses"`
+				With            map[string]string `yaml:"with"`
+				ContinueOnError bool              `yaml:"continue-on-error"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(workflow), &document); err != nil {
+		t.Fatal(err)
+	}
+	converted := false
+	for _, step := range document.Jobs["hero"].Steps {
+		if strings.Contains(step.Run, "python3 .github/scripts/demo_media.py") {
+			converted = true
+			if step.If != "" || step.ContinueOnError {
+				t.Fatal("media conversion must run before every publication")
+			}
+		}
+		if strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
+			if !converted {
+				t.Fatal("media are uploaded before derivative validation")
+			}
+			for _, asset := range []string{"hero.gif", "hero.mp4", "hero-poster.png"} {
+				if !strings.Contains(step.With["path"], "assets/"+asset) {
+					t.Errorf("artifact omits %s", asset)
+				}
+			}
+		}
+		if strings.Contains(step.Run, "git push") && (!converted || step.If != demoPublishCondition) {
+			t.Fatal("publication must require successful media conversion and a manual run from main")
+		}
+	}
+	if !converted {
+		t.Fatal("workflow never regenerates and validates video and poster")
+	}
+}
+
+func TestDemoMediaValidator(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("Python 3 is not installed; demo workflow runs these offline checks too")
+	}
+	out, err := exec.Command("python3", "-B", "-m", "unittest", "discover", "-s", ".github/scripts", "-p", "test_demo_media.py").CombinedOutput()
+	if err != nil {
+		t.Fatalf("demo media validation tests: %v\n%s", err, out)
 	}
 }

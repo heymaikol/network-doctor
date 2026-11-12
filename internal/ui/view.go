@@ -1124,9 +1124,9 @@ func (m model) observationLine(e diagnostic.CausalEvidence) string {
 	case diagnostic.ObservationStatusDowngraded:
 		return name + " failed before another working path reduced its severity"
 	case diagnostic.ObservationFamilyReachable:
-		return name + " reached the target over " + addressFamilyLabel(e.Value)
+		return name + " reached " + familyDestination(e.Check) + " over " + addressFamilyLabel(e.Value)
 	case diagnostic.ObservationFamilyFailed:
-		return name + " could not reach the target over " + addressFamilyLabel(e.Value)
+		return name + " could not reach " + familyDestination(e.Check) + " over " + addressFamilyLabel(e.Value)
 	case diagnostic.ObservationAddressSucceeded:
 		return name + " reached " + e.Value
 	case diagnostic.ObservationAddressFailed:
@@ -1190,6 +1190,16 @@ func (m model) observationLine(e diagnostic.CausalEvidence) string {
 		return name + " did not apply"
 	}
 	return name + " supplied evidence"
+}
+
+// familyDestination is what a row's family observation is about. The egress
+// row dials its own fixed reference endpoints and never the target, so its
+// success in a family is not the target answering in it.
+func familyDestination(check diagnostic.ProbeID) string {
+	if check == diagnostic.ProbeInternet {
+		return "its reference endpoints"
+	}
+	return "the target"
 }
 
 func addressFamilyLabel(value string) string {

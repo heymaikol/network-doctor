@@ -104,7 +104,11 @@ h2 {
 }
 h3 { font-size: 1.1rem; margin: 1.75rem 0 0.5rem; }
 
-img { max-width: 100%; height: auto; }
+img, video { max-width: 100%; height: auto; }
+
+.demo { margin: 1.5rem 0; }
+.demo video { display: block; }
+.demo figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 0.5rem; }
 
 code, pre {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;

@@ -10,7 +10,7 @@ page explains why each stage exists.
 ## What an ordinary pull request needs
 
 ```sh
-./scripts/check
+./scripts/check.sh
 ```
 
 That is gofmt, `go vet`, a `CGO_ENABLED=0` build, macOS and Windows
@@ -42,6 +42,7 @@ go test -tags integration ./internal/app ./internal/diagnostic ./internal/peer .
 go test -tags acceptance -count=1 -run '^TestNative' . ./internal/ui
 go test -tags netns_integration -count=1 -v ./internal/simulation
 go test -tags netns_integration -count=1 -run '^Test(RouteEvents|PublicDNSSearchIsolation)' ./internal/diagnostic
+go test -race -tags netns_integration -count=1 -v ./contrib/frr-correlation/supervisor ./contrib/frr-correlation/capture
 go test -race ./...
 go test -race -tags integration ./internal/app ./internal/diagnostic ./internal/peer ./internal/simulation
 go test -run='^$' -fuzz=FuzzSanitize -fuzztime=10s ./internal/textsafe
@@ -69,6 +70,37 @@ Race, fuzz, and network-namespace checks run only on Linux in CI. The
 namespaces; they never need root. That gate keeps `-v` because a skipped run and
 a real one both print just `ok` otherwise, and `-count=1` because a cached
 result would not have exercised any namespace at all.
+
+The supervisor and capture namespace suites run on the `linux (coverage)` job with
+`NETDOC_SIM_REQUIRE_NETNS=1`, so a host that cannot create namespaces fails the job
+rather than skipping. `cmd/netnsgate` reads the `go test -json` stream and fails
+the job unless both packages pass, both required namespace tests run and pass, and
+the only skip is the supervisor's FRR test reporting that `NETDOC_FRR_STAGE` is
+unset. The FRR test needs a staged FRR copy, so it always skips in CI.
+
+The gate trusts the tree it runs on. It catches accidental skips, missing tests and
+failed runs. It does not authenticate test output. The CI step runs
+`go test -json -v`, and under `-v` raw framing that a running test body writes to
+stdout or stderr becomes `run` and `pass` events, which the gate accepts. Without
+`-v` the same text stays ordinary output, and the gate refuses it. Framing written
+from `init`, or from `TestMain` before `m.Run`, becomes events with or without
+`-v`, because no test is running yet. Text a test process derives from its
+environment and writes unescaped, such as an inherited descriptor's path name, can
+carry the same framing into that early window. Text in an `Output` field never
+counts as an event, whether a test logs it with `t.Log` or fails with it through
+`t.Fatalf`. Closing the raw-output gap needs a record the test binary cannot write
+itself, which this gate does not attempt. `TestKnownGapRawFramingIsAccepted`
+reproduces the framing cases with the installed Go toolchain. The `t.Fatalf` case
+and the environment-derived case were checked by hand, not in that test.
+
+The capture package's lease and sealed-memory tests also run in the ordinary
+`go test ./...` on Linux, rootless. They skip when the temporary directory sits
+on a filesystem the lease proof refuses (for example overlayfs or FUSE), and
+fail instead of skipping when `NETDOC_SIM_REQUIRE_NETNS` is set. Its
+`netns_integration` tests start real children in the supervisor's namespaces.
+The `.golangci.yml` configuration sets no build tags, so CI lint does not see
+those files. Lint them locally with `golangci-lint run --build-tags
+netns_integration ./contrib/frr-correlation/...`.
 
 `-run='^$'` on the fuzz commands matches no ordinary test, so each one builds
 the package and starts fuzzing rather than replaying that package's whole unit

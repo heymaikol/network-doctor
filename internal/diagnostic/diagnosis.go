@@ -277,6 +277,26 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 	blame := func(id DiagnosisID, focus ProbeID, summary, verdict string, from ...ProbeID) Diagnosis {
 		return withEvidence(id, focus, summary, verdict, supportRows(append([]ProbeID{focus}, from...)...))
 	}
+	// The QUIC row read against an egress row that did not work in the only
+	// family QUIC was tried in. A finding on the QUIC row, at the degraded
+	// verdict every QUIC conclusion carries, so a failed QUIC row can never
+	// fall through to a run that reports nothing wrong.
+	//
+	// No other row stands in as the QUIC row's reference. The one candidate is
+	// a target that answered over TCP in that family, and it is another host:
+	// a machine that reaches the target by a specific route and nothing else
+	// in the family fails QUIC for the route, not for UDP/443.
+	quicFamilyUnreferenced := func() bool {
+		_, _, unreferenced := familyWithoutReference(res, ProbeQUIC, "")
+		return unreferenced
+	}
+	quicFamilyUnlocalized := func() Diagnosis {
+		failed, worked, _ := familyWithoutReference(res, ProbeQUIC, "")
+		evidence := addEvidence(supportRows(ProbeQUIC),
+			CausalEvidence{Kind: EvidenceSupport, Check: ProbeInternet, Observation: ObservationFamilyFailed, Value: failed},
+			CausalEvidence{Kind: EvidenceSupport, Check: ProbeInternet, Observation: ObservationFamilyReachable, Value: worked})
+		return withEvidence(DiagnosisFamilyReachabilityUnlocalized, ProbeQUIC, "The QUIC handshake over UDP/443 was tried only over "+familyLabel(failed)+", and the egress check reached its reference endpoints over "+familyLabel(worked)+" but not over "+familyLabel(failed)+", so this run cannot say whether UDP/443 is affected or this machine's "+familyLabel(failed)+" path is.", VerdictDegraded, evidence)
+	}
 	fallback := func() Diagnosis {
 		for _, id := range order {
 			switch {
@@ -369,6 +389,16 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			evidence := addEvidence(supportRows(ProbeDNSPublic, ProbeDNS, ProbeQUIC, ProbeInternet),
 				contradicts(DiagnosisQUICUnavailable, ProbeDNSPublic, ObservationStatusWarn))
 			return withEvidence(DiagnosisDNSDisagreement, ProbeDNSPublic, quicOnDisagreementSummary, gv, evidence)
+		case directOK() && has(ProbeQUIC) && fail(ProbeQUIC) && quicFamilyUnreferenced():
+			// "TCP works and QUIC does not" compares two things, and the TCP
+			// half is the egress row. With every QUIC attempt in a family
+			// whose reference endpoints were silent too, that half was
+			// measured in the other family and the comparison was never made.
+			// Above the two scope arms below, which both read the egress row
+			// as a working reference for the addresses QUIC tried, and under
+			// the disagreement, which is a statement about the resolvers and
+			// holds in any family.
+			return quicFamilyUnlocalized()
 		case directOK() && has(ProbeQUIC) && fail(ProbeQUIC) && uncorroboratedEndpointFailure(res, ProbeQUIC, resolvedByTheProbe):
 			// Under the established disagreement above and over the plain QUIC
 			// verdict below, which is the order of what the run knows: a
@@ -560,6 +590,22 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 					rulesOut(DiagnosisLocalEgressFailure, ProbeInternet, ObservationStatusPass))
 				return withEvidence(DiagnosisTCPConnectionRefused, ProbeTargetTCP, "Every TCP connection attempt to "+hp+" was explicitly refused: the service may not be listening, or a firewall may be actively rejecting it.", VerdictService, evidence)
 			}
+			// The egress row is the control that lets a silent target be read
+			// as the target's own silence, and a control speaks only for the
+			// address family it was measured in. With every attempt made in a
+			// family whose reference endpoints were silent too, egress in the
+			// other family says this machine is online and nothing about the
+			// path this target needs: the unlocalized picture below, confined
+			// to one family. Under the refusal, which is a peer answering in
+			// that family. A finding on the target row and not a plain answer,
+			// because the sentence has a subject and the first failed row in
+			// probe order is often a sibling that failed for the same reason.
+			if failed, worked, ok := familyWithoutReference(res, ProbeTargetTCP, ProbeHTTP); ok {
+				evidence := addEvidence(supportRows(ProbeTargetTCP, ProbeDNS),
+					CausalEvidence{Kind: EvidenceSupport, Check: ProbeInternet, Observation: ObservationFamilyFailed, Value: failed},
+					CausalEvidence{Kind: EvidenceSupport, Check: ProbeInternet, Observation: ObservationFamilyReachable, Value: worked})
+				return withEvidence(DiagnosisFamilyReachabilityUnlocalized, ProbeTargetTCP, hp+" was tried only over "+familyLabel(failed)+", and the egress check reached its reference endpoints over "+familyLabel(worked)+" but not over "+familyLabel(failed)+", so a problem with this machine's "+familyLabel(failed)+" path cannot be told apart from one at the target.", VerdictNetwork, evidence)
+			}
 			// The same scope question as the generic QUIC arm, on the rung
 			// where the DNS rows are the target's own answers. Below the
 			// refusal above it, because a refusal is a peer answering for the
@@ -686,6 +732,10 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		return blame(DiagnosisServiceBannerFailure, bannerRow(res, fail), hp+" accepts TCP but the service banner check failed.", VerdictService, ProbeTargetTCP)
 	case (has(ProbeSSH) && warn(ProbeSSH)) || (has(ProbeSMTP) && warn(ProbeSMTP)):
 		return blame(DiagnosisServiceBannerMissing, bannerRow(res, warn), hp+" accepts TCP but sent no service banner.", VerdictDegraded, ProbeTargetTCP)
+	case targetOK && has(ProbeQUIC) && fail(ProbeQUIC) && directOK() && quicFamilyUnreferenced():
+		// The same comparison as the generic arm, and the working target does
+		// not change it: the QUIC row dials its own endpoint.
+		return quicFamilyUnlocalized()
 	case targetOK && has(ProbeQUIC) && fail(ProbeQUIC) && directOK():
 		return blame(DiagnosisQUICUnavailable, ProbeQUIC, "The target and direct TCP/443 work, but the QUIC handshake over UDP/443 failed. Applications can fall back to TCP, which may feel slower.", VerdictDegraded, ProbeInternet)
 	case encryptedDNSBlocked(res):
@@ -975,6 +1025,68 @@ func directEgressOK(res map[ProbeID]ProbeResult) bool {
 func publicTargetReachedDirectly(res map[ProbeID]ProbeResult) bool {
 	r, ok := res[ProbeTargetTCP]
 	return ok && functional(r.Status) && r.SelectedIP != nil && !localIP(r.SelectedIP)
+}
+
+// familyWithoutReference names the one address family every attempt on a
+// failed row was made in, and the other one, when the egress row dialed its
+// reference endpoints in both and reached them only in the other. A family the
+// egress row did not test, and a result that recorded no family states, say
+// nothing either way.
+//
+// An attempt that ended at the probe deadline was tried: neither dialer has a
+// timeout of its own, so that is how every silent address is recorded, and
+// leaving those out would leave out exactly the rows this is for. Only an
+// attempt that was explicitly canceled says nothing about its family.
+//
+// A refused attempt ends the question the other way. A refusal is a peer
+// answering in the family that was tried, so one refused address beside
+// silent ones is the reference the egress row could not supply, and the
+// reading stays what it was before this guard existed.
+//
+// So does reached, a row that dials the same host as the failed one and
+// connected to a public address in that family. For the target row it is the
+// plain HTTP row, on another port: the host was reached over the family, so
+// its silence on this port is not this machine's path. The QUIC row has no
+// such row and passes none.
+func familyWithoutReference(res map[ProbeID]ProbeResult, row, reached ProbeID) (failed, worked string, ok bool) {
+	reference := res[ProbeInternet].Families
+	if reference == nil {
+		return "", "", false
+	}
+	var v4, v6 bool
+	for _, attempt := range res[row].Attempts {
+		switch attemptCause(attempt) {
+		case ConnectionCauseCanceled:
+			continue
+		case ConnectionCauseRefused:
+			return "", "", false
+		}
+		// Every attempt on a failed row carries the cause its dialer gave it.
+		// One without a cause was written before the QUIC dialer typed its
+		// attempts, by a dialer that also dropped every attempt a deadline
+		// ended, so the row is not a record of which families were tried. It
+		// reaches here from a stored artifact or a --via host on an earlier
+		// netdoc, and it keeps the reading it was given.
+		if attempt.Cause == "" {
+			return "", "", false
+		}
+		if attempt.IP.To4() != nil {
+			v4 = true
+		} else {
+			v6 = true
+		}
+	}
+	if answered := res[reached]; functional(answered.Status) && answered.SelectedIP != nil && !localIP(answered.SelectedIP) &&
+		(answered.SelectedIP.To4() != nil) == v4 {
+		return "", "", false
+	}
+	switch {
+	case v4 && !v6 && reference.IPv4 == FamilyUnreachable && reference.IPv6 == FamilyReachable:
+		return counterfactualIPv4, counterfactualIPv6, true
+	case v6 && !v4 && reference.IPv6 == FamilyUnreachable && reference.IPv4 == FamilyReachable:
+		return counterfactualIPv6, counterfactualIPv4, true
+	}
+	return "", "", false
 }
 
 // localPathObserved requires a missing usable default or an independently

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,11 +16,18 @@ import (
 // describes the options the parser accepts, and that CI runs the script.
 //
 // They assert on the script's content rather than running it, with one
-// exception: --help is checked by executing it, which is safe because usage()
-// prints and exits before the first check step. Running the script bare from a
-// test would recurse, because its own `go test ./...` step runs this file.
+// exception: --help and unknown options are checked by executing it, which is
+// safe because the parser prints and exits before the first check step.
+// Running the script bare from a test would recurse, because its own
+// `go test ./...` step runs this file.
+//
+// scripts/check is the compatibility wrapper older callers still invoke. Its
+// forwarding is tested against a stub check.sh, for the same reason.
 
-const checkScript = "scripts/check"
+const (
+	checkScript  = "scripts/check.sh"
+	checkWrapper = "scripts/check"
+)
 
 func readCheckScript(t *testing.T) string {
 	t.Helper()
@@ -63,21 +72,25 @@ func readCheckScriptCode(t *testing.T) string {
 }
 
 func TestCheckScriptIsCommittedExecutable(t *testing.T) {
-	// The documented invocation is `./scripts/check`, which needs the execute
-	// bit in the committed tree. The filesystem mode cannot be asserted here:
-	// a Windows checkout does not carry it. git's index does, so ask git.
-	out, err := exec.Command("git", "ls-files", "--stage", "--", checkScript).Output()
-	if err != nil {
-		t.Skipf("git unavailable, or this is not a checkout: %v", err)
-	}
-	fields := strings.Fields(string(out))
-	if len(fields) == 0 {
-		t.Fatalf("%s is not tracked by git", checkScript)
-	}
-	if fields[0] != "100755" {
-		t.Errorf("%s is committed as mode %s, want 100755: ./%s would not be "+
-			"directly executable for a contributor who just cloned",
-			checkScript, fields[0], checkScript)
+	// The documented invocation is `./scripts/check.sh`, and older callers use
+	// `./scripts/check`, so both need the execute bit in the committed tree.
+	// The filesystem mode cannot be asserted here: a Windows checkout does not
+	// carry it. git's index does, so ask git.
+	for _, path := range []string{checkScript, checkWrapper} {
+		// #nosec G204 -- path comes from the fixed list on the line above.
+		out, err := exec.Command("git", "ls-files", "--stage", "--", path).Output()
+		if err != nil {
+			t.Skipf("git unavailable, or this is not a checkout: %v", err)
+		}
+		fields := strings.Fields(string(out))
+		if len(fields) == 0 {
+			t.Fatalf("%s is not tracked by git", path)
+		}
+		if fields[0] != "100755" {
+			t.Errorf("%s is committed as mode %s, want 100755: ./%s would not be "+
+				"directly executable for a contributor who just cloned",
+				path, fields[0], path)
+		}
 	}
 }
 
@@ -167,7 +180,7 @@ func TestCheckScriptUsageMatchesTheOptionsItAccepts(t *testing.T) {
 		t.Fatalf("%s --help: %v\n%s", checkScript, err, out)
 	}
 	help := string(out)
-	for _, want := range []string{"./scripts/check", "--race", "--help"} {
+	for _, want := range []string{"./scripts/check.sh", "--race", "--help"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("the usage text printed by --help does not mention %q:\n%s", want, help)
 		}
@@ -251,5 +264,132 @@ func TestContributingAndREADMEPointAtTheCheckScript(t *testing.T) {
 		if !strings.Contains(string(body), checkScript) {
 			t.Errorf("%s does not mention %s", doc, checkScript)
 		}
+	}
+}
+
+// runSh runs script under sh from dir. The script path is made absolute so dir
+// can be a directory the script does not live in; ToSlash keeps it usable by
+// the Git Bash sh on Windows.
+func runSh(t *testing.T, dir, script string, env []string, args ...string) (out string, code int) {
+	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("no POSIX shell on this machine: %v", err)
+	}
+	abs, err := filepath.Abs(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// #nosec G204 -- script is a path this test built, args are literals.
+	cmd := exec.Command("sh", append([]string{filepath.ToSlash(abs)}, args...)...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	b, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+	case errors.As(err, &exit):
+		code = exit.ExitCode()
+	default:
+		t.Fatalf("run %s: %v", script, err)
+	}
+	return string(b), code
+}
+
+// copyScripts copies the committed scripts into a scratch repository layout and
+// returns the scripts directory. Running the copies rather than the originals
+// means a wrapper that stops forwarding its arguments runs check.sh bare in a
+// directory with no repository, which fails fast, instead of recursing into
+// this test through the real gate's `go test ./...`.
+func copyScripts(t *testing.T, names ...string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "scripts")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		// #nosec G304 -- name comes from literals in this file's calls.
+		body, err := os.ReadFile(filepath.Join("scripts", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// #nosec G703 -- dir is inside t.TempDir and name is a literal.
+		if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestCheckScriptAndWrapperAgreeFromAnotherDirectory(t *testing.T) {
+	// --help and an unknown option both exit before the script changes into the
+	// repository root, so the committed scripts can be run from a directory
+	// that is neither their own nor the repository. The wrapper has to find
+	// check.sh from its own path, not from the working directory, and must not
+	// add or lose a byte of output or change the exit status.
+	scripts := copyScripts(t, "check", "check.sh")
+	elsewhere := t.TempDir()
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		wantCode int
+		wantText string
+	}{
+		{"help", []string{"--help"}, 0, "./scripts/check.sh --race"},
+		{"short help", []string{"-h"}, 0, "./scripts/check.sh --race"},
+		{"unknown option", []string{"--bogus"}, 2, "check.sh: unknown option --bogus"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			direct, directCode := runSh(t, elsewhere, filepath.Join(scripts, "check.sh"), nil, tc.args...)
+			wrapped, wrappedCode := runSh(t, elsewhere, filepath.Join(scripts, "check"), nil, tc.args...)
+			if directCode != tc.wantCode || wrappedCode != tc.wantCode {
+				t.Errorf("exit codes: check.sh=%d, check=%d, want %d\n%s\n%s",
+					directCode, wrappedCode, tc.wantCode, direct, wrapped)
+			}
+			if !strings.Contains(direct, tc.wantText) {
+				t.Errorf("check.sh %v output lacks %q:\n%s", tc.args, tc.wantText, direct)
+			}
+			if wrapped != direct {
+				t.Errorf("check output differs from check.sh:\n%s\n--- vs ---\n%s", wrapped, direct)
+			}
+		})
+	}
+}
+
+func TestCheckWrapperForwardsArgumentsAndExitStatus(t *testing.T) {
+	// Copy the committed wrapper next to a stub check.sh that echoes each
+	// argument on its own line and exits with a chosen status. That proves the
+	// forwarding without running the real gate, which would recurse.
+	scripts := copyScripts(t, "check")
+	stub := "for arg in \"$@\"; do printf '[%s]\\n' \"$arg\"; done\nexit \"$STUB_EXIT\"\n"
+	if err := os.WriteFile(filepath.Join(scripts, "check.sh"), []byte(stub), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		exit string
+		want string
+		code int
+	}{
+		{"race passes and succeeds", []string{"--race"}, "0", "[--race]\n", 0},
+		{"awkward arguments survive", []string{"--race", "a b", ""}, "7", "[--race]\n[a b]\n[]\n", 7},
+		{"no arguments", nil, "3", "", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, code := runSh(t, t.TempDir(), filepath.Join(scripts, "check"),
+				[]string{"STUB_EXIT=" + tc.exit}, tc.args...)
+			if out != tc.want || code != tc.code {
+				t.Errorf("got exit %d and %q, want exit %d and %q", code, out, tc.code, tc.want)
+			}
+		})
+	}
+}
+
+func TestCheckScriptChangesIntoTheRepositoryRoot(t *testing.T) {
+	// The checks run against the repository, not the caller's directory. That
+	// is what lets ./scripts/check.sh work from anywhere, and it cannot be
+	// proved by running the script, so pin the line that does it.
+	if !strings.Contains(readCheckScriptCode(t), `cd "$(dirname "$0")/.."`) {
+		t.Errorf("%s no longer changes into the repository root before its checks", checkScript)
 	}
 }

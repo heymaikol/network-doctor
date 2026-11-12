@@ -70,6 +70,10 @@
         "protocol": {
           "$ref": "#/$defs/protocol",
           "description": "Which protocol-specific rows the run added on top of the TCP check."
+        },
+        "zone": {
+          "type": "string",
+          "description": "The interface an IPv6 link-local host is reached through, such as eth0 for fe80::1%eth0, or a number on Windows. Present only for a scoped link-local target."
         }
       }
     },

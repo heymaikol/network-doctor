@@ -345,3 +345,59 @@ func TestProfileTextPreservesFindingEvidence(t *testing.T) {
 		}
 	}
 }
+
+// profileTextOf renders a one-component profile for a built report.
+func profileTextOf(rep report.Report) string {
+	return profileText(profile.Result{
+		Title: "SSH", Aggregate: profile.Aggregate{Status: profile.StatusPass, Summary: "SSH works."},
+		Components: []profile.Component{{
+			ID: "ssh", Label: "Direct SSH", Status: profile.StatusPass,
+			Target: rep.Target, Report: rep,
+		}},
+	})
+}
+
+// A scoped IPv6 link-local target keeps its interface zone in the profile
+// report, in both the text endpoint and the structured target.
+func TestProfileKeepsTheLinkLocalZoneOfTheTarget(t *testing.T) {
+	target, err := diagnostic.ParseTarget("[fe80::1234%eth0]:22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := buildReport(target, nil, nil)
+	if text := profileTextOf(rep); !strings.Contains(text, "[fe80::1234%eth0]:22") {
+		t.Errorf("profile text lacks the scoped endpoint:\n%s", text)
+	}
+	data, err := json.Marshal(rep.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got report.Target
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if want := (report.Target{Host: "fe80::1234", Port: 22, Protocol: "ssh", Zone: "eth0"}); got != want {
+		t.Errorf("report target = %+v, want %+v (JSON %s)", got, want, data)
+	}
+}
+
+// Targets without a zone print and serialize exactly as they always have.
+func TestProfileTargetWithoutAZoneIsUnchanged(t *testing.T) {
+	for _, raw := range []string{"example.com:22", "192.0.2.10:22", "[2001:db8::1]:22"} {
+		target, err := diagnostic.ParseTarget(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+		rep := buildReport(target, nil, nil)
+		if want := net.JoinHostPort(target.Host, "22"); !strings.Contains(profileTextOf(rep), want) {
+			t.Errorf("%s: profile text lacks %q", raw, want)
+		}
+		data, err := json.Marshal(rep.Target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "zone") {
+			t.Errorf("%s: target JSON carries a zone: %s", raw, data)
+		}
+	}
+}

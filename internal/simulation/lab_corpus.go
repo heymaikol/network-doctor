@@ -12,6 +12,10 @@ const labHost = "app.test"
 const labTarget4 = "93.184.216.34"
 const labTarget6 = "2606:2800:220:1:248:1893:25c8:1946"
 
+// labReference6 is the internet node's own uplink address in a dual-stack lab,
+// the IPv6 counterpart of the 10.20.2.20 its reference names resolve to.
+const labReference6 = "2001:db8:20:2::14"
+
 // LabScenarios builds fresh values on each call. The healthy topology is shared
 // construction, never shared mutable state. Faults do not contain probe IDs,
 // statuses, findings, or diagnosis text.
@@ -284,7 +288,10 @@ func FindLabScenario(name string) (LabScenario, error) {
 func labRecords(dual bool, target string) []DNSRecord {
 	r := []DNSRecord{{Name: labHost, Address: target}, {Name: d.ConnectivityProbeHost, Address: "10.20.2.20"}, {Name: "www.msftconnecttest.com", Address: "10.20.2.20"}}
 	if dual {
-		r = append(r, DNSRecord{Name: labHost, Address: labTarget6})
+		// The reference endpoint the QUIC row dials is dual-stack on the real
+		// internet, so it is here: a lab where it had one IPv4 address made
+		// every dual-stack world with IPv4 broken look like blocked UDP.
+		r = append(r, DNSRecord{Name: labHost, Address: labTarget6}, DNSRecord{Name: d.ConnectivityProbeHost, Address: labReference6})
 	}
 	return r
 }

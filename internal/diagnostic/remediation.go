@@ -597,6 +597,16 @@ var remedies = map[remedyKey]remedy{
 		},
 		expect: "The device answering on the address and port it is meant to use.",
 	},
+	{id: DiagnosisFamilyReachabilityUnlocalized}: {
+		id:     RemedyCheckLocalPath,
+		action: "Check this machine's path in the address family that failed",
+		why:    "Every attempt the failed check made was in one address family, and the egress check's reference endpoints in that family were silent too while the other family carried traffic. A network that does not carry that family and a far end that is not answering look the same from here, so this run cannot say which it is.",
+		steps: []string{
+			"Check whether this machine has an address and a default route in that family. A network that does not offer the family cannot reach anything over it directly.",
+			"Repeat the check from a network that carries that family, which is the observation that separates the two.",
+		},
+		expect: "A working path in that family, or the same check passing from a network that has one.",
+	},
 	{id: DiagnosisReachabilityUntested}: {
 		id:     RemedyRerunWithEgress,
 		action: "Rerun with the general connectivity check included",

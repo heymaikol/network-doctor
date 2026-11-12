@@ -2,12 +2,14 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
 
+	"golang.org/x/net/html"
 	"gopkg.in/yaml.v3"
 )
 
@@ -69,6 +71,47 @@ func TestSiteIsConfiguredForItsCanonicalAddress(t *testing.T) {
 			t.Errorf("site/_config.yml does not enable %s; the site would publish without %s", plugin,
 				map[string]string{"jekyll-seo-tag": "titles, descriptions, or canonical URLs", "jekyll-sitemap": "a sitemap"}[plugin])
 		}
+	}
+}
+
+// Browsers hide video fallback children even when a source fails to load.
+func TestHomepageVideoDownloadIsOutsidePlayer(t *testing.T) {
+	data, err := os.ReadFile("site/index.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := html.Parse(strings.NewReader(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for node := range page.Descendants() {
+		if node.Type != html.ElementNode || node.Data != "a" || node.FirstChild == nil || node.FirstChild.Data != "Download the demo video" {
+			continue
+		}
+		found = true
+		href := ""
+		for _, attr := range node.Attr {
+			if attr.Key == "href" {
+				href = attr.Val
+			}
+		}
+		if want := "{{ '/assets/hero.mp4' | relative_url }}"; href != want {
+			t.Errorf("download URL = %q, want %q", href, want)
+		}
+		for parent := node; parent != nil; parent = parent.Parent {
+			if parent.Type == html.ElementNode && parent.Data == "video" {
+				t.Fatal("the download link is hidden inside the video when MP4 loading fails")
+			}
+			for _, attr := range parent.Attr {
+				if attr.Key == "hidden" {
+					t.Fatal("the download link or one of its ancestors is hidden")
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the homepage has no demo download link")
 	}
 }
 
@@ -244,7 +287,7 @@ func TestPagesWorkflowBuildsBothSourcesAndPinsItsActions(t *testing.T) {
 		{"actions/jekyll-build-pages@", "nothing renders the Markdown"},
 		{"actions/upload-pages-artifact@", "the built site is never handed to Pages"},
 		{"actions/deploy-pages@", "nothing deploys"},
-		{"gollum:", "editing a wiki page would not republish the site"},
+		{"gollum:", "a wiki edit would not build or verify the site"},
 	} {
 		if !strings.Contains(workflow, want.needle) {
 			t.Errorf("pages.yml has no %q: %s", want.needle, want.why)
@@ -286,19 +329,123 @@ func TestPagesWorkflowBuildsBothSourcesAndPinsItsActions(t *testing.T) {
 			t.Errorf("the deploy job is missing %q, which Pages deployment requires", scope)
 		}
 	}
-	if !strings.Contains(deploy, "github.ref == 'refs/heads/main'") {
-		t.Error("the deploy job does not restrict itself to main")
+	// Read from the deploy job's own condition. A substring search of the text
+	// after `deploy:` would also accept the same line on a job declared later.
+	if err := deployGateError(data); err != nil {
+		t.Error(err)
+	}
+}
+
+// pagesDeployCondition is the only condition under which pages.yml publishes.
+const pagesDeployCondition = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
+
+// pagesDeployAction is the action that publishes the site.
+const pagesDeployAction = "actions/deploy-pages@"
+
+// deployGateError returns nil only when the deploy job in a pages workflow has
+// exactly pagesDeployCondition as its if, and pagesDeployAction is the one
+// publishing step in the whole workflow. The condition is checked only on the
+// deploy job, so any other job that publishes is an error, whatever its own if.
+func deployGateError(data []byte) error {
+	var workflow struct {
+		Jobs map[string]struct {
+			If    string `yaml:"if"`
+			Steps []struct {
+				Uses string `yaml:"uses"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		return err
+	}
+	deploy, ok := workflow.Jobs["deploy"]
+	if !ok {
+		return errors.New("pages.yml has no deploy job")
+	}
+	if deploy.If != pagesDeployCondition {
+		return fmt.Errorf("jobs.deploy.if is %q, want %q: push, pull_request and gollum must not deploy", deploy.If, pagesDeployCondition)
+	}
+	var publishers []string
+	for name, job := range workflow.Jobs {
+		for _, step := range job.Steps {
+			if strings.HasPrefix(strings.ToLower(step.Uses), pagesDeployAction) {
+				publishers = append(publishers, name)
+			}
+		}
+	}
+	if len(publishers) != 1 || publishers[0] != "deploy" {
+		return fmt.Errorf("pages.yml must run %s exactly once, in jobs.deploy; found in jobs %v", pagesDeployAction, publishers)
+	}
+	return nil
+}
+
+// Each case edits the workflow in the repository, so a case fails only for the
+// reason its name gives. The last case is the one a substring check passes: the
+// right condition on a job after deploy, and none on deploy itself.
+func TestPagesDeployGateIsReadFromTheDeployJob(t *testing.T) {
+	repoWorkflow, err := os.ReadFile(".github/workflows/pages.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deployGateError(repoWorkflow); err != nil {
+		t.Fatalf("the workflow in the repository fails its own gate: %v", err)
+	}
+
+	gate := "    if: " + pagesDeployCondition + "\n"
+	edit := func(old, replacement string) string {
+		t.Helper()
+		if n := strings.Count(string(repoWorkflow), old); n != 1 {
+			t.Fatalf("test edit %q matches %d times in pages.yml, want 1", old, n)
+		}
+		return strings.Replace(string(repoWorkflow), old, replacement, 1)
+	}
+	laterJob := "\n  publish:\n    runs-on: ubuntu-latest\n    if: " + pagesDeployCondition + "\n    steps:\n      - run: true\n"
+	const publishUses = "actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1"
+	deployUse := "        uses: " + publishUses + "\n"
+	// extraJob publishes from a job other than deploy, with the given if (none if empty).
+	extraJob := func(cond string) string {
+		job := "\n  publish:\n    runs-on: ubuntu-latest\n"
+		if cond != "" {
+			job += "    if: " + cond + "\n"
+		}
+		return job + "    steps:\n      - uses: " + publishUses + "\n"
+	}
+
+	for _, tc := range []struct {
+		name    string
+		src     string
+		wantErr bool
+	}{
+		{"deploy job renamed", edit("\n  deploy:\n", "\n  publish:\n"), true},
+		{"deploy condition removed", edit(gate, ""), true},
+		{"deploy condition widened", edit(gate, "    if: "+pagesDeployCondition+" || github.event_name == 'push'\n"), true},
+		{"correct condition only on a later job", edit(gate, "") + laterJob, true},
+		{"additional job publishes with no condition", string(repoWorkflow) + extraJob(""), true},
+		{"additional job publishes with widened condition", string(repoWorkflow) + extraJob(pagesDeployCondition+" || github.event_name == 'push'"), true},
+		{"deploy job has no publishing step", edit(deployUse, "        run: true\n"), true},
+		{"deploy job publishes twice", edit(deployUse, deployUse+"      - uses: "+publishUses+"\n"), true},
+		{"additional job publishes under an upper-case action name", string(repoWorkflow) + strings.Replace(extraJob(""), "actions/deploy-pages@", "Actions/Deploy-Pages@", 1), true},
+		{"unrelated job appended after deploy", string(repoWorkflow) + "\n  lint-docs:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := deployGateError([]byte(tc.src))
+			if tc.wantErr && err == nil {
+				t.Error("the gate accepted this workflow; push, pull_request and gollum could deploy")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("the gate rejected a workflow it should accept: %v", err)
+			}
+		})
 	}
 }
 
 // The verifier that holds every internal link, heading anchor, and base path is
 // only useful before a merge, so the workflow runs on pull requests too. That
-// costs a rule about the concurrency group: it is shared repository-wide, and a
-// newly queued run cancels the group's previously pending run. Keyed by ref, the
-// deploying events all land on refs/heads/main and still serialize against each
-// other, while pull requests sit in groups of their own. Keyed by nothing, a
-// busy pull request can discard a pending main deploy and leave the published
-// site stale with no failure anywhere to say so.
+// costs a rule about the concurrency group: a newly queued run cancels the
+// group's previously pending run. Only a dispatch on main deploys, so only those
+// runs share the deploy group. Every other run gets a group of its own, so none
+// of them can discard a pending main deploy and leave the published site stale
+// with no failure anywhere to say so.
 func TestPagesWorkflowVerifiesPullRequestsWithoutContendingWithDeploys(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/pages.yml")
 	if err != nil {
@@ -329,11 +476,11 @@ func TestPagesWorkflowVerifiesPullRequestsWithoutContendingWithDeploys(t *testin
 		t.Errorf("pages.yml filters the pull_request trigger with %s; any filter leaves some pull request able to break a link unchecked", node.Tag)
 	}
 
-	// The whole expression, not the substring: `github.ref_name` and
-	// `github.ref_type` both contain "github.ref" and neither partitions a pull
-	// request away from refs/heads/main. Surrounding text is still free.
-	if !regexp.MustCompile(`\$\{\{\s*github\.ref\s*\}\}`).MatchString(workflow.Concurrency.Group) {
-		t.Errorf("concurrency group is %q, which does not interpolate ${{ github.ref }}: pull request runs would share the deploying runs' group and could cancel a pending main deploy", workflow.Concurrency.Group)
+	// The exact expression, not a substring: any other shape can put a build-only
+	// run in the deploy group, where a newly queued run cancels a pending deploy.
+	const wantGroup = "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && 'pages-deploy' || format('pages-build-{0}', github.run_id) }}"
+	if workflow.Concurrency.Group != wantGroup {
+		t.Errorf("concurrency group is %q, want %q: a build-only run in the deploy group could cancel a pending main deploy", workflow.Concurrency.Group, wantGroup)
 	}
 	if workflow.Concurrency.CancelInProgress == nil || *workflow.Concurrency.CancelInProgress {
 		t.Error("concurrency cancel-in-progress is not false; a half-replaced site is worse than a late one")

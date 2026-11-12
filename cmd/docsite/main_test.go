@@ -36,7 +36,8 @@ func fixture(t *testing.T) (docs, wiki, shell string) {
 	write("wiki/_Sidebar.md", "wiki chrome\n")
 	write("docs/receipt.json", "{}\n")
 	write("README.md", "# Network Doctor\n")
-	write("assets/hero.gif", "gif")
+	write("assets/hero.mp4", "\x00mp4\xff")
+	write("assets/hero-poster.png", "\x00png\xff")
 	write("assets/social-preview.png", "png")
 	t.Chdir(root)
 	return "docs", "wiki", "site"
@@ -67,9 +68,14 @@ func read(t *testing.T, dir, rel string) string {
 func TestStagesBothSourcesWithoutCopyingThemIntoTheRepository(t *testing.T) {
 	out := stageFixture(t, "")
 
-	for _, want := range []string{"docs/reference.md", "docs/scenarios.md", "wiki/Getting-Started.md", "wiki/Challenge-Mode.md", "assets/hero.gif"} {
+	for _, want := range []string{"docs/reference.md", "docs/scenarios.md", "wiki/Getting-Started.md", "wiki/Challenge-Mode.md", "assets/hero.mp4", "assets/hero-poster.png", "assets/social-preview.png"} {
 		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(want))); err != nil {
 			t.Errorf("%s did not reach the staged site", want)
+		}
+	}
+	for name, want := range map[string]string{"hero.mp4": "\x00mp4\xff", "hero-poster.png": "\x00png\xff"} {
+		if got := read(t, out, "assets/"+name); got != want {
+			t.Errorf("%s changed during staging", name)
 		}
 	}
 	// The wiki's hub page and the wiki UI's own chrome are not pages.

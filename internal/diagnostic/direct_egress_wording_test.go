@@ -102,16 +102,14 @@ func wordingRuns() []wordingRun {
 // a recovery from one run, or that present one failed sample as a block. None
 // may appear in a text a user reads for a failed direct run.
 var lastingPhrases = []string{
-	"are blocked",
-	"is blocked",
 	"only through a proxy",
 	"internet access only",
 	"has egress",
 	"is unreachable directly, but",
 	"(proxy-only network)",
 	"is a proxy-only network",
+	"is proxy-only",
 	"only a proxy can",
-	"networks require",
 	"a path that worked",
 	"carried traffic to the egress check",
 	"route traffic through the proxy",
@@ -119,15 +117,21 @@ var lastingPhrases = []string{
 	"is the path that worked",
 	"do not leave this network",
 	"should work",
+	// The proxy check tunnels to a fixed reference host, never to the target.
+	"proxy reaches",
+	"proxy can reach",
 	"recovered",
 	"now works",
 	"back online",
 }
 
-// standingWord catches "allow", "allows", "require" and "requires" in any form.
-// A sentence saying what this network permits or demands is a standing claim the
-// run cannot support, whatever its grammatical subject.
-var standingWord = regexp.MustCompile(`(?i)\b(allows?|requires?)\b`)
+// standingWord catches "allow(s)", "require(s)", "must", "block(s)", "blocked"
+// and "permanent(ly)" in any form. A sentence saying what this network permits,
+// demands or blocks, or calling the failure permanent, is a standing claim the
+// run cannot support, whatever its grammatical subject or tense. The hedge's
+// "a lasting block" names a possibility the run leaves open, so the bare noun
+// is not matched.
+var standingWord = regexp.MustCompile(`(?i)\b(allows?|requires?|must|block(s|ed)|permanent(ly)?)\b`)
 
 // Issue 438: every user-visible sentence for a failed direct run is scoped to
 // the run. A single failed direct sample is not stated as a lasting condition,
@@ -161,7 +165,7 @@ func TestFailedDirectEgressWordingIsRunScopedAndCategoryFree(t *testing.T) {
 					}
 				}
 				if m := standingWord.FindString(text); m != "" {
-					t.Errorf("%s %q says what this network permits or demands: contains %q", label, text, m)
+					t.Errorf("%s %q makes a standing claim about this network: contains %q", label, text, m)
 				}
 			}
 			if !strings.Contains(d.Summary, "during this run") || !strings.Contains(d.Summary, "again") {

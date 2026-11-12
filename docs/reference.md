@@ -1075,7 +1075,7 @@ The array is omitted when the run reached no specific conclusion: everything pas
 | `local_device_unreachable` | A device on the local network is silent while this machine's network works |
 | `reachability_untested` | The target is silent and direct egress was not checked, so neither end can be blamed |
 | `reachability_unlocalized` | The target and the reference endpoints were both silent and nothing observed where the path breaks |
-| `family_reachability_unlocalized` | The target was tried in one address family only, and the reference endpoints in that family were silent too while the other family carried traffic |
+| `family_reachability_unlocalized` | The target, or the QUIC check, was tried in one address family only, and the reference endpoints in that family were silent too while the other family carried traffic |
 | `ipv4_target_unreachable` | The target works over IPv6 while its IPv4 alternatives fail despite an independently proved IPv4 path |
 | `ipv6_target_unreachable` | The target works over IPv4 while its IPv6 alternatives fail despite an independently proved IPv6 path |
 | `partial_endpoint_reachability` | An attempted resolved address fails while another address for the same target and port succeeds |

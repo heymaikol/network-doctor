@@ -385,17 +385,70 @@ func (p *labProbe) observe(deps map[diagnostic.ProbeID]diagnostic.ProbeResult) d
 		r.Detail = "modeled proxy tunnel"
 	case diagnostic.ProbeQUIC:
 		answers, _ := p.resolve(node.Name, node.Resolver, diagnostic.ConnectivityProbeHost)
+		// A view is bound to its source the way --iface binds a live run, and
+		// the live probe never dials a family that source has no address for.
+		// With every answer in such a family there is nothing to try, which
+		// is not a failure.
+		resolved := len(answers)
+		answers = slices.DeleteFunc(answers, func(a netip.Addr) bool { return !p.hasFamily(a.Is4()) })
+		if resolved > 0 && len(answers) == 0 {
+			r.Status = diagnostic.StatusNA
+			r.Detail = "QUIC endpoint has no address family available on the selected interface"
+			return r
+		}
 		r.Status = diagnostic.StatusFail
-		r.Cause = diagnostic.QUICCauseTimeout
+		// Every address tried leaves an attempt, in the shape the live dialer
+		// records, because without them the row says nothing about which
+		// family it was tried in. The live dialer starts with IPv6. An address
+		// with no route fails at once with its own cause. A host that is
+		// reached and has nothing on UDP/443 answers port-unreachable, which
+		// is a refusal. A silent address never fails by itself: it is recorded
+		// only when the probe deadline ends it, and on a run another address
+		// won the handshakes still in flight are dropped unrecorded.
+		slices.SortStableFunc(answers, func(a, b netip.Addr) int {
+			switch {
+			case a.Is4() == b.Is4():
+				return 0
+			case a.Is4():
+				return 1
+			}
+			return -1
+		})
+		var silent []diagnostic.Attempt
 		for _, a := range answers {
-			if p.send(node.Name, a, "udp", 443, 1200) == labDelivered {
+			attempt := diagnostic.Attempt{IP: labIP(a), Dur: time.Millisecond}
+			switch p.send(node.Name, a, "udp", 443, 1200) {
+			case labDelivered:
 				if s := p.network.service(a, 443, "quic"); s != nil && s.Type == ServiceQUIC {
 					r.Status = diagnostic.StatusPass
-					r.Cause = ""
 					r.SelectedIP = labIP(a)
-					break
+				} else {
+					attempt.Cause = diagnostic.ConnectionCauseRefused
 				}
+			case "timeout":
+				attempt.Cause, attempt.Aborted = diagnostic.ConnectionCauseTimeout, true
+			default:
+				attempt.Cause = diagnostic.ConnectionCauseUnreachable
 			}
+			if attempt.Cause != "" {
+				attempt.Err = errors.New(attempt.Cause)
+			}
+			if attempt.Aborted {
+				silent = append(silent, attempt)
+				continue
+			}
+			r.Attempts = append(r.Attempts, attempt)
+			if r.Status == diagnostic.StatusPass {
+				break
+			}
+		}
+		if r.Status == diagnostic.StatusFail {
+			// The run reached its deadline exactly when something was silent.
+			r.Cause = diagnostic.QUICCauseHandshake
+			if len(silent) > 0 {
+				r.Cause = diagnostic.QUICCauseTimeout
+			}
+			r.Attempts = append(r.Attempts, silent...)
 		}
 	case diagnostic.ProbeDNSEncrypted:
 		r.Status = diagnostic.StatusFail

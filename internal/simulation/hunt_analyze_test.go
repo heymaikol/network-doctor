@@ -3,7 +3,9 @@ package simulation
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -993,6 +995,42 @@ func TestHuntAnalysisAttributesAResetToTheRowsThatReadIt(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRecordedUnprobedResetIsAKnownSilence replays the #436 case: generated case
+// 1 of the two-path-healthy bug-oracle hunt at seed 20261028. It injects a TCP
+// reset on target port 80, and the DNS outage leaves only general checks, so no
+// test targets the reset node. The reset service still recorded two resets: the
+// target hosts the connectivity portal, and the portal probe under internet_tcp
+// dials it on port 80 and drops its error without a row. No row read the
+// reset, so no miss may be raised. main raised tcp_reset_not_distinguished on
+// target_tcp, fingerprint eeb7cee872293e78.
+//
+// This pins a known silence, not a verdict on the portal read. The recording is
+// evidence only while it still injects the reset and carries the finding the
+// producer raised, so the test checks both first.
+func TestRecordedUnprobedResetIsAKnownSilence(t *testing.T) {
+	blob, err := os.ReadFile("testdata/hunt/case-001-two-path-target-reset-dns-outage.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var item HuntCaseResult
+	if err := json.Unmarshal(blob, &item); err != nil {
+		t.Fatal(err)
+	}
+	if item.Report == nil || !slices.ContainsFunc(item.Manifest.Mutations, func(m GeneratedMutation) bool { return m.ID == "service.tcp_reset" }) ||
+		!slices.ContainsFunc(item.Findings, func(f HuntCaseFinding) bool { return f.Fingerprint == "eeb7cee872293e78" }) {
+		t.Fatalf("recording no longer injects the reset or carries the #436 finding: %+v", item.Findings)
+	}
+	truth := collectObservedTruth(item.Manifest, item.Report)
+	if truth.TCP != "reset" {
+		t.Fatalf("recomputed truth TCP = %q, want reset", truth.TCP)
+	}
+	for _, f := range analyzeHuntCase(item.Manifest, item.Report, truth) {
+		if f.Code == "tcp_reset_not_distinguished" {
+			t.Errorf("a reset no row read raised a miss on %s: %+v", f.Probe, f)
+		}
 	}
 }
 

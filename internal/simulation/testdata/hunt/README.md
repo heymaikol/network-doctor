@@ -25,6 +25,16 @@ case is worth.
   same case on an idle host stores about half that and measures about 59 KiB.
   It is the case `TestGeneratedHuntCasesAreReproducible` asks a real backend
   about, and the one whose finding a 64 KiB per-case ceiling discarded.
+* `case-001-two-path-target-reset-dns-outage.json` is generated case 1 of the
+  `two-path-healthy` bug-oracle hunt at seed 20261028, generator v7, the case
+  issue #436 names. Unlike the case above, it is the stored result, not the
+  run's raw input: it is case 1 of `bug-oracle/two-path-healthy.json` in the
+  `hunt-results` artifact of the scheduled Hunt run 40673426296, re-encoded with
+  the same JSON value. Its report is already canonical, so the target's
+  declared aliases are missing and no row carries `selected_ip`. It injects a
+  TCP reset on target port 80 that no test targets, and carries the
+  `tcp_reset_not_distinguished` finding (`eeb7cee872293e78`) main raised.
+  `TestRecordedUnprobedResetIsAKnownSilence` fails on main and passes here.
 
 ## Adding one
 

@@ -359,6 +359,14 @@ func TestDNSNameRulesNeedAbsoluteScope(t *testing.T) {
 			for _, target := range []string{"example.test:80", "printer:80", "10.77.0.20:80"} {
 				o := semanticObservation()
 				o.Target = target
+				// Name the lookups after the target, so only the scope keeps the rule out.
+				parsed, err := diagnostic.ParseTarget(target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i := range o.Evidence.ResolverLookups {
+					o.Evidence.ResolverLookups[i].Name = parsed.Host
+				}
 				rule.setup(&o)
 				if semanticRule(t, rule.condition).observed(o) {
 					t.Fatalf("name-level condition established for target %q", target)

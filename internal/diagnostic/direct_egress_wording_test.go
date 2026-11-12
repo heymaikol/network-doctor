@@ -156,6 +156,12 @@ func TestFailedDirectEgressWordingIsRunScopedAndCategoryFree(t *testing.T) {
 				"remedy why":    rem.Why,
 				"remedy steps":  strings.Join(rem.Steps, " "),
 				"remedy expect": rem.Expect,
+				"egress fix":    c.res[ProbeInternet].Fix,
+			}
+			// The egress row's hint sits beside the failed row in every report,
+			// so it carries the run scope too. The no-proxy fixture sets none.
+			if fix := texts["egress fix"]; fix != "" && !strings.Contains(fix, "during this run") {
+				t.Errorf("egress fix %q is not scoped to the run", fix)
 			}
 			for label, text := range texts {
 				for _, s := range lastingPhrases {

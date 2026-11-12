@@ -364,6 +364,13 @@ func TestDNSNameRulesNeedAbsoluteScope(t *testing.T) {
 					t.Fatalf("name-level condition established for target %q", target)
 				}
 			}
+			// The scope limits what the oracle expects, not what it refutes: a
+			// name-level claim for a relative name is outside the policy.
+			relative := semanticObservation()
+			relative.Target = "example.test:80"
+			if !semanticRule(t, rule.condition).contradicted(relative) {
+				t.Fatal("matching answers no longer contradict a claim for a relative name")
+			}
 		})
 	}
 	t.Run("generic check", func(t *testing.T) {

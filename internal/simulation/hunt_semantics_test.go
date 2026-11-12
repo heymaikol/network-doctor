@@ -379,6 +379,7 @@ func TestDNSNameRulesNeedAbsoluteScope(t *testing.T) {
 	})
 	t.Run("target rules keep system addresses for relative names", func(t *testing.T) {
 		o := semanticObservation()
+		o.Target = "example.test:80"
 		setTarget(&o, TargetStateRefused)
 		if !semanticRule(t, ConditionTargetTCPRefused).observed(o) {
 			t.Fatal("name scope gated a target-level rule that does not compare names")

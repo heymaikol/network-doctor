@@ -779,7 +779,7 @@ func analyzeHuntCase(manifest GeneratedCaseManifest, report *Report, truth Obser
 	// A reset is a diagnostic miss only when a check read it. Otherwise netdoc
 	// never met it: it stays in truth and in ObservedFaults, and no finding is
 	// raised.
-	if probe := resetReader(manifest, report); probe != "" && truth.TCP == "reset" && !diagnosisClassifiedReset(report) {
+	if probe, classified := resetRows(manifest, report); probe != "" && truth.TCP == "reset" && !classified {
 		add(HuntCaseFinding{Category: FindingCoverageGap, Severity: SeverityLow, Code: "tcp_reset_not_distinguished",
 			Probe: probe, Expected: "connection_reset",
 			Summary:  "The simulator observed a TCP reset, but no protocol diagnosis classified it as a reset.",
@@ -884,46 +884,43 @@ func dnsFailureDuring(test TestOutcome, queries []DNSQueryEvidence) bool {
 	return false
 }
 
-func diagnosisClassifiedReset(report *Report) bool {
+// resetRows walks the rows that dialed the injected reset's endpoint: its
+// port, at an address (selected_ip) the reset node owns. probe names the first
+// that read the reset: an http, https or tls row of a netdoc that exited and
+// failed with connection_closed. Any other row never met the reset service:
+// target_tcp connects and reads nothing, a timeout or a pass is another
+// endpoint's answer, and a row with no address claims none. classified reports
+// whether any of them recorded connection_reset; a reset on another endpoint
+// says nothing about this one.
+func resetRows(manifest GeneratedCaseManifest, report *Report) (probe string, classified bool) {
 	for _, test := range report.Tests {
-		if test.Diagnosis == nil {
-			continue
-		}
-		for _, check := range test.Diagnosis.Checks {
-			if check.Cause == "connection_reset" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// resetReader names the first check that read the injected reset: an http,
-// https or tls row of a netdoc that exited, failed with connection_closed on
-// the reset's port, against an address (selected_ip) the reset node owns. Any
-// other row never met the reset service: target_tcp connects and reads
-// nothing, a timeout or a pass is another endpoint's answer, and a row with no
-// address claims none. "" means no check read the reset.
-func resetReader(manifest GeneratedCaseManifest, report *Report) string {
-	for _, test := range report.Tests {
+		// ponytail: a stored target clipped past the canonical host ceiling can
+		// parse to its scheme's default port; generated targets are short.
 		target, err := diagnostic.ParseTarget(test.Target)
-		if test.Diagnosis == nil || test.ProcessOutcome != ProcessExited || err != nil {
+		if test.Diagnosis == nil || err != nil {
 			continue
 		}
 		for _, check := range test.Diagnosis.Checks {
+			// Every row is matched on the target's port. General rows such as
+			// dns_encrypted dial other ports, but none of them can name the
+			// probe or record connection_reset, so they never change the answer.
 			port := target.Port
 			// A TLS-and-HTTP target's HTTP row dials port 80, see the
 			// ProtoTLSHTTP graph in internal/diagnostic.
 			if check.ID == "http" && target.Proto == diagnostic.ProtoTLSHTTP {
 				port = 80
 			}
-			if slices.Contains([]string{"http", "https", "tls"}, check.ID) && check.Status == "FAIL" &&
-				check.Cause == diagnostic.ConnectionCauseClosed && resetEndpoint(manifest, report, check.SelectedIP, port) {
-				return check.ID
+			if !resetEndpoint(manifest, report, check.SelectedIP, port) {
+				continue
+			}
+			classified = classified || check.Cause == diagnostic.ConnectionCauseReset
+			if probe == "" && test.ProcessOutcome == ProcessExited && slices.Contains([]string{"http", "https", "tls"}, check.ID) &&
+				check.Status == "FAIL" && check.Cause == diagnostic.ConnectionCauseClosed {
+				probe = check.ID
 			}
 		}
 	}
-	return ""
+	return probe, classified
 }
 
 // resetEndpoint reports whether a TCP reset was injected on port of the node

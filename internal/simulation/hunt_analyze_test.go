@@ -891,7 +891,8 @@ func TestHuntAnalysisDoesNotExpectAResetNoProbeObserved(t *testing.T) {
 // 2001:db8:79::99, as the two-path bases do; internet owns 10.80.2.20. A row
 // reads the reset only when it is an http, https or tls row of a netdoc that
 // exited, failed with connection_closed on port 80, against an address target
-// owns. The first such row in report order names the probe. The canonical
+// owns. The first such row in report order names the probe. Only a
+// connection_reset on that same endpoint classifies the reset. The canonical
 // projection of each report must give the same answer as the raw one.
 func TestHuntAnalysisAttributesAResetToTheRowsThatReadIt(t *testing.T) {
 	closed := diagnostic.ConnectionCauseClosed
@@ -957,6 +958,17 @@ func TestHuntAnalysisAttributesAResetToTheRowsThatReadIt(t *testing.T) {
 			exited("10.78.2.20:8080", row("http", "FAIL", closed, "10.78.2.20")), readHTTP}, "http"},
 		{"another node passed first, then the reset endpoint", []TestOutcome{
 			exited("10.80.2.20:80", row("http", "PASS", "", "10.80.2.20")), general, readHTTP}, "http"},
+
+		{"a reset classified on another node, listed first", []TestOutcome{
+			exited("10.80.2.20:80", row("http", "FAIL", diagnostic.ConnectionCauseReset, "10.80.2.20")), readHTTP}, "http"},
+		{"a reset classified on another node, listed after", []TestOutcome{
+			readHTTP, exited("10.80.2.20:80", row("http", "FAIL", diagnostic.ConnectionCauseReset, "10.80.2.20"))}, "http"},
+		{"a reset classified on another port of the reset node", []TestOutcome{
+			readHTTP, exited("ssh://10.78.2.20:22", row("ssh_banner", "FAIL", diagnostic.ConnectionCauseReset, "10.78.2.20"))}, "http"},
+		{"a reset classified on the reset endpoint by another reader", []TestOutcome{
+			readHTTP, exited("smtp://10.78.2.20:80", row("smtp_banner", "FAIL", diagnostic.ConnectionCauseReset, "10.78.2.20"))}, ""},
+		{"a reset classified on the reset node's IPv6 alias", []TestOutcome{
+			readHTTP, exited("http://[2001:db8:79::99]:80", row("http", "FAIL", diagnostic.ConnectionCauseReset, "2001:db8:79::99"))}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manifest := huntManifest(GeneratedMutation{ID: "service.tcp_reset", Node: "target", TargetPort: 80})

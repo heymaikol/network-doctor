@@ -117,3 +117,61 @@ checks; Darwin and Windows runtime behavior was not exercised.
 The authored Scenario Lab corpus passed 20/20 before implementation and again
 afterward. No production reasoning fixes, automatic corpus promotions, commits
 or pushes were performed.
+
+## Campaign under reasoning-v2, 2026-11-10
+
+Everything above is the receipt of the 2026-09-06 campaign and is left as it
+was recorded. It was produced by `reasoning-v1`, and this tree no longer
+generates those worlds: the same seed and case number now build a different
+world, and a case labeled `reasoning-v1` is refused. The numbers above are
+therefore a record of that campaign, not something the current binary
+reproduces.
+
+`reasoning-v2` changes the construction in two ways. The reference endpoint the
+QUIC row dials has an IPv6 address in dual-stack worlds, as the real one has,
+and a dual-stack world draws whether that endpoint is answered in both
+families, IPv4 only or IPv6 only. The modeled QUIC row also records its
+attempts. Both exist so that a QUIC row tried in a single address family is a
+state the fuzzer reaches and the unsupported-claim oracle can read.
+
+The retained receipt is
+[`reasoning-fuzzer-campaign-v2.json`](reasoning-fuzzer-campaign-v2.json), with
+the complete JSON summaries of the two runs below: the same seeds, case range,
+`--max-faults 4`, two-sided generation and every property as the first
+campaign, on eight workers.
+
+```sh
+go build -o /tmp/netdoc-sim-fuzz ./cmd/netdoc-sim
+/tmp/netdoc-sim-fuzz lab fuzz --seed 847293 --cases 50000 --workers 8 --json
+/tmp/netdoc-sim-fuzz lab fuzz --seed 20260906 --cases 50000 --workers 8 --json
+```
+
+| Seed | Cases | Applicable property evaluations | Seconds | Cases/second | Violations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 847293 | 50,000 | 300,997 | 188.574 | 265.15 | 0 |
+| 20260906 | 50,000 | 301,207 | 190.851 | 261.98 | 0 |
+| Total | 100,000 | 602,204 | | | 0 |
+
+| Property | Seed 847293 | Seed 20260906 | Total |
+| --- | ---: | ---: | ---: |
+| determinism | 50,000 | 50,000 | 100,000 |
+| replay-equivalence | 50,000 | 50,000 | 100,000 |
+| unsupported-claim-safety | 50,000 | 50,000 | 100,000 |
+| ground-truth-isolation | 50,000 | 50,000 | 100,000 |
+| unobservable-perturbation | 50,000 | 50,000 | 100,000 |
+| two-sided-symmetry | 22,901 | 22,921 | 45,822 |
+| two-sided-cause-preservation | 22,901 | 22,921 | 45,822 |
+| fault-commutativity | 597 | 603 | 1,200 |
+| observational-equivalence | 2,299 | 2,381 | 4,680 |
+| counterfactual-indistinguishability | 2,299 | 2,381 | 4,680 |
+
+The evaluation totals are higher than the first campaign's because
+`two-sided-cause-preservation` was added after it. Failing cases: 0.
+
+Unlike the first campaign, this one followed a production reasoning change.
+With the same generator and oracle and the reasoning from before that change,
+10,000-case runs at seeds 847293, 1, 20261109 and 12648430 fail 29, 29, 45 and
+43 cases, every one of them `quic_unavailable` read against egress that failed
+in the only address family QUIC was tried in. Those runs are the reason for the
+change and are not part of the totals above. As before, passing this bounded
+campaign does not establish correctness outside its property definitions.

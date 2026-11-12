@@ -108,12 +108,15 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 	defer cancel()
 	results := make(chan quicAttempt, len(ips))
 	next := make(chan struct{}, len(ips))
+	started := make(chan struct{}, len(ips))
+	scheduled := make(chan struct{})
 	handshake := o.quicHandshake
 	if handshake == nil {
 		handshake = handshakeQUIC
 	}
 
 	go func() {
+		defer close(scheduled)
 		for i, ip := range ips {
 			if i > 0 {
 				timer := time.NewTimer(attemptDelay)
@@ -129,6 +132,7 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 			if dctx.Err() != nil {
 				return
 			}
+			started <- struct{}{}
 			go func(index int, ip net.IP) {
 				start := time.Now()
 				network := "udp6"
@@ -138,12 +142,30 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 				conn, err := o.dialContext(dctx, network, o.hostPort(ip, port))
 				var source net.IP
 				var state quicState
-				if err == nil {
+				// The cause is recorded beside the error text, as the TCP
+				// dialer records it: a refusal, a timeout and a cancellation
+				// are read back from an artifact by this field, and an attempt
+				// without one reads as an address that answered.
+				cause := ""
+				if err != nil {
+					cause = ConnectionFailureCause(err)
+				} else {
 					source = connIP(conn.LocalAddr())
 					state, err = handshake(dctx, conn, &tls.Config{ServerName: host, NextProtos: []string{"h3"}, RootCAs: o.tlsRootCAs})
 					_ = conn.Close()
+					if err != nil {
+						// The socket opened, so an error the classifier cannot
+						// name came from the exchange and not from the route.
+						if cause = ConnectionFailureCause(err); cause == ConnectionCauseUnreachable {
+							cause = QUICCauseHandshake
+						}
+					}
 				}
-				result := quicAttempt{state: state, source: source, attempt: Attempt{IP: ip, Dur: since(start), Err: err}, index: index}
+				// Marked here, as the TCP dialer marks it: when the deadline
+				// lands while another failure is being handled, this result
+				// can be read before the deadline is, outside the drain below.
+				aborted := err != nil && dctx.Err() != nil
+				result := quicAttempt{state: state, source: source, attempt: Attempt{IP: ip, Dur: since(start), Err: err, Cause: cause, Aborted: aborted}, index: index}
 				results <- result
 				if err != nil {
 					next <- struct{}{}
@@ -154,18 +176,47 @@ func (o *netops) dialQUICIPs(ctx context.Context, ips []net.IP, host string, por
 
 	var attempts []Attempt
 	failures := make([]error, len(ips))
+	completed := 0
 	for pending := len(ips); pending > 0; pending-- {
 		select {
 		case result := <-results:
+			completed++
 			attempts = append(attempts, result.attempt)
 			if result.attempt.Err == nil {
+				// Stop scheduling and wait for the scheduler so no attempt
+				// starts after the probe returns. The handshakes still in
+				// flight are left out, as before: the winner settles the row.
+				cancel()
+				<-scheduled
 				return result.state, result.attempt.IP, result.source, attempts, result.attempt.Dur, nil
 			}
 			failures[result.index] = result.attempt.Err
 		case <-ctx.Done():
+			// The handshakes still in flight were tried. A silent endpoint
+			// never fails by itself inside the probe deadline, so leaving
+			// these out records only the addresses that failed at once and
+			// makes a run that tried both families look like it tried one.
+			// Cancel them, wait for the ones that started, and keep each as
+			// what it was: an attempt the deadline ended, not this address.
+			cancel()
+			<-scheduled
+			aborted := ConnectionFailureCause(ctx.Err())
+			for completed < len(started) {
+				result := <-results
+				completed++
+				if result.attempt.Err == nil {
+					continue
+				}
+				result.attempt.Aborted = true
+				if errors.Is(result.attempt.Err, context.Canceled) {
+					result.attempt.Cause = aborted
+				}
+				attempts = append(attempts, result.attempt)
+			}
 			return quicState{}, nil, nil, attempts, 0, ctx.Err()
 		}
 	}
+	<-scheduled
 	return quicState{}, nil, nil, attempts, 0,
 		fmt.Errorf("all %d QUIC address attempts failed (%s): %w", len(ips), joinIPs(ips), failures[0])
 }

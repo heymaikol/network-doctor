@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 const (
@@ -27,7 +28,7 @@ var semanticOracle = []conditionRule{
 		evidence:  "two stable client-side lookups through each resolver, for the same test name",
 		observed: func(o observation) bool {
 			s, p := resolverPair(o)
-			return s != nil && p != nil && s.State != lookupAnswered && p.State == lookupAnswered
+			return dnsNameComparable(o) && s != nil && p != nil && s.State != lookupAnswered && p.State == lookupAnswered
 		},
 		recognized:   findingRecognizes(diagnostic.DiagnosisSystemDNSFailure),
 		contradicted: func(o observation) bool { s, _ := resolverPair(o); return s != nil && s.State == lookupAnswered },
@@ -38,7 +39,7 @@ var semanticOracle = []conditionRule{
 		evidence:  "both client-side resolvers returned stable negative answers, not timeouts or SERVFAIL",
 		observed: func(o observation) bool {
 			s, p := resolverPair(o)
-			return s != nil && p != nil && s.State == lookupNotFound && p.State == lookupNotFound
+			return dnsNameComparable(o) && s != nil && p != nil && s.State == lookupNotFound && p.State == lookupNotFound
 		},
 		recognized: findingRecognizes(diagnostic.DiagnosisDNSNameNotFound),
 		contradicted: func(o observation) bool {
@@ -52,7 +53,7 @@ var semanticOracle = []conditionRule{
 		evidence:  "stable client-side answers for the same name disagree; neither resolver is declared wrong",
 		observed: func(o observation) bool {
 			s, p := resolverPair(o)
-			return s != nil && p != nil && s.State == lookupAnswered && (p.State == lookupNotFound || p.State == lookupAnswered && !overlappingAddresses(s.Addresses, p.Addresses))
+			return dnsNameComparable(o) && s != nil && p != nil && s.State == lookupAnswered && (p.State == lookupNotFound || p.State == lookupAnswered && !overlappingAddresses(s.Addresses, p.Addresses))
 		},
 		recognized: findingRecognizes(diagnostic.DiagnosisDNSDisagreement),
 		contradicted: func(o observation) bool {
@@ -141,6 +142,24 @@ func caseObservation(report *Report, truth ObservedTruth) observation {
 		outcomes[key] = query.ActualOutcome
 	}
 	return o
+}
+
+// dnsNameComparable mirrors the diagnosis's dnsNamesComparable: a name-level
+// comparison needs the public query to be the explicitly absolute input. A
+// relative name may be search-expanded by the system resolver, and the public
+// query is rooted, so the two lookups need not be about one question. The
+// generic check's bare default host is rooted too, so it never qualifies.
+func dnsNameComparable(o observation) bool {
+	name := diagnostic.ConnectivityProbeHost
+	if o.Target != "" {
+		target, err := diagnostic.ParseTarget(o.Target)
+		if err != nil || target.IP != nil {
+			return false
+		}
+		name = target.Host
+	}
+	_, scope := diagnostic.PublicDNSQueryName(name)
+	return scope == snapshot.DNSNameAbsolute
 }
 
 func resolverPair(o observation) (system, independent *ResolverLookupEvidence) {

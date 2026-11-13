@@ -9,7 +9,8 @@ import (
 )
 
 func semanticObservation() observation {
-	return observation{Client: "client", Target: "example.test:80", StableDNS: true, Evidence: Evidence{
+	// Absolute input: the diagnosis compares system and public DNS only for it.
+	return observation{Client: "client", Target: "example.test.:80", StableDNS: true, Evidence: Evidence{
 		ResolverLookups: []ResolverLookupEvidence{
 			{Node: "client", Name: "example.test.", Resolver: "system", State: lookupAnswered, Addresses: []string{"10.77.0.20"}, Stable: true},
 			{Node: "client", Name: "example.test.", Resolver: "1.1.1.1", State: lookupAnswered, Addresses: []string{"10.77.0.20"}, Stable: true},
@@ -98,7 +99,7 @@ func TestSemanticOraclePositiveAndRecognitionIsolation(t *testing.T) {
 			for _, alter := range []func(*observation){
 				func(o *observation) { o.Evidence = Evidence{} },
 				func(o *observation) { o.Client = "other" },
-				func(o *observation) { o.Target = "other.test:80" },
+				func(o *observation) { o.Target = "other.test.:80" },
 				func(o *observation) { o.StableDNS = false },
 				func(o *observation) { o.SourceSegment = "alternate" },
 				func(o *observation) {
@@ -332,4 +333,71 @@ func TestRefusedAttemptsAreNotRefutedByAnUnrelatedSuccessfulAddress(t *testing.T
 	if semanticRule(t, ConditionTargetTCPRefused).contradicted(o) {
 		t.Fatal("a successful address outside a possibly refused attempted subset is not a contradiction")
 	}
+}
+
+// The diagnosis compares system and public DNS only for explicitly absolute
+// input (docs/reference.md, dnsNamesComparable). A relative name can be
+// expanded by the system resolver's search list, which the rooted public query
+// never gets, so the two lookups may be about different questions.
+func TestDNSNameRulesNeedAbsoluteScope(t *testing.T) {
+	nameRules := []struct {
+		condition NetworkCondition
+		setup     func(*observation)
+	}{
+		{ConditionSystemDNSFailure, func(o *observation) { setLookup(o, 0, lookupFailed) }},
+		{ConditionDNSNameNotFound, func(o *observation) { setLookup(o, 0, lookupNotFound); setLookup(o, 1, lookupNotFound) }},
+		{ConditionDNSDisagreement, func(o *observation) { setLookup(o, 1, lookupAnswered, "10.77.0.21") }},
+	}
+	for _, rule := range nameRules {
+		t.Run(string(rule.condition), func(t *testing.T) {
+			absolute := semanticObservation()
+			absolute.Target = "example.test.:80"
+			rule.setup(&absolute)
+			if !semanticRule(t, rule.condition).observed(absolute) {
+				t.Fatal("absolute name not established")
+			}
+			for _, target := range []string{"example.test:80", "printer:80", "10.77.0.20:80"} {
+				o := semanticObservation()
+				o.Target = target
+				// Name the lookups after the target, so only the scope keeps the rule out.
+				parsed, err := diagnostic.ParseTarget(target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i := range o.Evidence.ResolverLookups {
+					o.Evidence.ResolverLookups[i].Name = parsed.Host
+				}
+				rule.setup(&o)
+				if semanticRule(t, rule.condition).observed(o) {
+					t.Fatalf("name-level condition established for target %q", target)
+				}
+			}
+			// The scope limits what the oracle expects, not what it refutes: a
+			// name-level claim for a relative name is outside the policy.
+			relative := semanticObservation()
+			relative.Target = "example.test:80"
+			if !semanticRule(t, rule.condition).contradicted(relative) {
+				t.Fatal("matching answers no longer contradict a claim for a relative name")
+			}
+		})
+	}
+	t.Run("generic check", func(t *testing.T) {
+		o := semanticObservation()
+		o.Target = ""
+		for i := range o.Evidence.ResolverLookups {
+			o.Evidence.ResolverLookups[i].Name = diagnostic.ConnectivityProbeHost
+		}
+		setLookup(&o, 0, lookupFailed)
+		if semanticRule(t, ConditionSystemDNSFailure).observed(o) {
+			t.Fatal("generic check established a name-level condition its relative public query cannot support")
+		}
+	})
+	t.Run("target rules keep system addresses for relative names", func(t *testing.T) {
+		o := semanticObservation()
+		o.Target = "example.test:80"
+		setTarget(&o, TargetStateRefused)
+		if !semanticRule(t, ConditionTargetTCPRefused).observed(o) {
+			t.Fatal("name scope gated a target-level rule that does not compare names")
+		}
+	})
 }

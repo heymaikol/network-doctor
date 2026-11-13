@@ -186,8 +186,8 @@ func TestDiagnoseGenericEgressNoDNS(t *testing.T) {
 		ProbeIface: {Status: StatusPass}, ProbeInternet: {Status: StatusFail},
 		ProbeDNS: {Status: StatusPass},
 	}
-	if v := Interpret(nil, order, res).Summary; !strings.Contains(v, "no direct TCP egress") {
-		t.Errorf("got %q, want 'no direct TCP egress'", v)
+	if v := Interpret(nil, order, res).Summary; !strings.Contains(v, "failed during this run") {
+		t.Errorf("got %q, want 'failed during this run'", v)
 	}
 }
 
@@ -205,8 +205,8 @@ func TestDiagnoseGenericDowngradedNoProxy(t *testing.T) {
 		ProbeDNS: {Status: StatusPass},
 	}
 	d := Interpret(nil, order, res)
-	if !strings.Contains(d.Summary, "no direct TCP egress") {
-		t.Errorf("got %q, want 'no direct TCP egress'", d.Summary)
+	if !strings.Contains(d.Summary, "failed during this run") {
+		t.Errorf("got %q, want 'failed during this run'", d.Summary)
 	}
 	if d.Verdict != VerdictNetwork {
 		t.Errorf("got verdict %q, want %q", d.Verdict, VerdictNetwork)

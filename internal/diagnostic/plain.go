@@ -88,8 +88,8 @@ var plainTexts = map[DiagnosisID]plainText{
 		"Disconnect and reconnect this computer's Wi-Fi or cable. If a VPN is on, reconnect it or turn it off briefly.",
 	},
 	DiagnosisDirectEgressBlocked: {
-		"Direct internet connections are blocked",
-		"Website names can be looked up, but Network Doctor's test connections to the internet were blocked. Some work and school networks only allow internet access through a proxy (a go-between server) or a filter.",
+		"Direct internet connections failed during this check",
+		"Website names can be looked up, but Network Doctor's test connections to the internet did not get through during this check. Some work and school networks restrict direct internet access, using a proxy (a go-between server) or a filter.",
 		"If this is a work or school network, ask its IT staff whether internet access needs a proxy.",
 	},
 	DiagnosisDirectEgressDegraded: {
@@ -103,9 +103,9 @@ var plainTexts = map[DiagnosisID]plainText{
 		"",
 	},
 	DiagnosisProxyOnlyNetwork: {
-		"This network allows internet access only through a proxy",
-		"A proxy is a go-between server that some work and school networks require. Direct connections are blocked, but the proxy this computer is set to use works, so apps that use it should work.",
-		"If an app cannot connect, check that it is set to use the system's proxy settings.",
+		"Direct connections failed during this run, but the proxy carried traffic",
+		"A proxy is a go-between server that some work and school networks use. Direct connections failed during this run, but the proxy this computer is set to use carried traffic, so apps that use it may work.",
+		"If an app cannot connect, check that it is set to use the system's proxy settings. Run the check again to see whether direct connections still fail.",
 	},
 	DiagnosisProbablePathMTU: {
 		"Larger transfers are getting stuck on the way to {host}",
@@ -327,8 +327,8 @@ func (d Diagnosis) Explain(t *Target, order []ProbeID, res map[ProbeID]ProbeResu
 		case ok && r.downgraded:
 			// A proxy-only network: the direct path is closed by design and
 			// the proxy carries traffic, so the router is not the suspect.
-			e.Meaning += " This network allows internet access only through a proxy (a go-between server)."
-			e.TryFirst = "If this is a work or school network, ask its IT staff."
+			e.Meaning += " Direct connections failed during this run, and only a proxy (a go-between server) carried traffic."
+			e.TryFirst = "If this is a work or school network, ask its IT staff. Run the check again to see whether direct connections still fail."
 		}
 	}
 	switch f.Confidence {

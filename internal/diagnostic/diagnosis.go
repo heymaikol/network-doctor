@@ -428,7 +428,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 		case ip && dn:
 			return plain("Online: direct TCP egress and DNS both work.", gv)
 		case warn(ProbeInternet) && res[ProbeInternet].downgraded && dn && prx:
-			return blame(DiagnosisProxyOnlyNetwork, ProbeInternet, "Online via the environment proxy: direct egress is blocked (proxy-only network).", gv, ProbeProxy, ProbeDNS)
+			return blame(DiagnosisProxyOnlyNetwork, ProbeInternet, "Online via the environment proxy: direct egress failed during this run. That could be a lasting block or a temporary problem: run the check again to see whether it persists.", gv, ProbeProxy, ProbeDNS)
 		case warn(ProbeInternet) && res[ProbeInternet].downgraded && fail(ProbeDNS) && prx:
 			// The same proxy-only network as the case above, with its resolver
 			// gone too. The Warn here is downgradeEgress's, not the probe's, so
@@ -440,7 +440,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			// designed, which is why downgradeEgress already took the routing
 			// repair off the egress row. The resolver is the half of this
 			// sentence there is still something to do about.
-			return blame(DiagnosisDNSFailure, ProbeDNS, "Direct egress is blocked and DNS resolution is failing; only the environment proxy is carrying traffic.", gv, ProbeInternet, ProbeProxy)
+			return blame(DiagnosisDNSFailure, ProbeDNS, "Direct egress failed during this run and DNS resolution failed too, so only the environment proxy carried traffic. That could be a lasting block or a temporary problem: run the check again to see whether it persists.", gv, ProbeInternet, ProbeProxy)
 		case directOK() && warn(ProbeInternet) && dn:
 			// One conclusion, two sentences, because the row warns for two
 			// materially different reasons. The cause is recorded only where a
@@ -453,7 +453,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			}
 			return blame(DiagnosisDirectEgressDegraded, ProbeInternet, summary, gv, ProbeDNS)
 		case hasInternet && !directOK() && dn:
-			return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "DNS resolves but there's no direct TCP egress to the egress check's reference endpoints (proxy-only or filtered network?).", gv, ProbeDNS)
+			return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "DNS resolves, but direct TCP connections to the egress check's reference endpoints failed during this run (proxy-only or filtered network?). That could be a lasting block or a temporary problem: run the check again to see whether it persists.", gv, ProbeDNS)
 		case fail(ProbeInternet) && fail(ProbeDNS):
 			// Egress, not the resolver: nothing this machine sends is
 			// arriving, so the resolver has not been given a fair test yet.
@@ -636,7 +636,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 			return withEvidence(DiagnosisTargetUnreachable, ProbeTargetTCP, hp+" is unreachable though DNS and reference egress work: filtering, target-specific routing, a broken return path, or server silence remain possible.", VerdictService, evidence)
 		}
 		if prx {
-			return blame(DiagnosisProxyOnlyNetwork, ProbeTargetTCP, hp+" is unreachable directly, but the environment proxy has egress: this is a proxy-only network, so route traffic through the proxy.", VerdictNetwork, ProbeProxy, ProbeInternet)
+			return blame(DiagnosisProxyOnlyNetwork, ProbeTargetTCP, hp+" was unreachable directly during this run. The environment proxy carried a test connection for "+ConnectivityProbeHost+":443, which does not show that it reaches "+hp+". This may be a proxy-only network, or a temporary problem: run the check again to see whether direct connections still fail. Routing "+hp+" through the proxy is worth trying.", VerdictNetwork, ProbeProxy, ProbeInternet)
 		}
 		if !has(ProbeInternet) {
 			evidence := addEvidence(supportRows(ProbeTargetTCP),
@@ -764,7 +764,7 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 				"The target answered a direct connection, so direct egress works; the egress check's own fixed reference endpoints are what did not answer.",
 				VerdictDegraded, evidence)
 		}
-		return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "The target works but direct TCP egress to the egress check's reference endpoints is blocked (proxy-only or filtered network?).", VerdictDegraded, endpoint...)
+		return blame(DiagnosisDirectEgressBlocked, ProbeInternet, "The target works, but direct TCP connections to the egress check's reference endpoints failed during this run. That could be a lasting block (proxy-only or filtered network?) or a temporary problem: run the check again to see whether it persists.", VerdictDegraded, endpoint...)
 	case targetOK && prxDown && directOK():
 		return blame(DiagnosisProxyFailure, ProbeProxy, "The target and direct egress work, but the configured environment proxy check failed, so apps that use the proxy will fail (see the proxy row).", VerdictDegraded, ProbeInternet)
 	case targetOK && warn(ProbeInternet):

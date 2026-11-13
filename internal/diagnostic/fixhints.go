@@ -117,7 +117,7 @@ func certWindow(c *x509.Certificate) string {
 // the network usable. It names the endpoints rather than the internet on
 // purpose: this row dials a fixed pair of reference addresses, and their
 // silence is a fact about them until something else in the run widens it.
-const egressFix = "no egress to the reference endpoints: proxy-only/filtered network? check upstream"
+const egressFix = "no egress to the reference endpoints during this run: proxy-only/filtered network? check upstream"
 
 // routeFix turns a route cause the local kernel supplied into advice about the
 // observed state, without treating route selection as proof of a break. The

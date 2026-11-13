@@ -3,12 +3,16 @@ package simulation
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
 func huntManifest(mutations ...GeneratedMutation) GeneratedCaseManifest {
@@ -848,31 +852,185 @@ func TestObservedTruthRequiresAnActualTCPReset(t *testing.T) {
 	}
 }
 
-func TestHuntAnalysisReportsAnUnclassifiedTCPReset(t *testing.T) {
+// TestHuntAnalysisDoesNotExpectAResetNoProbeObserved replays the Oct 28
+// two-path-healthy case 1 from #436 (case e622e73f7af5fd94). Three tests ran
+// generic checks only; no protocol or target_tcp row executed. The reset stays
+// in truth and ObservedFaults, but it is not a diagnostic miss.
+func TestHuntAnalysisDoesNotExpectAResetNoProbeObserved(t *testing.T) {
+	check := func(id, status string) DiagnosisCheck { return DiagnosisCheck{ID: id, Status: status} }
+	checks := func(dnsPublic string) []DiagnosisCheck {
+		return []DiagnosisCheck{
+			check("iface", "PASS"), check("internet_tcp", "PASS"), check("quic_udp_443", "PASS"),
+			check("proxy_connect", "N/A"), check("dns", "PASS"), check("dns_public", dnsPublic),
+			check("dns_encrypted", "PASS"), check("ssid", "N/A"),
+		}
+	}
+	tests := []TestOutcome{
+		{ProcessOutcome: ProcessExited, Diagnosis: &Diagnosis{Checks: checks("PASS")}},
+		{ProcessOutcome: ProcessExited, Diagnosis: &Diagnosis{Checks: checks("N/A")}},
+		{ProcessOutcome: ProcessExited, Diagnosis: &Diagnosis{Checks: checks("PASS")}},
+	}
+	report := &Report{Cleanup: CleanupInfo{Done: true}, Tests: tests, Evidence: Evidence{TCPResets: []TCPResetEvidence{
+		{Node: "target", Service: "routed-http", Event: "accepted", Result: "connected", Count: 2},
+		{Node: "target", Service: "routed-http", Event: "reset", Result: "connection_reset", Count: 2},
+	}}}
+	manifest := huntManifest(
+		GeneratedMutation{ID: "service.tcp_reset", Node: "target", TargetPort: 80},
+		GeneratedMutation{ID: "timeline.dns_outage"},
+	)
+	truth := collectObservedTruth(manifest, report)
+	if truth.TCP != "reset" || !slices.Contains(truth.ObservedFaults, "service.tcp_reset") {
+		t.Fatalf("injected reset lost from truth: %+v", truth)
+	}
+	if findings := analyzeHuntCase(manifest, report, truth); len(findings) != 0 {
+		t.Fatalf("unprobed reset reported as a diagnostic miss: %+v", findings)
+	}
+}
+
+// TestHuntAnalysisAttributesAResetToTheRowsThatReadIt pins which rows can
+// claim a missed reset. The reset sits on target port 80. target owns
+// 10.78.2.20 and 2001:db8:78::20 and declares the aliases 9.9.9.9 and
+// 2001:db8:79::99, as the two-path bases do; internet owns 10.80.2.20. A row
+// reads the reset only when it is an http, https or tls row of a netdoc that
+// exited, failed with connection_closed on port 80, against an address target
+// owns. The first such row in report order names the probe. Only a
+// connection_reset on that same endpoint classifies the reset. The canonical
+// projection of each report must give the same answer as the raw one.
+func TestHuntAnalysisAttributesAResetToTheRowsThatReadIt(t *testing.T) {
+	closed := diagnostic.ConnectionCauseClosed
+	row := func(id, status, cause, dialed string) DiagnosisCheck {
+		return DiagnosisCheck{ID: id, Status: status, Cause: cause, SelectedIP: dialed}
+	}
+	exited := func(target string, checks ...DiagnosisCheck) TestOutcome {
+		return TestOutcome{Node: "client", Target: target, ProcessOutcome: ProcessExited, Diagnosis: &Diagnosis{Checks: checks}}
+	}
+	general := exited("", row("iface", "PASS", "", ""), row("internet_tcp", "PASS", "", "10.78.2.20"), row("dns", "PASS", "", ""))
+	readHTTP := exited("10.78.2.20:80", row("target_tcp", "PASS", "", "10.78.2.20"), row("http", "FAIL", closed, "10.78.2.20"))
 	for _, tc := range []struct {
-		name, checkID, cause, wantProbe string
-		wantFinding                     bool
+		name  string
+		tests []TestOutcome
+		want  string // the probe the miss names, or empty for no miss
 	}{
-		{name: "classified reset", checkID: "http", cause: "connection_reset"},
-		{name: "protocol probe", checkID: "http", wantProbe: "http", wantFinding: true},
-		{name: "generic TCP probe", checkID: "internet_tcp", wantProbe: "target_tcp", wantFinding: true},
+		{"#436: only general checks ran, the portal host is the reset node", []TestOutcome{general, general, general}, ""},
+		{"reset node on 8080: http closed", []TestOutcome{exited("10.78.2.20:8080", row("http", "FAIL", closed, "10.78.2.20"))}, ""},
+		{"reset node on 8080: http passed", []TestOutcome{exited("10.78.2.20:8080", row("http", "PASS", "", "10.78.2.20"))}, ""},
+		{"reset node on 8080: target_tcp refused", []TestOutcome{exited("10.78.2.20:8080",
+			row("target_tcp", "FAIL", diagnostic.ConnectionCauseRefused, "10.78.2.20"), row("http", "SKIP", "", ""))}, ""},
+		{"reset node on 8080 over IPv6: http closed", []TestOutcome{exited("[2001:db8:78::20]:8080", row("http", "FAIL", closed, "2001:db8:78::20"))}, ""},
+		{"another node on 80: http passed", []TestOutcome{exited("10.80.2.20:80", row("http", "PASS", "", "10.80.2.20"))}, ""},
+		{"another node on 80: http timed out", []TestOutcome{exited("10.80.2.20:80", row("http", "FAIL", diagnostic.ConnectionCauseTimeout, "10.80.2.20"))}, ""},
+		{"another node on 80: http closed", []TestOutcome{exited("10.80.2.20:80", row("http", "FAIL", closed, "10.80.2.20"))}, ""},
+		{"an address no node owns", []TestOutcome{exited("192.0.2.7:80", row("http", "FAIL", closed, "192.0.2.7"))}, ""},
+		{"reset endpoint: target_tcp connected and read nothing", []TestOutcome{exited("10.78.2.20:80", row("target_tcp", "PASS", "", "10.78.2.20"))}, ""},
+		{"reset endpoint: http timed out", []TestOutcome{exited("10.78.2.20:80", row("http", "FAIL", diagnostic.ConnectionCauseTimeout, "10.78.2.20"))}, ""},
+		{"reset endpoint: http failed with no cause", []TestOutcome{exited("10.78.2.20:80", row("http", "FAIL", "", "10.78.2.20"))}, ""},
+		{"reset endpoint: response bytes", []TestOutcome{exited("10.78.2.20:80", row("http", "FAIL", diagnostic.HTTPCauseInvalidResponse, "10.78.2.20"))}, ""},
+		{"reset endpoint: http passed", []TestOutcome{exited("10.78.2.20:80", row("http", "PASS", "", "10.78.2.20"))}, ""},
+		{"reset endpoint: tls failed the generic handshake", []TestOutcome{exited("https://10.78.2.20:80", row("tls", "FAIL", diagnostic.TLSCauseHandshake, "10.78.2.20"))}, ""},
+		{"reset endpoint: rows skipped", []TestOutcome{exited("10.78.2.20:80", row("target_tcp", "SKIP", "", ""), row("http", "SKIP", "", ""))}, ""},
+		{"reset endpoint: rows not applicable", []TestOutcome{exited("10.78.2.20:80", row("http", "N/A", "", ""))}, ""},
+		{"reset endpoint: unknown status", []TestOutcome{exited("10.78.2.20:80", row("http", "UNKNOWN", closed, "10.78.2.20"))}, ""},
+		{"reset endpoint: no diagnosis", []TestOutcome{{Node: "client", Target: "10.78.2.20:80", ProcessOutcome: ProcessExited}}, ""},
+		{"reset endpoint: netdoc hit the process deadline", []TestOutcome{{Node: "client", Target: "10.78.2.20:80",
+			ProcessOutcome: ProcessTimedOut, Diagnosis: readHTTP.Diagnosis}}, ""},
+		{"reset endpoint: netdoc was signaled", []TestOutcome{{Node: "client", Target: "10.78.2.20:80",
+			ProcessOutcome: ProcessSignaled, Diagnosis: readHTTP.Diagnosis}}, ""},
+		{"reset endpoint: no recorded address", []TestOutcome{exited("10.78.2.20:80", row("http", "FAIL", closed, ""))}, ""},
+		{"reset endpoint: recorded address does not parse", []TestOutcome{exited("10.78.2.20:80", row("http", "FAIL", closed, "not-an-address"))}, ""},
+		{"target does not parse", []TestOutcome{exited("http://[::1", row("http", "FAIL", closed, "10.78.2.20"))}, ""},
+		{"TLS-and-HTTP target on 443: tls closed on 443", []TestOutcome{exited("https://10.78.2.20", row("tls", "FAIL", closed, "10.78.2.20"))}, ""},
+		{"reset endpoint: classified as connection_reset", []TestOutcome{exited("10.78.2.20:80",
+			row("http", "FAIL", diagnostic.ConnectionCauseReset, "10.78.2.20"))}, ""},
+
+		{"reset endpoint: http closed", []TestOutcome{readHTTP}, "http"},
+		{"reset endpoint over IPv6: http closed", []TestOutcome{exited("[2001:db8:78::20]:80", row("http", "FAIL", closed, "2001:db8:78::20"))}, "http"},
+		{"reset endpoint in v4-mapped spelling", []TestOutcome{exited("[::ffff:10.78.2.20]:80", row("http", "FAIL", closed, "::ffff:10.78.2.20"))}, "http"},
+		{"a name that dialed the reset node", []TestOutcome{exited("routed-target.test:80", row("dns", "PASS", "", ""),
+			row("http", "FAIL", closed, "10.78.2.20"))}, "http"},
+		{"the IPv4 alias", []TestOutcome{exited("http://9.9.9.9:80", row("http", "FAIL", closed, "9.9.9.9"))}, "http"},
+		{"the IPv6 alias", []TestOutcome{exited("http://[2001:db8:79::99]:80", row("http", "FAIL", closed, "2001:db8:79::99"))}, "http"},
+		{"tls closed on the reset port", []TestOutcome{exited("https://10.78.2.20:80", row("tls", "FAIL", closed, "10.78.2.20"))}, "tls"},
+		{"TLS-and-HTTP target on 443: its http row dials 80", []TestOutcome{exited("https://10.78.2.20",
+			row("tls", "FAIL", closed, "10.78.2.20"), row("http", "FAIL", closed, "10.78.2.20"))}, "http"},
+		{"skipped http, then tls closed: the row that ran names it", []TestOutcome{exited("https://10.78.2.20:80",
+			row("http", "SKIP", "", ""), row("tls", "FAIL", closed, "10.78.2.20"))}, "tls"},
+		{"tls then http closed: the first in report order names it", []TestOutcome{exited("https://10.78.2.20:80",
+			row("target_tcp", "PASS", "", "10.78.2.20"), row("tls", "FAIL", closed, "10.78.2.20"), row("https", "FAIL", closed, "10.78.2.20"))}, "tls"},
+		{"8080 read first, then the reset endpoint", []TestOutcome{
+			exited("10.78.2.20:8080", row("http", "FAIL", closed, "10.78.2.20")), readHTTP}, "http"},
+		{"another node passed first, then the reset endpoint", []TestOutcome{
+			exited("10.80.2.20:80", row("http", "PASS", "", "10.80.2.20")), general, readHTTP}, "http"},
+
+		{"a reset classified on another node, listed first", []TestOutcome{
+			exited("10.80.2.20:80", row("http", "FAIL", diagnostic.ConnectionCauseReset, "10.80.2.20")), readHTTP}, "http"},
+		{"a reset classified on another node, listed after", []TestOutcome{
+			readHTTP, exited("10.80.2.20:80", row("http", "FAIL", diagnostic.ConnectionCauseReset, "10.80.2.20"))}, "http"},
+		{"a reset classified on another port of the reset node", []TestOutcome{
+			readHTTP, exited("ssh://10.78.2.20:22", row("ssh_banner", "FAIL", diagnostic.ConnectionCauseReset, "10.78.2.20"))}, "http"},
+		{"a reset classified on the reset endpoint by another reader", []TestOutcome{
+			readHTTP, exited("smtp://10.78.2.20:80", row("smtp_banner", "FAIL", diagnostic.ConnectionCauseReset, "10.78.2.20"))}, ""},
+		{"a reset classified on the reset node's IPv6 alias", []TestOutcome{
+			readHTTP, exited("http://[2001:db8:79::99]:80", row("http", "FAIL", diagnostic.ConnectionCauseReset, "2001:db8:79::99"))}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			report := &Report{Cleanup: CleanupInfo{Done: true}, Tests: []TestOutcome{{
-				ProcessOutcome: ProcessExited,
-				Diagnosis:      &Diagnosis{Checks: []DiagnosisCheck{{ID: tc.checkID, Cause: tc.cause}}},
-			}}}
-			findings := analyzeHuntCase(huntManifest(), report, ObservedTruth{TCP: "reset"})
-			if !tc.wantFinding {
-				if len(findings) != 0 {
-					t.Fatalf("classified reset findings = %+v", findings)
+			manifest := huntManifest(GeneratedMutation{ID: "service.tcp_reset", Node: "target", TargetPort: 80})
+			raw := &Report{Cleanup: CleanupInfo{Done: true}, Tests: tc.tests, Topology: []NodeInfo{
+				{Name: "target", Aliases: []string{"9.9.9.9", "2001:db8:79::99"}, Interfaces: []InterfaceInfo{
+					{Segment: "preferred-upstream", IPv4: "10.78.2.20/24"}, {Segment: "alternate-upstream", IPv6: "2001:db8:78::20/64"}}},
+				{Name: "internet", Interfaces: []InterfaceInfo{{Segment: "internet-lan", IPv4: "10.80.2.20/24"}}},
+			}}
+			for name, report := range map[string]*Report{"raw": raw, "canonical": canonicalHuntReport(raw)} {
+				var got []string
+				for _, f := range analyzeHuntCase(manifest, report, ObservedTruth{TCP: "reset"}) {
+					if f.Code == "tcp_reset_not_distinguished" {
+						got = append(got, f.Probe)
+					}
 				}
-				return
-			}
-			if len(findings) != 1 || findings[0].Code != "tcp_reset_not_distinguished" || findings[0].Probe != tc.wantProbe {
-				t.Fatalf("findings = %+v, want reset gap for %s", findings, tc.wantProbe)
+				var want []string
+				if tc.want != "" {
+					want = []string{tc.want}
+				}
+				if !slices.Equal(got, want) {
+					t.Errorf("%s report: misses named %q, want %q", name, got, want)
+				}
 			}
 		})
+	}
+}
+
+// TestRecordedUnprobedResetIsAKnownSilence replays the #436 case: generated case
+// 1 of the two-path-healthy bug-oracle hunt at seed 20261028. It injects a TCP
+// reset on target port 80, and the DNS outage leaves only general checks, so no
+// test targets the reset node. The reset service still recorded two resets: the
+// target hosts the connectivity portal, and the portal probe under internet_tcp
+// dials it on port 80 and drops its error without a row. No row read the
+// reset, so no miss may be raised. main raised tcp_reset_not_distinguished on
+// target_tcp, fingerprint eeb7cee872293e78.
+//
+// This pins a known silence, not a verdict on the portal read. The recording is
+// evidence only while it still injects the reset and carries the finding the
+// producer raised, so the test checks both first.
+func TestRecordedUnprobedResetIsAKnownSilence(t *testing.T) {
+	blob, err := os.ReadFile("testdata/hunt/case-001-two-path-target-reset-dns-outage.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var item HuntCaseResult
+	if err := json.Unmarshal(blob, &item); err != nil {
+		t.Fatal(err)
+	}
+	if item.Report == nil || !slices.ContainsFunc(item.Manifest.Mutations, func(m GeneratedMutation) bool { return m.ID == "service.tcp_reset" }) ||
+		!slices.ContainsFunc(item.Findings, func(f HuntCaseFinding) bool { return f.Fingerprint == "eeb7cee872293e78" }) {
+		t.Fatalf("recording no longer injects the reset or carries the #436 finding: %+v", item.Findings)
+	}
+	truth := collectObservedTruth(item.Manifest, item.Report)
+	if truth.TCP != "reset" {
+		t.Fatalf("recomputed truth TCP = %q, want reset", truth.TCP)
+	}
+	for _, f := range analyzeHuntCase(item.Manifest, item.Report, truth) {
+		if f.Code == "tcp_reset_not_distinguished" {
+			t.Errorf("a reset no row read raised a miss on %s: %+v", f.Probe, f)
+		}
 	}
 }
 

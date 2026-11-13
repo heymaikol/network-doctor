@@ -83,10 +83,11 @@ const (
 // because a list past its model maximum is a shape this program should not have
 // produced rather than a case whose tail is expendable.
 const (
-	// Topology. The largest base holds 5 nodes, 4 interfaces on one node and 4
-	// routes on one node.
+	// Topology. The largest base holds 5 nodes, 4 interfaces on one node, 4
+	// routes on one node and 4 declared aliases on one node.
 	huntMaxTopologyNodes  = 8
 	huntMaxNodeInterfaces = 4
+	huntMaxNodeAliases    = 4
 	huntMaxNodeRoutes     = 8
 	// Faults and the timeline they produce. A base declares at most one fault
 	// and each of the at most HuntMaxFaults mutations appends at most two. A
@@ -173,7 +174,7 @@ const (
 	// structural allowance nobody derived.
 	// TestHuntCaseCeilingIsTheSaturatedCanonicalCase builds that case from the
 	// cardinality constants above and fails unless it encodes to exactly this.
-	HuntMaxCaseResultBytes = 837394
+	HuntMaxCaseResultBytes = 844394
 	// huntMaxCasesBytes is the case_results section: HuntMaxCases entries at
 	// what one entry may weigh, plus the two bytes an empty list occupies. It
 	// is the product rather than an independent ceiling on purpose. Two
@@ -314,6 +315,7 @@ func checkHuntCaseCardinality(item *HuntCaseResult) error {
 		for _, node := range report.Topology {
 			checks = append(checks,
 				over("node interfaces", len(node.Interfaces), huntMaxNodeInterfaces),
+				over("node aliases", len(node.Aliases), huntMaxNodeAliases),
 				over("node routes", len(node.Routes), huntMaxNodeRoutes))
 		}
 		for _, test := range report.Tests {

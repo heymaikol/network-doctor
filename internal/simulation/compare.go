@@ -75,6 +75,9 @@ type DiagnosisCheck struct {
 	// so a scenario can be checked against the path netdoc says it took, which
 	// inside a namespace is the namespace's own answer and not the host's.
 	Routes []DiagnosisRoute `json:"routes,omitempty"`
+	// SelectedIP is the address this row dialed, as netdoc recorded it. The reset
+	// gate reads it to tell which endpoint a reader failed on.
+	SelectedIP string `json:"selected_ip,omitempty"`
 }
 
 // DiagnosisRoute is the simulator's view of one route decision. It keeps only

@@ -260,3 +260,36 @@ func TestCanonicalStorageKeepsTheSemanticsOfTheRecordedCase(t *testing.T) {
 	recorded := recordedHuntCase(t)
 	canonicalKeepsHuntSemantics(t, "case 116", recorded.Manifest, recorded.Report)
 }
+
+// TestCanonicalStorageKeepsDeclaredAliases: the reset rule reads a node's
+// aliases, so the stored topology keeps each one as its canonical address,
+// drops text that is no address, and projecting again changes nothing.
+func TestCanonicalStorageKeepsDeclaredAliases(t *testing.T) {
+	raw := &Report{Topology: []NodeInfo{{Name: "target", Aliases: []string{"2001:DB8::50", "::ffff:10.0.0.50", "not-an-address"}}}}
+	once := canonicalHuntReport(raw)
+	if want := []string{"2001:db8::50", "10.0.0.50"}; !reflect.DeepEqual(once.Topology[0].Aliases, want) {
+		t.Fatalf("stored aliases = %q, want %q", once.Topology[0].Aliases, want)
+	}
+	if twice := canonicalHuntReport(once); !reflect.DeepEqual(twice, once) {
+		t.Fatalf("projecting a canonical report again changed it:\nonce  %+v\ntwice %+v", once, twice)
+	}
+}
+
+// TestCanonicalAddressIsTheDialedAddressAsText pins what a stored reset keeps of
+// the address its reader dialed. Zone and mapping are dropped so the same node
+// keeps one spelling, and text that does not parse is dropped rather than kept,
+// so a canonical case never carries an address the reset rule cannot read.
+func TestCanonicalAddressIsTheDialedAddressAsText(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"10.77.0.20", "10.77.0.20"},
+		{"::ffff:10.77.0.20", "10.77.0.20"},
+		{"fe80::1%eth0", "fe80::1"},
+		{"2001:db8::1", "2001:db8::1"},
+		{"not-an-address", ""},
+		{"", ""},
+	} {
+		if got := huntCanonicalAddress(tc.in); got != tc.want {
+			t.Errorf("huntCanonicalAddress(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

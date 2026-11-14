@@ -26,7 +26,9 @@ const cancelGrace = 2 * time.Second
 // responseEOFGrace bounds how long a completed response waits for SSH stdout
 // to finish naturally. During this window the existing framing check can still
 // observe trailing protocol data. Afterward Run ends SSH so an inherited remote
-// stdout cannot withhold an already-complete diagnosis indefinitely.
+// stdout cannot withhold an already-complete diagnosis indefinitely. A request
+// write that failed gets the same bound for its answer and, separately, for the
+// trailing check after it.
 const responseEOFGrace = 2 * time.Second
 
 // maxDiagnosisStages is how many probe budgets one remote diagnosis can spend
@@ -355,10 +357,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		// output says more than the broken pipe does, so it decides the verdict.
 		// A clean answer cannot be this request's, because the request never
 		// arrived whole.
-		resp, decodeErr = readAfterWriteFailure(stdout, func() { _ = cmd.Process.Kill() })
-		if decodeErr == nil {
-			decodeErr = requestNotDelivered(resp)
-		}
+		resp, decodeErr = readAfterWriteFailure(opCtx, stdout, func() { _ = cmd.Process.Kill() })
 		stopSSH = true
 	} else {
 		resp, dec, limited, decodeErr = decodeResponse(stdout)
@@ -424,43 +423,79 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 }
 
 // readAfterWriteFailure reads what a worker wrote before its stdin stopped
-// taking the request. Like a completed response, it gets responseEOFGrace to
-// reach the end of stdout on its own. When that window ends with nothing
-// complete, stop is called and the answer is no response. The function does not
-// wait for stdout to end then: a process other than ssh can hold the pipe open
-// after ssh is killed, and the caller's teardown closes stdout to release the
-// reader. The channel is buffered so that reader never blocks on a send.
-func readAfterWriteFailure(stdout io.Reader, stop func()) (Response, error) {
-	type outcome struct {
+// taking the request, and returns the error that verdict deserves. It never
+// returns nil: an answer read here is not this request's diagnosis. The first
+// value gets responseEOFGrace to arrive. Once it has, the trailing check runs on
+// the same decoder with a window of its own, as it does on the normal path, so
+// output after the answer is reported with it. The two waits together take at
+// most two windows. Either wait also ends as soon as ctx ends, returning ctx's
+// error, so a cancelled or timed-out run does not wait on a pipe that stays open.
+// When a window ends with no answer, stop is called and the result is no
+// response. When the trailing window ends with the answer in hand, stop is
+// called, the answer is reported as it stands, and the reader is not waited on: a
+// process other than ssh can hold the pipe open after ssh is killed, and the
+// caller closes stdout to release it. Every channel is buffered, so the reader
+// never blocks on a send.
+func readAfterWriteFailure(ctx context.Context, stdout io.Reader, stop func()) (Response, error) {
+	if err := ctx.Err(); err != nil {
+		stop()
+		return Response{}, err
+	}
+	type first struct {
 		resp Response
 		err  error
 	}
-	read := make(chan outcome, 1)
+	value := make(chan first, 1)
+	trailing := make(chan error, 1)
 	go func() {
-		resp, _, _, err := decodeResponse(stdout)
-		read <- outcome{resp, err}
+		resp, dec, limited, err := decodeResponse(stdout)
+		value <- first{resp, err}
+		if err == nil {
+			trailing <- confirmNoTrailingData(dec, limited)
+		}
 	}()
 	timer := time.NewTimer(responseEOFGrace)
 	defer timer.Stop()
+	var got first
 	select {
-	case got := <-read:
-		return got.resp, got.err
+	case got = <-value:
 	case <-timer.C:
 		stop()
 		return Response{}, ErrNoResponse
+	case <-ctx.Done():
+		stop()
+		return Response{}, ctx.Err()
+	}
+	if got.err != nil {
+		return Response{}, got.err
+	}
+	timer.Stop()
+	timer.Reset(responseEOFGrace)
+	select {
+	case extra := <-trailing:
+		return Response{}, requestNotDelivered(got.resp, extra)
+	case <-timer.C:
+		stop()
+		return Response{}, requestNotDelivered(got.resp, nil)
+	case <-ctx.Done():
+		stop()
+		return Response{}, ctx.Err()
 	}
 }
 
 // requestNotDelivered words an answer that came back after the request write
-// failed. The worker that gave it never received the whole request, so the
-// answer is not this diagnosis, and a worker that said why it could not read the
-// request has said the most useful thing there is.
-func requestNotDelivered(resp Response) error {
-	const head = "the remote answered, but the request did not reach it whole"
+// failed. The worker that gave it never received the whole request, so the answer
+// is not this diagnosis. What the worker said is the most useful thing there is:
+// its own error text when it gave one, and anything it wrote after its answer.
+func requestNotDelivered(resp Response, extra error) error {
+	msg := "the remote answered, but the request did not reach it whole"
 	if resp.Error != "" {
-		return fmt.Errorf("%s: %s", head, clean(resp.Error))
+		msg += ": " + clean(resp.Error)
 	}
-	return errors.New(head)
+	if extra != nil {
+		msg += "; " + clean(extra.Error())
+	}
+	return errors.New(msg)
 }
 
 // transportError words the failures where no diagnosis came back at all, which

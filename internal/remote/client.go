@@ -350,10 +350,15 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	var decodeErr error
 	stopSSH := false
 	if _, err := writeRequest(stdin, body); err != nil {
-		// A write that fails means ssh is already gone. Its own stderr and exit
-		// status say why far better than a broken-pipe error would, and this is
-		// the same "nothing came back" outcome from the caller's side.
-		decodeErr = ErrNoResponse
+		// A failed write means ssh stopped taking the request, most often by
+		// exiting. Whatever it wrote before that is still in stdout, and that
+		// output says more than the broken pipe does, so it decides the verdict.
+		// A clean answer cannot be this request's, because the request never
+		// arrived whole.
+		resp, decodeErr = readAfterWriteFailure(stdout, func() { _ = cmd.Process.Kill() })
+		if decodeErr == nil {
+			decodeErr = requestNotDelivered(resp)
+		}
 		stopSSH = true
 	} else {
 		resp, dec, limited, decodeErr = decodeResponse(stdout)
@@ -416,6 +421,46 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		return resp, fmt.Errorf("%s: %s", cleanDest(dest), clean(resp.Error))
 	}
 	return resp, nil
+}
+
+// readAfterWriteFailure reads what a worker wrote before its stdin stopped
+// taking the request. Like a completed response, it gets responseEOFGrace to
+// reach the end of stdout on its own. When that window ends with nothing
+// complete, stop is called and the answer is no response. The function does not
+// wait for stdout to end then: a process other than ssh can hold the pipe open
+// after ssh is killed, and the caller's teardown closes stdout to release the
+// reader. The channel is buffered so that reader never blocks on a send.
+func readAfterWriteFailure(stdout io.Reader, stop func()) (Response, error) {
+	type outcome struct {
+		resp Response
+		err  error
+	}
+	read := make(chan outcome, 1)
+	go func() {
+		resp, _, _, err := decodeResponse(stdout)
+		read <- outcome{resp, err}
+	}()
+	timer := time.NewTimer(responseEOFGrace)
+	defer timer.Stop()
+	select {
+	case got := <-read:
+		return got.resp, got.err
+	case <-timer.C:
+		stop()
+		return Response{}, ErrNoResponse
+	}
+}
+
+// requestNotDelivered words an answer that came back after the request write
+// failed. The worker that gave it never received the whole request, so the
+// answer is not this diagnosis, and a worker that said why it could not read the
+// request has said the most useful thing there is.
+func requestNotDelivered(resp Response) error {
+	const head = "the remote answered, but the request did not reach it whole"
+	if resp.Error != "" {
+		return fmt.Errorf("%s: %s", head, clean(resp.Error))
+	}
+	return errors.New(head)
 }
 
 // transportError words the failures where no diagnosis came back at all, which

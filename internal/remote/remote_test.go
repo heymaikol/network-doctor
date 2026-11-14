@@ -83,6 +83,18 @@ func fakeSSH(mode string) int {
 		}
 		fmt.Fprintln(os.Stdout, "port 22")
 		return 0
+	case "answered-unread", "error-unread":
+		// A worker that writes its answer and exits without reading the
+		// request. The answer is complete, but it cannot be this request's.
+		resp := Response{Protocol: Protocol, Tool: snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}}
+		if mode == "error-unread" {
+			resp.Error = "could not read the remote request: unexpected EOF"
+		} else {
+			rep, snap := diagnosedPair(resp.Tool, true)
+			resp.Report, resp.Snapshot = &rep, &snap
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(resp)
+		return 0
 	case "hang":
 		// An ssh that never gets as far as reading the request: a connection
 		// that is opening, authenticating, or waiting on a prompt forever.
@@ -482,6 +494,83 @@ func TestRunDistinguishesTheTransportFailures(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A write into a stand-in that exits without reading its stdin fails only after
+// the stand-in has closed that stdin, and it closes stdin on exit, after writing
+// its output. Writing in a loop reaches that failure: once the pipe is full the
+// write blocks until the stand-in is gone, and then it errors. Each expected
+// verdict is the same whether the reader sees the stand-in's exit or the grace
+// window ends first, and the output it depends on is already in the pipe.
+func TestRunReadsWhatAWorkerWroteBeforeItExited(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want []string
+	}{
+		{"garbage", []string{"could not read the remote response"}},
+		{"silent", []string{"netdoc did not run on the SSH host"}},
+		{"missing", []string{"netdoc did not run on the SSH host", "ssh exited 127"}},
+		{"sshfail", []string{"ssh could not open the connection"}},
+		{"answered-unread", []string{"the request did not reach it whole"}},
+		{"error-unread", []string{"the request did not reach it whole", "could not read the remote request"}},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			useFakeSSH(t, tc.mode)
+			// Bounded: a stand-in that reads its stdin never refuses the write,
+			// and an unbounded loop would hang the test instead of failing it.
+			writeUntilRefused := func(w io.Writer, p []byte) (int, error) {
+				for written := 0; written < 1<<24; written += len(p) {
+					if _, err := w.Write(p); err != nil {
+						return 0, err
+					}
+				}
+				t.Fatal("the request write was never refused")
+				return 0, nil
+			}
+			previous := writeRequest
+			writeRequest = writeUntilRefused
+			t.Cleanup(func() { writeRequest = previous })
+			_, err := Run(context.Background(), "server", "", Request{})
+			if err == nil {
+				t.Fatal("want an error, got none")
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not mention %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// After the grace window a write-failure read gives up on stdout. A pipe that
+// never ends, which a process other than ssh can keep open after ssh is killed,
+// must not hold the run.
+func TestReadAfterWriteFailureDoesNotWaitForAPipeThatNeverEnds(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+	defer func() { _ = r.Close() }()
+
+	stopped := 0
+	done := make(chan error, 1)
+	go func() {
+		_, err := readAfterWriteFailure(r, func() { stopped++ })
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrNoResponse) {
+			t.Fatalf("readAfterWriteFailure = %v, want no response", err)
+		}
+		if stopped != 1 {
+			t.Errorf("ssh was stopped %d times, want 1", stopped)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("readAfterWriteFailure waited on a pipe that never ends")
 	}
 }
 

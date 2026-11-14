@@ -79,13 +79,15 @@ A release reaches the bucket as soon as it publishes, so `scoop update network-d
 brew install network-doctor
 ```
 
+The Homebrew Core formula installs `netdoc` on macOS and Linux. Use `brew upgrade network-doctor` when an update becomes available in Homebrew Core. For `netdoc-sim`, use a [Linux package](#linux-packages).
+
 ### Linux packages
 
 Download a `.deb`, `.rpm`, or `.apk` package from the [latest release](https://github.com/heymaikol/network-doctor/releases/latest) and install it using your package manager.
 
 Linux packages include both `netdoc` and `netdoc-sim`.
 
-See the [installation guide](docs/installation.md) for details.
+See the [installation guide](docs/installation.md#linux) for details.
 
 ### Everywhere else
 

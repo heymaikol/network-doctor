@@ -281,7 +281,8 @@ jobs:
     env:
       # One definition of the Hunt budget partition. The race-integration shard skips
       # these names and race-integration-hunt runs them, so the two cannot drift apart.
-      HUNT_BUDGET_TESTS: '^(TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum|TestHuntResultDecodeReadsTheLargestLegalCaseList|TestLargestGeneratedHuntShardFitsTheIngestionBudget)$'
+      # INJECTION Y1, removed before merge: the hunt selection drops a name.
+      HUNT_BUDGET_TESTS: '^(TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum|TestHuntResultDecodeReadsTheLargestLegalCaseList)$'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -451,8 +452,7 @@ jobs:
       # statistics, so it must never run beside another test; the hunt shard runs
       # its three tests one after another. Together the two shards run every test
       # exactly once.
-      # INJECTION X1, removed before merge: the rest test step is skipped.
-      - if: matrix.shard == 'race-integration' && false
+      - if: matrix.shard == 'race-integration'
         run: |
           set -o pipefail
           go test -race -tags integration -count=1 -skip "$HUNT_BUDGET_TESTS" $INTEGRATION_PACKAGES | tee rest-integration.log
@@ -463,8 +463,7 @@ jobs:
           for pkg in $INTEGRATION_PACKAGES; do
             grep -q "^ok[[:space:]]*$pkg[[:space:]]" rest-integration.log || { echo "no ok line for $pkg"; exit 1; }
           done
-      # INJECTION X2, removed before merge: the hunt test step is skipped.
-      - if: matrix.shard == 'race-integration-hunt' && false
+      - if: matrix.shard == 'race-integration-hunt'
         run: |
           set -o pipefail
           go test -race -tags integration -count=1 -v -run "$HUNT_BUDGET_TESTS" ./internal/simulation | tee hunt-budget.log

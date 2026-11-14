@@ -115,52 +115,6 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-  copr:
-    # spectool pulls both tarballs off the published release, so it has to
-    # exist, and attest has to have run, or the verify below has nothing to
-    # check them against.
-    needs: [release, attest]
-    runs-on: ubuntu-latest
-    container: fedora:latest
-    permissions:
-      contents: read
-      attestations: read
-    steps:
-      - run: dnf install -y copr-cli rpm-build rpmdevtools git-core gh
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Configure copr-cli
-        run: |
-          mkdir -p ~/.config
-          printf '%s' "$COPR_CONFIG" > ~/.config/copr
-          chmod 600 ~/.config/copr
-        env:
-          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
-      # The tag is the single source of version truth; the spec's own Version is
-      # only what `mock` picks up when building the package by hand.
-      - name: Build and submit SRPM
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          sed -i "s/^Version:.*/Version:        ${VERSION}/" packaging/network-doctor.spec
-          spectool -g -R packaging/network-doctor.spec
-          # Both tarballs arrive over plain HTTPS from a mutable release asset,
-          # and -mod=vendor never consults go.sum, so the vendored dependency
-          # source that ends up in the binary is only as trustworthy as this
-          # check. Fail the build rather than sign whatever was downloaded.
-          for src in "network-doctor-${VERSION}.tar.gz" "network-doctor-${VERSION}-vendor.tar.gz"; do
-            gh attestation verify "$(rpm --eval '%{_sourcedir}')/${src}" \
-              --repo "$GITHUB_REPOSITORY" \
-              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
-          done
-          rpmbuild -bs packaging/network-doctor.spec
-          # Keep the project on chroots whose Fedora repositories satisfy the
-          # spec's Go requirement. Branching can add a chroot before Go lands.
-          copr-cli modify heymaikol/network-doctor --follow-fedora-branching off --chroot fedora-rawhide-x86_64 --chroot fedora-rawhide-aarch64
-          copr-cli build heymaikol/network-doctor ~/rpmbuild/SRPMS/*.src.rpm
-
   attest:
     needs: [release]
     runs-on: ubuntu-latest

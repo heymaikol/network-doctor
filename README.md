@@ -86,24 +86,20 @@ The Homebrew Core formula, bottled for both platforms, so `brew upgrade` picks u
 Every Linux package installs two commands at the same version: `netdoc`, and
 `netdoc-sim`, the simulator behind [Challenge Mode](#challenge-mode).
 
-#### Fedora
+#### Fedora (stable and Rawhide)
 
-**Fedora stable uses the prebuilt release RPM**, downloaded from the [latest
-release](https://github.com/heymaikol/network-doctor/releases/latest). It is
-prebuilt, so the Go-version limitation that prevents COPR source builds on
-Fedora 43, 44, and 45 does not apply:
-
-```sh
-sudo dnf install ./network-doctor_X.Y.Z_linux_ARCH.rpm    # ARCH is amd64 or arm64
-```
-
-**Fedora Rawhide uses the COPR repository**, which builds from source and
-publishes for Rawhide on `x86_64` and `aarch64` alone:
+Download the prebuilt RPM for your architecture from the
+[latest release](https://github.com/heymaikol/network-doctor/releases/latest).
+Release filenames use `amd64` or `arm64`:
 
 ```sh
-sudo dnf copr enable heymaikol/network-doctor
-sudo dnf install network-doctor
+sudo dnf install ./network-doctor_X.Y.Z_linux_ARCH.rpm
 ```
+
+The prebuilt RPM does not require Fedora's Go toolchain. It does not configure
+an update repository, so download and install newer releases manually.
+The former COPR repository is no longer updated automatically and may contain
+older versions.
 
 #### Other distributions
 
@@ -118,8 +114,8 @@ sudo apk add --allow-untrusted ./network-doctor_X.Y.Z_linux_amd64.apk    # Alpin
 ```
 
 Downloaded packages are standalone, so `dnf`/`apt` will not pull the next
-version for you; the COPR repository upgrades normally. Upgrade paths, trust
-roots, and the `netdoc-sim` Linux-only rule are in
+version for you. Upgrade paths, trust roots, and the `netdoc-sim` Linux-only
+rule are in
 **[docs/installation.md](docs/installation.md#linux)**.
 
 ### Everywhere else

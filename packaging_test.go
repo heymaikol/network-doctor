@@ -23,8 +23,9 @@ import (
 )
 
 // Two independent paths build the Linux packages: GoReleaser's nfpm section
-// produces the deb/rpm/apk attached to the release, and packaging/network-doctor.spec
-// is rebuilt from source by COPR. A user installing from either one has to end
+// produces the deb/rpm/apk attached to the release, while
+// packaging/network-doctor.spec supports manual source RPM builds.
+// A user installing from either one has to end
 // up with the same executables, so these tests read both and compare them
 // rather than trusting the two files to be edited together.
 
@@ -235,49 +236,40 @@ func goModVersion(t *testing.T) string {
 	return ""
 }
 
-func TestReleaseWorkflowRestrictsCOPRTargets(t *testing.T) {
+func TestReleaseWorkflowDoesNotBuildCOPRAutomatically(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	const configure = "copr-cli modify heymaikol/network-doctor --follow-fedora-branching off --chroot fedora-rawhide-x86_64 --chroot fedora-rawhide-aarch64"
 	workflow := string(data)
-	configuredAt := strings.Index(workflow, configure)
-	buildAt := strings.Index(workflow, "copr-cli build heymaikol/network-doctor")
-	if configuredAt < 0 {
-		t.Fatalf("release workflow must restrict COPR to Rawhide x86_64 and aarch64 with %q", configure)
-	}
-	if buildAt < 0 || configuredAt > buildAt {
-		t.Error("release workflow must restrict COPR chroots before submitting the build")
+	for _, forbidden := range []string{
+		"\n  copr:\n",
+		"copr-cli",
+		"COPR_CONFIG",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("release workflow retains automatic COPR publishing: %q", forbidden)
+		}
 	}
 }
 
-func TestREADMEPresentsCOPRAsFedoraRawhideOnly(t *testing.T) {
-	data, err := os.ReadFile("README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, linux, ok := strings.Cut(string(data), "\n### Linux\n")
-	if !ok {
-		t.Fatal("README has no Linux installation section")
-	}
-	linux, _, ok = strings.Cut(linux, "\n### ")
-	if !ok {
-		t.Fatal("README's Linux installation section never ends")
-	}
-
-	stableAt := strings.Index(linux, "Fedora stable")
-	stableInstallAt := strings.Index(linux, "dnf install ./network-doctor_")
-	coprEnableAt := strings.Index(linux, "dnf copr enable")
-	if stableAt < 0 || stableInstallAt < 0 || coprEnableAt < 0 {
-		t.Fatal("Fedora guidance must include separate stable RPM and Rawhide COPR installation paths")
-	}
-	rawhideAt := strings.LastIndex(linux[:coprEnableAt], "Fedora Rawhide")
-	if rawhideAt < 0 {
-		t.Fatal("the COPR command must identify Fedora Rawhide as its installation path")
-	}
-	if stableAt >= stableInstallAt || stableInstallAt >= rawhideAt || rawhideAt >= coprEnableAt {
-		t.Error("Fedora stable's release RPM must appear before the Rawhide-only COPR command")
+func TestFedoraInstallationDocsUsePrebuiltRPM(t *testing.T) {
+	for _, name := range []string{"README.md", "docs/installation.md"} {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			content := string(data)
+			if !strings.Contains(content, "Fedora") ||
+				!strings.Contains(content, "Rawhide") ||
+				!strings.Contains(content, "dnf install ./network-doctor_") {
+				t.Error("Fedora installation guidance must document prebuilt release RPMs")
+			}
+			if strings.Contains(content, "dnf copr enable") {
+				t.Error("installation guidance must not recommend the retired COPR channel")
+			}
+		})
 	}
 }
 
@@ -871,7 +863,7 @@ func specSection(t *testing.T, spec, name string) []string {
 	return lines
 }
 
-// The invariant that keeps a GitHub .deb and a COPR .rpm from disagreeing.
+// Keep manually built RPMs consistent with GitHub release packages.
 func TestRPMSpecShipsTheSameBinariesAsNFPM(t *testing.T) {
 	data, err := os.ReadFile("packaging/network-doctor.spec")
 	if err != nil {

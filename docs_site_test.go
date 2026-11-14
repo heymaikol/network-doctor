@@ -137,7 +137,7 @@ func TestPackagedHomepagesPointAtTheDocumentationSite(t *testing.T) {
 
 // The RPM spec's URL is not a homepage advertisement: Source0 and Source1 are
 // written as %{url}/releases/download/..., so repointing it at the site would
-// break the source fetch COPR builds from. It stays the repository.
+// break the source fetch for optional manual RPM builds. Keep the repository URL.
 func TestRPMSpecURLStaysTheRepositoryItsSourcesComeFrom(t *testing.T) {
 	data, err := os.ReadFile("packaging/network-doctor.spec")
 	if err != nil {

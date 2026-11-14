@@ -35,7 +35,7 @@ picks up releases like any other formula. It installs `netdoc` alone. For
 
 ## Linux
 
-Every Linux package (COPR, `.deb`, `.rpm`, `.apk`) installs two commands at the
+Every prebuilt Linux package (`.deb`, `.rpm`, `.apk`) installs two commands at the
 same version: `netdoc`, and `netdoc-sim`, the simulator behind Challenge Mode.
 Confirm both:
 
@@ -48,36 +48,22 @@ netdoc-sim help
 the macOS and Windows downloads ship `netdoc` alone. Those hosts run the same
 simulator from [a container](simulation.md#running-it-in-a-container) instead.
 
-### Fedora stable: the prebuilt release RPM
+### Fedora (stable and Rawhide): prebuilt release RPM
 
 Download the `.rpm` for your architecture from the
 [latest release](https://github.com/heymaikol/network-doctor/releases/latest),
 then install it locally:
 
 ```sh
-sudo dnf install ./network-doctor_X.Y.Z_linux_ARCH.rpm    # ARCH is amd64 or arm64
+sudo dnf install ./network-doctor_X.Y.Z_linux_ARCH.rpm    # amd64 or arm64
 ```
 
-The release RPM is prebuilt, so the Go-version limitation that prevents COPR
-source builds on Fedora 43, 44, and 45 does not apply. It is a standalone
-package: installing it does not add a Network Doctor repository, and `dnf` will
-not automatically pull the next release.
+The release RPM is prebuilt and does not depend on the Go toolchain available
+in Fedora repositories. It does not add an update repository, so `dnf` will
+not automatically download new Network Doctor releases.
 
-### Fedora Rawhide: the COPR repository
-
-The [COPR repo](https://copr.fedorainfracloud.org/coprs/heymaikol/network-doctor/)
-builds from source and publishes only for Fedora Rawhide on `x86_64` and
-`aarch64`:
-
-```sh
-sudo dnf copr enable heymaikol/network-doctor
-sudo dnf install network-doctor
-```
-
-This repository-backed install upgrades normally through `dnf`. A new COPR
-package appears after its Rawhide builds finish, so it may trail the GitHub
-release. COPR signs with its own per-project key, a separate trust root from the
-GitHub attestation below, which `dnf copr enable` installs for you.
+The former COPR repository is not updated by the release workflow. Existing
+COPR installations should not be assumed to have the latest version.
 
 ### Other Linux distributions
 
@@ -147,6 +133,6 @@ gh attestation verify "./netdoc_${VERSION}_linux_amd64" \
 This proves the bytes were built from the tagged commit by the release workflow.
 The source tarball, the `.deb`/`.rpm`/`.apk` packages, and the Windows `.zip`
 are attested too, so pass whichever filename you downloaded. The
-vendored-dependency tarball (`*-vendor.tar.gz`, which lets COPR build offline)
-is attested as well; COPR packages themselves are rebuilt on Fedora's own
-builders and carry COPR's signature instead.
+vendored-dependency tarball (`*-vendor.tar.gz`) is attested as well. It
+supports optional offline source builds using the RPM spec, but is not
+needed when installing a prebuilt release RPM.

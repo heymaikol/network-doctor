@@ -1,7 +1,7 @@
 version: 2
 
-# COPR builds in mock, which has no network, and the source tarball below is a
-# git archive that can't carry untracked vendor/. Ship deps as a side tarball
+# Manual offline RPM source builds require vendored dependencies, and the
+# source archive can't carry untracked vendor/. Ship deps as a side tarball
 # instead of committing vendor/, which would break every dependency-bump PR.
 # Written to the repo root, not dist/: before-hooks run ahead of the step that
 # asserts dist/ is empty, so writing there aborts the build. Untracked, so
@@ -78,9 +78,8 @@ sboms:
 
 checksum:
   name_template: "checksums.txt"
-  # The vendor tarball is what COPR actually compiles, so it has to be a
-  # checksums.txt subject like everything else, since that is what the release
-  # attestation covers, and what the copr job verifies before building.
+  # Retain vendored dependencies as a checksummed release artifact for
+  # optional, attestation-verifiable offline source RPM builds.
   extra_files:
     - glob: ./network-doctor-*-vendor.tar.gz
 
@@ -92,7 +91,7 @@ release:
     - glob: ./network-doctor-*-vendor.tar.gz
 
 # Distro-agnostic packages installed straight off the release page: apt, dnf,
-# apk. Repo-based installs go through COPR instead, which builds its own.
+# apk. These standalone packages do not configure an update repository.
 #
 # No `ids` filter: every Linux build goes in, so one install puts both
 # /usr/bin/netdoc and /usr/bin/netdoc-sim on the system at the same version.
@@ -112,8 +111,8 @@ nfpms:
       - src: LICENSE
         dst: /usr/share/doc/network-doctor/LICENSE
       # Uncompressed: nfpm does not compress, and man reads a plain .1 fine.
-      # rpmbuild's brp-compress gzips it in the COPR build, hence the glob in
-      # the spec's %files.
+      # rpmbuild's brp-compress gzips it during source RPM builds, hence
+      # the glob in the spec's %files.
       - src: packaging/netdoc.1
         dst: /usr/share/man/man1/netdoc.1
       - src: packaging/completions/netdoc.bash

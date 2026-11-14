@@ -166,11 +166,12 @@ func fakeSSH(mode string) int {
 			fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		}
 		return startGrandchild()
-	case "read-eof-linger", "read-stderr-grandchild":
-		// A complete answer, then stdout ends while the stand-in is still going. The
-		// stand-in is the only thing ending a read-eof-linger run, and the operation
-		// context ends it. read-stderr-grandchild exits instead, and a grandchild holds
-		// stderr open, so the wait is inside cmd.Wait.
+	case "read-eof-linger", "read-stderr-grandchild", "read-partial-grandchild", "read-space-grandchild":
+		// A complete answer, then whatever the mode does next. read-eof-linger closes
+		// stdout and keeps running, so the operation context ends it. read-stderr-grandchild
+		// closes stdout and exits while a grandchild holds stderr, so the wait is inside
+		// cmd.Wait. The last two keep stdout open with a grandchild holding it: the start
+		// of a second object, and whitespace only.
 		var req Request
 		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
 			fmt.Fprintln(os.Stderr, "fake ssh:", err)
@@ -180,28 +181,17 @@ func fakeSSH(mode string) int {
 		rep, snap := diagnosedPair(resp.Tool, true)
 		resp.Report, resp.Snapshot = &rep, &snap
 		_ = json.NewEncoder(os.Stdout).Encode(resp)
-		_ = os.Stdout.Close()
-		if mode == "read-eof-linger" {
+		switch mode {
+		case "read-eof-linger":
+			_ = os.Stdout.Close()
 			stall()
 			return 0
-		}
-		return startHolder(false)
-	case "read-partial-grandchild", "read-space-grandchild":
-		// A complete answer, then bytes after it while a grandchild holds stdout open:
-		// the start of a second object for read-partial-grandchild, and whitespace
-		// only for read-space-grandchild. Only the first is a second response.
-		var req Request
-		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
-			fmt.Fprintln(os.Stderr, "fake ssh:", err)
-			return 1
-		}
-		resp := Response{Protocol: Protocol, Tool: snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}}
-		rep, snap := diagnosedPair(resp.Tool, true)
-		resp.Report, resp.Snapshot = &rep, &snap
-		_ = json.NewEncoder(os.Stdout).Encode(resp)
-		if mode == "read-partial-grandchild" {
+		case "read-stderr-grandchild":
+			_ = os.Stdout.Close()
+			return startHolder(false)
+		case "read-partial-grandchild":
 			fmt.Fprint(os.Stdout, "\n{")
-		} else {
+		default:
 			fmt.Fprint(os.Stdout, "\n\n")
 		}
 		return startGrandchild()

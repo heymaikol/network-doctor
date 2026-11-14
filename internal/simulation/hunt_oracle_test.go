@@ -213,6 +213,36 @@ func TestUnrecognizedConditionFinding(t *testing.T) {
 	}
 }
 
+// The name-level DNS rules speak only for absolute input (docs/reference.md).
+// The same stable lookups under a relative name are silence, so a plain
+// dns_failure there is not a missed claim. Under an absolute name they are a
+// claim the diagnosis did not make, and the accusation must still stand.
+func TestDNSNameClaimsNeedAbsoluteInput(t *testing.T) {
+	plainDNSFailure := &Diagnosis{Findings: []DiagnosisFinding{{ID: string(diagnostic.DiagnosisDNSFailure)}}}
+	for _, tc := range []struct {
+		host string
+		want int
+	}{
+		{"dual-target.test", 0},
+		{"dual-target.test.", 1},
+	} {
+		t.Run(tc.host, func(t *testing.T) {
+			report := oracleReport(plainDNSFailure, Evidence{ResolverLookups: []ResolverLookupEvidence{
+				{Node: "client", Name: tc.host, Resolver: "system", State: lookupFailed, Stable: true},
+				{Node: "client", Name: tc.host, Resolver: "1.1.1.1", State: lookupAnswered, Addresses: []string{"10.78.2.20"}, Stable: true},
+			}})
+			report.Tests[0].Target = tc.host + ":80"
+			got := unrecognizedConditionFindings(report, ObservedTruth{})
+			if len(got) != tc.want {
+				t.Fatalf("findings = %+v, want %d", got, tc.want)
+			}
+			if tc.want == 1 && got[0].Expected != string(ConditionSystemDNSFailure) {
+				t.Fatalf("finding = %+v, want system_dns_failure", got[0])
+			}
+		})
+	}
+}
+
 // An absent default route is only a condition when the table was actually read,
 // really held no default, and the family really stopped working. Each negative
 // below breaks exactly one of those, so the rule cannot quietly widen into

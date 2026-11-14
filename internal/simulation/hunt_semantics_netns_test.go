@@ -127,23 +127,54 @@ func TestSemanticOracleScopedFailuresInNamespaces(t *testing.T) {
 // does not compare system and public DNS for that input (docs/reference.md),
 // so the oracle must not claim system_dns_failure for it, even though the
 // lookups match the absolute case. This is the reproduction behind the
-// system_dns_failure reports from the Hunt.
+// system_dns_failure reports from the Hunt. The Hunt's reports used both DNS
+// shapes, SERVFAIL and dropped responses, and most of them also lost IPv6
+// forwarding; the last row keeps that family impairment visible under the
+// abstention.
 func TestRelativeDNSNameMakesNoSystemDNSClaimInNamespaces(t *testing.T) {
 	t.Parallel()
 	requireBackend(t)
 	netdoc, sim := buildBinaries(t)
-	scenario, err := LibraryScenario("dual-stack-healthy")
-	if err != nil {
-		t.Fatal(err)
+	dnsFault := func(outcome string) Fault {
+		return Fault{Type: FaultScheduledDNS, Service: "dual-resolver", Events: []ScheduledEvent{{At: "0ms", Outcome: outcome}}}
 	}
-	scenario.Faults = []Fault{{Type: FaultScheduledDNS, Service: "dual-resolver", Events: []ScheduledEvent{{At: "0ms", Outcome: DNSOutcomeSERVFAIL}}}}
-	report := runScenarioDefinition(t, sim, netdoc, scenario)
-	truth := collectObservedTruth(GeneratedCaseManifest{}, &report)
-	established, _, _ := caseConditions(&report, truth)
-	if slices.Contains(established, ConditionSystemDNSFailure) {
-		t.Fatalf("relative name established system_dns_failure: %v", established)
-	}
-	if d := finalClientDiagnosis(&report); !findingRecognizes(diagnostic.DiagnosisDNSFailure)(d) {
-		t.Fatalf("diagnosis is not the plain DNS failure the policy allows: %+v", d)
+	ipv6Forwarding := Fault{Type: FaultDrop, Node: "gateway", Family: "ipv6", Direction: DirectionOutbound}
+	for _, tc := range []struct {
+		name     string
+		faults   []Fault
+		wantIPv6 bool
+	}{
+		{"servfail", []Fault{dnsFault(DNSOutcomeSERVFAIL)}, false},
+		{"dropped responses", []Fault{dnsFault(DNSOutcomeDrop)}, false},
+		{"dropped responses with ipv6 forwarding lost", []Fault{dnsFault(DNSOutcomeDrop), ipv6Forwarding}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scenario, err := LibraryScenario("dual-stack-healthy")
+			if err != nil {
+				t.Fatal(err)
+			}
+			scenario.Faults = tc.faults
+			report := runScenarioDefinition(t, sim, netdoc, scenario)
+			truth := collectObservedTruth(GeneratedCaseManifest{}, &report)
+			// The lookups must be stable and must disagree, so the abstention is
+			// about the name's scope rather than about missing evidence.
+			system, independent := resolverPair(caseObservation(&report, truth))
+			if system == nil || independent == nil || system.State != lookupFailed || independent.State != lookupAnswered {
+				t.Fatalf("lookups are not a stable system failure beside a public answer: %+v", report.Evidence.ResolverLookups)
+			}
+			established, _, _ := caseConditions(&report, truth)
+			if slices.Contains(established, ConditionSystemDNSFailure) {
+				t.Fatalf("relative name established system_dns_failure: %v", established)
+			}
+			d := finalClientDiagnosis(&report)
+			if !findingRecognizes(diagnostic.DiagnosisDNSFailure)(d) {
+				t.Fatalf("diagnosis is not the plain DNS failure the policy allows: %+v", d)
+			}
+			if tc.wantIPv6 && !slices.ContainsFunc(d.Checks, func(c DiagnosisCheck) bool {
+				return c.Cause == diagnostic.FamilyCauseIPv6Unreachable
+			}) {
+				t.Fatalf("ipv6 forwarding loss is absent from the diagnosis: %+v", d.Checks)
+			}
+		})
 	}
 }

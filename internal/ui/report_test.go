@@ -39,16 +39,60 @@ func captureStderr(t *testing.T) func() string {
 	}
 }
 
+// closedStderr points os.Stderr at a pipe whose write end is already closed, so
+// the OSC 52 write fails the way it does when the terminal has gone away.
+func closedStderr(t *testing.T) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() {
+		os.Stderr = old
+		_ = r.Close()
+	})
+}
+
 func TestCopyReportWritesOSC52(t *testing.T) {
 	t.Setenv("TMUX", "")
 	done := captureStderr(t)
 
-	notice, ok := exportReport("hello", false)
+	notice, ok := exportReport("hello", false, "w")
 	if got, want := done(), "\x1b]52;c;aGVsbG8=\a"; got != want {
 		t.Errorf("stderr = %q, want %q", got, want)
 	}
-	if !ok || notice != "report sent to clipboard (OSC 52); w saves a file" {
-		t.Fatalf("exportReport() = %q, %v", notice, ok)
+	if want := "report copy requested (OSC 52); w saves a file"; !ok || notice != want {
+		t.Fatalf("exportReport() = %q, %v; want %q", notice, ok, want)
+	}
+}
+
+// An unbound save key must not leave a fallback that names no key. The other
+// wordings are pinned by the tests that drive each copy path.
+func TestCopyNoticeOmitsUnboundSaveKey(t *testing.T) {
+	t.Setenv("TMUX", "")
+	done := captureStderr(t)
+	notice, ok := requestCopy("hello", "output", "", "a file")
+	done()
+	if want := "output copy requested (OSC 52)"; !ok || notice != want {
+		t.Fatalf("requestCopy() = %q, %v; want %q", notice, ok, want)
+	}
+}
+
+// The footer is one line that clips at the terminal edge, so no copy notice may
+// be wider than the widest one it replaced. The incident notice is the widest.
+func TestCopyNoticeFitsTheOldWidth(t *testing.T) {
+	t.Setenv("TMUX", "")
+	done := captureStderr(t)
+	notice, _ := requestCopy("x", "incident", "w", "an .ndoc")
+	done()
+	const oldWidest = 55 // "✓ incident sent to clipboard (OSC 52); w saves an .ndoc"
+	if got := ansi.StringWidth("✓ " + notice); got > oldWidest {
+		t.Fatalf("notice is %d columns, want at most %d: %q", got, oldWidest, notice)
 	}
 }
 
@@ -80,7 +124,7 @@ func TestExportReportSavePath(t *testing.T) {
 	}
 	reportUserHomeDir = func() (string, error) { return home, nil }
 
-	notice, ok := exportReport("hello", true)
+	notice, ok := exportReport("hello", true, "")
 	if !ok || len(paths) != 2 {
 		t.Fatalf("exportReport() = %q, %v; writes = %v", notice, ok, paths)
 	}

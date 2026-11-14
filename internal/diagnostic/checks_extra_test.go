@@ -118,7 +118,7 @@ func TestSourceAddressesPreferNonLinkLocal(t *testing.T) {
 					continue
 				}
 				source, _ := sources.forDial(dial.network, dial.dest)
-				bound := dialerFromSource(source, dial.network, nil).LocalAddr.(*net.TCPAddr)
+				bound := dialerFromSource(source, "", dial.network, nil).LocalAddr.(*net.TCPAddr)
 				if !bound.IP.Equal(net.ParseIP(dial.want)) {
 					t.Errorf("%s source = %s, want %s", dial.network, bound.IP, dial.want)
 				}
@@ -154,7 +154,7 @@ func TestSourceAddressesSelectAndBindEachFamily(t *testing.T) {
 			if source == nil || family == 0 {
 				t.Fatalf("forDial(%q, %q) = (%v, %d), want %v", tc.network, tc.dest, source, family, tc.wantLocal)
 			}
-			d := dialerFromSource(source, tc.network, nil)
+			d := dialerFromSource(source, "", tc.network, nil)
 			var local net.IP
 			switch addr := d.LocalAddr.(type) {
 			case *net.TCPAddr:
@@ -213,11 +213,106 @@ func TestIfaceProbeAcceptsDualSourcesAndExactSecondaryAddress(t *testing.T) {
 
 func TestDialerFromUsesNetworkAddressType(t *testing.T) {
 	source := net.ParseIP("192.0.2.2")
-	if _, ok := dialerFromSource(source, "tcp", nil).LocalAddr.(*net.TCPAddr); !ok {
+	if _, ok := dialerFromSource(source, "", "tcp", nil).LocalAddr.(*net.TCPAddr); !ok {
 		t.Error("TCP dialer LocalAddr is not *net.TCPAddr")
 	}
-	if _, ok := dialerFromSource(source, "udp", nil).LocalAddr.(*net.UDPAddr); !ok {
+	if _, ok := dialerFromSource(source, "", "udp", nil).LocalAddr.(*net.UDPAddr); !ok {
 		t.Error("UDP dialer LocalAddr is not *net.UDPAddr")
+	}
+}
+
+// Only a link-local IPv6 source binds through the selected interface's zone,
+// over TCP and UDP alike. Every other source keeps binding by address alone.
+func TestDialerBindsOnlyLinkLocalIPv6ThroughZone(t *testing.T) {
+	cases := []struct {
+		name    string
+		source  string
+		network string
+		want    string
+	}{
+		{"link-local IPv6 over TCP", "fe80::2", "tcp6", "eth0"},
+		{"link-local IPv6 over UDP", "fe80::2", "udp6", "eth0"},
+		{"global IPv6 keeps no zone", "2001:db8::2", "tcp6", ""},
+		{"IPv4 link-local keeps no zone", "169.254.1.2", "tcp4", ""},
+		{"IPv4 keeps no zone", "192.0.2.2", "udp4", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var zone string
+			switch addr := dialerFromSource(net.ParseIP(tc.source), "eth0", tc.network, nil).LocalAddr.(type) {
+			case *net.TCPAddr:
+				zone = addr.Zone
+			case *net.UDPAddr:
+				zone = addr.Zone
+			}
+			if zone != tc.want {
+				t.Errorf("local zone = %q, want %q", zone, tc.want)
+			}
+		})
+	}
+}
+
+// A scoped IPv6 destination is one family. If the zone hides its address from
+// the family check, a generic dial fans out to IPv4 as well.
+func TestForDialReadsFamilyOfScopedDestination(t *testing.T) {
+	sources := SourceAddresses{IPv4: net.ParseIP("192.0.2.2"), IPv6: net.ParseIP("fe80::2"), Zone: "eth0"}
+	for _, network := range []string{"tcp", "udp"} {
+		source, family := sources.forDial(network, "[fe80::1%eth0]:443")
+		if family != 6 || !source.Equal(sources.IPv6) {
+			t.Errorf("forDial(%s, scoped) = (%v, %d), want the IPv6 source and family 6", network, source, family)
+		}
+	}
+}
+
+// A destination zone must name an interface on this host, by name or index. A
+// zone that names none is refused, since Go would otherwise send it as scope 0.
+func TestRefuseUnknownZoneKeepsOnlyRealInterfaces(t *testing.T) {
+	restore := zoneNamesInterface
+	defer func() { zoneNamesInterface = restore }()
+	zoneNamesInterface = func(zone string) bool { return zone == "eth0" || zone == "3" }
+
+	for _, addr := range []string{
+		"[fe80::1]:443",
+		"[fe80::1%eth0]:443",
+		"[fe80::1%3]:443",
+	} {
+		if err := refuseUnknownZone(addr); err != nil {
+			t.Errorf("refuseUnknownZone(%q) = %v, want nil", addr, err)
+		}
+	}
+	for _, addr := range []string{"[fe80::1%netdoc-no-such-zone]:443", "[fe80::1%0]:443"} {
+		if err := refuseUnknownZone(addr); err == nil || !strings.Contains(err.Error(), "names no interface") {
+			t.Errorf("refuseUnknownZone(%q) = %v, want a refusal naming no interface", addr, err)
+		}
+	}
+}
+
+// The selected interface's zone reaches the family dial, and the destination's
+// zone never does.
+func TestDialFamilyReceivesSourceZone(t *testing.T) {
+	restore := dialFamily
+	defer func() { dialFamily = restore }()
+
+	var got string
+	dialFamily = func(_ context.Context, _ net.IP, zone, _, _ string, _ func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+		got = zone
+		return fakeConn{}, nil
+	}
+	// The destination must name an interface, or the dial is refused before the
+	// family dial runs. The lookup is stubbed so no host interface is read.
+	restoreZone := zoneNamesInterface
+	defer func() { zoneNamesInterface = restoreZone }()
+	zoneNamesInterface = func(string) bool { return true }
+
+	sources := &SourceAddresses{IPv6: net.ParseIP("fe80::2"), Zone: "eth0"}
+	if _, err := dialContextFromSources(sources)(context.Background(), "tcp", "[fe80::1%eth1]:443"); err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if got != "eth0" {
+		t.Errorf("family dial zone = %q, want the selected eth0, not the destination's eth1", got)
+	}
+	if ops := opsFromSources(sources); ops.sources.Zone != "eth0" {
+		t.Errorf("opsFromSources copied zone %q, want eth0", ops.sources.Zone)
 	}
 }
 
@@ -2129,7 +2224,7 @@ func TestDualFamilyDialCancellationDoesNotStrandFanIn(t *testing.T) {
 
 	restore := dialFamily
 	defer func() { dialFamily = restore }()
-	dialFamily = func(dctx context.Context, _ net.IP, network, _ string, _ func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	dialFamily = func(dctx context.Context, _ net.IP, _, network, _ string, _ func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
 		mu.Lock()
 		dialed = append(dialed, network)
 		mu.Unlock()
@@ -2197,7 +2292,7 @@ func TestDualFamilyDialClosesTheLosingConnection(t *testing.T) {
 			"tcp4": {closed: make(chan struct{})},
 			"tcp6": {closed: make(chan struct{})},
 		}
-		dialFamily = func(_ context.Context, _ net.IP, network, _ string, _ func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+		dialFamily = func(_ context.Context, _ net.IP, _, network, _ string, _ func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
 			return conns[network], nil
 		}
 		conn, err := dialContextFromSources(&SourceAddresses{
@@ -2230,7 +2325,7 @@ func TestLoneFamilyDialIsNotDiscarded(t *testing.T) {
 	defer func() { dialFamily = restore }()
 
 	only := &closeTrackingConn{closed: make(chan struct{})}
-	dialFamily = func(_ context.Context, _ net.IP, _, _ string, _ func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	dialFamily = func(_ context.Context, _ net.IP, _, _, _ string, _ func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
 		return only, nil
 	}
 	conn, err := dialContextFromSources(&SourceAddresses{IPv4: net.ParseIP("127.0.0.1")})(

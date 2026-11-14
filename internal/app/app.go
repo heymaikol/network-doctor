@@ -103,6 +103,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	failBGPSession := fs.String("fail-bgp-session", "", "with -import-frr-bgp, simulate losing the BGP session `node:peer` in one node's recorded BGP table, assuming every path from the peer is removed; the forwarding impact stays unknown")
 	withdrawBGP := fs.String("withdraw-bgp", "", "with -import-frr-bgp, simulate peer withdrawing a prefix from one node's recorded BGP table, as `node:peer:prefix`; the forwarding impact stays unknown")
 	watch := fs.Bool("watch", false, "continuously re-run checks (with -json, stream one report per line)")
+	watchInterval := fs.Duration("watch-interval", ui.WatchEvery, "pause between -watch passes, from the end of one pass to the start of the next; at least 1s")
 	profileName := fs.String("profile", "", "run a service `profile` ("+strings.Join(profiles.Names(), ", ")+"; use list to describe them)")
 	var peerListen peerListenList
 	fs.Var(&peerListen, "peer-listen", "listen for one authenticated peer on exact `IP:port`; repeat for the other address family")
@@ -150,6 +151,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// One argument everywhere except the two artifact readings. With -via,
 	// -two-sided is a live target run again and accepts at most one target.
 	liveTwoSided := *twoSided && *viaDest != ""
+	// The pause only means something to a Watch, so it is refused in every
+	// mode, including the ones dispatched below, rather than being left for
+	// the Watch path to notice.
+	if setFlagNames(fs)["watch-interval"] {
+		if !*watch {
+			fmt.Fprintln(stderr, "netdoc: -watch-interval requires -watch")
+			return 2
+		}
+		if err := ui.ValidateWatchInterval(*watchInterval); err != nil {
+			fmt.Fprintln(stderr, "netdoc:", err)
+			return 2
+		}
+	}
 	// Route files only add context to an offline two-sided reading. Anywhere else
 	// they would be silently ignored, so they are refused in every other run mode,
 	// including -version, -list-checks, and -profile list, which exit below. Only
@@ -493,10 +507,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	// Carried only when the user typed it. The flag's default is the package
+	// default read at this point, and a run that did not name the flag has to
+	// keep reading ui.WatchEvery when it arms each pause, as tests rely on.
+	var interval time.Duration
+	if setFlagNames(fs)["watch-interval"] {
+		interval = *watchInterval
+	}
 	h := headless{
 		target: t, sources: sources, iface: *iface, selection: selection,
 		check: checks, skip: skips, publicDNS: *publicDNS, publicDNSAuto: publicDNSAuto, timeout: *timeout,
-		watch: *watch, json: *jsonOut, save: artifact, support: *support != "",
+		watch: *watch, watchInterval: interval, json: *jsonOut, save: artifact, support: *support != "",
 	}
 	h.via, h.viaCommand = *viaDest, os.Getenv(remote.CommandEnv)
 	if liveTwoSided {
@@ -532,7 +553,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// native text selection.
 	p := tea.NewProgram(ui.NewWithSelection(t, sources, *toolbox, *watch, historyFile(*noHistory), version, *publicDNS, publicDNSAuto, selection,
 		ui.WithKeymap(keymap), ui.WithProbeTimeout(*timeout), ui.WithThemeFile(themeFile()),
-		ui.WithSnapshotSelection(checks.strings(), skips.strings()), ui.WithRouteEvents()), tea.WithAltScreen())
+		ui.WithSnapshotSelection(checks.strings(), skips.strings()), ui.WithRouteEvents(), ui.WithWatchInterval(interval)), tea.WithAltScreen())
 	final, err := p.Run()
 	// Every way out of Run lands here, including the ones that never reached
 	// the model's own quit path.

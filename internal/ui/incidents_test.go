@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
@@ -144,6 +145,38 @@ func TestIncidentExportIsCompatibleNdoc(t *testing.T) {
 	}
 	if got.Incident == nil || got.Incident.Passes != 1 || got.Incident.Before == nil || got.Incident.Recovered == nil {
 		t.Fatalf("exported incident = %+v", got.Incident)
+	}
+}
+
+func TestIncidentCopyNotice(t *testing.T) {
+	t.Setenv("TMUX", "")
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	m := newModel(mustTarget(t, "example.com:443"), false)
+	m.watch, m.width, m.height = true, 100, 30
+	recordWatchPass(&m, start, false, "wlan0")
+	recordWatchPass(&m, start.Add(5*time.Second), true, "wg0")
+	recordWatchPass(&m, start.Add(10*time.Second), false, "wlan0")
+	m.openIncidentViewer()
+
+	done := captureStderr(t)
+	u, _ := m.handleIncidentKey(keyMsg("y"))
+	nm := asModel(t, u)
+	seq := done()
+	if !strings.HasPrefix(seq, "\x1b]52;c;") || !strings.HasSuffix(seq, "\a") {
+		t.Fatalf("stderr = %q, want one OSC 52 request", seq)
+	}
+	payload, err := base64.StdEncoding.DecodeString(strings.TrimSuffix(strings.TrimPrefix(seq, "\x1b]52;c;"), "\a"))
+	if err != nil || !strings.Contains(string(payload), "Network Doctor incident 1 of 1") {
+		t.Fatalf("copied payload = %q, err = %v", payload, err)
+	}
+	if want := "incident copy requested (OSC 52); w saves an .ndoc"; nm.notice != want || !nm.noticeOK {
+		t.Fatalf("notice = %q, ok = %v, want %q", nm.notice, nm.noticeOK, want)
+	}
+
+	closedStderr(t)
+	u, _ = m.handleIncidentKey(keyMsg("y"))
+	if nm = asModel(t, u); nm.noticeOK || !strings.HasPrefix(nm.notice, "copy failed: ") {
+		t.Fatalf("failed write notice = %q, ok = %v", nm.notice, nm.noticeOK)
 	}
 }
 

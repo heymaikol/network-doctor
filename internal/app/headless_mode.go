@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,10 +28,14 @@ var runAll = diagnostic.RunAll
 var watchClock = time.Now
 
 // buildHeadlessProbes is a seam for the Watch loop: tests replace the rows with
-// fakes. The pause between passes is ui.WatchEvery, which tests shorten.
+// fakes. The pause between passes is headless.pause.
 var buildHeadlessProbes = func(h headless) []diagnostic.Probe {
 	return h.selection.BuildProbesFromSources(h.target, h.sources, h.publicDNS, h.publicDNSAuto)
 }
+
+// watchAfter arms the pause after a completed Watch pass. Tests replace it to
+// observe the requested gap without sleeping through it.
+var watchAfter = time.After
 
 // buildProfileProbes lets tests verify pass ownership at the acquisition boundary.
 var buildProfileProbes = (*diagnostic.ProfilePass).BuildProbes
@@ -58,6 +63,10 @@ type headless struct {
 	publicDNSAuto bool
 	timeout       time.Duration
 	watch         bool
+	// watchInterval is the pause between Watch passes, from the end of one to
+	// the start of the next. Zero means ui.WatchEvery, which is what a run
+	// that did not name --watch-interval gets.
+	watchInterval time.Duration
 	// json asks for the report on stdout. It is independent of save: a run can
 	// want the artifact, the report, or both.
 	json bool
@@ -75,6 +84,11 @@ type headless struct {
 	viaBatch bool
 	// profilePass belongs to one local profile refresh; remote runs ignore it.
 	profilePass *diagnostic.ProfilePass
+}
+
+// pause is the gap a Watch waits after each completed pass.
+func (h headless) pause() time.Duration {
+	return cmp.Or(h.watchInterval, ui.WatchEvery)
 }
 
 // runLiveTwoSided acquires the two ordinary runs together, then hands their
@@ -224,7 +238,7 @@ func runHeadless(ctx context.Context, h headless, stdout, stderr io.Writer) int 
 		select {
 		case <-ctx.Done():
 			return code
-		case <-time.After(ui.WatchEvery):
+		case <-watchAfter(h.pause()):
 		}
 	}
 }

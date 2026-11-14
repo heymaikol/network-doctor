@@ -103,8 +103,14 @@ func TestPortalURLDisplayed(t *testing.T) {
 	if got, want := done(), osc52Sequence(portalURL); got != want {
 		t.Errorf("clipboard output = %q, want %q", got, want)
 	}
-	if cmd == nil || nm.notice != "portal URL sent to clipboard (OSC 52)" {
-		t.Fatalf("copy notice = %q, cmd nil = %v", nm.notice, cmd == nil)
+	if want := "portal URL copy requested (OSC 52)"; cmd == nil || nm.notice != want {
+		t.Fatalf("copy notice = %q, cmd nil = %v, want %q", nm.notice, cmd == nil, want)
+	}
+
+	closedStderr(t)
+	u, _ = m.Update(keyMsg("y"))
+	if nm = asModel(t, u); nm.noticeOK || !strings.HasPrefix(nm.notice, "copy failed: ") {
+		t.Fatalf("failed write notice = %q, ok = %v", nm.notice, nm.noticeOK)
 	}
 }
 

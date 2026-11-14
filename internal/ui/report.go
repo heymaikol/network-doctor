@@ -13,10 +13,11 @@ import (
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
-// exportReport saves the report next to the user (save=true) or copies it to
-// the clipboard via OSC 52, and returns the one-line notice for the help bar
-// plus whether the export succeeded.
-func exportReport(rep string, save bool) (notice string, ok bool) {
+// exportReport saves the report next to the user (save=true) or requests an
+// OSC 52 copy of it, and returns the one-line notice for the help bar plus
+// whether the export succeeded. saveKey is the label of the key that saves in
+// the report context ("" when unbound); it is only named in the copy notice.
+func exportReport(rep string, save bool, saveKey string) (notice string, ok bool) {
 	if save {
 		// cwd first (where the user is looking), $HOME as fallback, since the cwd
 		// may be read-only when launched from an installed location.
@@ -42,10 +43,7 @@ func exportReport(rep string, save bool) (notice string, ok bool) {
 		}
 		return "report saved to " + path, true
 	}
-	if err := copyReport(rep); err != nil {
-		return "copy failed: " + err.Error(), false
-	}
-	return "report sent to clipboard (OSC 52); w saves a file", true
+	return requestCopy(rep, "report", saveKey, "a file")
 }
 
 var (
@@ -80,6 +78,22 @@ func writeFileExcl(path string, data []byte, perm os.FileMode) error {
 func copyReport(rep string) error {
 	_, err := os.Stderr.WriteString(osc52Sequence(rep))
 	return err
+}
+
+// requestCopy writes an OSC 52 copy request for text and returns the help-bar
+// notice and whether the write succeeded. The notice says "requested", not
+// "copied": a written escape is all the program can see. saveKey names the key
+// that keeps text as a file ("" when that key is unbound), and saveWhat
+// completes "<saveKey> saves <saveWhat>".
+func requestCopy(text, what, saveKey, saveWhat string) (string, bool) {
+	if err := copyReport(text); err != nil {
+		return "copy failed: " + err.Error(), false
+	}
+	notice := what + " copy requested (OSC 52)"
+	if saveKey != "" {
+		notice += "; " + saveKey + " saves " + saveWhat
+	}
+	return notice, true
 }
 
 // osc52Sequence encodes rep as an OSC 52 clipboard escape, the "please copy

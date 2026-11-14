@@ -206,8 +206,7 @@ func (i Incident) Coincidence() Coincidence {
 
 // Note is the sentence to print under an incident: what the onset supports,
 // stated as a coincidence in time. Nothing here claims a cause, because two
-// things happening in the same five second pass is evidence of that and of
-// nothing more.
+// things happening in the same pass is evidence of that and of nothing more.
 func (i Incident) Note() string {
 	switch i.Coincidence() {
 	case CoincidenceUnknown:

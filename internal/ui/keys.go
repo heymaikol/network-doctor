@@ -261,16 +261,13 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		return m, nil
 	case actCopy, actSave:
 		if portalURL := m.selectedPortalURL(); portalURL != "" && act == actCopy {
-			notice, ok := "portal URL sent to clipboard (OSC 52)", true
-			if err := copyReport(portalURL); err != nil {
-				notice, ok = "copy failed: "+err.Error(), false
-			}
+			notice, ok := requestCopy(portalURL, "portal URL", "", "")
 			return m, m.setNotice(notice, ok)
 		}
 		if !m.reportReady() {
 			return m, m.setNotice("report not ready until checks finish", false)
 		}
-		notice, ok := exportReport(m.report(), act == actSave)
+		notice, ok := exportReport(m.report(), act == actSave, m.keys.label(ctxList, actSave))
 		return m, m.setNotice(notice, ok)
 	case actTheme:
 		// The picker is drawn where the help bar goes, so the run behind it
@@ -520,16 +517,10 @@ func (m model) handleViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, textinput.Blink
 	case actCopy:
-		notice, ok := "output sent to clipboard (OSC 52)", true
-		if m.keys.bound(ctxViewer, actSave) {
-			notice += "; " + m.keys.label(ctxViewer, actSave) + " saves a file"
-		}
-		if err := copyReport(strings.Join(m.visibleJobLines(), "\n")); err != nil {
-			notice, ok = "copy failed: "+err.Error(), false
-		}
+		notice, ok := requestCopy(strings.Join(m.visibleJobLines(), "\n"), "output", m.keys.label(ctxViewer, actSave), "a file")
 		return m, m.setNotice(notice, ok)
 	case actSave:
-		notice, ok := exportReport(strings.Join(m.visibleJobLines(), "\n"), true)
+		notice, ok := exportReport(strings.Join(m.visibleJobLines(), "\n"), true, "")
 		notice = strings.Replace(notice, "report saved", "output saved", 1)
 		return m, m.setNotice(notice, ok)
 	case actTop:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"strings"
 )
 
 // ResolveSource resolves an interface name to one usable address per family,
@@ -16,18 +17,37 @@ func ResolveSource(iface string) (*SourceAddresses, error) {
 		if err != nil {
 			return nil, fmt.Errorf("list interfaces: %w", err)
 		}
+		// A link-local IPv6 address exists on every link, so only the interface
+		// holding it can say where a bind goes. Several holders are refused, not
+		// guessed at. Any other address names its interface by itself.
+		linkLocal := want.To4() == nil && want.IsLinkLocalUnicast()
+		var holders []string
 		for i := range ifaces {
 			addrs, err := ifaces[i].Addrs()
 			if err != nil {
 				continue
 			}
 			for _, addr := range addrs {
-				if ipFromAddr(addr).Equal(want) {
+				if !ipFromAddr(addr).Equal(want) {
+					continue
+				}
+				if !linkLocal {
 					return sourceAddresses([]net.Addr{&net.IPAddr{IP: want}}), nil
 				}
+				holders = append(holders, ifaces[i].Name)
+				break
 			}
 		}
-		return nil, fmt.Errorf("source IP %s is not assigned to a local interface", want)
+		switch len(holders) {
+		case 0:
+			return nil, fmt.Errorf("source IP %s is not assigned to a local interface", want)
+		case 1:
+			sources := sourceAddresses([]net.Addr{&net.IPAddr{IP: want}})
+			sources.Zone = holders[0]
+			return sources, nil
+		default:
+			return nil, fmt.Errorf("source IP %s is assigned to %d interfaces (%s); name the interface with --iface instead", want, len(holders), strings.Join(holders, ", "))
+		}
 	}
 	chosen, err := net.InterfaceByName(iface)
 	if err != nil {
@@ -39,6 +59,7 @@ func ResolveSource(iface string) (*SourceAddresses, error) {
 	}
 	if sources := sourceAddresses(addrs); sources != nil {
 		sources.Iface = chosen.Name
+		sources.Zone = chosen.Name
 		return sources, nil
 	}
 	return nil, fmt.Errorf("interface %q has no usable IP address", iface)

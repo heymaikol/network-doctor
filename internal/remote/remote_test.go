@@ -880,9 +880,7 @@ func TestRunEndsPromptlyWhileAGrandchildHoldsStdout(t *testing.T) {
 func TestRunEndsOnTheNormalPathWhileAGrandchildHoldsStdout(t *testing.T) {
 	t.Run("cancelled before the first response", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-silent-grandchild")
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		got := runGuarded(t, ctx, Request{})
+		got := runGuarded(t, cancelledAfter(200*time.Millisecond), Request{})
 		requireFailure(t, got, "interrupted")
 	})
 	t.Run("deadline before the first response", func(t *testing.T) {
@@ -946,6 +944,16 @@ func TestRunEndsOnTheNormalPathWhileAGrandchildHoldsStdout(t *testing.T) {
 	})
 }
 
+// cancelledAfter returns a context the test cancels after d. It is a cancellation,
+// not a deadline: the context has no deadline of its own, so the run reports an
+// interruption because the caller cancelled it. A context with a deadline is the
+// caller-owned case, covered separately.
+func cancelledAfter(d time.Duration) context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(d, cancel)
+	return ctx
+}
+
 // cancelWhenFileExists calls cancel once path exists. It polls for at most
 // guardLimit, and calls cancel then regardless, so a file that never appears
 // cannot leave the run waiting forever.
@@ -972,9 +980,7 @@ func TestRunLeavesNoStdoutReaderBehindWhileAGrandchildHoldsStdout(t *testing.T) 
 	})
 	t.Run("cancelled before the first response", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-silent-grandchild")
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		runGuarded(t, ctx, Request{})
+		runGuarded(t, cancelledAfter(200*time.Millisecond), Request{})
 		requireNoReaderLeft(t)
 	})
 }
@@ -1076,9 +1082,7 @@ func TestRunTimesOutWhenTeardownOutlastsTheDeadline(t *testing.T) {
 func TestRunIsInterruptedWhenTeardownOutlastsTheCancellation(t *testing.T) {
 	t.Run("ssh closes stdout and keeps running", func(t *testing.T) {
 		useFakeSSH(t, "read-eof-linger")
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		got := runGuarded(t, ctx, Request{})
+		got := runGuarded(t, cancelledAfter(200*time.Millisecond), Request{})
 		requireVerdict(t, got, "interrupted", 2*cancelGrace)
 	})
 	t.Run("a grandchild holds stderr open", func(t *testing.T) {
@@ -1089,6 +1093,16 @@ func TestRunIsInterruptedWhenTeardownOutlastsTheCancellation(t *testing.T) {
 		// and stdout is closed, so the cancellation lands while the run is in its
 		// teardown wait, which holds for cancelGrace.
 		cancelWhenFileExists(pidPath, cancel)
+		got := runGuarded(t, ctx, Request{})
+		requireVerdict(t, got, "interrupted", 2*cancelGrace)
+	})
+	// A deadline the caller set on its own context is the caller's, not the
+	// operation's. The run reports it as an interruption, because transportError
+	// reads the caller's context before the operation's.
+	t.Run("caller-owned deadline ends teardown", func(t *testing.T) {
+		useFakeSSH(t, "read-eof-linger")
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
 		got := runGuarded(t, ctx, Request{})
 		requireVerdict(t, got, "interrupted", 2*cancelGrace)
 	})

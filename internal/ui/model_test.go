@@ -721,8 +721,14 @@ func TestViewerCopiesFullOutput(t *testing.T) {
 	if got, want := done(), osc52Sequence("first\nsecond"); got != want {
 		t.Errorf("stderr = %q, want %q", got, want)
 	}
-	if cmd == nil || nm.notice != "output sent to clipboard (OSC 52); w saves a file" {
-		t.Fatalf("notice = %q, cmd nil = %v", nm.notice, cmd == nil)
+	if want := "output copy requested (OSC 52); w saves a file"; cmd == nil || nm.notice != want {
+		t.Fatalf("notice = %q, cmd nil = %v, want %q", nm.notice, cmd == nil, want)
+	}
+
+	closedStderr(t)
+	u, _ = nm.Update(keyMsg("y"))
+	if nm = asModel(t, u); nm.noticeOK || !strings.HasPrefix(nm.notice, "copy failed: ") {
+		t.Fatalf("failed write notice = %q, ok = %v", nm.notice, nm.noticeOK)
 	}
 }
 
@@ -997,13 +1003,24 @@ func TestReportNoticeExpires(t *testing.T) {
 	doneResults(&m, "")
 	u, cmd := m.Update(keyMsg("y"))
 	nm := asModel(t, u)
-	if cmd == nil || nm.notice != "report sent to clipboard (OSC 52); w saves a file" {
-		t.Fatalf("copy notice = %q, cmd nil = %v", nm.notice, cmd == nil)
+	if want := "report copy requested (OSC 52); w saves a file"; cmd == nil || nm.notice != want {
+		t.Fatalf("copy notice = %q, cmd nil = %v, want %q", nm.notice, cmd == nil, want)
 	}
 
 	expired, _ := nm.Update(noticeDoneMsg{deadline: nm.noticeDeadline})
 	if got := asModel(t, expired).notice; got != "" {
 		t.Errorf("notice after timeout = %q, want empty", got)
+	}
+}
+
+func TestReportCopyWriteFailureClaimsNoRequest(t *testing.T) {
+	closedStderr(t)
+
+	m := newModel(nil, false)
+	doneResults(&m, "")
+	u, _ := m.Update(keyMsg("y"))
+	if nm := asModel(t, u); nm.noticeOK || !strings.HasPrefix(nm.notice, "copy failed: ") {
+		t.Fatalf("failed write notice = %q, ok = %v", nm.notice, nm.noticeOK)
 	}
 }
 

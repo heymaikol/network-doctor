@@ -192,10 +192,9 @@ func (m model) handleIncidentKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.incidentVP.GotoBottom()
 	case "y":
 		selected, _ := m.selectedIncident()
-		if err := copyReport(incidentReport(selected, m.incidentSelected+1, len(m.incidents.Incidents()), m.incidentNow())); err != nil {
-			return m, m.setNotice("copy failed: "+err.Error(), false)
-		}
-		return m, m.setNotice("incident sent to clipboard (OSC 52); w saves an .ndoc", true)
+		text := incidentReport(selected, m.incidentSelected+1, len(m.incidents.Incidents()), m.incidentNow())
+		notice, ok := requestCopy(text, "incident", "w", "an .ndoc")
+		return m, m.setNotice(notice, ok)
 	case "w":
 		selected, _ := m.selectedIncident()
 		notice, ok := exportIncident(selected, m.incidentNow())

@@ -273,8 +273,6 @@ jobs:
   # Seeded netem scenarios require iproute2 6.6 or newer, hence ubuntu-26.04.
   linux:
     name: linux (${{ matrix.shard }})
-    # INJECTION I3, removed before merge: skips the hunt leg.
-    if: matrix.shard != 'race-integration-hunt'
     strategy:
       fail-fast: false
       matrix:
@@ -455,7 +453,8 @@ jobs:
       # exactly once.
       - if: matrix.shard == 'race-integration'
         run: go test -race -tags integration -count=1 -skip "$HUNT_BUDGET_TESTS" $INTEGRATION_PACKAGES
-      - if: matrix.shard == 'race-integration-hunt'
+      # INJECTION I3b, removed before merge: the hunt test step is skipped, the leg still runs.
+      - if: matrix.shard == 'race-integration-hunt' && false
         run: |
           set -o pipefail
           go test -race -tags integration -count=1 -v -run "$HUNT_BUDGET_TESTS" ./internal/simulation | tee hunt-budget.log

@@ -112,6 +112,16 @@ func heroSteps(t *testing.T) string {
 	return strings.Join(steps, "\n")
 }
 
+func demoTempRoot(t *testing.T) *os.Root {
+	t.Helper()
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
+
 // VHS, ttyd and ffmpeg are the action's job. Installing any of them here would
 // mean a second, unpinned toolchain deciding what the recording looks like.
 func TestDemoWorkflowRecordsThroughTheOfficialVHSAction(t *testing.T) {
@@ -427,7 +437,7 @@ func TestDemoWorkflowValidatesDerivativesBeforePublishing(t *testing.T) {
 			}
 		}
 	}
-	if !(0 <= built && built < recorded && recorded < verified && verified < converted && converted < uploaded) {
+	if built < 0 || built >= recorded || recorded >= verified || verified >= converted || converted >= uploaded {
 		t.Fatal("recording must build, record, verify the GIF, generate and validate derivatives, then upload")
 	}
 
@@ -468,7 +478,7 @@ func TestDemoWorkflowValidatesDerivativesBeforePublishing(t *testing.T) {
 			committed = i
 		}
 	}
-	if !(0 <= downloaded && downloaded < validated && validated < committed) {
+	if downloaded < 0 || downloaded >= validated || validated >= committed {
 		t.Fatal("publishing must download its recording, verify every media file, then commit")
 	}
 }
@@ -478,14 +488,18 @@ func TestDemoDownloadedValidationFailsBeforeCopy(t *testing.T) {
 		t.Skip("Bash is not installed; workflow structure is checked separately")
 	}
 	verify := demoNamedStep(t, parseDemoWorkflow(t).Jobs["publish"], "Verify downloaded media")
-	dir := t.TempDir()
+	root := demoTempRoot(t)
+	dir := root.Name()
 	for _, subdir := range []string{"bin", "assets", "downloaded"} {
 		if err := os.Mkdir(filepath.Join(dir, subdir), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// Simulate the validator rejecting an artifact; copying must never follow.
-	if err := os.WriteFile(filepath.Join(dir, "bin", "python3"), []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+	if err := root.WriteFile("bin/python3", []byte("#!/bin/sh\nexit 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Chmod("bin/python3", 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"hero.gif", "hero.mp4", "hero-poster.png"} {
@@ -504,7 +518,7 @@ func TestDemoDownloadedValidationFailsBeforeCopy(t *testing.T) {
 		t.Fatalf("validation failure was ignored: %s", out)
 	}
 	for _, name := range []string{"hero.gif", "hero.mp4", "hero-poster.png"} {
-		data, err := os.ReadFile(filepath.Join(dir, "assets", name))
+		data, err := root.ReadFile(filepath.Join("assets", name))
 		if err != nil || string(data) != "original" {
 			t.Errorf("%s changed after validation failed: %q, %v", name, data, err)
 		}
@@ -553,7 +567,8 @@ func TestDemoPublishingScriptFailsClosed(t *testing.T) {
 		t.Skip("Bash is not installed; workflow structure is checked separately")
 	}
 	commit := demoNamedStep(t, parseDemoWorkflow(t).Jobs["publish"], "Commit the changed recording")
-	dir := t.TempDir()
+	root := demoTempRoot(t)
+	dir := root.Name()
 	// The workflow runs against a stub, so no repository is committed or pushed.
 	git := `#!/bin/sh
 printf '%s\n' "$*" >> "$GIT_LOG"
@@ -568,7 +583,10 @@ case "$*" in
   *) exit 99 ;;
 esac
 `
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(git), 0o700); err != nil {
+	if err := root.WriteFile("git", []byte(git), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Chmod("git", 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -585,7 +603,8 @@ esac
 		{"push rejected", "recorded", "recorded", "1", "0", "0", "1", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			log := filepath.Join(t.TempDir(), "git.log")
+			logRoot := demoTempRoot(t)
+			log := filepath.Join(logRoot.Name(), "git.log")
 			//nolint:gosec // G204: repository-owned script, with every git invocation stubbed.
 			cmd := exec.Command("bash", "-c", commit.Run)
 			cmd.Dir = dir
@@ -596,7 +615,7 @@ esac
 			if (err == nil) != tc.wantSuccess {
 				t.Fatalf("publishing: %v\n%s; want success = %v", err, out, tc.wantSuccess)
 			}
-			calls, err := os.ReadFile(log)
+			calls, err := logRoot.ReadFile("git.log")
 			if err != nil {
 				t.Fatal(err)
 			}

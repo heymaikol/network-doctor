@@ -273,6 +273,8 @@ jobs:
   # Seeded netem scenarios require iproute2 6.6 or newer, hence ubuntu-26.04.
   linux:
     name: linux (${{ matrix.shard }})
+    # INJECTION I3, removed before merge: skips the hunt leg.
+    if: matrix.shard != 'race-integration-hunt'
     strategy:
       fail-fast: false
       matrix:
@@ -281,7 +283,7 @@ jobs:
     env:
       # One definition of the Hunt budget partition. The race-integration shard skips
       # these names and race-integration-hunt runs them, so the two cannot drift apart.
-      HUNT_BUDGET_TESTS: '^(TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum|TestHuntResultDecodeReadsTheLargestLegalCaseList)$'
+      HUNT_BUDGET_TESTS: '^(TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum|TestHuntResultDecodeReadsTheLargestLegalCaseList|TestLargestGeneratedHuntShardFitsTheIngestionBudget)$'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

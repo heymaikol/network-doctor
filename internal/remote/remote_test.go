@@ -95,6 +95,31 @@ func fakeSSH(mode string) int {
 		}
 		_ = json.NewEncoder(os.Stdout).Encode(resp)
 		return 0
+	case "extra-unread", "twice-unread", "answer-closed-stall", "answer-open-stall", "extra-stall":
+		// Stand-ins that never read their request. Each writes a complete answer
+		// first. The variants then add extra output, or close stdin and stall
+		// with stdout still open.
+		resp := Response{Protocol: Protocol, Tool: snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}}
+		rep, snap := diagnosedPair(resp.Tool, true)
+		resp.Report, resp.Snapshot = &rep, &snap
+		enc := json.NewEncoder(os.Stdout)
+		_ = enc.Encode(resp)
+		switch mode {
+		case "extra-unread":
+			fmt.Fprintln(os.Stdout, "Welcome to the machine.")
+		case "twice-unread":
+			_ = enc.Encode(resp)
+		case "answer-closed-stall":
+			_ = os.Stdin.Close()
+			stall()
+		case "extra-stall":
+			fmt.Fprintln(os.Stdout, "Welcome to the machine.")
+			_ = os.Stdin.Close()
+			stall()
+		case "answer-open-stall":
+			stall()
+		}
+		return 0
 	case "hang":
 		// An ssh that never gets as far as reading the request: a connection
 		// that is opening, authenticating, or waiting on a prompt forever.
@@ -497,6 +522,22 @@ func TestRunDistinguishesTheTransportFailures(t *testing.T) {
 	}
 }
 
+// writeUntilRefused returns a request write that keeps writing until the stand-in
+// refuses it, which happens only once the stand-in has closed its stdin. It is
+// bounded: a stand-in that reads its stdin never refuses the write, and an
+// unbounded loop would hang the test instead of failing it.
+func writeUntilRefused(t *testing.T) func(io.Writer, []byte) (int, error) {
+	return func(w io.Writer, p []byte) (int, error) {
+		for written := 0; written < 1<<24; written += len(p) {
+			if _, err := w.Write(p); err != nil {
+				return 0, err
+			}
+		}
+		t.Fatal("the request write was never refused")
+		return 0, nil
+	}
+}
+
 // A write into a stand-in that exits without reading its stdin fails only after
 // the stand-in has closed that stdin, and it closes stdin on exit, after writing
 // its output. Writing in a loop reaches that failure: once the pipe is full the
@@ -514,22 +555,13 @@ func TestRunReadsWhatAWorkerWroteBeforeItExited(t *testing.T) {
 		{"sshfail", []string{"ssh could not open the connection"}},
 		{"answered-unread", []string{"the request did not reach it whole"}},
 		{"error-unread", []string{"the request did not reach it whole", "could not read the remote request"}},
+		{"extra-unread", []string{"the request did not reach it whole", "the remote sent more than one response"}},
+		{"twice-unread", []string{"the request did not reach it whole", "the remote sent more than one response"}},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			useFakeSSH(t, tc.mode)
-			// Bounded: a stand-in that reads its stdin never refuses the write,
-			// and an unbounded loop would hang the test instead of failing it.
-			writeUntilRefused := func(w io.Writer, p []byte) (int, error) {
-				for written := 0; written < 1<<24; written += len(p) {
-					if _, err := w.Write(p); err != nil {
-						return 0, err
-					}
-				}
-				t.Fatal("the request write was never refused")
-				return 0, nil
-			}
 			previous := writeRequest
-			writeRequest = writeUntilRefused
+			writeRequest = writeUntilRefused(t)
 			t.Cleanup(func() { writeRequest = previous })
 			_, err := Run(context.Background(), "server", "", Request{})
 			if err == nil {
@@ -585,6 +617,70 @@ func TestRunEndsABlockedRequestWriteOnTheDeadlineOrCancellation(t *testing.T) {
 		}
 		if elapsed := time.Since(start); elapsed > 10*time.Second {
 			t.Errorf("Run took %s to notice the cancellation", elapsed)
+		}
+	})
+}
+
+// An answer that arrives before the request write is refused is not this
+// request's diagnosis. A stand-in that then keeps stdout open must not turn that
+// into "did not run": the window ends and the answer is reported as it stands.
+func TestRunReportsAnAnswerWhoseStdoutStaysOpen(t *testing.T) {
+	useFakeSSH(t, "answer-closed-stall")
+	previous := writeRequest
+	writeRequest = writeUntilRefused(t)
+	t.Cleanup(func() { writeRequest = previous })
+	start := time.Now()
+	_, err := Run(context.Background(), "server", "", Request{})
+	if err == nil || !strings.Contains(err.Error(), "the request did not reach it whole") || strings.Contains(err.Error(), "did not run") {
+		t.Fatalf("Run error = %v, want the answer reported as not delivered", err)
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Errorf("Run took %s to stop waiting on stdout", elapsed)
+	}
+}
+
+// Trailing output after a complete answer is judged as soon as it arrives. A
+// stand-in that keeps stdout open after the extra output must not make Run wait
+// out the window before reporting it.
+func TestRunReportsTrailingOutputWhileStdoutStaysOpen(t *testing.T) {
+	useFakeSSH(t, "extra-stall")
+	previous := writeRequest
+	writeRequest = writeUntilRefused(t)
+	t.Cleanup(func() { writeRequest = previous })
+	start := time.Now()
+	_, err := Run(context.Background(), "server", "", Request{})
+	if err == nil || !strings.Contains(err.Error(), "the remote sent more than one response") {
+		t.Fatalf("Run error = %v, want the trailing output reported", err)
+	}
+	if elapsed := time.Since(start); elapsed >= responseEOFGrace {
+		t.Errorf("Run took %s to report trailing output, so it waited out the window", elapsed)
+	}
+}
+
+// The same stalled answer, with stdin still open, must still end on the operation
+// deadline or on cancellation, and the deadline or cancellation is what is reported.
+func TestRunEndsAStalledAnswerOnTheDeadlineOrCancellation(t *testing.T) {
+	t.Run("deadline", func(t *testing.T) {
+		useFakeSSH(t, "answer-open-stall")
+		useShortOperationBound(t, 300*time.Millisecond)
+		previous := writeRequest
+		writeRequest = writeUntilRefused(t)
+		t.Cleanup(func() { writeRequest = previous })
+		_, err := Run(context.Background(), "server", "", Request{TimeoutMs: 20})
+		if err == nil || !strings.Contains(err.Error(), "timed out") {
+			t.Fatalf("Run error = %v, want the remote run timed out", err)
+		}
+	})
+	t.Run("cancellation", func(t *testing.T) {
+		useFakeSSH(t, "answer-open-stall")
+		previous := writeRequest
+		writeRequest = writeUntilRefused(t)
+		t.Cleanup(func() { writeRequest = previous })
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		_, err := Run(ctx, "server", "", Request{})
+		if err == nil || !strings.Contains(err.Error(), "interrupted") {
+			t.Fatalf("Run error = %v, want the run interrupted", err)
 		}
 	})
 }

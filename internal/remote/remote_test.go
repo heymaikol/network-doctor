@@ -166,6 +166,26 @@ func fakeSSH(mode string) int {
 			fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		}
 		return startGrandchild()
+	case "read-eof-linger", "read-stderr-grandchild":
+		// A complete answer, then stdout ends while the stand-in is still going. The
+		// stand-in is the only thing ending a read-eof-linger run, and the operation
+		// context ends it. read-stderr-grandchild exits instead, and a grandchild holds
+		// stderr open, so the wait is inside cmd.Wait.
+		var req Request
+		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+			fmt.Fprintln(os.Stderr, "fake ssh:", err)
+			return 1
+		}
+		resp := Response{Protocol: Protocol, Tool: snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}}
+		rep, snap := diagnosedPair(resp.Tool, true)
+		resp.Report, resp.Snapshot = &rep, &snap
+		_ = json.NewEncoder(os.Stdout).Encode(resp)
+		_ = os.Stdout.Close()
+		if mode == "read-eof-linger" {
+			stall()
+			return 0
+		}
+		return startHolder(false)
 	case "hold":
 		// A grandchild that holds an inherited stdout until the test removes its
 		// stop file. The backstop keeps an orphan from running for long.
@@ -247,10 +267,19 @@ func fakeSSH(mode string) int {
 
 // startGrandchild starts the process that keeps the stand-in's stdout open after
 // the stand-in exits, and records its pid for the test cleanup.
-func startGrandchild() int {
+func startGrandchild() int { return startHolder(true) }
+
+// startHolder starts the hold process with either the stand-in's stdout or its
+// stderr. Holding stderr is what keeps cmd.Wait waiting after ssh has exited, since
+// exec waits for every pipe it created to end. Both use the stop file for cleanup.
+func startHolder(holdStdout bool) int {
 	grandchild := exec.Command(os.Args[0]) //nolint:gosec // G204: re-runs this test binary with a fixed helper mode.
 	grandchild.Env = append(os.Environ(), fakeSSHEnv+"=hold")
-	grandchild.Stdout = os.Stdout
+	if holdStdout {
+		grandchild.Stdout = os.Stdout
+	} else {
+		grandchild.Stderr = os.Stderr
+	}
 	if err := grandchild.Start(); err != nil {
 		return 1
 	}
@@ -888,12 +917,12 @@ func TestRunEndsOnTheNormalPathWhileAGrandchildHoldsStdout(t *testing.T) {
 		// The deadline is meant to land after the two-second trailing window, while the
 		// bounded wait after the kill is still running. It is timed, not an event, so
 		// under heavy load it can land earlier, and the message is then the same. The
-		// message alone tells this apart from success, so no elapsed bound is used.
+		// verdict is due at the deadline, about 3.0 s in. Without the operation check
+		// in that wait, it would come only after cancelGrace, at about 4 s, so the
+		// bound is set between the two.
 		useShortOperationBound(t, 2900*time.Millisecond)
 		got := runGuarded(t, context.Background(), Request{TimeoutMs: 20})
-		if got.err == nil || !strings.Contains(got.err.Error(), "timed out") {
-			t.Fatalf("Run error = %v, want the remote run timed out", got.err)
-		}
+		requireVerdict(t, got, "timed out", 3500*time.Millisecond)
 	})
 	t.Run("a complete answer stands while a grandchild holds stdout", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-answer-grandchild")
@@ -1021,6 +1050,72 @@ func requireFailure(t *testing.T, got runOutcome, want string) {
 	}
 	if got.elapsed >= responseEOFGrace {
 		t.Errorf("Run took %s to fail, so a grandchild holding stdout held it past the end of the operation", got.elapsed)
+	}
+}
+
+// A complete answer does not decide the run by itself. The operation context is
+// checked again after teardown, and a deadline that has passed by then is a timeout,
+// never a success, even when the answer was whole and the pipes ended on their own.
+func TestRunTimesOutWhenTeardownOutlastsTheDeadline(t *testing.T) {
+	t.Run("ssh closes stdout and keeps running", func(t *testing.T) {
+		useFakeSSH(t, "read-eof-linger")
+		useShortOperationBound(t, 300*time.Millisecond)
+		got := runGuarded(t, context.Background(), Request{TimeoutMs: 20})
+		requireVerdict(t, got, "timed out", 2*cancelGrace)
+	})
+	t.Run("a grandchild holds stderr open", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-stderr-grandchild")
+		useShortOperationBound(t, 300*time.Millisecond)
+		got := runGuarded(t, context.Background(), Request{TimeoutMs: 20})
+		requireVerdict(t, got, "timed out", 2*cancelGrace)
+	})
+}
+
+// The same check for a caller cancellation: a cancellation that lands during
+// teardown is an interruption, not a success.
+func TestRunIsInterruptedWhenTeardownOutlastsTheCancellation(t *testing.T) {
+	t.Run("ssh closes stdout and keeps running", func(t *testing.T) {
+		useFakeSSH(t, "read-eof-linger")
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		got := runGuarded(t, ctx, Request{})
+		requireVerdict(t, got, "interrupted", 2*cancelGrace)
+	})
+	t.Run("a grandchild holds stderr open", func(t *testing.T) {
+		pidPath := useGrandchildFakeSSH(t, "read-stderr-grandchild")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// The pid is recorded when the grandchild starts, after the answer is written
+		// and stdout is closed, so the cancellation lands while the run is in its
+		// teardown wait, which holds for cancelGrace.
+		cancelWhenFileExists(pidPath, cancel)
+		got := runGuarded(t, ctx, Request{})
+		requireVerdict(t, got, "interrupted", 2*cancelGrace)
+	})
+}
+
+// The check must not turn a healthy run into a failure: a complete answer, with
+// the context still active through a held stderr, is still a success.
+func TestRunSucceedsWhenTeardownFinishesInsideTheContext(t *testing.T) {
+	useGrandchildFakeSSH(t, "read-stderr-grandchild")
+	got := runGuarded(t, context.Background(), Request{})
+	if got.err != nil {
+		t.Fatalf("Run: %v", got.err)
+	}
+	if got.resp.Report == nil || !got.resp.Report.OK {
+		t.Fatalf("response did not carry the completed diagnosis: %+v", got.resp)
+	}
+}
+
+// requireVerdict checks that a run did not succeed, and that it failed with want in
+// its message within bound. The bound is for the teardown wait a held pipe can cause.
+func requireVerdict(t *testing.T, got runOutcome, want string, bound time.Duration) {
+	t.Helper()
+	if got.err == nil || !strings.Contains(got.err.Error(), want) {
+		t.Fatalf("Run error = %v, want it to say %q", got.err, want)
+	}
+	if got.elapsed > bound {
+		t.Errorf("Run took %s to give up, want at most %s", got.elapsed, bound)
 	}
 }
 

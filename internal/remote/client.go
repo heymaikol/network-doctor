@@ -440,6 +440,14 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	}
 	waitErr := cmd.Wait()
 
+	// The operation context is checked once more, after teardown, and this is where
+	// the verdict is decided. A caller cancellation or operation deadline that has
+	// ended by now is never a success, even with a whole answer in hand. One that
+	// ends after this check does not undo the verdict. transportError still chooses
+	// between interrupted and timed out, because it reads the caller's context first.
+	if decodeErr == nil && opCtx.Err() != nil {
+		decodeErr = opCtx.Err()
+	}
 	if decodeErr != nil {
 		return Response{}, transportError(ctx, opCtx, limit, dest, exitStatus(cmd, waitErr), errBuf.String(), decodeErr)
 	}

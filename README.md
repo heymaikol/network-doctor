@@ -39,7 +39,10 @@ Download a `.deb`, `.rpm`, or `.apk` from the
 [latest release](https://github.com/heymaikol/network-doctor/releases/latest)
 and install it with your package manager.
 
-### Other options
+Linux packages include both `netdoc` and `netdoc-sim`. For commands by
+platform, see the [Linux installation guide](docs/installation.md#linux).
+
+### Everywhere else
 
 Download a [prebuilt binary](https://github.com/heymaikol/network-doctor/releases/latest)
 or install with Go 1.27+:
@@ -48,9 +51,8 @@ or install with Go 1.27+:
 go install github.com/heymaikol/network-doctor/v2/cmd/netdoc@latest
 ```
 
-Linux packages also include `netdoc-sim` for Challenge Mode; Homebrew installs
-`netdoc` only. See the [installation guide](docs/installation.md) for setup,
-updates, and download verification.
+Homebrew installs `netdoc` only. See the
+[installation guide](docs/installation.md) for updates and download verification.
 
 ## Try it
 
@@ -69,6 +71,16 @@ It also tells you when there isn't enough information to identify the cause.
 Select a check to see its results, press `D` for details, `w` to save a report,
 or `?` to see the keyboard shortcuts.
 
+**Sharing a report?** Files saved with `w` can include private network details.
+Create a privacy-conscious support report instead:
+
+```sh
+netdoc --support support.ndoc github.com
+```
+
+Network Doctor does not upload the file. Review it before sharing.
+See [support reports](docs/reference.md#support-snapshots) for details.
+
 ## What can Network Doctor help with?
 
 - **Find where a connection fails.** Check your local network, DNS, internet
@@ -79,8 +91,8 @@ or `?` to see the keyboard shortcuts.
   over time.
 - **Investigate further.** Open familiar tools such as ping, traceroute, and
   DNS lookup from the terminal interface, or explore devices on your LAN.
-- **Save and share a diagnosis.** Keep a report for later, compare a working
-  connection with a broken one, or create a privacy-conscious support report.
+- **Save and compare diagnoses.** Keep a report for later, compare a working
+  connection with a broken one, or prepare a support report to share.
 - **Troubleshoot from another computer.** Run checks remotely or compare what
   two machines experience.
 - **Use it in scripts.** Get JSON output and exit codes with
@@ -99,6 +111,7 @@ On Linux, install a Linux package that includes `netdoc-sim`, then run:
 
 ```sh
 netdoc-sim challenge -daily
+netdoc-sim challenge -id V4-8F42C1  # Replay a friend's challenge
 ```
 
 On macOS or Windows, use the simulator's container image:
@@ -127,8 +140,8 @@ Contributions are welcome, from Go and terminal UI development to
 documentation, packaging, and testing on real networks. Start with
 [good first issues](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22good+first+issue%22),
 [help wanted](https://github.com/heymaikol/network-doctor/issues?q=is:issue+is:open+label:%22help+wanted%22),
-or [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues privately using
-[SECURITY.md](SECURITY.md).
+or [CONTRIBUTING.md](CONTRIBUTING.md). Run `./scripts/check.sh` to validate
+changes. Report security issues privately using [SECURITY.md](SECURITY.md).
 
 ## Support
 

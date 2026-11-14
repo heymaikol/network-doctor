@@ -430,9 +430,9 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 // output after the answer is reported with it. The two waits together take at
 // most two windows. When a window ends with no answer, stop is called and the
 // result is no response. When the trailing window ends with the answer in hand,
-// the answer is reported as it stands, and the reader is not waited on: a process
-// other than ssh can hold the pipe open after ssh is killed, and the caller closes
-// stdout to release it. Every channel is buffered, so the reader never blocks on a
+// stop is called, the answer is reported as it stands, and the reader is not
+// waited on: a process other than ssh can hold the pipe open after ssh is killed,
+// and the caller closes stdout to release it. Every channel is buffered, so the reader never blocks on a
 // send.
 func readAfterWriteFailure(stdout io.Reader, stop func()) (Response, error) {
 	type first struct {

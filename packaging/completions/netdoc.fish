@@ -12,6 +12,7 @@ complete -c netdoc -f
 complete -c netdoc -o toolbox -l toolbox -d 'Start in toolbox mode'
 complete -c netdoc -o json -l json -d 'Run the checks headless and print a JSON report'
 complete -c netdoc -o watch -l watch -d 'Continuously re-run checks'
+complete -c netdoc -o watch-interval -l watch-interval -r -f -d 'Pause between watch passes (default 5s)'
 complete -c netdoc -o profile -l profile -r -f -d 'Run a built-in service profile' \
     -a 'github ssh smtp web list'
 # -F re-enables the file completion the -f above suppressed: this one value is

@@ -152,14 +152,30 @@ names and the status vocabulary
 are a stable contract, safe to script against.
 .TP
 .B \-watch
-Continuously re-run the checks, starting another pass five seconds after each
-one finishes. In the terminal UI this shows the last 20 states and a failure
+Continuously re-run the checks, starting another pass after each one finishes.
+The pause is five seconds unless
+.B \-watch\-interval
+names another. In the terminal UI this shows the last 20 states and a failure
 count per check. Combined with
 .BR \-json ,
 it streams one compact JSON report per line until the process is interrupted;
 those lines carry an extra
 .B ts
 field (RFC 3339, UTC) and are otherwise the one-shot report unchanged.
+.TP
+.BI \-watch\-interval " duration"
+The pause between
+.B \-watch
+passes, measured from the end of one pass to the start of the next, so a slow
+pass never overlaps the next one and is never cut short. The default is
+.BR 5s .
+It must be at least
+.BR 1s ,
+and it is refused without
+.BR \-watch .
+The per-check timeout set by
+.B \-timeout
+is independent of this pause.
 .TP
 .BI \-profile " name"
 Run a built-in service diagnostic plan headlessly. Use

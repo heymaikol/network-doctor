@@ -20,7 +20,6 @@ import (
 	"github.com/heymaikol/network-doctor/v2/internal/report"
 	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
-	"github.com/heymaikol/network-doctor/v2/internal/ui"
 )
 
 // runProfile executes each finite component plan through the ordinary
@@ -88,7 +87,7 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 		select {
 		case <-ctx.Done():
 			return code
-		case <-time.After(ui.WatchEvery):
+		case <-watchAfter(base.pause()):
 		}
 	}
 }

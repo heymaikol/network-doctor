@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"cmp"
 	"context"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -137,10 +139,24 @@ const (
 	ctrlCNotice   = "Press Ctrl+C again to quit"
 )
 
-// WatchEvery is the gap between repeat passes in watch mode, shared so the TUI
-// and the headless -json -watch loop can't drift apart. A var so tests don't
-// have to sleep through it.
+// WatchEvery is the default gap between repeat passes in watch mode, shared so
+// the TUI and the headless -json -watch loop can't drift apart. A var so tests
+// don't have to sleep through it.
 var WatchEvery = 5 * time.Second
+
+// MinWatchInterval is the shortest gap --watch-interval accepts. A shorter one
+// would have the probes and the reference services answer every few hundred
+// milliseconds.
+const MinWatchInterval = time.Second
+
+// ValidateWatchInterval refuses a gap below MinWatchInterval, which covers zero
+// and negative durations.
+func ValidateWatchInterval(d time.Duration) error {
+	if d < MinWatchInterval {
+		return fmt.Errorf("-watch-interval must be at least %s, not %s", MinWatchInterval, d)
+	}
+	return nil
+}
 
 // Replaced after each result revision; readers never modify its slices or map.
 type resultAnalysis struct {
@@ -297,6 +313,9 @@ type model struct {
 
 	toolbox bool // --toolbox: chain deferred until 'r'
 	watch   bool
+	// watchEvery is the gap this run waits after a completed pass. Zero means
+	// WatchEvery, read when the wait is armed.
+	watchEvery time.Duration
 	// routeEvents says each Watch session the model builds follows the platform's
 	// route-change notifications. It is set by WithRouteEvents, so tests that
 	// build models never open a netlink socket.
@@ -344,6 +363,16 @@ func WithProbeTimeout(d time.Duration) Option {
 	return func(m *model) {
 		if d > 0 {
 			m.probeTimeout = d
+		}
+	}
+}
+
+// WithWatchInterval sets the gap between the passes of this run's Watch. A
+// non-positive value leaves WatchEvery in place, like WithProbeTimeout.
+func WithWatchInterval(d time.Duration) Option {
+	return func(m *model) {
+		if d > 0 {
+			m.watchEvery = d
 		}
 	}
 }
@@ -980,5 +1009,10 @@ func (m *model) buildPass() {
 
 func (m model) watchCmd() tea.Cmd {
 	gen := m.generation
-	return tea.Tick(WatchEvery, func(time.Time) tea.Msg { return watchMsg{gen: gen} })
+	return tea.Tick(m.watchInterval(), func(time.Time) tea.Msg { return watchMsg{gen: gen} })
+}
+
+// watchInterval is the gap this run waits after a completed pass.
+func (m model) watchInterval() time.Duration {
+	return cmp.Or(m.watchEvery, WatchEvery)
 }

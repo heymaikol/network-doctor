@@ -417,7 +417,7 @@ func (m model) headerView() string {
 		groups = append(groups, m.targetHP())
 	}
 	if m.watch {
-		session := []string{"watch"}
+		session := []string{"watch " + m.watchInterval().String()}
 		if latest, ok := m.incidents.Latest(); ok {
 			if latest.Active() {
 				session = append(session, "incident active for "+durationText(latest.Duration(m.incidentNow())))

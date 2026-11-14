@@ -40,6 +40,10 @@ const (
 	// fakeSSHGrandchild names a file the grandchild-holding stand-in writes its
 	// pid to, so the test can stop the grandchild when it is done.
 	fakeSSHGrandchild = "NETDOC_TEST_FAKE_SSH_GRANDCHILD"
+	// fakeSSHGrandchildStop names the file whose existence ends the grandchild,
+	// so the test can stop it even when the stand-in was killed before it wrote
+	// the pid.
+	fakeSSHGrandchildStop = "NETDOC_TEST_FAKE_SSH_GRANDCHILD_STOP"
 )
 
 func TestMain(m *testing.M) {
@@ -139,13 +143,23 @@ func fakeSSH(mode string) int {
 			_ = json.NewEncoder(os.Stdout).Encode(resp)
 		}
 		grandchild := exec.Command(os.Args[0]) //nolint:gosec // G204: re-runs this test binary with a fixed helper mode.
-		grandchild.Env = append(os.Environ(), fakeSSHEnv+"=hang")
+		grandchild.Env = append(os.Environ(), fakeSSHEnv+"=hold")
 		grandchild.Stdout = os.Stdout
 		if err := grandchild.Start(); err != nil {
 			return 1
 		}
 		if path := os.Getenv(fakeSSHGrandchild); path != "" {
 			_ = os.WriteFile(path, []byte(strconv.Itoa(grandchild.Process.Pid)), 0o600) //nolint:gosec // G703: a path this test just created.
+		}
+		return 0
+	case "hold":
+		// A grandchild that holds an inherited stdout until the test writes its
+		// stop file. The backstop keeps an orphan from running for long.
+		stop := os.Getenv(fakeSSHGrandchildStop)
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(stop); err == nil { //nolint:gosec // G703: the stop path is a file this test just created.
+				return 0
+			}
 		}
 		return 0
 	case "hang":
@@ -710,14 +724,19 @@ func TestRunEndsAStalledAnswerOnTheDeadlineOrCancellation(t *testing.T) {
 }
 
 // useGrandchildFakeSSH runs a stand-in whose grandchild keeps its stdout open,
-// and stops that grandchild when the test ends.
+// and stops that grandchild when the test ends. The stop file reaches the
+// grandchild even when the stand-in was killed before it recorded the pid.
 func useGrandchildFakeSSH(t *testing.T, mode string) {
 	t.Helper()
 	useFakeSSH(t, mode)
-	pidPath := filepath.Join(t.TempDir(), "grandchild")
+	dir := t.TempDir()
+	pidPath := filepath.Join(dir, "grandchild")
+	stopPath := filepath.Join(dir, "stop")
 	t.Setenv(fakeSSHGrandchild, pidPath)
+	t.Setenv(fakeSSHGrandchildStop, stopPath)
 	t.Cleanup(func() {
-		data, err := os.ReadFile(pidPath) // #nosec G304 -- a path this test just created.
+		_ = os.WriteFile(stopPath, nil, 0o600) //nolint:gosec // G703: a path this test just created.
+		data, err := os.ReadFile(pidPath)      // #nosec G304 -- a path this test just created.
 		if err != nil {
 			return
 		}

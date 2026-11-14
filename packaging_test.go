@@ -254,13 +254,24 @@ func TestReleaseWorkflowDoesNotBuildCOPRAutomatically(t *testing.T) {
 }
 
 func TestFedoraInstallationDocsUsePrebuiltRPM(t *testing.T) {
-	for _, name := range []string{"README.md", "docs/installation.md"} {
-		t.Run(name, func(t *testing.T) {
-			data, err := os.ReadFile(name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			content := string(data)
+	readme, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation, err := os.ReadFile("docs/installation.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, file := range []struct {
+		name string
+		data []byte
+	}{
+		{"README.md", readme},
+		{"docs/installation.md", installation},
+	} {
+		t.Run(file.name, func(t *testing.T) {
+			content := string(file.data)
 			if !strings.Contains(content, "Fedora") ||
 				!strings.Contains(content, "Rawhide") ||
 				!strings.Contains(content, "dnf install ./network-doctor_") {

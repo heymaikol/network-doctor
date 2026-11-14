@@ -254,33 +254,54 @@ func TestReleaseWorkflowDoesNotBuildCOPRAutomatically(t *testing.T) {
 }
 
 func TestFedoraInstallationDocsUsePrebuiltRPM(t *testing.T) {
-	readme, err := os.ReadFile("README.md")
+	data, err := os.ReadFile("docs/installation.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	installation, err := os.ReadFile("docs/installation.md")
-	if err != nil {
-		t.Fatal(err)
+	_, fedora, ok := strings.Cut(string(data), "\n### Fedora (stable and Rawhide): prebuilt release RPM\n")
+	if !ok {
+		t.Fatal("installation guide has no Fedora section")
 	}
+	fedora, _, ok = strings.Cut(fedora, "\n### ")
+	if !ok {
+		t.Fatal("installation guide's Fedora section never ends")
+	}
+	if !strings.Contains(fedora, "dnf install ./network-doctor_") {
+		t.Error("Fedora installation guide must document the prebuilt release RPM")
+	}
+	if strings.Contains(fedora, "dnf copr enable") {
+		t.Error("Fedora installation guide must not recommend the retired COPR channel")
+	}
+}
 
-	for _, file := range []struct {
-		name string
-		data []byte
-	}{
-		{"README.md", readme},
-		{"docs/installation.md", installation},
+func TestREADMEKeepsLinuxPackageQuickStart(t *testing.T) {
+	data, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, linux, ok := strings.Cut(string(data), "\n### Linux packages\n")
+	if !ok {
+		t.Fatal("README has no Linux packages quick-start section")
+	}
+	linux, _, ok = strings.Cut(linux, "\n### Everywhere else\n")
+	if !ok {
+		t.Fatal("README Linux packages section never ends")
+	}
+	for _, want := range []string{
+		"`.deb`", "`.rpm`", "`.apk`",
+		"/releases/latest",
+		"`netdoc`", "`netdoc-sim`",
+		"(docs/installation.md#linux)",
 	} {
-		t.Run(file.name, func(t *testing.T) {
-			content := string(file.data)
-			if !strings.Contains(content, "Fedora") ||
-				!strings.Contains(content, "Rawhide") ||
-				!strings.Contains(content, "dnf install ./network-doctor_") {
-				t.Error("Fedora installation guidance must document prebuilt release RPMs")
-			}
-			if strings.Contains(content, "dnf copr enable") {
-				t.Error("installation guidance must not recommend the retired COPR channel")
-			}
-		})
+		if !strings.Contains(linux, want) {
+			t.Errorf("README Linux packages section is missing %q", want)
+		}
+	}
+	if strings.Contains(linux, "\n#### ") || strings.Contains(linux, "sudo ") {
+		t.Error("README Linux packages section should remain a short overview")
+	}
+	if strings.Contains(linux, "dnf copr enable") {
+		t.Error("README must not recommend the retired COPR channel")
 	}
 }
 

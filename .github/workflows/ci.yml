@@ -276,7 +276,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [check, coverage, race, race-integration, fuzz]
+        shard: [check, coverage, supervisor-netns, race, race-integration, fuzz]
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -346,7 +346,7 @@ jobs:
       # on, which denies the backend the namespace it needs. Clearing it on the
       # throwaway runner keeps the tests rootless; netdoc-sim itself still
       # refuses to escalate.
-      - if: matrix.shard == 'coverage'
+      - if: matrix.shard == 'coverage' || matrix.shard == 'supervisor-netns'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       #
       # The tunnel import cases expect the tunl0 fallback device, which the kernel
@@ -383,7 +383,7 @@ jobs:
       # nexthop changes inside its own user and network namespace, and must run
       # here rather than skip. The link-local source test builds a veth pair
       # between two namespaces the same way.
-      - if: matrix.shard == 'coverage'
+      - if: matrix.shard == 'supervisor-netns'
         name: Run route-event, DNS-search and link-local source namespace tests
         run: go test -count=1 -tags netns_integration -run '^Test(RouteEvents|PublicDNSSearchIsolation|LinkLocalSourceBindsThroughItsInterface)' ./internal/diagnostic
         env:
@@ -396,7 +396,9 @@ jobs:
       # only skip is TestFRRRunsUnderTheSupervisor reporting that no FRR copy is staged.
       # go test's own exit status still fails the step, and the gate runs either way so
       # the log shows the output.
-      - if: matrix.shard == 'coverage'
+      # Its own shard, because it writes no coverage profile: nothing merges it,
+      # so it can run beside the coverage shard instead of after it.
+      - if: matrix.shard == 'supervisor-netns'
         name: Run supervisor namespace tests
         run: |
           set -uo pipefail

@@ -71,7 +71,7 @@ namespaces; they never need root. That gate keeps `-v` because a skipped run and
 a real one both print just `ok` otherwise, and `-count=1` because a cached
 result would not have exercised any namespace at all.
 
-The supervisor and capture namespace suites run on the `linux (coverage)` job with
+The supervisor and capture namespace suites run on the `linux (supervisor-netns)` job with
 `NETDOC_SIM_REQUIRE_NETNS=1`, so a host that cannot create namespaces fails the job
 rather than skipping. `cmd/netnsgate` reads the `go test -json` stream and fails
 the job unless both packages pass, both required namespace tests run and pass, and

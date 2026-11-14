@@ -291,7 +291,7 @@ func TestREADMEKeepsLinuxPackageQuickStart(t *testing.T) {
 		"`.deb`", "`.rpm`", "`.apk`",
 		"/releases/latest",
 		"`netdoc`", "`netdoc-sim`",
-		"(docs/installation.md)",
+		"(docs/installation.md#linux)",
 	} {
 		if !strings.Contains(linux, want) {
 			t.Errorf("README Linux packages section is missing %q", want)

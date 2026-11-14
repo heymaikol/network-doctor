@@ -39,7 +39,7 @@ guides.
 ## Getting it
 
 Every Linux package ships `netdoc-sim` beside `netdoc`, from the same release
-and at the same version; see [Install](../README.md#linux). Nothing else to
+and at the same version; see [Install](../README.md#linux-packages). Nothing else to
 fetch:
 
 ```sh

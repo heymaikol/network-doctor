@@ -433,10 +433,16 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			case <-time.After(cancelGrace):
 				// The answer stands unless something other than whitespace followed it.
 				// A held pipe cannot show whether an unfinished value is still coming, so
-				// such a byte is a second response. Closing stdout releases the reader,
-				// and the result it returns is not read, since a closed pipe is not a
-				// clean end. The drain below then returns at once.
+				// such a byte is a second response. Closing stdout releases the reader.
+				// Its result is not read, since a closed pipe is not a clean end, but the
+				// wait for it is: the reader records what it took before it returns, so
+				// the check below then sees every byte stdout delivered. The wait is
+				// bounded, for a platform where closing does not release the read.
 				_ = stdout.Close()
+				select {
+				case <-trailing:
+				case <-time.After(cancelGrace):
+				}
 				if watch.seen.Load() {
 					framingErr = errors.New("the remote sent more than one response")
 				}
@@ -489,10 +495,15 @@ type trailingWatch struct {
 func (w *trailingWatch) Read(p []byte) (int, error) {
 	n, err := w.r.Read(p)
 	if w.armed.Load() && hasNonSpace(p[:n]) {
+		trailingReadHook()
 		w.seen.Store(true)
 	}
 	return n, err
 }
+
+// trailingReadHook runs between a read that delivered a non-whitespace byte after
+// the response and the record of it. Tests replace it to hold that window open.
+var trailingReadHook = func() {}
 
 // hasNonSpace reports whether b holds anything other than JSON whitespace.
 func hasNonSpace(b []byte) bool {

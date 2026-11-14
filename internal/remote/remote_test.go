@@ -190,6 +190,9 @@ func fakeSSH(mode string) int {
 			_ = os.Stdout.Close()
 			return startHolder(false)
 		case "read-partial-grandchild":
+			// After a pause, so the bytes arrive once the parent has decoded the response
+			// and is in its trailing check, not in the same read as the response.
+			time.Sleep(300 * time.Millisecond)
 			fmt.Fprint(os.Stdout, "\n{")
 		default:
 			fmt.Fprint(os.Stdout, "\n\n")
@@ -1138,6 +1141,20 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 		useGrandchildFakeSSH(t, "read-partial-grandchild")
 		got := runGuarded(t, context.Background(), Request{})
 		requireVerdict(t, got, "more than one response", responseEOFGrace+cancelGrace+time.Second)
+	})
+	// A byte can be delivered just as the teardown wait ends, and the reader has not
+	// recorded it yet. The check must still see it. The hook holds that window open
+	// until after the teardown wait would have checked, so a check that does not wait
+	// for the reader accepts the answer here.
+	t.Run("a byte delivered as the teardown wait ends is still counted", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-partial-grandchild")
+		release := make(chan struct{})
+		previous := trailingReadHook
+		trailingReadHook = func() { <-release }
+		t.Cleanup(func() { trailingReadHook = previous })
+		time.AfterFunc(5*time.Second, func() { close(release) })
+		got := runGuarded(t, context.Background(), Request{})
+		requireVerdict(t, got, "more than one response", 6*time.Second)
 	})
 	t.Run("whitespace after the answer still stands", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-space-grandchild")

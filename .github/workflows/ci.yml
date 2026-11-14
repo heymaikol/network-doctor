@@ -265,10 +265,10 @@ jobs:
   # Every suite the other two hosts cannot run lives here: the contributor
   # gate, coverage, race, fuzz, and real network namespaces. They are
   # independent of each other, so they run as parallel shards and the required
-  # gate below costs the longest shard rather than their sum. Nothing is split
-  # across a shard boundary and merged back, with one exception: all four
-  # coverage-producing suites stay in the `coverage` shard so `coverage.out`
-  # is still merged from complete profiles in one place.
+  # gate below costs the longest shard rather than their sum. The one thing
+  # split across a shard boundary is coverage: the unit and integration
+  # profiles come from `unit-coverage`, the namespace profiles from `coverage`,
+  # and the `coverage-merge` job below merges all four into one `coverage.out`.
   #
   # Seeded netem scenarios require iproute2 6.6 or newer, hence ubuntu-26.04.
   linux:
@@ -276,7 +276,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [check, coverage, supervisor-netns, race, race-integration, fuzz]
+        shard: [check, unit-coverage, coverage, supervisor-netns, race, race-integration, fuzz]
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -324,16 +324,25 @@ jobs:
         name: Run the fast local check contributors are asked to run
         run: ./scripts/check.sh
 
-      # Every coverage-producing suite runs in this one shard, so the merge
-      # below still sees all four profiles without moving them between jobs.
-      - if: matrix.shard == 'coverage'
+      # The unit and loopback profiles come from their own shard, which uploads
+      # them for the coverage-merge job. Nothing else writes them.
+      - if: matrix.shard == 'unit-coverage'
         name: Run tests with coverage
         run: |
           mkdir -p coverage
           go test -covermode=set -coverprofile=coverage/unit.out ./...
-      - if: matrix.shard == 'coverage'
+      - if: matrix.shard == 'unit-coverage'
         name: Run loopback integration tests with coverage
         run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration $INTEGRATION_PACKAGES
+      - if: matrix.shard == 'unit-coverage'
+        name: Upload unit and integration coverage profiles
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-unit
+          path: |
+            coverage/unit.out
+            coverage/integration.out
+          if-no-files-found: error
       # Builds real network namespaces to run netdoc inside deliberately broken
       # networks. Rootless: it uses an unprivileged user namespace.
       #
@@ -361,6 +370,10 @@ jobs:
           sudo modprobe wireguard
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y wireguard-tools
+      # The namespace shard no longer inherits this directory from the unit step.
+      - if: matrix.shard == 'coverage'
+        name: Create the coverage directory
+        run: mkdir -p coverage
       #
       # Each scenario builds its own namespaces under a random run id, so the
       # runs are independent and -parallel decides how many stand at once. Most
@@ -414,16 +427,13 @@ jobs:
           go run ./cmd/netnsgate < "$RUNNER_TEMP/supervisor-netns.json" || rc=$?
           exit "$rc"
       - if: matrix.shard == 'coverage'
-        name: Merge coverage
-        run: |
-          go run ./cmd/covermerge -o coverage.out coverage/unit.out coverage/integration.out coverage/netns.out coverage/netns-stress.out
-          go tool cover -func=coverage.out
-      - if: matrix.shard == 'coverage'
-        name: Upload merged coverage
+        name: Upload namespace coverage profiles
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: go-coverage
-          path: coverage.out
+          name: coverage-netns
+          path: |
+            coverage/netns.out
+            coverage/netns-stress.out
           if-no-files-found: error
 
       # The job runner does concurrent subprocess cancellation; gate it.
@@ -477,6 +487,43 @@ jobs:
       - if: matrix.shard == 'fuzz'
         run: go test -run='^$' -fuzz=FuzzGenerateHuntCase -fuzztime=10s ./internal/simulation
 
+  # Merges the profiles the coverage shards upload into the one go-coverage
+  # artifact. It waits for every linux shard, so it runs after the slowest of
+  # them. A shard that fails or is skipped leaves no profile, and covermerge
+  # refuses a missing input, so the merge fails rather than shrinking the
+  # coverage it reports.
+  coverage-merge:
+    name: coverage merge
+    needs: [linux]
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Download the unit and integration profiles
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-unit
+          path: coverage
+      - name: Download the namespace profiles
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-netns
+          path: coverage
+      - name: Merge coverage
+        run: |
+          go run ./cmd/covermerge -o coverage.out coverage/unit.out coverage/integration.out coverage/netns.out coverage/netns-stress.out
+          go tool cover -func=coverage.out
+      - name: Upload merged coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-coverage
+          path: coverage.out
+          if-no-files-found: error
+
   # The required Linux check. It carries the name branch protection asks for,
   # and it is the only job that can report Linux green, so no shard can be
   # mistaken for the whole gate.
@@ -490,7 +537,9 @@ jobs:
   # rather than naming shards means a shard added later is covered by default.
   linux-gate:
     name: test (ubuntu-26.04)
-    needs: [linux]
+    # coverage-merge is named here because it is a job of its own, not a shard:
+    # a failed or skipped merge must fail the required check too.
+    needs: [linux, coverage-merge]
     if: always()
     runs-on: ubuntu-latest
     steps:

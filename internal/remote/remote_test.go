@@ -13,7 +13,12 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,6 +37,9 @@ const (
 	// still running, which is how a test proves the process was really stopped
 	// rather than left behind writing into a pipe nobody reads.
 	fakeSSHAlive = "NETDOC_TEST_FAKE_SSH_ALIVE"
+	// fakeSSHGrandchild names a file the grandchild-holding stand-in writes its
+	// pid to, so the test can stop the grandchild when it is done.
+	fakeSSHGrandchild = "NETDOC_TEST_FAKE_SSH_GRANDCHILD"
 )
 
 func TestMain(m *testing.M) {
@@ -118,6 +126,26 @@ func fakeSSH(mode string) int {
 			stall()
 		case "answer-open-stall":
 			stall()
+		}
+		return 0
+	case "answer-grandchild", "silent-grandchild":
+		// A stand-in that starts a grandchild sharing its stdout, then exits
+		// without reading its request. The grandchild keeps the pipe open after
+		// the stand-in is gone, which is the stuck pipe the client must not wait on.
+		if mode == "answer-grandchild" {
+			resp := Response{Protocol: Protocol, Tool: snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}}
+			rep, snap := diagnosedPair(resp.Tool, true)
+			resp.Report, resp.Snapshot = &rep, &snap
+			_ = json.NewEncoder(os.Stdout).Encode(resp)
+		}
+		grandchild := exec.Command(os.Args[0]) //nolint:gosec // G204: re-runs this test binary with a fixed helper mode.
+		grandchild.Env = append(os.Environ(), fakeSSHEnv+"=hang")
+		grandchild.Stdout = os.Stdout
+		if err := grandchild.Start(); err != nil {
+			return 1
+		}
+		if path := os.Getenv(fakeSSHGrandchild); path != "" {
+			_ = os.WriteFile(path, []byte(strconv.Itoa(grandchild.Process.Pid)), 0o600) //nolint:gosec // G703: a path this test just created.
 		}
 		return 0
 	case "hang":
@@ -681,6 +709,239 @@ func TestRunEndsAStalledAnswerOnTheDeadlineOrCancellation(t *testing.T) {
 	})
 }
 
+// useGrandchildFakeSSH runs a stand-in whose grandchild keeps its stdout open,
+// and stops that grandchild when the test ends.
+func useGrandchildFakeSSH(t *testing.T, mode string) {
+	t.Helper()
+	useFakeSSH(t, mode)
+	pidPath := filepath.Join(t.TempDir(), "grandchild")
+	t.Setenv(fakeSSHGrandchild, pidPath)
+	t.Cleanup(func() {
+		data, err := os.ReadFile(pidPath) // #nosec G304 -- a path this test just created.
+		if err != nil {
+			return
+		}
+		if pid, err := strconv.Atoi(string(data)); err == nil {
+			if p, err := os.FindProcess(pid); err == nil {
+				_ = p.Kill()
+			}
+		}
+	})
+}
+
+// A grandchild that inherits the stand-in's stdout keeps the pipe open after the
+// stand-in is gone. Cancellation and the operation deadline must still end the run
+// promptly, rather than after the grace window, whether or not an answer arrived.
+func TestRunEndsPromptlyWhileAGrandchildHoldsStdout(t *testing.T) {
+	for _, mode := range []string{"answer-grandchild", "silent-grandchild"} {
+		t.Run(mode+"/cancellation", func(t *testing.T) {
+			useGrandchildFakeSSH(t, mode)
+			previous := writeRequest
+			writeRequest = writeUntilRefused(t)
+			t.Cleanup(func() { writeRequest = previous })
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+			start := time.Now()
+			_, err := Run(ctx, "server", "", Request{})
+			if err == nil || !strings.Contains(err.Error(), "interrupted") {
+				t.Fatalf("Run error = %v, want the run interrupted", err)
+			}
+			if elapsed := time.Since(start); elapsed >= responseEOFGrace {
+				t.Errorf("Run took %s to notice the cancellation, so it waited out the grace window", elapsed)
+			}
+		})
+		t.Run(mode+"/deadline", func(t *testing.T) {
+			useGrandchildFakeSSH(t, mode)
+			useShortOperationBound(t, 300*time.Millisecond)
+			previous := writeRequest
+			writeRequest = writeUntilRefused(t)
+			t.Cleanup(func() { writeRequest = previous })
+			start := time.Now()
+			_, err := Run(context.Background(), "server", "", Request{TimeoutMs: 20})
+			if err == nil || !strings.Contains(err.Error(), "timed out") {
+				t.Fatalf("Run error = %v, want the remote run timed out", err)
+			}
+			if elapsed := time.Since(start); elapsed >= responseEOFGrace {
+				t.Errorf("Run took %s to give up on the deadline, so it waited out the grace window", elapsed)
+			}
+		})
+	}
+	// With no deadline and no cancellation, the trailing window ends and the run
+	// tears the pipe down itself. The grandchild still holds stdout, so Run must
+	// release it rather than wait on it.
+	t.Run("answer-grandchild/no deadline", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "answer-grandchild")
+		previous := writeRequest
+		writeRequest = writeUntilRefused(t)
+		t.Cleanup(func() { writeRequest = previous })
+		done := make(chan error, 1)
+		go func() {
+			_, err := Run(context.Background(), "server", "", Request{})
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "the request did not reach it whole") {
+				t.Fatalf("Run error = %v, want the answer reported as not delivered", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("Run waited on a grandchild that held stdout")
+		}
+	})
+}
+
+// stalledReader hands out prefix, then blocks every further read until the test
+// releases it. entered is closed when the first blocked read starts, so a test
+// can act while the helper is waiting. returned is closed when that read ends.
+type stalledReader struct {
+	prefix   *bytes.Reader
+	reads    atomic.Int32
+	entered  chan struct{}
+	release  chan struct{}
+	returned chan struct{}
+	enterOne sync.Once
+	letGoOne sync.Once
+	backOne  sync.Once
+}
+
+func newStalledReader(prefix []byte) *stalledReader {
+	return &stalledReader{
+		prefix:   bytes.NewReader(prefix),
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+		returned: make(chan struct{}),
+	}
+}
+
+func (r *stalledReader) Read(p []byte) (int, error) {
+	r.reads.Add(1)
+	if r.prefix.Len() > 0 {
+		return r.prefix.Read(p)
+	}
+	r.enterOne.Do(func() { close(r.entered) })
+	defer r.backOne.Do(func() { close(r.returned) })
+	<-r.release
+	return 0, io.ErrClosedPipe
+}
+
+func (r *stalledReader) letGo() { r.letGoOne.Do(func() { close(r.release) }) }
+
+// answerJSON is one complete answer, as a worker writes it.
+func answerJSON(t *testing.T) []byte {
+	t.Helper()
+	tool := snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}
+	rep, snap := diagnosedPair(tool, true)
+	body, err := json.Marshal(Response{Protocol: Protocol, Tool: tool, Report: &rep, Snapshot: &snap})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(body, '\n')
+}
+
+func waitFor(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
+	}
+}
+
+// The helper waits in two windows, the answer window and the trailing window. A
+// cancellation in either must end the wait at once with the context's own error,
+// not after the grace window, and the reader must not be waited on.
+func TestReadAfterWriteFailureEndsOnCancellationInEitherWindow(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		prefix []byte
+	}{
+		{"answer window", nil},
+		{"trailing window", answerJSON(t)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newStalledReader(tc.prefix)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var stops atomic.Int32
+			type result struct {
+				resp Response
+				err  error
+			}
+			done := make(chan result, 1)
+			go func() {
+				resp, err := readAfterWriteFailure(ctx, r, func() { stops.Add(1) })
+				done <- result{resp, err}
+			}()
+			waitFor(t, r.entered, "the read to block")
+			cancel()
+			var got result
+			select {
+			case got = <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("readAfterWriteFailure kept waiting after its context was cancelled")
+			}
+			if !errors.Is(got.err, context.Canceled) {
+				t.Errorf("readAfterWriteFailure = %v, want the cancellation itself", got.err)
+			}
+			if n := stops.Load(); n != 1 {
+				t.Errorf("ssh was stopped %d times, want 1", n)
+			}
+			r.letGo()
+			waitFor(t, r.returned, "the blocked read to end once released")
+		})
+	}
+}
+
+// A deadline ends the wait the same way cancellation does, and is reported as the
+// deadline rather than as the grace window running out.
+func TestReadAfterWriteFailureEndsOnDeadlineInEitherWindow(t *testing.T) {
+	for _, prefix := range [][]byte{nil, answerJSON(t)} {
+		r := newStalledReader(prefix)
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(20*time.Millisecond))
+		defer cancel()
+		var stops atomic.Int32
+		_, err := readAfterWriteFailure(ctx, r, func() { stops.Add(1) })
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("readAfterWriteFailure with prefix %d bytes = %v, want the deadline itself", len(prefix), err)
+		}
+		if n := stops.Load(); n != 1 {
+			t.Errorf("ssh was stopped %d times, want 1", n)
+		}
+		r.letGo()
+	}
+}
+
+// A context that has already ended must not start a read at all.
+func TestReadAfterWriteFailureDoesNotReadOnAnEndedContext(t *testing.T) {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want error
+	}{
+		{"cancelled", cancelled, context.Canceled},
+		{"expired", expired, context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newStalledReader(answerJSON(t))
+			var stops atomic.Int32
+			_, err := readAfterWriteFailure(tc.ctx, r, func() { stops.Add(1) })
+			if !errors.Is(err, tc.want) {
+				t.Errorf("readAfterWriteFailure = %v, want %v", err, tc.want)
+			}
+			if n := r.reads.Load(); n != 0 {
+				t.Errorf("the reader was read %d times after the context ended, want none", n)
+			}
+			if n := stops.Load(); n != 1 {
+				t.Errorf("ssh was stopped %d times, want 1", n)
+			}
+		})
+	}
+}
+
 // After the grace window a write-failure read gives up on stdout. A pipe that
 // never ends, which a process other than ssh can keep open after ssh is killed,
 // must not hold the run.
@@ -695,7 +956,7 @@ func TestReadAfterWriteFailureDoesNotWaitForAPipeThatNeverEnds(t *testing.T) {
 	stopped := 0
 	done := make(chan error, 1)
 	go func() {
-		_, err := readAfterWriteFailure(r, func() { stopped++ })
+		_, err := readAfterWriteFailure(context.Background(), r, func() { stopped++ })
 		done <- err
 	}()
 	select {

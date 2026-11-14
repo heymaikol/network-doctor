@@ -357,7 +357,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		// output says more than the broken pipe does, so it decides the verdict.
 		// A clean answer cannot be this request's, because the request never
 		// arrived whole.
-		resp, decodeErr = readAfterWriteFailure(stdout, func() { _ = cmd.Process.Kill() })
+		resp, decodeErr = readAfterWriteFailure(opCtx, stdout, func() { _ = cmd.Process.Kill() })
 		stopSSH = true
 	} else {
 		resp, dec, limited, decodeErr = decodeResponse(stdout)
@@ -428,13 +428,19 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 // value gets responseEOFGrace to arrive. Once it has, the trailing check runs on
 // the same decoder with a window of its own, as it does on the normal path, so
 // output after the answer is reported with it. The two waits together take at
-// most two windows. When a window ends with no answer, stop is called and the
-// result is no response. When the trailing window ends with the answer in hand,
-// stop is called, the answer is reported as it stands, and the reader is not
-// waited on: a process other than ssh can hold the pipe open after ssh is killed,
-// and the caller closes stdout to release it. Every channel is buffered, so the reader never blocks on a
-// send.
-func readAfterWriteFailure(stdout io.Reader, stop func()) (Response, error) {
+// most two windows. Either wait also ends as soon as ctx ends, returning ctx's
+// error, so a cancelled or timed-out run does not wait on a pipe that stays open.
+// When a window ends with no answer, stop is called and the result is no
+// response. When the trailing window ends with the answer in hand, stop is
+// called, the answer is reported as it stands, and the reader is not waited on: a
+// process other than ssh can hold the pipe open after ssh is killed, and the
+// caller closes stdout to release it. Every channel is buffered, so the reader
+// never blocks on a send.
+func readAfterWriteFailure(ctx context.Context, stdout io.Reader, stop func()) (Response, error) {
+	if err := ctx.Err(); err != nil {
+		stop()
+		return Response{}, err
+	}
 	type first struct {
 		resp Response
 		err  error
@@ -456,6 +462,9 @@ func readAfterWriteFailure(stdout io.Reader, stop func()) (Response, error) {
 	case <-timer.C:
 		stop()
 		return Response{}, ErrNoResponse
+	case <-ctx.Done():
+		stop()
+		return Response{}, ctx.Err()
 	}
 	if got.err != nil {
 		return Response{}, got.err
@@ -468,6 +477,9 @@ func readAfterWriteFailure(stdout io.Reader, stop func()) (Response, error) {
 	case <-timer.C:
 		stop()
 		return Response{}, requestNotDelivered(got.resp, nil)
+	case <-ctx.Done():
+		stop()
+		return Response{}, ctx.Err()
 	}
 }
 

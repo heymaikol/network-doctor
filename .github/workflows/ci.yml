@@ -324,8 +324,6 @@ jobs:
         name: Run the fast local check contributors are asked to run
         run: ./scripts/check.sh
 
-      # The unit and loopback profiles come from their own shard, which uploads
-      # them for the coverage-merge job. Nothing else writes them.
       - if: matrix.shard == 'unit-coverage'
         name: Run tests with coverage
         run: |
@@ -529,8 +527,7 @@ jobs:
   # rather than naming shards means a shard added later is covered by default.
   linux-gate:
     name: test (ubuntu-26.04)
-    # coverage-merge is named here because it is a job of its own, not a shard:
-    # a failed or skipped merge must fail the required check too.
+    # Named because coverage-merge is a job, not a shard, and must fail this too.
     needs: [linux, coverage-merge]
     if: always()
     runs-on: ubuntu-latest

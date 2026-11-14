@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -352,6 +353,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	var dec *json.Decoder
 	var limited *io.LimitedReader
 	var decodeErr error
+	watch := &trailingWatch{r: stdout}
 	stopSSH := false
 	if _, err := writeRequest(stdin, body); err != nil {
 		// A failed write means ssh stopped taking the request, most often by
@@ -374,12 +376,20 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		}
 		value := make(chan first, 1)
 		go func() {
-			r, d, l, err := decodeResponse(stdout)
+			r, d, l, err := decodeResponse(watch)
 			value <- first{r, d, l, err}
 		}()
 		select {
 		case got := <-value:
 			resp, dec, limited, decodeErr = got.resp, got.dec, got.limited, got.err
+			if decodeErr == nil {
+				// The trailing check is about to read. Bytes the decoder already took
+				// past the response sit in its buffer, not in the reader, so check them.
+				watch.armed.Store(true)
+				if rest, _ := io.ReadAll(dec.Buffered()); hasNonSpace(rest) {
+					watch.seen.Store(true)
+				}
+			}
 		case <-opCtx.Done():
 			decodeErr = opCtx.Err()
 		}
@@ -421,10 +431,15 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			case <-opCtx.Done():
 				framingErr = opCtx.Err()
 			case <-time.After(cancelGrace):
-				// The answer stands. Closing stdout releases the reader, and the result
-				// it returns is not read, since a closed pipe is not a clean end. The
-				// drain below then returns at once.
+				// The answer stands unless something other than whitespace followed it.
+				// A held pipe cannot show whether an unfinished value is still coming, so
+				// such a byte is a second response. Closing stdout releases the reader,
+				// and the result it returns is not read, since a closed pipe is not a
+				// clean end. The drain below then returns at once.
 				_ = stdout.Close()
+				if watch.seen.Load() {
+					framingErr = errors.New("the remote sent more than one response")
+				}
 			}
 		}
 
@@ -460,6 +475,28 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		return resp, fmt.Errorf("%s: %s", cleanDest(dest), clean(resp.Error))
 	}
 	return resp, nil
+}
+
+// trailingWatch passes through the reader the first response is decoded from, and
+// records whether a byte other than JSON whitespace arrives after it. It is armed
+// once the first value is decoded, so the response's own bytes do not count.
+type trailingWatch struct {
+	r     io.Reader
+	armed atomic.Bool
+	seen  atomic.Bool
+}
+
+func (w *trailingWatch) Read(p []byte) (int, error) {
+	n, err := w.r.Read(p)
+	if w.armed.Load() && hasNonSpace(p[:n]) {
+		w.seen.Store(true)
+	}
+	return n, err
+}
+
+// hasNonSpace reports whether b holds anything other than JSON whitespace.
+func hasNonSpace(b []byte) bool {
+	return len(bytes.TrimLeft(b, " \t\r\n")) > 0
 }
 
 // readAfterWriteFailure reads what a worker wrote before its stdin stopped

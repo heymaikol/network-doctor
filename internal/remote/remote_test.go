@@ -186,6 +186,25 @@ func fakeSSH(mode string) int {
 			return 0
 		}
 		return startHolder(false)
+	case "read-partial-grandchild", "read-space-grandchild":
+		// A complete answer, then bytes after it while a grandchild holds stdout open:
+		// the start of a second object for read-partial-grandchild, and whitespace
+		// only for read-space-grandchild. Only the first is a second response.
+		var req Request
+		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+			fmt.Fprintln(os.Stderr, "fake ssh:", err)
+			return 1
+		}
+		resp := Response{Protocol: Protocol, Tool: snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}}
+		rep, snap := diagnosedPair(resp.Tool, true)
+		resp.Report, resp.Snapshot = &rep, &snap
+		_ = json.NewEncoder(os.Stdout).Encode(resp)
+		if mode == "read-partial-grandchild" {
+			fmt.Fprint(os.Stdout, "\n{")
+		} else {
+			fmt.Fprint(os.Stdout, "\n\n")
+		}
+		return startGrandchild()
 	case "hold":
 		// A grandchild that holds an inherited stdout until the test removes its
 		// stop file. The backstop keeps an orphan from running for long.
@@ -1119,6 +1138,27 @@ func TestRunSucceedsWhenTeardownFinishesInsideTheContext(t *testing.T) {
 	if got.resp.Report == nil || !got.resp.Report.OK {
 		t.Fatalf("response did not carry the completed diagnosis: %+v", got.resp)
 	}
+}
+
+// A complete answer followed by the start of a second object, with a grandchild
+// holding stdout open, is two responses, and the held pipe does not make it one.
+// The answer may stand only when nothing but whitespace followed it.
+func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testing.T) {
+	t.Run("an unfinished second object is a violation", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-partial-grandchild")
+		got := runGuarded(t, context.Background(), Request{})
+		requireVerdict(t, got, "more than one response", responseEOFGrace+cancelGrace+time.Second)
+	})
+	t.Run("whitespace after the answer still stands", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-space-grandchild")
+		got := runGuarded(t, context.Background(), Request{})
+		if got.err != nil {
+			t.Fatalf("Run: %v", got.err)
+		}
+		if got.resp.Report == nil || !got.resp.Report.OK {
+			t.Fatalf("response did not carry the completed diagnosis: %+v", got.resp)
+		}
+	})
 }
 
 // requireVerdict checks that a run did not succeed, and that it failed with want in

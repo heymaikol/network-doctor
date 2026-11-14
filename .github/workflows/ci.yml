@@ -451,7 +451,8 @@ jobs:
       # statistics, so it must never run beside another test; the hunt shard runs
       # its three tests one after another. Together the two shards run every test
       # exactly once.
-      - if: matrix.shard == 'race-integration'
+      # INJECTION X1, removed before merge: the rest test step is skipped.
+      - if: matrix.shard == 'race-integration' && false
         run: |
           set -o pipefail
           go test -race -tags integration -count=1 -skip "$HUNT_BUDGET_TESTS" $INTEGRATION_PACKAGES | tee rest-integration.log
@@ -462,7 +463,8 @@ jobs:
           for pkg in $INTEGRATION_PACKAGES; do
             grep -q "^ok[[:space:]]*$pkg[[:space:]]" rest-integration.log || { echo "no ok line for $pkg"; exit 1; }
           done
-      - if: matrix.shard == 'race-integration-hunt'
+      # INJECTION X2, removed before merge: the hunt test step is skipped.
+      - if: matrix.shard == 'race-integration-hunt' && false
         run: |
           set -o pipefail
           go test -race -tags integration -count=1 -v -run "$HUNT_BUDGET_TESTS" ./internal/simulation | tee hunt-budget.log

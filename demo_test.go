@@ -569,26 +569,21 @@ func TestDemoPublishingScriptFailsClosed(t *testing.T) {
 	commit := demoNamedStep(t, parseDemoWorkflow(t).Jobs["publish"], "Commit the changed recording")
 	root := demoTempRoot(t)
 	dir := root.Name()
-	// The workflow runs against a stub, so no repository is committed or pushed.
-	git := `#!/bin/sh
-printf '%s\n' "$*" >> "$GIT_LOG"
-case "$*" in
-  diff\ --quiet*) exit "$DIFF_STATUS" ;;
-  "fetch origin main") exit "$FETCH_STATUS" ;;
-  merge-base\ --is-ancestor*) exit "$ANCESTOR_STATUS" ;;
-  "rev-parse HEAD") printf '%s\n' "$CHECKOUT_HEAD" ;;
-  "rev-parse origin/main") printf '%s\n' "$MAIN_HEAD" ;;
-  push\ *) exit "$PUSH_STATUS" ;;
-  config\ *|add\ *|commit\ *) ;;
-  *) exit 99 ;;
-esac
+	// A Bash function shadows git.exe on Windows too, so no real git command runs.
+	git := `git() {
+  printf '%s\n' "$*" >> "$GIT_LOG"
+  case "$*" in
+    diff\ --quiet*) return "$DIFF_STATUS" ;;
+    "fetch origin main") return "$FETCH_STATUS" ;;
+    merge-base\ --is-ancestor*) return "$ANCESTOR_STATUS" ;;
+    "rev-parse HEAD") printf '%s\n' "$CHECKOUT_HEAD" ;;
+    "rev-parse origin/main") printf '%s\n' "$MAIN_HEAD" ;;
+    push\ *) return "$PUSH_STATUS" ;;
+    config\ *|add\ *|commit\ *) ;;
+    *) return 99 ;;
+  esac
+}
 `
-	if err := root.WriteFile("git", []byte(git), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := root.Chmod("git", 0o700); err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		name, checkout, main              string
 		diff, fetch, ancestor, push       string
@@ -606,10 +601,9 @@ esac
 			logRoot := demoTempRoot(t)
 			log := filepath.Join(logRoot.Name(), "git.log")
 			//nolint:gosec // G204: repository-owned script, with every git invocation stubbed.
-			cmd := exec.Command("bash", "-c", commit.Run)
+			cmd := exec.Command("bash", "-c", git+commit.Run)
 			cmd.Dir = dir
-			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"GIT_LOG="+log, "EXPECTED_HEAD=recorded", "CHECKOUT_HEAD="+tc.checkout, "MAIN_HEAD="+tc.main,
+			cmd.Env = append(os.Environ(), "GIT_LOG="+log, "EXPECTED_HEAD=recorded", "CHECKOUT_HEAD="+tc.checkout, "MAIN_HEAD="+tc.main,
 				"DIFF_STATUS="+tc.diff, "FETCH_STATUS="+tc.fetch, "ANCESTOR_STATUS="+tc.ancestor, "PUSH_STATUS="+tc.push)
 			out, err := cmd.CombinedOutput()
 			if (err == nil) != tc.wantSuccess {

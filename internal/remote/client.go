@@ -17,10 +17,12 @@ import (
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
-// cancelGrace is how long Wait tolerates a killed ssh's pipes staying open.
-// Without a delay, Wait blocks until every inherited pipe closes, and after a
-// cancellation those belong to a process that was just killed for not
-// finishing.
+// cancelGrace bounds how long a killed ssh's pipes may stay open. Wait tolerates
+// them for this long, because without a bound it blocks until every inherited
+// pipe closes, and after a cancellation those belong to a process that was just
+// killed for not finishing. A completed response's teardown wait after its kill
+// uses the same bound: a process other than ssh can hold stdout open after ssh
+// is gone, and nothing else ends that wait.
 const cancelGrace = 2 * time.Second
 
 // responseEOFGrace bounds how long a completed response waits for SSH stdout
@@ -360,7 +362,27 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		resp, decodeErr = readAfterWriteFailure(opCtx, stdout, func() { _ = cmd.Process.Kill() })
 		stopSSH = true
 	} else {
-		resp, dec, limited, decodeErr = decodeResponse(stdout)
+		// The first value is read on its own goroutine, so the operation context can
+		// end the wait while another process holds stdout open. The reader is not
+		// waited on after that: the paths that leave it running close stdout, which
+		// releases it.
+		type first struct {
+			resp    Response
+			dec     *json.Decoder
+			limited *io.LimitedReader
+			err     error
+		}
+		value := make(chan first, 1)
+		go func() {
+			r, d, l, err := decodeResponse(stdout)
+			value <- first{r, d, l, err}
+		}()
+		select {
+		case got := <-value:
+			resp, dec, limited, decodeErr = got.resp, got.dec, got.limited, got.err
+		case <-opCtx.Done():
+			decodeErr = opCtx.Err()
+		}
 		stopSSH = decodeErr != nil
 	}
 	// Close the worker's liveness input once its response is decoded. This lets
@@ -381,19 +403,29 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			trailing <- confirmNoTrailingData(dec, limited)
 		}()
 
-		timer := time.NewTimer(responseEOFGrace)
 		var framingErr error
 		select {
 		case framingErr = <-trailing:
-			_ = timer.Stop()
-		case <-timer.C:
-			// A complete valid response is already in hand. If stdout still
-			// has no end after the bounded teardown window, stop the local SSH
-			// transport. Killing ssh closes its stdout writer after bytes
-			// already delivered through the pipe, letting the framing check
-			// finish without treating remote EOF as an unbounded requirement.
+		case <-opCtx.Done():
+			framingErr = opCtx.Err()
+		case <-time.After(responseEOFGrace):
+			// A complete valid response is already in hand. If stdout still has no end
+			// after the bounded teardown window, stop the local SSH transport. Killing
+			// ssh closes its stdout writer after bytes already delivered through the
+			// pipe, letting the framing check finish without treating remote EOF as an
+			// unbounded requirement. That wait is bounded by cancelGrace, because a
+			// process other than ssh can hold the pipe open and then nothing ends it.
 			_ = cmd.Process.Kill()
-			framingErr = <-trailing
+			select {
+			case framingErr = <-trailing:
+			case <-opCtx.Done():
+				framingErr = opCtx.Err()
+			case <-time.After(cancelGrace):
+				// The answer stands. Closing stdout releases the reader, and the result
+				// it returns is not read, since a closed pipe is not a clean end. The
+				// drain below then returns at once.
+				_ = stdout.Close()
+			}
 		}
 
 		if framingErr != nil {

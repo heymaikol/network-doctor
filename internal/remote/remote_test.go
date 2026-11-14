@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -142,16 +143,29 @@ func fakeSSH(mode string) int {
 			resp.Report, resp.Snapshot = &rep, &snap
 			_ = json.NewEncoder(os.Stdout).Encode(resp)
 		}
-		grandchild := exec.Command(os.Args[0]) //nolint:gosec // G204: re-runs this test binary with a fixed helper mode.
-		grandchild.Env = append(os.Environ(), fakeSSHEnv+"=hold")
-		grandchild.Stdout = os.Stdout
-		if err := grandchild.Start(); err != nil {
+		return startGrandchild()
+	case "read-silent-grandchild", "read-answer-grandchild", "read-extra-grandchild", "read-garbage-grandchild":
+		// The normal path: the request write succeeds because this stand-in reads
+		// the whole request before it exits. What it writes first varies, and a
+		// grandchild holds stdout open in every variant.
+		var req Request
+		if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
+			fmt.Fprintln(os.Stderr, "fake ssh:", err)
 			return 1
 		}
-		if path := os.Getenv(fakeSSHGrandchild); path != "" {
-			_ = os.WriteFile(path, []byte(strconv.Itoa(grandchild.Process.Pid)), 0o600) //nolint:gosec // G703: a path this test just created.
+		switch mode {
+		case "read-answer-grandchild", "read-extra-grandchild":
+			resp := Response{Protocol: Protocol, Tool: snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"}}
+			rep, snap := diagnosedPair(resp.Tool, true)
+			resp.Report, resp.Snapshot = &rep, &snap
+			_ = json.NewEncoder(os.Stdout).Encode(resp)
+			if mode == "read-extra-grandchild" {
+				fmt.Fprintln(os.Stdout, "Welcome to the machine.")
+			}
+		case "read-garbage-grandchild":
+			fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		}
-		return 0
+		return startGrandchild()
 	case "hold":
 		// A grandchild that holds an inherited stdout until the test removes its
 		// stop file. The backstop keeps an orphan from running for long.
@@ -228,6 +242,21 @@ func fakeSSH(mode string) int {
 		return 0
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(resp)
+	return 0
+}
+
+// startGrandchild starts the process that keeps the stand-in's stdout open after
+// the stand-in exits, and records its pid for the test cleanup.
+func startGrandchild() int {
+	grandchild := exec.Command(os.Args[0]) //nolint:gosec // G204: re-runs this test binary with a fixed helper mode.
+	grandchild.Env = append(os.Environ(), fakeSSHEnv+"=hold")
+	grandchild.Stdout = os.Stdout
+	if err := grandchild.Start(); err != nil {
+		return 1
+	}
+	if path := os.Getenv(fakeSSHGrandchild); path != "" {
+		_ = os.WriteFile(path, []byte(strconv.Itoa(grandchild.Process.Pid)), 0o600) //nolint:gosec // G703: a path this test just created.
+	}
 	return 0
 }
 
@@ -726,12 +755,13 @@ func TestRunEndsAStalledAnswerOnTheDeadlineOrCancellation(t *testing.T) {
 // useGrandchildFakeSSH runs a stand-in whose grandchild keeps its stdout open,
 // and stops that grandchild when the test ends. The stop file exists for the whole
 // test and is removed at cleanup, which reaches the grandchild even when the
-// stand-in was killed before it recorded the pid.
-func useGrandchildFakeSSH(t *testing.T, mode string) {
+// stand-in was killed before it recorded the pid. It returns the path the pid is
+// recorded at, which appears only after the stand-in has written its answer.
+func useGrandchildFakeSSH(t *testing.T, mode string) (pidPath string) {
 	t.Helper()
 	useFakeSSH(t, mode)
 	dir := t.TempDir()
-	pidPath := filepath.Join(dir, "grandchild")
+	pidPath = filepath.Join(dir, "grandchild")
 	stopPath := filepath.Join(dir, "stop")
 	if err := os.WriteFile(stopPath, nil, 0o600); err != nil { //nolint:gosec // G703: a path this test just created.
 		t.Fatal(err)
@@ -750,6 +780,7 @@ func useGrandchildFakeSSH(t *testing.T, mode string) {
 			}
 		}
 	})
+	return pidPath
 }
 
 // A grandchild that inherits the stand-in's stdout keeps the pipe open after the
@@ -811,6 +842,186 @@ func TestRunEndsPromptlyWhileAGrandchildHoldsStdout(t *testing.T) {
 			t.Fatal("Run waited on a grandchild that held stdout")
 		}
 	})
+}
+
+// On the normal path the request write succeeds, so the answer is read in full,
+// and the first decode and the trailing check both wait on stdout. A grandchild
+// that keeps stdout open must not hold either wait past the end of the operation,
+// and must not turn a complete answer into a timeout or a hang.
+func TestRunEndsOnTheNormalPathWhileAGrandchildHoldsStdout(t *testing.T) {
+	t.Run("cancelled before the first response", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-silent-grandchild")
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		got := runGuarded(t, ctx, Request{})
+		requireFailure(t, got, "interrupted")
+	})
+	t.Run("deadline before the first response", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-silent-grandchild")
+		useShortOperationBound(t, 300*time.Millisecond)
+		got := runGuarded(t, context.Background(), Request{TimeoutMs: 20})
+		requireFailure(t, got, "timed out")
+	})
+	t.Run("cancelled during trailing-data validation", func(t *testing.T) {
+		pidPath := useGrandchildFakeSSH(t, "read-answer-grandchild")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// The pid is recorded after the answer is written, so once it exists the
+		// answer is in the pipe and the run is in its trailing window.
+		cancelWhenFileExists(pidPath, cancel)
+		got := runGuarded(t, ctx, Request{})
+		requireFailure(t, got, "interrupted")
+	})
+	t.Run("deadline during trailing-data validation", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-answer-grandchild")
+		// A deadline cannot be triggered by an event, so this is a timed row: the
+		// answer normally arrives well inside the bound, and the deadline then falls
+		// inside the two-second trailing window. Under heavy load it can fall
+		// elsewhere, and the message is the same, so this row then proves the
+		// message and not the window.
+		useShortOperationBound(t, time.Second)
+		got := runGuarded(t, context.Background(), Request{TimeoutMs: 20})
+		requireFailure(t, got, "timed out")
+	})
+	t.Run("deadline in the teardown wait after a complete answer", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-answer-grandchild")
+		// The deadline is meant to land after the two-second trailing window, while the
+		// bounded wait after the kill is still running. It is timed, not an event, so
+		// under heavy load it can land earlier, and the message is then the same. The
+		// message alone tells this apart from success, so no elapsed bound is used.
+		useShortOperationBound(t, 2900*time.Millisecond)
+		got := runGuarded(t, context.Background(), Request{TimeoutMs: 20})
+		if got.err == nil || !strings.Contains(got.err.Error(), "timed out") {
+			t.Fatalf("Run error = %v, want the remote run timed out", got.err)
+		}
+	})
+	t.Run("a complete answer stands while a grandchild holds stdout", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-answer-grandchild")
+		got := runGuarded(t, context.Background(), Request{})
+		if got.err != nil {
+			t.Fatalf("Run: %v", got.err)
+		}
+		if got.resp.Report == nil || !got.resp.Report.OK {
+			t.Fatalf("response did not carry the completed diagnosis: %+v", got.resp)
+		}
+	})
+	t.Run("extra output after the answer is rejected promptly", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-extra-grandchild")
+		got := runGuarded(t, context.Background(), Request{})
+		requireFailure(t, got, "more than one response")
+	})
+	t.Run("malformed output before the answer is rejected promptly", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-garbage-grandchild")
+		got := runGuarded(t, context.Background(), Request{})
+		requireFailure(t, got, "could not read the remote response")
+	})
+}
+
+// cancelWhenFileExists calls cancel once path exists. It polls for at most
+// guardLimit, and calls cancel then regardless, so a file that never appears
+// cannot leave the run waiting forever.
+func cancelWhenFileExists(path string, cancel context.CancelFunc) {
+	go func() {
+		defer cancel()
+		for deadline := time.Now().Add(guardLimit); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+			if _, err := os.Stat(path); err == nil { //nolint:gosec // G703: a path this test just created.
+				return
+			}
+		}
+	}()
+}
+
+// A grandchild that holds stdout must not leave a stdout reader running once Run
+// has returned: every path that leaves a reader blocked has to release it. The
+// check reads the goroutine stacks for the reader frames rather than counting
+// goroutines, so a goroutine from another subtest cannot offset a leaked reader.
+func TestRunLeavesNoStdoutReaderBehindWhileAGrandchildHoldsStdout(t *testing.T) {
+	t.Run("the answer stands", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-answer-grandchild")
+		runGuarded(t, context.Background(), Request{})
+		requireNoReaderLeft(t)
+	})
+	t.Run("cancelled before the first response", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-silent-grandchild")
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		runGuarded(t, ctx, Request{})
+		requireNoReaderLeft(t)
+	})
+}
+
+// requireNoReaderLeft fails if a goroutine is still inside decodeResponse or
+// confirmNoTrailingData once the run has returned. It polls, because a reader that
+// was released a moment ago may still be on its way out.
+func requireNoReaderLeft(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(guardLimit)
+	for {
+		stacks := allStacks()
+		if !strings.Contains(stacks, "internal/remote.decodeResponse(") && !strings.Contains(stacks, "internal/remote.confirmNoTrailingData(") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("a stdout reader is still blocked after the run returned")
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// allStacks returns the stacks of every goroutine in the process.
+func allStacks() string {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return string(buf[:n])
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+}
+
+// guardLimit is how long a run may take before the test calls it a hang. It is
+// only a backstop that turns a hang into a failure: the grandchild is stopped by
+// the test cleanup either way, which ends the held pipe and lets the run return.
+const guardLimit = 10 * time.Second
+
+type runOutcome struct {
+	resp    Response
+	err     error
+	elapsed time.Duration
+}
+
+// runGuarded runs Run and returns its outcome, or fails the test if it has not
+// returned within guardLimit.
+func runGuarded(t *testing.T, ctx context.Context, req Request) runOutcome {
+	t.Helper()
+	done := make(chan runOutcome, 1)
+	start := time.Now()
+	go func() {
+		resp, err := Run(ctx, "server", "", req)
+		done <- runOutcome{resp, err, time.Since(start)}
+	}()
+	select {
+	case got := <-done:
+		return got
+	case <-time.After(guardLimit):
+		t.Fatalf("Run had not returned after %s, so it waited on a grandchild that held stdout", guardLimit)
+		return runOutcome{}
+	}
+}
+
+// requireFailure checks that a run failed with want in its message, and that it
+// gave up well inside responseEOFGrace: a held pipe must not stretch a failure
+// past the operation's end.
+func requireFailure(t *testing.T, got runOutcome, want string) {
+	t.Helper()
+	if got.err == nil || !strings.Contains(got.err.Error(), want) {
+		t.Fatalf("Run error = %v, want it to say %q", got.err, want)
+	}
+	if got.elapsed >= responseEOFGrace {
+		t.Errorf("Run took %s to fail, so a grandchild holding stdout held it past the end of the operation", got.elapsed)
+	}
 }
 
 // stalledReader hands out prefix, then blocks every further read until the test

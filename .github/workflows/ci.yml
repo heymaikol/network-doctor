@@ -452,14 +452,24 @@ jobs:
       # its three tests one after another. Together the two shards run every test
       # exactly once.
       - if: matrix.shard == 'race-integration'
-        run: go test -race -tags integration -count=1 -skip "$HUNT_BUDGET_TESTS" $INTEGRATION_PACKAGES
-      # INJECTION I3b, removed before merge: the hunt test step is skipped, the leg still runs.
-      - if: matrix.shard == 'race-integration-hunt' && false
+        run: |
+          set -o pipefail
+          go test -race -tags integration -count=1 -skip "$HUNT_BUDGET_TESTS" $INTEGRATION_PACKAGES | tee rest-integration.log
+      # A skipped test step leaves its leg green, so each proof is its own step.
+      # Every integration package must report an ok line from this lane's run.
+      - if: matrix.shard == 'race-integration'
+        run: |
+          for pkg in $INTEGRATION_PACKAGES; do
+            grep -q "^ok[[:space:]]*$pkg[[:space:]]" rest-integration.log || { echo "no ok line for $pkg"; exit 1; }
+          done
+      - if: matrix.shard == 'race-integration-hunt'
         run: |
           set -o pipefail
           go test -race -tags integration -count=1 -v -run "$HUNT_BUDGET_TESTS" ./internal/simulation | tee hunt-budget.log
-          # A pattern that matches nothing passes silently, so count the tests that ran.
-          test "$(grep -c '^--- PASS: ' hunt-budget.log)" -eq 3
+      # A pattern that matches nothing passes silently, so the three top-level passes
+      # are counted here. A missing log counts as zero and fails the step.
+      - if: matrix.shard == 'race-integration-hunt'
+        run: test "$(grep -c '^--- PASS: ' hunt-budget.log 2>/dev/null)" -eq 3
 
       # EXPERIMENT CONTROL, draft PR #492 only. The original full lane: every
       # integration-tagged test in one process tree, same race detector, plus

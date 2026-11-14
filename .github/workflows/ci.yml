@@ -368,6 +368,13 @@ jobs:
           sudo modprobe wireguard
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y wireguard-tools
+      # EXPERIMENT ONLY, removed by the next commit: fails attempt 1 of this run
+      # so "Re-run failed jobs" can be exercised. Not for merge.
+      - if: matrix.shard == 'coverage' && github.run_attempt == 1
+        name: EXPERIMENT ONLY forced first-attempt failure
+        run: |
+          echo "::error::EXPERIMENT ONLY: forced failure on attempt 1, removed by the next commit"
+          exit 1
       #
       # Each scenario builds its own namespaces under a random run id, so the
       # runs are independent and -parallel decides how many stand at once. Most

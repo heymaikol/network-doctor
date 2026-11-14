@@ -544,6 +544,51 @@ func TestRunReadsWhatAWorkerWroteBeforeItExited(t *testing.T) {
 	}
 }
 
+// A request write that blocks, because the stand-in never reads its stdin and
+// the pipe fills, must still end on the operation deadline or on cancellation.
+// The write error it then sees must not change which of the two is reported.
+func TestRunEndsABlockedRequestWriteOnTheDeadlineOrCancellation(t *testing.T) {
+	blockingWrite := func(w io.Writer, p []byte) (int, error) {
+		for {
+			if _, err := w.Write(p); err != nil {
+				return 0, err
+			}
+		}
+	}
+	useWriter := func(t *testing.T) {
+		previous := writeRequest
+		writeRequest = blockingWrite
+		t.Cleanup(func() { writeRequest = previous })
+	}
+	t.Run("deadline", func(t *testing.T) {
+		useFakeSSH(t, "hang")
+		useShortOperationBound(t, 300*time.Millisecond)
+		useWriter(t)
+		start := time.Now()
+		_, err := Run(context.Background(), "server", "", Request{TimeoutMs: 20})
+		if err == nil || !strings.Contains(err.Error(), "timed out") {
+			t.Fatalf("Run error = %v, want the remote run timed out", err)
+		}
+		if elapsed := time.Since(start); elapsed > 10*time.Second {
+			t.Errorf("Run took %s to give up on a blocked write", elapsed)
+		}
+	})
+	t.Run("cancellation", func(t *testing.T) {
+		useFakeSSH(t, "hang")
+		useWriter(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		_, err := Run(ctx, "server", "", Request{})
+		if err == nil || !strings.Contains(err.Error(), "interrupted") {
+			t.Fatalf("Run error = %v, want the run interrupted", err)
+		}
+		if elapsed := time.Since(start); elapsed > 10*time.Second {
+			t.Errorf("Run took %s to notice the cancellation", elapsed)
+		}
+	})
+}
+
 // After the grace window a write-failure read gives up on stdout. A pipe that
 // never ends, which a process other than ssh can keep open after ssh is killed,
 // must not hold the run.

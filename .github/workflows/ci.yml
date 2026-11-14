@@ -276,7 +276,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [check, unit-coverage, coverage, supervisor-netns, race, race-integration, race-integration-hunt, fuzz]
+        shard: [check, unit-coverage, coverage, supervisor-netns, race, race-integration, race-integration-hunt, race-integration-control, fuzz]
     runs-on: ubuntu-26.04
     env:
       # One definition of the Hunt budget partition. The race-integration shard skips
@@ -459,6 +459,12 @@ jobs:
           go test -race -tags integration -count=1 -v -run "$HUNT_BUDGET_TESTS" ./internal/simulation | tee hunt-budget.log
           # A pattern that matches nothing passes silently, so count the tests that ran.
           test "$(grep -c '^--- PASS: ' hunt-budget.log)" -eq 3
+
+      # EXPERIMENT CONTROL, draft PR #492 only. The original full lane: every
+      # integration-tagged test in one process tree, same race detector, plus
+      # -count=1 so a cached pass cannot stand in for the work being timed.
+      - if: matrix.shard == 'race-integration-control'
+        run: go test -race -tags integration -count=1 $INTEGRATION_PACKAGES
 
       # Smoke-fuzz the parsers fed by input we do not control (terminal output,
       # target arguments, encrypted-DNS responses, and peer frames) so regressions don't

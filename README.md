@@ -79,44 +79,13 @@ A release reaches the bucket as soon as it publishes, so `scoop update network-d
 brew install network-doctor
 ```
 
-The Homebrew Core formula, bottled for both platforms, so `brew upgrade` picks up releases like any other formula. It installs `netdoc` alone; for `netdoc-sim` too, take a [Linux package](#linux).
+### Linux packages
 
-### Linux
+Download a `.deb`, `.rpm`, or `.apk` package from the [latest release](https://github.com/heymaikol/network-doctor/releases/latest) and install it using your package manager.
 
-Every Linux package installs two commands at the same version: `netdoc`, and
-`netdoc-sim`, the simulator behind [Challenge Mode](#challenge-mode).
+Linux packages include both `netdoc` and `netdoc-sim`.
 
-#### Fedora (stable and Rawhide)
-
-Download the prebuilt RPM for your architecture from the
-[latest release](https://github.com/heymaikol/network-doctor/releases/latest).
-Release filenames use `amd64` or `arm64`:
-
-```sh
-sudo dnf install ./network-doctor_X.Y.Z_linux_ARCH.rpm
-```
-
-The prebuilt RPM does not require Fedora's Go toolchain. It does not configure
-an update repository, so download and install newer releases manually.
-The former COPR repository is no longer updated automatically and may contain
-older versions.
-
-#### Other distributions
-
-Take a prebuilt `.deb`, `.rpm`, or `.apk` from the
-[latest release](https://github.com/heymaikol/network-doctor/releases/latest),
-for `amd64` and `arm64`:
-
-```sh
-sudo apt install ./network-doctor_X.Y.Z_linux_amd64.deb    # Debian, Ubuntu, Mint
-sudo dnf install ./network-doctor_X.Y.Z_linux_amd64.rpm    # RHEL, Rocky, Alma
-sudo apk add --allow-untrusted ./network-doctor_X.Y.Z_linux_amd64.apk    # Alpine
-```
-
-Downloaded packages are standalone, so `dnf`/`apt` will not pull the next
-version for you. Upgrade paths, trust roots, and the `netdoc-sim` Linux-only
-rule are in
-**[docs/installation.md](docs/installation.md#linux)**.
+See the [installation guide](docs/installation.md) for details.
 
 ### Everywhere else
 

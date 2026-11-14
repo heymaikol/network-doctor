@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,7 @@ func opsFromSources(sources *SourceAddresses) *netops {
 	copySources := &SourceAddresses{
 		IPv4: append(net.IP(nil), sources.IPv4...),
 		IPv6: append(net.IP(nil), sources.IPv6...),
+		Zone: sources.Zone,
 	}
 	o.sources = copySources
 	o.dialContext = dialContextFromSources(copySources)
@@ -38,10 +40,16 @@ func opsFromSources(sources *SourceAddresses) *netops {
 	return &o
 }
 
-func dialerFromSource(source net.IP, network string, resolverDial func(context.Context, string, string) (net.Conn, error)) *net.Dialer {
-	var local net.Addr = &net.TCPAddr{IP: source}
+// dialerFromSource binds to source. A link-local IPv6 source is only meaningful
+// on its own link, so it binds through zone, the selected interface, which the
+// kernel requires. Every other source binds by address alone.
+func dialerFromSource(source net.IP, zone, network string, resolverDial func(context.Context, string, string) (net.Conn, error)) *net.Dialer {
+	if source.To4() != nil || !source.IsLinkLocalUnicast() {
+		zone = ""
+	}
+	var local net.Addr = &net.TCPAddr{IP: source, Zone: zone}
 	if strings.HasPrefix(network, "udp") {
-		local = &net.UDPAddr{IP: source}
+		local = &net.UDPAddr{IP: source, Zone: zone}
 	}
 	d := &net.Dialer{LocalAddr: local}
 	// Hostname resolution performed inside DialContext must use the same source
@@ -50,14 +58,48 @@ func dialerFromSource(source net.IP, network string, resolverDial func(context.C
 	return d
 }
 
+// refuseUnknownZone rejects a scoped destination whose zone names no interface
+// on this host. Go turns an unknown zone into scope 0, and a socket bound to an
+// interface lets the kernel accept scope 0 on that interface's link, so the dial
+// would reach the peer while the target names a zone that does not exist.
+func refuseUnknownZone(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil
+	}
+	_, zone, scoped := strings.Cut(host, "%")
+	if !scoped || zoneNamesInterface(zone) {
+		return nil
+	}
+	return fmt.Errorf("destination zone %q names no interface on this host", zone)
+}
+
+// zoneNamesInterface reports whether zone is the name or a numeric index of an
+// interface on this host. It is a variable so ordinary tests stub the lookup
+// instead of reading the machine's interfaces.
+var zoneNamesInterface = func(zone string) bool {
+	if _, err := net.InterfaceByName(zone); err == nil {
+		return true
+	}
+	index, err := strconv.Atoi(zone)
+	if err != nil || index <= 0 {
+		return false
+	}
+	_, err = net.InterfaceByIndex(index)
+	return err == nil
+}
+
 func dialContextFromSources(sources *SourceAddresses) func(context.Context, string, string) (net.Conn, error) {
 	var dial func(context.Context, string, string) (net.Conn, error)
 	dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if err := refuseUnknownZone(addr); err != nil {
+			return nil, err
+		}
 		if source, family := sources.forDial(network, addr); family != 0 {
 			if source == nil {
 				return nil, fmt.Errorf("selected interface has no IPv%d source address", family)
 			}
-			return dialFamily(ctx, source, network, addr, dial)
+			return dialFamily(ctx, source, sources.Zone, network, addr, dial)
 		}
 
 		ctx, cancel := context.WithCancel(ctx)
@@ -80,7 +122,7 @@ func dialContextFromSources(sources *SourceAddresses) func(context.Context, stri
 			}
 			families++
 			go func(source net.IP, familyNetwork string) {
-				conn, err := dialFamily(ctx, source, familyNetwork, addr, dial)
+				conn, err := dialFamily(ctx, source, sources.Zone, familyNetwork, addr, dial)
 				// Exactly one report per launched goroutine, or the fan-in waits
 				// for a result that can never arrive. A connection that cannot be
 				// handed back, because the deadline passed or the other family

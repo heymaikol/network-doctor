@@ -597,6 +597,10 @@ func (o *netops) hostPort(ip net.IP, port int) string {
 type SourceAddresses struct {
 	IPv4 net.IP
 	IPv6 net.IP
+	// Zone is the interface a link-local IPv6 source binds through: the
+	// selected interface, never a destination's zone. It is set for an
+	// exact-IP selection too, which leaves Iface empty.
+	Zone string
 	// Iface is the selected interface name. It is empty when --iface was
 	// omitted or given an exact local IP; probes bind by the addresses above,
 	// while drill-down tools may bind by this name.
@@ -632,8 +636,8 @@ var defaultOps = &netops{
 
 // dialFamily performs one source-bound dial. It is a variable so tests can
 // order per-family results without a live network.
-var dialFamily = func(ctx context.Context, source net.IP, network, addr string, resolverDial func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
-	return dialerFromSource(source, network, resolverDial).DialContext(ctx, network, addr)
+var dialFamily = func(ctx context.Context, source net.IP, zone, network, addr string, resolverDial func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	return dialerFromSource(source, zone, network, resolverDial).DialContext(ctx, network, addr)
 }
 
 // errFamilyLost stands in for a connection discarded because the other address

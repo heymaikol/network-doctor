@@ -161,6 +161,9 @@ func (s SourceAddresses) forDial(network, addr string) (net.IP, int) {
 	}
 	host, _, err := net.SplitHostPort(addr)
 	if err == nil {
+		// A scoped destination carries its zone, which ParseIP rejects. Left in,
+		// the literal would fall through to both families.
+		host, _, _ = strings.Cut(host, "%")
 		if ip := net.ParseIP(host); ip != nil {
 			if ip.To4() != nil {
 				return s.IPv4, 4

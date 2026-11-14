@@ -252,6 +252,18 @@ func TestDialerBindsOnlyLinkLocalIPv6ThroughZone(t *testing.T) {
 	}
 }
 
+// A scoped IPv6 destination is one family. If the zone hides its address from
+// the family check, a generic dial fans out to IPv4 as well.
+func TestForDialReadsFamilyOfScopedDestination(t *testing.T) {
+	sources := SourceAddresses{IPv4: net.ParseIP("192.0.2.2"), IPv6: net.ParseIP("fe80::2"), Zone: "eth0"}
+	for _, network := range []string{"tcp", "udp"} {
+		source, family := sources.forDial(network, "[fe80::1%eth0]:443")
+		if family != 6 || !source.Equal(sources.IPv6) {
+			t.Errorf("forDial(%s, scoped) = (%v, %d), want the IPv6 source and family 6", network, source, family)
+		}
+	}
+}
+
 // A destination zone must name an interface on this host, by name or index. A
 // zone that names none is refused, since Go would otherwise send it as scope 0.
 func TestRefuseUnknownZoneKeepsOnlyRealInterfaces(t *testing.T) {

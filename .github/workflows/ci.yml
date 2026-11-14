@@ -469,7 +469,8 @@ jobs:
       # A pattern that matches nothing passes silently, so the three top-level passes
       # are counted here. A missing log counts as zero and fails the step.
       - if: matrix.shard == 'race-integration-hunt'
-        run: test "$(grep -c '^--- PASS: ' hunt-budget.log 2>/dev/null)" -eq 3
+        run: |
+          test "$(grep -c '^--- PASS: ' hunt-budget.log 2>/dev/null)" -eq 3
 
       # EXPERIMENT CONTROL, draft PR #492 only. The original full lane: every
       # integration-tagged test in one process tree, same race detector, plus

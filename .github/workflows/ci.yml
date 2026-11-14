@@ -370,10 +370,6 @@ jobs:
           sudo modprobe wireguard
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y wireguard-tools
-      # The namespace shard no longer inherits this directory from the unit step.
-      - if: matrix.shard == 'coverage'
-        name: Create the coverage directory
-        run: mkdir -p coverage
       #
       # Each scenario builds its own namespaces under a random run id, so the
       # runs are independent and -parallel decides how many stand at once. Most
@@ -381,7 +377,7 @@ jobs:
       # at a time cuts the step to about a third of its serial wall time.
       - if: matrix.shard == 'coverage'
         name: Run namespace integration tests
-        run: go test -covermode=set -coverprofile=coverage/netns.out -tags netns_integration -count=1 -parallel 4 -skip '^TestGeneratedStressHuntPMTUBlackholeCaseReachesThePathMTUProbe$' ./internal/simulation
+        run: mkdir -p coverage && go test -covermode=set -coverprofile=coverage/netns.out -tags netns_integration -count=1 -parallel 4 -skip '^TestGeneratedStressHuntPMTUBlackholeCaseReachesThePathMTUProbe$' ./internal/simulation
         env:
           NETDOC_SIM_REQUIRE_NETNS: "1"
       # Keep one small fixed-seed stress Hunt regression separate from the
@@ -409,8 +405,7 @@ jobs:
       # only skip is TestFRRRunsUnderTheSupervisor reporting that no FRR copy is staged.
       # go test's own exit status still fails the step, and the gate runs either way so
       # the log shows the output.
-      # Its own shard, because it writes no coverage profile: nothing merges it,
-      # so it can run beside the coverage shard instead of after it.
+      # Own shard: it writes no coverage profile, so nothing merges it.
       - if: matrix.shard == 'supervisor-netns'
         name: Run supervisor namespace tests
         run: |
@@ -487,11 +482,8 @@ jobs:
       - if: matrix.shard == 'fuzz'
         run: go test -run='^$' -fuzz=FuzzGenerateHuntCase -fuzztime=10s ./internal/simulation
 
-  # Merges the profiles the coverage shards upload into the one go-coverage
-  # artifact. It waits for every linux shard, so it runs after the slowest of
-  # them. A shard that fails or is skipped leaves no profile, and covermerge
-  # refuses a missing input, so the merge fails rather than shrinking the
-  # coverage it reports.
+  # Merges the coverage shards' profiles into go-coverage. It waits for every
+  # linux shard, and covermerge fails on a missing or malformed profile.
   coverage-merge:
     name: coverage merge
     needs: [linux]

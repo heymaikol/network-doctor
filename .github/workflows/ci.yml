@@ -281,7 +281,7 @@ jobs:
     env:
       # One definition of the Hunt budget partition. The race-integration shard skips
       # these names and race-integration-hunt runs them, so the two cannot drift apart.
-      HUNT_BUDGET_TESTS: '^(TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum|TestHuntResultDecodeReadsTheLargestLegalCaseList|TestLargestGeneratedHuntShardFitsTheIngestionBudget)$'
+      HUNT_BUDGET_TESTS: '^(TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum|TestHuntResultDecodeReadsTheLargestLegalCaseList)$'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

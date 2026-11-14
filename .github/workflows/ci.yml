@@ -276,13 +276,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [check, unit-coverage, coverage, supervisor-netns, race, race-integration, race-integration-hunt, race-integration-control, fuzz]
+        shard: [check, unit-coverage, coverage, supervisor-netns, race, race-integration, race-integration-hunt, fuzz]
     runs-on: ubuntu-26.04
     env:
       # One definition of the Hunt budget partition. The race-integration shard skips
       # these names and race-integration-hunt runs them, so the two cannot drift apart.
-      # INJECTION Y1, removed before merge: the hunt selection drops a name.
-      HUNT_BUDGET_TESTS: '^(TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum|TestHuntResultDecodeReadsTheLargestLegalCaseList)$'
+      HUNT_BUDGET_TESTS: '^(TestMaximumBudgetedHuntResultFitsTheDeclaredMaximum|TestHuntResultDecodeReadsTheLargestLegalCaseList|TestLargestGeneratedHuntShardFitsTheIngestionBudget)$'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -472,12 +471,6 @@ jobs:
       - if: matrix.shard == 'race-integration-hunt'
         run: |
           test "$(grep -c '^--- PASS: ' hunt-budget.log 2>/dev/null)" -eq 3
-
-      # EXPERIMENT CONTROL, draft PR #492 only. The original full lane: every
-      # integration-tagged test in one process tree, same race detector, plus
-      # -count=1 so a cached pass cannot stand in for the work being timed.
-      - if: matrix.shard == 'race-integration-control'
-        run: go test -race -tags integration -count=1 $INTEGRATION_PACKAGES
 
       # Smoke-fuzz the parsers fed by input we do not control (terminal output,
       # target arguments, encrypted-DNS responses, and peer frames) so regressions don't

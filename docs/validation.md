@@ -111,7 +111,9 @@ command.
 
 CI splits this Linux work across parallel shards, so its ordinary race lane
 leaves out the integration-tagged packages that its race-integration lane
-already builds and races in full. Run serially the way it is written above,
+already builds and races. The three Hunt budget tests in the simulation package
+run in a race-integration-hunt shard of their own, and the race-integration
+shard skips exactly those names. Run serially the way it is written above,
 those two commands race the ordinary tests in those four packages twice, which
 is harmless locally and only costs time.
 

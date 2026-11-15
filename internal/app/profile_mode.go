@@ -159,18 +159,10 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// appear part-way through the pass to ask on its behalf.
 		run(0, true)
 		if outputs[0].err != nil {
-			// The batch attempt failed, and the fallback does not try to say
-			// why. An authentication or host-key refusal, an unreachable host,
-			// a netdoc that is missing or too old, an operation timeout, and an
-			// answer that does not validate all fall back alike. That is
-			// deliberate. A stalled connection may need a proxy that the batch
-			// transport pinned off, and the ordinary acquisition evaluates the
-			// configuration as it stands now, proxy included. It is also the
-			// only acquisition here that can prompt. It restarts at the first
-			// component, which overwrites this refusal with its own error to
-			// report. The one case that does not restart is a caller that has
-			// already cancelled: nothing is left to establish, so the pass ends
-			// with the cancellation.
+			// A failed first batch attempt falls back, for any reason, on purpose:
+			// a stalled connection may need a proxy the batch transport pinned off,
+			// and the ordinary acquisition re-reads the configuration. A caller that
+			// has already cancelled gets no fallback: nothing is left to establish.
 			if ctx.Err() == nil {
 				sequential()
 			}

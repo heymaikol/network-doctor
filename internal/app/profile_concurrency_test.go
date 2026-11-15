@@ -508,55 +508,45 @@ func TestProfileViaCancellationEndsEveryConcurrentComponent(t *testing.T) {
 	}
 }
 
-// G: the caller cancels while the batch acquisition is in flight, and that
-// acquisition fails because of it. Nothing is left to establish, so the pass
-// must not start the ordinary acquisition that the fallback would begin.
-func TestProfileViaCancelledBatchAcquisitionStartsNoFallback(t *testing.T) {
-	plan := githubPlan(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	tr := traceProfileVia(t, 0, func(_ remote.Request, batch bool) (remote.Response, error) {
-		if batch {
-			cancel()
-			return remote.Response{}, ctx.Err()
-		}
-		t.Error("the ordinary acquisition started after the caller had cancelled")
-		return remote.Response{}, ctx.Err()
-	})
-	_, _, _, err := runProfilePass(ctx, viaBase(), plan)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want the cancellation", err)
-	}
-	if got := tr.snapshot(); len(got.calls) != 1 || !got.calls[0].batch {
-		t.Errorf("acquisitions = %+v, want the one batch attempt and nothing after it", got.calls)
-	}
-}
-
-// H: the decision follows the caller's context, not the wording of the error.
-// The batch attempt here fails with an ordinary transport error, but the caller
-// has already cancelled, so the fallback still does not start.
+// G: a caller that cancels while the batch acquisition is in flight starts no
+// ordinary acquisition afterwards, whether that acquisition reports the
+// cancellation or an ordinary transport failure. The decision follows the
+// caller's context, not the wording of the error.
 func TestProfileViaNoFallbackOnceTheCallerHasCancelled(t *testing.T) {
-	plan := githubPlan(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	tr := traceProfileVia(t, 0, func(_ remote.Request, batch bool) (remote.Response, error) {
-		if batch {
-			cancel()
-			return remote.Response{}, errTransport
-		}
-		t.Error("the ordinary acquisition started after the caller had cancelled")
-		return remote.Response{}, errTransport
-	})
-	_, _, _, err := runProfilePass(ctx, viaBase(), plan)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want the cancellation", err)
-	}
-	if got := tr.snapshot(); len(got.calls) != 1 {
-		t.Errorf("%d acquisitions, want only the batch attempt", len(got.calls))
+	for _, tc := range []struct {
+		name          string
+		reportsCancel bool
+	}{
+		{"the acquisition reports the cancellation", true},
+		{"the acquisition reports a transport failure", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := githubPlan(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			tr := traceProfileVia(t, 0, func(_ remote.Request, batch bool) (remote.Response, error) {
+				if batch {
+					cancel()
+				} else {
+					t.Error("the ordinary acquisition started after the caller had cancelled")
+				}
+				if tc.reportsCancel {
+					return remote.Response{}, ctx.Err()
+				}
+				return remote.Response{}, errTransport
+			})
+			_, _, _, err := runProfilePass(ctx, viaBase(), plan)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("error = %v, want the cancellation", err)
+			}
+			if got := tr.snapshot(); len(got.calls) != 1 || !got.calls[0].batch {
+				t.Errorf("acquisitions = %+v, want the one batch attempt and nothing after it", got.calls)
+			}
+		})
 	}
 }
 
-// I: an operation timeout is not a cancellation. With the caller still active,
+// H: an operation timeout is not a cancellation. With the caller still active,
 // a batch attempt that times out falls back, as it always has.
 func TestProfileViaTimedOutBatchAcquisitionStillFallsBack(t *testing.T) {
 	plan := githubPlan(t)

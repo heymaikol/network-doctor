@@ -190,9 +190,10 @@ func fakeSSH(mode string) int {
 			_ = os.Stdout.Close()
 			return startHolder(false)
 		case "read-partial-grandchild":
-			// After a pause, so the bytes arrive once the parent has decoded the response
-			// and is in its trailing check, not in the same read as the response.
-			time.Sleep(300 * time.Millisecond)
+			// The second object starts only after the parent closes stdin, which it does
+			// once the response is decoded. So the bytes reach the trailing reader, and
+			// never the decoder's read-ahead, however late the parent reads.
+			_, _ = io.Copy(io.Discard, os.Stdin)
 			fmt.Fprint(os.Stdout, "\n{")
 		default:
 			fmt.Fprint(os.Stdout, "\n\n")
@@ -1133,35 +1134,43 @@ func TestRunSucceedsWhenTeardownFinishesInsideTheContext(t *testing.T) {
 	}
 }
 
-// trailingHold, when set, holds a trailing reader between a byte's delivery and its
-// record until the channel it points to is closed. Only holdTrailingReads sets it.
-var trailingHold atomic.Pointer[chan struct{}]
+// trailingHold holds a trailing reader between a byte's delivery and its record
+// until release is called. entered reports that a reader reached the hold, which
+// is how a test tells the reader path from the decoder's read-ahead path.
+type trailingHold struct {
+	ch      chan struct{}
+	once    sync.Once
+	entered atomic.Bool
+}
 
-// init installs the hook once, before any reader goroutine exists. The hook reads
-// trailingHold atomically, so tests never write the package variable while a reader
-// may still be reading it.
+func (h *trailingHold) release() { h.once.Do(func() { close(h.ch) }) }
+
+// trailingHoldActive is the hold in force, or nil. init installs the hook once,
+// before any reader goroutine exists, and the hook reads this atomically, so no
+// test ever writes the package variable while a reader may still read it.
+var trailingHoldActive atomic.Pointer[trailingHold]
+
 func init() {
 	trailingReadHook = func() {
-		if hold := trailingHold.Load(); hold != nil {
-			<-*hold
+		if h := trailingHoldActive.Load(); h != nil {
+			h.entered.Store(true)
+			<-h.ch
 		}
 	}
 }
 
-// holdTrailingReads holds a trailing reader between a byte's delivery and its record
-// until the returned release is called. The hold ends when the test does, and release
-// is called then too, so a failing test cannot leave a reader blocked.
-func holdTrailingReads(t *testing.T) (release func()) {
+// holdTrailingReads holds the trailing reader until the returned hold is released.
+// The hold ends when the test does, and it is released then too, so a failing test
+// cannot leave a reader blocked.
+func holdTrailingReads(t *testing.T) *trailingHold {
 	t.Helper()
-	ch := make(chan struct{})
-	var once sync.Once
-	release = func() { once.Do(func() { close(ch) }) }
-	trailingHold.Store(&ch)
+	h := &trailingHold{ch: make(chan struct{})}
+	trailingHoldActive.Store(h)
 	t.Cleanup(func() {
-		release()
-		trailingHold.Store(nil)
+		h.release()
+		trailingHoldActive.Store(nil)
 	})
-	return release
+	return h
 }
 
 // A complete answer followed by the start of a second object, with a grandchild
@@ -1179,9 +1188,10 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 	// for the reader accepts the answer here.
 	t.Run("a byte delivered as the teardown wait ends is still counted", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-partial-grandchild")
-		release := holdTrailingReads(t)
-		time.AfterFunc(5*time.Second, release)
+		hold := holdTrailingReads(t)
+		time.AfterFunc(5*time.Second, hold.release)
 		got := runGuarded(t, context.Background(), Request{})
+		requireReached(t, hold)
 		requireVerdict(t, got, "more than one response", 6*time.Second)
 	})
 	// The reader can hold a byte it has received but not yet recorded, and stay
@@ -1189,10 +1199,21 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 	// second response, so the answer must not stand while the reader is unfinished.
 	t.Run("a reader still held after stdout is closed is not accepted", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-partial-grandchild")
-		release := holdTrailingReads(t)
+		// The parent reads its response late. The trailing bytes still follow the parent's
+		// stdin close, which comes after the decode, so a late read cannot merge them into
+		// the response's read, and they must reach the held reader.
+		previous := writeRequest
+		writeRequest = func(w io.Writer, p []byte) (int, error) {
+			n, err := previous(w, p)
+			time.Sleep(500 * time.Millisecond)
+			return n, err
+		}
+		t.Cleanup(func() { writeRequest = previous })
+		hold := holdTrailingReads(t)
 		got := runGuarded(t, context.Background(), Request{})
+		requireReached(t, hold)
 		requireVerdict(t, got, "could not be verified", 8*time.Second)
-		release()
+		hold.release()
 		requireNoReaderLeft(t)
 	})
 	t.Run("whitespace after the answer still stands", func(t *testing.T) {
@@ -1205,6 +1226,16 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 			t.Fatalf("response did not carry the completed diagnosis: %+v", got.resp)
 		}
 	})
+}
+
+// requireReached fails the test unless the trailing bytes reached the held reader.
+// Without that, the decoder's read-ahead decided the verdict, and the subtest would
+// be checking a different path from the one it names.
+func requireReached(t *testing.T, h *trailingHold) {
+	t.Helper()
+	if !h.entered.Load() {
+		t.Fatal("the trailing bytes never reached the held reader, so the decoder's read-ahead decided the verdict")
+	}
 }
 
 // requireVerdict checks that a run did not succeed, and that it failed with want in

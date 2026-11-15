@@ -341,6 +341,14 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		return Response{}, fmt.Errorf("could not start ssh: %s", clean(err.Error()))
 	}
 	if err := cmd.Start(); err != nil {
+		// Start refuses a context that has already ended before it forks, so a
+		// run cancelled or past its deadline by this point fails here with that
+		// context's error. That is the caller stopping the run, or the operation
+		// deadline, and transportError is the one place that tells them apart.
+		// Any other start failure keeps its own cause.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Response{}, transportError(ctx, opCtx, limit, dest, -1, "", err)
+		}
 		return Response{}, fmt.Errorf("could not run ssh: %s", clean(err.Error()))
 	}
 

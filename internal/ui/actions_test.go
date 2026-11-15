@@ -166,7 +166,7 @@ func TestActionsMenuCursorSurvivesAShrinkingList(t *testing.T) {
 func TestActionsMenuOffersOnlyWhatTheStateCanDo(t *testing.T) {
 	running := newModel(mustTarget(t, "example.com:443"), false)
 	running.width, running.height = 100, 40
-	for _, name := range []string{"Retest checks", "Save report", "Switch job", "Explain why", "Full output", "Cancel job", "Incidents", "SSH login"} {
+	for _, name := range []string{"Retest checks", "Save report", "Switch job", "Explain why", "Full output", "Cancel job", "Incidents"} {
 		if slices.Contains(menuNames(running), name) {
 			t.Errorf("an unfinished run offers %q: %v", name, menuNames(running))
 		}
@@ -205,7 +205,7 @@ func TestActionsMenuOffersOnlyWhatTheStateCanDo(t *testing.T) {
 func TestChecksFooterIsCompactAndUsesTheActiveKeymap(t *testing.T) {
 	secondary := []string{
 		"network map", "expand", "collapse", "copy", "save", "restart",
-		"retest", "theme", "ssh", "incidents", "why", "full output",
+		"retest", "theme", "incidents", "why", "full output",
 	}
 	for _, preset := range presets {
 		t.Run(preset.name, func(t *testing.T) {

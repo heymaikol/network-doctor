@@ -209,7 +209,6 @@ The TUI's default key bindings:
 | `y` / `w` (viewer) | copy / save the viewer's retained output (up to 5,000 lines; respects its filter) |
 | `r` | restart with a new target |
 | `R` | retest: rerun the same checks on the same target, after acting on the remediation the answer block shows |
-| `S` | SSH login: a form for username, key, and password, then hands the terminal to `ssh` (hinted only once the SSH banner check passes, but usable against any target) |
 | `tab` | switch between running tool jobs |
 | `esc` | cancel the focused job only (`tab` picks which), or leave an opened device on the map; `q` is the stop-everything path |
 | `y` / `w` | yank / write (copy / save locally) a reviewable report of the chain plus every tool job |
@@ -225,7 +224,7 @@ The `?` cheatsheet is sectioned by the same groups the Actions menu sorts into (
 
 `space` opens the Actions menu: the actions and drill-down tools that apply to the current state, labelled with their active-preset key when they have one. Up/down or `j`/`k` move, `enter` runs the selected row, `esc` closes, and any shortcut pressed while it is open runs exactly as it does outside it, the confirmation gate on the active scans included. Rescan network is deliberately menu-only and appears after a LAN scan finishes. The rows are generated from the same action and tool definitions used by dispatch, so menu selection keeps stable action identity even as rows appear or disappear.
 
-The rows are grouped by what the action acts on, under headings in a fixed order: `This run` (the diagnosis and its evidence: full output, switch/cancel job, expand checks, explain why, incidents, retest), `This network` (the network map, open device, diagnose service, rescan network, SSH login), `Drill down` (the installed tools), `Report` (copy, save) and `Session` (restart, theme, help, quit). The order is the distance from the question the menu answers, "what do I do about this run?", so the next troubleshooting step is always above the housekeeping. Within a group the rows keep the cheatsheet's order, so state can move a row between groups but never inside one. The headings are drawn from the rows, so an empty group prints nothing, they are never selectable, and `enter` only ever runs an action. A group whose rows are scrolled out of view still labels the window it opens in; on a terminal too short for the labels to explain more rows than they cost, the menu drops them and spends every line on actions. It is discovery only: no probe, diagnosis, report, or exit code changes with it.
+The rows are grouped by what the action acts on, under headings in a fixed order: `This run` (the diagnosis and its evidence: full output, switch/cancel job, expand checks, explain why, incidents, retest), `This network` (the network map, open device, diagnose service, rescan network), `Drill down` (the installed tools), `Report` (copy, save) and `Session` (restart, theme, help, quit). The order is the distance from the question the menu answers, "what do I do about this run?", so the next troubleshooting step is always above the housekeeping. Within a group the rows keep the cheatsheet's order, so state can move a row between groups but never inside one. The headings are drawn from the rows, so an empty group prints nothing, they are never selectable, and `enter` only ever runs an action. A group whose rows are scrolled out of view still labels the window it opens in; on a terminal too short for the labels to explain more rows than they cost, the menu drops them and spends every line on actions. It is discovery only: no probe, diagnosis, report, or exit code changes with it.
 
 `T` opens the theme picker: up/down or `j`/`k` move through the built-in themes and apply the highlighted one at once, `enter` keeps it, and `esc` restores the theme that was active when the picker opened. It is presentation only, so no probe, diagnosis, status, report, snapshot, or exit code changes with it, and every status keeps the glyph and word it always had. The built-ins are `terminal` (the default, the 16 ANSI colours, which follow your terminal's own palette), `harbor`, `ember`, `contrast` (high contrast), and `monochrome` (colour-free, with bold and faint emphasis). There is no `--theme` flag: the picker is the way to choose one. `NO_COLOR=1 netdoc ...` disables colour for a run; an empty `NO_COLOR` value does not.
 
@@ -821,39 +820,21 @@ Discovery finds a device only if it accepts or refuses a TCP connect on port 80 
 
 When nothing answers, the panel says which of the two things happened: refused connections show the device is on the network with nothing listening on those ports, while silence leaves powered off, gone, and dropping traffic all open. A target on this machine's own network is also diagnosed as one: a failed connect to it is never explained by the state of internet egress, which it does not use.
 
-### SSH login
+### No login from netdoc
 
-`S` logs in to the current target, the machine the checks are about, so it needs one (`r` sets it). The form asks for the three things that are yours rather than the target's: `tab` moves between fields, `←`/`→` picks the key, `enter` connects, and `esc` backs out.
+The TUI has no SSH login form. The `S` shortcut is gone, the TUI no longer takes over the terminal to run `ssh`, and the TUI no longer passes a password typed into that form to `ssh` through an askpass helper. netdoc does not answer password, key passphrase, or security-key PIN prompts for `ssh`.
 
-```
-╭────────────────────────────────────────────────────╮
-│ SSH login to 192.168.1.50:2222                     │
-│   Username  mplaczek                               │
-│ ▸ Key       id_rsa  (3 of 4)  ←/→                  │
-│   Password  *******                                │
-╰────────────────────────────────────────────────────╯
-```
+SSH still runs in three places, and each is described below:
 
-Unlike the drill-down tools, this is not a bounded job: `netdoc` suspends itself and gives `ssh` the real terminal, so the session is fully interactive and anything the form left blank (a key passphrase, a host-key check, a 2FA code) is asked by `ssh` on screen. When the session ends the TUI comes back with `ssh`'s stderr in the job pane, so a `Permission denied` is still readable afterwards instead of being painted over.
+- In the TUI, for an SSH target, the `c` check is the only SSH action offered. It is a bounded, noninteractive banner and handshake check (`ssh -v -o BatchMode=yes`). It reads the server's identification string and key exchange, and it sets `PreferredAuthentications=none`, so it offers no credential and verifies none. It also sets `StrictHostKeyChecking=no`, which removes host-key confirmation and the refusal on a mismatch. An unknown host key is accepted without asking. A key that differs from the one in the system-wide known-hosts file is accepted with OpenSSH's changed-key warning, subject to some restrictions. The check sets `UserKnownHostsFile` to the null device, so your `known_hosts` file is neither consulted nor written.
+- An ordinary `--via` run uses the interactive transport. Its `ssh` runs on your controlling terminal, so it can prompt for a password, a key passphrase, or a host-key confirmation, and you answer those prompts yourself.
+- A profile with a `--via` destination uses the batch transport for its first component only when the destination reads as direct and the profile has at least two components. The batch transport refuses interactive authentication instead of prompting. If that first component succeeds, the remaining components run concurrently over the same batch transport. If it fails, the profile acquires its components one at a time over the interactive transport. A profile with a proxied destination, or with a single component, uses the interactive transport throughout.
 
-The form fills in `ssh` options, nothing more:
+[Flags and execution modes](#flags-and-execution-modes) explains which prompts the batch transport refuses, and when each transport applies.
 
-| Field | Effect |
-|-------|--------|
-| (host) | the target, plus `-p` when it named a non-default port |
-| Username | `-l <login>`, not `login@host`, so a name starting with `-` stays a name |
-| Key | `-i <path> -o IdentitiesOnly=yes`, so a loaded agent can't spend the server's auth attempts before this key is tried |
-| Password | see below |
+The `c` check describes the TUI only. It is not the only SSH functionality in netdoc.
 
-The key list is the private keys in `~/.ssh`, each recognized by its `.pub` half sitting next to it, and no key file is ever opened or parsed. `none` (the first entry) leaves key selection to `ssh`, i.e. to the agent and `ssh_config`, which is also where a key kept outside `~/.ssh` belongs.
-
-The typed password is echoed as dots and never reaches a command line, notice, or report. It is passed to `ssh` through the environment (`SSH_ASKPASS`), where `ssh` re-executes `netdoc` as its askpass helper and reads the secret from the helper's stdout. What that buys: the secret stays out of argv, which every process on the machine can read, and out of your shell history, though not out of memory. The password field is cleared once connecting starts, but by then the value has been copied into `ssh`'s environment, where it stays until `ssh` exits and is inherited by the whole subtree `ssh` starts: `ProxyCommand`, `LocalCommand`, and `ProxyJump`'s own `ssh`. On Linux that environment is readable through `/proc` by your own processes and by root; anything your `ssh_config` runs sees it too. `-o NumberOfPasswordPrompts=1` stops `ssh` re-offering a rejected one.
-
-On Windows, this password handoff requires OpenSSH_for_Windows 8.6p1 or newer. Network Doctor checks `ssh -V` before connecting; an older or unrecognized client leaves the form open with an explanation instead of launching `ssh` with an ignored password. Leave the password field blank on that client to have `ssh` ask on the terminal.
-
-Because forced askpass routes *every* prompt to the helper, the helper answers only password and passphrase prompts and refuses the rest. So the first connection to an unknown host, where `ssh` asks you to verify the host key, needs one run with the password field blank, which puts that question back on your terminal where it belongs.
-
-The whole `ssh` subtree inherits the askpass setting, so with `ProxyJump` in your `ssh_config` the jump host's `ssh` asks the helper too. The prompt names the machine it is asking for (`user@host's password:`), and the helper answers only when that host matches the target, so the jump host's prompt goes back to your terminal. Prompts naming no host (a key passphrase, a PAM keyboard-interactive `Password:`) are still answered on a direct connection, where only one machine can be asking; refusing those would break ordinary logins. Add a proxy and they name no host *and* could be either end, so the helper refuses all of them. Wording is no help there, since keyboard-interactive text is written by the far end, so a jump host can call its question a passphrase, and that run wants the password field blank anyway, which puts the prompt back on your terminal. All of this depends on netdoc being able to read your resolved config (`ssh -G`); when that lookup fails there is no way to tell whose prompt is whose, so password-assisted login is refused outright and the form says so.
+To log in to a host yourself, run `ssh` in a terminal.
 
 ### JSON output
 
@@ -2549,7 +2530,7 @@ Both ends bound what they will read from the other, and neither trusts the other
   different feature.
 - There is no live progress. The probes run on the far end and the answer arrives when the run is finished, which is why `--via` is headless rather than a remote terminal UI.
 - The probe IDs given to `--check` and `--skip` are validated locally as well as remotely, so a probe ID that exists only on a newer remote netdoc is rejected before the connection opens.
-- The drill-down tools, the LAN map, and the SSH login form are terminal UI features and are not part of a remote run.
+- The drill-down tools and the LAN map are terminal UI features and are not part of a remote run.
 
 ### Route-policy change simulation
 

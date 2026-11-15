@@ -52,13 +52,6 @@ func versionString(injected, module string) string {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	// The SSH login form (S) runs this binary as ssh's askpass helper so the
-	// password reaches ssh through the environment instead of an argv every
-	// process on the machine could read. First thing in run: ssh wants a
-	// secret on stdout and nothing else.
-	if secret, ok := os.LookupEnv(ui.AskpassEnv); ok {
-		return askpass(args, secret, os.Getenv(ui.AskpassHostEnv), os.Getenv(ui.AskpassProxyEnv) != "", stdout, stderr)
-	}
 	// The far end of --via, checked before the flag set exists. It is not a
 	// flag: it never appears in --help, on a man page, or in a completion,
 	// because it is one netdoc talking to another and there is nothing for a

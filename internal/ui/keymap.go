@@ -31,7 +31,6 @@ const (
 	actFilter
 	actRestart
 	actRetest
-	actSSH
 	actNetworkMap
 	actRescanNetwork
 	actExpand
@@ -120,7 +119,6 @@ var actionDefs = []actionDef{
 	{actIncidents, "incidents", "Incidents", groupRun, map[keyContext]actionHelp{ctxList: {"incidents", "inspect failures recorded during this watch session"}}},
 	{actRestart, "restart", "Restart", groupSession, map[keyContext]actionHelp{ctxList: {"restart", "restart with a new target"}}},
 	{actRetest, "retest", "Retest checks", groupRun, map[keyContext]actionHelp{ctxList: {"retest", "rerun the same checks on the same target, after acting on the remediation"}}},
-	{actSSH, "ssh", "SSH login", groupNetwork, map[keyContext]actionHelp{ctxList: {"ssh login", "log in to a host, handing the terminal to ssh"}}},
 	{actClearFilter, "clear-filter", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"clear filter", "clear the filter, or back when none is set"}}},
 	{actBack, "back", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"back", "back"}}},
 	{actActions, "actions", "", groupSession, map[keyContext]actionHelp{ctxList: {"actions", "list what the run can do right now, and run one without knowing its key"}}},
@@ -164,7 +162,6 @@ var defaultPreset = keyPreset{
 		actSave:         {"w"},
 		actRestart:      {"r"},
 		actRetest:       {"R"},
-		actSSH:          {"S"},
 		actNetworkMap:   {"v"},
 		actExpand:       {"a"},
 		actExplain:      {"e"},

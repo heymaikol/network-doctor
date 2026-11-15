@@ -109,7 +109,7 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		return m.quit()
 	case actRestart:
 		// Open the restart prompt; an active job keeps streaming until Enter commits.
-		m.entering, m.sshPrompt, m.inputErr = true, false, ""
+		m.entering, m.inputErr = true, ""
 		ti := textinput.New()
 		ti.Prompt = "netdoc "
 		ti.Placeholder = "example.com:443, or empty for a general check"
@@ -124,18 +124,6 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case actRetest:
 		return m.retest()
-	case actSSH:
-		// The SSH login form is offered for every target, unlike the 'c'
-		// handshake check, which only fits an SSH one. It logs in to the
-		// machine under test, so it needs a target and takes the host from it.
-		if m.target == nil {
-			return m, m.setNotice("SSH needs a target: press r to set one", false)
-		}
-		if _, err := toolLookPath("ssh"); err != nil {
-			return m, m.setNotice("ssh not found: install an OpenSSH client", false)
-		}
-		m.sshPrompt, m.ssh = true, newSSHForm(m.st, m.target)
-		return m, textinput.Blink
 	case actNetworkMap:
 		if m.networkMap {
 			m.networkMap = false
@@ -821,7 +809,7 @@ func (m *model) restartRun() tea.Cmd {
 func (m *model) resetPresentation() {
 	m.selMoved = false
 	m.explaining = false
-	m.pending, m.confirmTool, m.sshPrompt = nil, nil, false
+	m.pending, m.confirmTool = nil, nil
 	m.dropJobs()
 	m.networkMap, m.mapSelected, m.networkCIDR = false, 0, ""
 	m.svc = serviceChoice{}

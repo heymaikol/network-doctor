@@ -1133,6 +1133,37 @@ func TestRunSucceedsWhenTeardownFinishesInsideTheContext(t *testing.T) {
 	}
 }
 
+// trailingHold, when set, holds a trailing reader between a byte's delivery and its
+// record until the channel it points to is closed. Only holdTrailingReads sets it.
+var trailingHold atomic.Pointer[chan struct{}]
+
+// init installs the hook once, before any reader goroutine exists. The hook reads
+// trailingHold atomically, so tests never write the package variable while a reader
+// may still be reading it.
+func init() {
+	trailingReadHook = func() {
+		if hold := trailingHold.Load(); hold != nil {
+			<-*hold
+		}
+	}
+}
+
+// holdTrailingReads holds a trailing reader between a byte's delivery and its record
+// until the returned release is called. The hold ends when the test does, and release
+// is called then too, so a failing test cannot leave a reader blocked.
+func holdTrailingReads(t *testing.T) (release func()) {
+	t.Helper()
+	ch := make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(ch) }) }
+	trailingHold.Store(&ch)
+	t.Cleanup(func() {
+		release()
+		trailingHold.Store(nil)
+	})
+	return release
+}
+
 // A complete answer followed by the start of a second object, with a grandchild
 // holding stdout open, is two responses, and the held pipe does not make it one.
 // The answer may stand only when nothing but whitespace followed it.
@@ -1148,13 +1179,21 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 	// for the reader accepts the answer here.
 	t.Run("a byte delivered as the teardown wait ends is still counted", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-partial-grandchild")
-		release := make(chan struct{})
-		previous := trailingReadHook
-		trailingReadHook = func() { <-release }
-		t.Cleanup(func() { trailingReadHook = previous })
-		time.AfterFunc(5*time.Second, func() { close(release) })
+		release := holdTrailingReads(t)
+		time.AfterFunc(5*time.Second, release)
 		got := runGuarded(t, context.Background(), Request{})
 		requireVerdict(t, got, "more than one response", 6*time.Second)
+	})
+	// The reader can hold a byte it has received but not yet recorded, and stay
+	// there past the teardown wait. Nothing then shows whether that byte was a
+	// second response, so the answer must not stand while the reader is unfinished.
+	t.Run("a reader still held after stdout is closed is not accepted", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-partial-grandchild")
+		release := holdTrailingReads(t)
+		got := runGuarded(t, context.Background(), Request{})
+		requireVerdict(t, got, "could not be verified", 8*time.Second)
+		release()
+		requireNoReaderLeft(t)
 	})
 	t.Run("whitespace after the answer still stands", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-space-grandchild")

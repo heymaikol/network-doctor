@@ -431,20 +431,25 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			case <-opCtx.Done():
 				framingErr = opCtx.Err()
 			case <-time.After(cancelGrace):
-				// The answer stands unless something other than whitespace followed it.
-				// A held pipe cannot show whether an unfinished value is still coming, so
-				// such a byte is a second response. Closing stdout releases the reader.
-				// Its result is not read, since a closed pipe is not a clean end, but the
-				// wait for it is: the reader records what it took before it returns, so
-				// the check below then sees every byte stdout delivered. The wait is
-				// bounded, for a platform where closing does not release the read.
+				// The answer stands only when the reader finishes once stdout is closed,
+				// and nothing other than whitespace followed the answer. A held pipe cannot
+				// show whether an unfinished value is still coming, so such a byte is a
+				// second response. Closing stdout releases the reader, and the reader
+				// records what it took before it returns, so once it has finished the
+				// check sees every byte stdout delivered. Its own result is not read, since
+				// a closed pipe is not a clean end. A reader that does not finish within
+				// the bound fails closed, because what it took past the answer is unknown.
 				_ = stdout.Close()
 				select {
 				case <-trailing:
+					if watch.seen.Load() {
+						framingErr = errors.New("the remote sent more than one response")
+					}
 				case <-time.After(cancelGrace):
-				}
-				if watch.seen.Load() {
-					framingErr = errors.New("the remote sent more than one response")
+					framingErr = errors.New("the remote's output did not end, so its response could not be verified")
+					if watch.seen.Load() {
+						framingErr = errors.New("the remote sent more than one response")
+					}
 				}
 			}
 		}

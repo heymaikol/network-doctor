@@ -167,8 +167,9 @@ func fakeSSH(mode string) int {
 			fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		case "read-buffered-partial-grandchild", "read-buffered-space-grandchild":
 			// The response and the bytes after it go out in one write, so the first
-			// decode reads them together. They stay in the decoder's buffer, and the
-			// trailing reader never sees them.
+			// decode reads them together and the bytes after it are left in the
+			// decoder's buffer. The unfinished-object test checks the "{" against the
+			// trailing hook; the whitespace test checks only the verdict.
 			tail := "\n{"
 			if mode == "read-buffered-space-grandchild" {
 				tail = "\n\n"
@@ -1320,11 +1321,13 @@ func bufferedAnswer() []byte {
 	return body
 }
 
-// The check reads what the decoder took past the first response, and the trailing
-// reader never sees those bytes. The stand-in writes a complete response and then the
-// start of a second object in one write, so the first decode takes both. A second
-// object that never finishes can then be caught only from the decoder's buffer, while
-// a grandchild holds stdout open. Dropping that read makes the run accept the answer.
+// The check reads what the decoder took past the first response. The stand-in writes a
+// complete response and then the start of a second object in one write, so the first
+// decode takes both. The trailing reader's hook runs only for non-whitespace reads, so
+// a hook that never fires shows that no non-whitespace byte came through the trailing
+// reader. A second object that never finishes can then be caught only from the
+// decoder's buffer, while a grandchild holds stdout open. Dropping that read makes the
+// run accept the answer.
 func TestRunRejectsBufferedTrailingOutputWhileAGrandchildHoldsStdout(t *testing.T) {
 	if n := len(bufferedAnswer()) + len("\n{"); n > firstDecodeRead {
 		t.Fatalf("the buffered answer is %d bytes, more than the %d-byte first read it must fit in", n, firstDecodeRead)
@@ -1337,23 +1340,26 @@ func TestRunRejectsBufferedTrailingOutputWhileAGrandchildHoldsStdout(t *testing.
 		requireVerdict(t, got, "more than one response", responseEOFGrace+cancelGrace+time.Second)
 		requireNoReaderLeft(t)
 	})
-	t.Run("whitespace already in the decoder's buffer still stands", func(t *testing.T) {
+	// The verdict only. The trailing hook cannot see whitespace reads, so this subtest
+	// does not show where the whitespace was read, and it makes no claim about that.
+	t.Run("whitespace after the response still stands", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-buffered-space-grandchild")
-		hold := holdTrailingReads(t)
 		got := runGuarded(t, context.Background(), Request{})
-		requireBufferedOnly(t, hold)
 		requireVerdict(t, got, bufferedRefusal, responseEOFGrace+cancelGrace+time.Second)
 		requireNoReaderLeft(t)
 	})
 }
 
-// requireBufferedOnly checks that the trailing reader never took a byte past the
-// response, so those bytes could only have come from the decoder's buffer.
+// requireBufferedOnly checks that the trailing reader never took a non-whitespace byte
+// past the response. The hook runs only for non-whitespace reads, so this covers the
+// unfinished object's "{" and says nothing about whitespace. The stand-in writes the
+// response and the tail in one write, so a "{" the hook never saw was in the decoder's
+// buffer.
 func requireBufferedOnly(t *testing.T, hold *trailingHold) {
 	t.Helper()
 	select {
 	case <-hold.entered:
-		t.Fatal("bytes after the response reached the trailing reader, not the decoder's buffer")
+		t.Fatal("a non-whitespace byte after the response reached the trailing reader, not the decoder's buffer")
 	default:
 	}
 }

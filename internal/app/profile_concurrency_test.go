@@ -566,6 +566,73 @@ func TestProfileViaTimedOutBatchAcquisitionStillFallsBack(t *testing.T) {
 	}
 }
 
+// I: a caller that is already cancelled when the pass starts starts no
+// acquisition, whichever transport would have carried it: the batch attempt of
+// a direct destination, the only component of a direct destination, or the
+// sequential acquisition of a proxied one.
+func TestProfileViaStartsNothingForAnAlreadyCancelledCaller(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		runs   int
+		direct bool
+	}{
+		{"the batch acquisition of a direct destination", 0, true},
+		{"the only component of a direct destination", 1, true},
+		{"the sequential acquisition of a proxied destination", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := githubPlan(t)
+			if tc.runs > 0 {
+				plan.Runs = plan.Runs[:tc.runs]
+			}
+			tr := traceProfileVia(t, 0, func(remote.Request, bool) (remote.Response, error) {
+				return remote.Response{}, errTransport
+			})
+			stubRemoteDirect(t, tc.direct)
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			result, snapshots, tools, err := runProfilePass(ctx, viaBase(), plan)
+			requireCancelledPass(t, result, snapshots, tools, err)
+			if got := tr.snapshot(); len(got.calls) != 0 {
+				t.Errorf("acquisitions = %+v, want none once the caller had cancelled", got.calls)
+			}
+		})
+	}
+}
+
+// J: a caller that cancels once the first component's batch acquisition has
+// succeeded starts none of the overlapping acquisitions. The pass reports the
+// cancellation, so that success is not accepted either.
+func TestProfileViaStartsNothingOverlappingOnceTheCallerCancels(t *testing.T) {
+	plan := githubPlan(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tr := traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if batch {
+			cancel()
+		}
+		return profileComponentAnswer(t, req, true), nil
+	})
+	result, snapshots, tools, err := runProfilePass(ctx, viaBase(), plan)
+	requireCancelledPass(t, result, snapshots, tools, err)
+	if got := tr.snapshot(); len(got.calls) != 1 || !got.calls[0].batch {
+		t.Errorf("acquisitions = %+v, want the one batch acquisition and nothing after it", got.calls)
+	}
+}
+
+// requireCancelledPass checks what a pass returns once its caller has cancelled:
+// the cancellation itself, and no result, snapshot or tool list built from
+// components that were not accepted.
+func requireCancelledPass(t *testing.T, result profile.Result, snapshots []snapshot.Snapshot, tools []snapshot.Tool, err error) {
+	t.Helper()
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want the cancellation", err)
+	}
+	if len(result.Components) != 0 || snapshots != nil || tools != nil {
+		t.Errorf("a cancelled pass returned components, snapshots or tools")
+	}
+}
+
 // F: a component that completed and found the remote network unhealthy is not
 // a transport failure. The path was established, so the rest still overlap.
 func TestProfileViaTreatsAnUnhealthyFirstComponentAsEstablished(t *testing.T) {

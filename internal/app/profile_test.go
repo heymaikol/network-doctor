@@ -252,6 +252,37 @@ func TestProfilePassHonorsCancellation(t *testing.T) {
 	}
 }
 
+// A local pass whose caller has already cancelled runs no probes. The probes
+// run concurrently, so the count is taken under a lock.
+func TestProfilePassStartsNoLocalProbesOnceTheCallerHasCancelled(t *testing.T) {
+	original := runAll
+	t.Cleanup(func() { runAll = original })
+	var mu sync.Mutex
+	probeRuns := 0
+	runAll = func(context.Context, []diagnostic.Probe, time.Duration) map[diagnostic.ProbeID]diagnostic.ProbeResult {
+		mu.Lock()
+		defer mu.Unlock()
+		probeRuns++
+		return nil
+	}
+	definition, _ := profile.Builtins().Lookup("web")
+	plan, err := definition.Plan("example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, _, err = runProfilePass(ctx, headless{publicDNS: diagnostic.DefaultPublicDNS, timeout: time.Second}, plan)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want the cancellation", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if probeRuns != 0 {
+		t.Errorf("%d probe runs after the caller had cancelled, want none", probeRuns)
+	}
+}
+
 // Nothing reads a component's snapshot unless -save or -support is set, so an
 // unsaved pass should not build one. BuildSnapshot always sets Schema, so a
 // non-empty Schema here means the projection ran.

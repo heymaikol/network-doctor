@@ -98,6 +98,14 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 	}
 	outputs := make([]diagnosisOutput, len(plan.Runs))
 	run := func(i int, batch bool) {
+		// Once the caller has cancelled, nothing new starts, and the pass reports
+		// the cancellation whatever the components hold. Every acquisition goes
+		// through here, so this one check covers the batch attempt, the
+		// sequential path and the overlap.
+		if err := ctx.Err(); err != nil {
+			outputs[i] = diagnosisOutput{err: err}
+			return
+		}
 		h := base
 		h.target = plan.Runs[i].Target
 		h.selection, h.check = profileSelection(plan.Runs[i], base.check, base.skip)
@@ -161,11 +169,9 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		if outputs[0].err != nil {
 			// A failed first batch attempt falls back, for any reason, on purpose:
 			// a stalled connection may need a proxy the batch transport pinned off,
-			// and the ordinary acquisition re-reads the configuration. A caller that
-			// has already cancelled gets no fallback: nothing is left to establish.
-			if ctx.Err() == nil {
-				sequential()
-			}
+			// and the ordinary acquisition re-reads the configuration. A cancelled
+			// caller's fallback starts nothing; see run.
+			sequential()
 			break
 		}
 		together(1, true)

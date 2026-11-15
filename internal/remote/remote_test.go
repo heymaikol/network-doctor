@@ -1151,7 +1151,7 @@ func TestRunSucceedsWhenTeardownFinishesInsideTheContext(t *testing.T) {
 // and reports two events to the test. entered closes when a reader reaches the hold,
 // which is how a test tells the reader path from the decoder's read-ahead path.
 // waiting closes when the teardown begins waiting for the reader after stdout is
-// closed. Each event is closed once, so a test waits on it rather than on the clock.
+// closed. Each event closes once, and a test waits on it with waitFor.
 type trailingHold struct {
 	ch          chan struct{}
 	releaseOnce sync.Once
@@ -1162,26 +1162,6 @@ type trailingHold struct {
 }
 
 func (h *trailingHold) release() { h.releaseOnce.Do(func() { close(h.ch) }) }
-
-// awaitEntered fails the test unless a trailing reader reaches the hold.
-func (h *trailingHold) awaitEntered(t *testing.T) {
-	t.Helper()
-	select {
-	case <-h.entered:
-	case <-time.After(guardLimit):
-		t.Fatal("the trailing bytes never reached the held reader")
-	}
-}
-
-// awaitWaiting fails the test unless the teardown begins waiting for the reader.
-func (h *trailingHold) awaitWaiting(t *testing.T) {
-	t.Helper()
-	select {
-	case <-h.waiting:
-	case <-time.After(guardLimit):
-		t.Fatal("the teardown never began waiting for the trailing reader after stdout closed")
-	}
-}
 
 // trailingHoldActive is the hold in force, or nil. init installs the hooks once,
 // before any goroutine exists, and each hook reads this atomically, so no test
@@ -1230,18 +1210,47 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 		requireVerdict(t, got, "more than one response", responseEOFGrace+cancelGrace+time.Second)
 	})
 	// A byte can be delivered while the teardown waits for the reader, and the reader
-	// has not recorded it yet. The check must still see it. The reader is released
-	// only once the teardown is waiting, so a check that does not wait for the reader
-	// accepts the answer, and the test fails. Both events are awaited, not timed.
+	// has not recorded it yet. The check must still see it. The reader is held until
+	// the teardown is waiting, and the run must stay pending while it is held, so a
+	// check that does not wait for the reader returns early and the test fails. The
+	// two events are awaited. The timed assertions are the 200 ms pending window and
+	// the return within 1 s of the release. Setup latency is varied, and the overall
+	// bound allows for it.
 	t.Run("a byte delivered as the teardown wait ends is still counted", func(t *testing.T) {
-		useGrandchildFakeSSH(t, "read-partial-grandchild")
-		hold := holdTrailingReads(t)
-		done := startRun(context.Background(), Request{})
-		hold.awaitEntered(t)
-		hold.awaitWaiting(t)
-		hold.release()
-		got := awaitRun(t, done)
-		requireVerdict(t, got, "more than one response", guardLimit)
+		for _, setup := range []time.Duration{0, 1500 * time.Millisecond, 3 * time.Second} {
+			t.Run(fmt.Sprintf("setup %s", setup), func(t *testing.T) {
+				useGrandchildFakeSSH(t, "read-partial-grandchild")
+				// The setup latency is the time between the request write and the first
+				// decode, the same seam the held-reader subtest below uses.
+				previous := writeRequest
+				writeRequest = func(w io.Writer, p []byte) (int, error) {
+					n, err := previous(w, p)
+					time.Sleep(setup)
+					return n, err
+				}
+				t.Cleanup(func() { writeRequest = previous })
+				hold := holdTrailingReads(t)
+				done := startRun(context.Background(), Request{})
+				waitFor(t, hold.entered, "the trailing bytes to reach the held reader")
+				waitFor(t, hold.waiting, "the teardown to begin waiting for the reader after stdout closed")
+				select {
+				case got := <-done:
+					t.Fatalf("Run returned while the reader was still held: %+v", got)
+				case <-time.After(200 * time.Millisecond):
+				}
+				released := time.Now()
+				hold.release()
+				got := awaitRun(t, done)
+				if d := time.Since(released); d > time.Second {
+					t.Errorf("Run returned %s after the reader was released, want at most 1s", d)
+				}
+				// The overall bound is a guard, not the teardown's own length. The elapsed time
+				// includes the setup latency, the 2 s trailing window and the 2 s teardown wait,
+				// so a bound near 6 s fails at the 3 s setup, and the bound was raised to guardLimit
+				// for that reason. The 1 s return above is the timed assertion.
+				requireVerdict(t, got, "more than one response", guardLimit)
+			})
+		}
 	})
 	// The reader can hold a byte it has received but not yet recorded, and stay
 	// there past the teardown wait. Nothing then shows whether that byte was a
@@ -1260,7 +1269,7 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 		t.Cleanup(func() { writeRequest = previous })
 		hold := holdTrailingReads(t)
 		done := startRun(context.Background(), Request{})
-		hold.awaitEntered(t)
+		waitFor(t, hold.entered, "the trailing bytes to reach the held reader")
 		got := awaitRun(t, done)
 		requireVerdict(t, got, "could not be verified", 8*time.Second)
 		hold.release()

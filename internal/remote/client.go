@@ -434,11 +434,13 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 				// The answer stands only when the reader finishes once stdout is closed,
 				// and nothing other than whitespace followed the answer. A held pipe cannot
 				// show whether an unfinished value is still coming, so such a byte is a
-				// second response. Closing stdout releases the reader, and the reader
-				// records what it took before it returns, so once it has finished the
-				// check sees every byte stdout delivered. Its own result is not read, since
-				// a closed pipe is not a clean end. A reader that does not finish within
-				// the bound fails closed, because what it took past the answer is unknown.
+				// second response. Closing stdout releases a reader blocked in its read, and
+				// the reader records each byte it takes before it returns, so once it has
+				// finished the check has seen every byte it took from stdout. A byte it had
+				// not yet taken from the pipe when stdout closed is not seen. Its own result
+				// is not read, since a closed pipe is not a clean end. A reader that does not
+				// finish within the bound fails closed, because what it took past the answer
+				// is unknown.
 				_ = stdout.Close()
 				select {
 				case <-trailing:

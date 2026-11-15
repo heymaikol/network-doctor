@@ -1044,12 +1044,25 @@ type runOutcome struct {
 // returned within guardLimit.
 func runGuarded(t *testing.T, ctx context.Context, req Request) runOutcome {
 	t.Helper()
+	return awaitRun(t, startRun(ctx, req))
+}
+
+// startRun runs Run on its own goroutine. The outcome arrives on the returned channel,
+// so a test can act on the run's events while it is still in progress.
+func startRun(ctx context.Context, req Request) <-chan runOutcome {
 	done := make(chan runOutcome, 1)
 	start := time.Now()
 	go func() {
 		resp, err := Run(ctx, "server", "", req)
 		done <- runOutcome{resp, err, time.Since(start)}
 	}()
+	return done
+}
+
+// awaitRun returns the outcome of a started run, or fails the test if it has not
+// arrived within guardLimit.
+func awaitRun(t *testing.T, done <-chan runOutcome) runOutcome {
+	t.Helper()
 	select {
 	case got := <-done:
 		return got
@@ -1134,27 +1147,57 @@ func TestRunSucceedsWhenTeardownFinishesInsideTheContext(t *testing.T) {
 	}
 }
 
-// trailingHold holds a trailing reader between a byte's delivery and its record
-// until release is called. entered reports that a reader reached the hold, which
-// is how a test tells the reader path from the decoder's read-ahead path.
+// trailingHold holds the trailing reader between a byte's delivery and its record,
+// and reports two events to the test. entered closes when a reader reaches the hold,
+// which is how a test tells the reader path from the decoder's read-ahead path.
+// waiting closes when the teardown begins waiting for the reader after stdout is
+// closed. Each event is closed once, so a test waits on it rather than on the clock.
 type trailingHold struct {
-	ch      chan struct{}
-	once    sync.Once
-	entered atomic.Bool
+	ch          chan struct{}
+	releaseOnce sync.Once
+	entered     chan struct{}
+	enterOnce   sync.Once
+	waiting     chan struct{}
+	waitOnce    sync.Once
 }
 
-func (h *trailingHold) release() { h.once.Do(func() { close(h.ch) }) }
+func (h *trailingHold) release() { h.releaseOnce.Do(func() { close(h.ch) }) }
 
-// trailingHoldActive is the hold in force, or nil. init installs the hook once,
-// before any reader goroutine exists, and the hook reads this atomically, so no
-// test ever writes the package variable while a reader may still read it.
+// awaitEntered fails the test unless a trailing reader reaches the hold.
+func (h *trailingHold) awaitEntered(t *testing.T) {
+	t.Helper()
+	select {
+	case <-h.entered:
+	case <-time.After(guardLimit):
+		t.Fatal("the trailing bytes never reached the held reader")
+	}
+}
+
+// awaitWaiting fails the test unless the teardown begins waiting for the reader.
+func (h *trailingHold) awaitWaiting(t *testing.T) {
+	t.Helper()
+	select {
+	case <-h.waiting:
+	case <-time.After(guardLimit):
+		t.Fatal("the teardown never began waiting for the trailing reader after stdout closed")
+	}
+}
+
+// trailingHoldActive is the hold in force, or nil. init installs the hooks once,
+// before any goroutine exists, and each hook reads this atomically, so no test
+// writes a package variable while a reader or the teardown may still read it.
 var trailingHoldActive atomic.Pointer[trailingHold]
 
 func init() {
 	trailingReadHook = func() {
 		if h := trailingHoldActive.Load(); h != nil {
-			h.entered.Store(true)
+			h.enterOnce.Do(func() { close(h.entered) })
 			<-h.ch
+		}
+	}
+	readerWaitHook = func() {
+		if h := trailingHoldActive.Load(); h != nil {
+			h.waitOnce.Do(func() { close(h.waiting) })
 		}
 	}
 }
@@ -1164,7 +1207,11 @@ func init() {
 // cannot leave a reader blocked.
 func holdTrailingReads(t *testing.T) *trailingHold {
 	t.Helper()
-	h := &trailingHold{ch: make(chan struct{})}
+	h := &trailingHold{
+		ch:      make(chan struct{}),
+		entered: make(chan struct{}),
+		waiting: make(chan struct{}),
+	}
 	trailingHoldActive.Store(h)
 	t.Cleanup(func() {
 		h.release()
@@ -1182,17 +1229,19 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 		got := runGuarded(t, context.Background(), Request{})
 		requireVerdict(t, got, "more than one response", responseEOFGrace+cancelGrace+time.Second)
 	})
-	// A byte can be delivered just as the teardown wait ends, and the reader has not
-	// recorded it yet. The check must still see it. The hook holds that window open
-	// until after the teardown wait would have checked, so a check that does not wait
-	// for the reader accepts the answer here.
+	// A byte can be delivered while the teardown waits for the reader, and the reader
+	// has not recorded it yet. The check must still see it. The reader is released
+	// only once the teardown is waiting, so a check that does not wait for the reader
+	// accepts the answer, and the test fails. Both events are awaited, not timed.
 	t.Run("a byte delivered as the teardown wait ends is still counted", func(t *testing.T) {
 		useGrandchildFakeSSH(t, "read-partial-grandchild")
 		hold := holdTrailingReads(t)
-		time.AfterFunc(5*time.Second, hold.release)
-		got := runGuarded(t, context.Background(), Request{})
-		requireReached(t, hold)
-		requireVerdict(t, got, "more than one response", 6*time.Second)
+		done := startRun(context.Background(), Request{})
+		hold.awaitEntered(t)
+		hold.awaitWaiting(t)
+		hold.release()
+		got := awaitRun(t, done)
+		requireVerdict(t, got, "more than one response", guardLimit)
 	})
 	// The reader can hold a byte it has received but not yet recorded, and stay
 	// there past the teardown wait. Nothing then shows whether that byte was a
@@ -1210,8 +1259,9 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 		}
 		t.Cleanup(func() { writeRequest = previous })
 		hold := holdTrailingReads(t)
-		got := runGuarded(t, context.Background(), Request{})
-		requireReached(t, hold)
+		done := startRun(context.Background(), Request{})
+		hold.awaitEntered(t)
+		got := awaitRun(t, done)
 		requireVerdict(t, got, "could not be verified", 8*time.Second)
 		hold.release()
 		requireNoReaderLeft(t)
@@ -1226,16 +1276,6 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 			t.Fatalf("response did not carry the completed diagnosis: %+v", got.resp)
 		}
 	})
-}
-
-// requireReached fails the test unless the trailing bytes reached the held reader.
-// Without that, the decoder's read-ahead decided the verdict, and the subtest would
-// be checking a different path from the one it names.
-func requireReached(t *testing.T, h *trailingHold) {
-	t.Helper()
-	if !h.entered.Load() {
-		t.Fatal("the trailing bytes never reached the held reader, so the decoder's read-ahead decided the verdict")
-	}
 }
 
 // requireVerdict checks that a run did not succeed, and that it failed with want in

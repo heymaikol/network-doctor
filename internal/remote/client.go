@@ -445,7 +445,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 					if watch.seen.Load() {
 						framingErr = errors.New("the remote sent more than one response")
 					}
-				case <-time.After(cancelGrace):
+				case <-readerWaitTimeout():
 					framingErr = errors.New("the remote's output did not end, so its response could not be verified")
 					if watch.seen.Load() {
 						framingErr = errors.New("the remote sent more than one response")
@@ -509,6 +509,17 @@ func (w *trailingWatch) Read(p []byte) (int, error) {
 // trailingReadHook runs between a read that delivered a non-whitespace byte after
 // the response and the record of it. Tests replace it to hold that window open.
 var trailingReadHook = func() {}
+
+// readerWaitHook runs when the teardown begins waiting for the framing reader after
+// stdout is closed. Tests replace it to observe that point.
+var readerWaitHook = func() {}
+
+// readerWaitTimeout bounds the wait for the framing reader after stdout is closed.
+// The hook runs as the wait begins, and only a wait that exists runs it.
+func readerWaitTimeout() <-chan time.Time {
+	readerWaitHook()
+	return time.After(cancelGrace)
+}
 
 // hasNonSpace reports whether b holds anything other than JSON whitespace.
 func hasNonSpace(b []byte) bool {

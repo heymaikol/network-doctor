@@ -11,16 +11,19 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
-// cancelGrace is how long Wait tolerates a killed ssh's pipes staying open.
-// Without a delay, Wait blocks until every inherited pipe closes, and after a
-// cancellation those belong to a process that was just killed for not
-// finishing.
+// cancelGrace bounds how long a killed ssh's pipes may stay open. Wait tolerates
+// them for this long, because without a bound it blocks until every inherited
+// pipe closes, and after a cancellation those belong to a process that was just
+// killed for not finishing. A completed response's teardown wait after its kill
+// uses the same bound: a process other than ssh can hold stdout open after ssh
+// is gone, and nothing else ends that wait.
 const cancelGrace = 2 * time.Second
 
 // responseEOFGrace bounds how long a completed response waits for SSH stdout
@@ -350,6 +353,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	var dec *json.Decoder
 	var limited *io.LimitedReader
 	var decodeErr error
+	watch := &trailingWatch{r: stdout}
 	stopSSH := false
 	if _, err := writeRequest(stdin, body); err != nil {
 		// A failed write means ssh stopped taking the request, most often by
@@ -360,7 +364,35 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		resp, decodeErr = readAfterWriteFailure(opCtx, stdout, func() { _ = cmd.Process.Kill() })
 		stopSSH = true
 	} else {
-		resp, dec, limited, decodeErr = decodeResponse(stdout)
+		// The first value is read on its own goroutine, so the operation context can
+		// end the wait while another process holds stdout open. The reader is not
+		// waited on after that: the paths that leave it running close stdout, which
+		// releases it.
+		type first struct {
+			resp    Response
+			dec     *json.Decoder
+			limited *io.LimitedReader
+			err     error
+		}
+		value := make(chan first, 1)
+		go func() {
+			r, d, l, err := decodeResponse(watch)
+			value <- first{r, d, l, err}
+		}()
+		select {
+		case got := <-value:
+			resp, dec, limited, decodeErr = got.resp, got.dec, got.limited, got.err
+			if decodeErr == nil {
+				// The trailing check is about to read. Bytes the decoder already took
+				// past the response sit in its buffer, not in the reader, so check them.
+				watch.armed.Store(true)
+				if rest, _ := io.ReadAll(dec.Buffered()); hasNonSpace(rest) {
+					watch.seen.Store(true)
+				}
+			}
+		case <-opCtx.Done():
+			decodeErr = opCtx.Err()
+		}
 		stopSSH = decodeErr != nil
 	}
 	// Close the worker's liveness input once its response is decoded. This lets
@@ -381,19 +413,47 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			trailing <- confirmNoTrailingData(dec, limited)
 		}()
 
-		timer := time.NewTimer(responseEOFGrace)
 		var framingErr error
 		select {
 		case framingErr = <-trailing:
-			_ = timer.Stop()
-		case <-timer.C:
-			// A complete valid response is already in hand. If stdout still
-			// has no end after the bounded teardown window, stop the local SSH
-			// transport. Killing ssh closes its stdout writer after bytes
-			// already delivered through the pipe, letting the framing check
-			// finish without treating remote EOF as an unbounded requirement.
+		case <-opCtx.Done():
+			framingErr = opCtx.Err()
+		case <-time.After(responseEOFGrace):
+			// A complete valid response is already in hand. If stdout still has no end
+			// after the bounded teardown window, stop the local SSH transport. Killing
+			// ssh closes its stdout writer after bytes already delivered through the
+			// pipe, letting the framing check finish without treating remote EOF as an
+			// unbounded requirement. That wait is bounded by cancelGrace, because a
+			// process other than ssh can hold the pipe open and then nothing ends it.
 			_ = cmd.Process.Kill()
-			framingErr = <-trailing
+			select {
+			case framingErr = <-trailing:
+			case <-opCtx.Done():
+				framingErr = opCtx.Err()
+			case <-time.After(cancelGrace):
+				// The answer stands only when the reader finishes once stdout is closed,
+				// and nothing other than whitespace followed the answer. A held pipe cannot
+				// show whether an unfinished value is still coming, so such a byte is a
+				// second response. Closing stdout releases a reader blocked in its read, and
+				// the reader records each byte it takes before it returns, so once it has
+				// finished the check has seen every byte it took from stdout. A byte it had
+				// not yet taken from the pipe when stdout closed is not seen. Its own result
+				// is not read, since a closed pipe is not a clean end. A reader that does not
+				// finish within the bound fails closed, because what it took past the answer
+				// is unknown.
+				_ = stdout.Close()
+				select {
+				case <-trailing:
+					if watch.seen.Load() {
+						framingErr = errors.New("the remote sent more than one response")
+					}
+				case <-readerWaitTimeout():
+					framingErr = errors.New("the remote's output did not end, so its response could not be verified")
+					if watch.seen.Load() {
+						framingErr = errors.New("the remote sent more than one response")
+					}
+				}
+			}
 		}
 
 		if framingErr != nil {
@@ -408,6 +468,14 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	}
 	waitErr := cmd.Wait()
 
+	// The operation context is checked once more, after teardown, and this is where
+	// the verdict is decided. A caller cancellation or operation deadline that has
+	// ended by now is never a success, even with a whole answer in hand. One that
+	// ends after this check does not undo the verdict. transportError still chooses
+	// between interrupted and timed out, because it reads the caller's context first.
+	if decodeErr == nil && opCtx.Err() != nil {
+		decodeErr = opCtx.Err()
+	}
 	if decodeErr != nil {
 		return Response{}, transportError(ctx, opCtx, limit, dest, exitStatus(cmd, waitErr), errBuf.String(), decodeErr)
 	}
@@ -420,6 +488,44 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		return resp, fmt.Errorf("%s: %s", cleanDest(dest), clean(resp.Error))
 	}
 	return resp, nil
+}
+
+// trailingWatch passes through the reader the first response is decoded from, and
+// records whether a byte other than JSON whitespace arrives after it. It is armed
+// once the first value is decoded, so the response's own bytes do not count.
+type trailingWatch struct {
+	r     io.Reader
+	armed atomic.Bool
+	seen  atomic.Bool
+}
+
+func (w *trailingWatch) Read(p []byte) (int, error) {
+	n, err := w.r.Read(p)
+	if w.armed.Load() && hasNonSpace(p[:n]) {
+		trailingReadHook()
+		w.seen.Store(true)
+	}
+	return n, err
+}
+
+// trailingReadHook runs between a read that delivered a non-whitespace byte after
+// the response and the record of it. Tests replace it to hold that window open.
+var trailingReadHook = func() {}
+
+// readerWaitHook runs when the teardown begins waiting for the framing reader after
+// stdout is closed. Tests replace it to observe that point.
+var readerWaitHook = func() {}
+
+// readerWaitTimeout bounds the wait for the framing reader after stdout is closed.
+// The hook runs as the wait begins, and only a wait that exists runs it.
+func readerWaitTimeout() <-chan time.Time {
+	readerWaitHook()
+	return time.After(cancelGrace)
+}
+
+// hasNonSpace reports whether b holds anything other than JSON whitespace.
+func hasNonSpace(b []byte) bool {
+	return len(bytes.TrimLeft(b, " \t\r\n")) > 0
 }
 
 // readAfterWriteFailure reads what a worker wrote before its stdin stopped

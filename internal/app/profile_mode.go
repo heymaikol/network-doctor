@@ -159,13 +159,13 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// appear part-way through the pass to ask on its behalf.
 		run(0, true)
 		if outputs[0].err != nil {
-			// Not established. That is a host wanting a password, a hardware
-			// key, an agent, or a host that is simply unreachable, and none of
-			// those is worth telling apart here: all of them get the
-			// acquisition netdoc has always performed, starting again at the
-			// first component, which overwrites this refusal with its own
-			// error to report.
-			sequential()
+			// A failed first batch attempt falls back, for any reason, on purpose:
+			// a stalled connection may need a proxy the batch transport pinned off,
+			// and the ordinary acquisition re-reads the configuration. A caller that
+			// has already cancelled gets no fallback: nothing is left to establish.
+			if ctx.Err() == nil {
+				sequential()
+			}
 			break
 		}
 		together(1, true)

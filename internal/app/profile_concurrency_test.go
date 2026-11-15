@@ -508,6 +508,64 @@ func TestProfileViaCancellationEndsEveryConcurrentComponent(t *testing.T) {
 	}
 }
 
+// G: a caller that cancels while the batch acquisition is in flight starts no
+// ordinary acquisition afterwards, whether that acquisition reports the
+// cancellation or an ordinary transport failure. The decision follows the
+// caller's context, not the wording of the error.
+func TestProfileViaNoFallbackOnceTheCallerHasCancelled(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		reportsCancel bool
+	}{
+		{"the acquisition reports the cancellation", true},
+		{"the acquisition reports a transport failure", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := githubPlan(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			tr := traceProfileVia(t, 0, func(_ remote.Request, batch bool) (remote.Response, error) {
+				if batch {
+					cancel()
+				} else {
+					t.Error("the ordinary acquisition started after the caller had cancelled")
+				}
+				if tc.reportsCancel {
+					return remote.Response{}, ctx.Err()
+				}
+				return remote.Response{}, errTransport
+			})
+			_, _, _, err := runProfilePass(ctx, viaBase(), plan)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("error = %v, want the cancellation", err)
+			}
+			if got := tr.snapshot(); len(got.calls) != 1 || !got.calls[0].batch {
+				t.Errorf("acquisitions = %+v, want the one batch attempt and nothing after it", got.calls)
+			}
+		})
+	}
+}
+
+// H: an operation timeout is not a cancellation. With the caller still active,
+// a batch attempt that times out falls back, as it always has.
+func TestProfileViaTimedOutBatchAcquisitionStillFallsBack(t *testing.T) {
+	plan := githubPlan(t)
+	tr := traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if batch {
+			return remote.Response{}, errors.New("ideapad: the remote run timed out after 1s")
+		}
+		return profileComponentAnswer(t, req, true), nil
+	})
+	if _, _, _, err := runProfilePass(context.Background(), viaBase(), plan); err != nil {
+		t.Fatalf("profile pass: %v", err)
+	}
+	got := tr.snapshot()
+	if len(got.calls) != len(plan.Runs)+1 || !got.calls[0].batch {
+		t.Fatalf("acquisitions = %d, want one refused batch attempt and one ordinary acquisition per component",
+			len(got.calls))
+	}
+}
+
 // F: a component that completed and found the remote network unhealthy is not
 // a transport failure. The path was established, so the rest still overlap.
 func TestProfileViaTreatsAnUnhealthyFirstComponentAsEstablished(t *testing.T) {

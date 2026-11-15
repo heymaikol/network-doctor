@@ -144,7 +144,8 @@ func fakeSSH(mode string) int {
 			_ = json.NewEncoder(os.Stdout).Encode(resp)
 		}
 		return startGrandchild()
-	case "read-silent-grandchild", "read-answer-grandchild", "read-extra-grandchild", "read-garbage-grandchild":
+	case "read-silent-grandchild", "read-answer-grandchild", "read-extra-grandchild", "read-garbage-grandchild",
+		"read-buffered-partial-grandchild", "read-buffered-space-grandchild":
 		// The normal path: the request write succeeds because this stand-in reads
 		// the whole request before it exits. What it writes first varies, and a
 		// grandchild holds stdout open in every variant.
@@ -164,6 +165,15 @@ func fakeSSH(mode string) int {
 			}
 		case "read-garbage-grandchild":
 			fmt.Fprintln(os.Stdout, "Welcome to the machine.")
+		case "read-buffered-partial-grandchild", "read-buffered-space-grandchild":
+			// The response and the bytes after it go out in one write, so the first
+			// decode reads them together. They stay in the decoder's buffer, and the
+			// trailing reader never sees them.
+			tail := "\n{"
+			if mode == "read-buffered-space-grandchild" {
+				tail = "\n\n"
+			}
+			_, _ = os.Stdout.Write(append(bufferedAnswer(), tail...))
 		}
 		return startGrandchild()
 	case "read-eof-linger", "read-stderr-grandchild", "read-partial-grandchild", "read-space-grandchild":
@@ -1285,6 +1295,67 @@ func TestRunRejectsUnfinishedTrailingOutputWhileAGrandchildHoldsStdout(t *testin
 			t.Fatalf("response did not carry the completed diagnosis: %+v", got.resp)
 		}
 	})
+}
+
+// bufferedRefusal is the error the buffered stand-ins answer with. It is a complete
+// response, and a small one, so the first decode takes it and the bytes after it in
+// one read.
+const bufferedRefusal = "the remote refused this request"
+
+// firstDecodeRead is the size of encoding/json's first read into an empty decoder,
+// which is its minimum read size. The buffered stand-ins keep the response and the
+// bytes after it within it, so both arrive in that first read.
+const firstDecodeRead = 512
+
+// bufferedAnswer is the complete response the buffered stand-ins write first.
+func bufferedAnswer() []byte {
+	body, err := json.Marshal(Response{
+		Protocol: Protocol,
+		Tool:     snapshot.Tool{Version: "9.9.9", OS: "windows", Arch: "amd64"},
+		Error:    bufferedRefusal,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return body
+}
+
+// The check reads what the decoder took past the first response, and the trailing
+// reader never sees those bytes. The stand-in writes a complete response and then the
+// start of a second object in one write, so the first decode takes both. A second
+// object that never finishes can then be caught only from the decoder's buffer, while
+// a grandchild holds stdout open. Dropping that read makes the run accept the answer.
+func TestRunRejectsBufferedTrailingOutputWhileAGrandchildHoldsStdout(t *testing.T) {
+	if n := len(bufferedAnswer()) + len("\n{"); n > firstDecodeRead {
+		t.Fatalf("the buffered answer is %d bytes, more than the %d-byte first read it must fit in", n, firstDecodeRead)
+	}
+	t.Run("an unfinished second object already in the decoder's buffer is a violation", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-buffered-partial-grandchild")
+		hold := holdTrailingReads(t)
+		got := runGuarded(t, context.Background(), Request{})
+		requireBufferedOnly(t, hold)
+		requireVerdict(t, got, "more than one response", responseEOFGrace+cancelGrace+time.Second)
+		requireNoReaderLeft(t)
+	})
+	t.Run("whitespace already in the decoder's buffer still stands", func(t *testing.T) {
+		useGrandchildFakeSSH(t, "read-buffered-space-grandchild")
+		hold := holdTrailingReads(t)
+		got := runGuarded(t, context.Background(), Request{})
+		requireBufferedOnly(t, hold)
+		requireVerdict(t, got, bufferedRefusal, responseEOFGrace+cancelGrace+time.Second)
+		requireNoReaderLeft(t)
+	})
+}
+
+// requireBufferedOnly checks that the trailing reader never took a byte past the
+// response, so those bytes could only have come from the decoder's buffer.
+func requireBufferedOnly(t *testing.T, hold *trailingHold) {
+	t.Helper()
+	select {
+	case <-hold.entered:
+		t.Fatal("bytes after the response reached the trailing reader, not the decoder's buffer")
+	default:
+	}
 }
 
 // requireVerdict checks that a run did not succeed, and that it failed with want in

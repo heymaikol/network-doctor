@@ -257,6 +257,11 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		}
 		notice, ok := exportReport(m.report(), act == actSave, m.keys.label(ctxList, actSave))
 		return m, m.setNotice(notice, ok)
+	case actVerifySSH:
+		if !m.actionAvailable(actVerifySSH) {
+			return m, nil
+		}
+		return m.openVerifySSH()
 	case actTheme:
 		// The picker is drawn where the help bar goes, so the run behind it
 		// stays on screen: that screen is the preview.

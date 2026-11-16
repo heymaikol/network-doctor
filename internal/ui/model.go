@@ -289,6 +289,13 @@ type model struct {
 	themeSel int
 	themeWas Theme
 
+	// SSH credential check (S). verifying is whether the panel is open,
+	// verify its state, and verifySeq numbers each panel so a result for one
+	// closed meanwhile is dropped.
+	verifying bool
+	verify    verifyPanel
+	verifySeq uint64
+
 	// keys resolves keypresses to actions. The zero value is the default
 	// keymap, so a model built without one behaves as netdoc always has.
 	// pendingKeys is the unfinished start of a chord ("g" of "gg") waiting
@@ -574,11 +581,20 @@ func (m model) reportReady() bool {
 	return m.allDone() && !m.jobsRunning() && m.cur.status != JobRunning
 }
 
+// sshDetected reports whether this run found an SSH server to check: the
+// banner probe passed, i.e. the port answered with an SSH- identification
+// string. A warn is deliberately not enough: that one means the port answered
+// with silence, and ssh always speaks first.
+func (m model) sshDetected() bool {
+	r, ok := m.results[diagnostic.ProbeSSH]
+	return ok && r.Status == diagnostic.StatusPass
+}
+
 // spinnerActive reports whether the spinner tick chain should keep running for
 // probes, jobs, name lookups, or a device's service check.
 func (m model) spinnerActive() bool {
 	return ((!m.toolbox || m.generation > 0 || m.chainRan()) && !m.allDone()) || m.jobsRunning() ||
-		len(m.namesPending) > 0 || m.svcPending()
+		len(m.namesPending) > 0 || m.svcPending() || (m.verifying && m.verify.busy)
 }
 
 // svcPending reports whether an opened device's service check is still in
@@ -658,6 +674,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.confirmTool != nil {
 			return m.handleConfirmKey(msg)
 		}
+		if m.verifying {
+			return m.handleVerifyKey(msg)
+		}
 		if m.theming {
 			return m.handleThemeKey(msg)
 		}
@@ -678,6 +697,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.handleKey(msg)
 
+	case verifyResolvedMsg, verifyResultMsg:
+		next, cmd, _ := m.handleVerifyMsg(msg)
+		return next, cmd
 	case noticeDoneMsg:
 		if msg.deadline.Equal(m.noticeDeadline) {
 			m.noticeDeadline = time.Time{}

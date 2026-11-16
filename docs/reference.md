@@ -143,6 +143,7 @@ netdoc --public-dns 9.9.9.9 host  # take the second opinion from Quad9 instead
 netdoc --no-history host          # don't read or save the target history file
 netdoc --peer-listen 192.168.1.20:4242  # wait for one directly reachable peer
 netdoc --peer-connect             # paste its temporary pairing string when prompted
+netdoc -verify-ssh tester@host  # list the SSH methods the server offers; sends no credential
 ```
 
 `--timeout` overrides the per-check probe timeout; see `netdoc --help` for the default. It takes a positive Go duration that is a whole number of milliseconds, because milliseconds are the precision the snapshot option and the remote request can carry, and a setting accepted here has to mean the same thing on the machine that probes and in the artifact that records it. A finer value such as `500us` or `1.9ms` is a usage error (exit `2`) reported before any probe or SSH connection starts, rather than a budget quietly rounded to something else. It stays a per-check budget under `--via`, where the acquisition additionally carries an overall bound derived from it; see [Time limits](#time-limits). `--watch` starts another pass after each run, five seconds later by default. `--watch-interval DURATION` sets that pause to any duration of at least one second, such as `30s` or `1m`; it is measured from the end of one pass to the start of the next, so a slow pass is neither overlapped nor cut short, and it is refused without `--watch`. It does not change `--timeout`, which still bounds each check. In the TUI and in `--watch` without `--profile`, a passing check can be answered from its measurement on an earlier pass for up to a minute, so a stable pass runs only the checks it cannot reuse. On Linux, a route, address, link, policy-rule, or nexthop change reported by netlink refuses every reused check, so the next pass measures them again; other platforms rely on the minute alone. If a pass that reused a check finds a status or cause changed, or finds that the routes measured by the checks that always run have changed, that pass is discarded and the next one, which measures every check, is shown instead. After a pass that is not OK, every check runs until the network is OK again, and a pass that measures every check comes at least once a minute, or on every pass when the interval is a minute or longer. With `--profile`, every pass runs every check. The TUI labels a reused check with the time it was measured, and builds incident timelines only from passes that measured every check; a healthy pass that a route change landed during is left out as well, while a failing one is kept. In the TUI it shows the last 20 states plus a failure count for every check, and with `--json` it streams the same report on stdout, one compact JSON object per line, until the process is interrupted. Those lines carry an extra `ts` field (RFC 3339, UTC) and are otherwise the one-shot report unchanged, except that a reused check reports `ms` as 0 and carries no marker yet; one-shot output stays pretty-printed, with no `ts`.
@@ -213,6 +214,7 @@ The TUI's default key bindings:
 | `esc` | cancel the focused job only (`tab` picks which), or leave an opened device on the map; `q` is the stop-everything path |
 | `y` / `w` | yank / write (copy / save locally) a reviewable report of the chain plus every tool job |
 | `T` | pick a colour theme, previewed as you move; `enter` keeps it, `esc` restores the one you had |
+| `S` | check SSH credentials: list the methods the server offers, then send one password, key, or agent credential, once; offered after the SSH banner check passes. See [SSH credential verification](#ssh-credential-verification) |
 | `?` | full-screen key cheatsheet; any key closes it |
 | `q` | quit (cancels running jobs first, then exits) |
 
@@ -820,21 +822,72 @@ Discovery finds a device only if it accepts or refuses a TCP connect on port 80 
 
 When nothing answers, the panel says which of the two things happened: refused connections show the device is on the network with nothing listening on those ports, while silence leaves powered off, gone, and dropping traffic all open. A target on this machine's own network is also diagnosed as one: a failed connect to it is never explained by the state of internet egress, which it does not use.
 
-### No login from netdoc
+### SSH credential verification
 
-The TUI has no SSH login form. The `S` shortcut is gone, the TUI no longer takes over the terminal to run `ssh`, and the TUI no longer passes a password typed into that form to `ssh` through an askpass helper. netdoc does not answer password, key passphrase, or security-key PIN prompts for `ssh`.
+`S` in the TUI, and `netdoc -verify-ssh` on the command line, check the credentials of an SSH server without opening a shell. They do two separate things:
 
-SSH still runs in three places, and each is described below:
+- **Discovery** lists the authentication methods the server offers. It sends no credential.
+- **Verification** sends one credential, once, and reports whether the server accepted it. The credential is a password, a private key file (with its passphrase when the file is encrypted), or a key the SSH agent holds, chosen by its fingerprint.
 
-- In the TUI, for an SSH target, the `c` check is the only SSH action offered. It is a bounded, noninteractive banner and handshake check (`ssh -v -o BatchMode=yes`). It reads the server's identification string and key exchange, and it sets `PreferredAuthentications=none`, so it offers no credential and verifies none. It also sets `StrictHostKeyChecking=no`, which removes host-key confirmation and the refusal on a mismatch. An unknown host key is accepted without asking. A key that differs from the one in the system-wide known-hosts file is accepted with OpenSSH's changed-key warning, subject to some restrictions. The check sets `UserKnownHostsFile` to the null device, so your `known_hosts` file is neither consulted nor written.
-- An ordinary `--via` run uses the interactive transport. Its `ssh` runs on your controlling terminal, so it can prompt for a password, a key passphrase, or a host-key confirmation, and you answer those prompts yourself.
-- A profile with a `--via` destination uses the batch transport for its first component only when the destination reads as direct and the profile has at least two components. The batch transport refuses interactive authentication instead of prompting. If that first component succeeds, the remaining components run concurrently over the same batch transport. If it fails, the profile acquires its components one at a time over the interactive transport. A profile with a proxied destination, or with a single component, uses the interactive transport throughout.
+Neither step runs a remote command or opens a session. The connection closes once the server has answered. netdoc never retries, never moves on to the next key or password by itself, and never guesses. Every attempt is one action that you start.
+
+Before any credential is sent, netdoc reads your SSH configuration with `ssh -G`, which connects to nothing, and checks the server's host key against your `known_hosts` file and the system-wide one:
+
+- A key that matches is used.
+- A key that differs from the recorded key is refused, and both fingerprints are shown. There is no override.
+- A key with no record is reported with its fingerprint. You can accept that one fingerprint for the next check, with `-trust-host-key FINGERPRINT` on the command line or the trust row in the TUI. Nothing is written to `known_hosts`.
+
+A secret is read from a prompt with echo off, or from one line of standard input with `-password-stdin`. It is never taken from argv or the environment, and it never appears in output or in the JSON report. The TUI clears its secret field after every attempt and when the panel closes. A Go string cannot be erased from memory, so a password stays in process memory until the garbage collector reclaims it. This is a residual of the input widget and of the SSH library's password API.
+
+Each check ends in one outcome:
+
+| Outcome | Meaning | Exit |
+|---|---|---|
+| methods listed | The methods the server advertises. Nothing was sent. | 0 |
+| verified | The server accepted the credential. No session was opened. | 0 |
+| refused | The server rejected the credential. | 1 |
+| partial | The server accepted this method and still requires more. The remaining methods are listed. | 1 |
+| method not offered | The server does not advertise this method. Nothing was sent. | 1 |
+| accepted with no credential | The server admitted the connection without any credential. That is reported as a finding, and no session is opened. | 1 |
+| host key unknown, host key changed | The host key was not accepted. Nothing was sent. | 2 |
+| unsupported | The route goes through a proxy, or the server asked for more than one password prompt. Nothing was sent. | 2 |
+| not sent | A local problem, such as a missing key file, a wrong passphrase, or no agent key. The server was not contacted. | 2 |
+| not completed | The connection failed, timed out, or was cancelled, or it ended during authentication so the result is unknown. | 2 |
+
+The command line takes one destination and one method:
+
+```sh
+netdoc -verify-ssh tester@host.example                 # list the methods; sends nothing
+netdoc -verify-ssh -verify-auth password -password-stdin host.example
+netdoc -verify-ssh -verify-auth key -verify-key ~/.ssh/id_ed25519 host.example
+netdoc -verify-ssh -verify-auth agent -verify-agent-key SHA256:... host.example
+netdoc -verify-ssh -verify-auth agent host.example     # without a fingerprint, lists the agent's keys
+```
+
+`-json` prints the same result as one object with no secret in it.
+
+What works in this build:
+
+- Password authentication. If the server offers keyboard-interactive rather than password, netdoc answers only a single prompt that does not echo, with the same password. A server that asks for anything more is reported as unsupported, and no further answer is given.
+- Unencrypted and encrypted private key files, and keys held by an SSH agent, reached through `SSH_AUTH_SOCK` or the `IdentityAgent` setting. `IdentityAgent none` turns the agent off.
+- A `HostKeyAlias` changes the name the host key is checked under, as it does for `ssh`.
+
+What does not work in this build. Each gap is refused and reported, never dropped silently:
+
+- `ProxyJump` and `ProxyCommand` routes. netdoc does not run proxies, so it refuses the check rather than connecting to the resolved host around the proxy.
+- Multi-factor and keyboard-interactive prompts beyond one password prompt, including one-time codes.
+- OpenSSH certificates, which are not presented, and security keys held as files, which need the device. Hardware-backed FIDO2 keys held by an agent have not been tested in this build.
+- The Windows OpenSSH agent pipe. On Windows, password and key files work and agent keys are unavailable.
+
+netdoc does not give you a shell, so to log in, run `ssh` in a terminal.
+
+The `c` check is the TUI's other SSH action, a bounded handshake check that runs `ssh -v -o BatchMode=yes`. It sets `PreferredAuthentications=none` and so offers no credential. It also sets `StrictHostKeyChecking=no`, which removes host-key confirmation and the refusal on a mismatch. An unknown host key is accepted without asking. A key that differs from the one in the system-wide known-hosts file is accepted with OpenSSH's changed-key warning, subject to some restrictions. The check sets `UserKnownHostsFile` to the null device, so your `known_hosts` file is neither consulted nor written. `PreferredAuthentications=none` applies only to the destination's own ssh. A `ProxyJump` or `ProxyCommand` starts a separate ssh that authenticates to the proxy and can prompt, so the check's no-credential and noninteractive claims hold only for a direct destination.
+
+An ordinary `--via` run uses the interactive transport. Its `ssh` runs on your controlling terminal, so it can prompt for a password, a key passphrase, or a host-key confirmation, and you answer those prompts yourself.
+
+A profile with a `--via` destination uses the batch transport for its first component only when the destination reads as direct and the profile has at least two components. The batch transport refuses interactive authentication instead of prompting. If that first component succeeds, the remaining components run concurrently over the same batch transport. If it fails, the profile acquires its components one at a time over the interactive transport. A profile with a proxied destination, or with a single component, uses the interactive transport throughout.
 
 [Flags and execution modes](#flags-and-execution-modes) explains which prompts the batch transport refuses, and when each transport applies.
-
-The `c` check describes the TUI only. It is not the only SSH functionality in netdoc.
-
-To log in to a host yourself, run `ssh` in a terminal.
 
 ### JSON output
 

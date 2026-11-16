@@ -39,6 +39,7 @@ const (
 	actIncidents
 	actActions
 	actTheme
+	actVerifySSH
 	actHelp
 	actQuit
 )
@@ -122,6 +123,7 @@ var actionDefs = []actionDef{
 	{actClearFilter, "clear-filter", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"clear filter", "clear the filter, or back when none is set"}}},
 	{actBack, "back", "", groupMove, map[keyContext]actionHelp{ctxViewer: {"back", "back"}}},
 	{actActions, "actions", "", groupSession, map[keyContext]actionHelp{ctxList: {"actions", "list what the run can do right now, and run one without knowing its key"}}},
+	{actVerifySSH, "verify-ssh", "Verify SSH credentials", groupNetwork, map[keyContext]actionHelp{ctxList: {"verify SSH", "list the methods the target's server offers, then verify one credential; no shell is opened"}}},
 	{actTheme, "theme", "Theme", groupSession, map[keyContext]actionHelp{ctxList: {"theme", "pick a colour theme, previewed as you move and remembered between sessions"}}},
 	{actHelp, "help", "Help", groupSession, map[keyContext]actionHelp{ctxList: {"help", "full-screen key cheatsheet"}}},
 	{actQuit, "quit", "Quit", groupSession, map[keyContext]actionHelp{ctxList: {"quit", "quit"}}},
@@ -169,6 +171,7 @@ var defaultPreset = keyPreset{
 		actIncidents:    {"i"},
 		actActions:      {" "},
 		actTheme:        {"T"},
+		actVerifySSH:    {"S"},
 		actHelp:         {"?"},
 		actQuit:         {"q"},
 	},

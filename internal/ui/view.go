@@ -212,6 +212,9 @@ func (m model) layout(elaborate bool) (string, bool) {
 	if m.theming {
 		help = m.themeView()
 	}
+	if m.verifying {
+		help = m.verifyView()
+	}
 	if m.actionsOpen {
 		// The answer and the header outrank the menu, so it is given the rows
 		// they leave rather than pushing them off the top of the screen.
@@ -259,7 +262,7 @@ func (m model) layout(elaborate bool) (string, bool) {
 	// before the selected evidence; and the final height clamp can only cut from
 	// the bottom. The Check details view keeps the complete selected evidence
 	// reachable when even the smallest body cannot share the screen.
-	ordinaryHelp := !m.entering && m.confirmTool == nil && !m.theming && !m.actionsOpen
+	ordinaryHelp := !m.entering && m.confirmTool == nil && !m.theming && !m.verifying && !m.actionsOpen
 	if m.height > 0 && avail < minAvail && ordinaryHelp {
 		tail = m.compactHelpView(deferred) + "\n"
 		budget()

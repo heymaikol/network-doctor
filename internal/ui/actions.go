@@ -159,6 +159,8 @@ func (m model) actionAvailable(act keyAction) bool {
 		}
 		_, hiddenPass, hiddenNA := m.compactRows()
 		return hiddenPass+hiddenNA > 0
+	case actVerifySSH:
+		return m.target != nil && m.sshDetected()
 	case actNetworkMap, actRestart, actActions, actTheme, actHelp, actQuit:
 		return true
 	}

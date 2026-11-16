@@ -1,0 +1,170 @@
+package ui
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
+)
+
+// sshModel is a model whose run target answered the SSH banner probe, which is
+// what offers the credential check.
+func sshModel(t *testing.T) model {
+	t.Helper()
+	m := newModel(mustTarget(t, "example.com:22"), false)
+	m.width, m.height = 100, 40
+	if m.results == nil {
+		m.results = map[diagnostic.ProbeID]diagnostic.ProbeResult{}
+	}
+	m.results[diagnostic.ProbeSSH] = diagnostic.ProbeResult{Status: diagnostic.StatusPass}
+	return m
+}
+
+// resolved returns the panel as it looks once its configuration read landed.
+func resolved(t *testing.T, m model) model {
+	t.Helper()
+	next, _, _ := m.handleVerifyMsg(verifyResolvedMsg{id: m.verify.id, target: sshverify.Target{Host: "example.com", Port: 22, User: "tester"}})
+	return next
+}
+
+func TestVerifyKeyIsOfferedOnlyWhereSSHAnswered(t *testing.T) {
+	m := newModel(mustTarget(t, "example.com:22"), false)
+	if m.actionAvailable(actVerifySSH) {
+		t.Fatal("the credential check is offered without an SSH banner")
+	}
+	m = pressed(t, m, keyPress("S"))
+	if m.verifying {
+		t.Fatal("S opened the panel although the menu does not offer it")
+	}
+
+	m = sshModel(t)
+	if !m.actionAvailable(actVerifySSH) {
+		t.Fatal("the credential check is not offered after the SSH banner passed")
+	}
+	m = pressed(t, m, keyPress("S"))
+	if !m.verifying || m.verify.id == 0 {
+		t.Fatalf("S did not open the panel: verifying=%v", m.verifying)
+	}
+}
+
+func TestVerifyRowsFollowTheMethod(t *testing.T) {
+	p := verifyPanel{}
+	p.method = 0 // password
+	if rows := p.visibleRows(); !containsVerifyRow(rows, vrSecret) || containsVerifyRow(rows, vrKey) {
+		t.Errorf("password rows = %v", rows)
+	}
+	p.method = 1 // key file
+	if rows := p.visibleRows(); !containsVerifyRow(rows, vrKey) || !containsVerifyRow(rows, vrSecret) {
+		t.Errorf("key rows = %v", rows)
+	}
+	p.method = 2 // agent
+	if rows := p.visibleRows(); !containsVerifyRow(rows, vrAgent) || containsVerifyRow(rows, vrSecret) {
+		t.Errorf("agent rows = %v", rows)
+	}
+}
+
+func TestVerifyCheckNeedsASecretAndSendsNothingWithout(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.focus(vrCheck)
+
+	u, cmd := m.startVerifyAction(true)
+	m = asModel(t, u)
+	if cmd != nil || m.verify.busy {
+		t.Fatalf("a check started with no password: busy=%v", m.verify.busy)
+	}
+	if !strings.Contains(m.verify.note, "Password") {
+		t.Errorf("note = %q, want the reason the check did not start", m.verify.note)
+	}
+}
+
+func TestVerifySecretIsClearedAfterTheAttempt(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.secret.SetValue("the-typed-secret")
+	m.verify.focus(vrCheck)
+
+	u, cmd := m.startVerifyAction(true)
+	m = asModel(t, u)
+	if cmd == nil || !m.verify.busy {
+		t.Fatal("a check with a password did not start")
+	}
+	if got := m.verify.secret.Value(); got != "" {
+		t.Errorf("the secret input still holds %d characters after the attempt", len(got))
+	}
+	if strings.Contains(ansi.Strip(m.verifyView()), "the-typed-secret") {
+		t.Error("the panel shows the secret")
+	}
+}
+
+func TestVerifyStaleResultIsDropped(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.busy = true
+
+	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id + 7, result: sshverify.Result{Outcome: sshverify.Verified}})
+	if m.verify.result != nil || !m.verify.busy {
+		t.Error("a result for another panel was applied")
+	}
+}
+
+func TestVerifyEscClosesAndCancelsInFlight(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	cancelled := false
+	m.verify.cancel = func() { cancelled = true }
+	m.verify.busy = true
+	m.verify.secret.SetValue("left-behind")
+
+	// Keys reach the panel through Update, as they do in the running program.
+	u, _ := m.Update(keyPress("esc"))
+	m = asModel(t, u)
+
+	if m.verifying || !cancelled {
+		t.Errorf("esc: verifying=%v cancelled=%v, want the panel closed and the check cancelled", m.verifying, cancelled)
+	}
+	if m.verify.secret.Value() != "" {
+		t.Error("the secret survived closing the panel")
+	}
+}
+
+// An unknown host key is confirmed for exactly one check, and the confirmation
+// is written nowhere: the next check consumes it, and nothing persists.
+func TestVerifyUnknownHostKeyIsTrustedOnceOnly(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.result = &sshverify.Result{Outcome: sshverify.HostKeyUnknown, HostKey: "SHA256:example"}
+	if !containsVerifyRow(m.verify.visibleRows(), vrTrust) {
+		t.Fatal("the trust row is not offered after an unknown host key")
+	}
+	m.verify.focus(vrTrust)
+
+	u, _ := m.handleVerifyKey(keyPress("enter"))
+	m = asModel(t, u)
+	if m.verify.trust != "SHA256:example" || m.verify.result != nil {
+		t.Fatalf("trust = %q result = %v, want the fingerprint confirmed and the result cleared", m.verify.trust, m.verify.result)
+	}
+	if opts := m.verify.verifyOptions(); opts.TrustHostKey != "SHA256:example" {
+		t.Errorf("the next check carried trust %q", opts.TrustHostKey)
+	}
+	if again := m.verify.verifyOptions(); again.TrustHostKey != "" {
+		t.Errorf("trust survived the check that used it: %q", again.TrustHostKey)
+	}
+}
+
+func containsVerifyRow(rows []verifyRow, r verifyRow) bool {
+	for _, x := range rows {
+		if x == r {
+			return true
+		}
+	}
+	return false
+}

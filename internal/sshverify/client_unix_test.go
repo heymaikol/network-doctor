@@ -14,7 +14,7 @@ import (
 func TestSSHExecutableRefusesAWritableClient(t *testing.T) {
 	dir := t.TempDir()
 	client := filepath.Join(dir, "ssh")
-	if err := os.WriteFile(client, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(client, []byte("#!/bin/sh\n"), 0o755); err != nil { // #nosec G306 -- the test makes an ordinary executable client to check the owner-only path
 		t.Fatal(err)
 	}
 	if err := os.Chmod(client, 0o777); err != nil { // #nosec G302 -- the test makes a writable client on purpose
@@ -25,13 +25,13 @@ func TestSSHExecutableRefusesAWritableClient(t *testing.T) {
 	}
 
 	owned := filepath.Join(dir, "owned-ssh")
-	if err := os.WriteFile(owned, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(owned, []byte("#!/bin/sh\n"), 0o755); err != nil { // #nosec G306 -- the test makes an ordinary executable client to check the owner-only path
 		t.Fatal(err)
 	}
-	if err := os.Chmod(owned, 0o755); err != nil {
+	if err := os.Chmod(owned, 0o755); err != nil { // #nosec G302 -- the test sets the mode it needs to check the owner-only path
 		t.Fatal(err)
 	}
-	if err := os.Chmod(dir, 0o755); err != nil {
+	if err := os.Chmod(dir, 0o755); err != nil { // #nosec G302 -- the test sets the mode it needs to check the owner-only path
 		t.Fatal(err)
 	}
 	if got, err := sshExecutable(owned); err != nil || got != owned {

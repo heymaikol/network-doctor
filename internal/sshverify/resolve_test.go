@@ -35,7 +35,7 @@ func TestParseConfigReadsTheResolvedValues(t *testing.T) {
 	if want := []string{filepath.Join("/home/u", ".ssh", "id_rsa"), "/keys/%r.key"}; !slices.Equal(tg.IdentityFile, want) {
 		t.Errorf("IdentityFile = %q, want %q", tg.IdentityFile, want)
 	}
-	if want := []string{filepath.Join("/home/u", ".ssh", "known_hosts"), filepath.Join("/home/u", ".ssh", "known_hosts2")}; !slices.Equal(tg.KnownHosts, want) {
+	if want := []string{"/home/u/.ssh/known_hosts", "/home/u/.ssh/known_hosts2"}; !slices.Equal(tg.KnownHosts, want) {
 		t.Errorf("KnownHosts = %q, want %q", tg.KnownHosts, want)
 	}
 	if len(tg.GlobalHosts) != 2 || tg.AgentSocket != "/run/agent.sock" || tg.AgentOff || tg.Unsupported != "" {

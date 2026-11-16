@@ -66,7 +66,11 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 // error is returned as part of the error, so a configuration mistake reads
 // the same way it does on a terminal.
 var resolveOutput = func(ctx context.Context, args []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, sshBinary, args...) // #nosec G204 -- a fixed ssh executable; args is an argv slice built from the target, never a shell string
+	program, err := sshExecutable(sshBinary)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- the resolved ssh client; args is an argv slice built from the target, never a shell string
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -78,6 +82,21 @@ var resolveOutput = func(ctx context.Context, args []string) ([]byte, error) {
 		return nil, errors.New(msg)
 	}
 	return stdout.Bytes(), nil
+}
+
+// sshExecutable finds the OpenSSH client on PATH and refuses it when the file
+// or its directory can be written by anyone but the owner. The client reads the
+// user's configuration and is trusted with it, so a writable copy on PATH would
+// be a way to run other code with the user's configuration in hand.
+func sshExecutable(name string) (string, error) {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return "", errors.New("the ssh client was not found on PATH")
+	}
+	if err := checkClientPermissions(path); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // parseConfig reads the key-value listing `ssh -G` prints. Most keywords

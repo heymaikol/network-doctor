@@ -513,13 +513,21 @@ func (r round) method() Method {
 // transport reports a failure to reach or finish the handshake. A cancelled or
 // expired check says so rather than naming the closed connection it caused.
 func transport(ctx context.Context, detail string) Result {
-	switch ctx.Err() {
-	case context.Canceled:
+	switch {
+	case ctx.Err() == context.Canceled:
 		detail = "the check was cancelled"
-	case context.DeadlineExceeded:
+	case ctx.Err() == context.DeadlineExceeded || pastDeadline(ctx):
 		detail = "the check timed out"
 	}
 	return Result{Outcome: TransportFailure, Detail: detail + "; nothing else was learned"}
+}
+
+// pastDeadline reports whether the check's deadline has passed. The socket
+// deadline is set to the same instant, and it can fire before the context's own
+// timer marks the context done, so the context's error alone is not enough.
+func pastDeadline(ctx context.Context) bool {
+	d, ok := ctx.Deadline()
+	return ok && !time.Now().Before(d)
 }
 
 // sanitize cleans server-supplied names before they reach a report or a screen.

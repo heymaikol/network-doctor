@@ -113,6 +113,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	listChecks := fs.Bool("list-checks", false, "list stable probe IDs accepted by -check and -skip, then exit")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	timeout := fs.Duration("timeout", diagnostic.DefaultProbeTimeout, "per-check probe timeout")
+	verifySSH := fs.Bool("verify-ssh", false, "check SSH authentication for TARGET: list the methods it offers, or verify one credential with -verify-auth; runs no probes")
+	verifyAuth := fs.String("verify-auth", "", "with -verify-ssh, verify one `method`: password, key, or agent; omit it to list the methods instead")
+	verifyKey := fs.String("verify-key", "", "with -verify-auth key, the private key `file` to verify")
+	verifyAgentKey := fs.String("verify-agent-key", "", "with -verify-auth agent, the SHA256 `fingerprint` of the agent key to verify")
+	verifyUser := fs.String("verify-user", "", "with -verify-ssh, the login `name`; default is the one in your SSH configuration")
+	passwordStdin := fs.Bool("password-stdin", false, "with -verify-auth, read the password or key passphrase from one line of standard input")
+	trustHostKey := fs.String("trust-host-key", "", "with -verify-ssh, accept an unknown host key with this SHA256 `fingerprint` for this check only; nothing is written")
 
 	// The stdlib flag package stops parsing at the first non-flag argument;
 	// peel positionals off and re-parse the remainder so flags are accepted
@@ -147,6 +154,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// The pause only means something to a Watch, so it is refused in every
 	// mode, including the ones dispatched below, rather than being left for
 	// the Watch path to notice.
+	// -verify-ssh is its own mode: it reads one target and runs no probe, so
+	// it is dispatched before the others, and refuses any mode or probe setting
+	// it cannot honour by name.
+	if msg := verifyFlagMisuse(setFlagNames(fs), *verifySSH); msg != "" {
+		fmt.Fprintln(stderr, "netdoc:", msg)
+		return 2
+	}
+	if *verifySSH {
+		return runVerifySSH(positional, setFlagNames(fs), verifySSHFlags{
+			auth: *verifyAuth, key: *verifyKey, agentKey: *verifyAgentKey, user: *verifyUser,
+			trustHostKey: *trustHostKey, passwordStdin: *passwordStdin, jsonOut: *jsonOut,
+		}, stdout, stderr)
+	}
 	if setFlagNames(fs)["watch-interval"] {
 		if !*watch {
 			fmt.Fprintln(stderr, "netdoc: -watch-interval requires -watch")

@@ -10,9 +10,10 @@ import (
 )
 
 // TestBatchPinsWinOverUserConfiguration: a user's configuration sets every pinned option to
-// the opposite of its pin. OpenSSH must still resolve each option to the pinned value for a
-// batch session, because the pins come first on the command line. This asks OpenSSH itself
-// (ssh -G) for the effective values, so it checks what the connection will use, not the list.
+// the opposite of its pin, and the seven protections of this branch are set in a Match all
+// block, which applies after the host block. OpenSSH must still resolve each option to the
+// pinned value for a batch session, because the pins come first on the command line. This asks
+// OpenSSH itself (ssh -G) for the effective values, so it checks what the connection will use.
 func TestBatchPinsWinOverUserConfiguration(t *testing.T) {
 	ssh := lookTool(t, "ssh", "")
 	dir := t.TempDir()
@@ -37,6 +38,19 @@ func TestBatchPinsWinOverUserConfiguration(t *testing.T) {
   StrictHostKeyChecking accept-new
   UpdateHostKeys yes
   ProxyCommand /bin/false
+Match all
+  ForwardAgent yes
+  ForwardX11 yes
+  ClearAllForwardings no
+  LocalForward 127.0.0.1:1 127.0.0.1:9
+  DynamicForward 127.0.0.1:2
+  RemoteForward 127.0.0.1:3 127.0.0.1:9
+  PermitLocalCommand yes
+  LocalCommand /bin/true
+  ControlMaster auto
+  ControlPath /tmp/hostile-master.sock
+  StrictHostKeyChecking accept-new
+  UpdateHostKeys yes
 `, 0o600)
 
 	args := []string{"-G", "-F", cfg}
@@ -80,6 +94,13 @@ func TestBatchPinsWinOverUserConfiguration(t *testing.T) {
 	for _, key := range []string{"controlpath", "proxycommand", "proxyjump", "pkcs11provider"} {
 		if got, ok := effective[key]; ok && got != "none" {
 			t.Errorf("effective %s = %q, the user's configuration leaked through a pin", key, got)
+		}
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		for _, key := range []string{"localforward ", "dynamicforward ", "remoteforward "} {
+			if strings.HasPrefix(line, key) {
+				t.Errorf("a forwarding from the user's configuration survived: %q", line)
+			}
 		}
 	}
 	if strings.Contains(effective["pubkeyacceptedalgorithms"], "sk-") {

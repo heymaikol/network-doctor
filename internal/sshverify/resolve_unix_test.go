@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -236,5 +237,43 @@ func TestOversizedListingIsRefusedAsOversized(t *testing.T) {
 	}
 	if elapsed > 5*time.Second {
 		t.Fatalf("the size refusal took %v; a client blocked on the pipe was left to the deadline", elapsed)
+	}
+}
+
+// settledGoroutines returns the goroutine count once it stops changing, so a
+// reader that is still exiting does not count as growth.
+func settledGoroutines() int {
+	last := -1
+	for i := 0; i < 50; i++ {
+		runtime.GC()
+		n := runtime.NumGoroutine()
+		if n == last {
+			return n
+		}
+		last = n
+		time.Sleep(10 * time.Millisecond)
+	}
+	return last
+}
+
+// Repeated reads start output readers and a wait each time. If any of them outlives
+// its read, the goroutine count grows with every read.
+func TestRepeatedReadsDoNotLeakGoroutines(t *testing.T) {
+	client := fakeClient(t, "printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n")
+	useFakeClient(t, client, 5*time.Second)
+	read := func() {
+		t.Helper()
+		if _, err := Resolve(context.Background(), "host", 0, ""); err != nil {
+			t.Fatalf("a read failed: %v", err)
+		}
+	}
+	read()
+	before := settledGoroutines()
+	for i := 0; i < 40; i++ {
+		read()
+	}
+	after := settledGoroutines()
+	if growth := after - before; growth > 3 {
+		t.Fatalf("goroutines grew from %d to %d over 40 reads; a read leaves a goroutine behind", before, after)
 	}
 }

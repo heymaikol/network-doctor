@@ -109,7 +109,7 @@ func runSSHClient(ctx context.Context, program string, args []string) ([]byte, e
 		return nil, errors.New("could not read the SSH configuration: no pipe")
 	}
 	defer errR.Close()
-	cmd := exec.CommandContext(ctx, program, args...) // #nosec G702 G204 -- the resolved ssh client; args is an argv slice built from the target, never a shell string
+	cmd := exec.CommandContext(ctx, program, args...) // #nosec G702 G204 -- program is the ssh client sshExecutable resolved and permission-checked; args are fixed option flags, the login and port from the parsed target, and the host after "--", each passed as its own argv entry with no shell
 	configureProcess(cmd)
 	cmd.Stdout = outW
 	cmd.Stderr = errW
@@ -126,7 +126,12 @@ func runSSHClient(ctx context.Context, program string, args []string) ([]byte, e
 	stdout := captureOutput(outR)
 	stderr := captureOutput(errR)
 
-	state, waitErr := cmd.Process.Wait()
+	// cmd.Wait reaps the client and records its state. A client that exits non-zero
+	// is an *exec.ExitError, which is a result to report, not a failure to wait.
+	waitErr := cmd.Wait()
+	state := cmd.ProcessState
+	var exitErr *exec.ExitError
+	waited := waitErr == nil || errors.As(waitErr, &exitErr)
 	// The client has exited. Anything it left running in its group is killed now,
 	// so a successful read does not leave a helper process behind.
 	killProcessGroup(cmd.Process.Pid)
@@ -138,7 +143,7 @@ func runSSHClient(ctx context.Context, program string, args []string) ([]byte, e
 		return nil, fmt.Errorf("the SSH configuration read did not finish within %s; a Match exec command may be waiting for input, which netdoc cannot give it", resolveTimeout)
 	case ctx.Err() != nil:
 		return nil, errors.New("the SSH configuration read was cancelled")
-	case waitErr != nil:
+	case !waited:
 		return nil, errors.New("could not wait for ssh: " + textsafe.Clean(waitErr.Error()))
 	case stdout.tooLarge:
 		return nil, errors.New("the SSH configuration listing is larger than netdoc reads")

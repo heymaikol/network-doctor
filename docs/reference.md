@@ -427,9 +427,8 @@ derived sentences remain display text.
   decided differently on a later component could start a jump child or a proxy
   program, and neither of those inherits the options below. The pin only ever
   applies to a destination your own configuration already reached directly; a
-  configured proxy is never pinned away, and an accelerated acquisition that
-  fails hands the work back to the ordinary transport, which reads and honors
-  your configuration as it stands at that moment, proxy included. A
+  configured proxy is never pinned away. An accelerated acquisition that fails
+  fails the pass; it is not handed back to the ordinary transport. A
   nondeterministic `Match exec` can therefore still make one pass's accelerated
   attempt use the route the preflight read rather than a later one.
 - For a destination reached without a proxy, the first component is acquired
@@ -441,10 +440,14 @@ derived sentences remain display text.
   agent are not used at all. What is left is an unencrypted private key on
   disk. When that first component lands, the rest run concurrently over the same
   refusing transport, so the pass costs one connection setup plus the slowest of
-  the others rather than the sum of all of them. Every other setup falls back to
-  acquiring one component at a time exactly as before, at the cost of one
-  refused attempt on the first component, so a prompt is never competing with
-  another for the terminal. Results stay in registry order either way.
+  the others rather than the sum of all of them. If that first attempt is
+  refused, the pass fails: netdoc does not retry the destination over the
+  transport that can prompt, so no passphrase, host-key confirmation, agent,
+  LocalCommand, or forwarding is used for it. The error says that no question
+  was asked, so run that destination on its own to answer one. A destination
+  reached through a proxy, or whose configuration cannot be read, is acquired one
+  component at a time over the ordinary transport, as before. Results stay in
+  registry order either way.
 - `--iface`, `--public-dns`, and `--timeout` apply independently to every
   component. Interface names are resolved on the machine that probes, as in
   every ordinary local or remote run.

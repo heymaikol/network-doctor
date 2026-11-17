@@ -102,7 +102,9 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 	if parsed.PortExplicit {
 		port = parsed.Port
 	}
-	ctx := context.Background()
+	// An interrupt cancels the configuration read and any check that follows.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	tgt, err := verifyResolve(ctx, parsed.ScopedHost(), port, login)
 	if err != nil {
 		fmt.Fprintln(stderr, "netdoc:", textsafe.Clean(err.Error()))

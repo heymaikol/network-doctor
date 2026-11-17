@@ -457,6 +457,7 @@ func TestRunBatchTellsSSHToRefuseEveryInteractiveAuthentication(t *testing.T) {
 		"-o", "AddKeysToAgent=no",
 		"-o", "PKCS11Provider=none",
 		"-o", "GSSAPIAuthentication=no",
+		"-o", "PermitLocalCommand=no",
 		"ideapad", DefaultCommand, WorkerFlag,
 	}
 	if got := readLines(t, argvPath); strings.Join(got, " ") != strings.Join(want, " ") {

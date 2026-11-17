@@ -174,6 +174,10 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // fails for any reason falls back to Run, which evaluates and honors the
 // configuration as it stands at that moment, proxy included.
 //
+// PermitLocalCommand is off because a LocalCommand runs after authentication with ssh's
+// own stdin, which carries the request. A configured command would read the request
+// before the worker does.
+//
 // AddKeysToAgent is off because an ssh_config asking for "ask" turns a used
 // software key into an askpass prompt. PreferredAuthentications names the one
 // method this transport can complete, so an acquisition is public-key or
@@ -194,6 +198,7 @@ var batchOptions = []string{
 	"AddKeysToAgent=no",
 	"PKCS11Provider=none",
 	"GSSAPIAuthentication=no",
+	"PermitLocalCommand=no",
 }
 
 // RunBatch is Run over a transport that cannot ask the user anything itself;

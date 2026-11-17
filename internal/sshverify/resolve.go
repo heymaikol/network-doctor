@@ -7,16 +7,18 @@
 package sshverify
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // resolveTimeout bounds one configuration read, including any Match exec
@@ -77,22 +79,109 @@ var resolveOutput = func(ctx context.Context, args []string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return runSSHClient(ctx, program, args)
+}
+
+// maxConfigBytes bounds the configuration listing. A real listing is a few
+// kilobytes, so anything this large is refused rather than parsed.
+const maxConfigBytes = 1 << 20
+
+// outputGrace bounds how long a finished read waits for output that a child the
+// client left behind still holds open.
+var outputGrace = 2 * time.Second
+
+// runSSHClient runs the ssh client and returns its complete standard output. The
+// client starts in its own session, so it has no terminal to read from, and it is
+// killed together with any child it started when the read is cancelled and when
+// the client exits. Output that does not end cleanly is an error, not a partial
+// listing.
+func runSSHClient(ctx context.Context, program string, args []string) ([]byte, error) {
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		return nil, errors.New("could not read the SSH configuration: no pipe")
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		_ = outR.Close()
+		_ = outW.Close()
+		return nil, errors.New("could not read the SSH configuration: no pipe")
+	}
 	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- the resolved ssh client; args is an argv slice built from the target, never a shell string
 	configureProcess(cmd)
-	// After a cancel the process is killed, but a command it started can still
-	// hold the output pipe open. WaitDelay stops waiting for that pipe.
-	cmd.WaitDelay = 2 * time.Second
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			return nil, err
-		}
-		return nil, errors.New(msg)
+	cmd.Stdout = outW
+	cmd.Stderr = errW
+	err = cmd.Start()
+	// The child holds its own copies of the write ends; ours must close so the
+	// readers see end of file once every process that holds them has exited.
+	_ = outW.Close()
+	_ = errW.Close()
+	if err != nil {
+		_ = outR.Close()
+		_ = errR.Close()
+		return nil, errors.New("could not start ssh: " + textsafe.Clean(err.Error()))
 	}
-	return stdout.Bytes(), nil
+	stdout := captureOutput(outR)
+	stderr := captureOutput(errR)
+
+	state, waitErr := cmd.Process.Wait()
+	// The client has exited. Anything it left running in its group is killed now,
+	// so a successful read does not leave a helper process behind.
+	killProcessGroup(cmd.Process.Pid)
+	out, outComplete := stdout.finish(outR)
+	msg, _ := stderr.finish(errR)
+
+	switch {
+	case ctx.Err() == context.DeadlineExceeded:
+		return nil, fmt.Errorf("the SSH configuration read did not finish within %s; a Match exec command may be waiting for input, which netdoc cannot give it", resolveTimeout)
+	case ctx.Err() != nil:
+		return nil, errors.New("the SSH configuration read was cancelled")
+	case waitErr != nil:
+		return nil, errors.New("could not wait for ssh: " + textsafe.Clean(waitErr.Error()))
+	case stdout.tooLarge:
+		return nil, errors.New("the SSH configuration listing is larger than netdoc reads")
+	case !outComplete:
+		return nil, errors.New("the SSH configuration output was not complete, because a process the read started kept it open")
+	case !state.Success():
+		if text := strings.TrimSpace(textsafe.Clean(string(msg))); text != "" {
+			return nil, errors.New(text)
+		}
+		return nil, fmt.Errorf("ssh exited with %s", state)
+	case len(out) == 0 || out[len(out)-1] != '\n':
+		return nil, errors.New("the SSH configuration output was incomplete")
+	}
+	return out, nil
+}
+
+// capturedOutput is one stream read to its end in the background.
+type capturedOutput struct {
+	data     []byte
+	tooLarge bool
+	done     chan struct{}
+}
+
+func captureOutput(r *os.File) *capturedOutput {
+	c := &capturedOutput{done: make(chan struct{})}
+	go func() {
+		defer close(c.done)
+		data, err := io.ReadAll(io.LimitReader(r, maxConfigBytes+1))
+		c.data = data
+		c.tooLarge = err == nil && len(data) > maxConfigBytes
+	}()
+	return c
+}
+
+// finish waits for the stream to end. It reports false when the stream did not
+// end within outputGrace, in which case the read is closed and its partial data
+// is not a complete listing.
+func (c *capturedOutput) finish(r *os.File) ([]byte, bool) {
+	select {
+	case <-c.done:
+		return c.data, true
+	case <-time.After(outputGrace):
+		_ = r.Close()
+		<-c.done
+		return c.data, false
+	}
 }
 
 // sshExecutable finds the OpenSSH client on PATH and refuses it when the file

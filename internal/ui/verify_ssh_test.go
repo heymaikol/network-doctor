@@ -1,9 +1,14 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
@@ -167,4 +172,63 @@ func containsVerifyRow(rows []verifyRow, r verifyRow) bool {
 		}
 	}
 	return false
+}
+
+// Closing the panel cancels the configuration read it started, however many
+// times the panel is opened. Each read runs until its context ends, as a hung
+// ssh -G would, so a read that outlives its panel shows up as a missed cancel.
+func TestClosingThePanelCancelsItsConfigurationRead(t *testing.T) {
+	saved := resolveTarget
+	t.Cleanup(func() { resolveTarget = saved })
+	started := make(chan context.Context, 1)
+	resolveTarget = func(ctx context.Context, host string, port int, login string) (sshverify.Target, error) {
+		started <- ctx
+		<-ctx.Done()
+		return sshverify.Target{}, ctx.Err()
+	}
+
+	m := sshModel(t)
+	for i := 0; i < 25; i++ {
+		var cmd tea.Cmd
+		m, cmd = m.openVerifySSH()
+		if cmd == nil {
+			t.Fatalf("opening %d returned no configuration read", i)
+		}
+		go cmd()
+		read := <-started
+		u, _ := m.Update(keyPress("esc"))
+		m = asModel(t, u)
+		select {
+		case <-read.Done():
+		case <-time.After(2 * time.Second):
+			t.Fatalf("opening %d: closing the panel did not cancel its configuration read", i)
+		}
+		if m.verifying {
+			t.Fatalf("opening %d: the panel is still open after esc", i)
+		}
+	}
+}
+
+// Only the esc key closes the panel. Ticks, a configuration read that resolves,
+// and a check result, including one for an earlier panel, leave it open.
+func TestAsynchronousEventsNeverCloseThePanel(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	id := m.verify.id
+
+	events := []tea.Msg{
+		spinner.TickMsg{},
+		verifyResolvedMsg{id: id, target: sshverify.Target{Host: "example.com", Port: 22, User: "tester"}},
+		verifyResultMsg{id: id, result: sshverify.Result{Outcome: sshverify.Verified}},
+		verifyResultMsg{id: id + 9, result: sshverify.Result{Outcome: sshverify.Refused}},
+		verifyResolvedMsg{id: id + 9, err: errors.New("late")},
+	}
+	for _, msg := range events {
+		u, _ := m.Update(msg)
+		m = asModel(t, u)
+		if !m.verifying {
+			t.Fatalf("%T closed the panel", msg)
+		}
+	}
 }

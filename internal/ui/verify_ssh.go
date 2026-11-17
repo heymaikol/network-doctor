@@ -9,6 +9,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -64,6 +65,9 @@ type verifyPanel struct {
 	busy   bool
 	id     uint64
 	cancel context.CancelFunc
+	// resolveCancel ends the configuration read this panel started, if it is
+	// still running.
+	resolveCancel context.CancelFunc
 }
 
 // verifyResolvedMsg carries the off-loop configuration read. The id rejects a
@@ -119,18 +123,26 @@ func (m model) openVerifySSH() (model, tea.Cmd) {
 	m.verifySeq++
 	m.verifying = true
 	m.verify = newVerifyPanel(m.st, m.verifySeq)
+	// The read belongs to this panel: closing the panel cancels it, so a slow or
+	// hung configuration read never outlives the panel that asked for it.
+	ctx, cancel := context.WithCancel(context.Background())
+	m.verify.resolveCancel = cancel
 	host, port := verifyTarget(m.target)
-	return m, resolveVerifyCmd(m.verify.id, host, port, "")
+	return m, resolveVerifyCmd(ctx, m.verify.id, host, port, "")
 }
 
 // resolveVerifyCmd reads the target's SSH configuration in a tea.Cmd. It
 // connects to nothing; the result is what a check needs before it can run.
-func resolveVerifyCmd(id uint64, host string, port int, login string) tea.Cmd {
+func resolveVerifyCmd(ctx context.Context, id uint64, host string, port int, login string) tea.Cmd {
 	return func() tea.Msg {
-		t, err := sshverify.Resolve(context.Background(), host, port, login)
+		t, err := resolveTarget(ctx, host, port, login)
 		return verifyResolvedMsg{id: id, target: t, err: err}
 	}
 }
+
+// resolveTarget reads a target's configuration. Tests replace it to observe
+// the read's context without running ssh.
+var resolveTarget = sshverify.Resolve
 
 // discoverCmd lists the methods the server offers, and the agent's keys for
 // the chooser. It sends no credential.
@@ -282,6 +294,9 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	p := &m.verify
 	if msg.String() == "esc" {
+		if p.resolveCancel != nil {
+			p.resolveCancel()
+		}
 		if p.cancel != nil {
 			p.cancel()
 		}
@@ -349,6 +364,7 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		if !m.verifying || msg.id != m.verify.id {
 			return m, nil, true
 		}
+		m.verify.resolveCancel = nil
 		if msg.err != nil {
 			m.verify.resolveErr = textsafe.Clean(msg.err.Error())
 			return m, nil, true
@@ -370,21 +386,12 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		}
 		m.verify.note = ""
 		// The focus may now sit on a row that is no longer visible.
-		if !slicesContainsRow(m.verify.visibleRows(), m.verify.row) {
+		if !slices.Contains(m.verify.visibleRows(), m.verify.row) {
 			m.verify.focus(vrCheck)
 		}
 		return m, nil, true
 	}
 	return m, nil, false
-}
-
-func slicesContainsRow(rows []verifyRow, r verifyRow) bool {
-	for _, x := range rows {
-		if x == r {
-			return true
-		}
-	}
-	return false
 }
 
 // verifyView is the panel, drawn where the help bar goes.

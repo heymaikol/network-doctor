@@ -49,35 +49,6 @@ func TestResolveHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func requireOpenSSH(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("ssh"); err != nil {
-		t.Skip("OpenSSH is not installed")
-	}
-}
-
-// writeMatchConfig writes a configuration whose Match exec command is command.
-// Matched, the command sets the host to 10.9.9.9; otherwise the host is 127.0.0.1.
-func writeMatchConfig(t *testing.T, name, command string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
-	body := fmt.Sprintf("Match host target exec %q\n  HostName 10.9.9.9\nHost target\n  HostName 127.0.0.1\n  Port 2260\n  User demo\n", command)
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-// writeScript writes an executable Match exec command.
-func writeScript(t *testing.T, name, body string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o700); err != nil { // #nosec G306 -- an executable test command on purpose
-		t.Fatal(err)
-	}
-	return path
-}
-
 // openPTYPair returns the master and slave of a new pseudo-terminal.
 func openPTYPair(t *testing.T) (master, slave *os.File) {
 	t.Helper()
@@ -261,29 +232,81 @@ func TestTerminalReadIsRefusedNotSilent(t *testing.T) {
 	}
 }
 
-// A command that only tests whether a terminal exists gets the answer an
-// interactive ssh gets, so the configuration matches.
-func TestTerminalProbeAgreesWithInteractive(t *testing.T) {
+// A terminal probe is a Match exec test. It is refused even on a terminal, because
+// its answer is then the one this terminal gives, not one netdoc can reproduce for
+// the user's own ssh in every other place.
+func TestTerminalProbeIsRefused(t *testing.T) {
 	requireOpenSSH(t)
 	config := writeMatchConfig(t, "probe.config", ": </dev/tty")
-
-	want := interactiveHostname(t, config, "")
 	line, _ := runResolveChild(t, config, true)
-
-	if line != "RESULT ok: "+want {
-		t.Fatalf("a terminal probe resolved %q, want the interactive answer %q", line, want)
+	if !strings.HasPrefix(line, "RESULT error:") || !strings.Contains(line, "Match exec") {
+		t.Fatalf("a terminal probe was not refused: %q", line)
 	}
 }
 
-// A noninteractive Match exec command resolves on a terminal, as it always has.
-func TestTerminalNoninteractiveConfigStillResolves(t *testing.T) {
+// A noninteractive Match exec is refused on a terminal too: the rule is the same
+// whether or not netdoc has a terminal, so a result never depends on where it ran.
+func TestTerminalNoninteractiveMatchExecIsRefused(t *testing.T) {
 	requireOpenSSH(t)
 	config := writeMatchConfig(t, "true.config", "true")
-
-	want := interactiveHostname(t, config, "")
 	line, _ := runResolveChild(t, config, true)
+	if !strings.HasPrefix(line, "RESULT error:") || !strings.Contains(line, "Match exec") {
+		t.Fatalf("a noninteractive Match exec was not refused on a terminal: %q", line)
+	}
+}
 
-	if line != "RESULT ok: "+want || want != "10.9.9.9" {
-		t.Fatalf("a noninteractive configuration resolved %q, interactive %q, want 10.9.9.9", line, want)
+// On a real terminal the read runs, and any Match exec command it evaluates is
+// refused. A timed terminal read is refused as well, because its answer would be
+// the command's own timeout.
+func TestTerminalTimedReadIsRefused(t *testing.T) {
+	requireOpenSSH(t)
+	script := writeScript(t, "timed.sh", "read -t 2 answer </dev/tty\n[ \"$answer\" = y ]\n")
+	line, _ := runResolveChild(t, writeMatchConfig(t, "timed.config", script), true)
+	if !strings.HasPrefix(line, "RESULT error:") || !strings.Contains(line, "Match exec") {
+		t.Fatalf("a timed terminal read was not refused on a terminal: %q", line)
+	}
+}
+
+// A command that asks the terminal its size is a Match exec test, refused on a
+// terminal like any other.
+func TestTerminalSizeIsRefused(t *testing.T) {
+	requireOpenSSH(t)
+	script := writeScript(t, "size.sh", "rows=$(stty size </dev/tty 2>/dev/null | cut -d' ' -f1)\n[ \"${rows:-0}\" -gt 20 ]\n")
+	line, _ := runResolveChild(t, writeMatchConfig(t, "size.config", script), true)
+	if !strings.HasPrefix(line, "RESULT error:") || !strings.Contains(line, "Match exec") {
+		t.Fatalf("a terminal-size test was not refused on a terminal: %q", line)
+	}
+}
+
+// A Match exec in a file pulled in by Include is refused the same way.
+func TestTerminalNestedIncludeIsRefused(t *testing.T) {
+	requireOpenSSH(t)
+	dir := t.TempDir()
+	script := writeScript(t, "nested.sh", "exit 0\n")
+	inc := filepath.Join(dir, "inc.conf")
+	if err := os.WriteFile(inc, []byte("Match host target exec \""+script+"\"\n  ProxyJump bastion.example\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "main.config")
+	if err := os.WriteFile(cfg, []byte("Include "+inc+"\nHost target\n  HostName 127.0.0.1\n  Port 2260\n  User demo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	line, _ := runResolveChild(t, cfg, true)
+	if !strings.HasPrefix(line, "RESULT error:") || !strings.Contains(line, "Match exec") {
+		t.Fatalf("a Match exec in an included file was not refused on a terminal: %q", line)
+	}
+}
+
+// The positive control on a terminal: a configuration with no Match exec resolves,
+// so terminal use keeps working where the configuration is plain.
+func TestTerminalPlainConfigResolves(t *testing.T) {
+	requireOpenSSH(t)
+	cfg := filepath.Join(t.TempDir(), "plain.config")
+	if err := os.WriteFile(cfg, []byte("Host target\n  HostName 127.0.0.1\n  Port 2260\n  User demo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	line, _ := runResolveChild(t, cfg, true)
+	if line != "RESULT ok: 127.0.0.1" {
+		t.Fatalf("a plain configuration on a terminal resolved %q, want 127.0.0.1", line)
 	}
 }

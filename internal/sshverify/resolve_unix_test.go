@@ -23,7 +23,9 @@ import (
 func fakeClient(t *testing.T, script string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ssh")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o700); err != nil { // #nosec G306 -- the test writes an executable fake ssh client on purpose
+	// A real client reports each configuration file it reads at -v; the fake does the same.
+	body := "#!/bin/sh\necho 'debug1: Reading configuration data /fake' >&2\n" + script
+	if err := os.WriteFile(path, []byte(body), 0o700); err != nil { // #nosec G306 -- the test writes an executable fake ssh client on purpose
 		t.Fatal(err)
 	}
 	return path
@@ -32,9 +34,16 @@ func fakeClient(t *testing.T, script string) string {
 // useFakeClient points the configuration read at client for one test.
 func useFakeClient(t *testing.T, client string, timeout time.Duration) {
 	t.Helper()
-	savedBinary, savedTimeout, savedGrace := sshBinary, resolveTimeout, outputGrace
+	savedBinary, savedTimeout, savedGrace, savedCanary, savedTerminal := sshBinary, resolveTimeout, outputGrace, canaryCheck, TerminalAvailable
 	sshBinary, resolveTimeout = client, timeout
-	t.Cleanup(func() { sshBinary, resolveTimeout, outputGrace = savedBinary, savedTimeout, savedGrace })
+	// A fake client cannot pass the canary, which checks the real client; the canary
+	// has its own tests against the installed OpenSSH. The fake runs as if netdoc had
+	// its terminal, so the reads it stands in for are reached.
+	canaryCheck = func(context.Context, string) error { return nil }
+	TerminalAvailable = func() bool { return true }
+	t.Cleanup(func() {
+		sshBinary, resolveTimeout, outputGrace, canaryCheck, TerminalAvailable = savedBinary, savedTimeout, savedGrace, savedCanary, savedTerminal
+	})
 }
 
 // waitForPID returns the PID a script wrote to file, once it has been written.
@@ -275,5 +284,65 @@ func TestRepeatedReadsDoNotLeakGoroutines(t *testing.T) {
 	after := settledGoroutines()
 	if growth := after - before; growth > 3 {
 		t.Fatalf("goroutines grew from %d to %d over 40 reads; a read leaves a goroutine behind", before, after)
+	}
+}
+
+// Diagnostics larger than netdoc reads are not a prefix to classify. A Match exec
+// reported after the limit would be missed, so the read is refused.
+func TestTruncatedDiagnosticsAreRefused(t *testing.T) {
+	client := fakeClient(t, "yes 'debug2: filler line' | head -c 2097152 >&2\nprintf 'debug1: Executing command: x\\n' >&2\nprintf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n")
+	useFakeClient(t, client, 10*time.Second)
+	_, err := Resolve(context.Background(), "host", 0, "")
+	if err == nil || !strings.Contains(err.Error(), "larger than netdoc reads") {
+		t.Fatalf("a read with truncated diagnostics returned %v; want the refusal", err)
+	}
+}
+
+// A diagnostic stream a process left open is not complete, so it is refused rather
+// than classified: the command may still be writing.
+func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
+	// The helper leaves the client's group, so the cleanup does not reach it, and it
+	// keeps the diagnostic stream open.
+	client := fakeClient(t, "setsid sleep 60 >/dev/null &\nsleep 0.5\nprintf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n")
+	useFakeClient(t, client, 10*time.Second)
+	outputGrace = 300 * time.Millisecond
+	_, err := Resolve(context.Background(), "host", 0, "")
+	if err == nil || !strings.Contains(err.Error(), "diagnostic output was not complete") {
+		t.Fatalf("a read with an open diagnostic stream returned %v; want the refusal", err)
+	}
+}
+
+// A client that does not report its Match exec test fails the canary, so no read
+// with it is trusted.
+func TestCanaryRefusesAClientThatReportsNoExec(t *testing.T) {
+	client := fakeClient(t, "exit 0\n")
+	err := ensureCanary(context.Background(), client)
+	if err == nil || !strings.Contains(err.Error(), "does not report its configuration reads") {
+		t.Fatalf("a client without exec reports passed the canary: %v", err)
+	}
+}
+
+// The canary against the installed OpenSSH is the real check that the marker text
+// netdoc relies on is what this client prints.
+func TestCanaryPassesWithTheInstalledOpenSSH(t *testing.T) {
+	requireOpenSSH(t)
+	program, err := sshExecutable("ssh")
+	if err != nil {
+		t.Skip(err)
+	}
+	if err := ensureCanary(context.Background(), program); err != nil {
+		t.Fatalf("the installed OpenSSH failed the canary: %v", err)
+	}
+}
+
+// The read itself runs the canary first, so a client that fails it is refused before
+// the target's configuration is read.
+func TestResolveRunsTheCanaryFirst(t *testing.T) {
+	client := fakeClient(t, "printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n")
+	useFakeClient(t, client, 10*time.Second)
+	canaryCheck = ensureCanary
+	_, err := Resolve(context.Background(), "host", 0, "")
+	if err == nil || !strings.Contains(err.Error(), "does not report its configuration reads") {
+		t.Fatalf("a read with a client that fails the canary returned %v; want the canary refusal", err)
 	}
 }

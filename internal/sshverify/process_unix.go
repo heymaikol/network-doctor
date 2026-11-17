@@ -7,15 +7,10 @@ import (
 	"syscall"
 )
 
-// configureProcess starts the ssh client in its own process group, inside the
-// terminal of the netdoc process. The client keeps the controlling terminal, so a
-// Match exec command that tests for a terminal gets the same answer it gets from
-// an interactive ssh. Because the group is not the terminal's foreground group,
-// a command that reads the terminal is stopped by SIGTTIN and never receives an
-// answer; the read then fails at its deadline instead of choosing a branch.
-//
-// The group is also what netdoc kills to end the client together with any child
-// it started.
+// configureProcess puts the ssh client in its own process group, so a command it
+// starts is killed with it, and sets how the client is cancelled. The group is
+// also what a command that reads the terminal is stopped for: it is not the
+// terminal's foreground group.
 func configureProcess(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {

@@ -833,15 +833,18 @@ Neither step runs a remote command or opens a session. The connection closes onc
 
 A password or key check opens two connections. The first is discovery: it checks the host key and lists the methods, and it sends no credential. The secret is requested only after that host key is trusted. The second connection makes the credential attempt, and it accepts only the host key the first one saw, so a key that changed in between is refused before anything is sent. An agent check opens one connection. If the server's host key is of a type that `known_hosts` does not record, a connection may make one more try restricted to the recorded types. That try also happens before any credential is sent.
 
-Before any credential is sent, netdoc reads your SSH configuration with `ssh -G`, which connects to nothing. The read stops after 15 seconds. An interrupt, or closing the TUI panel, cancels a read in progress. The `ssh` client runs in its own process group, inside the terminal netdoc has, so a `Match exec` command sees the same terminal an interactive `ssh` gives it:
+Before any credential is sent, netdoc reads your SSH configuration with `ssh -G -v`, which connects to nothing. The read stops after 15 seconds, and an interrupt or closing the TUI panel cancels it. netdoc refuses the read, and sends nothing, in each of these cases:
 
-- A command that only asks whether a terminal exists gets the answer an interactive `ssh` gets.
-- A command that reads the terminal is stopped, because it is not in the terminal's foreground group. netdoc never types an answer for it, so the read ends at its deadline and the check reports that the read did not finish. Nothing is sent.
-- A noninteractive command works as it always has.
+- The configuration runs a `Match exec` command. That includes one in a file pulled in with `Include`, and one that applies only to some hosts. Its answer depends on the terminal and environment, which netdoc cannot reproduce, so netdoc does not guess which route your own `ssh` would take. This applies whether or not netdoc has a terminal.
+- The client's diagnostic output is not in a form netdoc recognizes, is larger than 1 MiB, or is not complete when the read ends.
+- The installed `ssh` does not report its configuration reads in the form netdoc checks. netdoc checks this once per program with two configurations it writes itself: one with a `Match exec` command, which must be reported, and one without, which must not.
+- A `ProxyJump` or `ProxyCommand` is in effect.
 
-When netdoc runs without a terminal, as under cron, in a pipe, or in CI, a `Match exec` command that tests for a terminal gets a different answer from the one an interactive `ssh` gets there. netdoc cannot tell that the answer differs, and it can then choose a different host without saying so. Run the check from a terminal when your configuration has such a command, or confirm the host with `ssh -G` from the same place. A command that ignores the stop signal and tolerates the missing terminal can make the same silent choice even with a terminal, and netdoc cannot detect that either.
+A configuration with no `Match exec` command is read as before, with or without a terminal, so headless discovery and `-password-stdin` work for it. The client runs in its own process group. A cancelled or timed-out read kills that group, so no command it started is left running, and output is drained as it arrives, so a large listing does not stall the read.
 
-On Unix, cancelling the read, or its deadline, kills the `ssh` process and each process still in its process group. A process that has left the group, for example with `setsid`, is not killed. If it keeps the configuration output open, the read is refused as incomplete rather than used. On Windows netdoc does not place the `ssh` client in a process group, and only the `ssh` process is stopped. A command it started may keep running, and it may see a different console from the one an interactive `ssh` would use.
+Credential verification is refused on Windows and FreeBSD, with a message that says it is not supported there. netdoc has no validated way to read the configuration on those systems. Linux and macOS are supported. The test suite checks the diagnostic format and the canary against the OpenSSH that CI installs. Any other OpenSSH is checked at run time by the canary, and refused if its diagnostic output differs.
+
+On Unix, cancelling the read, or its deadline, kills the `ssh` process and each process still in its process group. A process that has left the group, for example with `setsid`, is not killed. If it keeps the diagnostic or configuration output open, the read is refused as incomplete.
 
 netdoc then checks the server's host key against your user `known_hosts` file and the system-wide one, which `ssh -G` lists as `UserKnownHostsFile` and `GlobalKnownHostsFile`:
 

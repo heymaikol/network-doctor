@@ -190,3 +190,32 @@ func TestChildOutsideTheGroupIsAnError(t *testing.T) {
 		t.Fatalf("a read held open by a child outside the group was accepted: %v", err)
 	}
 }
+
+// Each read opens pipes for the client's output. They must be closed when the
+// read ends, or every read leaks descriptors for the life of the process.
+func TestRepeatedReadsDoNotLeakDescriptors(t *testing.T) {
+	if _, err := os.ReadDir("/proc/self/fd"); err != nil {
+		t.Skip("descriptor counts are read from /proc, which this platform does not have")
+	}
+	client := fakeClient(t, "printf 'hostname h\\nport 22\\nuser u\\n'\n")
+	useFakeClient(t, client, time.Minute)
+	count := func() int {
+		entries, err := os.ReadDir("/proc/self/fd")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	if _, err := Resolve(context.Background(), "host", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	before := count()
+	for i := 0; i < 20; i++ {
+		if _, err := Resolve(context.Background(), "host", 0, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if after := count(); after > before {
+		t.Fatalf("20 reads left %d descriptors open; want no growth from %d", after-before, before)
+	}
+}

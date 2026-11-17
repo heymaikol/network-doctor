@@ -169,6 +169,11 @@ func captureOutput(r *os.File) *capturedOutput {
 		data, err := io.ReadAll(io.LimitReader(r, maxConfigBytes+1))
 		c.data = data
 		c.tooLarge = err == nil && len(data) > maxConfigBytes
+		// Past the limit the client may still be writing. Keep draining so it can
+		// finish and exit; the bytes are discarded, so memory stays at the limit.
+		if c.tooLarge {
+			_, _ = io.Copy(io.Discard, r)
+		}
 	}()
 	return c
 }

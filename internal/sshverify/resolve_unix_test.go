@@ -219,3 +219,22 @@ func TestRepeatedReadsDoNotLeakDescriptors(t *testing.T) {
 		t.Fatalf("20 reads left %d descriptors open; want no growth from %d", after-before, before)
 	}
 }
+
+// An oversized listing is refused as oversized, promptly. The client keeps
+// writing after the limit, so the output must still be drained: a client blocked
+// on a full pipe would otherwise run until the deadline and report a hang.
+func TestOversizedListingIsRefusedAsOversized(t *testing.T) {
+	client := fakeClient(t, "head -c 2097152 /dev/zero | tr '\\0' 'a'\nexit 0\n")
+	useFakeClient(t, client, 10*time.Second)
+
+	start := time.Now()
+	_, err := Resolve(context.Background(), "host", 0, "")
+	elapsed := time.Since(start)
+
+	if err == nil || !strings.Contains(err.Error(), "larger than netdoc reads") {
+		t.Fatalf("an oversized listing returned %v; want the size refusal", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("the size refusal took %v; a client blocked on the pipe was left to the deadline", elapsed)
+	}
+}

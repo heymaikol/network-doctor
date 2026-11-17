@@ -829,15 +829,17 @@ When nothing answers, the panel says which of the two things happened: refused c
 - **Discovery** lists the authentication methods the server offers. It sends no credential.
 - **Verification** sends one credential, once, and reports whether the server accepted it. The credential is a password, a private key file (with its passphrase when the file is encrypted), or a key the SSH agent holds, chosen by its fingerprint.
 
-Neither step runs a remote command or opens a session. The connection closes once the server has answered. netdoc never retries, never moves on to the next key or password by itself, and never guesses. Every attempt is one action that you start.
+Neither step runs a remote command or opens a session. The connection closes once the server has answered. A check sends at most one credential. It never tries the next key or password by itself, and it never guesses. Every credential attempt is one action that you start.
 
-Before any credential is sent, netdoc reads your SSH configuration with `ssh -G`, which connects to nothing, and checks the server's host key against your `known_hosts` file and the system-wide one:
+A check normally opens one connection. There is one exception: when the server's host key is of a type that `known_hosts` does not record, netdoc opens a second connection, restricted to the recorded types, before any credential is sent. The first connection sends no credential, and the second is used only if the key matches.
+
+Before any credential is sent, netdoc reads your SSH configuration with `ssh -G`, which connects to nothing. The read stops after 15 seconds. An interrupt, or closing the TUI panel, cancels a read in progress. On Unix, the `ssh` process is killed together with any command it started, such as a hung `Match exec`. On Windows only the `ssh` process is stopped. netdoc then checks the server's host key against your `known_hosts` file and the system-wide one:
 
 - A key that matches is used.
-- A key that differs from the recorded key is refused, and both fingerprints are shown. There is no override.
+- A key that differs from the recorded key is refused. netdoc shows the fingerprint of the key the server presented, not the fingerprint recorded in `known_hosts`. To see the recorded fingerprint, run `ssh-keygen -F HOST`. There is no override.
 - A key with no record is reported with its fingerprint. You can accept that one fingerprint for the next check, with `-trust-host-key FINGERPRINT` on the command line or the trust row in the TUI. Nothing is written to `known_hosts`.
 
-A secret is read from a prompt with echo off, or from one line of standard input with `-password-stdin`. It is never taken from argv or the environment, and it never appears in output or in the JSON report. The TUI clears its secret field after every attempt and when the panel closes. A Go string cannot be erased from memory, so a password stays in process memory until the garbage collector reclaims it. This is a residual of the input widget and of the SSH library's password API.
+A secret is read from a prompt with echo off, or from one line of standard input with `-password-stdin`. It is never taken from argv or the environment, and it never appears in output or in the JSON report. netdoc overwrites the byte slices that carry a secret once the attempt ends. A password also becomes a Go string, because the SSH library takes its password as a string, and the TUI's input widget keeps its own copy of what was typed. Go cannot erase a string or that copy. netdoc empties the input after every attempt and when the panel closes, but those bytes stay in process memory until the garbage collector reclaims them. The same is true of a password read by the CLI. Ctrl-C at the password prompt exits and puts the terminal's echo back.
 
 Each check ends in one outcome:
 

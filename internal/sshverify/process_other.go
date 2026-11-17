@@ -10,3 +10,8 @@ func configureProcess(*exec.Cmd) {}
 
 // killProcessGroup has nothing to kill beyond the client itself on this platform.
 func killProcessGroup(int) {}
+
+// requireTerminal is not checked on this platform. How a Match exec command sees
+// the console here is not verified, so configuration reads are not guaranteed to
+// match an interactive ssh.
+var requireTerminal = func() error { return nil }

@@ -75,6 +75,9 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 // error is returned as part of the error, so a configuration mistake reads
 // the same way it does on a terminal.
 var resolveOutput = func(ctx context.Context, args []string) ([]byte, error) {
+	if err := requireTerminal(); err != nil {
+		return nil, err
+	}
 	program, err := sshExecutable(sshBinary)
 	if err != nil {
 		return nil, err

@@ -612,3 +612,37 @@ func writeKey(t *testing.T, dir, name, passphrase string) (string, ssh.PublicKey
 	}
 	return path, mustSigner(t, priv).PublicKey()
 }
+
+// A keyboard-interactive server that asks the same echo-off question twice
+// must receive the password once. The second round is declined, so the same
+// credential is never sent again.
+func TestKeyboardInteractiveSendsTheCredentialOnce(t *testing.T) {
+	host, _ := newEd25519(t)
+	s := newServer(host)
+	var received atomic.Int32
+	s.cfg.KeyboardInteractiveCallback = func(conn ssh.ConnMetadata, challenge ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
+		s.kbd.Add(1)
+		for round := 0; round < 2; round++ {
+			answers, err := challenge("", "", []string{"Password: "}, []bool{false})
+			for _, a := range answers {
+				if a == testPassword {
+					received.Add(1)
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+		return nil, errors.New("denied")
+	}
+	known := knownHostsFor(t, host.PublicKey())
+
+	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+
+	if r.Outcome != Unsupported {
+		t.Fatalf("outcome = %q, want unsupported for a second prompt; detail %q", r.Outcome, r.Detail)
+	}
+	if got := received.Load(); got != 1 {
+		t.Errorf("the server received the password %d times, want exactly 1", got)
+	}
+}

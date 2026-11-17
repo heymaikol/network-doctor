@@ -22,9 +22,7 @@ func TestBatchNeverRidesAControlMaster(t *testing.T) {
 	other := lab.startSSHD(t)
 	sock := filepath.Join(lab.dir, "master.sock")
 	conn := filepath.Join(lab.dir, "connection")
-	worker := lab.script(t, "conn-worker", fmt.Sprintf(
-		"printf '%%s' \"$SSH_CONNECTION\" > %s\ndd bs=1 count=%d of=%s 2>/dev/null\ncat %s/response.json\n",
-		conn, len(lab.body), filepath.Join(lab.dir, "worker-request"), lab.dir))
+	worker := lab.workerWith(t, "conn-worker", fmt.Sprintf("printf '%%s' \"$SSH_CONNECTION\" > %s\n", conn))
 	lab.configure(t, lab.known, "", fmt.Sprintf("  ControlMaster auto\n  ControlPath %s", sock))
 
 	// The master: a real connection to the other server, kept alive by ControlPersist.
@@ -76,10 +74,7 @@ func serverPort(t *testing.T, path string) int {
 // waitForMaster polls the control socket until ssh reports the master is up.
 func waitForMaster(t *testing.T, ssh string) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if exec.Command(ssh, "-O", "check", "lab").Run() == nil {
-			return
-		}
-	}
-	t.Fatal("control master did not come up")
+	waitUntil(t, 5*time.Second, func() bool {
+		return exec.Command(ssh, "-O", "check", "lab").Run() == nil
+	}, "control master did not come up")
 }

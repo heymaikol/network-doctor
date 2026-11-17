@@ -107,9 +107,7 @@ func newBatchLab(t *testing.T) *batchLab {
 	if err != nil {
 		t.Fatal(err)
 	}
-	received := filepath.Join(dir, "worker-request")
-	l.worker = l.script(t, "worker", fmt.Sprintf("dd bs=1 count=%d of=%s 2>/dev/null\ncat %s/response.json\n",
-		len(l.body), received, dir))
+	l.worker = l.workerWith(t, "worker", "")
 	l.quick = l.script(t, "quick", fmt.Sprintf("cat %s/response.json\n", dir))
 	return l
 }
@@ -190,10 +188,21 @@ Host lab
 }
 
 func (l *batchLab) script(t *testing.T, name, body string) string {
+	return l.scriptWith(t, name, "/bin/sh", body)
+}
+
+// scriptWith writes an executable script run by interpreter, and returns its absolute path.
+func (l *batchLab) scriptWith(t *testing.T, name, interpreter, body string) string {
 	t.Helper()
 	path := filepath.Join(l.dir, name)
-	batchWrite(t, path, "#!/bin/sh\n"+body, 0o755)
+	batchWrite(t, path, "#!"+interpreter+"\n"+body, 0o755)
 	return path
+}
+
+// workerWith is the stand-in worker. prelude runs first, then it saves the request bytes.
+func (l *batchLab) workerWith(t *testing.T, name, prelude string) string {
+	return l.script(t, name, prelude+fmt.Sprintf("dd bs=1 count=%d of=%s 2>/dev/null\ncat %s\n",
+		len(l.body), filepath.Join(l.dir, "worker-request"), filepath.Join(l.dir, "response.json")))
 }
 
 // run sends the request through batch or interactive transport to the given command.
@@ -259,6 +268,9 @@ func TestBatchStdinIsNotReadByHelpers(t *testing.T) {
 		requireRead(t, canary)
 	})
 
+	// The next two subtests guard OpenSSH's own behaviour, not a pin: Match exec and
+	// KnownHostsCommand run with /dev/null as stdin. No batch pin changes that, so they pass
+	// with or without the pins, and they fail only if OpenSSH stops doing it.
 	t.Run("MatchExec", func(t *testing.T) {
 		lab := newBatchLab(t)
 		canary := filepath.Join(lab.dir, "match-stdin")
@@ -336,13 +348,25 @@ func freeLoopbackPort(t *testing.T) int {
 func waitForPort(t *testing.T, port int) {
 	t.Helper()
 	addr := "127.0.0.1:" + strconv.Itoa(port)
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if c, err := net.DialTimeout("tcp", addr, 200*time.Millisecond); err == nil {
+	waitUntil(t, 10*time.Second, func() bool {
+		c, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err == nil {
 			_ = c.Close()
-			return
 		}
+		return err == nil
+	}, "sshd did not listen on "+addr)
+}
+
+// waitUntil polls cond until it holds, and fails the test with what if timeout passes first.
+func waitUntil(t *testing.T, timeout time.Duration, cond func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal(what)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("sshd did not listen on %s", addr)
 }
 
 func batchWrite(t *testing.T, path, content string, mode os.FileMode) {

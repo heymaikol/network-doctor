@@ -24,7 +24,7 @@ func TestBatchOpensNoForwarding(t *testing.T) {
 	reached := filepath.Join(lab.dir, "reached")
 	// The worker runs under bash for /dev/tcp. It records which of the three ports listen
 	// (state 0A in /proc/net/tcp), then connects to the remote one and keeps what comes back.
-	worker := lab.bash(t, "fwd-worker", fmt.Sprintf(`check() { grep -qi ":$(printf '%%04X' "$1") 00000000:0000 0A" /proc/net/tcp && echo "$1 listening" || echo "$1 none"; }
+	worker := lab.scriptWith(t, "fwd-worker", "/bin/bash", fmt.Sprintf(`check() { grep -qi ":$(printf '%%04X' "$1") 00000000:0000 0A" /proc/net/tcp && echo "$1 listening" || echo "$1 none"; }
 { check %d; check %d; check %d; } > %s
 if exec 3<>/dev/tcp/127.0.0.1/%d 2>/dev/null; then head -c 64 <&3 > %s; exec 3>&-; fi
 dd bs=1 count=%d of=%s 2>/dev/null
@@ -86,12 +86,4 @@ func localBanner(t *testing.T) (addr, banner string) {
 		}
 	}()
 	return ln.Addr().String(), banner
-}
-
-// bash writes an executable bash script and returns its absolute path.
-func (l *batchLab) bash(t *testing.T, name, body string) string {
-	t.Helper()
-	path := filepath.Join(l.dir, name)
-	batchWrite(t, path, "#!/bin/bash\n"+body, 0o755)
-	return path
 }

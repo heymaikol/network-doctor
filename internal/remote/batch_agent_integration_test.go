@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,13 +15,15 @@ import (
 // (ForwardAgent yes). The diagnosed host then gets a socket to the user's agent for the
 // length of the session, and can sign with any key the agent holds. Batch must not give
 // the remote that socket. The control shows the interactive transport does forward it.
+//
+// On OpenSSH 10.5, IdentityAgent=none already stops forwarding, so this passes without the
+// ForwardAgent pin. The pin is guarded by TestBatchPinsWinOverUserConfiguration, which reads
+// the effective value.
 func TestBatchNeverForwardsTheAgent(t *testing.T) {
 	lab := newBatchLab(t)
 	lab.startAgent(t)
 	list := filepath.Join(lab.dir, "agent-list")
-	worker := lab.script(t, "agent-worker", "ssh-add -l > "+list+" 2>&1\n"+
-		"dd bs=1 count="+strconv.Itoa(len(lab.body))+" of="+filepath.Join(lab.dir, "worker-request")+" 2>/dev/null\n"+
-		"cat "+filepath.Join(lab.dir, "response.json")+"\n")
+	worker := lab.workerWith(t, "agent-worker", "ssh-add -l > "+list+" 2>&1\n")
 	lab.configure(t, lab.known, "", "  ForwardAgent yes")
 
 	// Control: the interactive transport forwards the agent, so the remote lists the key.
@@ -61,13 +62,10 @@ func (l *batchLab) startAgent(t *testing.T) {
 		_ = daemon.Process.Kill()
 		_, _ = daemon.Process.Wait()
 	})
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		if _, err := os.Stat(sock); err == nil {
-			break
-		} else if time.Now().After(deadline) {
-			t.Fatal("ssh-agent did not create its socket")
-		}
-	}
+	waitUntil(t, 5*time.Second, func() bool {
+		_, err := os.Stat(sock)
+		return err == nil
+	}, "ssh-agent did not create its socket")
 	t.Setenv("SSH_AUTH_SOCK", sock)
 	if out, err := exec.Command(add, "-q", key).CombinedOutput(); err != nil {
 		t.Fatalf("ssh-add: %v %s", err, out)

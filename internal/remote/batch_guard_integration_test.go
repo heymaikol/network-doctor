@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 )
 
@@ -23,9 +22,7 @@ func TestBatchNeverUsesTheAgentForIdentity(t *testing.T) {
 	batchWrite(t, filepath.Join(lab.dir, "authorized_keys"), string(pub), 0o600)
 	lab.configure(t, lab.known, "IdentitiesOnly no", "")
 	ran := filepath.Join(lab.dir, "agent-session")
-	worker := lab.script(t, "agent-worker", "echo ran > "+ran+"\n"+
-		"dd bs=1 count="+strconv.Itoa(len(lab.body))+" of="+filepath.Join(lab.dir, "worker-request")+" 2>/dev/null\n"+
-		"cat "+filepath.Join(lab.dir, "response.json")+"\n")
+	worker := lab.workerWith(t, "agent-worker", "echo ran > "+ran+"\n")
 
 	// Control: the interactive transport authenticates with the agent's key and runs the session.
 	_ = lab.run(t, false, worker)

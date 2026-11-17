@@ -41,7 +41,7 @@ func TestBatchNeverWritesOrAcceptsAHostKey(t *testing.T) {
 func (l *batchLab) requireNoSession(t *testing.T, err error) {
 	t.Helper()
 	if _, statErr := os.Stat(filepath.Join(l.dir, "worker-request")); statErr == nil {
-		t.Fatalf("a session ran on a host key batch should refuse (transport: %v)", err)
+		t.Fatalf("batch opened a session it should have refused (transport: %v)", err)
 	}
 }
 

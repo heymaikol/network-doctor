@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"strings"
@@ -72,15 +73,35 @@ const maxSecretLen = 4096
 
 // runVerifySSH implements -verify-ssh. Without -verify-auth it lists the
 // methods the server offers and sends no credential. With -verify-auth it sends
-// one credential, once. Exit status: 0 for a verified credential or a listing,
-// 1 when the server did not accept the credential, 2 when the check could not
-// be completed or was misused.
+// one credential, once, and asks for a secret only after the server's host key
+// is trusted. Exit status: 0 for a verified credential or a listing, 1 when the
+// server did not accept the credential, 2 when the check could not be completed
+// (including an untrusted host key) or was misused, before anything was sent.
 func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, stdout, stderr io.Writer) int {
 	for name := range set {
 		if !verifyCompatible[name] {
 			fmt.Fprintf(stderr, "netdoc: -verify-ssh cannot be combined with -%s\n", name)
 			return 2
 		}
+	}
+	// Every check that needs no network and no secret runs here, so a misused
+	// flag never starts a configuration read, a discovery, or a prompt.
+	if problem := flagProblem(set, f); problem != "" {
+		fmt.Fprintln(stderr, "netdoc:", problem)
+		return 2
+	}
+	needsPass := false
+	if f.auth == "key" {
+		var problem string
+		needsPass, problem = keyFileProblem(f.key)
+		if problem != "" {
+			fmt.Fprintln(stderr, "netdoc:", problem)
+			return 2
+		}
+	}
+	if (f.auth == "password" || needsPass) && !f.passwordStdin && !verifyIsTTY() {
+		fmt.Fprintln(stderr, "netdoc: a password or passphrase needs a terminal, or -password-stdin")
+		return 2
 	}
 	if len(positional) != 1 {
 		fmt.Fprintln(stderr, "netdoc: -verify-ssh needs one target: netdoc -verify-ssh [user@]host[:port]")
@@ -117,24 +138,86 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 	switch f.auth {
 	case "":
 		result = verifyDiscover(ctx, tgt, opts)
-	case "password", "key", "agent":
-		attempt, code, ok := buildAttempt(f, tgt, opts, stdout, stderr)
+	case "password", "key":
+		// Discovery checks the host key and sends no credential. The secret is
+		// asked for only when that key is trusted, and the credential connection
+		// then accepts only the key discovery saw, so a key that changed in
+		// between is refused before anything is sent.
+		seen := verifyDiscover(ctx, tgt, opts)
+		if seen.Outcome != sshverify.Discovered || seen.HostKey == "" {
+			writeVerifyResult(stdout, label, seen, f.jsonOut)
+			return verifyExitCode(seen.Outcome)
+		}
+		opts.PinHostKey = seen.HostKey
+		attempt, code, ok := buildAttempt(f, tgt, needsPass, stdout, stderr)
 		if !ok {
 			return code
 		}
 		result = verifyVerify(ctx, tgt, attempt, opts)
-	default:
-		fmt.Fprintln(stderr, "netdoc: -verify-auth must be password, key, or agent")
-		return 2
+	default: // agent
+		attempt, code, ok := buildAttempt(f, tgt, needsPass, stdout, stderr)
+		if !ok {
+			return code
+		}
+		result = verifyVerify(ctx, tgt, attempt, opts)
 	}
 	writeVerifyResult(stdout, label, result, f.jsonOut)
 	return verifyExitCode(result.Outcome)
 }
 
+// flagProblem names the first credential-flag misuse, or "". A flag that the
+// chosen method would never read is refused, not silently ignored, and so is a
+// malformed host key fingerprint, which could never match a presented key.
+func flagProblem(set map[string]bool, f verifySSHFlags) string {
+	switch f.auth {
+	case "", "password", "key", "agent":
+	default:
+		return "-verify-auth must be password, key, or agent"
+	}
+	if set["verify-agent-key"] && f.auth != "agent" {
+		return "-verify-agent-key needs -verify-auth agent"
+	}
+	if set["verify-key"] && f.auth != "key" {
+		return "-verify-key needs -verify-auth key"
+	}
+	if f.auth == "key" && f.key == "" {
+		return "-verify-auth key needs -verify-key FILE"
+	}
+	if set["password-stdin"] && f.auth != "password" && f.auth != "key" {
+		return "-password-stdin needs -verify-auth password or key"
+	}
+	if set["trust-host-key"] && !sshverify.ValidFingerprint(f.trustHostKey) {
+		return "-trust-host-key needs a SHA256 host key fingerprint, as ssh-keygen -lf prints it, such as SHA256:..."
+	}
+	return ""
+}
+
+// keyFileProblem reports whether the key file is encrypted, and why it cannot be
+// verified when it cannot. It reads the file and sends nothing.
+func keyFileProblem(path string) (bool, string) {
+	needs, err := verifyNeedsPass(path)
+	if err == nil {
+		return needs, ""
+	}
+	name := textsafe.Clean(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, fmt.Sprintf("the key file %s does not exist", name)
+	case errors.Is(err, fs.ErrPermission):
+		return false, fmt.Sprintf("the key file %s cannot be read: permission denied", name)
+	case errors.Is(err, sshverify.ErrKeyNotRegular):
+		return false, fmt.Sprintf("%s is not a regular file", name)
+	case errors.Is(err, sshverify.ErrKeyNotPrivate):
+		return false, fmt.Sprintf("%s is not a private key netdoc can read", name)
+	}
+	return false, fmt.Sprintf("the key file %s could not be read", name)
+}
+
 // buildAttempt reads the one secret the chosen method needs, with the key or
-// agent identity it uses. ok is false when the attempt cannot be built, and
-// code is then the exit status.
-func buildAttempt(f verifySSHFlags, tgt sshverify.Target, opts sshverify.Options, stdout, stderr io.Writer) (sshverify.Attempt, int, bool) {
+// agent identity it uses. needsPass says the key file is encrypted, as
+// keyFileProblem found. ok is false when the attempt cannot be built, and code is
+// then the exit status.
+func buildAttempt(f verifySSHFlags, tgt sshverify.Target, needsPass bool, stdout, stderr io.Writer) (sshverify.Attempt, int, bool) {
 	switch f.auth {
 	case "password":
 		pw, err := readVerifySecret(stderr, fmt.Sprintf("Password for %s@%s: ", tgt.User, tgt.Host), f.passwordStdin)
@@ -144,17 +227,8 @@ func buildAttempt(f verifySSHFlags, tgt sshverify.Target, opts sshverify.Options
 		}
 		return sshverify.Attempt{Method: sshverify.MethodPassword, Password: pw}, 0, true
 	case "key":
-		if f.key == "" {
-			fmt.Fprintln(stderr, "netdoc: -verify-auth key needs -verify-key FILE")
-			return sshverify.Attempt{}, 2, false
-		}
-		needs, err := verifyNeedsPass(f.key)
-		if err != nil {
-			fmt.Fprintln(stderr, "netdoc: the key file could not be read")
-			return sshverify.Attempt{}, 2, false
-		}
 		attempt := sshverify.Attempt{Method: sshverify.MethodKey, KeyPath: f.key}
-		if needs {
+		if needsPass {
 			pass, err := readVerifySecret(stderr, "Passphrase for the key: ", f.passwordStdin)
 			if err != nil {
 				fmt.Fprintln(stderr, "netdoc:", err)
@@ -165,7 +239,7 @@ func buildAttempt(f verifySSHFlags, tgt sshverify.Target, opts sshverify.Options
 		return attempt, 0, true
 	default: // agent
 		if f.agentKey == "" {
-			keys, err := verifyListAgent(tgt, opts)
+			keys, err := verifyListAgent(tgt, sshverify.Options{})
 			if err != nil {
 				fmt.Fprintln(stderr, "netdoc:", textsafe.Clean(err.Error()))
 				return sshverify.Attempt{}, 2, false

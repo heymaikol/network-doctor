@@ -92,6 +92,7 @@ func runSecretPrompt(t *testing.T, input []byte) (exitErr error, echoAfter bool)
 		}
 	}()
 
+	// #nosec G702 G204 -- the test runs its own binary as the helper process, with a fixed argument
 	cmd := exec.Command(os.Args[0], "-test.run=^TestPasswordPromptHelper$")
 	cmd.Env = append(os.Environ(), "NETDOC_PROMPT_HELPER=1")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave

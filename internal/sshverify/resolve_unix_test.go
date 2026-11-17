@@ -19,7 +19,7 @@ func TestResolveIsBoundedWhenTheClientHangs(t *testing.T) {
 	dir := t.TempDir()
 	client := filepath.Join(dir, "ssh")
 	script := "#!/bin/sh\nsleep 60 &\nsleep 60\n"
-	if err := os.WriteFile(client, []byte(script), 0o700); err != nil {
+	if err := os.WriteFile(client, []byte(script), 0o700); err != nil { // #nosec G306 -- the test writes an executable fake ssh client on purpose
 		t.Fatal(err)
 	}
 	savedBinary, savedTimeout := sshBinary, resolveTimeout

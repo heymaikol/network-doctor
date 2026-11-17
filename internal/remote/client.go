@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
@@ -251,12 +252,12 @@ func Direct(ctx context.Context, dest string) bool {
 	ctx, cancel := context.WithTimeout(ctx, sshConfigTimeout)
 	defer cancel()
 	// -G prints the configuration ssh would use for this destination without
-	// connecting to anything.
-	// #nosec G204 -- sshProgram is fixed and dest is validated against argv
-	// option injection, and both stay separate arguments, never shell text.
-	cmd := exec.CommandContext(ctx, sshProgram, "-G", dest)
-	cmd.WaitDelay = cancelGrace
-	out, err := cmd.Output()
+	// connecting to anything. dest is validated against argv option injection, and
+	// it stays a separate argument, never shell text. The listing is read through
+	// sshverify, which refuses a read that ran a Match exec test or whose
+	// diagnostics are not complete and recognized. A refused read is treated as
+	// proxied, so nothing connects around a proxy this read could not see.
+	out, err := sshverify.ReadConfig(ctx, sshProgram, []string{"-G", dest})
 	if err != nil {
 		return false
 	}

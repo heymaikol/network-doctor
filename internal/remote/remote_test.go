@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 	"io"
 	"math"
 	"os"
@@ -64,6 +65,11 @@ func fakeSSH(mode string) int {
 		// set by useFakeSSH to a directory the test just created.
 		_ = os.WriteFile(path, []byte(strings.Join(os.Args[1:], "\n")), 0o600)
 	}
+	if cfg, ok := fakeCanaryConfig(os.Args[1:]); ok {
+		// The check sshverify runs against the client before it trusts a read. A real
+		// client answers it the same way whatever mode the stand-in is in.
+		return fakeCanary(cfg)
+	}
 	switch mode {
 	case "missing":
 		// What a remote shell says when the program is not on its PATH. The
@@ -79,11 +85,19 @@ func fakeSSH(mode string) int {
 	case "garbage":
 		fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		return 0
-	case "config", "configproxy", "configproxycommand", "confignoneproxy":
+	case "config", "configproxy", "configproxycommand", "confignoneproxy", "configexec":
 		// `ssh -G`: the effective configuration, one lowercased keyword per
 		// line, printed without connecting to anything. ssh leaves a proxy
 		// keyword out entirely when it is unset or set to none, and
 		// confignoneproxy prints it anyway to pin that the value is read too.
+		if hasArg(os.Args[1:], "-v") {
+			// At -v a real client reports each configuration file it reads, and
+			// each Match exec command it runs.
+			fmt.Fprintln(os.Stderr, "debug1: Reading configuration data /fake/ssh_config")
+			if mode == "configexec" {
+				fmt.Fprintln(os.Stderr, "debug1: Executing command: 'proxy-decider'")
+			}
+		}
 		fmt.Fprintln(os.Stdout, "user maikol")
 		fmt.Fprintln(os.Stdout, "hostname 10.0.0.5")
 		switch mode {
@@ -336,7 +350,14 @@ func useFakeSSH(t *testing.T, mode string) (argvPath, requestPath string) {
 	t.Helper()
 	previous := sshProgram
 	sshProgram = os.Args[0]
-	t.Cleanup(func() { sshProgram = previous })
+	// The stand-in is read as if netdoc had its terminal, which the configuration
+	// read requires; the refusal without one has its own test.
+	previousTerminal := sshverify.TerminalAvailable
+	sshverify.TerminalAvailable = func() bool { return true }
+	t.Cleanup(func() {
+		sshProgram = previous
+		sshverify.TerminalAvailable = previousTerminal
+	})
 	argvPath = t.TempDir() + string(os.PathSeparator) + "argv"
 	requestPath = t.TempDir() + string(os.PathSeparator) + "request"
 	t.Setenv(fakeSSHEnv, mode)
@@ -491,6 +512,9 @@ func TestDirectReadsTheEffectiveConfiguration(t *testing.T) {
 		{"confignoneproxy", true},
 		{"configproxy", false},
 		{"configproxycommand", false},
+		// A Match exec test ran. Its answer depends on a terminal and environment
+		// netdoc cannot reproduce, so the listing is refused, which is not direct.
+		{"configexec", false},
 		// ssh itself failed, so nothing was established. Anything unestablished
 		// is treated as proxied, which costs an overlap and never a prompt.
 		{"sshfail", false},
@@ -501,8 +525,8 @@ func TestDirectReadsTheEffectiveConfiguration(t *testing.T) {
 			if got := Direct(context.Background(), "ideapad"); got != tc.want {
 				t.Errorf("Direct = %t, want %t", got, tc.want)
 			}
-			if got := readLines(t, argvPath); strings.Join(got, " ") != "-G ideapad" {
-				t.Errorf("ssh argv = %q, want the configuration of ideapad and no connection", got)
+			if got := readLines(t, argvPath); strings.Join(got, " ") != "-v -G ideapad" {
+				t.Errorf("ssh argv = %q, want the verbose configuration of ideapad and no connection", got)
 			}
 		})
 	}
@@ -2185,4 +2209,53 @@ func diagnosedPair(tool snapshot.Tool, ok bool) (report.Report, snapshot.Snapsho
 		Diagnosis: snapshot.Diagnosis{Verdict: verdict, FailedStage: failed},
 	}
 	return rep, snap
+}
+
+// fakeCanaryConfig reports whether argv is the configuration check sshverify runs
+// against the client: a verbose listing of the host "canary" from a file it wrote.
+func fakeCanaryConfig(args []string) (string, bool) {
+	if len(args) < 2 || args[0] != "-v" || args[len(args)-1] != "canary" {
+		return "", false
+	}
+	for i, a := range args {
+		if a == "-F" && i+1 < len(args) {
+			return args[i+1], true
+		}
+	}
+	return "", false
+}
+
+// fakeCanary answers the check the way OpenSSH does: it reports the file it reads,
+// reports the Match exec test only in the file that has one, and lists the host.
+func fakeCanary(cfg string) int {
+	fmt.Fprintln(os.Stderr, "debug1: Reading configuration data "+cfg)
+	if strings.HasSuffix(cfg, "exec.config") {
+		fmt.Fprintln(os.Stderr, "debug1: Executing command: 'true'")
+	}
+	fmt.Fprintln(os.Stdout, "user demo")
+	fmt.Fprintln(os.Stdout, "hostname 127.0.0.1")
+	fmt.Fprintln(os.Stdout, "port 2260")
+	return 0
+}
+
+func hasArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Without a terminal the configuration read is refused, so no route is read as
+// direct. The stand-in would answer direct; the refusal must come first.
+func TestDirectRefusesWithoutATerminal(t *testing.T) {
+	argvPath, _ := useFakeSSH(t, "config")
+	sshverify.TerminalAvailable = func() bool { return false }
+	if Direct(context.Background(), "ideapad") {
+		t.Error("Direct read a route as direct with no terminal")
+	}
+	if _, err := os.Stat(argvPath); err == nil {
+		t.Error("ssh ran for a configuration read with no terminal")
+	}
 }

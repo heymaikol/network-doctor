@@ -25,8 +25,9 @@ import (
 // runProfile executes each finite component plan through the ordinary
 // headless machinery. Local components run concurrently. Remote ones overlap
 // only over a transport that cannot ask the user anything, to a destination
-// reached without a proxy, and fall back to one at a time otherwise, so SSH
-// prompts cannot collide. Output remains in registry order either way.
+// reached without a proxy, and run one at a time otherwise, so SSH prompts
+// cannot collide. A refused noninteractive acquisition fails the pass; it is
+// never retried interactively. Output remains in registry order either way.
 func runProfile(parent context.Context, base headless, plan profile.Plan, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -116,6 +117,10 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// Only -save and -support read a component's snapshot, and both arrive
 		// here as base.save.
 		outputs[i] = diagnoseHeadless(ctx, h, base.save != "")
+		if batch && outputs[i].err != nil {
+			// The noninteractive attempt asks nothing, so say that it did not.
+			outputs[i].err = fmt.Errorf("%w; no question was asked, so run this destination on its own to answer one", outputs[i].err)
+		}
 	}
 	// together runs every component from first onwards at once. A component
 	// that fails does not cancel its siblings: each one is an independent
@@ -161,17 +166,18 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// that cannot ask anything. It is a real component rather than a
 		// preflight: either this destination authenticates without a question,
 		// in which case the same transport carries the rest safely, or it does
-		// not. The later components are not overlapped because this one
-		// succeeded; they are safe because each one refuses interaction itself
-		// and holds the direct route the gate just read, so no proxy child can
-		// appear part-way through the pass to ask on its behalf.
+		// not and the pass fails. The later components are not overlapped until
+		// this one succeeds; they are safe because each one refuses interaction
+		// itself and holds the direct route the gate just read, so no proxy child
+		// can appear part-way through the pass to ask on its behalf.
 		run(0, true)
 		if outputs[0].err != nil {
-			// A failed first batch attempt falls back, for any reason, on purpose:
-			// a stalled connection may need a proxy the batch transport pinned off,
-			// and the ordinary acquisition re-reads the configuration. A cancelled
-			// caller's fallback starts nothing; see run.
-			sequential()
+			// A refused noninteractive acquisition fails the pass. Nothing is retried
+			// over the transport that can prompt: a refused host key, passphrase, or
+			// LocalCommand would be answered there, and a changed key accepted under
+			// the user's StrictHostKeyChecking no. The other components are not
+			// started either, because they share this destination, so the same
+			// refusal would repeat for each of them.
 			break
 		}
 		together(1, true)

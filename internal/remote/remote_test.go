@@ -464,6 +464,7 @@ func TestRunBatchTellsSSHToRefuseEveryInteractiveAuthentication(t *testing.T) {
 		"-o", "UpdateHostKeys=no",
 		"-o", "ForwardAgent=no",
 		"-o", "ClearAllForwardings=yes",
+		"-o", "ForwardX11=no",
 		"ideapad", DefaultCommand, WorkerFlag,
 	}
 	if got := readLines(t, argvPath); strings.Join(got, " ") != strings.Join(want, " ") {

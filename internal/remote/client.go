@@ -196,6 +196,9 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // the user's configuration names. A local listener is reachable by other local users, and a
 // remote one lets the diagnosed host reach the user's local services.
 //
+// ForwardX11 is off because an X11 channel gives the diagnosed host access to the user's
+// display, and a batch diagnosis has no use for one.
+//
 // AddKeysToAgent is off because an ssh_config asking for "ask" turns a used
 // software key into an askpass prompt. PreferredAuthentications names the one
 // method this transport can complete, so an acquisition is public-key or
@@ -223,6 +226,7 @@ var batchOptions = []string{
 	"UpdateHostKeys=no",
 	"ForwardAgent=no",
 	"ClearAllForwardings=yes",
+	"ForwardX11=no",
 }
 
 // RunBatch is Run over a transport that cannot ask the user anything itself;

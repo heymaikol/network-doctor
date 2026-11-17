@@ -98,7 +98,8 @@ func readOnTerminal(t *testing.T, client string) (string, time.Duration) {
 		return ""
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestResolveHelper$") // #nosec G204 -- the test runs its own binary as the helper process
+	// #nosec G702 G204 -- the test runs its own binary as the helper process, with a fixed argument
+	cmd := exec.Command(os.Args[0], "-test.run=^TestResolveHelper$")
 	cmd.Env = append(os.Environ(), "NETDOC_RESOLVE_HELPER=1", "NETDOC_FAKE_CLIENT="+client)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}

@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/charmbracelet/x/term"
 
@@ -192,9 +194,7 @@ func readVerifySecret(stderr io.Writer, prompt string, fromStdin bool) ([]byte, 
 		if !verifyIsTTY() {
 			return nil, errors.New("a password or passphrase needs a terminal, or -password-stdin")
 		}
-		fmt.Fprint(stderr, prompt)
-		read, err := verifyReadPass()
-		fmt.Fprintln(stderr)
+		read, err := readTerminalSecret(stderr, prompt)
 		if err != nil {
 			return nil, errors.New("could not read the secret from the terminal")
 		}
@@ -205,6 +205,36 @@ func readVerifySecret(stderr io.Writer, prompt string, fromStdin bool) ([]byte, 
 		return nil, errors.New("the secret is empty or too long")
 	}
 	return value, nil
+}
+
+// readTerminalSecret reads a secret with echo off, and it puts the terminal back
+// whether the read ends normally or the process is interrupted. ReadPassword
+// restores echo in a defer, and a defer does not run when an interrupt ends the
+// process, so the state saved here is restored by an interrupt handler instead.
+func readTerminalSecret(stderr io.Writer, prompt string) ([]byte, error) {
+	fd := os.Stdin.Fd()
+	state, err := term.GetState(fd)
+	if err != nil {
+		return nil, err
+	}
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(interrupts)
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-interrupts:
+			_ = term.Restore(fd, state)
+			fmt.Fprintln(stderr)
+			os.Exit(130)
+		case <-finished:
+		}
+	}()
+	fmt.Fprint(stderr, prompt)
+	value, err := verifyReadPass()
+	fmt.Fprintln(stderr)
+	return value, err
 }
 
 // writeVerifyResult prints one result. Every server-supplied string has been

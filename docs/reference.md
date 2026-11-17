@@ -884,7 +884,7 @@ netdoc -verify-ssh -verify-auth agent -verify-agent-key SHA256:... host.example
 netdoc -verify-ssh -verify-auth agent host.example     # without a fingerprint, lists the agent's keys
 ```
 
-Flags that the chosen method would never read are refused, not ignored. `-password-stdin` needs `-verify-auth password` or `key`. `-verify-key` needs `-verify-auth key`, and `-verify-auth key` needs `-verify-key`. `-verify-agent-key` needs `-verify-auth agent`. `-trust-host-key` must be a SHA256 fingerprint in the form `ssh-keygen -lf` prints: `SHA256:` followed by 43 characters. Each misuse exits 2 before the configuration is read, the host is contacted, or any input is read.
+Flags that the chosen method would never read are refused, not ignored. `-password-stdin` needs `-verify-auth password`, or `key` with an encrypted key file, since an unencrypted key has no passphrase to read. `-verify-key` needs `-verify-auth key`, and `-verify-auth key` needs `-verify-key`. `-verify-agent-key` needs `-verify-auth agent`. `-trust-host-key` must be a SHA256 fingerprint in the form `ssh-keygen -lf` prints: `SHA256:` followed by 43 characters. Each misuse exits 2 before the configuration is read, the host is contacted, or any input is read.
 
 `-json` prints the same result as one object with no secret in it.
 

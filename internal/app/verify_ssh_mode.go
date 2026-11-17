@@ -99,6 +99,12 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 			return 2
 		}
 	}
+	// -password-stdin reads a passphrase, and an unencrypted key has none to read, so
+	// the flag would do nothing. It is refused before anything is read or contacted.
+	if f.auth == "key" && !needsPass && set["password-stdin"] {
+		fmt.Fprintln(stderr, "netdoc: -password-stdin needs an encrypted key; this key has no passphrase to read")
+		return 2
+	}
 	if (f.auth == "password" || needsPass) && !f.passwordStdin && !verifyIsTTY() {
 		fmt.Fprintln(stderr, "netdoc: a password or passphrase needs a terminal, or -password-stdin")
 		return 2

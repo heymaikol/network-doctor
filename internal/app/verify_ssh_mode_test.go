@@ -256,6 +256,7 @@ func TestUnusedCredentialFlagsAreRefusedBeforeAnything(t *testing.T) {
 		{"agent key without auth", []string{"-verify-ssh", "-verify-agent-key", "SHA256:abc", "host.example"}, "-verify-agent-key needs -verify-auth agent"},
 		{"agent key with password", []string{"-verify-ssh", "-verify-auth", "password", "-verify-agent-key", "SHA256:abc", "-password-stdin", "host.example"}, "-verify-agent-key needs -verify-auth agent"},
 		{"key file with password", []string{"-verify-ssh", "-verify-auth", "password", "-verify-key", "/k/id", "-password-stdin", "host.example"}, "-verify-key needs -verify-auth key"},
+		{"password-stdin with an unencrypted key", []string{"-verify-ssh", "-verify-auth", "key", "-verify-key", "/k/id", "-password-stdin", "host.example"}, "-password-stdin needs an encrypted key"},
 		{"key auth without a key file", []string{"-verify-ssh", "-verify-auth", "key", "host.example"}, "-verify-auth key needs -verify-key FILE"},
 		{"unknown auth method", []string{"-verify-ssh", "-verify-auth", "bogus", "host.example"}, "-verify-auth must be password, key, or agent"},
 		{"trust value without a prefix", []string{"-verify-ssh", "-trust-host-key", "abc", "host.example"}, "-trust-host-key needs a SHA256 host key fingerprint"},

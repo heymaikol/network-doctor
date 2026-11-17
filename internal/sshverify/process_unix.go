@@ -3,8 +3,6 @@
 package sshverify
 
 import (
-	"fmt"
-	"os"
 	"os/exec"
 	"syscall"
 )
@@ -31,16 +29,4 @@ func configureProcess(cmd *exec.Cmd) {
 // is a no-op once the group is empty.
 func killProcessGroup(pid int) {
 	_ = syscall.Kill(-pid, syscall.SIGKILL)
-}
-
-// requireTerminal refuses a configuration read that has no controlling terminal.
-// Without one, a Match exec command that tests for a terminal gets a different
-// answer from the one an interactive ssh gives, and the difference is silent.
-var requireTerminal = func() error {
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0) // #nosec G304 -- the controlling terminal, opened only to test for it
-	if err != nil {
-		return fmt.Errorf("the SSH configuration needs a terminal, because a Match exec command could otherwise choose a different host without saying so; run netdoc from a terminal")
-	}
-	_ = tty.Close()
-	return nil
 }

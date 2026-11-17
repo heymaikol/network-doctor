@@ -286,16 +286,3 @@ func TestTerminalNoninteractiveConfigStillResolves(t *testing.T) {
 		t.Fatalf("a noninteractive configuration resolved %q, interactive %q, want 10.9.9.9", line, want)
 	}
 }
-
-// With no terminal there is nothing to match an interactive ssh against, so the
-// read is refused with the reason, rather than resolving silently.
-func TestHeadlessReadIsRefusedWithItsReason(t *testing.T) {
-	requireOpenSSH(t)
-	config := writeMatchConfig(t, "headless.config", ": </dev/tty")
-
-	line, _ := runResolveChild(t, config, false)
-
-	if !strings.HasPrefix(line, "RESULT error:") || !strings.Contains(line, "needs a terminal") {
-		t.Fatalf("a read with no terminal was not refused with its reason: %q", line)
-	}
-}

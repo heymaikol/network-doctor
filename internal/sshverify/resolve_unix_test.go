@@ -28,17 +28,12 @@ func fakeClient(t *testing.T, script string) string {
 	return path
 }
 
-// useFakeClient points the configuration read at client for one test. The
-// terminal check is passed, because these tests exercise the runner, not the
-// terminal; the terminal tests run the real client on a terminal.
+// useFakeClient points the configuration read at client for one test.
 func useFakeClient(t *testing.T, client string, timeout time.Duration) {
 	t.Helper()
-	savedBinary, savedTimeout, savedGrace, savedTerminal := sshBinary, resolveTimeout, outputGrace, requireTerminal
+	savedBinary, savedTimeout, savedGrace := sshBinary, resolveTimeout, outputGrace
 	sshBinary, resolveTimeout = client, timeout
-	requireTerminal = func() error { return nil }
-	t.Cleanup(func() {
-		sshBinary, resolveTimeout, outputGrace, requireTerminal = savedBinary, savedTimeout, savedGrace, savedTerminal
-	})
+	t.Cleanup(func() { sshBinary, resolveTimeout, outputGrace = savedBinary, savedTimeout, savedGrace })
 }
 
 // waitForPID returns the PID a script wrote to file, once it has been written.

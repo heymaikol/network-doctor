@@ -75,9 +75,6 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 // error is returned as part of the error, so a configuration mistake reads
 // the same way it does on a terminal.
 var resolveOutput = func(ctx context.Context, args []string) ([]byte, error) {
-	if err := requireTerminal(); err != nil {
-		return nil, err
-	}
 	program, err := sshExecutable(sshBinary)
 	if err != nil {
 		return nil, err
@@ -94,8 +91,9 @@ const maxConfigBytes = 1 << 20
 var outputGrace = 2 * time.Second
 
 // runSSHClient runs the ssh client and returns its complete standard output. The
-// client starts in its own session, so it has no terminal to read from, and it is
-// killed together with any child it started when the read is cancelled and when
+// client starts in its own process group, inside the terminal netdoc has, so a
+// Match exec command sees the same terminal an interactive ssh gives it. The client
+// is killed together with any child it started when the read is cancelled and when
 // the client exits. Output that does not end cleanly is an error, not a partial
 // listing.
 func runSSHClient(ctx context.Context, program string, args []string) ([]byte, error) {

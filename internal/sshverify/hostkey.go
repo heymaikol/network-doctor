@@ -23,7 +23,11 @@ const (
 	hostChanged
 	hostRevoked
 	hostFailed // known_hosts could not be used at all
+	hostMoved  // the key differs from the one an earlier check of this host presented
 )
+
+// errHostMoved stops a handshake whose host key is not the pinned one.
+var errHostMoved = errors.New("host key differs from the one checked before the credential was requested")
 
 // hostCheck decides whether the presented host key may be used. It records
 // the outcome in the callback, so the caller never has to recognise the
@@ -33,6 +37,8 @@ type hostCheck struct {
 	trust     string              // SHA256 fingerprint the user confirmed, or ""
 	presented ssh.PublicKey
 	state     hostState
+	// pin is the SHA256 fingerprint the presented key must also match, or "".
+	pin string
 	// wants is the set of key types known for this host, when the key did
 	// not match. It drives one retry with host-key algorithms restricted to
 	// those types, so a server that offers several keys is not mistaken for
@@ -69,6 +75,21 @@ var errKnownHostsUnreadable = errors.New("a known_hosts file could not be read")
 // handshake; nothing after it runs.
 func (h *hostCheck) callback(hostname string, remote net.Addr, key ssh.PublicKey) error {
 	h.presented = key
+	if err := h.decide(hostname, remote, key); err != nil {
+		return err
+	}
+	// The pin is checked after known_hosts, so a server with several host keys
+	// still gets the key-type retry; a key that was accepted but is not the one
+	// pinned is refused here.
+	if h.pin != "" && ssh.FingerprintSHA256(key) != h.pin {
+		h.state, h.err = hostMoved, errHostMoved
+		return h.err
+	}
+	return nil
+}
+
+// decide is the known_hosts decision for a presented key.
+func (h *hostCheck) decide(hostname string, remote net.Addr, key ssh.PublicKey) error {
 	if h.verify == nil {
 		return h.unknown(key)
 	}

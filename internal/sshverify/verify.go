@@ -2,6 +2,8 @@ package sshverify
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -74,6 +76,11 @@ type Options struct {
 	// TrustHostKey is the SHA256 fingerprint of an unknown host key the user
 	// has confirmed. It is accepted for this check only; nothing is written.
 	TrustHostKey string
+	// PinHostKey is the SHA256 fingerprint of the host key an earlier discovery of
+	// this host presented. When set, this check accepts only that key, on top of
+	// the known_hosts decision, so a key that changed between the two steps is
+	// refused before any credential is sent.
+	PinHostKey string
 }
 
 // Attempt is one credential, chosen by the user for one check.
@@ -396,6 +403,7 @@ func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, 
 	if err != nil {
 		return Result{Outcome: LocalFailure, Detail: err.Error() + "; nothing was sent"}, false, nil
 	}
+	hosts.pin = opts.PinHostKey
 	addr := net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
 	conn, err := dial(ctx, addr, opts)
 	if err != nil {
@@ -473,6 +481,8 @@ func (r round) result(ctx context.Context, err error, discovery bool) Result {
 	switch h.state {
 	case hostChanged:
 		return changedResult(h)
+	case hostMoved:
+		return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the host key differs from the one this host presented when it was checked; nothing was sent"}
 	case hostRevoked:
 		return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the host key is revoked in known_hosts; nothing was sent"}
 	case hostUnknown:
@@ -586,9 +596,23 @@ func (o Outcome) Describe() string {
 	return fmt.Sprintf("unknown outcome %q", string(o))
 }
 
+// Problems with a key file that KeyNeedsPassphrase can report. A missing or
+// unreadable file is reported as the os error it is.
+var (
+	ErrKeyNotRegular = errors.New("not a regular file")
+	ErrKeyNotPrivate = errors.New("not a private key netdoc can read")
+)
+
 // KeyNeedsPassphrase reports whether the key file at path is encrypted, so a
 // caller knows to ask for its passphrase. It reads the file and sends nothing.
 func KeyNeedsPassphrase(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, ErrKeyNotRegular
+	}
 	data, err := os.ReadFile(path) // #nosec G304 -- the user names the key file to verify
 	if err != nil {
 		return false, err
@@ -596,5 +620,23 @@ func KeyNeedsPassphrase(path string) (bool, error) {
 	defer clear(data)
 	_, err = ssh.ParsePrivateKey(data)
 	var missing *ssh.PassphraseMissingError
-	return errors.As(err, &missing), nil
+	if errors.As(err, &missing) {
+		return true, nil
+	}
+	if err != nil {
+		return false, ErrKeyNotPrivate
+	}
+	return false, nil
+}
+
+// ValidFingerprint reports whether fp has the form ssh-keygen prints for a host
+// key: SHA256: followed by the unpadded base64 of a 32-byte digest. A value in
+// any other form can never match a presented key, so it is refused before use.
+func ValidFingerprint(fp string) bool {
+	rest, ok := strings.CutPrefix(fp, "SHA256:")
+	if !ok {
+		return false
+	}
+	raw, err := base64.RawStdEncoding.Strict().DecodeString(rest)
+	return err == nil && len(raw) == sha256.Size
 }

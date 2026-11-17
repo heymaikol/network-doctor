@@ -178,6 +178,10 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // own stdin, which carries the request. A configured command would read the request
 // before the worker does.
 //
+// ControlMaster and ControlPath are off so batch never reuses a live master. A master the
+// user's configuration names is a connection to a server this acquisition did not choose,
+// under authentication it did not make.
+//
 // AddKeysToAgent is off because an ssh_config asking for "ask" turns a used
 // software key into an askpass prompt. PreferredAuthentications names the one
 // method this transport can complete, so an acquisition is public-key or
@@ -199,6 +203,8 @@ var batchOptions = []string{
 	"PKCS11Provider=none",
 	"GSSAPIAuthentication=no",
 	"PermitLocalCommand=no",
+	"ControlMaster=no",
+	"ControlPath=none",
 }
 
 // RunBatch is Run over a transport that cannot ask the user anything itself;

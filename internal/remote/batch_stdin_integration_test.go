@@ -53,23 +53,24 @@ __attribute__((constructor)) static void canary(void) {
 `
 
 type batchLab struct {
-	dir    string
-	port   int
-	user   string
-	client string // identity for the lab user
-	known  string // known_hosts for the lab sshd
-	ssh    string
-	worker string // saves the request, then answers
-	quick  string // answers without reading stdin; for interactive controls
-	body   []byte // the bytes the transport writes to stdin
-	wrap   int
+	dir     string
+	port    int
+	user    string
+	client  string // identity for the lab user
+	hostKey string // host key shared by every lab sshd
+	known   string // known_hosts trusting every lab sshd
+	sshd    string
+	ssh     string
+	worker  string // saves the request, then answers
+	quick   string // answers without reading stdin; for interactive controls
+	body    []byte // the bytes the transport writes to stdin
+	wrap    int
 }
 
 // newBatchLab starts a loopback sshd that accepts only the lab key. It skips where
 // OpenSSH is not installed.
 func newBatchLab(t *testing.T) *batchLab {
 	t.Helper()
-	sshd := lookTool(t, "sshd", "/usr/sbin/sshd")
 	keygen := lookTool(t, "ssh-keygen", "")
 	who, err := user.Current()
 	if err != nil {
@@ -80,7 +81,7 @@ func newBatchLab(t *testing.T) *batchLab {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	l := &batchLab{dir: dir, user: who.Username, ssh: lookTool(t, "ssh", "")}
+	l := &batchLab{dir: dir, user: who.Username, ssh: lookTool(t, "ssh", ""), sshd: lookTool(t, "sshd", "/usr/sbin/sshd")}
 
 	hostKey, client := filepath.Join(dir, "hostkey"), filepath.Join(dir, "client")
 	for _, key := range []string{hostKey, client} {
@@ -88,44 +89,13 @@ func newBatchLab(t *testing.T) *batchLab {
 			t.Fatalf("ssh-keygen: %v %s", err, out)
 		}
 	}
-	l.client = client
+	l.client, l.hostKey = client, hostKey
 	pub, _ := os.ReadFile(client + ".pub")
 	batchWrite(t, filepath.Join(dir, "authorized_keys"), string(pub), 0o600)
-
-	l.port = freeLoopbackPort(t)
-	cfg := filepath.Join(dir, "sshd_config")
-	batchWrite(t, cfg, fmt.Sprintf(`Port %d
-ListenAddress 127.0.0.1
-HostKey %s
-AuthorizedKeysFile %s
-PubkeyAuthentication yes
-PasswordAuthentication no
-KbdInteractiveAuthentication no
-UsePAM no
-StrictModes no
-PerSourcePenalties no
-LogLevel ERROR
-`, l.port, hostKey, filepath.Join(dir, "authorized_keys")), 0o600)
-	logFile, err := os.Create(filepath.Join(dir, "sshd.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = logFile.Close() })
-	daemon := exec.Command(sshd, "-D", "-e", "-f", cfg)
-	daemon.Stdout, daemon.Stderr = logFile, logFile
-	if err := daemon.Start(); err != nil {
-		t.Fatalf("start sshd: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = daemon.Process.Kill()
-		_, _ = daemon.Process.Wait()
-	})
-	waitForPort(t, l.port)
-
-	hostPub, _ := os.ReadFile(hostKey + ".pub")
-	fields := strings.Fields(string(hostPub))
 	l.known = filepath.Join(dir, "known_hosts")
-	batchWrite(t, l.known, fmt.Sprintf("[127.0.0.1]:%d %s %s\n", l.port, fields[0], fields[1]), 0o600)
+	batchWrite(t, l.known, "", 0o600)
+
+	l.port = l.startSSHD(t)
 
 	reply, err := json.Marshal(Response{Protocol: Protocol, Error: batchCanned})
 	if err != nil {
@@ -141,6 +111,53 @@ LogLevel ERROR
 		len(l.body), received, dir))
 	l.quick = l.script(t, "quick", fmt.Sprintf("cat %s/response.json\n", dir))
 	return l
+}
+
+// startSSHD starts another loopback sshd on the lab keys, trusts its host key in known_hosts,
+// and returns its port.
+func (l *batchLab) startSSHD(t *testing.T) int {
+	t.Helper()
+	port := freeLoopbackPort(t)
+	cfg := filepath.Join(l.dir, fmt.Sprintf("sshd_%d.config", port))
+	batchWrite(t, cfg, fmt.Sprintf(`Port %d
+ListenAddress 127.0.0.1
+HostKey %s
+AuthorizedKeysFile %s
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+StrictModes no
+PerSourcePenalties no
+LogLevel ERROR
+`, port, l.hostKey, filepath.Join(l.dir, "authorized_keys")), 0o600)
+	logFile, err := os.Create(cfg + ".log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = logFile.Close() })
+	daemon := exec.Command(l.sshd, "-D", "-e", "-f", cfg)
+	daemon.Stdout, daemon.Stderr = logFile, logFile
+	if err := daemon.Start(); err != nil {
+		t.Fatalf("start sshd: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = daemon.Process.Kill()
+		_, _ = daemon.Process.Wait()
+	})
+	waitForPort(t, port)
+
+	hostPub, _ := os.ReadFile(l.hostKey + ".pub")
+	fields := strings.Fields(string(hostPub))
+	f, err := os.OpenFile(l.known, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintf(f, "[127.0.0.1]:%d %s %s\n", port, fields[0], fields[1]); err != nil {
+		t.Fatal(err)
+	}
+	return port
 }
 
 func batchRequest() Request {

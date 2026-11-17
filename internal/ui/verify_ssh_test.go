@@ -270,3 +270,67 @@ func TestAsynchronousEventsNeverCloseThePanel(t *testing.T) {
 		}
 	}
 }
+
+// Discovery sends no secret, so typed input survives it. The check clears the
+// input once it starts, as before.
+func TestDiscoveryKeepsTheTypedSecret(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.secret.SetValue("typed-secret")
+	m.verify.focus(vrDiscover)
+
+	u, _ := m.handleVerifyKey(keyPress("enter"))
+	m = asModel(t, u)
+	if got := m.verify.secret.Value(); got != "typed-secret" {
+		t.Fatalf("discovery cleared the typed secret: %q", got)
+	}
+}
+
+// Switching to another target closes the SSH panel, so a late result from it
+// cannot land on the new target. Retesting the same target keeps the panel.
+func TestSwitchingTargetClosesTheSSHPanel(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	id := m.verify.id
+	m.verify.secret.SetValue("typed-secret")
+
+	m.applyTarget(mustTarget(t, "other.example:22"), true)
+
+	if m.verifying || m.verify.secret.Value() != "" || m.verify.id != 0 {
+		t.Fatalf("the panel survived a target switch: verifying=%v secret=%q id=%d", m.verifying, m.verify.secret.Value(), m.verify.id)
+	}
+	m, _, _ = m.handleVerifyMsg(verifyResolvedMsg{id: id, target: sshverify.Target{Host: "example.com", Port: 22, User: "u"}})
+	if m.verifying || m.verify.resolved {
+		t.Fatal("a late configuration read for the previous target reopened the panel")
+	}
+}
+
+func TestRetestOfTheSameTargetKeepsTheSSHPanel(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+
+	m.applyTarget(mustTarget(t, "example.com:22"), false)
+
+	if !m.verifying || !m.verify.resolved {
+		t.Fatal("a retest of the same target closed the SSH panel")
+	}
+}
+
+// A deferred restart waits for the running job. The SSH panel stays until that
+// restart applies its new target, and then it is closed with the previous target.
+func TestDeferredRestartClosesTheSSHPanelForTheOldTarget(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.secret.SetValue("typed-secret")
+
+	u, _ := m.runPending(&pendingAction{kind: pendRestart, target: mustTarget(t, "other.example:22"), newQuestion: true})
+	m = asModel(t, u)
+
+	if m.verifying || m.verify.secret.Value() != "" {
+		t.Fatalf("the deferred restart left the SSH panel for the previous target: verifying=%v secret=%q", m.verifying, m.verify.secret.Value())
+	}
+}

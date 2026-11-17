@@ -718,6 +718,12 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // model is built and never moves again, so a retest cannot silently change one
 // underneath the preserved history.
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
+	// The SSH panel belongs to the target it was opened for. A switch to another
+	// target closes it, so it never shows or runs against the previous one. A
+	// deferred restart reaches this point when its job ends.
+	if m.verifying && m.verify.targetKey != verifyKey(t) {
+		m.closeVerifyPanel()
+	}
 	m.target = t
 	if newQuestion && m.watchSession != nil {
 		// Nothing measured for the last target may answer for this one. The

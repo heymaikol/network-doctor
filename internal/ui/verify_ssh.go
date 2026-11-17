@@ -58,6 +58,9 @@ type verifyPanel struct {
 	agentKeys  []sshverify.AgentKey
 	agentIdx   int
 	row        verifyRow
+	// targetKey is the target the panel was opened for. A switch to another target
+	// closes the panel, so it never shows or runs against the previous one.
+	targetKey string
 	// trust is an unknown host key the user confirmed for the next action only.
 	trust string
 	// pin is the host key the last trusted discovery presented. The next check
@@ -127,6 +130,7 @@ func (m model) openVerifySSH() (model, tea.Cmd) {
 	m.verifySeq++
 	m.verifying = true
 	m.verify = newVerifyPanel(m.st, m.verifySeq)
+	m.verify.targetKey = verifyKey(m.target)
 	// The read belongs to this panel: closing the panel cancels it, so a slow or
 	// hung configuration read never outlives the panel that asked for it.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -294,7 +298,11 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 	opts := p.verifyOptions(check)
-	p.secret.SetValue("")
+	if check {
+		// The attempt holds its own copy, so the input can be cleared as the check
+		// starts. Discovery sends no secret, so the input is left as typed.
+		p.secret.SetValue("")
+	}
 	var cmd tea.Cmd
 	if check {
 		cmd = checkCmd(ctx, p.id, p.target, a, opts)
@@ -307,19 +315,37 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 	return m, tea.Batch(cmd, m.spinner.Tick)
 }
 
+// closeVerifyPanel ends the panel. A configuration read or a check still in
+// flight is cancelled, and the panel's state, including any typed secret, is
+// dropped. A late result for the closed panel is then ignored, because its id
+// no longer matches.
+func (m *model) closeVerifyPanel() {
+	if m.verify.resolveCancel != nil {
+		m.verify.resolveCancel()
+	}
+	if m.verify.cancel != nil {
+		m.verify.cancel()
+	}
+	m.verifying = false
+	m.verify = verifyPanel{}
+}
+
+// verifyKey identifies the target the SSH panel checks: its host and port as the
+// configuration read is asked for them.
+func verifyKey(t *diagnostic.Target) string {
+	if t == nil {
+		return ""
+	}
+	host, port := verifyTarget(t)
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
 // handleVerifyKey handles keys while the panel is open. esc closes it and
 // cancels a check in flight. While busy, nothing else is accepted.
 func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	p := &m.verify
 	if msg.String() == "esc" {
-		if p.resolveCancel != nil {
-			p.resolveCancel()
-		}
-		if p.cancel != nil {
-			p.cancel()
-		}
-		m.verifying = false
-		m.verify = verifyPanel{}
+		m.closeVerifyPanel()
 		return m, nil
 	}
 	if p.busy {

@@ -835,12 +835,15 @@ A password or key check opens two connections. The first is discovery: it checks
 
 Before any credential is sent, netdoc reads your SSH configuration with `ssh -G -v`, which connects to nothing. The read stops after 15 seconds, and an interrupt or closing the TUI panel cancels it. netdoc refuses the read, and sends nothing, in each of these cases:
 
-- The configuration runs a `Match exec` command. That includes one in a file pulled in with `Include`, and one that applies only to some hosts. Its answer depends on the terminal and environment, which netdoc cannot reproduce, so netdoc does not guess which route your own `ssh` would take. This applies whether or not netdoc has a terminal.
+- netdoc has no terminal of its own, as under cron, in CI, or as a service. A configuration can depend on the environment, for example through an `Include` path that uses a variable, and only a run from a terminal shares the environment your own `ssh` uses. Run netdoc from a terminal. Piping the password with `-password-stdin` still works from a terminal.
+- The configuration runs a `Match exec` command. That includes one in a file pulled in with `Include`, and one that applies only to some hosts. Its answer depends on the terminal and the environment, which netdoc does not guess at, so it refuses to choose a route for the user's own `ssh`. This applies on a terminal too.
 - The client's diagnostic output is not in a form netdoc recognizes, is larger than 1 MiB, or is not complete when the read ends.
 - The installed `ssh` does not report its configuration reads in the form netdoc checks. netdoc checks this once per program with two configurations it writes itself: one with a `Match exec` command, which must be reported, and one without, which must not.
 - A `ProxyJump` or `ProxyCommand` is in effect.
 
-A configuration with no `Match exec` command is read as before, with or without a terminal, so headless discovery and `-password-stdin` work for it. The client runs in its own process group. A cancelled or timed-out read kills that group, so no command it started is left running, and output is drained as it arrives, so a large listing does not stall the read.
+The same read decides whether the `--via` batch transport may skip a destination's proxy. A destination the read cannot establish as direct is not sent that way, so it uses the interactive transport.
+
+The client runs in its own process group. A cancelled or timed-out read kills that group, so no command it started is left running, and output is drained as it arrives, so a large listing does not stall the read.
 
 Credential verification is refused on Windows and FreeBSD, with a message that says it is not supported there. netdoc has no validated way to read the configuration on those systems. Linux and macOS are supported. The test suite checks the diagnostic format and the canary against the OpenSSH that CI installs. Any other OpenSSH is checked at run time by the canary, and refused if its diagnostic output differs.
 

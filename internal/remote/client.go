@@ -192,6 +192,10 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // user's agent for the whole session. Keep this pin even though IdentityAgent=none also stops
 // OpenSSH forwarding it today: that is a side effect of a different pin.
 //
+// ClearAllForwardings is yes so a batch session opens no local, dynamic, or remote forwarding
+// the user's configuration names. A local listener is reachable by other local users, and a
+// remote one lets the diagnosed host reach the user's local services.
+//
 // AddKeysToAgent is off because an ssh_config asking for "ask" turns a used
 // software key into an askpass prompt. PreferredAuthentications names the one
 // method this transport can complete, so an acquisition is public-key or
@@ -218,6 +222,7 @@ var batchOptions = []string{
 	"StrictHostKeyChecking=yes",
 	"UpdateHostKeys=no",
 	"ForwardAgent=no",
+	"ClearAllForwardings=yes",
 }
 
 // RunBatch is Run over a transport that cannot ask the user anything itself;

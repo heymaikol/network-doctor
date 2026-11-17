@@ -244,7 +244,8 @@ func (b *lockedBuffer) resultLine() string {
 // user's ssh would not reach.
 func TestTerminalReadIsRefusedNotSilent(t *testing.T) {
 	requireOpenSSH(t)
-	ask := writeScript(t, "ask.sh", "read -t 6 answer </dev/tty && [ \"$answer\" = y ]\n")
+	// POSIX sh only: /bin/sh is dash on some systems, and dash has no read -t.
+	ask := writeScript(t, "ask.sh", "IFS= read -r answer </dev/tty || exit 1\n[ \"$answer\" = y ]\n")
 	config := writeMatchConfig(t, "ask.config", ask)
 
 	if got := interactiveHostname(t, config, "y\n"); got != "10.9.9.9" {

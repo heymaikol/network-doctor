@@ -58,8 +58,12 @@ type verifyPanel struct {
 	agentKeys  []sshverify.AgentKey
 	agentIdx   int
 	row        verifyRow
-	// trust is an unknown host key the user confirmed for the next check only.
-	trust  string
+	// trust is an unknown host key the user confirmed for the next action only.
+	trust string
+	// pin is the host key the last trusted discovery presented. The next check
+	// must present that key, so a key that changed since discovery is refused
+	// before the secret is sent.
+	pin    string
 	result *sshverify.Result
 	note   string
 	busy   bool
@@ -245,11 +249,19 @@ func (p *verifyPanel) attempt() (sshverify.Attempt, string) {
 	return a, ""
 }
 
-// verifyOptions are the check options for the next action. A confirmed host
-// key applies to exactly one check: it is cleared as the check starts.
-func (p *verifyPanel) verifyOptions() sshverify.Options {
+// verifyOptions are the options for the next action. A confirmed host key
+// applies to exactly one action, and so does the pin: both are cleared as the
+// action starts. A check presents the key discovery trusted, or else the key the
+// user confirmed.
+func (p *verifyPanel) verifyOptions(check bool) sshverify.Options {
 	opts := sshverify.Options{TrustHostKey: p.trust}
-	p.trust = ""
+	if check {
+		opts.PinHostKey = p.pin
+		if opts.PinHostKey == "" {
+			opts.PinHostKey = p.trust
+		}
+	}
+	p.trust, p.pin = "", ""
 	return opts
 }
 
@@ -268,6 +280,12 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 			p.note = note
 			return m, nil
 		}
+		// The secret is sent only to the host key that was trusted: one a
+		// discovery presented, or one the user confirmed.
+		if p.pin == "" && p.trust == "" {
+			p.note = "press enter on Discover methods first, so the host key is trusted before the secret is sent"
+			return m, nil
+		}
 		a = att
 	}
 	p.note = ""
@@ -275,7 +293,7 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 	p.busy = true
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
-	opts := p.verifyOptions()
+	opts := p.verifyOptions(check)
 	p.secret.SetValue("")
 	var cmd tea.Cmd
 	if check {
@@ -380,6 +398,12 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.busy = false
 		m.verify.cancel = nil
 		m.verify.result = &msg.result
+		// Only a discovery that trusted the host sets the key the next check must
+		// present; any other result clears it, so a check needs a fresh discovery.
+		m.verify.pin = ""
+		if msg.result.Outcome == sshverify.Discovered {
+			m.verify.pin = msg.result.HostKey
+		}
 		if msg.keys != nil {
 			m.verify.agentKeys = msg.keys
 			m.verify.agentIdx = min(m.verify.agentIdx, max(len(msg.keys)-1, 0))

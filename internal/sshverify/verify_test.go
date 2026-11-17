@@ -613,6 +613,32 @@ func writeKey(t *testing.T, dir, name, passphrase string) (string, ssh.PublicKey
 	return path, mustSigner(t, priv).PublicKey()
 }
 
+// When the retry with the recorded key types fails before the host key is
+// checked, the mismatch from the first round still stands: the server presented
+// a key the file does not record, so it is a changed key, not a transport error.
+func TestVerifyKeepsAChangedKeyWhenTheRetryFailsEarly(t *testing.T) {
+	recorded, _ := newEd25519(t)
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	presented := mustSigner(t, ecKey)
+	s := passwordServer(presented)
+	known := knownHostsFor(t, recorded.PublicKey())
+
+	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+
+	if r.Outcome != HostKeyChanged {
+		t.Fatalf("outcome = %q, want host key changed; detail %q", r.Outcome, r.Detail)
+	}
+	if r.HostKey != ssh.FingerprintSHA256(presented.PublicKey()) {
+		t.Errorf("host key = %q, want the fingerprint of the key the server presented", r.HostKey)
+	}
+	if got := s.password.Load(); got != 0 {
+		t.Errorf("a credential was sent to a host whose key changed: %d attempts", got)
+	}
+}
+
 // A keyboard-interactive server that asks the same echo-off question twice
 // must receive the password once. The second round is declined, so the same
 // credential is never sent again.

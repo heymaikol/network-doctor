@@ -377,19 +377,21 @@ func handshake(ctx context.Context, t Target, opts Options, cred *credential, us
 	}
 	files := append(slices.Clone(t.GlobalHosts), t.KnownHosts...)
 	var algos []string
+	var prior *hostCheck
 	for {
-		res, again, wants := attemptOnce(ctx, t, opts, cred, user, files, algos)
+		res, again, hosts := attemptOnce(ctx, t, opts, cred, user, files, algos, prior)
 		if !again {
 			return res
 		}
-		algos = hostKeyAlgorithms(wants)
+		algos = hostKeyAlgorithms(hosts.wants)
+		prior = hosts
 	}
 }
 
 // attemptOnce makes one connection and one handshake. It reports again, with
 // the key types known for the host, when the first handshake may have failed
 // only because the server negotiated a key type the known_hosts file lacks.
-func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, user string, files []string, algos []string) (Result, bool, []string) {
+func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, user string, files []string, algos []string, prior *hostCheck) (Result, bool, *hostCheck) {
 	hosts, err := newHostCheck(files, opts.TrustHostKey)
 	if err != nil {
 		return Result{Outcome: LocalFailure, Detail: err.Error() + "; nothing was sent"}, false, nil
@@ -423,8 +425,14 @@ func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, 
 		_ = client.Close()
 		return r.result(ctx, nil, cred == nil), false, nil
 	}
+	if prior != nil && prior.state == hostChanged && hosts.state == hostNotChecked {
+		// The retry was refused before the host key was checked, so it proves
+		// nothing about the key. The first round did check it and found a
+		// mismatch, and that result stands.
+		return changedResult(prior), false, nil
+	}
 	if hosts.needsRetry(algos != nil) {
-		return Result{}, true, hosts.wants
+		return Result{}, true, hosts
 	}
 	return r.result(ctx, err, cred == nil), false, nil
 }
@@ -464,7 +472,7 @@ func (r round) result(ctx context.Context, err error, discovery bool) Result {
 	}
 	switch h.state {
 	case hostChanged:
-		return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the host key differs from the one in known_hosts; nothing was sent"}
+		return changedResult(h)
 	case hostRevoked:
 		return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the host key is revoked in known_hosts; nothing was sent"}
 	case hostUnknown:
@@ -501,6 +509,16 @@ func (r round) result(ctx context.Context, err error, discovery bool) Result {
 		return transport(ctx, "the connection ended during authentication, so whether the server accepted the credential is unknown")
 	}
 	return transport(ctx, "the handshake failed before authentication")
+}
+
+// changedResult reports a key that did not match known_hosts. It names the key
+// that was presented, which is the only fingerprint netdoc has for the server.
+func changedResult(h *hostCheck) Result {
+	fingerprint := ""
+	if h.presented != nil {
+		fingerprint = ssh.FingerprintSHA256(h.presented)
+	}
+	return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the host key differs from the one in known_hosts; nothing was sent"}
 }
 
 func (r round) method() Method {

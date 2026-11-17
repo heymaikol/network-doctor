@@ -174,30 +174,18 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // fails for any reason falls back to Run, which evaluates and honors the
 // configuration as it stands at that moment, proxy included.
 //
-// PermitLocalCommand is off because a LocalCommand runs after authentication with ssh's
-// own stdin, which carries the request. A configured command would read the request
-// before the worker does.
+// The pins from PermitLocalCommand to ForwardX11 come first on the command line, so ssh's
+// first-value rule keeps the user's configuration from overriding them. Each one closes a
+// way a batch session could act for the user without asking:
 //
-// ControlMaster and ControlPath are off so batch never reuses a live master. A master the
-// user's configuration names is a connection to a server this acquisition did not choose,
-// under authentication it did not make.
-//
-// StrictHostKeyChecking is yes because accept-new writes an unknown host key to known_hosts,
-// and no connects to a host whose key changed, and batch cannot ask the user about either.
-//
-// UpdateHostKeys is off because a server offering its other host keys after authentication
-// would have them written to known_hosts, a trust decision nobody made in this run.
-//
-// ForwardAgent is off because a forwarded agent gives the diagnosed host a socket to the
-// user's agent for the whole session. Keep this pin even though IdentityAgent=none also stops
-// OpenSSH forwarding it today: that is a side effect of a different pin.
-//
-// ClearAllForwardings is yes so a batch session opens no local, dynamic, or remote forwarding
-// the user's configuration names. A local listener is reachable by other local users, and a
-// remote one lets the diagnosed host reach the user's local services.
-//
-// ForwardX11 is off because an X11 channel gives the diagnosed host access to the user's
-// display, and a batch diagnosis has no use for one.
+//   - PermitLocalCommand=no: a LocalCommand reads the request from ssh's stdin first.
+//   - ControlMaster=no, ControlPath=none: no reuse of a master the configuration names.
+//   - StrictHostKeyChecking=yes: no unknown host key written, no changed key accepted.
+//   - UpdateHostKeys=no: no extra host key written after authentication.
+//   - ForwardAgent=no: no agent socket for the diagnosed host. IdentityAgent=none also
+//     stops forwarding today, but that is a side effect of a different pin.
+//   - ClearAllForwardings=yes: no local, dynamic, or remote listener.
+//   - ForwardX11=no: no display channel to the diagnosed host.
 //
 // AddKeysToAgent is off because an ssh_config asking for "ask" turns a used
 // software key into an askpass prompt. PreferredAuthentications names the one

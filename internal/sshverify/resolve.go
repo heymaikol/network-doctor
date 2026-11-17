@@ -16,7 +16,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// resolveTimeout bounds one configuration read, including any Match exec
+// command ssh runs while reading it. A hung command must not hold a check open.
+var resolveTimeout = 15 * time.Second
 
 // sshBinary is the OpenSSH client used only to read configuration. Tests
 // replace resolveOutput; nothing here connects to the target.
@@ -54,6 +59,8 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 		args = append(args, "-l", login)
 	}
 	args = append(args, "--", host)
+	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+	defer cancel()
 	out, err := resolveOutput(ctx, args)
 	if err != nil {
 		return Target{}, fmt.Errorf("could not read the SSH configuration: %w", err)
@@ -71,6 +78,10 @@ var resolveOutput = func(ctx context.Context, args []string) ([]byte, error) {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- the resolved ssh client; args is an argv slice built from the target, never a shell string
+	configureProcess(cmd)
+	// After a cancel the process is killed, but a command it started can still
+	// hold the output pipe open. WaitDelay stops waiting for that pipe.
+	cmd.WaitDelay = 2 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -185,6 +185,9 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // StrictHostKeyChecking is yes because accept-new writes an unknown host key to known_hosts,
 // and no connects to a host whose key changed, and batch cannot ask the user about either.
 //
+// UpdateHostKeys is off because a server offering its other host keys after authentication
+// would have them written to known_hosts, a trust decision nobody made in this run.
+//
 // AddKeysToAgent is off because an ssh_config asking for "ask" turns a used
 // software key into an askpass prompt. PreferredAuthentications names the one
 // method this transport can complete, so an acquisition is public-key or
@@ -209,6 +212,7 @@ var batchOptions = []string{
 	"ControlMaster=no",
 	"ControlPath=none",
 	"StrictHostKeyChecking=yes",
+	"UpdateHostKeys=no",
 }
 
 // RunBatch is Run over a transport that cannot ask the user anything itself;

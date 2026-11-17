@@ -109,7 +109,7 @@ func runSSHClient(ctx context.Context, program string, args []string) ([]byte, e
 		return nil, errors.New("could not read the SSH configuration: no pipe")
 	}
 	defer errR.Close()
-	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- the resolved ssh client; args is an argv slice built from the target, never a shell string
+	cmd := exec.CommandContext(ctx, program, args...) // #nosec G702 G204 -- the resolved ssh client; args is an argv slice built from the target, never a shell string
 	configureProcess(cmd)
 	cmd.Stdout = outW
 	cmd.Stderr = errW

@@ -107,7 +107,7 @@ func openPTYPair(t *testing.T) (master, slave *os.File) {
 // It returns the child's result line and how long the child took.
 func runResolveChild(t *testing.T, config string, terminal bool) (string, time.Duration) {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestResolveHelper$") // #nosec G204 -- the test runs its own binary as the helper process
+	cmd := exec.Command(os.Args[0], "-test.run=^TestResolveHelper$") // #nosec G702 G204 -- the test runs its own binary as the helper process
 	cmd.Env = append(os.Environ(), "NETDOC_SSH_CONFIG="+config)
 	var master *os.File
 	if terminal {

@@ -831,13 +831,25 @@ When nothing answers, the panel says which of the two things happened: refused c
 
 Neither step runs a remote command or opens a session. The connection closes once the server has answered. A check sends at most one credential. It never tries the next key or password by itself, and it never guesses. Every credential attempt is one action that you start.
 
-A check normally opens one connection. There is one exception: when the server's host key is of a type that `known_hosts` does not record, netdoc opens a second connection, restricted to the recorded types, before any credential is sent. The first connection sends no credential, and the second is used only if the key matches.
+A password or key check opens two connections. The first is discovery: it checks the host key and lists the methods, and it sends no credential. The secret is requested only after that host key is trusted. The second connection makes the credential attempt, and it accepts only the host key the first one saw, so a key that changed in between is refused before anything is sent. An agent check opens one connection. If the server's host key is of a type that `known_hosts` does not record, a connection may make one more try restricted to the recorded types. That try also happens before any credential is sent.
 
-Before any credential is sent, netdoc reads your SSH configuration with `ssh -G`, which connects to nothing. The read stops after 15 seconds. An interrupt, or closing the TUI panel, cancels a read in progress. The `ssh` client runs in a session of its own, with no terminal. A `Match exec` command that needs terminal input therefore fails at once, and the reason is reported. Such commands are not supported during credential verification. Noninteractive `Match exec` commands work. On Unix, netdoc kills the `ssh` process and every command it started when the read is cancelled, times out, or ends, so none is left running. On Windows only the `ssh` process is stopped, and a command it started may keep running. netdoc then checks the server's host key against your user `known_hosts` file and the system-wide one, which `ssh -G` lists as `UserKnownHostsFile` and `GlobalKnownHostsFile`:
+Before any credential is sent, netdoc reads your SSH configuration with `ssh -G`, which connects to nothing. The read stops after 15 seconds. An interrupt, or closing the TUI panel, cancels a read in progress. The `ssh` client runs in its own process group, inside the terminal netdoc has, so a `Match exec` command sees the same terminal an interactive `ssh` gives it:
+
+- A command that only asks whether a terminal exists gets the answer an interactive `ssh` gets.
+- A command that reads the terminal is stopped, because it is not in the terminal's foreground group. netdoc never types an answer for it, so the read ends at its deadline and the check reports that the read did not finish. Nothing is sent.
+- A noninteractive command works as it always has.
+
+When netdoc runs without a terminal, as under cron, in a pipe, or in CI, a `Match exec` command that tests for a terminal gets a different answer from the one an interactive `ssh` gets there. netdoc cannot tell that the answer differs, and it can then choose a different host without saying so. Run the check from a terminal when your configuration has such a command, or confirm the host with `ssh -G` from the same place. A command that ignores the stop signal and tolerates the missing terminal can make the same silent choice even with a terminal, and netdoc cannot detect that either.
+
+On Unix, cancelling the read, or its deadline, kills the `ssh` process and each process still in its process group. A process that has left the group, for example with `setsid`, is not killed. If it keeps the configuration output open, the read is refused as incomplete rather than used. On Windows netdoc does not place the `ssh` client in a process group, and only the `ssh` process is stopped. A command it started may keep running, and it may see a different console from the one an interactive `ssh` would use.
+
+netdoc then checks the server's host key against your user `known_hosts` file and the system-wide one, which `ssh -G` lists as `UserKnownHostsFile` and `GlobalKnownHostsFile`:
 
 - A key that matches is used.
 - A key that differs from the recorded key is refused. netdoc shows the fingerprint of the key the server presented, not the fingerprint recorded in `known_hosts`. To see the recorded fingerprint, run `ssh-keygen -F HOST -l`. Without `-l`, `-F` prints the recorded key line, not a fingerprint. That command reads your user `known_hosts` file by default. For the system-wide file, add `-f FILE`, using the path that `ssh -G` lists as `GlobalKnownHostsFile`, usually `/etc/ssh/ssh_known_hosts`. There is no override.
-- A key with no record is reported with its fingerprint. You can accept that one fingerprint for the next check, with `-trust-host-key FINGERPRINT` on the command line or the trust row in the TUI. Nothing is written to `known_hosts`.
+- A key with no record is reported with its fingerprint, and the check stops there with no prompt. You can accept that one fingerprint for the next action, with `-trust-host-key FINGERPRINT` on the command line or the trust row in the TUI. Nothing is written to `known_hosts`.
+
+Once the host key is trusted, a password or key check asks for the secret. The TUI's Verify does nothing until Discover methods has trusted the host, or until you have confirmed its unknown key.
 
 A secret is read from a prompt with echo off, or from one line of standard input with `-password-stdin`. It is never taken from argv or the environment, and it never appears in output or in the JSON report. netdoc overwrites the byte slices that carry a secret once the attempt ends. A password also becomes a Go string, because the SSH library takes its password as a string. The TUI's input widget keeps its own copy of what was typed. Closing the panel discards that input state. It does not erase the memory that held the typed secret at once, and netdoc cannot erase the underlying Go string. That memory is reclaimed only when the garbage collector runs. The CLI has the same limit for the string made for the library. Ctrl-C at the password prompt exits and puts the terminal's echo back.
 
@@ -856,6 +868,12 @@ Each check ends in one outcome:
 | not sent | A local problem, such as a missing key file, a wrong passphrase, or no agent key. The server was not contacted. | 2 |
 | not completed | The connection failed, timed out, or was cancelled, or it ended during authentication so the result is unknown. | 2 |
 
+On the command line, the exit status says what happened:
+
+- `0`: the server accepted the credential, or the methods were listed.
+- `1`: the server answered and did not accept the credential (refused, partial, method not offered, or accepted with no credential).
+- `2`: the check could not be completed. This covers a misused flag, an unknown or changed host key, a missing or unusable key file, a proxied route, and a connection that failed or ended early. Where a credential may already have reached the server, the result says the outcome is unknown. Listing an agent's keys without `-verify-agent-key` also exits 2, because no credential was chosen.
+
 The command line takes one destination and one method:
 
 ```sh
@@ -865,6 +883,8 @@ netdoc -verify-ssh -verify-auth key -verify-key ~/.ssh/id_ed25519 host.example
 netdoc -verify-ssh -verify-auth agent -verify-agent-key SHA256:... host.example
 netdoc -verify-ssh -verify-auth agent host.example     # without a fingerprint, lists the agent's keys
 ```
+
+Flags that the chosen method would never read are refused, not ignored. `-password-stdin` needs `-verify-auth password` or `key`. `-verify-key` needs `-verify-auth key`, and `-verify-auth key` needs `-verify-key`. `-verify-agent-key` needs `-verify-auth agent`. `-trust-host-key` must be a SHA256 fingerprint in the form `ssh-keygen -lf` prints: `SHA256:` followed by 43 characters. Each misuse exits 2 before the configuration is read, the host is contacted, or any input is read.
 
 `-json` prints the same result as one object with no secret in it.
 

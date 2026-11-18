@@ -6,24 +6,25 @@ import (
 	"testing"
 )
 
-// Where the configuration read is not validated, verification is refused before
-// any client runs, so nothing is read or contacted.
-func TestUnsupportedPlatformRefusesTheRead(t *testing.T) {
-	savedSupported, savedRead := configPlatformSupported, resolveOutput
+// The platform gate runs before any client is started. The program named here does
+// not exist, so a read that reached the start would fail with "could not start",
+// and the refusal is what shows the gate ran first.
+func TestUnsupportedPlatformRefusesEveryReadBeforeAnyClientStarts(t *testing.T) {
+	saved := configPlatformSupported
+	t.Cleanup(func() { configPlatformSupported = saved })
+
 	configPlatformSupported = false
-	ran := false
-	resolveOutput = func(context.Context, []string) ([]byte, error) {
-		ran = true
-		return nil, nil
-	}
-	t.Cleanup(func() { configPlatformSupported, resolveOutput = savedSupported, savedRead })
-
-	_, err := Resolve(context.Background(), "host", 0, "")
-
+	_, err := ReadConfig(context.Background(), "/nonexistent/netdoc-ssh-for-gate-test", []string{"-G", "--", "host"})
 	if err == nil || !strings.Contains(err.Error(), "not supported") || !strings.Contains(err.Error(), "nothing was sent") {
 		t.Fatalf("an unsupported platform returned %v; want the refusal, with nothing sent", err)
 	}
-	if ran {
-		t.Fatal("the ssh client ran on an unsupported platform")
+	if strings.Contains(err.Error(), "could not start") {
+		t.Fatalf("the read reached the client start before the platform gate: %v", err)
+	}
+
+	configPlatformSupported = true
+	_, err = ReadConfig(context.Background(), "/nonexistent/netdoc-ssh-for-gate-test", []string{"-G", "--", "host"})
+	if err == nil || strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("a supported platform was refused by the gate: %v", err)
 	}
 }

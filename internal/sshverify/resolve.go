@@ -62,9 +62,6 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 	if host == "" {
 		return Target{}, errors.New("no host given")
 	}
-	if !configPlatformSupported {
-		return Target{}, fmt.Errorf("SSH credential verification is not supported on %s in this build: netdoc cannot yet read the SSH configuration there safely; nothing was sent", runtime.GOOS)
-	}
 	args := []string{"-G"}
 	if port > 0 {
 		args = append(args, "-p", strconv.Itoa(port))
@@ -121,6 +118,11 @@ func hasControllingTerminal() bool {
 // when the installed client has passed the canary and its diagnostic output shows
 // that no Match exec test ran.
 func ReadConfig(ctx context.Context, program string, args []string) ([]byte, error) {
+	// The platform gate is here, not in one caller, so every path that reads a route
+	// is refused on a platform the read has not been validated on.
+	if !configPlatformSupported {
+		return nil, fmt.Errorf("SSH credential verification is not supported on %s in this build: netdoc cannot yet read the SSH configuration there safely; nothing was sent", runtime.GOOS)
+	}
 	if !TerminalAvailable() {
 		return nil, errNoTerminal
 	}

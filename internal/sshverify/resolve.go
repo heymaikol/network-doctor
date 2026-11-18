@@ -178,6 +178,15 @@ const (
 	probeKnownHostsCommand = "knownhostscommand"
 	probeCanonicalize      = "canonicalizehostname"
 	probeIncludeAnnounce   = "include-announcement"
+	probeEnvironment       = "environment"
+)
+
+// canaryVar is the variable the environment probe sets. The probe checks that the
+// installed client expands it where it should, and keeps it literal where the rules
+// require, so the terminal rule's list of literal keywords is checked at run time.
+const (
+	canaryVar   = "NETDOC_CANARY_VAR"
+	canaryValue = "alpha"
 )
 
 // ensureCanary runs the fixed probes against the client once per process. A client
@@ -283,6 +292,34 @@ func runCanary(ctx context.Context, program string) error {
 		return canaryFail(probeKnownHostsCommand, "KnownHostsCommand none is listed as a command")
 	}
 
+	// The environment probe checks the premise of the terminal rule. User expands the
+	// variable, so the client does expand it; HostName, IdentityFile and a Host pattern
+	// keep it literal, which the terminal rule relies on. A mismatch refuses the client.
+	out, _, err = runProbeFor(ctx, program, dir, probeEnvironment, "positive", "Host canary\n  HostName 127.0.0.1\n  User ${"+canaryVar+"}u\n", "canary")
+	if err != nil {
+		return err
+	}
+	if v, ok := listingValue(out, "user"); !ok || !strings.Contains(v, canaryValue+"u") {
+		return canaryFail(probeEnvironment, "a User that uses the variable did not expand, so this client's expansion cannot be checked")
+	}
+	out, _, err = runProbeFor(ctx, program, dir, probeEnvironment, "negative", "Host canary\n  HostName ${"+canaryVar+"}.example\n  IdentityFile ${"+canaryVar+"}/k\nHost ${"+canaryVar+"}\n  HostName 127.0.0.9\n", "canary")
+	if err != nil {
+		return err
+	}
+	if v, _ := listingValue(out, "hostname"); strings.Contains(v, canaryValue) {
+		return canaryFail(probeEnvironment, "a HostName that uses the variable was expanded, which the terminal rule does not allow for it")
+	}
+	if v, _ := listingValue(out, "identityfile"); strings.Contains(v, canaryValue) {
+		return canaryFail(probeEnvironment, "an IdentityFile that uses the variable was expanded, which the terminal rule does not allow for it")
+	}
+	out, _, err = runProbeFor(ctx, program, dir, probeEnvironment, "negative-host", "Host ${"+canaryVar+"}\n  HostName 127.0.0.9\n", canaryValue)
+	if err != nil {
+		return err
+	}
+	if v, _ := listingValue(out, "hostname"); v != canaryValue {
+		return canaryFail(probeEnvironment, "a Host pattern that uses the variable matched the host it names, which the terminal rule does not allow for it")
+	}
+
 	// CanonicalizeHostname is reported off by default and on when set.
 	out, _, err = runProbe(ctx, program, dir, probeCanonicalize, "negative", canaryPlainConfig)
 	if err != nil {
@@ -330,10 +367,10 @@ func runCanary(ctx context.Context, program string) error {
 // directory, and the SSH_* variables that choose an agent, a key or an askpass are
 // removed, so no agent or key of the user's can affect what a probe shows.
 func canaryEnv(dir string) []string {
-	env := []string{"HOME=" + dir}
+	env := []string{"HOME=" + dir, canaryVar + "=" + canaryValue}
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "SSH_") || name == "HOME" {
+		if strings.HasPrefix(name, "SSH_") || name == "HOME" || name == canaryVar {
 			continue
 		}
 		env = append(env, kv)
@@ -344,11 +381,16 @@ func canaryEnv(dir string) []string {
 // runProbe writes one probe configuration and reads it in the fixed environment. A
 // read that fails is reported with the probe's name.
 func runProbe(ctx context.Context, program, dir, probe, variant, body string) ([]byte, []byte, error) {
+	return runProbeFor(ctx, program, dir, probe, variant, body, "canary")
+}
+
+// runProbeFor is runProbe for a destination other than the canary's own name.
+func runProbeFor(ctx context.Context, program, dir, probe, variant, body, host string) ([]byte, []byte, error) {
 	path := filepath.Join(dir, probe+"-"+variant+".config")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		return nil, nil, canaryFail(probe, "the check could not write its configuration")
 	}
-	out, diag, err := readConfig(ctx, program, []string{"-v", "-G", "-F", path, "--", "canary"}, canaryEnv(dir))
+	out, diag, err := readConfig(ctx, program, []string{"-v", "-G", "-F", path, "--", host}, canaryEnv(dir))
 	if err != nil {
 		return nil, nil, canaryFail(probe, err.Error())
 	}

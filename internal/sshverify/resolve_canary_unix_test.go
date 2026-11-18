@@ -19,9 +19,11 @@ func fakeCanaryClient(t *testing.T, broken string) string {
 BROKEN="` + broken + `"
 cfg=""
 prev=""
+last=""
 for a in "$@"; do
   if [ "$prev" = "-F" ]; then cfg="$a"; fi
   prev="$a"
+  last="$a"
 done
 # Every file read is announced, and each Include is followed to its own includes. A
 # client that stops following at the first level is the include-announcement break.
@@ -51,12 +53,24 @@ case "$(cat "$cfg")" in
   *"KnownHostsCommand none"*) echo "knownhostscommand none" ;;
 esac
 case "$(cat "$cfg")" in
+  *'User ${NETDOC_CANARY_VAR}u'*)
+    if [ "$BROKEN" = environment ]; then echo 'user ${netdoc_canary_var}u'; else echo "user alphau"; fi ;;
+esac
+hn="127.0.0.1"
+case "$(cat "$cfg")" in
+  *'HostName ${NETDOC_CANARY_VAR}.example'*)
+    hn='${netdoc_canary_var}.example'
+    if [ "$BROKEN" = environment-literal ]; then echo "identityfile alpha/k"; else echo 'identityfile ${NETDOC_CANARY_VAR}/k'; fi ;;
+  *'Host ${NETDOC_CANARY_VAR}'*)
+    if [ "$BROKEN" = environment-host ]; then hn="127.0.0.9"; else hn="$last"; fi ;;
+esac
+case "$(cat "$cfg")" in
   *"CanonicalizeHostname yes"*)
     if [ "$BROKEN" = canonicalizehostname ] || [ "$BROKEN" = canonicalizehostname-positive ]; then echo "canonicalizehostname false"; else echo "canonicalizehostname true"; fi ;;
   *)
     if [ "$BROKEN" = canonicalizehostname ]; then echo "canonicalizehostname true"; else echo "canonicalizehostname false"; fi ;;
 esac
-echo "hostname 127.0.0.1"
+echo "hostname $hn"
 exit 0
 `
 	path := filepath.Join(t.TempDir(), "ssh")
@@ -85,6 +99,9 @@ func TestCanaryNamesTheProbeThatFails(t *testing.T) {
 		{"canonicalizehostname", probeCanonicalize},
 		{"canonicalizehostname-positive", probeCanonicalize},
 		{"include-announcement", probeIncludeAnnounce},
+		{"environment", probeEnvironment},
+		{"environment-literal", probeEnvironment},
+		{"environment-host", probeEnvironment},
 	}
 	for _, c := range cases {
 		t.Run(c.broken, func(t *testing.T) {

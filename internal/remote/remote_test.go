@@ -70,7 +70,7 @@ func fakeSSH(mode string) int {
 	if cfg, ok := fakeCanaryConfig(os.Args[1:]); ok {
 		// The check sshverify runs against the client before it trusts a read. A real
 		// client answers it the same way whatever mode the stand-in is in.
-		return fakeCanary(cfg)
+		return fakeCanary(cfg, os.Args[len(os.Args)-1])
 	}
 	switch mode {
 	case "missing":
@@ -2224,7 +2224,7 @@ func diagnosedPair(tool snapshot.Tool, ok bool) (report.Report, snapshot.Snapsho
 // fakeCanaryConfig reports whether argv is the configuration check sshverify runs
 // against the client: a verbose listing of the host "canary" from a file it wrote.
 func fakeCanaryConfig(args []string) (string, bool) {
-	if len(args) < 2 || args[0] != "-v" || args[len(args)-1] != "canary" {
+	if len(args) < 2 || args[0] != "-v" {
 		return "", false
 	}
 	for i, a := range args {
@@ -2237,7 +2237,7 @@ func fakeCanaryConfig(args []string) (string, bool) {
 
 // fakeCanary answers the check the way OpenSSH does: it reports the file it reads,
 // reports the Match exec test only in the file that has one, and lists the host.
-func fakeCanary(cfg string) int {
+func fakeCanary(cfg, host string) int {
 	body, _ := os.ReadFile(cfg) // #nosec G304 G703 -- cfg is the -F file the test itself passed to the stand-in
 	text := string(body)
 	// Every file read is announced, and each Include is followed, as OpenSSH does.
@@ -2263,13 +2263,25 @@ func fakeCanary(cfg string) int {
 		value := strings.TrimSpace(strings.SplitN(text[i+len("KnownHostsCommand "):], "\n", 2)[0])
 		fmt.Fprintln(os.Stdout, "knownhostscommand "+value)
 	}
+	if strings.Contains(text, "User ${NETDOC_CANARY_VAR}u") {
+		fmt.Fprintln(os.Stdout, "user alphau")
+	} else {
+		fmt.Fprintln(os.Stdout, "user demo")
+	}
+	hn := "127.0.0.1"
+	switch {
+	case strings.Contains(text, "HostName ${NETDOC_CANARY_VAR}.example"):
+		hn = "${netdoc_canary_var}.example"
+		fmt.Fprintln(os.Stdout, "identityfile ${NETDOC_CANARY_VAR}/k")
+	case strings.Contains(text, "Host ${NETDOC_CANARY_VAR}"):
+		hn = host
+	}
 	if strings.Contains(text, "CanonicalizeHostname yes") {
 		fmt.Fprintln(os.Stdout, "canonicalizehostname true")
 	} else {
 		fmt.Fprintln(os.Stdout, "canonicalizehostname false")
 	}
-	fmt.Fprintln(os.Stdout, "user demo")
-	fmt.Fprintln(os.Stdout, "hostname 127.0.0.1")
+	fmt.Fprintln(os.Stdout, "hostname "+hn)
 	fmt.Fprintln(os.Stdout, "port 2260")
 	return 0
 }

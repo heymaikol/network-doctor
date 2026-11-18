@@ -171,8 +171,8 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // to reach a proxied host without its proxy; it is what stops a second
 // evaluation of the same config, through a Match exec whose result moved, from
 // producing a prompting child this list cannot bound. A batch acquisition that
-// fails for any reason falls back to Run, which evaluates and honors the
-// configuration as it stands at that moment, proxy included.
+// fails is not retried over Run, so nothing that can prompt runs for the
+// destination in its place.
 //
 // The pins from PermitLocalCommand to ForwardX11 come first on the command line, so ssh's
 // first-value rule keeps the user's configuration from overriding them. Each one closes a
@@ -194,8 +194,8 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 //
 // What remains eligible is a plain software key on disk, and nothing else. An
 // unencrypted one connects; an encrypted one is refused rather than asked
-// about. Everything refused here falls back to the ordinary transport, one
-// acquisition at a time.
+// about. Everything refused here fails its acquisition, and nothing is retried over
+// the ordinary transport.
 var batchOptions = []string{
 	"BatchMode=yes",
 	"PreferredAuthentications=publickey",
@@ -232,8 +232,8 @@ var batchOptions = []string{
 // around a configured proxy, which is not netdoc's decision to make.
 //
 // It fails closed. An ssh too old to know one of these options rejects the
-// whole invocation, which is a refusal like any other and sends the caller back
-// to Run.
+// whole invocation, which is a refusal like any other and fails the acquisition. The
+// caller does not retry it over Run.
 func RunBatch(ctx context.Context, dest, command string, req Request) (Response, error) {
 	return run(ctx, dest, command, req, true)
 }
@@ -269,8 +269,7 @@ const sshConfigTimeout = 10 * time.Second
 // acquisition could otherwise start a proxy child that no batch option reaches.
 // Pinning the proxy off for accelerated acquisitions holds this reading for the
 // pass; a destination read as proxied here is never acquired that way, and a
-// batch acquisition that fails hands the work back to Run and its unpinned
-// configuration.
+// batch acquisition that fails is not retried over Run.
 func Direct(ctx context.Context, dest string) bool {
 	return Route(ctx, dest).Kind == sshverify.RouteDirect
 }

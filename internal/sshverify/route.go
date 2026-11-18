@@ -93,7 +93,7 @@ type capture struct {
 // diagnostic output does not show the configuration reads netdoc recognizes is an
 // error, because netdoc cannot then say which files were read.
 func captureConfig(ctx context.Context, program string, args []string) (capture, error) {
-	out, diag, err := readConfig(ctx, program, append([]string{"-v"}, args...))
+	out, diag, err := readConfig(ctx, program, append([]string{"-v"}, args...), nil)
 	if err != nil {
 		return capture{}, err
 	}

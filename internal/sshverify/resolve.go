@@ -174,8 +174,10 @@ const (
 	probeMarkerExec        = "marker-exec"
 	probeMarkerPlain       = "marker-plain"
 	probeCanonicalExec     = "canonical-exec"
-	probeProxyJumpNone     = "proxyjump-none"
+	probeProxyJump         = "proxyjump"
 	probeKnownHostsCommand = "knownhostscommand"
+	probeCanonicalize      = "canonicalizehostname"
+	probeIncludeAnnounce   = "include-announcement"
 )
 
 // ensureCanary runs the fixed probes against the client once per process. A client
@@ -196,8 +198,10 @@ func ensureCanary(ctx context.Context, program string) error {
 	return err
 }
 
-// runCanary runs five probes. Each one is a configuration netdoc writes itself, read
-// with the same bounded runner every read uses.
+// runCanary runs the fixed probes. Each is a configuration netdoc writes itself, read in
+// a fixed environment, and each has a positive control, which the client must show,
+// and a negative control, which it must not. A negative control alone would also pass a
+// client that ignores the directive, so the positive control is what shows it is read.
 func runCanary(ctx context.Context, program string) error {
 	dir, err := os.MkdirTemp("", "netdoc-canary-")
 	if err != nil {
@@ -209,15 +213,14 @@ func runCanary(ctx context.Context, program string) error {
 	}
 	sentinel := filepath.Join(dir, "ran")
 
-	out, diag, err := runProbe(ctx, program, dir, probeMarkerExec, canaryExecConfig)
+	out, diag, err := runProbe(ctx, program, dir, probeMarkerExec, "exec", canaryExecConfig)
 	if err != nil {
 		return err
 	}
 	if !bytes.Contains(diag, []byte(readingMarker)) || !bytes.Contains(diag, []byte(execMarker)) || !hasLine(out, "hostname 127.0.0.1") {
 		return canaryFail(probeMarkerExec, "the client did not report the Match exec test that the check runs")
 	}
-
-	out, diag, err = runProbe(ctx, program, dir, probeMarkerPlain, canaryPlainConfig)
+	out, diag, err = runProbe(ctx, program, dir, probeMarkerPlain, "plain", canaryPlainConfig)
 	if err != nil {
 		return err
 	}
@@ -225,9 +228,16 @@ func runCanary(ctx context.Context, program string) error {
 		return canaryFail(probeMarkerPlain, "the client reported a Match exec test in a configuration that has none")
 	}
 
-	// Canonical is false here, because netdoc does not canonicalize hostnames, so an
-	// exec test behind it must not run.
-	out, diag, err = runProbe(ctx, program, dir, probeCanonicalExec, "Match canonical exec \"true\"\n"+hostBlock)
+	// Canonical is false without canonicalization, so an exec behind !canonical runs and
+	// one behind canonical does not.
+	out, diag, err = runProbe(ctx, program, dir, probeCanonicalExec, "positive", "Match !canonical exec \"true\"\n"+hostBlock)
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(diag, []byte(execMarker)) || !hasLine(out, "hostname 127.0.0.1") {
+		return canaryFail(probeCanonicalExec, "an exec test behind !canonical did not run, so canonical is not evaluated as expected")
+	}
+	out, diag, err = runProbe(ctx, program, dir, probeCanonicalExec, "negative", "Match canonical exec \"true\"\n"+hostBlock)
 	if err != nil {
 		return err
 	}
@@ -235,17 +245,27 @@ func runCanary(ctx context.Context, program string) error {
 		return canaryFail(probeCanonicalExec, "an exec test behind canonical ran although canonical did not match")
 	}
 
-	out, _, err = runProbe(ctx, program, dir, probeProxyJumpNone, hostBlock+"  ProxyJump none\n")
+	// ProxyJump is listed when set, and not when none.
+	out, _, err = runProbe(ctx, program, dir, probeProxyJump, "positive", hostBlock+"  ProxyJump 127.0.0.2\n")
+	if err != nil {
+		return err
+	}
+	// ssh lists the host in brackets (proxyjump [127.0.0.2]), so the value is not
+	// compared as text; a proxy that is set must simply be listed, and not as none.
+	if v, ok := listingValue(out, "proxyjump"); !ok || v == "none" {
+		return canaryFail(probeProxyJump, "ProxyJump 127.0.0.2 is not listed, so a proxy would not be seen")
+	}
+	out, _, err = runProbe(ctx, program, dir, probeProxyJump, "negative", hostBlock+"  ProxyJump none\n")
 	if err != nil {
 		return err
 	}
 	if !hasLine(out, "hostname 127.0.0.1") || listingKey(out, "proxyjump") || listingKey(out, "proxycommand") {
-		return canaryFail(probeProxyJumpNone, "ProxyJump none did not leave the route direct in the listing")
+		return canaryFail(probeProxyJump, "ProxyJump none did not leave the route direct in the listing")
 	}
 
-	// -G prints KnownHostsCommand and must not run it: the command would otherwise
-	// run during every configuration read, before any route is known.
-	out, _, err = runProbe(ctx, program, dir, probeKnownHostsCommand, hostBlock+"  KnownHostsCommand touch "+sentinel+"\n")
+	// -G lists KnownHostsCommand and must not run it: the command would otherwise run
+	// during every configuration read, before any route is known.
+	out, _, err = runProbe(ctx, program, dir, probeKnownHostsCommand, "positive", hostBlock+"  KnownHostsCommand touch "+sentinel+"\n")
 	if err != nil {
 		return err
 	}
@@ -255,19 +275,82 @@ func runCanary(ctx context.Context, program string) error {
 	if _, statErr := os.Stat(sentinel); statErr == nil {
 		return canaryFail(probeKnownHostsCommand, "KnownHostsCommand ran during the configuration read")
 	}
+	out, _, err = runProbe(ctx, program, dir, probeKnownHostsCommand, "negative", hostBlock+"  KnownHostsCommand none\n")
+	if err != nil {
+		return err
+	}
+	if listingKey(out, "knownhostscommand") && !hasLine(out, "knownhostscommand none") {
+		return canaryFail(probeKnownHostsCommand, "KnownHostsCommand none is listed as a command")
+	}
+
+	// CanonicalizeHostname is reported off by default and on when set.
+	out, _, err = runProbe(ctx, program, dir, probeCanonicalize, "negative", canaryPlainConfig)
+	if err != nil {
+		return err
+	}
+	if !hasLine(out, "canonicalizehostname false") {
+		return canaryFail(probeCanonicalize, "the default listing does not report canonicalizehostname false")
+	}
+	out, _, err = runProbe(ctx, program, dir, probeCanonicalize, "positive", hostBlock+"  CanonicalizeHostname yes\n")
+	if err != nil {
+		return err
+	}
+	if !hasLine(out, "canonicalizehostname true") {
+		return canaryFail(probeCanonicalize, "CanonicalizeHostname yes is not reported as true")
+	}
+
+	// Every file a read names is announced, including the files a nested Include reaches.
+	inner := filepath.Join(dir, "include-c.conf")
+	middle := filepath.Join(dir, "include-b.conf")
+	outer := filepath.Join(dir, "include-a.conf")
+	if err := os.WriteFile(inner, []byte(hostBlock), 0o600); err != nil {
+		return canaryFail(probeIncludeAnnounce, "the check could not write its configuration")
+	}
+	if err := os.WriteFile(middle, []byte("Include "+inner+"\n"), 0o600); err != nil {
+		return canaryFail(probeIncludeAnnounce, "the check could not write its configuration")
+	}
+	if err := os.WriteFile(outer, []byte("Include "+middle+"\n"), 0o600); err != nil {
+		return canaryFail(probeIncludeAnnounce, "the check could not write its configuration")
+	}
+	_, diag, err = runProbe(ctx, program, dir, probeIncludeAnnounce, "positive", "Include "+outer+"\n")
+	if err != nil {
+		return err
+	}
+	for _, f := range []string{outer, middle, inner} {
+		if !bytes.Contains(diag, []byte(readingMarker+" "+f)) {
+			return canaryFail(probeIncludeAnnounce, "a file the configuration includes is not announced as read")
+		}
+	}
 	return nil
 }
 
-// runProbe writes one probe configuration and reads it. A read that fails is reported
-// with the probe's name.
-func runProbe(ctx context.Context, program, dir, name, body string) ([]byte, []byte, error) {
-	path := filepath.Join(dir, name+".config")
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		return nil, nil, canaryFail(name, "the check could not write its configuration")
+// canaryEnv is the environment every probe runs in. The probes read only their own
+// configuration files, and they check only keywords that no environment variable
+// changes, so the environment is the user's with two changes: HOME is the probe's own
+// directory, and the SSH_* variables that choose an agent, a key or an askpass are
+// removed, so no agent or key of the user's can affect what a probe shows.
+func canaryEnv(dir string) []string {
+	env := []string{"HOME=" + dir}
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "SSH_") || name == "HOME" {
+			continue
+		}
+		env = append(env, kv)
 	}
-	out, diag, err := readConfig(ctx, program, []string{"-v", "-G", "-F", path, "--", "canary"})
+	return env
+}
+
+// runProbe writes one probe configuration and reads it in the fixed environment. A
+// read that fails is reported with the probe's name.
+func runProbe(ctx context.Context, program, dir, probe, variant, body string) ([]byte, []byte, error) {
+	path := filepath.Join(dir, probe+"-"+variant+".config")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		return nil, nil, canaryFail(probe, "the check could not write its configuration")
+	}
+	out, diag, err := readConfig(ctx, program, []string{"-v", "-G", "-F", path, "--", "canary"}, canaryEnv(dir))
 	if err != nil {
-		return nil, nil, canaryFail(name, err.Error())
+		return nil, nil, canaryFail(probe, err.Error())
 	}
 	return out, diag, nil
 }
@@ -301,7 +384,7 @@ func listingKey(out []byte, key string) bool {
 // complete standard output and complete diagnostic output. It fails when the run
 // was cut short, when either stream was not read to its end or was larger than
 // netdoc reads, or when the client exited non-zero.
-func readConfig(ctx context.Context, program string, args []string) ([]byte, []byte, error) {
+func readConfig(ctx context.Context, program string, args []string, env []string) ([]byte, []byte, error) {
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		return nil, nil, errors.New("no pipe for the client's output")
@@ -315,6 +398,9 @@ func readConfig(ctx context.Context, program string, args []string) ([]byte, []b
 	}
 	defer errR.Close()
 	cmd := exec.CommandContext(ctx, program, args...) // #nosec G702 G204 -- program is the ssh client sshExecutable resolved and permission-checked; args are fixed option flags, the login and port from the parsed target, and the host after "--", each passed as its own argv entry with no shell
+	if env != nil {
+		cmd.Env = env
+	}
 	configureProcess(cmd)
 	cmd.Stdout = outW
 	cmd.Stderr = errW

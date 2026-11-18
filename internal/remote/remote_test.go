@@ -2238,17 +2238,35 @@ func fakeCanaryConfig(args []string) (string, bool) {
 // fakeCanary answers the check the way OpenSSH does: it reports the file it reads,
 // reports the Match exec test only in the file that has one, and lists the host.
 func fakeCanary(cfg string) int {
-	// #nosec G304 G703 -- cfg is the -F file the test itself passed to the stand-in
-	body, _ := os.ReadFile(cfg)
+	body, _ := os.ReadFile(cfg) // #nosec G304 G703 -- cfg is the -F file the test itself passed to the stand-in
 	text := string(body)
-	fmt.Fprintln(os.Stderr, "debug1: Reading configuration data "+cfg)
-	if strings.Contains(text, "Match host canary exec") {
+	// Every file read is announced, and each Include is followed, as OpenSSH does.
+	var walk func(file string)
+	walk = func(file string) {
+		fmt.Fprintln(os.Stderr, "debug1: Reading configuration data "+file)
+		data, _ := os.ReadFile(file) // #nosec G304 G703 -- a file the canary itself wrote
+		for _, line := range strings.Split(string(data), "\n") {
+			if inc, ok := strings.CutPrefix(line, "Include "); ok {
+				walk(strings.TrimSpace(inc))
+			}
+		}
+	}
+	walk(cfg)
+	if strings.Contains(text, "Match host canary exec") || strings.Contains(text, "Match !canonical exec") {
 		fmt.Fprintln(os.Stderr, "debug1: Executing command: 'true'")
+	}
+	if strings.Contains(text, "ProxyJump 127.0.0.2") {
+		fmt.Fprintln(os.Stdout, "proxyjump [127.0.0.2]")
 	}
 	if i := strings.Index(text, "KnownHostsCommand "); i >= 0 {
 		// The listing shows the command; the stand-in never runs it.
 		value := strings.TrimSpace(strings.SplitN(text[i+len("KnownHostsCommand "):], "\n", 2)[0])
 		fmt.Fprintln(os.Stdout, "knownhostscommand "+value)
+	}
+	if strings.Contains(text, "CanonicalizeHostname yes") {
+		fmt.Fprintln(os.Stdout, "canonicalizehostname true")
+	} else {
+		fmt.Fprintln(os.Stdout, "canonicalizehostname false")
 	}
 	fmt.Fprintln(os.Stdout, "user demo")
 	fmt.Fprintln(os.Stdout, "hostname 127.0.0.1")

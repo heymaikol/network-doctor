@@ -10,57 +10,55 @@ import (
 	"testing"
 )
 
-// fakeCanaryClient is a client that answers the canary's five probes the way OpenSSH
-// does, except for the probe named in broken, which it answers wrongly. It keys each
-// answer on the probe's configuration file, so each probe is tested on its own.
+// fakeCanaryClient is a client that answers the canary's probes the way OpenSSH does,
+// except for the one behaviour named in broken. It keys each answer on the probe's
+// configuration file, so each probe is exercised on its own.
 func fakeCanaryClient(t *testing.T, broken string) string {
 	t.Helper()
-	const head = `#!/bin/sh
+	script := `#!/bin/sh
+BROKEN="` + broken + `"
 cfg=""
 prev=""
 for a in "$@"; do
   if [ "$prev" = "-F" ]; then cfg="$a"; fi
   prev="$a"
 done
-echo "debug1: Reading configuration data $cfg" >&2
-if grep -q 'canonical exec' "$cfg"; then
-`
-	const canonicalBody = `  echo "hostname 127.0.0.1"
-  exit 0
-fi
-if grep -q 'ProxyJump none' "$cfg"; then
-`
-	const proxyBody = `  echo "hostname 127.0.0.1"
-  exit 0
-fi
-if grep -q 'KnownHostsCommand' "$cfg"; then
-  echo "knownhostscommand touch x"
-  echo "hostname 127.0.0.1"
-  exit 0
-fi
-if grep -q 'exec' "$cfg"; then
-  echo "debug1: Executing command: true" >&2
-fi
+# Every file read is announced, and each Include is followed to its own includes. A
+# client that stops following at the first level is the include-announcement break.
+walk() {
+  echo "debug1: Reading configuration data $1" >&2
+  for i in $(sed -n 's/^Include //p' "$1"); do
+    if [ "$BROKEN" = include-announcement ] && [ "$2" -ge 1 ]; then continue; fi
+    walk "$i" $(( $2 + 1 ))
+  done
+}
+walk "$cfg" 0
+case "$(cat "$cfg")" in
+  *"Match !canonical exec"*) [ "$BROKEN" = canonical-positive ] || echo "debug1: Executing command: 'true'" >&2 ;;
+  *"Match canonical exec"*) [ "$BROKEN" = canonical-exec ] && echo "debug1: Executing command: 'true'" >&2 ;;
+  *"Match host canary exec"*) echo "debug1: Executing command: 'true'" >&2 ;;
+esac
+case "$(cat "$cfg")" in
+  *"ProxyJump 127.0.0.2"*) [ "$BROKEN" = proxyjump-positive ] || echo "proxyjump [127.0.0.2]" ;;
+  *"ProxyJump none"*) [ "$BROKEN" = proxyjump ] && echo "proxyjump bastion" ;;
+esac
+case "$(cat "$cfg")" in
+  *"KnownHostsCommand touch"*)
+    echo "knownhostscommand touch x"
+    if [ "$BROKEN" = knownhostscommand ]; then
+      sentinel=$(sed -n 's/.*KnownHostsCommand touch //p' "$cfg"); touch "$sentinel"
+    fi ;;
+  *"KnownHostsCommand none"*) echo "knownhostscommand none" ;;
+esac
+case "$(cat "$cfg")" in
+  *"CanonicalizeHostname yes"*)
+    if [ "$BROKEN" = canonicalizehostname ] || [ "$BROKEN" = canonicalizehostname-positive ]; then echo "canonicalizehostname false"; else echo "canonicalizehostname true"; fi ;;
+  *)
+    if [ "$BROKEN" = canonicalizehostname ]; then echo "canonicalizehostname true"; else echo "canonicalizehostname false"; fi ;;
+esac
 echo "hostname 127.0.0.1"
 exit 0
 `
-	canonicalBreak := ""
-	if broken == probeCanonicalExec {
-		canonicalBreak = `  echo "debug1: Executing command: true" >&2` + "\n"
-	}
-	proxyBreak := ""
-	if broken == probeProxyJumpNone {
-		proxyBreak = `  echo "proxyjump bastion"` + "\n"
-	}
-	khcBreak := ""
-	if broken == probeKnownHostsCommand {
-		// This client runs the KnownHostsCommand during the read, which -G must not do.
-		khcBreak = `  sentinel=$(sed -n 's/.*KnownHostsCommand touch //p' "$cfg"); touch "$sentinel"` + "\n"
-	}
-	script := head + canonicalBreak + canonicalBody + proxyBreak + proxyBody
-	// KnownHostsCommand is answered after the proxy branch in proxyBody, so its break
-	// is spliced into that branch.
-	script = strings.Replace(script, `  echo "knownhostscommand touch x"`+"\n", `  echo "knownhostscommand touch x"`+"\n"+khcBreak, 1)
 	path := filepath.Join(t.TempDir(), "ssh")
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { // #nosec G306 -- the test writes an executable fake ssh client on purpose
 		t.Fatal(err)
@@ -75,13 +73,24 @@ func TestCanaryPassesAClientThatAnswersEveryProbe(t *testing.T) {
 	}
 }
 
-// Each probe is shown to refuse the client that breaks it, and the refusal names it.
+// Each positive and negative control is shown to refuse the client that breaks it, and
+// the refusal names the probe. Each break is a different way the client could be wrong.
 func TestCanaryNamesTheProbeThatFails(t *testing.T) {
-	for _, probe := range []string{probeCanonicalExec, probeProxyJumpNone, probeKnownHostsCommand} {
-		t.Run(probe, func(t *testing.T) {
-			err := ensureCanary(context.Background(), fakeCanaryClient(t, probe))
-			if err == nil || !strings.Contains(err.Error(), `"`+probe+`"`) {
-				t.Fatalf("a client that breaks %s returned %v; want a refusal naming that probe", probe, err)
+	cases := []struct{ broken, probe string }{
+		{"canonical-exec", probeCanonicalExec},
+		{"canonical-positive", probeCanonicalExec},
+		{"proxyjump", probeProxyJump},
+		{"proxyjump-positive", probeProxyJump},
+		{"knownhostscommand", probeKnownHostsCommand},
+		{"canonicalizehostname", probeCanonicalize},
+		{"canonicalizehostname-positive", probeCanonicalize},
+		{"include-announcement", probeIncludeAnnounce},
+	}
+	for _, c := range cases {
+		t.Run(c.broken, func(t *testing.T) {
+			err := ensureCanary(context.Background(), fakeCanaryClient(t, c.broken))
+			if err == nil || !strings.Contains(err.Error(), `"`+c.probe+`"`) {
+				t.Fatalf("a client broken as %q returned %v; want a refusal naming probe %q", c.broken, err, c.probe)
 			}
 		})
 	}

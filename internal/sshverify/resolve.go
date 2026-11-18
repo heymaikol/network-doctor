@@ -199,9 +199,12 @@ func ensureCanary(ctx context.Context, program string) error {
 		return err
 	}
 	cctx, cancel := context.WithTimeout(ctx, resolveTimeout)
-	defer cancel()
 	err := runCanary(cctx, program)
-	if ctx.Err() == nil {
+	// Kept only when the probes ran to the end. A run cut short by its own budget or by
+	// the caller says nothing about the client, so the next read runs the probes again.
+	completed := cctx.Err() == nil
+	cancel()
+	if completed {
 		canaries.Store(program, err)
 	}
 	return err

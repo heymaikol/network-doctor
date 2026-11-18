@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeCanaryClient is a client that answers the canary's probes the way OpenSSH does,
@@ -15,7 +16,23 @@ import (
 // configuration file, so each probe is exercised on its own.
 func fakeCanaryClient(t *testing.T, broken string) string {
 	t.Helper()
-	script := `#!/bin/sh
+	return writeFakeClient(t, fakeCanaryScript(broken))
+}
+
+// writeFakeClient writes an executable fake client with the given script text.
+func writeFakeClient(t *testing.T, script string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ssh")
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { // #nosec G306 -- the test writes an executable fake ssh client on purpose
+		t.Fatal(err)
+	}
+	return path
+}
+
+// fakeCanaryScript is the script text of a client that answers every probe correctly,
+// except for the one behaviour named in broken.
+func fakeCanaryScript(broken string) string {
+	return `#!/bin/sh
 BROKEN="` + broken + `"
 cfg=""
 prev=""
@@ -73,11 +90,6 @@ esac
 echo "hostname $hn"
 exit 0
 `
-	path := filepath.Join(t.TempDir(), "ssh")
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { // #nosec G306 -- the test writes an executable fake ssh client on purpose
-		t.Fatal(err)
-	}
-	return path
 }
 
 // A client that answers every probe correctly passes the canary.
@@ -110,5 +122,33 @@ func TestCanaryNamesTheProbeThatFails(t *testing.T) {
 				t.Fatalf("a client broken as %q returned %v; want a refusal naming probe %q", c.broken, err, c.probe)
 			}
 		})
+	}
+}
+
+// A canary that runs out of its own budget is not a verdict on the client, so it is not
+// kept: the next read with the same client runs the probes again. A caller that has no
+// deadline of its own must not turn a slow first run into a permanent refusal.
+func TestCanaryTimeoutIsNotKept(t *testing.T) {
+	flag := filepath.Join(t.TempDir(), "slow")
+	if err := os.WriteFile(flag, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	slowFirst := "#!/bin/sh\nif [ -e '" + flag + "' ]; then sleep 5; fi\n" + fakeCanaryScript("")[len("#!/bin/sh\n"):]
+	client := writeFakeClient(t, slowFirst)
+	saved := resolveTimeout
+	t.Cleanup(func() { resolveTimeout = saved })
+
+	// The first run's budget is short enough that its first probe cannot finish; the
+	// second run gets the normal budget, so a healthy client is not failed by a short one.
+	resolveTimeout = 300 * time.Millisecond
+	if err := ensureCanary(context.Background(), client); err == nil {
+		t.Fatal("a canary that ran out of its budget reported a pass")
+	}
+	resolveTimeout = saved
+	if err := os.Remove(flag); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureCanary(context.Background(), client); err != nil {
+		t.Fatalf("a timed-out canary was kept, so a client that now answers was refused: %v", err)
 	}
 }

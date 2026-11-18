@@ -97,10 +97,6 @@ var resolveOutput = func(ctx context.Context, args []string) ([]byte, error) {
 // does not. It is a variable so tests that stand in for a client can replace it.
 var TerminalAvailable = hasControllingTerminal
 
-// errNoTerminal refuses a configuration read that netdoc cannot make equivalent to
-// the user's own ssh. Nothing is run or sent.
-var errNoTerminal = errors.New("netdoc has no terminal of its own, and a configuration can depend on the environment, which a run without one cannot reproduce for your own ssh; run netdoc from a terminal. Nothing was run or sent")
-
 // hasControllingTerminal reports whether this process can open its terminal.
 func hasControllingTerminal() bool {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0) // #nosec G304 -- the controlling terminal, opened only to test for it
@@ -121,18 +117,22 @@ func ReadConfig(ctx context.Context, program string, args []string) ([]byte, err
 	if !configPlatformSupported {
 		return nil, unsupportedPlatform()
 	}
-	if !TerminalAvailable() {
-		return nil, errNoTerminal
-	}
 	route, err := ReadRoute(ctx, program, args)
 	if err != nil {
 		return nil, err
 	}
-	if route.Kind == RouteUnknown {
+	switch {
+	case route.Kind == RouteUnknown:
 		return nil, errors.New(route.Reason)
+	case route.Kind == RouteProxied && !TerminalAvailable():
+		return nil, errProxiedHeadless
 	}
 	return route.Listing, nil
 }
+
+// errProxiedHeadless refuses a proxied route in a run with no terminal of its own. A
+// proxy is a program the user runs, and nothing is there to answer for it.
+var errProxiedHeadless = errors.New("the configuration names a proxy, and netdoc does not use a proxy without a terminal; run it from a terminal; nothing was sent")
 
 // maxConfigBytes bounds the configuration listing. A real listing is a few
 // kilobytes, so anything this large is refused rather than parsed.

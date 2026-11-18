@@ -164,6 +164,11 @@ func classify(c capture, headless bool) Route {
 			return unknown(fmt.Sprintf("%s (in %s)", reason, textsafe.Clean(c.files[i])))
 		}
 	}
+	if _, set := listingValue(c.listing, "hostname"); !set {
+		// Every client that reads -G prints hostname. Its absence means the listing is
+		// not one netdoc can match, so silence is an unanswered question, not a route.
+		return unknown("the configuration listing has no hostname line")
+	}
 	if value, set := listingValue(c.listing, "knownhostscommand"); set && value != "none" {
 		return unknown("KnownHostsCommand is set: it decides host-key trust when a connection is made, and netdoc does not run it")
 	}

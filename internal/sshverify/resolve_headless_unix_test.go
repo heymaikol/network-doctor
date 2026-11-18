@@ -96,25 +96,24 @@ func runHeadless(t *testing.T, config string) string {
 	return ""
 }
 
-// A headless run is refused before any command in the configuration runs. The
-// command here would leave a file behind if it ran, and the file must not exist.
-func TestHeadlessReadIsRefusedBeforeAnythingRuns(t *testing.T) {
+// A Match exec test in a headless run is refused, and nothing connects. The read
+// itself runs the command, as ssh -G always does; the refusal is about using the route.
+func TestHeadlessMatchExecIsRefusedAndNothingConnects(t *testing.T) {
 	requireOpenSSH(t)
-	dir := t.TempDir()
-	sentinel := filepath.Join(dir, "ran")
-	script := writeScript(t, "touch.sh", "touch "+sentinel+"\nexit 0\n")
+	script := writeScript(t, "touch.sh", "exit 0\n")
 	line := runHeadless(t, writeMatchConfig(t, "touch.config", script))
-	if !strings.Contains(line, "RESULT resolve-error:") || !strings.Contains(line, "run netdoc from a terminal") {
-		t.Fatalf("a headless read was not refused for its missing terminal: %q", line)
+	if !strings.Contains(line, "RESULT resolve-error:") || !strings.Contains(line, "Match exec") {
+		t.Fatalf("a headless Match exec was not refused: %q", line)
 	}
-	if _, err := os.Stat(sentinel); err == nil {
-		t.Fatal("a Match exec command ran in a headless read")
+	if strings.Contains(line, "dials=") {
+		t.Fatalf("a headless run connected by a route it refused: %q", line)
 	}
 }
 
-// Without a terminal the read is refused even when the configuration would be read
-// the same everywhere, because netdoc cannot tell that it would be.
-func TestHeadlessPlainConfigIsRefused(t *testing.T) {
+// The positive control: a plain configuration is a known direct route, so headless
+// discovery goes on to connect. Nothing listens on the test port, so the dial fails,
+// and that is what shows discovery was reached.
+func TestHeadlessPlainConfigReachesDiscovery(t *testing.T) {
 	requireOpenSSH(t)
 	cfg := filepath.Join(t.TempDir(), "plain.config")
 	body := "Host target\n  HostName 127.0.0.1\n  Port 2260\n  User demo\n"
@@ -122,7 +121,37 @@ func TestHeadlessPlainConfigIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := runHeadless(t, cfg)
-	if !strings.Contains(line, "run netdoc from a terminal") || strings.Contains(line, "dials=") {
-		t.Fatalf("a headless read of a plain configuration was not refused: %q", line)
+	if strings.Contains(line, "resolve-error") || !strings.Contains(line, "dials=1") {
+		t.Fatalf("a headless plain configuration did not reach discovery: %q", line)
+	}
+}
+
+// A proxied route is refused headless: the proxy is a program netdoc would start
+// without anyone to answer for it.
+func TestHeadlessProxyIsRefused(t *testing.T) {
+	requireOpenSSH(t)
+	cfg := filepath.Join(t.TempDir(), "proxy.config")
+	body := "Host target\n  HostName 127.0.0.1\n  ProxyJump bastion.example\n  Port 2260\n  User demo\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	line := runHeadless(t, cfg)
+	if !strings.Contains(line, "RESULT resolve-error:") || !strings.Contains(line, "proxy") || strings.Contains(line, "dials=") {
+		t.Fatalf("a headless proxied route was not refused before connecting: %q", line)
+	}
+}
+
+// A variable in a directive is refused headless, because a headless run cannot match
+// the user's environment for it.
+func TestHeadlessVariableIsRefused(t *testing.T) {
+	requireOpenSSH(t)
+	cfg := filepath.Join(t.TempDir(), "var.config")
+	body := "Host target\n  HostName 127.0.0.1\n  IdentityAgent ${SSH_AUTH_SOCK}\n  Port 2260\n  User demo\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	line := runHeadless(t, cfg)
+	if !strings.Contains(line, "RESULT resolve-error:") || strings.Contains(line, "dials=") {
+		t.Fatalf("a headless variable in a directive was not refused: %q", line)
 	}
 }

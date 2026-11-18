@@ -2264,15 +2264,18 @@ func hasArg(args []string, want string) bool {
 	return false
 }
 
-// Without a terminal the configuration read is refused, so no route is read as
-// direct. The stand-in would answer direct; the refusal must come first.
-func TestDirectRefusesWithoutATerminal(t *testing.T) {
+// Headless, a direct route is read as direct, and a proxied one is not. A route the
+// run cannot establish is never direct, so the batch transport is not offered for it.
+func TestDirectOnlyAcceptsAKnownDirectRouteHeadless(t *testing.T) {
 	argvPath, _ := useFakeSSH(t, "config")
-	sshverify.TerminalAvailable = func() bool { return false }
-	if Direct(context.Background(), "ideapad") {
-		t.Error("Direct read a route as direct with no terminal")
+	withoutTerminal(t)
+	if !Direct(context.Background(), "ideapad") {
+		t.Error("a headless run did not read a known direct route as direct")
 	}
-	if _, err := os.Stat(argvPath); err == nil {
-		t.Error("ssh ran for a configuration read with no terminal")
+	_ = argvPath
+	useFakeSSH(t, "configproxy")
+	withoutTerminal(t)
+	if Direct(context.Background(), "ideapad") {
+		t.Error("a headless run read a proxied route as direct")
 	}
 }

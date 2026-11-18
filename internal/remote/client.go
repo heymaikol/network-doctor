@@ -246,39 +246,26 @@ const sshConfigTimeout = 10 * time.Second
 // batch acquisition that fails hands the work back to Run and its unpinned
 // configuration.
 func Direct(ctx context.Context, dest string) bool {
+	return Route(ctx, dest).Kind == sshverify.RouteDirect
+}
+
+// Route reads the configuration ssh would use for dest and classifies it. dest is
+// validated against argv option injection, and it stays a separate argument, never
+// shell text. The read and its classification are sshverify's: a Match exec, an
+// Include with a variable, a KnownHostsCommand, a proxy, or a configuration that
+// changed mid-read is not a known direct route, and nothing connects by a route that
+// is not known.
+func Route(ctx context.Context, dest string) sshverify.Route {
 	if err := validateDestination(dest); err != nil {
-		return false
+		return sshverify.Route{Kind: sshverify.RouteUnknown, Reason: err.Error()}
 	}
 	ctx, cancel := context.WithTimeout(ctx, sshConfigTimeout)
 	defer cancel()
-	// -G prints the configuration ssh would use for this destination without
-	// connecting to anything. dest is validated against argv option injection, and
-	// it stays a separate argument, never shell text. The listing is read through
-	// sshverify, which refuses a read that ran a Match exec test or whose
-	// diagnostics are not complete and recognized. A refused read is treated as
-	// proxied, so nothing connects around a proxy this read could not see.
-	out, err := sshverify.ReadConfig(ctx, sshProgram, []string{"-G", dest})
+	route, err := sshverify.ReadRoute(ctx, sshProgram, []string{"-G", dest})
 	if err != nil {
-		return false
+		return sshverify.Route{Kind: sshverify.RouteUnknown, Reason: err.Error()}
 	}
-	understood := false
-	for _, line := range strings.Split(string(out), "\n") {
-		keyword, value, _ := strings.Cut(strings.TrimSpace(line), " ")
-		switch strings.ToLower(keyword) {
-		case "hostname":
-			// Every ssh that knows -G prints this one. Requiring it is what
-			// makes silence an unanswered question rather than a yes.
-			understood = true
-		case "proxyjump", "proxycommand":
-			// ssh omits either keyword when it is unset or set to none, so
-			// reaching here is a configured proxy. The value is checked anyway
-			// rather than trusting that omission to stay true.
-			if !strings.EqualFold(strings.TrimSpace(value), "none") {
-				return false
-			}
-		}
-	}
-	return understood
+	return route
 }
 
 func run(ctx context.Context, dest, command string, req Request, batch bool) (Response, error) {
@@ -289,6 +276,18 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		command = DefaultCommand
 	} else if err := validateCommand(command); err != nil {
 		return Response{}, err
+	}
+	if !sshverify.TerminalAvailable() {
+		// A run with no terminal of its own cannot answer a prompt, so it connects only
+		// by a route it has established as direct, and every ssh it starts is batch. A
+		// route it cannot establish fails here, before any ssh starts, rather than
+		// falling back to an interactive client that could ask for a password, a
+		// passphrase or a host key.
+		route := Route(ctx, dest)
+		if route.Kind != sshverify.RouteDirect {
+			return Response{}, headlessRefusal(route)
+		}
+		batch = true
 	}
 	req.Protocol = Protocol
 	body, err := marshalRequest(req)
@@ -790,4 +789,14 @@ func (c *capped) String() string {
 		s += "\n[" + strconv.Itoa(c.dropped) + " more bytes discarded]"
 	}
 	return s
+}
+
+// headlessRefusal is the error for a destination a run with no terminal may not
+// connect to. The reason is the route's own, so the user sees what netdoc could not
+// establish.
+func headlessRefusal(route sshverify.Route) error {
+	if route.Kind == sshverify.RouteProxied {
+		return errors.New("cannot read this route headlessly: it uses a proxy, which netdoc does not start without a terminal; run it from a terminal. Nothing was sent")
+	}
+	return errors.New("cannot read this route headlessly; run it from a terminal (" + textsafe.Clean(route.Reason) + "). Nothing was sent")
 }

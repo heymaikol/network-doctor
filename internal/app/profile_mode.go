@@ -75,6 +75,11 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 				flag = "-support"
 			}
 			fmt.Fprintln(stderr, "netdoc: "+flag+": nothing written for this pass, because a component did not finish")
+			// A one-shot run was asked for its artifact and did not get it, which is the failure
+			// exit 2 has always meant. A watch goes on to its next pass.
+			if !base.watch {
+				return 2
+			}
 		} else if base.save != "" {
 			artifact := buildProfileArtifact(result, snapshots)
 			if base.support {

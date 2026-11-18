@@ -200,3 +200,30 @@ func TestProfileInteractiveTimeoutStillEndsThePass(t *testing.T) {
 		t.Fatalf("acquisitions = %+v, want the one interactive attempt and nothing after it", calls)
 	}
 }
+
+// A one-shot run that was asked to save and cannot, because a component did not finish, exits with
+// 2 as any failed save does. Only a watch goes on to its next pass.
+func TestProfileOneShotSaveWithATimeoutExitsWithTwo(t *testing.T) {
+	plan := githubPlan(t)
+	timeouts := 1
+	traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if batch && req.Target == plan.Runs[0].Target.Raw && timeouts > 0 {
+			timeouts--
+			return remote.Response{}, timedOut("ideapad")
+		}
+		resp := profileComponentAnswer(t, req, true)
+		resp.Snapshot.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+		resp.Snapshot.Checks = []snapshot.Check{{ID: req.Check[len(req.Check)-1], Name: "focus", Status: profile.StatusPass, Ran: true, DurationMs: 1, Detail: "observed"}}
+		return resp, nil
+	})
+	save := filepath.Join(t.TempDir(), "profile.json")
+	base := viaBase()
+	base.save = save
+	var stdout, stderr bytes.Buffer
+	if code := runProfile(context.Background(), base, plan, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit = %d, want 2 for a save that was not written; stderr: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(save); err == nil {
+		t.Error("a pass with an unfinished component was written")
+	}
+}

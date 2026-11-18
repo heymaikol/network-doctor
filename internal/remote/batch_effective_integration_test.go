@@ -29,6 +29,7 @@ func TestBatchPinsWinOverUserConfiguration(t *testing.T) {
   IdentityAgent /tmp/hostile-agent.sock
   ForwardAgent yes
   ForwardX11 yes
+  Tunnel yes
   ClearAllForwardings no
   LocalForward 127.0.0.1:1 127.0.0.1:9
   PermitLocalCommand yes
@@ -41,6 +42,7 @@ func TestBatchPinsWinOverUserConfiguration(t *testing.T) {
 Match all
   ForwardAgent yes
   ForwardX11 yes
+  Tunnel yes
   ClearAllForwardings no
   LocalForward 127.0.0.1:1 127.0.0.1:9
   DynamicForward 127.0.0.1:2
@@ -80,11 +82,13 @@ Match all
 		"identityagent":            "none",
 		"forwardagent":             "no",
 		"forwardx11":               "no",
-		"clearallforwardings":      "yes",
-		"permitlocalcommand":       "no",
-		"controlmaster":            "false",
-		"stricthostkeychecking":    "true",
-		"updatehostkeys":           "false",
+		// Tunnel is off because ClearAllForwardings is on: OpenSSH clears the tunnel with the forwardings.
+		"tunnel":                "false",
+		"clearallforwardings":   "yes",
+		"permitlocalcommand":    "no",
+		"controlmaster":         "false",
+		"stricthostkeychecking": "true",
+		"updatehostkeys":        "false",
 	}
 	for key, value := range want {
 		if got := effective[key]; got != value {

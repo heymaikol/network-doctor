@@ -454,11 +454,15 @@ derived sentences remain display text.
   acquisition, that component is recorded as failed, and the other components
   still run. A watch goes on after a pass with a failed component. A pass with
   one is not saved by `-save` or `-support`, because an artifact cannot hold a
-  component without its snapshot; netdoc says so on stderr, and the next pass
-  that finishes is saved in full. A timeout while netdoc reads the configuration
-  or checks the route is not a component timeout: headless, it refuses the run,
-  and on a terminal the destination is acquired one component at a time over the
-  ordinary transport, as it already is when the configuration cannot be read.
+  component without its snapshot; netdoc says so on stderr. A one-shot run then
+  exits 2, as a failed save does, and a watch goes on to the next pass, which is
+  saved in full when it finishes. An interactive run's deadline is not a
+  component timeout: it also covers the time a person takes to answer a prompt,
+  so it ends the pass, as it did before. A timeout while netdoc reads the
+  configuration or checks the route is not a component timeout either: headless,
+  it refuses the run, and on a terminal the destination is acquired one component
+  at a time over the ordinary transport, as it already is when the configuration
+  cannot be read.
 - `--iface`, `--public-dns`, and `--timeout` apply independently to every
   component. Interface names are resolved on the machine that probes, as in
   every ordinary local or remote run.

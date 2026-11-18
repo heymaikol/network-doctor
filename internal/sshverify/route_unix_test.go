@@ -50,6 +50,7 @@ func TestRouteReadTwiceAndStableIsDirect(t *testing.T) {
 	}
 	script := "#!/bin/sh\n" +
 		"echo \"debug1: Reading configuration data " + cfg + "\" >&2\n" +
+		"echo \"canonicalizehostname false\"\n" +
 		"echo \"hostname 127.0.0.1\"\n"
 	client := filepath.Join(dir, "ssh")
 	if err := os.WriteFile(client, []byte(script), 0o700); err != nil { // #nosec G306 -- an executable fake client on purpose

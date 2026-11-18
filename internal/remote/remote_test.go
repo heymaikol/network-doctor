@@ -101,6 +101,7 @@ func fakeSSH(mode string) int {
 			}
 		}
 		fmt.Fprintln(os.Stdout, "user maikol")
+		fmt.Fprintln(os.Stdout, "canonicalizehostname false")
 		fmt.Fprintln(os.Stdout, "hostname 10.0.0.5")
 		switch mode {
 		case "configproxy":

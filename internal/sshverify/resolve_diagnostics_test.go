@@ -18,34 +18,36 @@ func capOf(diag, listing string, files map[string]string) capture {
 	return c
 }
 
-const cleanListing = "hostname 127.0.0.1\nport 22\nuser demo\nproxyjump none\n"
+// cleanListing is what ssh prints for a direct route with canonicalization off.
+const cleanListing = "hostname 127.0.0.1\nport 22\nuser demo\ncanonicalizehostname false\nproxyjump none\n"
 
 // The classifier accepts a clean read and refuses each rule that cannot be matched.
 func TestClassifyRefusesWhatItCannotMatch(t *testing.T) {
 	cases := []struct {
-		name     string
-		c        capture
-		headless bool
-		want     RouteKind
-		reason   string
+		name   string
+		c      capture
+		want   RouteKind
+		reason string
 	}{
-		{"clean read is direct", capOf(testReading, cleanListing, map[string]string{"/etc/ssh/ssh_config": "Host x\n"}), true, RouteDirect, ""},
-		{"exec marker in the diagnostics", capOf(testReading+testExec, cleanListing, map[string]string{"/c": "Host x\n"}), false, RouteUnknown, "Match exec command runs"},
-		{"exec test in a file", capOf(testReading, cleanListing, map[string]string{"/c": "Match host x exec true\n"}), false, RouteUnknown, "Match exec test"},
-		{"dollar outside a comment, headless", capOf(testReading, cleanListing, map[string]string{"/c": "IdentityAgent ${SSH_AUTH_SOCK}\n"}), true, RouteUnknown, "environment variable"},
-		{"dollar outside a comment, terminal", capOf(testReading, cleanListing, map[string]string{"/c": "IdentityAgent ${SSH_AUTH_SOCK}\n"}), false, RouteDirect, ""},
-		{"dollar in an Include, terminal", capOf(testReading, cleanListing, map[string]string{"/c": "Include /d/${FOO}.conf\n"}), false, RouteUnknown, "Include uses an environment variable"},
-		{"dollar in an Include, headless", capOf(testReading, cleanListing, map[string]string{"/c": "Include /d/${FOO}.conf\n"}), true, RouteUnknown, "Include uses an environment variable"},
-		{"dollar in a full-line comment", capOf(testReading, cleanListing, map[string]string{"/c": "# $OpenBSD: ssh_config\n"}), true, RouteDirect, ""},
-		{"KnownHostsCommand in the listing", capOf(testReading, "hostname x\nknownhostscommand touch /t\n", map[string]string{"/c": "Host x\n"}), false, RouteUnknown, "KnownHostsCommand"},
-		{"KnownHostsCommand none is not a command", capOf(testReading, "hostname x\nknownhostscommand none\n", map[string]string{"/c": "Host x\n"}), false, RouteDirect, ""},
-		{"ProxyJump in the listing is proxied", capOf(testReading, "hostname x\nproxyjump bastion\n", map[string]string{"/c": "Host x\n"}), true, RouteProxied, ""},
-		{"ProxyCommand in the listing is proxied", capOf(testReading, "hostname x\nproxycommand nc %h %p\n", map[string]string{"/c": "Host x\n"}), true, RouteProxied, ""},
-		{"ProxyJump none is direct", capOf(testReading, "hostname x\nproxyjump none\n", map[string]string{"/c": "Host x\n"}), true, RouteDirect, ""},
+		{"clean read is direct", capOf(testReading, cleanListing, map[string]string{"/etc/ssh/ssh_config": "Host x\n"}), RouteDirect, ""},
+		{"exec marker in the diagnostics", capOf(testReading+testExec, cleanListing, map[string]string{"/c": "Host x\n"}), RouteUnknown, "Match exec command runs"},
+		{"exec test in a file", capOf(testReading, cleanListing, map[string]string{"/c": "Match host x exec true\n"}), RouteUnknown, "Match exec test"},
+		{"dollar outside a comment", capOf(testReading, cleanListing, map[string]string{"/c": "IdentityAgent ${SSH_AUTH_SOCK}\n"}), RouteUnknown, "environment variable"},
+		{"dollar in a User", capOf(testReading, cleanListing, map[string]string{"/c": "User ${FOO}u\n"}), RouteUnknown, "environment variable"},
+		{"dollar in an Include", capOf(testReading, cleanListing, map[string]string{"/c": "Include /d/${FOO}.conf\n"}), RouteUnknown, "Include uses an environment variable"},
+		{"dollar in a full-line comment", capOf(testReading, cleanListing, map[string]string{"/c": "# $OpenBSD: ssh_config\n"}), RouteDirect, ""},
+		{"canonicalization on", capOf(testReading, "hostname x\ncanonicalizehostname true\nproxyjump none\n", map[string]string{"/c": "Host x\n"}), RouteUnknown, "CanonicalizeHostname is on"},
+		{"canonicalization not reported", capOf(testReading, "hostname x\nproxyjump none\n", map[string]string{"/c": "Host x\n"}), RouteUnknown, "does not report it"},
+		{"KnownHostsCommand in the listing", capOf(testReading, "hostname x\ncanonicalizehostname false\nknownhostscommand touch /t\n", map[string]string{"/c": "Host x\n"}), RouteUnknown, "KnownHostsCommand"},
+		{"KnownHostsCommand none is not a command", capOf(testReading, "hostname x\ncanonicalizehostname false\nknownhostscommand none\n", map[string]string{"/c": "Host x\n"}), RouteDirect, ""},
+		{"ProxyJump in the listing is proxied", capOf(testReading, "hostname x\ncanonicalizehostname false\nproxyjump bastion\n", map[string]string{"/c": "Host x\n"}), RouteProxied, ""},
+		{"ProxyCommand in the listing is proxied", capOf(testReading, "hostname x\ncanonicalizehostname false\nproxycommand nc %h %p\n", map[string]string{"/c": "Host x\n"}), RouteProxied, ""},
+		{"ProxyJump none is direct", capOf(testReading, cleanListing, map[string]string{"/c": "Host x\n"}), RouteDirect, ""},
+		{"no hostname line is unknown", capOf(testReading, "canonicalizehostname false\n", map[string]string{"/c": "Host x\n"}), RouteUnknown, "no hostname line"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			r := classify(c.c, c.headless)
+			r := classify(c.c)
 			if r.Kind != c.want {
 				t.Fatalf("kind = %s (%q), want %s", r.Kind, r.Reason, c.want)
 			}
@@ -59,7 +61,7 @@ func TestClassifyRefusesWhatItCannotMatch(t *testing.T) {
 // The line scanner follows ssh's own rules: keywords are case-insensitive, = is a
 // separator, and a full-line comment is never parsed.
 func TestScanFileFollowsSSHSyntax(t *testing.T) {
-	cases := map[string]bool{ // true when the scanner refuses, in headless mode
+	cases := map[string]bool{ // true when the scanner refuses
 		"match exec \"true\"\n":       true,
 		"MATCH EXEC \"true\"\n":       true,
 		"Match=exec \"true\"\n":       true,
@@ -76,7 +78,7 @@ func TestScanFileFollowsSSHSyntax(t *testing.T) {
 		"# $OpenBSD\n":                false,
 	}
 	for body, refuse := range cases {
-		got := scanFile([]byte(body), true) != ""
+		got := scanFile([]byte(body)) != ""
 		if got != refuse {
 			t.Errorf("scanFile(%q) refused = %v, want %v", body, got, refuse)
 		}

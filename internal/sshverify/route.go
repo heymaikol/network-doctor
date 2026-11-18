@@ -73,7 +73,7 @@ func ReadRoute(ctx context.Context, program string, args []string) (Route, error
 	if !first.same(second) {
 		return Route{Kind: RouteUnknown, Reason: "the SSH configuration changed while netdoc read it, so no route is established; nothing was sent"}, nil
 	}
-	return classify(first, !TerminalAvailable()), nil
+	return classify(first), nil
 }
 
 func unsupportedPlatform() error {
@@ -150,9 +150,8 @@ func readingFiles(diag []byte) []string {
 }
 
 // classify turns one complete read into a route. The rules are checked in order and
-// the first that refuses names the reason. headless is true when netdoc has no terminal
-// of its own, which the rules for $ depend on.
-func classify(c capture, headless bool) Route {
+// the first that refuses names the reason.
+func classify(c capture) Route {
 	unknown := func(reason string) Route {
 		return Route{Kind: RouteUnknown, Reason: reason, Listing: c.listing}
 	}
@@ -160,9 +159,15 @@ func classify(c capture, headless bool) Route {
 		return unknown("a Match exec command runs in the configuration; its answer depends on the environment, which netdoc cannot reproduce")
 	}
 	for i, body := range c.contents {
-		if reason := scanFile(body, headless); reason != "" {
+		if reason := scanFile(body); reason != "" {
 			return unknown(fmt.Sprintf("%s (in %s)", reason, textsafe.Clean(c.files[i])))
 		}
+	}
+	if value, set := listingValue(c.listing, "canonicalizehostname"); !set || value != "false" {
+		// Canonicalization re-reads the configuration under the canonical name, so the
+		// Host blocks that apply can change after resolution. A name resolved in another
+		// environment can then give another route, so it is not known here.
+		return unknown("CanonicalizeHostname is on, or the listing does not report it, so the Host blocks that apply may change after the name is resolved")
 	}
 	if _, set := listingValue(c.listing, "hostname"); !set {
 		// Every client that reads -G prints hostname. Its absence means the listing is
@@ -188,10 +193,14 @@ func classify(c capture, headless bool) Route {
 // The Match rule is a substring rule on purpose: exec anywhere after the keyword
 // refuses, so quoted, negated, canonical and "=" forms are all covered. A
 // `Match host "exec"` is refused too, which is a false refusal that is accepted.
-// The $ rule catches environment expansion. An Include path with $ is refused in
-// every mode, because netdoc cannot show which file ssh reads for it. Any other $
-// is refused only when headless, because a terminal run has the user's environment.
-func scanFile(text []byte, headless bool) string {
+//
+// The $ rule refuses any non-comment line that has one, in both modes. ssh expands
+// environment variables in several keywords that choose a host, an account, a trust
+// file or an agent, and the expansion depends on the environment the client runs in.
+// A terminal run has the user's environment only when netdoc was started from the
+// user's shell, so the rule does not depend on that. The narrower list of expanding
+// keywords is OpenSSH-version-dependent and is not used.
+func scanFile(text []byte) string {
 	for _, raw := range strings.Split(string(text), "\n") {
 		line := strings.TrimLeft(raw, " \t\r")
 		if line == "" || line[0] == '#' {
@@ -202,9 +211,7 @@ func scanFile(text []byte, headless bool) string {
 			if kw == "include" {
 				return "an Include uses an environment variable, so netdoc cannot show which file ssh reads"
 			}
-			if headless {
-				return "a directive uses an environment variable, which a headless run cannot match"
-			}
+			return "a directive uses an environment variable, whose value depends on the environment netdoc runs in"
 		}
 		if kw == "match" && strings.Contains(strings.ToLower(line[len(kw):]), "exec") {
 			return "a Match exec test"

@@ -29,7 +29,7 @@ func fakeClient(t *testing.T, script string) string {
 	if err := os.WriteFile(cfg, []byte("Host *\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	body := "#!/bin/sh\necho 'debug1: Reading configuration data " + cfg + "' >&2\n" + script
+	body := "#!/bin/sh\necho 'debug1: Reading configuration data " + cfg + "' >&2\necho 'canonicalizehostname false'\n" + script
 	if err := os.WriteFile(path, []byte(body), 0o700); err != nil { // #nosec G306 -- the test writes an executable fake ssh client on purpose
 		t.Fatal(err)
 	}

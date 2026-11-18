@@ -471,7 +471,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		select {
 		case framingErr = <-trailing:
 		case <-opCtx.Done():
-			framingErr = opCtx.Err()
+			framingErr = answeredPastDeadline{}
 		case <-time.After(responseEOFGrace):
 			// A complete valid response is already in hand. If stdout still has no end
 			// after the bounded teardown window, stop the local SSH transport. Killing
@@ -483,7 +483,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			select {
 			case framingErr = <-trailing:
 			case <-opCtx.Done():
-				framingErr = opCtx.Err()
+				framingErr = answeredPastDeadline{}
 			case <-time.After(cancelGrace):
 				// The answer stands only when the reader finishes once stdout is closed,
 				// and nothing other than whitespace followed the answer. A held pipe cannot
@@ -528,7 +528,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	// ends after this check does not undo the verdict. transportError still chooses
 	// between interrupted and timed out, because it reads the caller's context first.
 	if decodeErr == nil && opCtx.Err() != nil {
-		decodeErr = opCtx.Err()
+		decodeErr = answeredPastDeadline{}
 	}
 	if decodeErr != nil {
 		return Response{}, transportError(ctx, opCtx, limit, dest, exitStatus(cmd, waitErr), errBuf.String(), batch, decodeErr)
@@ -581,6 +581,16 @@ func readerWaitTimeout() <-chan time.Time {
 func hasNonSpace(b []byte) bool {
 	return len(bytes.TrimLeft(b, " \t\r\n")) > 0
 }
+
+// answeredPastDeadline is the outcome when the operation deadline passed after the worker's answer
+// was in hand. The answer is not used. It still reads as a deadline to callers that check for one,
+// but it is never the run's own timeout, so it carries no run-timeout mark.
+type answeredPastDeadline struct{}
+
+func (answeredPastDeadline) Error() string {
+	return "the remote run's deadline passed after its answer arrived"
+}
+func (answeredPastDeadline) Unwrap() error { return context.DeadlineExceeded }
 
 // ErrRunTimedOut marks the one error a caller may treat as an ordinary timeout of an
 // acquisition: the transport's own deadline ended a run whose ssh client had been started
@@ -663,6 +673,10 @@ func readAfterWriteFailure(ctx context.Context, stdout io.Reader, stop func()) (
 		return Response{}, requestNotDelivered(got.resp, nil)
 	case <-ctx.Done():
 		stop()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			// The answer was in hand, so this deadline is not a timeout of the run.
+			return Response{}, answeredPastDeadline{}
+		}
 		return Response{}, ctx.Err()
 	}
 }
@@ -699,16 +713,19 @@ func transportError(ctx, opCtx context.Context, limit time.Duration, dest string
 		// ssh refused or failed on its own. That exit is the answer, and it wins over a deadline
 		// that expired at the same moment: a refusal is never an ordinary timeout.
 		return withDetail(fmt.Sprintf("%s: ssh could not open the connection", cleanDest(dest)), detail)
-	case errors.Is(opCtx.Err(), context.DeadlineExceeded):
-		// Only a batch run's deadline is an ordinary timeout. An interactive run's also covers the
-		// time a person takes to answer a prompt, so it stays a plain failure, and it ends a pass.
+	case errors.Is(cause, context.DeadlineExceeded):
+		// The cause decides, not the clock. An answer that arrived before the deadline, and then
+		// met the deadline during the teardown, reports the deadline with the text it always had,
+		// but it carries no mark, because it is not the run's own timeout.
+		// Only a batch run's own deadline is an ordinary timeout. An interactive run's also covers
+		// the time a person takes to answer a prompt, so it stays a plain failure, and it ends a pass.
 		message := withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
 			join(detail,
 				"That is the time one diagnosis over SSH is allowed end to end, not a",
 				"verdict about the remote network: the connection, the remote netdoc, or",
 				"the path between them stopped making progress. Retry, or raise -timeout",
 				"if the remote run legitimately needs longer."))
-		if batch {
+		if batch && !errors.Is(cause, answeredPastDeadline{}) {
 			return timedOutError{message.Error()}
 		}
 		return message

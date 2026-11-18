@@ -47,3 +47,27 @@ func TestDeadlineBeforeStartIsNotARunTimeout(t *testing.T) {
 		t.Fatalf("a deadline that ended before ssh started is marked as a run timeout: %v", err)
 	}
 }
+
+// An answer that arrived before the deadline is not a timeout, however the deadline ends the
+// teardown: the answer is not used, and it does not carry the run-timeout mark.
+func TestAnsweredPastDeadlineIsNotMarked(t *testing.T) {
+	ctx := context.Background()
+	opCtx, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	defer cancel()
+	err := transportError(ctx, opCtx, time.Second, "lab", -1, "", true, answeredPastDeadline{})
+	if errors.Is(err, ErrRunTimedOut) {
+		t.Fatalf("an answer that arrived before the deadline is marked as a run timeout: %v", err)
+	}
+}
+
+// A framing failure that is already known is not a timeout when the deadline passes during the
+// teardown that follows it: the cause decides the mark, not the clock.
+func TestFramingFailureAtDeadlineIsNotMarked(t *testing.T) {
+	ctx := context.Background()
+	opCtx, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	defer cancel()
+	err := transportError(ctx, opCtx, time.Second, "lab", -1, "", true, errors.New("the remote sent more than one response"))
+	if errors.Is(err, ErrRunTimedOut) {
+		t.Fatalf("a protocol error is marked as a run timeout because the deadline passed later: %v", err)
+	}
+}

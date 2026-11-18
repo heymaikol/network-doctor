@@ -82,7 +82,13 @@ func fakeSSH(mode string) int {
 	case "garbage":
 		fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		return 0
-	case "config", "configproxy", "configproxycommand", "confignoneproxy", "configexec":
+	case "config", "configproxy", "configproxycommand", "confignoneproxy", "configexec", "configthenhang":
+		if mode == "configthenhang" && !hasArg(os.Args[1:], "-G") {
+			// A connection that gets as far as the configuration, and then never answers the
+			// request: the worker stalls.
+			stall()
+			return 0
+		}
 		// `ssh -G`: the effective configuration, one lowercased keyword per
 		// line, printed without connecting to anything. ssh leaves a proxy
 		// keyword out entirely when it is unset or set to none, and

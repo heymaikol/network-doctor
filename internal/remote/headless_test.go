@@ -2,8 +2,10 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 )
@@ -85,5 +87,39 @@ func TestHeadlessRunNamesAMissingSSH(t *testing.T) {
 	_, err := Run(context.Background(), "server", "", Request{TimeoutMs: 3000})
 	if err == nil || !strings.Contains(err.Error(), "netdoc-ssh-not-installed-for-test") {
 		t.Fatalf("a headless run with no ssh returned %v; want the missing program named", err)
+	}
+}
+
+// A headless batch run whose connection stalls after the route was established is the
+// transport's own deadline, so it is marked as a run timeout. The route read answers, and the
+// worker never does.
+func TestHeadlessBatchDeadlineIsMarkedAsARunTimeout(t *testing.T) {
+	useFakeSSH(t, "configthenhang")
+	withoutTerminal(t)
+	savedAllowance := transportAllowance
+	transportAllowance = 300 * time.Millisecond
+	t.Cleanup(func() { transportAllowance = savedAllowance })
+	_, err := Run(context.Background(), "ideapad", "", Request{})
+	if err == nil || !errors.Is(err, ErrRunTimedOut) {
+		t.Fatalf("a stalled headless batch run returned %v; want a run timeout", err)
+	}
+}
+
+// Negative control, headless: a route read that stalls is a gate, not the run's deadline. It
+// refuses the run, and the refusal does not carry the run-timeout mark, so the profile pass ends
+// on it as it does on any refusal. The read stops after its own budget, which takes about ten
+// seconds.
+func TestHeadlessRouteReadTimeoutIsNotARunTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("the route read waits out its own budget")
+	}
+	useFakeSSH(t, "hang")
+	withoutTerminal(t)
+	_, err := Run(context.Background(), "ideapad", "", Request{})
+	if err == nil {
+		t.Fatal("a headless run whose route read stalled returned no error")
+	}
+	if errors.Is(err, ErrRunTimedOut) {
+		t.Fatalf("a stalled route read is marked as a run timeout: %v", err)
 	}
 }

@@ -358,6 +358,9 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	// #nosec G204 -- sshProgram is fixed, dest is validated against argv option
 	// injection, and every element stays a separate argument, never shell text.
 	cmd := exec.CommandContext(opCtx, sshProgram, args...)
+	if batch {
+		configureBatchProcess(cmd)
+	}
 	cmd.WaitDelay = cancelGrace
 	errBuf := &capped{limit: maxStderrBytes}
 	cmd.Stderr = errBuf

@@ -15,7 +15,12 @@ import (
 func configureBatchProcess(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		killBatchProcess(cmd)
 		return nil
 	}
+}
+
+// killBatchProcess kills a batch ssh client and every process in the group it leads.
+func killBatchProcess(cmd *exec.Cmd) {
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }

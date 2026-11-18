@@ -5,6 +5,8 @@ package remote
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -23,17 +25,16 @@ func heartbeats(path string) int {
 	return bytes.Count(b, []byte("\n"))
 }
 
-// A cancelled batch run must not leave the processes its ssh started running. The
-// stand-in ssh starts a descendant that appends a heartbeat every 50 ms, then stalls. The
-// run is cancelled once the descendant is beating. Killing only the stand-in would leave the
-// descendant beating; killing its process group stops it.
-func TestCancelledBatchRunKillsItsDescendants(t *testing.T) {
+// installStandIn makes the batch ssh a stand-in that starts a descendant appending a heartbeat
+// every 50 ms, then stalls. It returns the heartbeat file. The stand-in records its pids, so a
+// failing test still kills them.
+func installStandIn(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
 	beat := filepath.Join(dir, "beat")
 	subPID := filepath.Join(dir, "sub.pid")
 	stallPID := filepath.Join(dir, "stall.pid")
 	script := filepath.Join(dir, "ssh")
-	// The descendant and the stall record their pids, so a failing run can still kill them.
 	body := "#!/bin/sh\n" +
 		"( echo $$ > '" + subPID + "'; while :; do echo beat >> '" + beat + "'; sleep 0.05; done ) &\n" +
 		"sleep 30 &\n" +
@@ -57,7 +58,29 @@ func TestCancelledBatchRunKillsItsDescendants(t *testing.T) {
 	savedTerminal := sshverify.TerminalAvailable
 	sshverify.TerminalAvailable = func() bool { return true }
 	t.Cleanup(func() { sshverify.TerminalAvailable = savedTerminal })
+	return beat
+}
 
+// requireStopped checks that the descendant was beating when the run returned, and that it
+// stopped then. The heartbeat is every 50 ms, so a live descendant adds several lines in the
+// window; a stopped one adds none.
+func requireStopped(t *testing.T, beat string) {
+	t.Helper()
+	before := heartbeats(beat)
+	if before == 0 {
+		t.Fatal("the descendant never beat, so the test proves nothing")
+	}
+	time.Sleep(500 * time.Millisecond)
+	if after := heartbeats(beat); after != before {
+		t.Fatalf("a process started by the batch ssh kept running after the run returned: %d more heartbeats", after-before)
+	}
+}
+
+// A cancelled batch run must not leave the processes its ssh started running. The run is
+// cancelled once the descendant is beating. Killing only the stand-in would leave the
+// descendant beating; killing its process group stops it.
+func TestCancelledBatchRunKillsItsDescendants(t *testing.T) {
+	beat := installStandIn(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan struct{})
@@ -65,7 +88,6 @@ func TestCancelledBatchRunKillsItsDescendants(t *testing.T) {
 		defer close(done)
 		_, _ = RunBatch(ctx, "lab", "", Request{TimeoutMs: 20000})
 	}()
-
 	deadline := time.Now().Add(10 * time.Second)
 	for heartbeats(beat) == 0 {
 		if time.Now().After(deadline) {
@@ -79,11 +101,22 @@ func TestCancelledBatchRunKillsItsDescendants(t *testing.T) {
 	case <-time.After(cancelGrace + 10*time.Second):
 		t.Fatal("the run did not return after it was cancelled")
 	}
+	requireStopped(t, beat)
+}
 
-	// The descendant beats every 50 ms, so a live one adds several lines in this window.
-	before := heartbeats(beat)
-	time.Sleep(500 * time.Millisecond)
-	if after := heartbeats(beat); after != before {
-		t.Fatalf("a process started by the batch ssh kept running after the run was cancelled: %d more heartbeats", after-before)
+// A batch run whose request write fails kills its processes too. The write is failed through
+// the writeRequest seam, so the run takes the write-failure path: it waits for a response that
+// never comes, then stops ssh. The descendant must be beating when the run returns, and stopped
+// after it.
+func TestWriteFailureKillsBatchDescendants(t *testing.T) {
+	beat := installStandIn(t)
+	savedWrite := writeRequest
+	writeRequest = func(io.Writer, []byte) (int, error) { return 0, errors.New("broken pipe") }
+	t.Cleanup(func() { writeRequest = savedWrite })
+
+	_, err := RunBatch(context.Background(), "lab", "", Request{TimeoutMs: 20000})
+	if err == nil {
+		t.Fatal("a run whose request write failed returned no error")
 	}
+	requireStopped(t, beat)
 }

@@ -401,7 +401,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		// output says more than the broken pipe does, so it decides the verdict.
 		// A clean answer cannot be this request's, because the request never
 		// arrived whole.
-		resp, decodeErr = readAfterWriteFailure(opCtx, stdout, func() { _ = cmd.Process.Kill() })
+		resp, decodeErr = readAfterWriteFailure(opCtx, stdout, func() { killRun(cmd, batch) })
 		stopSSH = true
 	} else {
 		// The first value is read on its own goroutine, so the operation context can
@@ -443,7 +443,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	if stopSSH {
 		// A peer that already failed decoding or framing gets no teardown
 		// grace. Stop ssh so the failed exchange cannot strand its writer.
-		_ = cmd.Process.Kill()
+		killRun(cmd, batch)
 		_ = stdout.Close()
 	} else {
 		// Check the remainder on the exact decoder and LimitedReader that read
@@ -465,7 +465,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			// pipe, letting the framing check finish without treating remote EOF as an
 			// unbounded requirement. That wait is bounded by cancelGrace, because a
 			// process other than ssh can hold the pipe open and then nothing ends it.
-			_ = cmd.Process.Kill()
+			killRun(cmd, batch)
 			select {
 			case framingErr = <-trailing:
 			case <-opCtx.Done():
@@ -497,7 +497,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		}
 
 		if framingErr != nil {
-			_ = cmd.Process.Kill()
+			killRun(cmd, batch)
 			_ = stdout.Close()
 			decodeErr = framingErr
 		} else {
@@ -566,6 +566,17 @@ func readerWaitTimeout() <-chan time.Time {
 // hasNonSpace reports whether b holds anything other than JSON whitespace.
 func hasNonSpace(b []byte) bool {
 	return len(bytes.TrimLeft(b, " \t\r\n")) > 0
+}
+
+// killRun stops the ssh client a run started. A batch client leads a process group, and
+// every process in that group is stopped with it. The interactive client is stopped alone,
+// as it always was.
+func killRun(cmd *exec.Cmd, batch bool) {
+	if batch {
+		killBatchProcess(cmd)
+		return
+	}
+	_ = cmd.Process.Kill()
 }
 
 // readAfterWriteFailure reads what a worker wrote before its stdin stopped

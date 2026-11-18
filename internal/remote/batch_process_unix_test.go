@@ -151,3 +151,24 @@ func TestGateRefusalIsNotMarkedAsARunTimeout(t *testing.T) {
 		t.Fatalf("a route check that timed out is marked as a run timeout: %v", err)
 	}
 }
+
+// An interactive run's deadline is not a run timeout: the time a person spends answering a prompt
+// is inside it. On a terminal the run is interactive, so the same stalled connection stays a plain
+// failure and ends the pass.
+func TestInteractiveDeadlineIsNotMarked(t *testing.T) {
+	installStandIn(t)
+	savedAllowance := transportAllowance
+	transportAllowance = 300 * time.Millisecond
+	t.Cleanup(func() { transportAllowance = savedAllowance })
+	savedTerminal := sshverify.TerminalAvailable
+	sshverify.TerminalAvailable = func() bool { return true }
+	t.Cleanup(func() { sshverify.TerminalAvailable = savedTerminal })
+
+	_, err := Run(context.Background(), "lab", "", Request{})
+	if err == nil {
+		t.Fatal("a stalled interactive run returned no error")
+	}
+	if errors.Is(err, ErrRunTimedOut) {
+		t.Fatalf("an interactive run's deadline is marked as a run timeout: %v", err)
+	}
+}

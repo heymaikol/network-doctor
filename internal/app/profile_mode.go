@@ -136,12 +136,6 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 			// The noninteractive attempt asks nothing, so say that it did not.
 			outputs[i].err = fmt.Errorf("%w; no question was asked, and a run from a terminal can answer any question the destination asks", outputs[i].err)
 		}
-		if !batch && outputs[i].err != nil && ordinaryTimeout(outputs[i].err) {
-			// An interactive run's deadline also covers the time a person takes to answer a
-			// prompt, so it is not an ordinary timeout of the component. It ends the pass, as it
-			// did before the mark. The text is kept, and the mark is not.
-			outputs[i].err = errors.New(outputs[i].err.Error())
-		}
 	}
 	// together runs every component from first onwards at once. A component
 	// that fails does not cancel its siblings: each one is an independent

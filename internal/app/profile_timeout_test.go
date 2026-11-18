@@ -188,7 +188,8 @@ func TestProfileWatchSavesOnlyPassesThatFinished(t *testing.T) {
 func TestProfileInteractiveTimeoutStillEndsThePass(t *testing.T) {
 	plan := githubPlan(t)
 	tr := traceProfileVia(t, 0, func(remote.Request, bool) (remote.Response, error) {
-		return remote.Response{}, timedOut("ideapad")
+		// An interactive run's deadline is not marked: the transport leaves that mark off.
+		return remote.Response{}, fmt.Errorf("ideapad: the remote run timed out after 1s")
 	})
 	stubRemoteDirect(t, false)
 	_, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
@@ -225,5 +226,29 @@ func TestProfileOneShotSaveWithATimeoutExitsWithTwo(t *testing.T) {
 	}
 	if _, err := os.Stat(save); err == nil {
 		t.Error("a pass with an unfinished component was written")
+	}
+}
+
+// A marked timeout on the sequential path is a component failure, and the next component still runs.
+// A headless run is acquired over the batch transport even on this path, so its deadline arrives
+// marked while the app asked for an interactive run.
+func TestProfileSequentialBatchTimeoutIsAComponentFailure(t *testing.T) {
+	plan := githubPlan(t)
+	tr := traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if req.Target == plan.Runs[0].Target.Raw {
+			return remote.Response{}, timedOut("ideapad")
+		}
+		return profileComponentAnswer(t, req, true), nil
+	})
+	stubRemoteDirect(t, false)
+	result, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
+	if err != nil {
+		t.Fatalf("a marked timeout ended the sequential pass: %v", err)
+	}
+	if got := result.Components[0].Status; got != profile.StatusFail {
+		t.Errorf("timed-out component status = %q, want %q", got, profile.StatusFail)
+	}
+	if len(tr.snapshot().calls) != len(plan.Runs) {
+		t.Errorf("acquisitions = %d, want every component attempted once", len(tr.snapshot().calls))
 	}
 }

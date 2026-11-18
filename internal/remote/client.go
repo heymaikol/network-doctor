@@ -393,7 +393,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
 				return Response{}, fmt.Errorf("%s: the run timed out before ssh started", cleanDest(dest))
 			}
-			return Response{}, transportError(ctx, opCtx, limit, dest, -1, "", err)
+			return Response{}, transportError(ctx, opCtx, limit, dest, -1, "", batch, err)
 		}
 		return Response{}, fmt.Errorf("could not run ssh: %s", clean(err.Error()))
 	}
@@ -531,7 +531,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		decodeErr = opCtx.Err()
 	}
 	if decodeErr != nil {
-		return Response{}, transportError(ctx, opCtx, limit, dest, exitStatus(cmd, waitErr), errBuf.String(), decodeErr)
+		return Response{}, transportError(ctx, opCtx, limit, dest, exitStatus(cmd, waitErr), errBuf.String(), batch, decodeErr)
 	}
 	// A response decoded, so the exchange succeeded and ssh's exit status is
 	// not consulted for the verdict. The worker exits 0 for a failed diagnosis
@@ -690,7 +690,7 @@ func requestNotDelivered(resp Response, extra error) error {
 // leave opCtx.Err() non-nil, and only the caller's own context can say which
 // happened. Reading the derived one first would report every remote timeout as
 // an interruption nobody performed.
-func transportError(ctx, opCtx context.Context, limit time.Duration, dest string, status int, stderrText string, cause error) error {
+func transportError(ctx, opCtx context.Context, limit time.Duration, dest string, status int, stderrText string, batch bool, cause error) error {
 	detail := indentLines(clean(stderrText))
 	switch {
 	case ctx.Err() != nil:
@@ -700,12 +700,18 @@ func transportError(ctx, opCtx context.Context, limit time.Duration, dest string
 		// that expired at the same moment: a refusal is never an ordinary timeout.
 		return withDetail(fmt.Sprintf("%s: ssh could not open the connection", cleanDest(dest)), detail)
 	case errors.Is(opCtx.Err(), context.DeadlineExceeded):
-		return timedOutError{withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
+		// Only a batch run's deadline is an ordinary timeout. An interactive run's also covers the
+		// time a person takes to answer a prompt, so it stays a plain failure, and it ends a pass.
+		message := withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
 			join(detail,
 				"That is the time one diagnosis over SSH is allowed end to end, not a",
 				"verdict about the remote network: the connection, the remote netdoc, or",
 				"the path between them stopped making progress. Retry, or raise -timeout",
-				"if the remote run legitimately needs longer.")).Error()}
+				"if the remote run legitimately needs longer."))
+		if batch {
+			return timedOutError{message.Error()}
+		}
+		return message
 	case errors.Is(cause, ErrNoResponse):
 		return withDetail(fmt.Sprintf("%s: netdoc did not run on the SSH host%s", cleanDest(dest), statusPhrase(status)),
 			join(detail,

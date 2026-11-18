@@ -17,7 +17,7 @@ func TestRefusalWinsOverTheDeadline(t *testing.T) {
 	ctx := context.Background()
 	opCtx, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
 	defer cancel()
-	err := transportError(ctx, opCtx, time.Second, "lab", sshFailedStatus, "Permission denied (publickey).", errors.New("eof"))
+	err := transportError(ctx, opCtx, time.Second, "lab", sshFailedStatus, "Permission denied (publickey).", true, errors.New("eof"))
 	if errors.Is(err, ErrRunTimedOut) {
 		t.Fatalf("a refusal that landed on the deadline is marked as a run timeout: %v", err)
 	}

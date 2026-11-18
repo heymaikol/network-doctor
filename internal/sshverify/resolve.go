@@ -157,14 +157,29 @@ var canaryCheck = ensureCanary
 // per process. A result cut short by a cancellation is not kept.
 var canaries sync.Map
 
+// hostBlock is the destination the canary reads. Its address is loopback and it
+// names no real host, so nothing the canary does reaches the network.
+const hostBlock = "Host canary\n  HostName 127.0.0.1\n  Port 2260\n  User demo\n"
+
 const (
-	canaryExecConfig  = "Match host canary exec \"true\"\nHost canary\n  HostName 127.0.0.1\n  Port 2260\n  User demo\n"
-	canaryPlainConfig = "Host canary\n  HostName 127.0.0.1\n  Port 2260\n  User demo\n"
+	canaryExecConfig  = "Match host canary exec \"true\"\n" + hostBlock
+	canaryPlainConfig = hostBlock
 )
 
-// ensureCanary runs the client on two configurations netdoc writes itself. The one
-// with a Match exec test must report that the command ran; the one without must
-// report none. A client that does not report both is refused.
+// Canary probe names. A refusal names the probe that failed, so a difference in the
+// installed OpenSSH can be told apart from a real risk.
+const (
+	probeMarkerExec        = "marker-exec"
+	probeMarkerPlain       = "marker-plain"
+	probeCanonicalExec     = "canonical-exec"
+	probeProxyJumpNone     = "proxyjump-none"
+	probeKnownHostsCommand = "knownhostscommand"
+)
+
+// ensureCanary runs the fixed probes against the client once per process. A client
+// that fails any of them is refused: the configuration rules depend on how it reads
+// a configuration, and a client that reads differently cannot be trusted with one.
+// A result cut short by a cancellation is not kept.
 func ensureCanary(ctx context.Context, program string) error {
 	if v, ok := canaries.Load(program); ok {
 		err, _ := v.(error)
@@ -179,41 +194,105 @@ func ensureCanary(ctx context.Context, program string) error {
 	return err
 }
 
+// runCanary runs five probes. Each one is a configuration netdoc writes itself, read
+// with the same bounded runner every read uses.
 func runCanary(ctx context.Context, program string) error {
 	dir, err := os.MkdirTemp("", "netdoc-canary-")
 	if err != nil {
-		return canaryFailure("no temporary directory for the check")
+		return canaryFail("setup", "no temporary directory for the check")
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	withExec := filepath.Join(dir, "exec.config")
-	plain := filepath.Join(dir, "plain.config")
-	if err := os.WriteFile(withExec, []byte(canaryExecConfig), 0o600); err != nil {
-		return canaryFailure("the check could not write its configuration")
+	if strings.ContainsAny(dir, " \t'\"") {
+		return canaryFail("setup", "the temporary directory name has spaces or quotes, which the KnownHostsCommand probe cannot carry")
 	}
-	if err := os.WriteFile(plain, []byte(canaryPlainConfig), 0o600); err != nil {
-		return canaryFailure("the check could not write its configuration")
+	sentinel := filepath.Join(dir, "ran")
+
+	out, diag, err := runProbe(ctx, program, dir, probeMarkerExec, canaryExecConfig)
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(diag, []byte(readingMarker)) || !bytes.Contains(diag, []byte(execMarker)) || !hasLine(out, "hostname 127.0.0.1") {
+		return canaryFail(probeMarkerExec, "the client did not report the Match exec test that the check runs")
 	}
 
-	out, diag, err := readConfig(ctx, program, []string{"-v", "-G", "-F", withExec, "--", "canary"})
+	out, diag, err = runProbe(ctx, program, dir, probeMarkerPlain, canaryPlainConfig)
 	if err != nil {
-		return canaryFailure(err.Error())
+		return err
 	}
-	if !bytes.Contains(diag, []byte(readingMarker)) || !bytes.Contains(diag, []byte(execMarker)) || !bytes.Contains(out, []byte("hostname 127.0.0.1")) {
-		return canaryFailure("the client did not report the Match exec test that the check runs")
+	if !bytes.Contains(diag, []byte(readingMarker)) || bytes.Contains(diag, []byte(execMarker)) || !hasLine(out, "hostname 127.0.0.1") {
+		return canaryFail(probeMarkerPlain, "the client reported a Match exec test in a configuration that has none")
 	}
 
-	out, diag, err = readConfig(ctx, program, []string{"-v", "-G", "-F", plain, "--", "canary"})
+	// Canonical is false here, because netdoc does not canonicalize hostnames, so an
+	// exec test behind it must not run.
+	out, diag, err = runProbe(ctx, program, dir, probeCanonicalExec, "Match canonical exec \"true\"\n"+hostBlock)
 	if err != nil {
-		return canaryFailure(err.Error())
+		return err
 	}
-	if !bytes.Contains(diag, []byte(readingMarker)) || bytes.Contains(diag, []byte(execMarker)) || !bytes.Contains(out, []byte("hostname 127.0.0.1")) {
-		return canaryFailure("the client reported a Match exec test in a configuration that has none")
+	if bytes.Contains(diag, []byte(execMarker)) || !hasLine(out, "hostname 127.0.0.1") {
+		return canaryFail(probeCanonicalExec, "an exec test behind canonical ran although canonical did not match")
+	}
+
+	out, _, err = runProbe(ctx, program, dir, probeProxyJumpNone, hostBlock+"  ProxyJump none\n")
+	if err != nil {
+		return err
+	}
+	if !hasLine(out, "hostname 127.0.0.1") || listingKey(out, "proxyjump") || listingKey(out, "proxycommand") {
+		return canaryFail(probeProxyJumpNone, "ProxyJump none did not leave the route direct in the listing")
+	}
+
+	// -G prints KnownHostsCommand and must not run it: the command would otherwise
+	// run during every configuration read, before any route is known.
+	out, _, err = runProbe(ctx, program, dir, probeKnownHostsCommand, hostBlock+"  KnownHostsCommand touch "+sentinel+"\n")
+	if err != nil {
+		return err
+	}
+	if !listingKey(out, "knownhostscommand") {
+		return canaryFail(probeKnownHostsCommand, "the listing does not show the KnownHostsCommand the check set")
+	}
+	if _, statErr := os.Stat(sentinel); statErr == nil {
+		return canaryFail(probeKnownHostsCommand, "KnownHostsCommand ran during the configuration read")
 	}
 	return nil
 }
 
-func canaryFailure(detail string) error {
-	return fmt.Errorf("the installed ssh client does not report its configuration reads in the form netdoc checks (%s), so netdoc refuses to read the SSH configuration with it; nothing was sent", textsafe.Clean(detail))
+// runProbe writes one probe configuration and reads it. A read that fails is reported
+// with the probe's name.
+func runProbe(ctx context.Context, program, dir, name, body string) ([]byte, []byte, error) {
+	path := filepath.Join(dir, name+".config")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		return nil, nil, canaryFail(name, "the check could not write its configuration")
+	}
+	out, diag, err := readConfig(ctx, program, []string{"-v", "-G", "-F", path, "--", "canary"})
+	if err != nil {
+		return nil, nil, canaryFail(name, err.Error())
+	}
+	return out, diag, nil
+}
+
+// canaryFail is the refusal for one named probe. Nothing is sent when it is returned.
+func canaryFail(probe, detail string) error {
+	return fmt.Errorf("the installed ssh client failed canary probe %q: %s; netdoc refuses to read the SSH configuration with it, so nothing was sent", probe, textsafe.Clean(detail))
+}
+
+// hasLine reports whether the listing has exactly this line.
+func hasLine(out []byte, want string) bool {
+	for _, line := range bytes.Split(out, []byte("\n")) {
+		if string(bytes.TrimRight(line, "\r")) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// listingKey reports whether the listing has a line for this keyword, with any value.
+func listingKey(out []byte, key string) bool {
+	for _, line := range bytes.Split(out, []byte("\n")) {
+		if bytes.HasPrefix(line, []byte(key+" ")) {
+			return true
+		}
+	}
+	return false
 }
 
 // runSSHClient reads the configuration with -v and returns its complete standard

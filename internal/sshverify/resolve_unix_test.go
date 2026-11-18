@@ -317,7 +317,7 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 func TestCanaryRefusesAClientThatReportsNoExec(t *testing.T) {
 	client := fakeClient(t, "exit 0\n")
 	err := ensureCanary(context.Background(), client)
-	if err == nil || !strings.Contains(err.Error(), "does not report its configuration reads") {
+	if err == nil || !strings.Contains(err.Error(), `failed canary probe "marker-exec"`) {
 		t.Fatalf("a client without exec reports passed the canary: %v", err)
 	}
 }
@@ -342,7 +342,7 @@ func TestResolveRunsTheCanaryFirst(t *testing.T) {
 	useFakeClient(t, client, 10*time.Second)
 	canaryCheck = ensureCanary
 	_, err := Resolve(context.Background(), "host", 0, "")
-	if err == nil || !strings.Contains(err.Error(), "does not report its configuration reads") {
+	if err == nil || !strings.Contains(err.Error(), `failed canary probe "marker-exec"`) {
 		t.Fatalf("a read with a client that fails the canary returned %v; want the canary refusal", err)
 	}
 }

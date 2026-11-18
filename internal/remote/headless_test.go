@@ -50,6 +50,20 @@ func TestHeadlessRunConnectsOnlyWithBatchOptions(t *testing.T) {
 	}
 }
 
+// A headless connection pins the host and port its configuration read classified, so the
+// connection goes where the read said it goes. The fake reports 10.0.0.5 on port 22.
+func TestHeadlessConnectionPinsTheClassifiedEndpoint(t *testing.T) {
+	argvPath, _ := useFakeSSH(t, "config")
+	withoutTerminal(t)
+	_, _ = Run(context.Background(), "ideapad", "", Request{})
+	argv := strings.Join(readLines(t, argvPath), " ")
+	for _, want := range []string{"HostName=10.0.0.5", "Port=22"} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("a headless connection is not pinned to %q: argv %q", want, argv)
+		}
+	}
+}
+
 // The positive control on a terminal: the same direct route runs without the batch
 // options, so the user can answer what ssh asks, as before.
 func TestTerminalRunKeepsTheInteractiveTransport(t *testing.T) {

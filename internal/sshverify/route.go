@@ -305,6 +305,14 @@ func keywordOf(line string) string {
 // listingValue returns the value the listing gives a keyword, and whether it is there.
 // The listing carries one line per keyword, the effective value, so a none written in
 // any form is absent or the word none.
+// Endpoint returns the host name and port the configuration resolved dest to, as the read
+// reported them. Both are empty when the listing does not report them.
+func (r Route) Endpoint() (host, port string) {
+	host, _ = listingValue(r.Listing, "hostname")
+	port, _ = listingValue(r.Listing, "port")
+	return host, port
+}
+
 func listingValue(listing []byte, key string) (string, bool) {
 	for _, line := range strings.Split(string(listing), "\n") {
 		k, v, ok := strings.Cut(strings.TrimRight(line, "\r"), " ")

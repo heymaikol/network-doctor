@@ -306,6 +306,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	} else if err := validateCommand(command); err != nil {
 		return Response{}, err
 	}
+	var endpoint []string
 	if !sshverify.TerminalAvailable() {
 		// A run with no terminal of its own cannot answer a prompt, so it connects only
 		// by a route it has established as direct, and every ssh it starts is batch. A
@@ -317,6 +318,11 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			return Response{}, headlessRefusal(route)
 		}
 		batch = true
+		// The connection reads the configuration again. Pinning the host and port this read
+		// classified keeps the connection where the read said it goes.
+		if host, port := route.Endpoint(); host != "" && port != "" {
+			endpoint = []string{"HostName=" + host, "Port=" + port}
+		}
 	}
 	req.Protocol = Protocol
 	body, err := marshalRequest(req)
@@ -350,6 +356,9 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	if batch {
 		// Ahead of the destination, because ssh reads options before it.
 		for _, option := range batchOptions {
+			args = append(args, "-o", option)
+		}
+		for _, option := range endpoint {
 			args = append(args, "-o", option)
 		}
 	}

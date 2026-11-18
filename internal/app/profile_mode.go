@@ -187,9 +187,11 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// that cannot ask anything. It is a real component rather than a
 		// preflight: either this destination authenticates without a question,
 		// in which case the same transport carries the rest safely, or it does
-		// not and the pass fails. The later components are not overlapped until
-		// this one succeeds; they are safe because each one refuses interaction
-		// itself and holds the direct route the gate just read, so no proxy child
+		// not and the pass fails. A timeout is not a refusal: it is this
+		// component's failure, and the later components still run. They are not
+		// overlapped until this one has answered, and they are safe because each
+		// one refuses interaction itself and holds the direct route the gate just
+		// read, so no proxy child
 		// can appear part-way through the pass to ask on its behalf.
 		run(0, true)
 		if err := outputs[0].err; err != nil && !ordinaryTimeout(err) {

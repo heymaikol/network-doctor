@@ -78,6 +78,8 @@ var corpus = []corpusCase{
 	{"host other then match exec", "Host other\n  HostName x\nMatch exec \"true\"\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"match command selects a proxy", "Match command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"match command without a proxy", "Match command \"netdoc*\"\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"match final selects a proxy", "Match final\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", proxied, proxied},
+	{"match canonical with canonicalization off", "Match canonical\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", direct, direct},
 	{"match sessiontype", "Match sessiontype shell\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"match localnetwork", "Match localnetwork 127.0.0.0/8\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"match tagged", "Match tagged foo\nHost probe\n  HostName 127.0.0.1\n", refused, refused},

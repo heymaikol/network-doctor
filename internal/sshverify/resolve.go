@@ -97,16 +97,6 @@ var resolveOutput = func(ctx context.Context, args []string) ([]byte, error) {
 // does not. It is a variable so tests that stand in for a client can replace it.
 var TerminalAvailable = hasControllingTerminal
 
-// hasControllingTerminal reports whether this process can open its terminal.
-func hasControllingTerminal() bool {
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0) // #nosec G304 -- the controlling terminal, opened only to test for it
-	if err != nil {
-		return false
-	}
-	_ = tty.Close()
-	return true
-}
-
 // ReadConfig is the one way netdoc reads a configuration listing for verification. It
 // returns the complete listing when the route is known, with or without a proxy, and
 // an error otherwise: a route netdoc cannot match to the user's own ssh is refused

@@ -427,8 +427,9 @@ derived sentences remain display text.
   decided differently on a later component could start a jump child or a proxy
   program, and neither of those inherits the options below. The pin only ever
   applies to a destination your own configuration already reached directly; a
-  configured proxy is never pinned away. An accelerated acquisition that fails
-  fails the pass; it is not handed back to the ordinary transport. A
+  configured proxy is never pinned away. An accelerated acquisition that is
+  refused fails the pass; a timeout that ends it is that component's failure,
+  and the pass goes on. Neither is handed back to the ordinary transport. A
   nondeterministic `Match exec` can therefore still make one pass's accelerated
   attempt use the route the preflight read rather than a later one.
 - For a destination reached without a proxy, the first component is acquired
@@ -444,10 +445,20 @@ derived sentences remain display text.
   refused, the pass fails: netdoc does not retry the destination over the
   transport that can prompt, so no passphrase, host-key confirmation, agent,
   LocalCommand, or forwarding is used for it. The error says that no question
-  was asked, so run that destination on its own to answer one. A destination
+  was asked, and a run from a terminal can answer any question the destination
+  asks. A destination
   reached through a proxy, or whose configuration cannot be read, is acquired one
   component at a time over the ordinary transport, as before. Results stay in
   registry order either way.
+- A timeout is not a refusal. When the transport's own deadline ends a batch
+  acquisition, that component is recorded as failed, and the other components
+  still run. A watch goes on after a pass with a failed component. A pass with
+  one is not saved by `-save` or `-support`, because an artifact cannot hold a
+  component without its snapshot; netdoc says so on stderr, and the next pass
+  that finishes is saved in full. A timeout while netdoc reads the configuration
+  or checks the route is not a component timeout: headless, it refuses the run,
+  and on a terminal the destination is acquired one component at a time over the
+  ordinary transport, as it already is when the configuration cannot be read.
 - `--iface`, `--public-dns`, and `--timeout` apply independently to every
   component. Interface names are resolved on the machine that probes, as in
   every ordinary local or remote run.

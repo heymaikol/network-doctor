@@ -237,7 +237,7 @@ func timedOutReport(run profile.Run, err error) report.Report {
 		Version:     version,
 		Checks:      []report.Check{{ID: id, Name: run.Label, Status: diagnostic.StatusFail.String(), Detail: textsafe.Clean(err.Error())}},
 		Summary:     run.Label + " did not finish before its time ran out.",
-		Verdict:     diagnostic.StatusFail.String(),
+		Verdict:     diagnostic.VerdictIncomplete,
 		FailedStage: id,
 	}
 	if t := run.Target; t != nil {

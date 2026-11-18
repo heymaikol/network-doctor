@@ -136,6 +136,11 @@ func TestProfileWatchKeepsGoingAfterATimedOutPass(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
 		t.Fatalf("second pass: %v", err)
 	}
+	// The report's verdict is part of the published report contract, so a timed-out component
+	// carries a verdict from the schema's enum, not a check status.
+	if v := first.Components[0].Report.Verdict; v != "incomplete" {
+		t.Errorf("timed-out component verdict = %q, want %q", v, "incomplete")
+	}
 	if first.Components[0].Status != profile.StatusFail || first.Aggregate.Status == profile.StatusPass {
 		t.Errorf("the timed-out pass reads component %q, aggregate %q", first.Components[0].Status, first.Aggregate.Status)
 	}

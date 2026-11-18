@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strings"
@@ -106,13 +107,41 @@ func captureConfig(ctx context.Context, program string, args []string) (capture,
 	files := readingFiles(diag)
 	contents := make([][]byte, len(files))
 	for i, f := range files {
-		data, err := os.ReadFile(f) // #nosec G304 -- a configuration file the client itself named in its diagnostic output
+		data, err := readConfigFile(f)
 		if err != nil {
-			return capture{}, fmt.Errorf("the configuration file %s could not be read, so no route is established; nothing was sent", textsafe.Clean(f))
+			return capture{}, fmt.Errorf("the configuration file %s could not be read as a regular file, so no route is established; nothing was sent", textsafe.Clean(f))
 		}
 		contents[i] = data
 	}
 	return capture{listing: out, diag: diag, files: files, contents: contents}, nil
+}
+
+// readConfigFile returns the bytes of one configuration file the client named. Only a
+// regular file is read, and it is read up to the bound: a FIFO, a device such as
+// /dev/stdin, or a directory would block the read or consume input, and ssh would not
+// have read a configuration from it. The check is by stat before the open, so a file
+// that is not regular is never opened.
+func readConfigFile(name string) ([]byte, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	f, err := os.Open(name) // #nosec G304 -- a configuration file the client named in its diagnostic output, checked as regular above
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxConfigBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxConfigBytes {
+		return nil, errors.New("larger than netdoc reads")
+	}
+	return data, nil
 }
 
 // same reports whether two reads saw the same listing, the same files and the same

@@ -182,3 +182,21 @@ func TestProfileWatchSavesOnlyPassesThatFinished(t *testing.T) {
 		t.Errorf("the pass that finished was not saved: %v", err)
 	}
 }
+
+// Negative control: an interactive run's deadline is not an ordinary component timeout. It ends the
+// pass, and no further interactive attempt follows, because a person may simply be slow to answer.
+func TestProfileInteractiveTimeoutStillEndsThePass(t *testing.T) {
+	plan := githubPlan(t)
+	tr := traceProfileVia(t, 0, func(remote.Request, bool) (remote.Response, error) {
+		return remote.Response{}, timedOut("ideapad")
+	})
+	stubRemoteDirect(t, false)
+	_, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
+	if err == nil {
+		t.Fatal("an interactive timeout was recorded as a component failure and the pass went on")
+	}
+	calls := tr.snapshot().calls
+	if len(calls) != 1 || calls[0].batch {
+		t.Fatalf("acquisitions = %+v, want the one interactive attempt and nothing after it", calls)
+	}
+}

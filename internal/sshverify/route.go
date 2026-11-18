@@ -73,7 +73,7 @@ func ReadRoute(ctx context.Context, program string, args []string) (Route, error
 	if !first.same(second) {
 		return Route{Kind: RouteUnknown, Reason: "the SSH configuration changed while netdoc read it, so no route is established; nothing was sent"}, nil
 	}
-	return classify(first), nil
+	return classify(first, !TerminalAvailable()), nil
 }
 
 func unsupportedPlatform() error {
@@ -150,8 +150,9 @@ func readingFiles(diag []byte) []string {
 }
 
 // classify turns one complete read into a route. The rules are checked in order and
-// the first that refuses names the reason.
-func classify(c capture) Route {
+// the first that refuses names the reason. headless is true when netdoc has no
+// terminal of its own, which selects the stricter $ rule.
+func classify(c capture, headless bool) Route {
 	unknown := func(reason string) Route {
 		return Route{Kind: RouteUnknown, Reason: reason, Listing: c.listing}
 	}
@@ -159,7 +160,7 @@ func classify(c capture) Route {
 		return unknown("a Match exec command runs in the configuration; its answer depends on the environment, which netdoc cannot reproduce")
 	}
 	for i, body := range c.contents {
-		if reason := scanFile(body); reason != "" {
+		if reason := scanFile(body, headless); reason != "" {
 			return unknown(fmt.Sprintf("%s (in %s)", reason, textsafe.Clean(c.files[i])))
 		}
 	}
@@ -186,6 +187,12 @@ func classify(c capture) Route {
 	return Route{Kind: RouteDirect, Listing: c.listing}
 }
 
+// literalOnTerminal are the keywords whose value a variable does not change, on the
+// installed client (measured on OpenSSH 10.5p1, and checked at run time by the canary's
+// environment probe). A terminal run may keep a $ on these keywords. Every other $ is
+// refused, so a keyword that is not on this list fails closed.
+var literalOnTerminal = map[string]bool{"hostname": true, "host": true, "identityfile": true}
+
 // scanFile checks one configuration file's text the way ssh reads it, line by line.
 // Full-line comments are skipped, because ssh does not parse them. It returns the
 // reason to refuse, or "" when nothing in the file refuses the read.
@@ -194,13 +201,15 @@ func classify(c capture) Route {
 // refuses, so quoted, negated, canonical and "=" forms are all covered. A
 // `Match host "exec"` is refused too, which is a false refusal that is accepted.
 //
-// The $ rule refuses any non-comment line that has one, in both modes. ssh expands
-// environment variables in several keywords that choose a host, an account, a trust
-// file or an agent, and the expansion depends on the environment the client runs in.
-// A terminal run has the user's environment only when netdoc was started from the
-// user's shell, so the rule does not depend on that. The narrower list of expanding
-// keywords is OpenSSH-version-dependent and is not used.
-func scanFile(text []byte) string {
+// The $ rule. ssh expands environment variables in keywords that choose a host, an
+// account, a trust file or an agent, and the expansion depends on the environment the
+// client runs in. A headless run has an environment netdoc cannot match to the user's,
+// so it refuses every $ outside a comment. A terminal run uses the user's environment
+// when netdoc was started from the user's shell, so it refuses a $ only where the
+// keyword is not measured as literal: an Include, a Match, and any keyword that is not
+// on literalOnTerminal. That is the narrowed rule, and it fails closed for a keyword
+// it has not measured.
+func scanFile(text []byte, headless bool) string {
 	for _, raw := range strings.Split(string(text), "\n") {
 		line := strings.TrimLeft(raw, " \t\r")
 		if line == "" || line[0] == '#' {
@@ -208,10 +217,14 @@ func scanFile(text []byte) string {
 		}
 		kw := keywordOf(line)
 		if strings.Contains(line, "$") {
-			if kw == "include" {
+			switch {
+			case headless:
+				return "a directive uses an environment variable, which a headless run cannot match"
+			case kw == "include":
 				return "an Include uses an environment variable, so netdoc cannot show which file ssh reads"
+			case !literalOnTerminal[kw]:
+				return "a directive uses an environment variable whose value can change the route, account, identity, trust or agent, and netdoc cannot show that value"
 			}
-			return "a directive uses an environment variable, whose value depends on the environment netdoc runs in"
 		}
 		if kw == "match" && strings.Contains(strings.ToLower(line[len(kw):]), "exec") {
 			return "a Match exec test"

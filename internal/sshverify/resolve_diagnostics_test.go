@@ -47,7 +47,7 @@ func TestClassifyRefusesWhatItCannotMatch(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			r := classify(c.c)
+			r := classify(c.c, false)
 			if r.Kind != c.want {
 				t.Fatalf("kind = %s (%q), want %s", r.Kind, r.Reason, c.want)
 			}
@@ -78,7 +78,7 @@ func TestScanFileFollowsSSHSyntax(t *testing.T) {
 		"# $OpenBSD\n":                false,
 	}
 	for body, refuse := range cases {
-		got := scanFile([]byte(body)) != ""
+		got := scanFile([]byte(body), true) != ""
 		if got != refuse {
 			t.Errorf("scanFile(%q) refused = %v, want %v", body, got, refuse)
 		}
@@ -114,5 +114,23 @@ func TestWithoutDebugLinesKeepsTheRealMessage(t *testing.T) {
 	got := string(withoutDebugLines([]byte(testReading + "Bad configuration option: nope\n" + testExec)))
 	if strings.Contains(got, "debug") || !strings.Contains(got, "Bad configuration option") {
 		t.Fatalf("the failure text was %q; want only the real message", got)
+	}
+}
+
+// On a terminal the literal keywords may keep a $; any other keyword, and any Match, is
+// refused. Headless refuses every $.
+func TestLiteralKeywordsAreAcceptedOnlyOnATerminal(t *testing.T) {
+	for _, line := range []string{"HostName ${FOO}.example\n", "Host ${FOO}\n", "IdentityFile ${FOO}/k\n"} {
+		if scanFile([]byte(line), false) != "" {
+			t.Errorf("terminal refused the literal keyword %q", line)
+		}
+		if scanFile([]byte(line), true) == "" {
+			t.Errorf("headless accepted a $ in %q", line)
+		}
+	}
+	for _, line := range []string{"User ${FOO}u\n", "IdentityAgent ${FOO}\n", "Match host ${FOO}\n", "UnknownKeyword ${FOO}\n"} {
+		if scanFile([]byte(line), false) == "" {
+			t.Errorf("terminal accepted a $ in %q, which is not a measured literal keyword", line)
+		}
 	}
 }

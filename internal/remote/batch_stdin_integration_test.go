@@ -28,6 +28,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 )
 
 const (
@@ -206,6 +208,14 @@ func (l *batchLab) workerWith(t *testing.T, name, prelude string) string {
 }
 
 // run sends the request through batch or interactive transport to the given command.
+// setTerminal makes the terminal check answer present or absent, and returns the function
+// that restores the answer it replaced.
+func setTerminal(present bool) (restore func()) {
+	saved := sshverify.TerminalAvailable
+	sshverify.TerminalAvailable = func() bool { return present }
+	return func() { sshverify.TerminalAvailable = saved }
+}
+
 func (l *batchLab) run(t *testing.T, batch bool, command string) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -214,6 +224,9 @@ func (l *batchLab) run(t *testing.T, batch bool, command string) error {
 	if batch {
 		_, err = RunBatch(ctx, "lab", command, batchRequest())
 	} else {
+		// The interactive control runs on a terminal, as a user's run does. Without one, Run
+		// takes the headless batch path, and the control would prove nothing.
+		defer setTerminal(true)()
 		_, err = Run(ctx, "lab", command, batchRequest())
 	}
 	return err
@@ -276,6 +289,9 @@ func TestBatchStdinIsNotReadByHelpers(t *testing.T) {
 		canary := filepath.Join(lab.dir, "match-stdin")
 		match := lab.script(t, "match", "cat > "+canary+"\nexit 0\n")
 		lab.configure(t, lab.known, fmt.Sprintf("Match exec %q", match), "")
+		// A headless run refuses Match exec before it connects, so this subtest runs the batch
+		// transport past that gate to reach OpenSSH's stdin behaviour. The gate has its own tests.
+		t.Cleanup(setTerminal(true))
 		err := lab.run(t, true, lab.worker)
 		// Match exec runs during the connection, so the canary must exist: that shows it ran.
 		if _, statErr := os.Stat(canary); statErr != nil {
@@ -289,13 +305,22 @@ func TestBatchStdinIsNotReadByHelpers(t *testing.T) {
 		lab := newBatchLab(t)
 		canary := filepath.Join(lab.dir, "knownhosts-stdin")
 		khc := lab.script(t, "knownhosts", fmt.Sprintf("cat > %s\ncat %s\n", canary, lab.known))
-		lab.configure(t, "none", "", "  KnownHostsCommand "+khc+" %H")
+		// The host is trusted through the known hosts file, so the batch run does not need the
+		// command to find its key. The command is configured so the pin is what keeps it off.
+		lab.configure(t, lab.known, "", "  KnownHostsCommand "+khc+" %H")
+		t.Cleanup(setTerminal(true))
 		err := lab.run(t, true, lab.worker)
-		if _, statErr := os.Stat(canary); statErr != nil {
-			t.Fatalf("KnownHostsCommand did not run: %v", statErr)
+		// The batch pin KnownHostsCommand=none keeps the command from running at all.
+		if _, statErr := os.Stat(canary); statErr == nil {
+			t.Fatal("KnownHostsCommand ran under the batch pin")
 		}
-		requireNoRead(t, canary)
 		lab.requireWorkerGotRequest(t, err)
+
+		// Control: the interactive transport runs the command.
+		_ = lab.run(t, false, lab.quick)
+		if _, statErr := os.Stat(canary); statErr != nil {
+			t.Fatalf("control: the interactive transport did not run KnownHostsCommand: %v", statErr)
+		}
 	})
 
 	t.Run("PKCS11Provider", func(t *testing.T) {

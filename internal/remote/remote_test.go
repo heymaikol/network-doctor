@@ -67,11 +67,6 @@ func fakeSSH(mode string) int {
 		// set by useFakeSSH to a directory the test just created.
 		_ = os.WriteFile(path, []byte(strings.Join(os.Args[1:], "\n")), 0o600)
 	}
-	if cfg, ok := fakeCanaryConfig(os.Args[1:]); ok {
-		// The check sshverify runs against the client before it trusts a read. A real
-		// client answers it the same way whatever mode the stand-in is in.
-		return fakeCanary(cfg, os.Args[len(os.Args)-1])
-	}
 	switch mode {
 	case "missing":
 		// What a remote shell says when the program is not on its PATH. The
@@ -352,7 +347,7 @@ func stall() {
 func useFakeSSH(t *testing.T, mode string) (argvPath, requestPath string) {
 	t.Helper()
 	previous := sshProgram
-	sshProgram = os.Args[0]
+	sshProgram = fakeSSHProgram(t)
 	// The stand-in is read as if netdoc had its terminal, which the configuration
 	// read requires; the refusal without one has its own test.
 	previousTerminal := sshverify.TerminalAvailable
@@ -2223,68 +2218,9 @@ func diagnosedPair(tool snapshot.Tool, ok bool) (report.Report, snapshot.Snapsho
 
 // fakeCanaryConfig reports whether argv is the configuration check sshverify runs
 // against the client: a verbose listing of the host "canary" from a file it wrote.
-func fakeCanaryConfig(args []string) (string, bool) {
-	if len(args) < 2 || args[0] != "-v" {
-		return "", false
-	}
-	for i, a := range args {
-		if a == "-F" && i+1 < len(args) {
-			return args[i+1], true
-		}
-	}
-	return "", false
-}
 
 // fakeCanary answers the check the way OpenSSH does: it reports the file it reads,
 // reports the Match exec test only in the file that has one, and lists the host.
-func fakeCanary(cfg, host string) int {
-	body, _ := os.ReadFile(cfg) // #nosec G304 G703 -- cfg is the -F file the test itself passed to the stand-in
-	text := string(body)
-	// Every file read is announced, and each Include is followed, as OpenSSH does.
-	var walk func(file string)
-	walk = func(file string) {
-		fmt.Fprintln(os.Stderr, "debug1: Reading configuration data "+file)
-		data, _ := os.ReadFile(file) // #nosec G304 G703 -- a file the canary itself wrote
-		for _, line := range strings.Split(string(data), "\n") {
-			if inc, ok := strings.CutPrefix(line, "Include "); ok {
-				walk(strings.TrimSpace(inc))
-			}
-		}
-	}
-	walk(cfg)
-	if strings.Contains(text, "Match host canary exec") || strings.Contains(text, "Match !canonical exec") {
-		fmt.Fprintln(os.Stderr, "debug1: Executing command: 'true'")
-	}
-	if strings.Contains(text, "ProxyJump 127.0.0.2") {
-		fmt.Fprintln(os.Stdout, "proxyjump [127.0.0.2]")
-	}
-	if i := strings.Index(text, "KnownHostsCommand "); i >= 0 {
-		// The listing shows the command; the stand-in never runs it.
-		value := strings.TrimSpace(strings.SplitN(text[i+len("KnownHostsCommand "):], "\n", 2)[0])
-		fmt.Fprintln(os.Stdout, "knownhostscommand "+value)
-	}
-	if strings.Contains(text, "User ${NETDOC_CANARY_VAR}u") {
-		fmt.Fprintln(os.Stdout, "user alphau")
-	} else {
-		fmt.Fprintln(os.Stdout, "user demo")
-	}
-	hn := "127.0.0.1"
-	switch {
-	case strings.Contains(text, "HostName ${NETDOC_CANARY_VAR}.example"):
-		hn = "${netdoc_canary_var}.example"
-		fmt.Fprintln(os.Stdout, "identityfile ${NETDOC_CANARY_VAR}/k")
-	case strings.Contains(text, "Host ${NETDOC_CANARY_VAR}"):
-		hn = host
-	}
-	if strings.Contains(text, "CanonicalizeHostname yes") {
-		fmt.Fprintln(os.Stdout, "canonicalizehostname true")
-	} else {
-		fmt.Fprintln(os.Stdout, "canonicalizehostname false")
-	}
-	fmt.Fprintln(os.Stdout, "hostname "+hn)
-	fmt.Fprintln(os.Stdout, "port 2260")
-	return 0
-}
 
 func hasArg(args []string, want string) bool {
 	for _, a := range args {
@@ -2309,4 +2245,90 @@ func TestDirectOnlyAcceptsAKnownDirectRouteHeadless(t *testing.T) {
 	if Direct(context.Background(), "ideapad") {
 		t.Error("a headless run read a proxied route as direct")
 	}
+}
+
+// fakeCanaryShell is the canary's probe client, answering as OpenSSH does. A race-built
+// test binary takes about a second to start, and the canary runs fourteen probes, which
+// would not finish inside a read's budget under -race. The probes are answered here, by
+// a shell script, and every other call still runs the test binary.
+const fakeCanaryShell = `#!/bin/sh
+BROKEN=""
+cfg=""
+prev=""
+last=""
+for a in "$@"; do
+  if [ "$prev" = "-F" ]; then cfg="$a"; fi
+  prev="$a"
+  last="$a"
+done
+# Every file read is announced, and each Include is followed to its own includes. A
+# client that stops following at the first level is the include-announcement break.
+walk() {
+  echo "debug1: Reading configuration data $1" >&2
+  for i in $(sed -n 's/^Include //p' "$1"); do
+    if [ "$BROKEN" = include-announcement ] && [ "$2" -ge 1 ]; then continue; fi
+    walk "$i" $(( $2 + 1 ))
+  done
+}
+walk "$cfg" 0
+case "$(cat "$cfg")" in
+  *"Match !canonical exec"*) [ "$BROKEN" = canonical-positive ] || echo "debug1: Executing command: 'true'" >&2 ;;
+  *"Match canonical exec"*) [ "$BROKEN" = canonical-exec ] && echo "debug1: Executing command: 'true'" >&2 ;;
+  *"Match host canary exec"*) echo "debug1: Executing command: 'true'" >&2 ;;
+esac
+case "$(cat "$cfg")" in
+  *"ProxyJump 127.0.0.2"*) [ "$BROKEN" = proxyjump-positive ] || echo "proxyjump [127.0.0.2]" ;;
+  *"ProxyJump none"*) [ "$BROKEN" = proxyjump ] && echo "proxyjump bastion" ;;
+esac
+case "$(cat "$cfg")" in
+  *"KnownHostsCommand touch"*)
+    echo "knownhostscommand touch x"
+    if [ "$BROKEN" = knownhostscommand ]; then
+      sentinel=$(sed -n 's/.*KnownHostsCommand touch //p' "$cfg"); touch "$sentinel"
+    fi ;;
+  *"KnownHostsCommand none"*) echo "knownhostscommand none" ;;
+esac
+case "$(cat "$cfg")" in
+  *'User ${NETDOC_CANARY_VAR}u'*)
+    if [ "$BROKEN" = environment ]; then echo 'user ${netdoc_canary_var}u'; else echo "user alphau"; fi ;;
+esac
+hn="127.0.0.1"
+case "$(cat "$cfg")" in
+  *'HostName ${NETDOC_CANARY_VAR}.example'*)
+    hn='${netdoc_canary_var}.example'
+    if [ "$BROKEN" = environment-literal ]; then echo "identityfile alpha/k"; else echo 'identityfile ${NETDOC_CANARY_VAR}/k'; fi ;;
+  *'Host ${NETDOC_CANARY_VAR}'*)
+    if [ "$BROKEN" = environment-host ]; then hn="127.0.0.9"; else hn="$last"; fi ;;
+esac
+case "$(cat "$cfg")" in
+  *"CanonicalizeHostname yes"*)
+    if [ "$BROKEN" = canonicalizehostname ] || [ "$BROKEN" = canonicalizehostname-positive ]; then echo "canonicalizehostname false"; else echo "canonicalizehostname true"; fi ;;
+  *)
+    if [ "$BROKEN" = canonicalizehostname ]; then echo "canonicalizehostname true"; else echo "canonicalizehostname false"; fi ;;
+esac
+echo "hostname $hn"
+exit 0
+`
+
+// fakeSSHProgram is the program a stand-in test uses as ssh. It sends the canary's
+// verbose configuration reads to fakeCanaryShell, and every other call to this test
+// binary in fake mode.
+func fakeSSHProgram(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	canary := filepath.Join(dir, "canary.sh")
+	if err := os.WriteFile(canary, []byte(fakeCanaryShell), 0o700); err != nil { // #nosec G306 -- an executable test script on purpose
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(dir, "ssh")
+	script := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"  -v) case \" $* \" in *\" -F \"*) exec /bin/sh '" + canary + "' \"$@\" ;; esac ;;\n" +
+		"esac\n" +
+		"exec '" + os.Args[0] + "' \"$@\"\n"
+	// #nosec G306 G703 -- an executable test script in a directory this test created
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return wrapper
 }

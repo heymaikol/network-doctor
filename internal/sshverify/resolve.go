@@ -538,6 +538,13 @@ func (c *capturedOutput) finish(r *os.File) ([]byte, bool) {
 	}
 }
 
+// ClientProgram returns the OpenSSH client the route read and the verification read run:
+// the one on PATH, checked for permissions. A route read uses it so that the decision
+// and the verification trust the same program.
+func ClientProgram(name string) (string, error) {
+	return sshExecutable(name)
+}
+
 // sshExecutable finds the OpenSSH client on PATH and refuses it when the file
 // or its directory can be written by anyone but the owner. The client reads the
 // user's configuration and is trusted with it, so a writable copy on PATH would
@@ -545,7 +552,7 @@ func (c *capturedOutput) finish(r *os.File) ([]byte, bool) {
 func sshExecutable(name string) (string, error) {
 	path, err := exec.LookPath(name)
 	if err != nil {
-		return "", errors.New("the ssh client was not found on PATH")
+		return "", fmt.Errorf("the ssh client %q was not found on PATH", name)
 	}
 	if err := checkClientPermissions(path); err != nil {
 		return "", err

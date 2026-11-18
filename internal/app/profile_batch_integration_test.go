@@ -100,8 +100,8 @@ func TestProfileNeverRetriesARefusedBatchInteractively(t *testing.T) {
 			var batch, interactive int
 			for _, line := range invocations {
 				switch {
-				case strings.HasPrefix(line, "-G "):
-					// The route check that decides whether the batch transport may be used at all.
+				case strings.Contains(" "+line+" ", " -G "):
+					// A configuration read: the route check, or a canary probe with -v. It connects to nothing.
 				case strings.Contains(line, "BatchMode=yes"):
 					batch++
 				default:

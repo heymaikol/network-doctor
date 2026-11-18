@@ -388,6 +388,11 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		// deadline, and transportError is the one place that tells them apart.
 		// Any other start failure keeps its own cause.
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			// A deadline that ends before ssh forks ended no connection, so it is not a
+			// run timeout: the mark is for a started client only.
+			if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+				return Response{}, fmt.Errorf("%s: the run timed out before ssh started", cleanDest(dest))
+			}
 			return Response{}, transportError(ctx, opCtx, limit, dest, -1, "", err)
 		}
 		return Response{}, fmt.Errorf("could not run ssh: %s", clean(err.Error()))

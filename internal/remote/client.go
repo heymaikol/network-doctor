@@ -577,6 +577,19 @@ func hasNonSpace(b []byte) bool {
 	return len(bytes.TrimLeft(b, " \t\r\n")) > 0
 }
 
+// ErrRunTimedOut marks the one error a caller may treat as an ordinary timeout of an
+// acquisition: the transport's own deadline ended a run whose ssh client had been started
+// after its route was established. Refusals, failed route checks and every other gate error
+// do not carry it, so a timeout in a gate cannot be mistaken for one.
+var ErrRunTimedOut = errors.New("the remote run timed out")
+
+// timedOutError is the transport's deadline error. Its text is the one netdoc has always
+// shown, and it matches ErrRunTimedOut.
+type timedOutError struct{ message string }
+
+func (e timedOutError) Error() string        { return e.message }
+func (e timedOutError) Is(target error) bool { return target == ErrRunTimedOut }
+
 // killRun stops the ssh client a run started. A batch client leads a process group, and
 // every process in that group is stopped with it. The interactive client is stopped alone,
 // as it always was.
@@ -678,12 +691,12 @@ func transportError(ctx, opCtx context.Context, limit time.Duration, dest string
 	case ctx.Err() != nil:
 		return fmt.Errorf("%s: the run was interrupted", cleanDest(dest))
 	case errors.Is(opCtx.Err(), context.DeadlineExceeded):
-		return withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
+		return timedOutError{withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
 			join(detail,
 				"That is the time one diagnosis over SSH is allowed end to end, not a",
 				"verdict about the remote network: the connection, the remote netdoc, or",
 				"the path between them stopped making progress. Retry, or raise -timeout",
-				"if the remote run legitimately needs longer."))
+				"if the remote run legitimately needs longer.")).Error()}
 	case status == sshFailedStatus:
 		return withDetail(fmt.Sprintf("%s: ssh could not open the connection", cleanDest(dest)), detail)
 	case errors.Is(cause, ErrNoResponse):

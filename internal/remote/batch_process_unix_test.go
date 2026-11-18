@@ -120,3 +120,34 @@ func TestWriteFailureKillsBatchDescendants(t *testing.T) {
 	}
 	requireStopped(t, beat)
 }
+
+// A batch run that the transport's own deadline ends is marked as a timeout of the run, and
+// keeps the text netdoc has always shown. The stand-in stalls, and the allowance is shortened so
+// the deadline comes in a fraction of a second.
+func TestBatchDeadlineIsMarkedAsARunTimeout(t *testing.T) {
+	installStandIn(t)
+	savedAllowance := transportAllowance
+	transportAllowance = 300 * time.Millisecond
+	t.Cleanup(func() { transportAllowance = savedAllowance })
+
+	_, err := RunBatch(context.Background(), "lab", "", Request{})
+	if err == nil {
+		t.Fatal("a stalled batch run returned no error")
+	}
+	if !errors.Is(err, ErrRunTimedOut) {
+		t.Fatalf("the deadline error is not marked as a run timeout: %v", err)
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("the deadline error lost its text: %v", err)
+	}
+}
+
+// A refusal from a gate is not a run timeout, even when its text says a read timed out. Only the
+// transport's deadline carries the mark, so a route check that timed out cannot pass for an
+// ordinary component timeout.
+func TestGateRefusalIsNotMarkedAsARunTimeout(t *testing.T) {
+	err := headlessRefusal(sshverify.Route{Kind: sshverify.RouteUnknown, Reason: "the configuration read timed out"})
+	if errors.Is(err, ErrRunTimedOut) {
+		t.Fatalf("a route check that timed out is marked as a run timeout: %v", err)
+	}
+}

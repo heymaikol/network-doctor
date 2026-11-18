@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/profile"
+	"github.com/heymaikol/network-doctor/v2/internal/remote"
 	"github.com/heymaikol/network-doctor/v2/internal/report"
 	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
@@ -141,7 +143,7 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 	sequential := func() {
 		for i := range plan.Runs {
 			run(i, false)
-			if outputs[i].err != nil {
+			if err := outputs[i].err; err != nil && !ordinaryTimeout(err) {
 				return
 			}
 		}
@@ -171,13 +173,14 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// itself and holds the direct route the gate just read, so no proxy child
 		// can appear part-way through the pass to ask on its behalf.
 		run(0, true)
-		if outputs[0].err != nil {
+		if err := outputs[0].err; err != nil && !ordinaryTimeout(err) {
 			// A refused noninteractive acquisition fails the pass. Nothing is retried
 			// over the transport that can prompt: a refused host key, passphrase, or
 			// LocalCommand would be answered there, and a changed key accepted under
 			// the user's StrictHostKeyChecking no. The other components are not
 			// started either, because they share this destination, so the same
-			// refusal would repeat for each of them.
+			// refusal would repeat for each of them. A timeout is not a refusal: it
+			// is recorded as that component's failure, and the others still run.
 			break
 		}
 		together(1, true)
@@ -189,13 +192,43 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 	snapshots := make([]snapshot.Snapshot, len(outputs))
 	tools := make([]snapshot.Tool, len(outputs))
 	for i, output := range outputs {
-		if output.err != nil {
-			return profile.Result{}, nil, nil, fmt.Errorf("%s: %w", plan.Runs[i].Label, output.err)
+		if err := output.err; err != nil {
+			if !ordinaryTimeout(err) {
+				return profile.Result{}, nil, nil, fmt.Errorf("%s: %w", plan.Runs[i].Label, err)
+			}
+			reports[i] = timedOutReport(plan.Runs[i], err)
+			continue
 		}
 		reports[i], snapshots[i], tools[i] = output.report, output.snapshot, output.tool
 	}
 	result, err := profile.BuildResult(plan, reports)
 	return result, snapshots, tools, err
+}
+
+// ordinaryTimeout reports whether an acquisition ended by the transport's own deadline. That
+// is an ordinary component failure: the pass records it and goes on. Every other error from an
+// acquisition is a refusal or a failed gate, and it still ends the pass.
+func ordinaryTimeout(err error) bool {
+	return errors.Is(err, remote.ErrRunTimedOut)
+}
+
+// timedOutReport is the report of a component whose acquisition the deadline ended. The
+// component's one check is its focus check, failed with the error that ended the attempt, so
+// the profile reads the component as failed. It says nothing about what the target would have
+// answered.
+func timedOutReport(run profile.Run, err error) report.Report {
+	id := string(run.Focus)
+	r := report.Report{
+		Version:     version,
+		Checks:      []report.Check{{ID: id, Name: run.Label, Status: diagnostic.StatusFail.String(), Detail: textsafe.Clean(err.Error())}},
+		Summary:     run.Label + " did not finish before its time ran out.",
+		Verdict:     diagnostic.StatusFail.String(),
+		FailedStage: id,
+	}
+	if t := run.Target; t != nil {
+		r.Target = &report.Target{Host: t.Host, Port: t.Port, Protocol: t.Proto.String(), Zone: t.Zone}
+	}
+	return r
 }
 
 func profileSelection(spec profile.Run, extra, skip probeList) (diagnostic.ProbeSelection, probeList) {

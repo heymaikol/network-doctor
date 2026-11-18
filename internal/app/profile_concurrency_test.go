@@ -512,7 +512,10 @@ func TestProfileViaNoFallbackOnceTheCallerHasCancelled(t *testing.T) {
 
 // H: an operation timeout is not a cancellation. With the caller still active, a
 // noninteractive attempt that times out fails the pass. No interactive attempt follows (T24).
-func TestProfileViaTimedOutBatchAcquisitionFailsThePass(t *testing.T) {
+// The text of a timeout is not a timeout. Only the transport's mark makes an error an ordinary
+// component timeout, so an unmarked error that says a run timed out still ends the pass, as a
+// refusal does.
+func TestProfileViaUnmarkedTimeoutStillEndsThePass(t *testing.T) {
 	plan := githubPlan(t)
 	tr := traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
 		if batch {

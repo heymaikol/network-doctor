@@ -690,6 +690,10 @@ func transportError(ctx, opCtx context.Context, limit time.Duration, dest string
 	switch {
 	case ctx.Err() != nil:
 		return fmt.Errorf("%s: the run was interrupted", cleanDest(dest))
+	case status == sshFailedStatus:
+		// ssh refused or failed on its own. That exit is the answer, and it wins over a deadline
+		// that expired at the same moment: a refusal is never an ordinary timeout.
+		return withDetail(fmt.Sprintf("%s: ssh could not open the connection", cleanDest(dest)), detail)
 	case errors.Is(opCtx.Err(), context.DeadlineExceeded):
 		return timedOutError{withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
 			join(detail,
@@ -697,8 +701,6 @@ func transportError(ctx, opCtx context.Context, limit time.Duration, dest string
 				"verdict about the remote network: the connection, the remote netdoc, or",
 				"the path between them stopped making progress. Retry, or raise -timeout",
 				"if the remote run legitimately needs longer.")).Error()}
-	case status == sshFailedStatus:
-		return withDetail(fmt.Sprintf("%s: ssh could not open the connection", cleanDest(dest)), detail)
 	case errors.Is(cause, ErrNoResponse):
 		return withDetail(fmt.Sprintf("%s: netdoc did not run on the SSH host%s", cleanDest(dest), statusPhrase(status)),
 			join(detail,

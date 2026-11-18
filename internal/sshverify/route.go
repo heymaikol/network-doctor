@@ -229,8 +229,38 @@ func scanFile(text []byte, headless bool) string {
 		if kw == "match" && strings.Contains(strings.ToLower(line[len(kw):]), "exec") {
 			return "a Match exec test"
 		}
+		if kw == "match" && !matchCriteriaKnown(strings.TrimLeft(line[len(kw):], "= \t")) {
+			return "a Match criterion is decided by the connection, such as the remote command, which the read does not evaluate"
+		}
 	}
 	return ""
+}
+
+// Match criteria whose answer comes from the configuration alone. The route read runs
+// ssh -G with no remote command and no session, so these criteria give a connection the
+// same answer the read gave. Any other criterion, such as command, sessiontype,
+// localnetwork or tagged, depends on the connection, and a proxy it selects would be
+// missed. A criterion that is not on either list is refused, so the list fails closed.
+var (
+	matchCriteriaAlone     = map[string]bool{"all": true, "canonical": true, "final": true}
+	matchCriteriaWithValue = map[string]bool{"host": true, "originalhost": true, "user": true, "localuser": true}
+)
+
+// matchCriteriaKnown reports whether every criterion on a Match line, after its keyword,
+// is one of the known ones. A value that is not a criterion makes the line unknown.
+func matchCriteriaKnown(rest string) bool {
+	fields := strings.Fields(rest)
+	for i := 0; i < len(fields); i++ {
+		name := strings.ToLower(strings.TrimPrefix(strings.Trim(fields[i], "\"'"), "!"))
+		switch {
+		case matchCriteriaAlone[name]:
+		case matchCriteriaWithValue[name]:
+			i++
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // keywordOf returns the keyword at the start of a configuration line, lower-cased.

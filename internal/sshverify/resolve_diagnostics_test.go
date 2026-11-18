@@ -117,6 +117,35 @@ func TestWithoutDebugLinesKeepsTheRealMessage(t *testing.T) {
 	}
 }
 
+// Match criteria are refused unless the configuration alone decides them. A criterion
+// the connection decides, or one that is not known, is refused, and a value is skipped
+// as the argument of the criterion before it.
+func TestMatchCriteriaAreKnownOnlyWhenTheConfigurationDecidesThem(t *testing.T) {
+	known := map[string]bool{
+		"host probe":               true,
+		"user demo":                true,
+		"all":                      true,
+		"canonical":                true,
+		"final":                    true,
+		"host probe user demo":     true,
+		"!host probe":              true,
+		`host "probe"`:             true,
+		"host command":             true, // a host named command is a value, not the criterion
+		"command netdoc*":          false,
+		"sessiontype shell":        false,
+		"localnetwork 127.0.0.0/8": false,
+		"tagged foo":               false,
+		"user demo tagged foo":     false,
+		"nonsense":                 false,
+		`host "a b"`:               false, // a quoted value with a space is refused, not guessed at
+	}
+	for rest, want := range known {
+		if got := matchCriteriaKnown(rest); got != want {
+			t.Errorf("matchCriteriaKnown(%q) = %v, want %v", rest, got, want)
+		}
+	}
+}
+
 // On a terminal the literal keywords may keep a $; any other keyword, and any Match, is
 // refused. Headless refuses every $.
 func TestLiteralKeywordsAreAcceptedOnlyOnATerminal(t *testing.T) {

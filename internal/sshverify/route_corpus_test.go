@@ -76,6 +76,13 @@ var corpus = []corpusCase{
 	{"match localuser other exec", "Match localuser nosuchuser exec \"true\"\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"match tagged exec", "Match tagged foo exec \"true\"\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"host other then match exec", "Host other\n  HostName x\nMatch exec \"true\"\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"match command selects a proxy", "Match command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"match command without a proxy", "Match command \"netdoc*\"\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"match sessiontype", "Match sessiontype shell\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"match localnetwork", "Match localnetwork 127.0.0.0/8\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"match tagged", "Match tagged foo\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"match user and host (known criteria)", "Match user demo host probe\nHost probe\n  HostName 127.0.0.1\n", direct, direct},
+	{"match all", "Match all\nHost probe\n  HostName 127.0.0.1\n", direct, direct},
 	{"canonicalize yes", "Host probe\n  HostName 127.0.0.1\n  CanonicalizeHostname yes\n", refused, refused},
 	{"canonicalize no", "Host probe\n  HostName 127.0.0.1\n  CanonicalizeHostname no\n", direct, direct},
 }

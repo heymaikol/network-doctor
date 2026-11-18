@@ -21,6 +21,9 @@ func timedOut(host string) error {
 	return fmt.Errorf("%s: %w", host, remote.ErrRunTimedOut)
 }
 
+// H: an operation timeout is not a cancellation. With the caller still active, a noninteractive
+// attempt that times out is recorded as that component's failure, and the others still run over
+// the noninteractive transport. No interactive attempt follows (T24).
 // A batch acquisition that the deadline ends is that component's failure. The pass goes on to
 // the other components, none of them is acquired interactively, and the result is not OK.
 func TestProfileViaTimedOutBatchIsAComponentFailure(t *testing.T) {

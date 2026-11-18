@@ -510,9 +510,6 @@ func TestProfileViaNoFallbackOnceTheCallerHasCancelled(t *testing.T) {
 	}
 }
 
-// H: an operation timeout is not a cancellation. With the caller still active, a noninteractive
-// attempt that times out is recorded as that component's failure, and the others still run over
-// the noninteractive transport. No interactive attempt follows (T24).
 // The text of a timeout is not a timeout. Only the transport's mark makes an error an ordinary
 // component timeout, so an unmarked error that says a run timed out still ends the pass, as a
 // refusal does.

@@ -185,8 +185,8 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// component's failure, and the later components still run. They are not
 		// overlapped until this one has answered, and they are safe because each
 		// one refuses interaction itself and holds the direct route the gate just
-		// read, so no proxy child
-		// can appear part-way through the pass to ask on its behalf.
+		// read, so no proxy child can appear part-way through the pass to ask on its
+		// behalf.
 		run(0, true)
 		if err := outputs[0].err; err != nil && !ordinaryTimeout(err) {
 			// A refused noninteractive acquisition fails the pass. Nothing is retried

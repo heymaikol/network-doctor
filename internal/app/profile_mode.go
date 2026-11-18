@@ -67,7 +67,15 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 		case base.save == "":
 			fmt.Fprint(stdout, profileText(result))
 		}
-		if base.save != "" {
+		if base.save != "" && !saveable(snapshots) {
+			// A component that did not finish has no snapshot to write. Nothing is written
+			// for this pass, and a watch goes on to the next one.
+			flag := "-save"
+			if base.support {
+				flag = "-support"
+			}
+			fmt.Fprintln(stderr, "netdoc: "+flag+": nothing written for this pass, because a component did not finish")
+		} else if base.save != "" {
 			artifact := buildProfileArtifact(result, snapshots)
 			if base.support {
 				artifact = snapshot.SanitizeProfileForSupport(artifact)
@@ -229,6 +237,17 @@ func timedOutReport(run profile.Run, err error) report.Report {
 		r.Target = &report.Target{Host: t.Host, Port: t.Port, Protocol: t.Proto.String(), Zone: t.Zone}
 	}
 	return r
+}
+
+// saveable reports whether every component carries its own snapshot. A component whose
+// acquisition timed out has none, and the artifact format cannot hold a component without one.
+func saveable(snapshots []snapshot.Snapshot) bool {
+	for _, s := range snapshots {
+		if s.Schema == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func profileSelection(spec profile.Run, extra, skip probeList) (diagnostic.ProbeSelection, probeList) {

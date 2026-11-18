@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/heymaikol/network-doctor/v2/internal/profile"
 	"github.com/heymaikol/network-doctor/v2/internal/remote"
+	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 )
 
 // timedOut is the error the transport returns when its own deadline ends a batch run.
@@ -141,5 +144,41 @@ func TestProfileWatchKeepsGoingAfterATimedOutPass(t *testing.T) {
 	}
 	if code != 0 {
 		t.Errorf("exit = %d, want the last pass's 0", code)
+	}
+}
+
+// A watch that saves writes only the passes that finished. A pass whose component timed out has
+// no snapshot to write, so it writes nothing and says so, and the next pass is saved in full.
+func TestProfileWatchSavesOnlyPassesThatFinished(t *testing.T) {
+	plan := githubPlan(t)
+	timeouts := 1
+	traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if batch && req.Target == plan.Runs[0].Target.Raw && timeouts > 0 {
+			timeouts--
+			return remote.Response{}, timedOut("ideapad")
+		}
+		resp := profileComponentAnswer(t, req, true)
+		// A saved snapshot carries its creation time and its focus check: the artifact validator
+		// requires the component's status to match the run beneath it.
+		resp.Snapshot.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+		resp.Snapshot.Checks = []snapshot.Check{{ID: req.Check[len(req.Check)-1], Name: "focus", Status: profile.StatusPass, Ran: true, DurationMs: 1, Detail: "observed"}}
+		return resp, nil
+	})
+	stubWatchInterval(t, func(time.Duration) <-chan time.Time { return firedPause() })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var buf, stderr bytes.Buffer
+	out := &cancelAfter{buf: &buf, n: 2, cancel: cancel}
+	save := filepath.Join(t.TempDir(), "profile.json")
+	base := viaBase()
+	base.watch, base.json, base.save = true, true, save
+	if code := runProfile(ctx, base, plan, out, &stderr); code == 2 {
+		t.Fatalf("the watch ended on a timed-out component; stderr: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "nothing written for this pass") {
+		t.Errorf("stderr does not say the timed-out pass was not saved: %q", stderr.String())
+	}
+	if _, err := os.Stat(save); err != nil {
+		t.Errorf("the pass that finished was not saved: %v", err)
 	}
 }

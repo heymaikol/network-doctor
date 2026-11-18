@@ -23,13 +23,6 @@ import (
 // child with no controlling terminal and check that nothing in the configuration
 // ran. The classifier's own cases run on a real terminal in the terminal tests.
 
-func requireOpenSSH(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("ssh"); err != nil {
-		t.Skip("OpenSSH is not installed")
-	}
-}
-
 // writeMatchConfig writes a configuration whose Match exec command is command.
 // Matched, the command sets the host to 10.9.9.9; otherwise the host is 127.0.0.1.
 func writeMatchConfig(t *testing.T, name, command string) string {

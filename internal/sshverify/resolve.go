@@ -111,25 +111,27 @@ func hasControllingTerminal() bool {
 	return true
 }
 
-// ReadConfig is the one way netdoc reads a configuration listing. Every caller
-// that routes a connection by its configuration uses it, so none can skip the
-// canary, the diagnostic check or the completeness checks. args select a listing,
-// such as "-G" and the destination. It returns the complete standard output only
-// when the installed client has passed the canary and its diagnostic output shows
-// that no Match exec test ran.
+// ReadConfig is the one way netdoc reads a configuration listing for verification. It
+// returns the complete listing when the route is known, with or without a proxy, and
+// an error otherwise: a route netdoc cannot match to the user's own ssh is refused
+// here, so verification never sends a credential by a route it could not establish.
+// The platform gate, the terminal check, the canary and the route classification all
+// run inside ReadRoute, so no caller can skip them.
 func ReadConfig(ctx context.Context, program string, args []string) ([]byte, error) {
-	// The platform gate is here, not in one caller, so every path that reads a route
-	// is refused on a platform the read has not been validated on.
 	if !configPlatformSupported {
-		return nil, fmt.Errorf("SSH credential verification is not supported on %s in this build: netdoc cannot yet read the SSH configuration there safely; nothing was sent", runtime.GOOS)
+		return nil, unsupportedPlatform()
 	}
 	if !TerminalAvailable() {
 		return nil, errNoTerminal
 	}
-	if err := canaryCheck(ctx, program); err != nil {
+	route, err := ReadRoute(ctx, program, args)
+	if err != nil {
 		return nil, err
 	}
-	return runSSHClient(ctx, program, args)
+	if route.Kind == RouteUnknown {
+		return nil, errors.New(route.Reason)
+	}
+	return route.Listing, nil
 }
 
 // maxConfigBytes bounds the configuration listing. A real listing is a few
@@ -293,37 +295,6 @@ func listingKey(out []byte, key string) bool {
 		}
 	}
 	return false
-}
-
-// runSSHClient reads the configuration with -v and returns its complete standard
-// output, but only when the diagnostic output shows that the client reported its
-// reads and that no Match exec test ran.
-func runSSHClient(ctx context.Context, program string, args []string) ([]byte, error) {
-	out, diag, err := readConfig(ctx, program, append([]string{"-v"}, args...))
-	if err != nil {
-		return nil, err
-	}
-	if err := checkDiagnostics(diag); err != nil {
-		return nil, err
-	}
-	if len(out) == 0 || out[len(out)-1] != '\n' {
-		return nil, errors.New("the output was incomplete")
-	}
-	return out, nil
-}
-
-// checkDiagnostics refuses a read whose diagnostic output does not show the client
-// reporting its configuration reads, or shows that a Match exec test ran. Such a
-// test's answer depends on the terminal and environment netdoc cannot reproduce, so
-// the read is refused rather than used.
-func checkDiagnostics(diag []byte) error {
-	if !bytes.Contains(diag, []byte(readingMarker)) {
-		return errors.New("the SSH client's diagnostic output is not in a form netdoc recognizes, so it cannot check which configuration rules ran; nothing was sent")
-	}
-	if bytes.Contains(diag, []byte(execMarker)) {
-		return errors.New("a Match exec command runs in it, whose answer netdoc cannot reproduce; the read is refused and nothing was sent")
-	}
-	return nil
 }
 
 // readConfig runs the client once, in its own process group, and returns its

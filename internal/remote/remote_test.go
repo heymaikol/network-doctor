@@ -46,6 +46,8 @@ const (
 	// file exists for the whole test, and once it is gone it stays gone, so the
 	// grandchild cannot miss the signal.
 	fakeSSHGrandchildStop = "NETDOC_TEST_FAKE_SSH_GRANDCHILD_STOP"
+	// fakeSSHConfig names the real configuration file a listing reports reading.
+	fakeSSHConfig = "NETDOC_TEST_FAKE_SSH_CONFIG"
 )
 
 func TestMain(m *testing.M) {
@@ -93,7 +95,7 @@ func fakeSSH(mode string) int {
 		if hasArg(os.Args[1:], "-v") {
 			// At -v a real client reports each configuration file it reads, and
 			// each Match exec command it runs.
-			fmt.Fprintln(os.Stderr, "debug1: Reading configuration data /fake/ssh_config")
+			fmt.Fprintln(os.Stderr, "debug1: Reading configuration data "+os.Getenv(fakeSSHConfig))
 			if mode == "configexec" {
 				fmt.Fprintln(os.Stderr, "debug1: Executing command: 'proxy-decider'")
 			}
@@ -364,6 +366,13 @@ func useFakeSSH(t *testing.T, mode string) (argvPath, requestPath string) {
 	t.Setenv(fakeSSHArgv, argvPath)
 	t.Setenv(fakeSSHRequest, requestPath)
 	t.Setenv(fakeSSHAlive, "")
+	// A listing names a configuration file that exists, as a real client's does, so
+	// netdoc can read the file it reports.
+	cfg := filepath.Join(t.TempDir(), "ssh_config")
+	if err := os.WriteFile(cfg, []byte("Host *\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(fakeSSHConfig, cfg)
 	return argvPath, requestPath
 }
 
@@ -2228,9 +2237,17 @@ func fakeCanaryConfig(args []string) (string, bool) {
 // fakeCanary answers the check the way OpenSSH does: it reports the file it reads,
 // reports the Match exec test only in the file that has one, and lists the host.
 func fakeCanary(cfg string) int {
+	// #nosec G304 G703 -- cfg is the -F file the test itself passed to the stand-in
+	body, _ := os.ReadFile(cfg)
+	text := string(body)
 	fmt.Fprintln(os.Stderr, "debug1: Reading configuration data "+cfg)
-	if strings.HasSuffix(cfg, "exec.config") {
+	if strings.Contains(text, "Match host canary exec") {
 		fmt.Fprintln(os.Stderr, "debug1: Executing command: 'true'")
+	}
+	if i := strings.Index(text, "KnownHostsCommand "); i >= 0 {
+		// The listing shows the command; the stand-in never runs it.
+		value := strings.TrimSpace(strings.SplitN(text[i+len("KnownHostsCommand "):], "\n", 2)[0])
+		fmt.Fprintln(os.Stdout, "knownhostscommand "+value)
 	}
 	fmt.Fprintln(os.Stdout, "user demo")
 	fmt.Fprintln(os.Stdout, "hostname 127.0.0.1")

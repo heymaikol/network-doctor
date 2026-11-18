@@ -23,8 +23,13 @@ import (
 func fakeClient(t *testing.T, script string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ssh")
-	// A real client reports each configuration file it reads at -v; the fake does the same.
-	body := "#!/bin/sh\necho 'debug1: Reading configuration data /fake' >&2\n" + script
+	// A real client reports each configuration file it reads at -v, and netdoc reads the
+	// file the report names, so the fake names a real, harmless configuration file.
+	cfg := filepath.Join(filepath.Dir(path), "ssh_config")
+	if err := os.WriteFile(cfg, []byte("Host *\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := "#!/bin/sh\necho 'debug1: Reading configuration data " + cfg + "' >&2\n" + script
 	if err := os.WriteFile(path, []byte(body), 0o700); err != nil { // #nosec G306 -- the test writes an executable fake ssh client on purpose
 		t.Fatal(err)
 	}

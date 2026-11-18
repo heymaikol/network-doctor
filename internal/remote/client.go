@@ -266,7 +266,11 @@ func Route(ctx context.Context, dest string) sshverify.Route {
 	}
 	ctx, cancel := context.WithTimeout(ctx, sshConfigTimeout)
 	defer cancel()
-	route, err := sshverify.ReadRoute(ctx, sshProgram, []string{"-G", dest})
+	program, err := sshverify.ClientProgram(sshProgram)
+	if err != nil {
+		return sshverify.Route{Kind: sshverify.RouteUnknown, Reason: err.Error()}
+	}
+	route, err := sshverify.ReadRoute(ctx, program, []string{"-G", dest})
 	if err != nil {
 		return sshverify.Route{Kind: sshverify.RouteUnknown, Reason: err.Error()}
 	}

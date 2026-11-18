@@ -43,7 +43,7 @@ func TestHeadlessRunConnectsOnlyWithBatchOptions(t *testing.T) {
 	withoutTerminal(t)
 	_, _ = Run(context.Background(), "ideapad", "", Request{})
 	argv := strings.Join(readLines(t, argvPath), " ")
-	for _, want := range []string{"BatchMode=yes", "PreferredAuthentications=publickey", "ProxyJump=none"} {
+	for _, want := range []string{"BatchMode=yes", "PreferredAuthentications=publickey", "ProxyJump=none", "KnownHostsCommand=none"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("a headless connection lacks %q: argv %q", want, argv)
 		}

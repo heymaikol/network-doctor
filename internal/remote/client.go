@@ -152,6 +152,10 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // Hostbased authentication is left alone: ssh-keysign signs with an unencrypted
 // host key and has nothing to ask.
 //
+// KnownHostsCommand is pinned off for the same reason as the proxies: it runs during the
+// connection and can decide host-key trust, and the route read classifies it as unknown,
+// so a batch connection that ran it would connect by a route netdoc refused to read.
+//
 // A ProxyJump child and a ProxyCommand are the remaining prompting programs.
 // Neither inherits a word of the above: each is a separate program, a jump
 // child is an ordinary interactive ssh that can ask for the bastion's own
@@ -184,6 +188,7 @@ var batchOptions = []string{
 	"PreferredAuthentications=publickey",
 	"ProxyJump=none",
 	"ProxyCommand=none",
+	"KnownHostsCommand=none",
 	"PubkeyAcceptedAlgorithms=-sk-*,webauthn-sk-*",
 	"IdentityAgent=none",
 	"AddKeysToAgent=no",

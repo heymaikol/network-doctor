@@ -451,6 +451,7 @@ func TestRunBatchTellsSSHToRefuseEveryInteractiveAuthentication(t *testing.T) {
 		"-o", "PreferredAuthentications=publickey",
 		"-o", "ProxyJump=none",
 		"-o", "ProxyCommand=none",
+		"-o", "KnownHostsCommand=none",
 		"-o", "PubkeyAcceptedAlgorithms=-sk-*,webauthn-sk-*",
 		"-o", "IdentityAgent=none",
 		"-o", "AddKeysToAgent=no",

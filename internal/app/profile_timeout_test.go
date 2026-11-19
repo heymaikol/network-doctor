@@ -153,6 +153,9 @@ func TestProfileOneShotSaveWithATimeoutExitsWithTwo(t *testing.T) {
 	if _, err := os.Stat(save); err == nil {
 		t.Error("a pass with an unfinished component was written")
 	}
+	if !strings.Contains(stderr.String(), "netdoc: -save: nothing written for this pass") {
+		t.Errorf("stderr does not say the save was not written: %q", stderr.String())
+	}
 }
 
 // A marked timeout on the sequential path is a component failure, and the next component still runs.

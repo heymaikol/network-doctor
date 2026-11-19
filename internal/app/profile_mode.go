@@ -134,7 +134,7 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		outputs[i] = diagnoseHeadless(ctx, h, base.save != "")
 		if batch && outputs[i].err != nil {
 			// The noninteractive attempt asks nothing, so say that it did not.
-			outputs[i].err = fmt.Errorf("%w; no question was asked, and a run from a terminal can answer any question the destination asks", outputs[i].err)
+			outputs[i].err = fmt.Errorf("%w; no question was asked", outputs[i].err)
 		}
 	}
 	// together runs every component from first onwards at once. A component

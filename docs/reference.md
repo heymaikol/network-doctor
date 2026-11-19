@@ -445,9 +445,12 @@ derived sentences remain display text.
   refused, the pass fails: netdoc does not retry the destination over the
   transport that can prompt, so no passphrase, host-key confirmation, agent,
   LocalCommand, or forwarding is used for it. The error says that no question
-  was asked, and a run from a terminal can answer any question the destination
-  asks. A destination
-  reached through a proxy, or whose configuration cannot be read, is acquired one
+  was asked. A refused host key or passphrase can be answered by a run from a
+  terminal. OpenSSH's own timeouts, such as ConnectTimeout and the ServerAlive
+  settings, end the ssh process with its failure status, and netdoc treats that
+  as a refusal: the pass fails, conservatively, rather than recording a
+  component timeout. A destination reached through a proxy, or whose
+  configuration cannot be read, is acquired one
   component at a time over the ordinary transport, as before. Results stay in
   registry order either way.
 - A timeout is not a refusal. When the transport's own deadline ends a batch

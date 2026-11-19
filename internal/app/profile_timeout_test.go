@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -258,5 +259,50 @@ func TestProfileSequentialBatchTimeoutIsAComponentFailure(t *testing.T) {
 	}
 	if len(tr.snapshot().calls) != len(plan.Runs) {
 		t.Errorf("acquisitions = %d, want every component attempted once", len(tr.snapshot().calls))
+	}
+}
+
+// A timed-out component's detail says what happened and that no question was asked. It does not
+// suggest a run from a terminal: a terminal run would time out too.
+func TestProfileTimedOutDetailDoesNotOfferATerminal(t *testing.T) {
+	plan := githubPlan(t)
+	traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if req.Target == plan.Runs[0].Target.Raw {
+			return remote.Response{}, timedOut("ideapad")
+		}
+		return profileComponentAnswer(t, req, true), nil
+	})
+	result, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
+	if err != nil {
+		t.Fatalf("a timed-out component ended the pass: %v", err)
+	}
+	detail := result.Components[0].Report.Checks[0].Detail
+	if strings.Contains(detail, "terminal") {
+		t.Errorf("a timed-out component's detail offers a terminal: %q", detail)
+	}
+	if !strings.Contains(detail, "no question was asked") {
+		t.Errorf("a timed-out component's detail does not say no question was asked: %q", detail)
+	}
+}
+
+// An ssh failure at exit 255, such as its own connect timeout, is not offered a terminal either.
+// The text is the transport's own: ssh could not open the connection, with ssh's detail lines.
+func TestProfileSSHFailureDoesNotOfferATerminal(t *testing.T) {
+	plan := githubPlan(t)
+	traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if req.Target == plan.Runs[0].Target.Raw {
+			return remote.Response{}, errors.New("ideapad: ssh could not open the connection\n  Connection timed out during banner exchange")
+		}
+		return profileComponentAnswer(t, req, true), nil
+	})
+	_, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
+	if err == nil {
+		t.Fatal("an ssh failure was recorded as a component failure and the pass went on")
+	}
+	if strings.Contains(err.Error(), "terminal") {
+		t.Errorf("an ssh failure offers a terminal: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "no question was asked") {
+		t.Errorf("an ssh failure does not say no question was asked: %q", err.Error())
 	}
 }

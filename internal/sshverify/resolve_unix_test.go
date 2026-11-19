@@ -310,6 +310,9 @@ func TestTruncatedDiagnosticsAreRefused(t *testing.T) {
 // A diagnostic stream a process left open is not complete, so it is refused rather
 // than classified: the command may still be writing.
 func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
+	if !configPlatformSupported {
+		t.Skip("the configuration read is refused on this platform, so no read starts the holder")
+	}
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

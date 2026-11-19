@@ -416,6 +416,8 @@ func TestPagesDeployGateIsReadFromTheDeployJob(t *testing.T) {
 	const publishUses = "actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1"
 	deployUse := "        uses: " + publishUses + "\n"
 	uploadGate := "      - if: " + pagesDeployCondition + "\n        uses: " + pagesUploadAction
+	const uploadUses = "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0"
+	uploadStep := "      - if: " + pagesDeployCondition + "\n        uses: " + uploadUses + "\n        with:\n          path: _site\n"
 	// extraJob publishes from a job other than deploy, with the given if (none if empty).
 	extraJob := func(cond string) string {
 		job := "\n  publish:\n    runs-on: ubuntu-latest\n"
@@ -441,6 +443,8 @@ func TestPagesDeployGateIsReadFromTheDeployJob(t *testing.T) {
 		{"upload condition removed", edit(uploadGate, "      - uses: "+pagesUploadAction), true},
 		{"upload condition widened", edit(uploadGate, "      - if: "+pagesDeployCondition+" || github.event_name == 'push'\n        uses: "+pagesUploadAction), true},
 		{"upload action missing", edit("        uses: "+pagesUploadAction, "        run: true"), true},
+		{"upload action duplicated in build", edit("          path: _site\n", "          path: _site\n"+uploadStep), true},
+		{"upload action moved to a later job", edit(uploadStep, "") + "\n  stage:\n    runs-on: ubuntu-latest\n    steps:\n" + uploadStep, true},
 		{"additional job publishes under an upper-case action name", string(repoWorkflow) + strings.Replace(extraJob(""), "actions/deploy-pages@", "Actions/Deploy-Pages@", 1), true},
 		{"unrelated job appended after deploy", string(repoWorkflow) + "\n  lint-docs:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n", false},
 	} {

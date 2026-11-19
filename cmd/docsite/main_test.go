@@ -236,6 +236,22 @@ func TestBuildRefusesMarkedOutputThatHoldsASource(t *testing.T) {
 	}
 }
 
+// A source path that does not resolve is an error when an output exists. It must
+// not be read as "nothing can be inside the output": the output would then be
+// removed, and the build would fail after deleting its own media.
+func TestBuildKeepsMarkedOutputWhenASourceIsMissing(t *testing.T) {
+	docs, wiki, shell := fixture(t)
+	markedDir(t, "assets")
+	before := snapshot(t, ".")
+	// The raw path, not filepath.Join, which would clean it to "assets".
+	if err := build("", shell, docs, wiki, "missing/../assets", "assets"); err == nil {
+		t.Fatal("build accepted a source that does not resolve")
+	}
+	if !maps.Equal(before, snapshot(t, ".")) {
+		t.Fatal("the output was changed by a build that failed on a missing source")
+	}
+}
+
 // markedDir creates dir holding only the generated marker.
 func markedDir(t *testing.T, dir string) {
 	t.Helper()

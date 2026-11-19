@@ -90,6 +90,8 @@ func TestScanFileFollowsSSHSyntax(t *testing.T) {
 		"Ma\"tch\" command \"netdoc*\"\n":      true,
 		"\"Match\"command \"netdoc*\"\n":       true,
 		"\"Host\" probe\n":                     true, // a false refusal, accepted on purpose
+		"=Match exec \"true\"\n":               true,
+		"=# Match exec \"true\"\n":             false, // ssh reads this line as a comment
 		"Host probe\n  IdentityFile \"~/k\"\n": false,
 	}
 	for body, refuse := range cases {

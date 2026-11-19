@@ -108,6 +108,8 @@ var corpus = []corpusCase{
 	{"quoted keyword match command, CRLF", "\"Match\" command \"netdoc*\"\r\n  ProxyJump 127.0.0.3\r\nHost probe\r\n  HostName 127.0.0.1\r\n", refused, refused},
 	{"quoted keyword match command in an included file", "Include @DIR@/qmatch.conf\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"quoted keyword Host (an accepted false refusal)", "\"Host\" probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"equals before a match command", "=Match command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"equals and a quoted keyword before a match command", "= \"Match\" command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"quoted argument on a plain keyword (control)", "Host probe\n  HostName \"127.0.0.1\"\n  IdentityFile \"~/.ssh/k\"\n", direct, direct},
 }
 

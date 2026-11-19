@@ -44,7 +44,7 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 			if ctx.Err() != nil {
 				return code
 			}
-			fmt.Fprintln(stderr, "netdoc: -profile:", textsafe.Clean(err.Error()))
+			fmt.Fprintln(stderr, "netdoc: -profile:", oneLine(err))
 			return 2
 		}
 		code = 0
@@ -220,6 +220,19 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 	return result, snapshots, tools, err
 }
 
+// oneLine is an error's text on one line, for a place that shows one. The sanitizer removes line
+// breaks, so each line is trimmed and the lines are joined with "; " first, and a detail that
+// spans lines keeps its boundaries.
+func oneLine(err error) string {
+	var parts []string
+	for _, line := range strings.Split(err.Error(), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			parts = append(parts, line)
+		}
+	}
+	return textsafe.Clean(strings.Join(parts, "; "))
+}
+
 // ordinaryTimeout reports whether an acquisition ended by the transport's own deadline. That
 // is an ordinary component failure: the pass records it and goes on. Every other error from an
 // acquisition is a refusal or a failed gate, and it still ends the pass.
@@ -235,7 +248,7 @@ func timedOutReport(run profile.Run, err error) report.Report {
 	id := string(run.Focus)
 	r := report.Report{
 		Version:     version,
-		Checks:      []report.Check{{ID: id, Name: run.Label, Status: diagnostic.StatusFail.String(), Detail: textsafe.Clean(err.Error())}},
+		Checks:      []report.Check{{ID: id, Name: run.Label, Status: diagnostic.StatusFail.String(), Detail: oneLine(err)}},
 		Summary:     run.Label + " did not finish before its time ran out.",
 		Verdict:     diagnostic.VerdictIncomplete,
 		FailedStage: id,

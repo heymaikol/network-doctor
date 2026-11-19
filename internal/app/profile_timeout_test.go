@@ -306,3 +306,53 @@ func TestProfileSSHFailureDoesNotOfferATerminal(t *testing.T) {
 		t.Errorf("an ssh failure does not say no question was asked: %q", err.Error())
 	}
 }
+
+// oneLine keeps the lines of a multi-line error apart: each line is trimmed, and the lines are joined
+// with "; ", so the sanitizer that strips line breaks does not glue them into one word.
+func TestOneLineKeepsTheLinesOfAnErrorApart(t *testing.T) {
+	err := errors.New("probe: ssh could not open the connection\n  kex_exchange_identification: read: Connection reset by peer\n\n  Connection reset by 127.0.0.1 port 2294")
+	want := "probe: ssh could not open the connection; kex_exchange_identification: read: Connection reset by peer; Connection reset by 127.0.0.1 port 2294"
+	if got := oneLine(err); got != want {
+		t.Errorf("oneLine = %q, want %q", got, want)
+	}
+}
+
+// The -profile line for an ssh exit-255 failure is one exact line, with the detail lines separated and
+// the batch suffix at the end: no question was asked, and nothing about a terminal.
+func TestProfileStderrIsOneExactLineForASSHFailure(t *testing.T) {
+	plan := githubPlan(t)
+	traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if req.Target == plan.Runs[0].Target.Raw {
+			return remote.Response{}, errors.New("ideapad: ssh could not open the connection\n  Connection timed out during banner exchange")
+		}
+		return profileComponentAnswer(t, req, true), nil
+	})
+	base := viaBase()
+	var stdout, stderr bytes.Buffer
+	if code := runProfile(context.Background(), base, plan, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit = %d, want 2 for an ssh failure that ends the pass", code)
+	}
+	want := "netdoc: -profile: " + plan.Runs[0].Label + ": ideapad: ssh could not open the connection; Connection timed out during banner exchange; no question was asked\n"
+	if got := stderr.String(); got != want {
+		t.Errorf("stderr = %q, want %q", got, want)
+	}
+}
+
+// A timed-out component's detail is one exact line: the transport's own text, then the suffix.
+func TestTimedOutDetailIsOneExactLine(t *testing.T) {
+	plan := githubPlan(t)
+	traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if req.Target == plan.Runs[0].Target.Raw {
+			return remote.Response{}, fmt.Errorf("ideapad: %w\n  Connection detail line", remote.ErrRunTimedOut)
+		}
+		return profileComponentAnswer(t, req, true), nil
+	})
+	result, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
+	if err != nil {
+		t.Fatalf("a timed-out component ended the pass: %v", err)
+	}
+	want := "ideapad: the remote run timed out; Connection detail line; no question was asked"
+	if got := result.Components[0].Report.Checks[0].Detail; got != want {
+		t.Errorf("detail = %q, want %q", got, want)
+	}
+}

@@ -96,6 +96,11 @@ func TestProfileNeverRetriesARefusedBatchInteractively(t *testing.T) {
 			if !strings.Contains(stderr.String(), "no question was asked") {
 				t.Errorf("the refusal does not say that no question was asked: %q", stderr.String())
 			}
+			// The -profile failure is one line. ssh's own text can contain spaces, so the check is
+			// only for the line break that the sanitizer used to remove, gluing ssh's lines together.
+			if line := strings.TrimSuffix(stderr.String(), "\n"); strings.Contains(line, "\n") {
+				t.Errorf("the -profile failure spans lines: %q", stderr.String())
+			}
 			invocations := lab.invocations(t)
 			var batch, interactive int
 			for _, line := range invocations {

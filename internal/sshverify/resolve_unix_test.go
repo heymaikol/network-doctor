@@ -197,7 +197,7 @@ func TestChildOutsideTheGroupIsAnError(t *testing.T) {
 			"printf 'hostname h\\nport 22\\nuser u\\n'\nexit 0\n",
 		holdEnv, pidFile, self, pidFile))
 	useFakeClient(t, client, 10*time.Second)
-	outputGrace = 300 * time.Millisecond
+	outputGrace = 100 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+holderOutputBudget)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
@@ -329,7 +329,7 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 			"printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n",
 		holdEnv, pidFile, self, pidFile))
 	useFakeClient(t, client, 10*time.Second)
-	outputGrace = 300 * time.Millisecond
+	outputGrace = 100 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+holderOutputBudget)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
@@ -351,8 +351,9 @@ const holdEnv = "NETDOC_TEST_HOLD_PID"
 const holderStartBound = 9 * time.Second
 
 // holderOutputBudget is the time after the bound for the listing to close: the client's next 50 ms poll,
-// its exit, and the 300 ms outputGrace. The read's deadline is holderStartBound plus this budget, half a
-// second inside the 10 s read budget.
+// its exit, and one outputGrace wait for each of its two streams, which the read takes in turn. The tests
+// set outputGrace to 100 ms, so the waits take 0.2 s. The read's deadline is holderStartBound plus this
+// budget, half a second inside the 10 s read budget.
 const holderOutputBudget = 500 * time.Millisecond
 
 // TestHoldDiagnosticPipe is the holder the tests that hold a pipe open start: a second run of this test

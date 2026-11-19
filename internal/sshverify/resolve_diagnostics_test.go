@@ -91,7 +91,8 @@ func TestScanFileFollowsSSHSyntax(t *testing.T) {
 		"Match host \"*,x user\" command \"host x,?*\"\n": true,
 		"Match host *,x\vuser command host\vx,?*\n":       true,
 		"Match host probe user demo\n":                    false,
-		"Match host \"probe user demo\n":                  true, // an unbalanced quote, which ssh rejects
+		"Match user CORP\\alice\n":                        false, // a backslash is a literal character to ssh
+		"Match host \"probe user demo\n":                  true,  // an unbalanced quote, which ssh rejects
 		"=Match exec \"true\"\n":                          true,
 		"=# Match exec \"true\"\n":                        false, // ssh reads this line as a comment
 		"Host probe\n  IdentityFile \"~/k\"\n":            false,

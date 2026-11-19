@@ -286,10 +286,11 @@ var (
 // matchCriteriaKnown reports whether every criterion on a Match line, after its keyword,
 // is one of the known ones. A value that is not a criterion makes the line unknown. ssh reads a
 // quoted value as one word, which may hold blanks, and splits criteria on space and tab only. So a
-// quoted value with a blank, tab, vertical tab or form feed makes the line unknown, a single quote,
-// a backslash or an unbalanced quote does too, and a quote that holds one word comes off.
+// quoted value with a blank, tab, vertical tab or form feed makes the line unknown, a single quote
+// or an unbalanced quote does too, and a quote that holds one word comes off. A backslash is a
+// literal character to ssh, so it is not refused.
 func matchCriteriaKnown(rest string) bool {
-	if strings.ContainsAny(rest, "'\\") || strings.Count(rest, "\"")%2 == 1 {
+	if strings.ContainsAny(rest, "'") || strings.Count(rest, "\"")%2 == 1 {
 		return false
 	}
 	for i, seg := range strings.Split(rest, "\"") {

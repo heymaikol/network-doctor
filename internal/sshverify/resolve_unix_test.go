@@ -198,7 +198,7 @@ func TestChildOutsideTheGroupIsAnError(t *testing.T) {
 		holdEnv, pidFile, self, pidFile))
 	useFakeClient(t, client, 10*time.Second)
 	outputGrace = 300 * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+outputGrace)
+	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+holderOutputBudget)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
 	pid := holderPID(t, pidFile, ctx, err)
@@ -330,7 +330,7 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 		holdEnv, pidFile, self, pidFile))
 	useFakeClient(t, client, 10*time.Second)
 	outputGrace = 300 * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+outputGrace)
+	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+holderOutputBudget)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
 	pid := holderPID(t, pidFile, ctx, err)
@@ -345,11 +345,15 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 // holdEnv names the file the holder writes its pid to. The two tests that start a holder set it.
 const holdEnv = "NETDOC_TEST_HOLD_PID"
 
-// holderStartBound is how long a holder has to record its pid. The read's context deadline is this bound
-// plus the output grace, so a holder that starts on time still has the grace to close the listing. The
-// deadline is a wall-clock timer that kills the client's process group, so a late holder ends the read
-// there, 1.7 s inside the 10 s read budget.
-const holderStartBound = 8 * time.Second
+// holderStartBound is how long a holder has to record its pid. A holder that records its pid within this
+// bound always completes before the read's deadline. The deadline is a wall-clock timer that kills the
+// client's process group, so a holder that records later ends the read there.
+const holderStartBound = 9 * time.Second
+
+// holderOutputBudget is the time after the bound for the listing to close: the client's next 50 ms poll,
+// its exit, and the 300 ms outputGrace. The read's deadline is holderStartBound plus this budget, half a
+// second inside the 10 s read budget.
+const holderOutputBudget = 500 * time.Millisecond
 
 // TestHoldDiagnosticPipe is the holder the tests that hold a pipe open start: a second run of this test
 // binary, selected by name. It does nothing unless holdEnv names a file. It leaves the client's session,

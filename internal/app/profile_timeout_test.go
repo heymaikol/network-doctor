@@ -232,6 +232,10 @@ func TestOneLineKeepsTheLinesOfAnErrorApart(t *testing.T) {
 	if got := oneLine(err); got != want {
 		t.Errorf("oneLine = %q, want %q", got, want)
 	}
+	// A bare carriage return separates lines as well, as OpenSSH reads a configuration line.
+	if got := oneLine(errors.New("connection\rConnection timed out")); got != "connection; Connection timed out" {
+		t.Errorf("oneLine on a bare carriage return = %q, want %q", got, "connection; Connection timed out")
+	}
 }
 
 // The -profile line for an ssh exit-255 failure is one exact line, with the detail lines separated and

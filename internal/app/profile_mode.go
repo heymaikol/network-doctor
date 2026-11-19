@@ -222,7 +222,7 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 // spans lines keeps its boundaries.
 func oneLine(err error) string {
 	var parts []string
-	for _, line := range strings.Split(err.Error(), "\n") {
+	for _, line := range strings.FieldsFunc(err.Error(), func(r rune) bool { return r == '\n' || r == '\r' }) {
 		if line = strings.TrimSpace(line); line != "" {
 			parts = append(parts, line)
 		}

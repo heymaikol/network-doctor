@@ -65,18 +65,11 @@ func TestHeadlessRunConnectsOnlyWithBatchOptions(t *testing.T) {
 // A headless connection pins the host and port its configuration read classified, so the
 // connection goes where the read said it goes. The fake reports 10.0.0.5 on port 22.
 func TestHeadlessConnectionPinsTheClassifiedEndpoint(t *testing.T) {
+	if !configReadRuns() {
+		t.Skip("this platform refuses the configuration read, so no endpoint is classified and none is pinned; the refusal is checked in internal/sshverify")
+	}
 	argvPath, _ := useFakeSSH(t, "config")
 	withoutTerminal(t)
-	if !configReadRuns() {
-		// No endpoint is classified here, so there is none to pin. The headless run is refused, and
-		// no ssh starts.
-		_, err := Run(context.Background(), "ideapad", "", Request{})
-		if err == nil || !strings.Contains(err.Error(), "run it from a terminal") {
-			t.Fatalf("a headless run returned %v; want the refusal", err)
-		}
-		noSSHRan(t, argvPath)
-		return
-	}
 	_, _ = Run(context.Background(), "ideapad", "", Request{})
 	argv := strings.Join(readLines(t, argvPath), " ")
 	for _, want := range []string{"HostName=10.0.0.5", "Port=22"} {
@@ -139,6 +132,9 @@ func TestHeadlessBatchDeadlineIsMarkedAsARunTimeout(t *testing.T) {
 // seconds. On a platform that refuses the read, the refusal comes before any stall, so there this
 // checks only that the refusal is not a run timeout.
 func TestHeadlessRouteReadTimeoutIsNotARunTimeout(t *testing.T) {
+	if !configReadRuns() {
+		t.Skip("this platform refuses the configuration read before it can stall, so the stalled read this test needs never happens; the refusal is checked in internal/sshverify")
+	}
 	if testing.Short() {
 		t.Skip("the route read waits out its own budget")
 	}

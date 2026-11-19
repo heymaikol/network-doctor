@@ -85,6 +85,12 @@ func TestScanFileFollowsSSHSyntax(t *testing.T) {
 		"Host\rprobe\n  Port 22\n":          false,
 		"Host probe\r\n  Port 22\r\n":       false,
 		"IdentityFile\r${FOO}/k\n":          true,
+		// ssh removes quotes from a keyword wherever they are, so a quoted keyword is refused whole.
+		"\"Match\" command \"netdoc*\"\n":      true,
+		"Ma\"tch\" command \"netdoc*\"\n":      true,
+		"\"Match\"command \"netdoc*\"\n":       true,
+		"\"Host\" probe\n":                     true, // a false refusal, accepted on purpose
+		"Host probe\n  IdentityFile \"~/k\"\n": false,
 	}
 	for body, refuse := range cases {
 		got := scanFile([]byte(body), true) != ""

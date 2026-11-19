@@ -246,6 +246,13 @@ func scanFile(text []byte, headless bool) string {
 		if line == "" || line[0] == '#' {
 			continue
 		}
+		// A quote before any blank or '=' is part of the keyword. ssh removes the quotes by a rule
+		// that joins the text around them, so "Match", Ma"tch" and "Match"command all name Match,
+		// and the Match checks below would miss them. netdoc does not model that rule, so the line
+		// is refused rather than classified. A quoted argument is not affected.
+		if q := strings.IndexByte(line, '"'); q >= 0 && !strings.ContainsAny(line[:q], " \t=") {
+			return "a keyword is quoted, so netdoc cannot show how ssh reads the line"
+		}
 		kw := keywordOf(line)
 		if strings.Contains(line, "$") {
 			switch {

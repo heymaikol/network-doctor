@@ -181,3 +181,31 @@ func TestHeadlessRunStillConnectsByACRLFDirectRoute(t *testing.T) {
 		t.Fatal("a headless run of a direct CRLF route made no connection")
 	}
 }
+
+// The quoted spellings of the same directive. ssh removes quotes from a keyword by a rule that joins
+// the text around them, so each of these is a Match command to ssh. Each is refused headless and on a
+// terminal, with no connection made around the jump host.
+func TestQuotedMatchCommandIsNotRoutedAroundItsProxy(t *testing.T) {
+	for _, spelling := range []string{`"Match" command "netdoc*"`, `Ma"tch" command "netdoc*"`, `"Match"command "netdoc*"`} {
+		t.Run(spelling, func(t *testing.T) {
+			port, accepts := countingListener(t)
+			realSSHWithConfig(t, writeRouteConfig(t, spelling+"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n  Port %d\n  User demo\n", port))
+			saved := sshverify.TerminalAvailable
+			t.Cleanup(func() { sshverify.TerminalAvailable = saved })
+
+			sshverify.TerminalAvailable = func() bool { return false }
+			_, err := Run(context.Background(), "probe", "", Request{TimeoutMs: 5000})
+			if n := accepts.Load(); n != 0 {
+				t.Errorf("a headless run connected %d time(s) straight to the host, around the jump host", n)
+			}
+			if err == nil {
+				t.Error("a headless run of a quoted Match command returned no error")
+			}
+
+			sshverify.TerminalAvailable = func() bool { return true }
+			if Direct(context.Background(), "probe") {
+				t.Error("a terminal run read a quoted Match command as a direct route, and the batch transport turns its proxy off")
+			}
+		})
+	}
+}

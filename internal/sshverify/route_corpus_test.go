@@ -102,6 +102,13 @@ var corpus = []corpusCase{
 	{"CRLF match command, space form (control)", "Match command \"netdoc*\"\r\n  ProxyJump 127.0.0.3\r\nHost probe\r\n  HostName 127.0.0.1\r\n", refused, refused},
 	{"CR match command in an included file", "Include @DIR@/crmatch.conf\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"CR match command two includes down", "Include @DIR@/crchain1.conf\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"quoted keyword match command", "\"Match\" command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"quoted keyword joined mid-token", "Ma\"tch\" command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"quoted keyword joined after its quote", "\"Match\"command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"quoted keyword match command, CRLF", "\"Match\" command \"netdoc*\"\r\n  ProxyJump 127.0.0.3\r\nHost probe\r\n  HostName 127.0.0.1\r\n", refused, refused},
+	{"quoted keyword match command in an included file", "Include @DIR@/qmatch.conf\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"quoted keyword Host (an accepted false refusal)", "\"Host\" probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"quoted argument on a plain keyword (control)", "Host probe\n  HostName \"127.0.0.1\"\n  IdentityFile \"~/.ssh/k\"\n", direct, direct},
 }
 
 // writeCorpusCase writes one case with its include targets in a fresh directory.
@@ -124,6 +131,7 @@ func writeCorpusCase(t *testing.T, body string) string {
 		"chain3.conf":   "Host probe\n  IdentityAgent ${SSH_AUTH_SOCK}\n",
 		"crmatch.conf":  "Match\rcommand \"netdoc*\"\n  ProxyJump 127.0.0.3\n",
 		"crchain1.conf": "Include @DIR@/crmatch.conf\n",
+		"qmatch.conf":   "\"Match\" command \"netdoc*\"\n  ProxyJump 127.0.0.3\n",
 	}
 	for name, text := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(strings.ReplaceAll(text, "@DIR@", dir)), 0o600); err != nil {

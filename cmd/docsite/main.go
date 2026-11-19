@@ -198,27 +198,28 @@ func checkReplaceable(out string) (bool, error) {
 	return true, nil
 }
 
-// within reports whether path is dir or lies beneath it. It climbs with "..",
-// which the OS resolves against the physical directory, and compares file
-// identity, so a symlink on the way up cannot hide the shell.
+// within reports whether path is dir or lies beneath it. Symlinks are resolved
+// first, so the ancestors walked are real directories. Windows collapses ".."
+// lexically before opening a path, so climbing ".." through a symlink would not
+// reach the directory it points to there. File identity is compared, so a case
+// alias of dir still matches.
 func within(path, dir string) (bool, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false, err
+	}
+	if resolved, err = filepath.Abs(resolved); err != nil {
+		return false, err
+	}
 	want, err := os.Stat(dir)
 	if err != nil {
 		return false, err
 	}
-	for p := path; ; p += string(filepath.Separator) + ".." {
-		info, err := os.Stat(p)
-		if err != nil {
-			return false, err
-		}
-		if os.SameFile(info, want) {
+	for p := resolved; ; p = filepath.Dir(p) {
+		if info, err := os.Stat(p); err == nil && os.SameFile(info, want) {
 			return true, nil
 		}
-		up, err := os.Stat(p + string(filepath.Separator) + "..")
-		if err != nil {
-			return false, err
-		}
-		if os.SameFile(info, up) {
+		if filepath.Dir(p) == p {
 			return false, nil
 		}
 	}

@@ -179,6 +179,9 @@ func TestIncompleteOutputIsRefused(t *testing.T) {
 // listing incomplete for certain, so it is an error. The child is killed by the
 // test, since the read does not reach it.
 func TestChildOutsideTheGroupIsAnError(t *testing.T) {
+	if !configPlatformSupported {
+		t.Skip("the configuration read is refused on this platform, so no read starts the holder")
+	}
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -180,27 +179,27 @@ func TestIncompleteOutputIsRefused(t *testing.T) {
 // listing incomplete for certain, so it is an error. The child is killed by the
 // test, since the read does not reach it.
 func TestChildOutsideTheGroupIsAnError(t *testing.T) {
-	if _, err := exec.LookPath("setsid"); err != nil {
-		t.Skip("setsid is not available to start a child in a session of its own")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	child := filepath.Join(dir, "child.pid")
-	// The pause lets the child leave the group before the client exits, so the
-	// group kill does not reach it: the test is about a child that escaped.
-	client := fakeClient(t, fmt.Sprintf("setsid sleep 300 &\necho $! > %s\nsleep 0.5\nprintf 'hostname h\\nport 22\\nuser u\\n'\nexit 0\n", child))
-	useFakeClient(t, client, time.Minute)
-	savedGrace := outputGrace
+	pidFile := filepath.Join(t.TempDir(), "holder.pid")
+	t.Cleanup(func() { killRecorded(pidFile) })
+	// The holder is TestHoldDiagnosticPipe, started with its stdout left as the listing pipe, so
+	// the listing stays open. It leaves the client's session with Setsid, so the client's group
+	// kill does not reach it: the test is about a child that escaped. No external setsid is run.
+	client := fakeClient(t, fmt.Sprintf(
+		"%s='%s' '%s' -test.run='^TestHoldDiagnosticPipe$' &\n"+
+			"i=0\nwhile [ ! -e '%s' ]; do i=$((i+1)); [ $i -gt %d ] && exit 1; sleep 0.05; done\n"+
+			"printf 'hostname h\\nport 22\\nuser u\\n'\nexit 0\n",
+		holdEnv, pidFile, self, pidFile, holderStartPolls))
+	useFakeClient(t, client, 10*time.Second)
 	outputGrace = 300 * time.Millisecond
-	t.Cleanup(func() { outputGrace = savedGrace })
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := Resolve(context.Background(), "host", 0, "")
-		done <- err
-	}()
-	pid := waitForPID(t, child)
-	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
-	err := <-done
+	_, err = Resolve(context.Background(), "host", 0, "")
+	pid := holderPID(t, pidFile)
+	if processEnded(pid) {
+		t.Fatalf("the holder (pid %d) ended before the read did, so the listing was not held open", pid)
+	}
 	if err == nil || !strings.Contains(err.Error(), "kept it open") {
 		t.Fatalf("a read held open by a child outside the group was accepted: %v", err)
 	}
@@ -318,9 +317,9 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 	// group cleanup does not reach it.
 	client := fakeClient(t, fmt.Sprintf(
 		"%s='%s' '%s' -test.run='^TestHoldDiagnosticPipe$' >/dev/null &\n"+
-			"i=0\nwhile [ ! -e '%s' ]; do i=$((i+1)); [ $i -gt 100 ] && exit 1; sleep 0.05; done\n"+
+			"i=0\nwhile [ ! -e '%s' ]; do i=$((i+1)); [ $i -gt %d ] && exit 1; sleep 0.05; done\n"+
 			"printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n",
-		holdEnv, pidFile, self, pidFile))
+		holdEnv, pidFile, self, pidFile, holderStartPolls))
 	useFakeClient(t, client, 10*time.Second)
 	outputGrace = 300 * time.Millisecond
 	_, err = Resolve(context.Background(), "host", 0, "")
@@ -333,17 +332,23 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 	}
 }
 
-// holdEnv names the file the holder writes its pid to. Only TestIncompleteDiagnosticsAreRefused sets it.
+// holdEnv names the file the holder writes its pid to. The two tests that start a holder set it.
 const holdEnv = "NETDOC_TEST_HOLD_PID"
 
-// TestHoldDiagnosticPipe is the holder TestIncompleteDiagnosticsAreRefused starts: a second run of this
-// test binary, selected by name. It does nothing unless holdEnv names a file. It leaves the client's
-// session, records its pid in a file it renames into place, and sleeps. The sleep is bounded, so a
-// holder whose pid was never read still ends on its own.
+// holderStartPolls bounds how long a client waits for its holder to record a pid: 180 polls of 0.05 s,
+// 9 s. A cold start of the test binary under load took six seconds in review, so 5 s was too short. The
+// bound stays inside the 10 s read budget, so a holder that never starts fails the test rather than
+// stalling it.
+const holderStartPolls = 180
+
+// TestHoldDiagnosticPipe is the holder the tests that hold a pipe open start: a second run of this test
+// binary, selected by name. It does nothing unless holdEnv names a file. It leaves the client's session,
+// records its pid in a file it renames into place, and sleeps. The sleep is bounded, so a holder whose
+// pid was never read still ends on its own.
 func TestHoldDiagnosticPipe(t *testing.T) {
 	pidFile := os.Getenv(holdEnv)
 	if pidFile == "" {
-		t.Skip("a helper that TestIncompleteDiagnosticsAreRefused starts")
+		t.Skip("a helper that TestChildOutsideTheGroupIsAnError and TestIncompleteDiagnosticsAreRefused start")
 	}
 	if _, err := syscall.Setsid(); err != nil {
 		t.Fatal(err)

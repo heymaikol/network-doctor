@@ -186,7 +186,7 @@ func TestHeadlessRunStillConnectsByACRLFDirectRoute(t *testing.T) {
 // the text around them, so each of these is a Match command to ssh. Each is refused headless and on a
 // terminal, with no connection made around the jump host.
 func TestQuotedMatchCommandIsNotRoutedAroundItsProxy(t *testing.T) {
-	for _, spelling := range []string{`"Match" command "netdoc*"`, `=Match command "netdoc*"`, `= "Match" command "netdoc*"`} {
+	for _, spelling := range []string{`"Match" command "netdoc*"`, `=Match command "netdoc*"`, `= "Match" command "netdoc*"`, `Match host "*,x user" command "host x,?*"`} {
 		t.Run(spelling, func(t *testing.T) {
 			port, accepts := countingListener(t)
 			realSSHWithConfig(t, writeRouteConfig(t, spelling+"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n  Port %d\n  User demo\n", port))

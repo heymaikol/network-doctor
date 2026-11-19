@@ -284,11 +284,23 @@ var (
 )
 
 // matchCriteriaKnown reports whether every criterion on a Match line, after its keyword,
-// is one of the known ones. A value that is not a criterion makes the line unknown.
+// is one of the known ones. A value that is not a criterion makes the line unknown. ssh reads a
+// quoted value as one word, which may hold blanks, and splits criteria on space and tab only. So a
+// quoted value with a blank, tab, vertical tab or form feed makes the line unknown, a single quote,
+// a backslash or an unbalanced quote does too, and a quote that holds one word comes off.
 func matchCriteriaKnown(rest string) bool {
-	fields := strings.Fields(rest)
+	if strings.ContainsAny(rest, "'\\") || strings.Count(rest, "\"")%2 == 1 {
+		return false
+	}
+	for i, seg := range strings.Split(rest, "\"") {
+		if i%2 == 1 && strings.ContainsAny(seg, " \t\v\f") {
+			return false
+		}
+	}
+	rest = strings.ReplaceAll(rest, "\"", "")
+	fields := strings.FieldsFunc(rest, func(r rune) bool { return r == ' ' || r == '\t' })
 	for i := 0; i < len(fields); i++ {
-		name := strings.ToLower(strings.TrimPrefix(strings.Trim(fields[i], "\"'"), "!"))
+		name := strings.ToLower(strings.TrimPrefix(fields[i], "!"))
 		switch {
 		case matchCriteriaAlone[name]:
 		case matchCriteriaWithValue[name]:

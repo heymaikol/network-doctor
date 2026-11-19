@@ -112,6 +112,9 @@ var corpus = []corpusCase{
 	{"quoted keyword Host (an accepted false refusal)", "\"Host\" probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"equals before a match command", "=Match command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"equals and a quoted keyword before a match command", "= \"Match\" command \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"quoted criterion value hides a command criterion", "Match host \"*,x user\" command \"host x,?*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"vertical tab keeps a command criterion inside a word", "Match host *,x\vuser command host\vx,?*\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"known criteria with values (control)", "Match host probe user demo\nHost probe\n  HostName 127.0.0.1\n", direct, direct},
 	{"quoted argument on a plain keyword (control)", "Host probe\n  HostName \"127.0.0.1\"\n  IdentityFile \"~/.ssh/k\"\n", direct, direct},
 }
 

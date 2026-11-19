@@ -406,7 +406,8 @@ derived sentences remain display text.
   per pass with `ts`, paced by `--watch-interval` as it is for an ordinary
   watch. A profile has no multi-pane TUI, so profile watch without
   `--json` is rejected. As with ordinary remote execution, `--watch` and
-  `--via` cannot be combined.
+  `--via` cannot be combined, and neither can `--watch` with `--save` or
+  `--support`: a saved artifact is one finished run, and a watch never finishes.
 - `--via` sends one ordinary remote protocol version 1 request per component.
   Targets and selections travel as JSON data, never shell text. The remote
   binary does not need to know the profile name, so a version-1 remote worker
@@ -455,11 +456,9 @@ derived sentences remain display text.
   registry order either way.
 - A timeout is not a refusal. When the transport's own deadline ends a batch
   acquisition, that component is recorded as failed, and the other components
-  still run. A watch goes on after a pass with a failed component. A pass with
-  one is not saved by `-save` or `-support`, because an artifact cannot hold a
-  component without its snapshot; netdoc says so on stderr. A one-shot run then
-  exits 2, as a failed save does, and a watch goes on to the next pass, which is
-  saved in full when it finishes. An interactive run's deadline is not a
+  still run. A pass with one is not saved by `-save` or `-support`, because an
+  artifact cannot hold a component without its snapshot; netdoc says so on
+  stderr and exits 2, as a failed save does. An interactive run's deadline is not a
   component timeout: it also covers the time a person takes to answer a prompt,
   so it ends the pass, as it did before. A timeout while netdoc reads the
   configuration or checks the route is not a component timeout either: headless,

@@ -68,18 +68,15 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 			fmt.Fprint(stdout, profileText(result))
 		}
 		if base.save != "" && !saveable(snapshots) {
-			// A component that did not finish has no snapshot to write. Nothing is written
-			// for this pass, and a watch goes on to the next one.
+			// A component that did not finish has no snapshot to write, so nothing is written. A save
+			// is always a one-shot run, because -watch is refused with -save, so the run was asked for
+			// its artifact and did not get it: the failure exit 2 has always meant.
 			flag := "-save"
 			if base.support {
 				flag = "-support"
 			}
 			fmt.Fprintln(stderr, "netdoc: "+flag+": nothing written for this pass, because a component did not finish")
-			// A one-shot run was asked for its artifact and did not get it, which is the failure
-			// exit 2 has always meant. A watch goes on to its next pass.
-			if !base.watch {
-				return 2
-			}
+			return 2
 		} else if base.save != "" {
 			artifact := buildProfileArtifact(result, snapshots)
 			if base.support {

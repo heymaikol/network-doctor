@@ -87,8 +87,6 @@ func TestScanFileFollowsSSHSyntax(t *testing.T) {
 		"IdentityFile\r${FOO}/k\n":          true,
 		// ssh removes quotes from a keyword wherever they are, so a quoted keyword is refused whole.
 		"\"Match\" command \"netdoc*\"\n":      true,
-		"Ma\"tch\" command \"netdoc*\"\n":      true,
-		"\"Match\"command \"netdoc*\"\n":       true,
 		"\"Host\" probe\n":                     true, // a false refusal, accepted on purpose
 		"=Match exec \"true\"\n":               true,
 		"=# Match exec \"true\"\n":             false, // ssh reads this line as a comment

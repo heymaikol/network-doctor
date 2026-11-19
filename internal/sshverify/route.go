@@ -242,16 +242,13 @@ func scanFile(text []byte, headless bool) string {
 	for _, raw := range strings.Split(string(text), "\n") {
 		// OpenSSH splits a line on a carriage return as well as on a space or a tab, so
 		// "Match\rcommand" is a Match directive to ssh. Read the same way here. ssh also skips a
-		// leading '=' before the keyword, so "=Match" is a Match directive. Stripping every leading
-		// '=' refuses a few lines ssh ignores, which fails closed.
+		// leading '=', so "=Match" is one too; stripping every '=' fails closed.
 		line := strings.TrimLeft(strings.ReplaceAll(raw, "\r", " "), " \t=")
 		if line == "" || line[0] == '#' {
 			continue
 		}
-		// A quote before any blank or '=' is part of the keyword. ssh removes the quotes by a rule
-		// that joins the text around them, so "Match", Ma"tch" and "Match"command all name Match,
-		// and the Match checks below would miss them. netdoc does not model that rule, so the line
-		// is refused rather than classified. A quoted argument is not affected.
+		// A quote before any blank or '=' is in the keyword, and ssh joins the text around it, so
+		// "Match", Ma"tch" and "Match"command all name Match. netdoc does not model that: refuse.
 		if q := strings.IndexByte(line, '"'); q >= 0 && !strings.ContainsAny(line[:q], " \t=") {
 			return "a keyword is quoted, so netdoc cannot show how ssh reads the line"
 		}

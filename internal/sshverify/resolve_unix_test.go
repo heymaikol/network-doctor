@@ -201,7 +201,7 @@ func TestChildOutsideTheGroupIsAnError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+outputGrace)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
-	pid := holderPID(t, pidFile, err)
+	pid := holderPID(t, pidFile, ctx, err)
 	if processEnded(pid) {
 		t.Fatalf("the holder (pid %d) ended before the read did, so the listing was not held open", pid)
 	}
@@ -330,7 +330,7 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+outputGrace)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
-	pid := holderPID(t, pidFile, err)
+	pid := holderPID(t, pidFile, ctx, err)
 	if processEnded(pid) {
 		t.Fatalf("the holder (pid %d) ended before the read did, so the stream was not held open", pid)
 	}
@@ -371,15 +371,20 @@ func TestHoldDiagnosticPipe(t *testing.T) {
 }
 
 // holderPID returns the pid the holder recorded. The client waits for that file before it exits, so a
-// missing file means the holder did not start before the read ended, and the read's error says why.
-func holderPID(t *testing.T, pidFile string, readErr error) int {
+// missing file means the holder did not start. The test's own deadline names the bound. Any other end to
+// the read is named by the read's error, which is the only account of a read refused before it started.
+func holderPID(t *testing.T, pidFile string, ctx context.Context, readErr error) int {
 	t.Helper()
 	data, err := os.ReadFile(pidFile) // #nosec G304 -- a path this test just created.
 	pid, convErr := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || convErr != nil {
-		t.Fatalf("the holder did not record its pid, so it did not start: the read ended with %v", readErr)
+	if err == nil && convErr == nil {
+		return pid
 	}
-	return pid
+	if ctx.Err() != nil {
+		t.Fatalf("the holder did not record its pid within %v, so it did not start", holderStartBound)
+	}
+	t.Fatalf("the holder did not record its pid, so it did not start: the read ended with %v", readErr)
+	return 0
 }
 
 // killRecorded ends the holder the test recorded, if one was recorded. It runs when the test returns,

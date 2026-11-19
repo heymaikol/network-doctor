@@ -2330,6 +2330,12 @@ exit 0
 // binary in fake mode.
 func fakeSSHProgram(t *testing.T) string {
 	t.Helper()
+	// Windows cannot run the shell script below, so the test binary answers every call there.
+	// The canary is served only by the configuration read, which is refused on Windows before it
+	// runs, so nothing else is needed.
+	if runtime.GOOS == "windows" {
+		return os.Args[0]
+	}
 	dir := t.TempDir()
 	canary := filepath.Join(dir, "canary.sh")
 	if err := os.WriteFile(canary, []byte(fakeCanaryShell), 0o700); err != nil { // #nosec G306 -- an executable test script on purpose

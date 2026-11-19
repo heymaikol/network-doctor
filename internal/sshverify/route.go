@@ -240,7 +240,9 @@ var literalOnTerminal = map[string]bool{"hostname": true, "host": true, "identit
 // it has not measured.
 func scanFile(text []byte, headless bool) string {
 	for _, raw := range strings.Split(string(text), "\n") {
-		line := strings.TrimLeft(raw, " \t\r")
+		// OpenSSH splits a line on a carriage return as well as on a space or a tab, so
+		// "Match\rcommand" is a Match directive to ssh. Read the same way here.
+		line := strings.TrimLeft(strings.ReplaceAll(raw, "\r", " "), " \t")
 		if line == "" || line[0] == '#' {
 			continue
 		}

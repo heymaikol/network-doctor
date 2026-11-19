@@ -87,6 +87,20 @@ var corpus = []corpusCase{
 	{"match all", "Match all\nHost probe\n  HostName 127.0.0.1\n", direct, direct},
 	{"canonicalize yes", "Host probe\n  HostName 127.0.0.1\n  CanonicalizeHostname yes\n", refused, refused},
 	{"canonicalize no", "Host probe\n  HostName 127.0.0.1\n  CanonicalizeHostname no\n", direct, direct},
+
+	{"CR match command selects a proxy", "Match\rcommand \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"CR match command without a proxy", "Match\rcommand \"netdoc*\"\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"CR match exec", "Match\rexec \"true\"\nHost probe\n  HostName 127.0.0.2\n", refused, refused},
+	{"CR match sessiontype", "Match\rsessiontype shell\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"CR match localnetwork", "Match\rlocalnetwork 127.0.0.0/8\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"CR match user and host (known criteria)", "Match\ruser demo host probe\nHost probe\n  HostName 127.0.0.1\n", direct, direct},
+	{"CR host separator (no directive)", "Host\rprobe\n  HostName 127.0.0.1\n", direct, direct},
+	{"CR user dollar", "Host probe\n  HostName 127.0.0.1\n  User\r${FOO}u\n", refused, refused},
+	{"CR include dollar", "Include\r@DIR@/dir/${FOO}.conf\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"CRLF plain (control)", "Host probe\r\n  HostName 127.0.0.1\r\n", direct, direct},
+	{"CRLF match command, space form (control)", "Match command \"netdoc*\"\r\n  ProxyJump 127.0.0.3\r\nHost probe\r\n  HostName 127.0.0.1\r\n", refused, refused},
+	{"CR match command in an included file", "Include @DIR@/crmatch.conf\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
+	{"CR match command two includes down", "Include @DIR@/crchain1.conf\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 }
 
 // writeCorpusCase writes one case with its include targets in a fresh directory.
@@ -99,14 +113,16 @@ func writeCorpusCase(t *testing.T, body string) string {
 		}
 	}
 	files := map[string]string{
-		"plain.conf":  "Host probe\n  Port 2222\n",
-		"dir/x.conf":  "# nothing\n",
-		"exec.conf":   "Match host probe exec \"true\"\n",
-		"glob/a.conf": "Host probe\n  Port 2222\n",
-		"glob/b.conf": "IdentityAgent ${SSH_AUTH_SOCK}\n",
-		"chain1.conf": "Include @DIR@/chain2.conf\n",
-		"chain2.conf": "Include @DIR@/chain3.conf\n",
-		"chain3.conf": "Host probe\n  IdentityAgent ${SSH_AUTH_SOCK}\n",
+		"plain.conf":    "Host probe\n  Port 2222\n",
+		"dir/x.conf":    "# nothing\n",
+		"exec.conf":     "Match host probe exec \"true\"\n",
+		"glob/a.conf":   "Host probe\n  Port 2222\n",
+		"glob/b.conf":   "IdentityAgent ${SSH_AUTH_SOCK}\n",
+		"chain1.conf":   "Include @DIR@/chain2.conf\n",
+		"chain2.conf":   "Include @DIR@/chain3.conf\n",
+		"chain3.conf":   "Host probe\n  IdentityAgent ${SSH_AUTH_SOCK}\n",
+		"crmatch.conf":  "Match\rcommand \"netdoc*\"\n  ProxyJump 127.0.0.3\n",
+		"crchain1.conf": "Include @DIR@/crmatch.conf\n",
 	}
 	for name, text := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(strings.ReplaceAll(text, "@DIR@", dir)), 0o600); err != nil {

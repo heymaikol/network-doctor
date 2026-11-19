@@ -113,3 +113,71 @@ func TestTerminalDirectDoesNotRouteAroundAMatchCommandProxy(t *testing.T) {
 func sprintfPort(format string, port int) string {
 	return fmt.Sprintf(format, port)
 }
+
+// The carriage-return spelling of the same directive. OpenSSH splits a line on a carriage return,
+// so this is a Match command to ssh, and it must be refused headless and on a terminal, with no
+// connection made around the jump host.
+const matchCommandCRConfig = "Match\rcommand \"netdoc*\"\n  ProxyJump 127.0.0.3\nHost probe\n  HostName 127.0.0.1\n  Port %d\n  User demo\n"
+
+// The same host with CRLF line endings and no directive that depends on the connection. It is a
+// direct route, and it must still connect, so the refusals above are not refusals of everything.
+const directCRLFConfig = "Host probe\r\n  HostName 127.0.0.1\r\n  Port %d\r\n  User demo\r\n"
+
+func writeRouteConfig(t *testing.T, format string, port int) string {
+	t.Helper()
+	cfg := filepath.Join(t.TempDir(), "route.config")
+	if err := os.WriteFile(cfg, []byte(sprintfPort(format, port)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// Headless, a carriage-return Match command is refused before any connection: no accept on the
+// host's port, and the run returns an error.
+func TestHeadlessRunDoesNotConnectAroundACarriageReturnMatchCommand(t *testing.T) {
+	port, accepts := countingListener(t)
+	realSSHWithConfig(t, writeRouteConfig(t, matchCommandCRConfig, port))
+	saved := sshverify.TerminalAvailable
+	sshverify.TerminalAvailable = func() bool { return false }
+	t.Cleanup(func() { sshverify.TerminalAvailable = saved })
+
+	_, err := Run(context.Background(), "probe", "", Request{TimeoutMs: 5000})
+	if n := accepts.Load(); n != 0 {
+		t.Fatalf("a headless run connected %d time(s) straight to the host, around the jump host its carriage-return Match command selects (err %v)", n, err)
+	}
+	if err == nil {
+		t.Fatal("a headless run of a carriage-return Match command returned no error")
+	}
+}
+
+// On a terminal the batch transport is chosen by the same read, so a carriage-return Match command
+// must not be read as a direct route there either.
+func TestTerminalDirectRefusesACarriageReturnMatchCommand(t *testing.T) {
+	port, _ := countingListener(t)
+	realSSHWithConfig(t, writeRouteConfig(t, matchCommandCRConfig, port))
+	saved := sshverify.TerminalAvailable
+	sshverify.TerminalAvailable = func() bool { return true }
+	t.Cleanup(func() { sshverify.TerminalAvailable = saved })
+
+	if Direct(context.Background(), "probe") {
+		t.Fatal("a terminal run read a carriage-return Match command as a direct route, and the batch transport turns its proxy off")
+	}
+}
+
+// Control: a CRLF configuration with a plain direct route is still direct, and a headless run still
+// connects to it. Refusing the carriage-return form does not refuse CRLF files.
+func TestHeadlessRunStillConnectsByACRLFDirectRoute(t *testing.T) {
+	port, accepts := countingListener(t)
+	realSSHWithConfig(t, writeRouteConfig(t, directCRLFConfig, port))
+	saved := sshverify.TerminalAvailable
+	sshverify.TerminalAvailable = func() bool { return false }
+	t.Cleanup(func() { sshverify.TerminalAvailable = saved })
+
+	if !Direct(context.Background(), "probe") {
+		t.Fatal("a CRLF configuration with a plain direct route was not read as direct")
+	}
+	_, _ = Run(context.Background(), "probe", "", Request{TimeoutMs: 5000})
+	if accepts.Load() == 0 {
+		t.Fatal("a headless run of a direct CRLF route made no connection")
+	}
+}

@@ -289,6 +289,32 @@ func TestBuildRefusesMissingParentInsideShell(t *testing.T) {
 	}
 }
 
+// The output can change while staging runs, after the gate has passed. install
+// must not move an unmarked directory into the stage, where the cleanup would
+// delete it.
+func TestInstallKeepsDirectoryThatChangedWhileStaging(t *testing.T) {
+	root := t.TempDir()
+	out := filepath.Join(root, "_docsite")
+	if err := os.Mkdir(out, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "keep.txt"), []byte("unrelated data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(root, ".docsite-stage-test")
+	site := filepath.Join(stage, "site")
+	if err := os.MkdirAll(site, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshot(t, out)
+	if keep, err := install(site, out, stage, true); err == nil || !strings.Contains(err.Error(), "changed while staging") || keep {
+		t.Fatalf("install did not refuse an unmarked directory that replaced the output: keep=%v err=%v", keep, err)
+	}
+	if !maps.Equal(before, snapshot(t, out)) {
+		t.Fatal("unmarked directory was moved or changed")
+	}
+}
+
 // os.CopyFS recreates symlinks, and pages are written through the copy, so a
 // symlink in the shell would send a write into the source tree.
 func TestBuildRejectsSymlinkInSiteShell(t *testing.T) {

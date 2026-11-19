@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -46,11 +47,6 @@ func TestProfileViaTimedOutBatchIsAComponentFailure(t *testing.T) {
 	}
 	if got := result.Components[0].Status; got != profile.StatusFail {
 		t.Errorf("timed-out component status = %q, want %q", got, profile.StatusFail)
-	}
-	// The report's verdict is part of the published report contract, so a timed-out component
-	// carries a verdict from the schema's enum, not a check status.
-	if v := result.Components[0].Report.Verdict; v != "incomplete" {
-		t.Errorf("timed-out component verdict = %q, want %q", v, "incomplete")
 	}
 	got := tr.snapshot()
 	if len(got.calls) != len(plan.Runs) {
@@ -278,5 +274,53 @@ func TestTimedOutDetailIsOneExactLine(t *testing.T) {
 	want := "ideapad: the remote run timed out; Connection detail line; no question was asked"
 	if got := result.Components[0].Report.Checks[0].Detail; got != want {
 		t.Errorf("detail = %q, want %q", got, want)
+	}
+}
+
+func TestProfileWatchKeepsGoingAfterATimedOutPass(t *testing.T) {
+	plan := githubPlan(t)
+	timeouts := 1
+	traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
+		if batch && req.Target == plan.Runs[0].Target.Raw && timeouts > 0 {
+			timeouts--
+			return remote.Response{}, timedOut("ideapad")
+		}
+		return profileComponentAnswer(t, req, true), nil
+	})
+	stubWatchInterval(t, func(time.Duration) <-chan time.Time { return firedPause() })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var buf, stderr bytes.Buffer
+	out := &cancelAfter{buf: &buf, n: 2, cancel: cancel}
+	base := viaBase()
+	base.watch, base.json = true, true
+	code := runProfile(ctx, base, plan, out, &stderr)
+	if code == 2 {
+		t.Fatalf("the watch ended on a timed-out component; stderr: %s", stderr.String())
+	}
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("watch wrote %d passes, want 2:\n%s", len(lines), buf.String())
+	}
+	var first, second profile.Result
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("first pass: %v", err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	// The report's verdict is part of the published report contract, so a timed-out component
+	// carries a verdict from the schema's enum, not a check status.
+	if v := first.Components[0].Report.Verdict; v != "incomplete" {
+		t.Errorf("timed-out component verdict = %q, want %q", v, "incomplete")
+	}
+	if first.Components[0].Status != profile.StatusFail || first.Aggregate.Status == profile.StatusPass {
+		t.Errorf("the timed-out pass reads component %q, aggregate %q", first.Components[0].Status, first.Aggregate.Status)
+	}
+	if !second.OK {
+		t.Errorf("the pass after the timeout reads not OK: %+v", second.Aggregate)
+	}
+	if code != 0 {
+		t.Errorf("exit = %d, want the last pass's 0", code)
 	}
 }

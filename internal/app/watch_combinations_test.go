@@ -18,6 +18,7 @@ func TestUnsupportedWatchCombinationsAreRefused(t *testing.T) {
 		{"watch with via", []string{"--via", "probe", "--watch", "--json"}, "-watch cannot be combined with -via"},
 		{"watch with via, profile", []string{"-profile", "github", "-via", "probe", "-watch", "-json"}, "-watch cannot be combined with -via"},
 		{"save with watch", []string{"--json", "--watch", "--save", "/nonexistent-dir-audit/x.ndoc"}, "-save and -watch cannot be combined"},
+		{"support with watch", []string{"--json", "--watch", "--support", "/nonexistent-dir-audit/x.json"}, "-support and -watch cannot be combined"},
 		{"save with watch, profile", []string{"-profile", "github", "-json", "-watch", "-save", "/nonexistent-dir-audit/x.json"}, "-save and -watch cannot be combined"},
 		{"support with watch, profile", []string{"-profile", "github", "-json", "-watch", "-support", "/nonexistent-dir-audit/x.json"}, "-support and -watch cannot be combined"},
 	}

@@ -201,8 +201,19 @@ func TestBuildReplacesOnlyGeneratedOutput(t *testing.T) {
 	if err := build("", shell, docs, wiki, "assets", out); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := os.Stat(out); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o755) {
-		t.Fatalf("published site must be readable by other users: %v, %v", info, err)
+	// A directory requested at 0777 gets the process umask, as the site does, so
+	// the expected mode follows the umask. A private staging root would not match.
+	control := filepath.Join(t.TempDir(), "control")
+	//nolint:gosec // G301: the control directory requests the same 0777 mode as the site, on purpose.
+	if err := os.Mkdir(control, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	controlInfo, err := os.Stat(control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(out); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != controlInfo.Mode().Perm()) {
+		t.Fatalf("published site must have the mode of an ordinary directory: %v, %v", info, err)
 	}
 	stale := filepath.Join(out, "stale.md")
 	if err := os.WriteFile(stale, []byte("old output"), 0o600); err != nil {

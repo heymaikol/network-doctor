@@ -96,6 +96,7 @@ var corpus = []corpusCase{
 	{"CR match user and host (known criteria)", "Match\ruser demo host probe\nHost probe\n  HostName 127.0.0.1\n", direct, direct},
 	{"CR host separator (no directive)", "Host\rprobe\n  HostName 127.0.0.1\n", direct, direct},
 	{"CR user dollar", "Host probe\n  HostName 127.0.0.1\n  User\r${FOO}u\n", refused, refused},
+	{"CR identityfile dollar", "Host probe\n  HostName 127.0.0.1\n  IdentityFile\r${FOO}/k\n", direct, refused},
 	{"CR include dollar", "Include\r@DIR@/dir/${FOO}.conf\nHost probe\n  HostName 127.0.0.1\n", refused, refused},
 	{"CRLF plain (control)", "Host probe\r\n  HostName 127.0.0.1\r\n", direct, direct},
 	{"CRLF match command, space form (control)", "Match command \"netdoc*\"\r\n  ProxyJump 127.0.0.3\r\nHost probe\r\n  HostName 127.0.0.1\r\n", refused, refused},

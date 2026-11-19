@@ -76,6 +76,15 @@ func TestScanFileFollowsSSHSyntax(t *testing.T) {
 		"Host probe\n  Port 22\n":     false,
 		"IdentityAgent ${SSH_AUTH}\n": true,
 		"# $OpenBSD\n":                false,
+		// OpenSSH splits on a carriage return, so these are Match directives to ssh.
+		"Match\rexec \"true\"\n":            true,
+		"Match\rcommand \"netdoc*\"\n":      true,
+		"Match\rsessiontype shell\n":        true,
+		"Match\rlocalnetwork 127.0.0.0/8\n": true,
+		"Match\ruser demo host probe\n":     false,
+		"Host\rprobe\n  Port 22\n":          false,
+		"Host probe\r\n  Port 22\r\n":       false,
+		"IdentityFile\r${FOO}/k\n":          true,
 	}
 	for body, refuse := range cases {
 		got := scanFile([]byte(body), true) != ""

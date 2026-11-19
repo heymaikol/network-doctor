@@ -345,15 +345,13 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 // holdEnv names the file the holder writes its pid to. The two tests that start a holder set it.
 const holdEnv = "NETDOC_TEST_HOLD_PID"
 
-// holderStartBound is how long a holder has to record its pid. A holder that records its pid within this
-// bound always completes before the read's deadline. The deadline is a wall-clock timer that kills the
-// client's process group, so a holder that records later ends the read there.
+// holderStartBound is how long a holder has to record its pid. One that does always completes before the
+// read's deadline, a wall-clock timer that kills the client's group; a later one ends the read there.
 const holderStartBound = 9 * time.Second
 
-// holderOutputBudget is the time after the bound for the listing to close: the client's next 50 ms poll,
-// its exit, and one outputGrace wait for each of its two streams, which the read takes in turn. The tests
-// set outputGrace to 100 ms, so the waits take 0.2 s. The read's deadline is holderStartBound plus this
-// budget, half a second inside the 10 s read budget.
+// holderOutputBudget is the time after the bound for the listing to close: the next 50 ms poll, the client's
+// exit, and an outputGrace wait per stream (0.2 s at the tests' 100 ms). The deadline is the bound plus this,
+// half a second inside the 10 s read budget.
 const holderOutputBudget = 500 * time.Millisecond
 
 // TestHoldDiagnosticPipe is the holder the tests that hold a pipe open start: a second run of this test
@@ -378,9 +376,8 @@ func TestHoldDiagnosticPipe(t *testing.T) {
 	time.Sleep(30 * time.Second)
 }
 
-// holderPID returns the pid the holder recorded. The client waits for that file before it exits, so a
-// missing file means the holder did not start. The test's own deadline names the bound. Any other end to
-// the read is named by the read's error, which is the only account of a read refused before it started.
+// holderPID returns the pid the holder recorded. A missing file means the holder did not start: the test's
+// deadline names the bound, and any other end is named by the read's error.
 func holderPID(t *testing.T, pidFile string, ctx context.Context, readErr error) int {
 	t.Helper()
 	data, err := os.ReadFile(pidFile) // #nosec G304 -- a path this test just created.
@@ -395,9 +392,8 @@ func holderPID(t *testing.T, pidFile string, ctx context.Context, readErr error)
 	return 0
 }
 
-// killRecorded ends the holder the test recorded, if one was recorded. It runs when the test returns,
-// including after a failure. A test binary killed by -timeout or a signal runs no cleanup, and the
-// holder then ends on its own after its bounded sleep.
+// killRecorded ends the recorded holder when the test returns, including after a failure. A binary killed by
+// -timeout or a signal runs no cleanup, and the holder then ends after its bounded sleep.
 func killRecorded(pidFile string) {
 	data, err := os.ReadFile(pidFile) // #nosec G304 -- a path this test just created.
 	if err != nil {

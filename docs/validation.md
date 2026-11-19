@@ -158,7 +158,8 @@ go run ./cmd/docsite -verify _site
 
 The site generator replaces only directories containing its
 `.docsite-generated` marker. If `_docsite` predates that safeguard, move it
-aside once before rebuilding. An unrelated output directory is never removed.
+aside once before rebuilding. A directory without the marker is refused and
+left unchanged.
 
 If the change touched a build-tagged or `_linux`/`_darwin`/`_windows` suffixed
 file, also compile for macOS and Windows:

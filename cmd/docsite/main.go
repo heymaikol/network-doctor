@@ -112,6 +112,20 @@ func build(baseurl, shell, docsDir, wikiDir, assetsDir, out string) error {
 	if inShell {
 		return fmt.Errorf("-out %q is inside the site shell %q", out, shell)
 	}
+	// A marked output is removed whole, so it must not be or contain a source.
+	// Sources are read after removal, so an output that holds one would be lost.
+	for _, src := range []string{shell, docsDir, wikiDir, assetsDir} {
+		holds, err := within(src, out)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // no output yet, so nothing can be inside it
+		}
+		if err != nil {
+			return err
+		}
+		if holds {
+			return fmt.Errorf("-out %q is or contains the source %q", out, src)
+		}
+	}
 	if err := checkSiteShell(shell); err != nil {
 		return err
 	}

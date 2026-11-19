@@ -194,6 +194,54 @@ func TestBuildRefusesParentOfWorkingDirectory(t *testing.T) {
 	}
 }
 
+// A marked output is removed whole. The gate accepts it because it carries the
+// marker, so the build must refuse one that is or contains a source before
+// removing anything. Each case moves a source under a marked output, so the
+// tree changes only if the build removes it.
+func TestBuildRefusesMarkedOutputThatHoldsASource(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T) (out, shell, docs string)
+	}{
+		{"equal to the shell", func(t *testing.T) (string, string, string) {
+			markedDir(t, "site")
+			return "site", "site", "docs"
+		}},
+		{"contains the shell", func(t *testing.T) (string, string, string) {
+			markedDir(t, "outer")
+			if err := os.Rename("site", filepath.Join("outer", "site")); err != nil {
+				t.Fatal(err)
+			}
+			return "outer", "outer/site", "docs"
+		}},
+		{"contains docs", func(t *testing.T) (string, string, string) {
+			markedDir(t, "outer")
+			if err := os.Rename("docs", filepath.Join("outer", "docs")); err != nil {
+				t.Fatal(err)
+			}
+			return "outer", "site", "outer/docs"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, wiki, _ := fixture(t)
+			out, shell, docs := tc.setup(t)
+			before := snapshot(t, ".")
+			if err := build("", shell, docs, wiki, "assets", out); err == nil || !strings.Contains(err.Error(), "or contains the source") {
+				t.Fatalf("build did not refuse the output holding a source: %v", err)
+			}
+			if !maps.Equal(before, snapshot(t, ".")) {
+				t.Fatal("the tree changed")
+			}
+		})
+	}
+}
+
+// markedDir creates dir holding only the generated marker.
+func markedDir(t *testing.T, dir string) {
+	t.Helper()
+	put(t, filepath.Join(dir, generatedMarker), "generated")
+}
+
 // Copying the shell into a directory inside it would copy the shell into
 // itself. The build must refuse every spelling of such a path, through a
 // symlink or not, and leave the shell exactly as it was.

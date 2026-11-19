@@ -306,14 +306,79 @@ func TestTruncatedDiagnosticsAreRefused(t *testing.T) {
 // A diagnostic stream a process left open is not complete, so it is refused rather
 // than classified: the command may still be writing.
 func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
-	// The helper leaves the client's group, so the cleanup does not reach it, and it
-	// keeps the diagnostic stream open.
-	client := fakeClient(t, "setsid sleep 60 >/dev/null &\nsleep 0.5\nprintf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(t.TempDir(), "holder.pid")
+	t.Cleanup(func() { killRecorded(pidFile) })
+	// The client starts the holder, waits for the holder to record its pid, and only then prints
+	// its listing and exits. The holder keeps the stderr it inherited, which is the diagnostic
+	// stream, open after the client is gone. It leaves the client's session, so the client's
+	// group cleanup does not reach it.
+	client := fakeClient(t, fmt.Sprintf(
+		"%s='%s' '%s' -test.run='^TestHoldDiagnosticPipe$' >/dev/null &\n"+
+			"i=0\nwhile [ ! -e '%s' ]; do i=$((i+1)); [ $i -gt 100 ] && exit 1; sleep 0.05; done\n"+
+			"printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n",
+		holdEnv, pidFile, self, pidFile))
 	useFakeClient(t, client, 10*time.Second)
 	outputGrace = 300 * time.Millisecond
-	_, err := Resolve(context.Background(), "host", 0, "")
+	_, err = Resolve(context.Background(), "host", 0, "")
+	pid := holderPID(t, pidFile)
+	if processEnded(pid) {
+		t.Fatalf("the holder (pid %d) ended before the read did, so the stream was not held open", pid)
+	}
 	if err == nil || !strings.Contains(err.Error(), "diagnostic output was not complete") {
 		t.Fatalf("a read with an open diagnostic stream returned %v; want the refusal", err)
+	}
+}
+
+// holdEnv names the file the holder writes its pid to. Only TestIncompleteDiagnosticsAreRefused sets it.
+const holdEnv = "NETDOC_TEST_HOLD_PID"
+
+// TestHoldDiagnosticPipe is the holder TestIncompleteDiagnosticsAreRefused starts: a second run of this
+// test binary, selected by name. It does nothing unless holdEnv names a file. It leaves the client's
+// session, records its pid in a file it renames into place, and sleeps. The sleep is bounded, so a
+// holder whose pid was never read still ends on its own.
+func TestHoldDiagnosticPipe(t *testing.T) {
+	pidFile := os.Getenv(holdEnv)
+	if pidFile == "" {
+		t.Skip("a helper that TestIncompleteDiagnosticsAreRefused starts")
+	}
+	if _, err := syscall.Setsid(); err != nil {
+		t.Fatal(err)
+	}
+	tmp := pidFile + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil { // #nosec G306 G703 -- a file in a directory the test created
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, pidFile); err != nil { // #nosec G703 -- a file in a directory the test created
+		t.Fatal(err)
+	}
+	time.Sleep(30 * time.Second)
+}
+
+// holderPID returns the pid the holder recorded. The client waits for that file before it exits, so a
+// missing file means the holder never started.
+func holderPID(t *testing.T, pidFile string) int {
+	t.Helper()
+	data, err := os.ReadFile(pidFile) // #nosec G304 -- a path this test just created.
+	pid, convErr := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || convErr != nil {
+		t.Fatal("the holder did not start")
+	}
+	return pid
+}
+
+// killRecorded ends the holder the test recorded, if one was recorded. It runs on every exit from the
+// test, so a holder does not outlive a failure.
+func killRecorded(pidFile string) {
+	data, err := os.ReadFile(pidFile) // #nosec G304 -- a path this test just created.
+	if err != nil {
+		return
+	}
+	if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 }
 

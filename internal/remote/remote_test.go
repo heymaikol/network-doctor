@@ -387,6 +387,21 @@ func readLines(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 }
 
+// configReadRuns says whether the configuration read runs here. sshverify refuses it on the
+// other platforms before any ssh starts, so a headless run and Direct start no ssh there.
+func configReadRuns() bool {
+	return runtime.GOOS == "linux" || runtime.GOOS == "darwin"
+}
+
+// noSSHRan fails the test when the stand-in recorded a call: a platform that refuses the read must
+// not have started ssh.
+func noSSHRan(t *testing.T, argvPath string) {
+	t.Helper()
+	if _, err := os.Stat(argvPath); err == nil {
+		t.Errorf("a platform that refuses the configuration read started ssh: %q", readLines(t, argvPath))
+	}
+}
+
 func TestRunPassesTheDestinationThroughUntouchedWithAFixedRemoteCommand(t *testing.T) {
 	argvPath, requestPath := useFakeSSH(t, "ok")
 	// An alias out of ~/.ssh/config, which only resolves because ssh is handed
@@ -542,8 +557,14 @@ func TestDirectReadsTheEffectiveConfiguration(t *testing.T) {
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			argvPath, _ := useFakeSSH(t, tc.mode)
-			if got := Direct(context.Background(), "ideapad"); got != tc.want {
-				t.Errorf("Direct = %t, want %t", got, tc.want)
+			// A platform that refuses the read refuses every mode, before any ssh starts.
+			want := tc.want && configReadRuns()
+			if got := Direct(context.Background(), "ideapad"); got != want {
+				t.Errorf("Direct = %t, want %t", got, want)
+			}
+			if !configReadRuns() {
+				noSSHRan(t, argvPath)
+				return
 			}
 			if got := readLines(t, argvPath); strings.Join(got, " ") != "-v -G ideapad" {
 				t.Errorf("ssh argv = %q, want the verbose configuration of ideapad and no connection", got)
@@ -2251,8 +2272,10 @@ func hasArg(args []string, want string) bool {
 func TestDirectOnlyAcceptsAKnownDirectRouteHeadless(t *testing.T) {
 	argvPath, _ := useFakeSSH(t, "config")
 	withoutTerminal(t)
-	if !Direct(context.Background(), "ideapad") {
-		t.Error("a headless run did not read a known direct route as direct")
+	// The read runs on Linux and macOS only. Windows and FreeBSD refuse it, as documented, so a
+	// route is never known as direct there.
+	if got := Direct(context.Background(), "ideapad"); got != configReadRuns() {
+		t.Errorf("a headless run read a known direct route as %t, want %t on %s", got, configReadRuns(), runtime.GOOS)
 	}
 	_ = argvPath
 	useFakeSSH(t, "configproxy")

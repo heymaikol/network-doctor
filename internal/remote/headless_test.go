@@ -28,6 +28,10 @@ func TestHeadlessRunStartsNoConnectionForAnUnknownRoute(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "run it from a terminal") {
 				t.Fatalf("a headless run of a %s route returned %v; want the refusal", mode, err)
 			}
+			if !configReadRuns() {
+				noSSHRan(t, argvPath)
+				return
+			}
 			// The connection is the only call that passes -T; the configuration read never does.
 			for _, line := range readLines(t, argvPath) {
 				if line == "-T" {
@@ -42,8 +46,14 @@ func TestHeadlessRunStartsNoConnectionForAnUnknownRoute(t *testing.T) {
 // keyboard-interactive or passphrase prompt can be answered, and no host-key question.
 func TestHeadlessRunConnectsOnlyWithBatchOptions(t *testing.T) {
 	argvPath, _ := useFakeSSH(t, "config")
-	withoutTerminal(t)
-	_, _ = Run(context.Background(), "ideapad", "", Request{})
+	if configReadRuns() {
+		withoutTerminal(t)
+		_, _ = Run(context.Background(), "ideapad", "", Request{})
+	} else {
+		// No route is read on this platform, so a headless run never reaches ssh. RunBatch with a
+		// terminal makes the batch connection without the read, and it carries the same pins.
+		_, _ = RunBatch(context.Background(), "ideapad", "", Request{})
+	}
 	argv := strings.Join(readLines(t, argvPath), " ")
 	for _, want := range []string{"BatchMode=yes", "PreferredAuthentications=publickey", "ProxyJump=none", "KnownHostsCommand=none"} {
 		if !strings.Contains(argv, want) {
@@ -57,6 +67,16 @@ func TestHeadlessRunConnectsOnlyWithBatchOptions(t *testing.T) {
 func TestHeadlessConnectionPinsTheClassifiedEndpoint(t *testing.T) {
 	argvPath, _ := useFakeSSH(t, "config")
 	withoutTerminal(t)
+	if !configReadRuns() {
+		// No endpoint is classified here, so there is none to pin. The headless run is refused, and
+		// no ssh starts.
+		_, err := Run(context.Background(), "ideapad", "", Request{})
+		if err == nil || !strings.Contains(err.Error(), "run it from a terminal") {
+			t.Fatalf("a headless run returned %v; want the refusal", err)
+		}
+		noSSHRan(t, argvPath)
+		return
+	}
 	_, _ = Run(context.Background(), "ideapad", "", Request{})
 	argv := strings.Join(readLines(t, argvPath), " ")
 	for _, want := range []string{"HostName=10.0.0.5", "Port=22"} {
@@ -95,11 +115,18 @@ func TestHeadlessRunNamesAMissingSSH(t *testing.T) {
 // worker never does.
 func TestHeadlessBatchDeadlineIsMarkedAsARunTimeout(t *testing.T) {
 	useFakeSSH(t, "configthenhang")
-	withoutTerminal(t)
 	savedAllowance := transportAllowance
 	transportAllowance = 300 * time.Millisecond
 	t.Cleanup(func() { transportAllowance = savedAllowance })
-	_, err := Run(context.Background(), "ideapad", "", Request{})
+	var err error
+	if configReadRuns() {
+		withoutTerminal(t)
+		_, err = Run(context.Background(), "ideapad", "", Request{})
+	} else {
+		// No route is read on this platform. RunBatch with a terminal makes the batch connection
+		// without the read, and its own deadline is the one that ends the run.
+		_, err = RunBatch(context.Background(), "ideapad", "", Request{})
+	}
 	if err == nil || !errors.Is(err, ErrRunTimedOut) {
 		t.Fatalf("a stalled headless batch run returned %v; want a run timeout", err)
 	}

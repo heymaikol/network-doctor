@@ -112,7 +112,8 @@ func TestHeadlessRunNamesAMissingSSH(t *testing.T) {
 
 // A headless batch run whose connection stalls after the route was established is the
 // transport's own deadline, so it is marked as a run timeout. The route read answers, and the
-// worker never does.
+// worker never does. On a platform that refuses the read, RunBatch with a terminal makes the batch
+// connection instead, so the batch deadline is the one checked there.
 func TestHeadlessBatchDeadlineIsMarkedAsARunTimeout(t *testing.T) {
 	useFakeSSH(t, "configthenhang")
 	savedAllowance := transportAllowance
@@ -135,7 +136,8 @@ func TestHeadlessBatchDeadlineIsMarkedAsARunTimeout(t *testing.T) {
 // Negative control, headless: a route read that stalls is a gate, not the run's deadline. It
 // refuses the run, and the refusal does not carry the run-timeout mark, so the profile pass ends
 // on it as it does on any refusal. The read stops after its own budget, which takes about ten
-// seconds.
+// seconds. On a platform that refuses the read, the refusal comes before any stall, so there this
+// checks only that the refusal is not a run timeout.
 func TestHeadlessRouteReadTimeoutIsNotARunTimeout(t *testing.T) {
 	if testing.Short() {
 		t.Skip("the route read waits out its own budget")

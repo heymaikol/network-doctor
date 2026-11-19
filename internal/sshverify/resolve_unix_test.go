@@ -370,8 +370,9 @@ func holderPID(t *testing.T, pidFile string) int {
 	return pid
 }
 
-// killRecorded ends the holder the test recorded, if one was recorded. It runs on every exit from the
-// test, so a holder does not outlive a failure.
+// killRecorded ends the holder the test recorded, if one was recorded. It runs when the test returns,
+// including after a failure. A test binary killed by -timeout or a signal runs no cleanup, and the
+// holder then ends on its own after its bounded sleep.
 func killRecorded(pidFile string) {
 	data, err := os.ReadFile(pidFile) // #nosec G304 -- a path this test just created.
 	if err != nil {

@@ -2272,7 +2272,7 @@ func hasArg(args []string, want string) bool {
 func TestDirectOnlyAcceptsAKnownDirectRouteHeadless(t *testing.T) {
 	argvPath, _ := useFakeSSH(t, "config")
 	withoutTerminal(t)
-	// The read runs on Linux and macOS only. Windows and FreeBSD refuse it, as documented, so a
+	// The read runs on Linux and macOS only. Every other platform refuses it, as documented, so a
 	// route is never known as direct there.
 	if got := Direct(context.Background(), "ideapad"); got != configReadRuns() {
 		t.Errorf("a headless run read a known direct route as %t, want %t on %s", got, configReadRuns(), runtime.GOOS)

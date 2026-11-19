@@ -156,6 +156,10 @@ docker run --rm -v "$PWD":/gh -e GITHUB_WORKSPACE=/gh \
 go run ./cmd/docsite -verify _site
 ```
 
+The site generator replaces only directories containing its
+`.docsite-generated` marker. If `_docsite` predates that safeguard, move it
+aside once before rebuilding. An unrelated output directory is never removed.
+
 If the change touched a build-tagged or `_linux`/`_darwin`/`_windows` suffixed
 file, also compile for macOS and Windows:
 

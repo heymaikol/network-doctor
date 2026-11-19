@@ -165,6 +165,11 @@ const generatedMarker = ".docsite-generated"
 // because out can change while staging runs; an unmarked directory moved here
 // would be deleted by the stage cleanup. keep reports that the stage must
 // survive, because it holds the only copy of the previous site.
+//
+// When out is absent, an entry created there during staging makes the final
+// rename fail, because rename does not replace an existing directory or file.
+// The entry is left as it was. TestInstallRefusesEntryCreatedDuringStaging
+// checks this on every CI platform.
 func install(site, out, stage string, exists bool) (keep bool, err error) {
 	previous := filepath.Join(stage, "previous")
 	if exists {

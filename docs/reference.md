@@ -2614,13 +2614,17 @@ the remote `netdoc`, the exchange itself, and teardown. With the default `4s`
 timeout the ceiling is `1m20s`; with `--timeout 30s` it is `3m30s`.
 
 Reaching it ends the local `ssh` process and reports an acquisition failure that
-names the destination, and it exits `2`. It is **not a diagnosis of the remote
+names the destination. A single run exits `2`. It is **not a diagnosis of the remote
 network**: nothing was measured, and a run that had already produced a complete
 response is still returned even if the SSH session is slow to close afterwards.
 It is also not an interruption, which is the user's own Ctrl-C and still exits
-`1`. A profile stops at the component that timed out and reports that component;
-live `--two-sided` treats it as the remote acquisition failure it already knows,
-cancels the local side, and exits `2`.
+`1`. On a profile, a batch component that timed out is recorded as failed, and the
+other components still run, as described under Flags and execution modes.
+The pass is then not OK, so the run exits `1`; with `-save` or `-support` it exits
+`2`, because nothing is written for a pass a component did not finish. An
+interactive run's deadline ends the pass instead. Live `--two-sided` treats the
+deadline as the remote acquisition failure it already knows, cancels the local
+side, and exits `2`.
 
 ### Cancellation
 

@@ -2619,10 +2619,11 @@ network**: nothing was measured, and a run that had already produced a complete
 response is still returned even if the SSH session is slow to close afterwards.
 It is also not an interruption, which is the user's own Ctrl-C and still exits
 `1`. On a profile, a batch component that timed out is recorded as failed, and the
-other components still run, as described under Flags and execution modes.
-The pass is then not OK, so the run exits `1`; with `-save` or `-support` it exits
-`2`, because nothing is written for a pass a component did not finish. An
-interactive run's deadline ends the pass instead. Live `--two-sided` treats the
+other components still run, as described under Flags and execution modes. The
+pass reads a warning, and exits `0`, while another component works; it reads a
+failure, and exits `1`, only when no component works. With `-save` or `-support`,
+a pass that a component did not finish exits `2`, because nothing is written for
+it. An interactive run's deadline ends the pass instead. Live `--two-sided` treats the
 deadline as the remote acquisition failure it already knows, cancels the local
 side, and exits `2`.
 

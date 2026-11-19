@@ -342,15 +342,17 @@ const pagesDeployCondition = "github.event_name == 'workflow_dispatch' && github
 // pagesDeployAction is the action that publishes the site.
 const pagesDeployAction = "actions/deploy-pages@"
 
-// deployGateError returns nil only when the deploy job in a pages workflow has
-// exactly pagesDeployCondition as its if, and pagesDeployAction is the one
-// publishing step in the whole workflow. The condition is checked only on the
-// deploy job, so any other job that publishes is an error, whatever its own if.
+// pagesUploadAction hands the built site to the deploy job.
+const pagesUploadAction = "actions/upload-pages-artifact@"
+
+// deployGateError requires the deploy job and the artifact upload to use the
+// same restricted condition. It also rejects duplicate or misplaced actions.
 func deployGateError(data []byte) error {
 	var workflow struct {
 		Jobs map[string]struct {
 			If    string `yaml:"if"`
 			Steps []struct {
+				If   string `yaml:"if"`
 				Uses string `yaml:"uses"`
 			} `yaml:"steps"`
 		} `yaml:"jobs"`
@@ -366,15 +368,26 @@ func deployGateError(data []byte) error {
 		return fmt.Errorf("jobs.deploy.if is %q, want %q: push, pull_request and gollum must not deploy", deploy.If, pagesDeployCondition)
 	}
 	var publishers []string
+	var uploaders []string
 	for name, job := range workflow.Jobs {
 		for _, step := range job.Steps {
-			if strings.HasPrefix(strings.ToLower(step.Uses), pagesDeployAction) {
+			action := strings.ToLower(step.Uses)
+			if strings.HasPrefix(action, pagesDeployAction) {
 				publishers = append(publishers, name)
+			}
+			if strings.HasPrefix(action, pagesUploadAction) {
+				if name != "build" || step.If != pagesDeployCondition {
+					return fmt.Errorf("%s in jobs.%s has if %q, want jobs.build with if %q", pagesUploadAction, name, step.If, pagesDeployCondition)
+				}
+				uploaders = append(uploaders, name)
 			}
 		}
 	}
 	if len(publishers) != 1 || publishers[0] != "deploy" {
 		return fmt.Errorf("pages.yml must run %s exactly once, in jobs.deploy; found in jobs %v", pagesDeployAction, publishers)
+	}
+	if len(uploaders) != 1 || uploaders[0] != "build" {
+		return fmt.Errorf("pages.yml must run %s exactly once, in jobs.build; found in jobs %v", pagesUploadAction, uploaders)
 	}
 	return nil
 }
@@ -402,6 +415,7 @@ func TestPagesDeployGateIsReadFromTheDeployJob(t *testing.T) {
 	laterJob := "\n  publish:\n    runs-on: ubuntu-latest\n    if: " + pagesDeployCondition + "\n    steps:\n      - run: true\n"
 	const publishUses = "actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1"
 	deployUse := "        uses: " + publishUses + "\n"
+	uploadGate := "      - if: " + pagesDeployCondition + "\n        uses: " + pagesUploadAction
 	// extraJob publishes from a job other than deploy, with the given if (none if empty).
 	extraJob := func(cond string) string {
 		job := "\n  publish:\n    runs-on: ubuntu-latest\n"
@@ -424,6 +438,9 @@ func TestPagesDeployGateIsReadFromTheDeployJob(t *testing.T) {
 		{"additional job publishes with widened condition", string(repoWorkflow) + extraJob(pagesDeployCondition+" || github.event_name == 'push'"), true},
 		{"deploy job has no publishing step", edit(deployUse, "        run: true\n"), true},
 		{"deploy job publishes twice", edit(deployUse, deployUse+"      - uses: "+publishUses+"\n"), true},
+		{"upload condition removed", edit(uploadGate, "      - uses: "+pagesUploadAction), true},
+		{"upload condition widened", edit(uploadGate, "      - if: "+pagesDeployCondition+" || github.event_name == 'push'\n        uses: "+pagesUploadAction), true},
+		{"upload action missing", edit("        uses: "+pagesUploadAction, "        run: true"), true},
 		{"additional job publishes under an upper-case action name", string(repoWorkflow) + strings.Replace(extraJob(""), "actions/deploy-pages@", "Actions/Deploy-Pages@", 1), true},
 		{"unrelated job appended after deploy", string(repoWorkflow) + "\n  lint-docs:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n", false},
 	} {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io/fs"
 	"maps"
 	"os"
@@ -237,21 +238,22 @@ func TestBuildRefusesOutputInsideShell(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		out     string
-		alias   bool
+		aliasTo string // when set, "alias" is a symlink to this directory
 		rootRel bool
 	}{
-		{"relative", "site/generated", false, false},
-		{"root-relative", "generated", false, true},
-		{"symlink then dotdot", "alias/../site/generated", true, false},
+		{"relative", "site/generated", "", false},
+		{"root-relative", "generated", "", true},
+		{"symlink then dotdot", "alias/../site/generated", "work/child", false},
+		{"symlink into shell", "alias/generated", "site/sub", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			docs, wiki, shell := fixture(t)
 			out := tc.out
-			if tc.alias {
-				if err := os.MkdirAll("work/child", 0o750); err != nil {
+			if tc.aliasTo != "" {
+				if err := os.MkdirAll(tc.aliasTo, 0o750); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.Symlink(filepath.Join("work", "child"), "alias"); err != nil {
+				if err := os.Symlink(tc.aliasTo, "alias"); err != nil {
 					t.Skipf("cannot create a symlink: %v", err)
 				}
 			}
@@ -263,13 +265,27 @@ func TestBuildRefusesOutputInsideShell(t *testing.T) {
 				out = filepath.Join(abs[len(filepath.VolumeName(abs)):], "generated")
 			}
 			before := snapshot(t, shell)
-			if err := build("", shell, docs, wiki, "assets", out); err == nil {
-				t.Fatalf("build accepted -out %q inside the shell", out)
+			err := build("", shell, docs, wiki, "assets", out)
+			if err == nil || !strings.Contains(err.Error(), "inside the site shell") {
+				t.Fatalf("build did not refuse -out %q inside the shell: %v", out, err)
 			}
 			if !maps.Equal(before, snapshot(t, shell)) {
 				t.Fatalf("shell changed after -out %q", out)
 			}
 		})
+	}
+}
+
+// A missing parent is refused before anything is created, so no directory
+// appears inside the shell.
+func TestBuildRefusesMissingParentInsideShell(t *testing.T) {
+	docs, wiki, shell := fixture(t)
+	before := snapshot(t, shell)
+	if err := build("", shell, docs, wiki, "assets", filepath.Join("site", "new", "generated")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("build did not refuse a missing parent: %v", err)
+	}
+	if !maps.Equal(before, snapshot(t, shell)) {
+		t.Fatal("shell changed after a refused missing parent")
 	}
 }
 

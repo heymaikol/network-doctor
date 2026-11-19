@@ -81,18 +81,6 @@ func main() {
 func build(baseurl, shell, docsDir, wikiDir, assetsDir, out string) error {
 	// Clean once. The gate, the containment check and every write use this path.
 	out = filepath.Clean(out)
-	if err := checkOutput(out); err != nil {
-		return err
-	}
-	// A copy into the shell would copy the shell into itself. Refuse before
-	// anything is created, so the parent must already exist.
-	inShell, err := within(filepath.Dir(out), shell)
-	if err != nil {
-		return err
-	}
-	if inShell {
-		return fmt.Errorf("-out %q is inside the site shell %q", out, shell)
-	}
 
 	docs, err := pageNames(docsDir, false)
 	if err != nil {
@@ -110,6 +98,20 @@ func build(baseurl, shell, docsDir, wikiDir, assetsDir, out string) error {
 		s.wiki[name] = true
 	}
 
+	// The gate runs immediately before removal, so a directory created at out
+	// while the sources were read is refused, not removed. A copy into the shell
+	// would copy the shell into itself, so that is refused here too, before any
+	// write; the parent must already exist.
+	if err := checkOutput(out); err != nil {
+		return err
+	}
+	inShell, err := within(filepath.Dir(out), shell)
+	if err != nil {
+		return err
+	}
+	if inShell {
+		return fmt.Errorf("-out %q is inside the site shell %q", out, shell)
+	}
 	if err := checkSiteShell(shell); err != nil {
 		return err
 	}

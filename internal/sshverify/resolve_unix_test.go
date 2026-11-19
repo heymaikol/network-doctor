@@ -201,7 +201,7 @@ func TestChildOutsideTheGroupIsAnError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+outputGrace)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
-	pid := holderPID(t, pidFile)
+	pid := holderPID(t, pidFile, err)
 	if processEnded(pid) {
 		t.Fatalf("the holder (pid %d) ended before the read did, so the listing was not held open", pid)
 	}
@@ -330,7 +330,7 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+outputGrace)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
-	pid := holderPID(t, pidFile)
+	pid := holderPID(t, pidFile, err)
 	if processEnded(pid) {
 		t.Fatalf("the holder (pid %d) ended before the read did, so the stream was not held open", pid)
 	}
@@ -371,13 +371,13 @@ func TestHoldDiagnosticPipe(t *testing.T) {
 }
 
 // holderPID returns the pid the holder recorded. The client waits for that file before it exits, so a
-// missing file means the holder never started.
-func holderPID(t *testing.T, pidFile string) int {
+// missing file means the holder did not start before the read ended, and the read's error says why.
+func holderPID(t *testing.T, pidFile string, readErr error) int {
 	t.Helper()
 	data, err := os.ReadFile(pidFile) // #nosec G304 -- a path this test just created.
 	pid, convErr := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || convErr != nil {
-		t.Fatalf("the holder did not record its pid within %v, so it did not start", holderStartBound)
+		t.Fatalf("the holder did not record its pid, so it did not start: the read ended with %v", readErr)
 	}
 	return pid
 }

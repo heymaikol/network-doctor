@@ -80,6 +80,7 @@ func TestHeadlessHelper(t *testing.T) {
 // The child starts a new session with no controlling terminal.
 func runHeadless(t *testing.T, config string) string {
 	t.Helper()
+	requireConfigRead(t)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHeadlessHelper$") // #nosec G702 G204 -- the test runs its own test binary (os.Args[0]) with a fixed -test.run argument, and no shell
 	cmd.Env = append(os.Environ(), "NETDOC_HEADLESS_CONFIG="+config)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

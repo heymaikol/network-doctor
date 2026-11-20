@@ -35,9 +35,20 @@ func fakeClient(t *testing.T, script string) string {
 	return path
 }
 
+// requireConfigRead skips a test that reads configuration on a platform that refuses the
+// read. ReadConfig refuses before any client starts, so a fake client or a headless child
+// would only report that refusal.
+func requireConfigRead(t *testing.T) {
+	t.Helper()
+	if !configPlatformSupported {
+		t.Skip("the configuration read is refused on this platform, so no client is started")
+	}
+}
+
 // useFakeClient points the configuration read at client for one test.
 func useFakeClient(t *testing.T, client string, timeout time.Duration) {
 	t.Helper()
+	requireConfigRead(t)
 	savedBinary, savedTimeout, savedGrace, savedCanary, savedTerminal := sshBinary, resolveTimeout, outputGrace, canaryCheck, TerminalAvailable
 	sshBinary, resolveTimeout = client, timeout
 	// A fake client cannot pass the canary, which checks the real client; the canary
@@ -179,9 +190,6 @@ func TestIncompleteOutputIsRefused(t *testing.T) {
 // listing incomplete for certain, so it is an error. The child is killed by the
 // test, since the read does not reach it.
 func TestChildOutsideTheGroupIsAnError(t *testing.T) {
-	if !configPlatformSupported {
-		t.Skip("the configuration read is refused on this platform, so no read starts the holder")
-	}
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -314,9 +322,6 @@ func TestTruncatedDiagnosticsAreRefused(t *testing.T) {
 // A diagnostic stream a process left open is not complete, so it is refused rather
 // than classified: the command may still be writing.
 func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
-	if !configPlatformSupported {
-		t.Skip("the configuration read is refused on this platform, so no read starts the holder")
-	}
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

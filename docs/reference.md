@@ -889,7 +889,7 @@ netdoc then checks the server's host key against your user `known_hosts` file an
 - A key that differs from the recorded key is refused. netdoc shows the fingerprint of the key the server presented, not the fingerprint recorded in `known_hosts`. To see the recorded fingerprint, run `ssh-keygen -F HOST -l`. Without `-l`, `-F` prints the recorded key line, not a fingerprint. That command reads your user `known_hosts` file by default. For the system-wide file, add `-f FILE`, using the path that `ssh -G` lists as `GlobalKnownHostsFile`, usually `/etc/ssh/ssh_known_hosts`. There is no override.
 - A key with no record is reported with its fingerprint, and the check stops there with no prompt. You can accept that one fingerprint for the next action, with `-trust-host-key FINGERPRINT` on the command line or the trust row in the TUI. Nothing is written to `known_hosts`.
 
-A known-hosts file that exists but cannot be checked stops the check before any connection, so an unreadable file is never taken for an empty one. A file that does not exist is simply absent. `none` in either list names no file.
+A known-hosts file that exists but cannot be checked stops the check before any connection, so an unreadable file is never taken for an empty one. A file that does not exist is simply absent. A value of `none` alone names no file.
 
 Once the host key is trusted, a password or key check asks for the secret. The TUI's Verify does nothing until Discover methods has trusted the host, or until you have confirmed its unknown key. Changing the login drops the route read for the previous login, and Verify waits until the route is read for the login shown. Changing the method clears the typed secret, so a key passphrase is never sent as a password.
 

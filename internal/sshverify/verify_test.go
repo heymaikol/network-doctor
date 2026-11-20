@@ -724,3 +724,26 @@ func TestUnreadableKnownHostsStopsTheCheckBeforeAnyDial(t *testing.T) {
 		t.Fatalf("a missing known_hosts file: outcome = %q, want host key unknown; detail %q", r.Outcome, r.Detail)
 	}
 }
+
+// A keyboard-interactive server that accepts without asking a question has not been
+// given the password, so the check is not reported as verified.
+func TestVerifyKeyboardInteractiveWithoutAPromptIsNotVerified(t *testing.T) {
+	host, _ := newEd25519(t)
+	s := newServer(host)
+	s.cfg.KeyboardInteractiveCallback = func(conn ssh.ConnMetadata, challenge ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
+		s.kbd.Add(1)
+		if _, err := challenge("", "", nil, nil); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	known := knownHostsFor(t, host.PublicKey())
+
+	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	if r.Outcome == Verified {
+		t.Fatalf("a server that asked for no password was reported as verified; detail %q", r.Detail)
+	}
+	if r.Outcome != NoCredentialAccepted {
+		t.Fatalf("outcome = %q, want no credential accepted; detail %q", r.Outcome, r.Detail)
+	}
+}

@@ -342,3 +342,41 @@ func TestKeyFileProblemsAreNamedBeforeAnything(t *testing.T) {
 		})
 	}
 }
+
+// The agent's key listing is plain text, so -json with a listing is refused before the
+// agent is asked. Nothing is printed under the JSON contract.
+func TestVerifyJSONAgentListingIsRefusedBeforeTheAgentIsAsked(t *testing.T) {
+	s := &stubVerify{listed: []sshverify.AgentKey{{Fingerprint: "SHA256:abc", Type: "ssh-ed25519"}}}
+	installVerifyStubs(t, s)
+	asked := false
+	verifyListAgent = func(sshverify.Target, sshverify.Options) ([]sshverify.AgentKey, error) {
+		asked = true
+		return s.listed, nil
+	}
+	var out, errOut bytes.Buffer
+	code := run([]string{"-verify-ssh", "-verify-auth", "agent", "-json", "host.example"}, &out, &errOut)
+	if code != 2 || !strings.Contains(errOut.String(), "-json cannot list the agent's keys") {
+		t.Fatalf("code = %d stderr %q, want exit 2 with the incompatible-flags refusal", code, errOut.String())
+	}
+	if asked || s.resolved || out.Len() != 0 {
+		t.Errorf("the refusal still asked the agent (%v), resolved (%v), or printed %q", asked, s.resolved, out.String())
+	}
+}
+
+// Controls: the plain listing without -json still prints the keys, and -json with a
+// chosen key still runs the check and reports JSON.
+func TestVerifyAgentListingAndJSONWithAKeyStillWork(t *testing.T) {
+	s := &stubVerify{listed: []sshverify.AgentKey{{Fingerprint: "SHA256:abc", Type: "ssh-ed25519"}}}
+	installVerifyStubs(t, s)
+	code, out, _ := runVerify(t, "", "-verify-ssh", "-verify-auth", "agent", "host.example")
+	if code != 2 || !strings.Contains(out, "SHA256:abc") {
+		t.Fatalf("the plain agent listing changed: code %d output %q", code, out)
+	}
+
+	s = &stubVerify{result: sshverify.Result{Outcome: sshverify.Verified}}
+	installVerifyStubs(t, s)
+	code, out, _ = runVerify(t, "", "-verify-ssh", "-verify-auth", "agent", "-verify-agent-key", "SHA256:abc", "-json", "host.example")
+	if code != 0 || !s.attempted || !strings.Contains(out, `"outcome": "verified"`) {
+		t.Fatalf("-json with a chosen key did not run the check: code %d attempted %v output %q", code, s.attempted, out)
+	}
+}

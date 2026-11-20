@@ -192,6 +192,11 @@ func flagProblem(set map[string]bool, f verifySSHFlags) string {
 	if set["password-stdin"] && f.auth != "password" && f.auth != "key" {
 		return "-password-stdin needs -verify-auth password or key"
 	}
+	// Listing the agent's keys prints plain text, which -json cannot carry, so the listing is
+	// refused rather than printed under a JSON contract.
+	if f.jsonOut && f.auth == "agent" && f.agentKey == "" {
+		return "-json cannot list the agent's keys, which are plain text; choose one with -verify-agent-key FINGERPRINT, or leave out -json"
+	}
 	if set["trust-host-key"] && !sshverify.ValidFingerprint(f.trustHostKey) {
 		return "-trust-host-key needs a SHA256 host key fingerprint, as ssh-keygen -lf prints it, such as SHA256:..."
 	}

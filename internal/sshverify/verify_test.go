@@ -699,7 +699,7 @@ func TestUnreadableKnownHostsStopsTheCheckBeforeAnyDial(t *testing.T) {
 		if err := os.Chmod(locked, 0o000); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) // #nosec G302 -- restores the directory this test made, to the owner-only mode TempDir needs to remove it.
 		cases["a directory without search permission"] = filepath.Join(locked, "known_hosts")
 	}
 	for name, path := range cases {

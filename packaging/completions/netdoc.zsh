@@ -107,12 +107,12 @@ _arguments \
   '(--no-history -no-history)'{--no-history,-no-history}"[don't read or write the saved target history]" \
   '(--keys -keys)'{--keys,-keys}='[keybinding preset for the TUI (default: default)]:preset:(default vim)' \
   '(-verify-ssh --verify-ssh)'{--verify-ssh,-verify-ssh}'[check SSH authentication for the target: list the methods it offers, or verify one credential with --verify-auth; runs no probes]' \
-  '(-verify-ssh --verify-ssh)'{--verify-auth,-verify-auth}='[with --verify-ssh, the credential to verify]:method:(password key agent)' \
-  '(-verify-ssh --verify-ssh)'{--verify-key,-verify-key}='[with --verify-auth key, the private key file to verify]:key file:_files' \
-  '(-verify-ssh --verify-ssh)'{--verify-agent-key,-verify-agent-key}='[with --verify-auth agent, the SHA256 fingerprint of the agent key]:fingerprint:' \
-  '(-verify-ssh --verify-ssh)'{--verify-user,-verify-user}='[with --verify-ssh, the login name]:user:' \
-  '(-verify-ssh --verify-ssh)'{--password-stdin,-password-stdin}'[with --verify-auth, read the secret from one line of standard input]' \
-  '(-verify-ssh --verify-ssh)'{--trust-host-key,-trust-host-key}='[with --verify-ssh, accept this unknown host key fingerprint for this check only]:fingerprint:' \
+  '(--verify-auth -verify-auth)'{--verify-auth,-verify-auth}='[with --verify-ssh, the credential to verify]:method:(password key agent)' \
+  '(--verify-key -verify-key)'{--verify-key,-verify-key}='[with --verify-auth key, the private key file to verify]:key file:_files' \
+  '(--verify-agent-key -verify-agent-key)'{--verify-agent-key,-verify-agent-key}='[with --verify-auth agent, the SHA256 fingerprint of the agent key]:fingerprint:' \
+  '(--verify-user -verify-user)'{--verify-user,-verify-user}='[with --verify-ssh, the login name]:user:' \
+  '(--password-stdin -password-stdin)'{--password-stdin,-password-stdin}'[with --verify-auth, read the secret from one line of standard input]' \
+  '(--trust-host-key -trust-host-key)'{--trust-host-key,-trust-host-key}='[with --verify-ssh, accept this unknown host key fingerprint for this check only]:fingerprint:' \
   '(--timeout -timeout)'{--timeout,-timeout}='[per-check probe timeout (default 4s)]:duration:' \
   '(- *)'{--version,-version}'[print version and exit]' \
   '(- *)'{--help,-help,-h}'[print usage and exit]' \

@@ -31,7 +31,7 @@ func sshModel(t *testing.T) model {
 // resolved returns the panel as it looks once its configuration read landed.
 func resolved(t *testing.T, m model) model {
 	t.Helper()
-	next, _, _ := m.handleVerifyMsg(verifyResolvedMsg{id: m.verify.id, target: sshverify.Target{Host: "example.com", Port: 22, User: "tester"}})
+	next, _, _ := m.handleVerifyMsg(verifyResolvedMsg{id: m.verify.id, seq: m.verify.resolveSeq, target: sshverify.Target{Host: "example.com", Port: 22, User: "tester"}})
 	return next
 }
 
@@ -257,7 +257,7 @@ func TestAsynchronousEventsNeverCloseThePanel(t *testing.T) {
 
 	events := []tea.Msg{
 		spinner.TickMsg{},
-		verifyResolvedMsg{id: id, target: sshverify.Target{Host: "example.com", Port: 22, User: "tester"}},
+		verifyResolvedMsg{id: id, seq: m.verify.resolveSeq, target: sshverify.Target{Host: "example.com", Port: 22, User: "tester"}},
 		verifyResultMsg{id: id, result: sshverify.Result{Outcome: sshverify.Verified}},
 		verifyResultMsg{id: id + 9, result: sshverify.Result{Outcome: sshverify.Refused}},
 		verifyResolvedMsg{id: id + 9, err: errors.New("late")},
@@ -332,5 +332,98 @@ func TestDeferredRestartClosesTheSSHPanelForTheOldTarget(t *testing.T) {
 
 	if m.verifying || m.verify.secret.Value() != "" {
 		t.Fatalf("the deferred restart left the SSH panel for the previous target: verifying=%v secret=%q", m.verifying, m.verify.secret.Value())
+	}
+}
+
+// runCmds runs a command and returns the messages it produces, looking into a batch.
+func runCmds(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var out []tea.Msg
+	for _, c := range batch {
+		out = append(out, runCmds(c)...)
+	}
+	return out
+}
+
+// deliverReads applies every configuration read a command produces.
+func deliverReads(t *testing.T, m model, cmd tea.Cmd) model {
+	t.Helper()
+	for _, msg := range runCmds(cmd) {
+		if _, ok := msg.(verifyResolvedMsg); ok {
+			m, _, _ = m.handleVerifyMsg(msg)
+		}
+	}
+	return m
+}
+
+// stubRoutes makes the configuration read answer by login: the empty login is a
+// direct route, and alice's configuration names a proxy.
+func stubRoutes(t *testing.T) {
+	t.Helper()
+	saved := resolveTarget
+	t.Cleanup(func() { resolveTarget = saved })
+	resolveTarget = func(_ context.Context, host string, port int, login string) (sshverify.Target, error) {
+		if login == "alice" {
+			return sshverify.Target{Host: host, Port: port, User: "alice", Unsupported: "proxyjump"}, nil
+		}
+		return sshverify.Target{Host: host, Port: port, User: "mplaczek"}, nil
+	}
+}
+
+// A login edit drops the route read for the previous login. A check then cannot run
+// until the route is read for the login now typed, and a late read for the previous
+// login cannot stand in for it.
+func TestVerifyLoginEditDropsTheRouteAndReadsTheNewOne(t *testing.T) {
+	stubRoutes(t)
+	m, cmd := sshModel(t).openVerifySSH()
+	m = deliverReads(t, m, cmd)
+	if !m.verify.resolved || m.verify.target.Unsupported != "" {
+		t.Fatalf("the empty login did not resolve to a direct route: resolved=%v target=%+v", m.verify.resolved, m.verify.target)
+	}
+	stale := verifyResolvedMsg{id: m.verify.id, seq: m.verify.resolveSeq, target: m.verify.target}
+
+	u, _ := m.handleVerifyKey(keyPress("alice"))
+	m = asModel(t, u)
+	if m.verify.resolved {
+		t.Fatal("editing the login kept the route read for the previous login")
+	}
+	m.verify.pin = "SHA256:seen"
+	m.verify.secret.SetValue("the-password")
+	m.verify.focus(vrCheck)
+	if u, cmd := m.startVerifyAction(true); cmd != nil || asModel(t, u).verify.busy {
+		t.Fatal("a check started on the route read for the previous login")
+	}
+
+	m, _, _ = m.handleVerifyMsg(stale)
+	if m.verify.resolved {
+		t.Fatal("a read for the previous login resolved the panel for alice")
+	}
+
+	m.verify.focus(vrUser)
+	u, cmd = m.handleVerifyKey(keyPress("tab"))
+	m = deliverReads(t, asModel(t, u), cmd)
+	if !m.verify.resolved || m.verify.target.User != "alice" || m.verify.target.Unsupported != "proxyjump" {
+		t.Fatalf("the route for alice = %+v (resolved %v), want the proxied route for alice", m.verify.target, m.verify.resolved)
+	}
+}
+
+// Control: a login that is not edited keeps the route it was read with, and a check
+// with the same login starts.
+func TestVerifyUneditedLoginKeepsItsRoute(t *testing.T) {
+	stubRoutes(t)
+	m, cmd := sshModel(t).openVerifySSH()
+	m = deliverReads(t, m, cmd)
+	m.verify.pin = "SHA256:seen"
+	m.verify.secret.SetValue("the-password")
+	m.verify.focus(vrCheck)
+	if u, cmd := m.startVerifyAction(true); cmd == nil || !asModel(t, u).verify.busy {
+		t.Fatal("a check with an unedited login did not start on its route")
 	}
 }

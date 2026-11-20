@@ -61,6 +61,14 @@ type verifyPanel struct {
 	// targetKey is the target the panel was opened for. A switch to another target
 	// closes the panel, so it never shows or runs against the previous one.
 	targetKey string
+	// host and port are the destination the configuration read is asked for, kept
+	// so a login edit can read the route again.
+	host string
+	port int
+	// resolveSeq numbers the configuration reads. A login edit starts a newer one, and a
+	// result for an older read is dropped, so the route in use is always the one read for
+	// the login now typed.
+	resolveSeq uint64
 	// trust is an unknown host key the user confirmed for the next action only.
 	trust string
 	// pin is the host key the last trusted discovery presented. The next check
@@ -81,6 +89,7 @@ type verifyPanel struct {
 // result for a panel that was closed and reopened since.
 type verifyResolvedMsg struct {
 	id     uint64
+	seq    uint64
 	target sshverify.Target
 	err    error
 }
@@ -131,21 +140,61 @@ func (m model) openVerifySSH() (model, tea.Cmd) {
 	m.verifying = true
 	m.verify = newVerifyPanel(m.st, m.verifySeq)
 	m.verify.targetKey = verifyKey(m.target)
+	m.verify.host, m.verify.port = verifyTarget(m.target)
 	// The read belongs to this panel: closing the panel cancels it, so a slow or
 	// hung configuration read never outlives the panel that asked for it.
-	ctx, cancel := context.WithCancel(context.Background())
-	m.verify.resolveCancel = cancel
-	host, port := verifyTarget(m.target)
-	return m, resolveVerifyCmd(ctx, m.verify.id, host, port, "")
+	return m, m.verify.readRoute()
 }
 
-// resolveVerifyCmd reads the target's SSH configuration in a tea.Cmd. It
-// connects to nothing; the result is what a check needs before it can run.
-func resolveVerifyCmd(ctx context.Context, id uint64, host string, port int, login string) tea.Cmd {
+// readRoute starts the configuration read for the login typed now, in a tea.Cmd. It
+// connects to nothing; the result is what a check needs before it can run. It replaces
+// any read still running, so only the newest one can land.
+func (p *verifyPanel) readRoute() tea.Cmd {
+	if p.resolveCancel != nil {
+		p.resolveCancel()
+	}
+	p.resolveSeq++
+	ctx, cancel := context.WithCancel(context.Background())
+	p.resolveCancel = cancel
+	id, seq, host, port := p.id, p.resolveSeq, p.host, p.port
+	login := strings.TrimSpace(p.user.Value())
 	return func() tea.Msg {
 		t, err := resolveTarget(ctx, host, port, login)
-		return verifyResolvedMsg{id: id, target: t, err: err}
+		return verifyResolvedMsg{id: id, seq: seq, target: t, err: err}
 	}
+}
+
+// dropRoute forgets the route and everything that depends on it, when the login
+// changes. A check then cannot run until the route is read for the new login.
+func (p *verifyPanel) dropRoute() {
+	if p.resolveCancel != nil {
+		p.resolveCancel()
+		p.resolveCancel = nil
+	}
+	p.resolveSeq++
+	p.resolved = false
+	p.resolveErr = ""
+	p.target = sshverify.Target{}
+	p.keys, p.keyIdx = nil, 0
+	p.agentKeys, p.agentIdx = nil, 0
+	p.result = nil
+	p.pin, p.trust = "", ""
+	p.note = ""
+}
+
+// routeOnLeave reads the route when focus leaves the login row and no read for it
+// is running. The route it reads is the one the next check uses.
+func (p *verifyPanel) routeOnLeave() tea.Cmd {
+	if p.row != vrUser || p.resolved || p.resolveCancel != nil {
+		return nil
+	}
+	return p.readRoute()
+}
+
+// moveFrom moves the cursor by delta, and reads the route when it leaves the login row.
+func (p *verifyPanel) moveFrom(delta int) tea.Cmd {
+	leave := p.routeOnLeave()
+	return tea.Batch(p.step(delta), leave)
 }
 
 // resolveTarget reads a target's configuration. Tests replace it to observe
@@ -353,9 +402,9 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "tab", "down":
-		return m, p.step(1)
+		return m, p.moveFrom(1)
 	case "shift+tab", "up":
-		return m, p.step(-1)
+		return m, p.moveFrom(-1)
 	case "left", "right":
 		delta := 1
 		if msg.String() == "left" {
@@ -388,12 +437,16 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.note = "host key confirmed for the next check only; nothing is written. Enter the credential again and press enter on Verify."
 			return m, p.focus(vrCheck)
 		}
-		return m, p.step(1)
+		return m, p.moveFrom(1)
 	}
 	var cmd tea.Cmd
 	switch p.row {
 	case vrUser:
+		before := p.user.Value()
 		p.user, cmd = p.user.Update(msg)
+		if p.user.Value() != before {
+			p.dropRoute()
+		}
 	case vrSecret:
 		p.secret, cmd = p.secret.Update(msg)
 	}
@@ -405,7 +458,7 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case verifyResolvedMsg:
-		if !m.verifying || msg.id != m.verify.id {
+		if !m.verifying || msg.id != m.verify.id || msg.seq != m.verify.resolveSeq {
 			return m, nil, true
 		}
 		m.verify.resolveCancel = nil

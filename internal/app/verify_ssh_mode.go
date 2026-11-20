@@ -250,7 +250,7 @@ func buildAttempt(ctx context.Context, f verifySSHFlags, tgt sshverify.Target, n
 		return attempt, 0, true
 	default: // agent
 		if f.agentKey == "" {
-			keys, err := verifyListAgent(tgt, sshverify.Options{})
+			keys, err := verifyListAgent(ctx, tgt, sshverify.Options{})
 			if err != nil {
 				fmt.Fprintln(stderr, "netdoc:", textsafe.Clean(err.Error()))
 				return sshverify.Attempt{}, 2, false

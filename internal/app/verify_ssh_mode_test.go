@@ -70,7 +70,7 @@ func installVerifyStubs(t *testing.T, s *stubVerify) {
 		s.pin = o.PinHostKey
 		return s.result
 	}
-	verifyListAgent = func(sshverify.Target, sshverify.Options) ([]sshverify.AgentKey, error) {
+	verifyListAgent = func(_ context.Context, _ sshverify.Target, _ sshverify.Options) ([]sshverify.AgentKey, error) {
 		return s.listed, s.listErr
 	}
 	verifyNeedsPass = func(string) (bool, error) { return s.needsPass, s.needsErr }
@@ -349,7 +349,7 @@ func TestVerifyJSONAgentListingIsRefusedBeforeTheAgentIsAsked(t *testing.T) {
 	s := &stubVerify{listed: []sshverify.AgentKey{{Fingerprint: "SHA256:abc", Type: "ssh-ed25519"}}}
 	installVerifyStubs(t, s)
 	asked := false
-	verifyListAgent = func(sshverify.Target, sshverify.Options) ([]sshverify.AgentKey, error) {
+	verifyListAgent = func(_ context.Context, _ sshverify.Target, _ sshverify.Options) ([]sshverify.AgentKey, error) {
 		asked = true
 		return s.listed, nil
 	}

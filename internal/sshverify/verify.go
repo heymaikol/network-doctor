@@ -118,7 +118,7 @@ func Verify(ctx context.Context, t Target, a Attempt, opts Options) Result {
 	if r, stop := unsupported(t); stop {
 		return r
 	}
-	cred, r := prepare(t, a, opts)
+	cred, r := prepare(ctx, t, a, opts)
 	if cred == nil {
 		return r
 	}
@@ -131,13 +131,16 @@ func Verify(ctx context.Context, t Target, a Attempt, opts Options) Result {
 }
 
 // ListAgentKeys returns the keys the ssh-agent holds. Listing sends nothing to
-// the server.
-func ListAgentKeys(t Target, opts Options) ([]AgentKey, error) {
+// the server. The listing ends when ctx ends or the check's timeout passes, so
+// a silent agent cannot hold it.
+func ListAgentKeys(ctx context.Context, t Target, opts Options) ([]AgentKey, error) {
 	conn, err := agentConnection(t, opts)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
+	stop := boundAgent(ctx, conn, opts)
+	defer stop()
 	keys, err := agent.NewClient(conn).List()
 	if err != nil {
 		return nil, errors.New("the ssh-agent did not list its keys")
@@ -192,7 +195,7 @@ func (c *credential) close() {
 // prepare builds the credential or returns the local failure that stopped it.
 // A key that will not unlock means nothing was sent, so it is reported as a
 // local failure and never as a refusal by the server.
-func prepare(t Target, a Attempt, opts Options) (*credential, Result) {
+func prepare(ctx context.Context, t Target, a Attempt, opts Options) (*credential, Result) {
 	local := func(detail string) (*credential, Result) {
 		return nil, Result{Outcome: LocalFailure, Method: a.Method, Detail: detail}
 	}
@@ -250,7 +253,9 @@ func prepare(t Target, a Attempt, opts Options) (*credential, Result) {
 		if err != nil {
 			return local(textsafe.Clean(err.Error()) + "; nothing was sent")
 		}
+		stop := boundAgent(ctx, conn, opts)
 		signers, err := agent.NewClient(conn).Signers()
+		stop()
 		if err != nil {
 			_ = conn.Close()
 			return local("the ssh-agent did not list its keys; nothing was sent")
@@ -274,6 +279,23 @@ func prepare(t Target, a Attempt, opts Options) (*credential, Result) {
 		}, Result{}
 	default:
 		return local("unknown method; nothing was sent")
+	}
+}
+
+// boundAgent closes an agent connection when ctx ends or the check's timeout
+// passes, and closing unblocks any request waiting on the agent. The returned
+// stop releases the watch and the timer, so a connection kept for a later step
+// is not closed by them.
+func boundAgent(ctx context.Context, conn io.Closer, opts Options) (stop func()) {
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	watch := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	return func() {
+		watch()
+		cancel()
 	}
 }
 

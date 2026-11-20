@@ -397,7 +397,7 @@ func TestVerifyAgentKeyChosenByFingerprint(t *testing.T) {
 	opts := s.options()
 	opts.Agent = fakeAgent(t, priv)
 
-	keys, err := ListAgentKeys(target(known), opts)
+	keys, err := ListAgentKeys(context.Background(), target(known), opts)
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("ListAgentKeys = %v, %v; want one key", keys, err)
 	}
@@ -468,7 +468,7 @@ func TestVerifyPartialSuccessReportsWhatRemains(t *testing.T) {
 	_, priv := newEd25519(t)
 	opts := s.options()
 	opts.Agent = fakeAgent(t, priv)
-	keys, err := ListAgentKeys(target(known), opts)
+	keys, err := ListAgentKeys(context.Background(), target(known), opts)
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("ListAgentKeys = %v, %v", keys, err)
 	}

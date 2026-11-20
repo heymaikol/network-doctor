@@ -110,7 +110,7 @@ func TestAgentOverUnixSocket(t *testing.T) {
 	}
 	tg := Target{Host: "127.0.0.1", Port: port, User: testUser, KnownHosts: []string{known}, AgentSocket: sock}
 
-	keys, err := ListAgentKeys(tg, Options{})
+	keys, err := ListAgentKeys(context.Background(), tg, Options{})
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("ListAgentKeys over the socket = %v, %v", keys, err)
 	}

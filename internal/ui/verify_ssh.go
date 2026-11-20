@@ -83,6 +83,8 @@ type verifyPanel struct {
 	// resolveCancel ends the configuration read this panel started, if it is
 	// still running.
 	resolveCancel context.CancelFunc
+	// keysCancel ends the agent listing a discovery started, if it is still running.
+	keysCancel context.CancelFunc
 }
 
 // verifyResolvedMsg carries the off-loop configuration read. The id rejects a
@@ -94,12 +96,17 @@ type verifyResolvedMsg struct {
 	err    error
 }
 
-// verifyResultMsg carries one discovery or check. Keys is the agent listing a
-// discovery also reads, so the chooser has something to show.
+// verifyResultMsg carries one discovery or check.
 type verifyResultMsg struct {
 	id     uint64
 	result sshverify.Result
-	keys   []sshverify.AgentKey
+}
+
+// verifyKeysMsg carries the agent's keys for the chooser. It arrives in its own
+// message, so a slow agent cannot hold a discovery result.
+type verifyKeysMsg struct {
+	id   uint64
+	keys []sshverify.AgentKey
 }
 
 // newVerifyPanel opens the panel for the run target. The inputs are created
@@ -196,13 +203,19 @@ func (p *verifyPanel) moveFrom(delta int) tea.Cmd {
 // the read's context without running ssh.
 var resolveTarget = sshverify.Resolve
 
-// discoverCmd lists the methods the server offers, and the agent's keys for
-// the chooser. It sends no credential.
+// discoverCmd lists the methods the server offers. It sends no credential.
 func discoverCmd(ctx context.Context, id uint64, t sshverify.Target, opts sshverify.Options) tea.Cmd {
 	return func() tea.Msg {
-		r := sshverify.Discover(ctx, t, opts)
-		keys, _ := sshverify.ListAgentKeys(t, opts)
-		return verifyResultMsg{id: id, result: r, keys: keys}
+		return verifyResultMsg{id: id, result: sshverify.Discover(ctx, t, opts)}
+	}
+}
+
+// agentKeysCmd lists the agent's keys for the chooser. The listing ends with
+// its context, or at the check's timeout, whichever comes first.
+func agentKeysCmd(ctx context.Context, id uint64, t sshverify.Target, opts sshverify.Options) tea.Cmd {
+	return func() tea.Msg {
+		keys, _ := sshverify.ListAgentKeys(ctx, t, opts)
+		return verifyKeysMsg{id: id, keys: keys}
 	}
 }
 
@@ -353,10 +366,21 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 	} else {
 		cmd = discoverCmd(ctx, p.id, p.target, opts)
 	}
-	if wasTicking {
-		return m, cmd
+	cmds := []tea.Cmd{cmd}
+	if !check && verifyMethods[p.method] == sshverify.MethodAgent {
+		// Only the agent method uses the agent's keys, so a password discovery never
+		// starts an agent listing at all.
+		if p.keysCancel != nil {
+			p.keysCancel()
+		}
+		keysCtx, keysCancel := context.WithCancel(context.Background())
+		p.keysCancel = keysCancel
+		cmds = append(cmds, agentKeysCmd(keysCtx, p.id, p.target, opts))
 	}
-	return m, tea.Batch(cmd, m.spinner.Tick)
+	if !wasTicking {
+		cmds = append(cmds, m.spinner.Tick)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // closeVerifyPanel ends the panel. A configuration read or a check still in
@@ -369,6 +393,9 @@ func (m *model) closeVerifyPanel() {
 	}
 	if m.verify.cancel != nil {
 		m.verify.cancel()
+	}
+	if m.verify.keysCancel != nil {
+		m.verify.keysCancel()
 	}
 	m.verifying = false
 	m.verify = verifyPanel{}
@@ -468,6 +495,17 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.resolved = true
 		m.verify.keys = sshverify.ExistingIdentityFiles(msg.target)
 		return m, nil, true
+	case verifyKeysMsg:
+		if !m.verifying || msg.id != m.verify.id {
+			return m, nil, true
+		}
+		if m.verify.keysCancel != nil {
+			m.verify.keysCancel()
+		}
+		m.verify.keysCancel = nil
+		m.verify.agentKeys = msg.keys
+		m.verify.agentIdx = min(m.verify.agentIdx, max(len(msg.keys)-1, 0))
+		return m, nil, true
 	case verifyResultMsg:
 		if !m.verifying || msg.id != m.verify.id {
 			return m, nil, true
@@ -480,10 +518,6 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.pin = ""
 		if msg.result.Outcome == sshverify.Discovered {
 			m.verify.pin = msg.result.HostKey
-		}
-		if msg.keys != nil {
-			m.verify.agentKeys = msg.keys
-			m.verify.agentIdx = min(m.verify.agentIdx, max(len(msg.keys)-1, 0))
 		}
 		m.verify.note = ""
 		// The focus may now sit on a row that is no longer visible.

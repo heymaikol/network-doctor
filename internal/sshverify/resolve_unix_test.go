@@ -201,7 +201,11 @@ func TestChildOutsideTheGroupIsAnError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+holderOutputBudget)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
+	expired := ctx.Err() != nil
 	pid := holderPID(t, pidFile, ctx, err)
+	if expired {
+		t.Fatalf("the read reached its %v deadline before the listing closed, so the listing was not checked", holderStartBound+holderOutputBudget)
+	}
 	if processEnded(pid) {
 		t.Fatalf("the holder (pid %d) ended before the read did, so the listing was not held open", pid)
 	}
@@ -333,7 +337,11 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), holderStartBound+holderOutputBudget)
 	defer cancel()
 	_, err = Resolve(ctx, "host", 0, "")
+	expired := ctx.Err() != nil
 	pid := holderPID(t, pidFile, ctx, err)
+	if expired {
+		t.Fatalf("the read reached its %v deadline before the diagnostic stream closed, so the diagnostic stream was not checked", holderStartBound+holderOutputBudget)
+	}
 	if processEnded(pid) {
 		t.Fatalf("the holder (pid %d) ended before the read did, so the stream was not held open", pid)
 	}
@@ -345,8 +353,9 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 // holdEnv names the file the holder writes its pid to. The two tests that start a holder set it.
 const holdEnv = "NETDOC_TEST_HOLD_PID"
 
-// holderStartBound is how long a holder has to record its pid. One that does always completes before the
-// read's deadline, a wall-clock timer that kills the client's group; a later one ends the read there.
+// holderStartBound is how long a holder has to record its pid. One that records within this bound normally
+// completes before the read's deadline, a wall-clock timer that kills the client's group. Heavy load can slow
+// the client's exit past the tail, so this is an expectation, not a guarantee.
 const holderStartBound = 9 * time.Second
 
 // holderOutputBudget is the time after the bound for the listing to close: the next 50 ms poll, the client's

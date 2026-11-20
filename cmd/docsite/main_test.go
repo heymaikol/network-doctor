@@ -199,49 +199,27 @@ func TestBuildRefusesParentOfWorkingDirectory(t *testing.T) {
 // removing anything. Each case moves a source under a marked output, so the
 // tree changes only if the build removes it.
 func TestBuildRefusesMarkedOutputThatHoldsASource(t *testing.T) {
-	type paths struct{ out, shell, docs, wiki, assets string }
 	for _, tc := range []struct {
-		name  string
-		setup func(t *testing.T) paths
+		name                           string
+		out, shell, docs, wiki, assets string
+		move                           string // the source moved under the marked output
 	}{
-		{"equal to the shell", func(t *testing.T) paths {
-			markedDir(t, "site")
-			return paths{out: "site", shell: "site", docs: "docs", wiki: "wiki", assets: "assets"}
-		}},
-		{"contains the shell", func(t *testing.T) paths {
-			markedDir(t, "outer")
-			if err := os.Rename("site", filepath.Join("outer", "site")); err != nil {
-				t.Fatal(err)
-			}
-			return paths{out: "outer", shell: "outer/site", docs: "docs", wiki: "wiki", assets: "assets"}
-		}},
-		{"contains docs", func(t *testing.T) paths {
-			markedDir(t, "outer")
-			if err := os.Rename("docs", filepath.Join("outer", "docs")); err != nil {
-				t.Fatal(err)
-			}
-			return paths{out: "outer", shell: "site", docs: "outer/docs", wiki: "wiki", assets: "assets"}
-		}},
-		{"contains wiki", func(t *testing.T) paths {
-			markedDir(t, "outer")
-			if err := os.Rename("wiki", filepath.Join("outer", "wiki")); err != nil {
-				t.Fatal(err)
-			}
-			return paths{out: "outer", shell: "site", docs: "docs", wiki: "outer/wiki", assets: "assets"}
-		}},
-		{"contains assets", func(t *testing.T) paths {
-			markedDir(t, "outer")
-			if err := os.Rename("assets", filepath.Join("outer", "assets")); err != nil {
-				t.Fatal(err)
-			}
-			return paths{out: "outer", shell: "site", docs: "docs", wiki: "wiki", assets: "outer/assets"}
-		}},
+		{"equal to the shell", "site", "site", "docs", "wiki", "assets", ""},
+		{"contains the shell", "outer", "outer/site", "docs", "wiki", "assets", "site"},
+		{"contains docs", "outer", "site", "outer/docs", "wiki", "assets", "docs"},
+		{"contains wiki", "outer", "site", "docs", "outer/wiki", "assets", "wiki"},
+		{"contains assets", "outer", "site", "docs", "wiki", "outer/assets", "assets"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture(t)
-			p := tc.setup(t)
+			markedDir(t, tc.out)
+			if tc.move != "" {
+				if err := os.Rename(tc.move, filepath.Join(tc.out, tc.move)); err != nil {
+					t.Fatal(err)
+				}
+			}
 			before := snapshot(t, ".")
-			if err := build("", p.shell, p.docs, p.wiki, p.assets, p.out); err == nil || !strings.Contains(err.Error(), "or contains the source") {
+			if err := build("", tc.shell, tc.docs, tc.wiki, tc.assets, tc.out); err == nil || !strings.Contains(err.Error(), "or contains the source") {
 				t.Fatalf("build did not refuse the output holding a source: %v", err)
 			}
 			if !maps.Equal(before, snapshot(t, ".")) {

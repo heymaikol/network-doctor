@@ -130,3 +130,22 @@ func TestParseConfigRefusesARevocationListAndAnUnreportedOne(t *testing.T) {
 		t.Errorf("RevokedHostKeys none was refused: %v", err)
 	}
 }
+
+// none in a known-hosts keyword is no file, not a file named none. A path that only
+// looks like it, such as ./none, is still a path.
+func TestKnownHostsNoneIsNoFile(t *testing.T) {
+	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile none\nglobalknownhostsfile none\n"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tg.KnownHosts) != 0 || len(tg.GlobalHosts) != 0 {
+		t.Errorf("none read as files: user=%q global=%q", tg.KnownHosts, tg.GlobalHosts)
+	}
+	tg, err = parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile ./none\n"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(tg.KnownHosts, []string{"./none"}) {
+		t.Errorf("./none is a path, got user=%q", tg.KnownHosts)
+	}
+}

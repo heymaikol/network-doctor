@@ -619,9 +619,15 @@ func parseConfig(out []byte, home string) (Target, error) {
 	return t, nil
 }
 
+// splitPaths returns the files a known-hosts keyword names. OpenSSH accepts none only as
+// the whole value, and it means no file, so it is not a path: reading a file called none
+// from the working directory would trust its keys.
 func splitPaths(value, home string) []string {
 	var paths []string
 	for _, p := range strings.Fields(value) {
+		if p == "none" {
+			continue
+		}
 		paths = append(paths, expandHome(p, home))
 	}
 	return paths

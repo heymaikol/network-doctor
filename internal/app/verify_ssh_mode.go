@@ -155,13 +155,13 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 			return verifyExitCode(seen.Outcome)
 		}
 		opts.PinHostKey = seen.HostKey
-		attempt, code, ok := buildAttempt(f, tgt, needsPass, stdout, stderr)
+		attempt, code, ok := buildAttempt(ctx, f, tgt, needsPass, stdout, stderr)
 		if !ok {
 			return code
 		}
 		result = verifyVerify(ctx, tgt, attempt, opts)
 	default: // agent
-		attempt, code, ok := buildAttempt(f, tgt, needsPass, stdout, stderr)
+		attempt, code, ok := buildAttempt(ctx, f, tgt, needsPass, stdout, stderr)
 		if !ok {
 			return code
 		}
@@ -223,10 +223,10 @@ func keyFileProblem(path string) (bool, string) {
 // agent identity it uses. needsPass says the key file is encrypted, as
 // keyFileProblem found. ok is false when the attempt cannot be built, and code is
 // then the exit status.
-func buildAttempt(f verifySSHFlags, tgt sshverify.Target, needsPass bool, stdout, stderr io.Writer) (sshverify.Attempt, int, bool) {
+func buildAttempt(ctx context.Context, f verifySSHFlags, tgt sshverify.Target, needsPass bool, stdout, stderr io.Writer) (sshverify.Attempt, int, bool) {
 	switch f.auth {
 	case "password":
-		pw, err := readVerifySecret(stderr, fmt.Sprintf("Password for %s@%s: ", tgt.User, tgt.Host), f.passwordStdin)
+		pw, err := readVerifySecret(ctx, stderr, fmt.Sprintf("Password for %s@%s: ", tgt.User, tgt.Host), f.passwordStdin)
 		if err != nil {
 			fmt.Fprintln(stderr, "netdoc:", err)
 			return sshverify.Attempt{}, 2, false
@@ -235,7 +235,7 @@ func buildAttempt(f verifySSHFlags, tgt sshverify.Target, needsPass bool, stdout
 	case "key":
 		attempt := sshverify.Attempt{Method: sshverify.MethodKey, KeyPath: f.key}
 		if needsPass {
-			pass, err := readVerifySecret(stderr, "Passphrase for the key: ", f.passwordStdin)
+			pass, err := readVerifySecret(ctx, stderr, "Passphrase for the key: ", f.passwordStdin)
 			if err != nil {
 				fmt.Fprintln(stderr, "netdoc:", err)
 				return sshverify.Attempt{}, 2, false
@@ -262,16 +262,31 @@ func buildAttempt(f verifySSHFlags, tgt sshverify.Target, needsPass bool, stdout
 
 // readVerifySecret returns one password or passphrase. With -password-stdin it
 // takes one line of standard input. Otherwise it needs a terminal and reads
-// with echo off. It is never taken from argv or the environment.
-func readVerifySecret(stderr io.Writer, prompt string, fromStdin bool) ([]byte, error) {
+// with echo off. It is never taken from argv or the environment. A read of standard
+// input does not end on its own when the process is interrupted, so it runs
+// beside ctx, and an interrupt ends the wait; the read is left to the exit.
+func readVerifySecret(ctx context.Context, stderr io.Writer, prompt string, fromStdin bool) ([]byte, error) {
 	var value []byte
 	if fromStdin {
-		reader := bufio.NewReaderSize(io.LimitReader(verifyStdin, maxSecretLen+1), maxSecretLen+1)
-		line, err := reader.ReadBytes('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, errors.New("could not read the secret from standard input")
+		type stdinLine struct {
+			line []byte
+			err  error
 		}
-		value = bytes.TrimRight(line, "\r\n")
+		got := make(chan stdinLine, 1)
+		go func() {
+			reader := bufio.NewReaderSize(io.LimitReader(verifyStdin, maxSecretLen+1), maxSecretLen+1)
+			line, err := reader.ReadBytes('\n')
+			got <- stdinLine{line, err}
+		}()
+		select {
+		case read := <-got:
+			if read.err != nil && !errors.Is(read.err, io.EOF) {
+				return nil, errors.New("could not read the secret from standard input")
+			}
+			value = bytes.TrimRight(read.line, "\r\n")
+		case <-ctx.Done():
+			return nil, errors.New("interrupted before the secret was read; nothing was sent")
+		}
 	} else {
 		if !verifyIsTTY() {
 			return nil, errors.New("a password or passphrase needs a terminal, or -password-stdin")

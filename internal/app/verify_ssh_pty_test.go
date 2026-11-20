@@ -4,6 +4,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,7 +30,7 @@ func TestPasswordPromptHelper(t *testing.T) {
 	if os.Getenv("NETDOC_PROMPT_HELPER") != "1" {
 		t.Skip("runs only as the child of the terminal tests")
 	}
-	value, err := readVerifySecret(os.Stderr, "Password: ", false)
+	value, err := readVerifySecret(context.Background(), os.Stderr, "Password: ", false)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "helper:", err)
 		os.Exit(2)

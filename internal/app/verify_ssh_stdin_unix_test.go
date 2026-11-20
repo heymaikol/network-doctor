@@ -55,6 +55,7 @@ func TestHelperVerifyStdinChild(t *testing.T) {
 
 func helperCommand(t *testing.T, mode string) *exec.Cmd {
 	t.Helper()
+	// #nosec G204 G702 -- os.Args[0] deliberately re-executes this test binary as the child.
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperVerifyStdinChild$")
 	cmd.Env = append(os.Environ(), "GO_HELPER=1", "GO_HELPER_MODE="+mode)
 	return cmd

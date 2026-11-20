@@ -47,14 +47,20 @@ type hostCheck struct {
 	err   error
 }
 
-// newHostCheck loads the known_hosts files that exist. A file that exists but
-// cannot be parsed is an error, not an empty list, so a broken file cannot
-// quietly turn every host into an unknown one.
+// newHostCheck loads the known_hosts files that exist. Only a file that does not
+// exist is skipped. A file that cannot be stat'd, or cannot be parsed, is an error,
+// not an empty list, so a broken file cannot quietly turn every host into an unknown
+// one, and a changed key cannot then be shown as unknown and trusted.
 func newHostCheck(files []string, trust string) (*hostCheck, error) {
 	var present []string
 	for _, f := range files {
-		if _, err := os.Stat(f); err == nil {
+		_, err := os.Stat(f)
+		switch {
+		case err == nil:
 			present = append(present, f)
+		case errors.Is(err, os.ErrNotExist):
+		default:
+			return nil, errKnownHostsUnreadable
 		}
 	}
 	h := &hostCheck{trust: trust}

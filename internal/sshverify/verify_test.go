@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -670,5 +671,56 @@ func TestKeyboardInteractiveSendsTheCredentialOnce(t *testing.T) {
 	}
 	if got := received.Load(); got != 1 {
 		t.Errorf("the server received the password %d times, want exactly 1", got)
+	}
+}
+
+// A known_hosts file that exists but cannot be checked stops the check before any
+// connection. Read as missing, it would make every host unknown, and a changed key
+// could then be shown as unknown and trusted. A missing file is still first use.
+func TestUnreadableKnownHostsStopsTheCheckBeforeAnyDial(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the path cases use POSIX path errors, which Windows reports as a missing file")
+	}
+	host, _ := newEd25519(t)
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{"a parent is a file": filepath.Join(blocker, "known_hosts")}
+	if os.Geteuid() != 0 {
+		locked := filepath.Join(dir, "locked")
+		if err := os.Mkdir(locked, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(locked, "known_hosts"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+		cases["a directory without search permission"] = filepath.Join(locked, "known_hosts")
+	}
+	for name, path := range cases {
+		s := passwordServer(host)
+		r := Verify(context.Background(), target(path), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+		if r.Outcome != LocalFailure {
+			t.Errorf("%s: verify outcome = %q, want a local failure; detail %q", name, r.Outcome, r.Detail)
+		}
+		if d := Discover(context.Background(), target(path), s.options()); d.Outcome != LocalFailure {
+			t.Errorf("%s: discover outcome = %q, want a local failure; detail %q", name, d.Outcome, d.Detail)
+		}
+		if got := s.dials.Load(); got != 0 {
+			t.Errorf("%s: %d connections were made with an unreadable known_hosts file", name, got)
+		}
+	}
+
+	// Control: a file that does not exist is first use, so the key is unknown and the
+	// connection is made to learn it.
+	s := passwordServer(host)
+	r := Verify(context.Background(), target(filepath.Join(dir, "absent")), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	if r.Outcome != HostKeyUnknown {
+		t.Fatalf("a missing known_hosts file: outcome = %q, want host key unknown; detail %q", r.Outcome, r.Detail)
 	}
 }

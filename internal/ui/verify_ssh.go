@@ -182,18 +182,13 @@ func (p *verifyPanel) dropRoute() {
 	p.note = ""
 }
 
-// routeOnLeave reads the route when focus leaves the login row and no read for it
-// is running. The route it reads is the one the next check uses.
-func (p *verifyPanel) routeOnLeave() tea.Cmd {
-	if p.row != vrUser || p.resolved || p.resolveCancel != nil {
-		return nil
-	}
-	return p.readRoute()
-}
-
-// moveFrom moves the cursor by delta, and reads the route when it leaves the login row.
+// moveFrom moves the cursor by delta. Leaving the login row reads the route, unless
+// one is already read or being read, so the next check uses the route for this login.
 func (p *verifyPanel) moveFrom(delta int) tea.Cmd {
-	leave := p.routeOnLeave()
+	var leave tea.Cmd
+	if p.row == vrUser && !p.resolved && p.resolveCancel == nil {
+		leave = p.readRoute()
+	}
 	return tea.Batch(p.step(delta), leave)
 }
 

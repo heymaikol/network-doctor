@@ -338,16 +338,6 @@ type authState struct {
 	name string
 }
 
-// credentialSent reports whether the secret reached the server. A keyboard-interactive
-// exchange that asks no question is accepted without the password, so only an answered
-// challenge counts as sending it.
-func (s *authState) credentialSent() bool {
-	if s.name != "keyboard-interactive" {
-		return true
-	}
-	return s.cred.kb != nil && s.cred.kb.answered
-}
-
 // callback is the ssh.ClientAuthCallback. It runs after the server's "none"
 // reply and before every attempt. It offers the credential on the first call
 // only when the server advertises a method that can carry it, and stops the
@@ -509,7 +499,9 @@ func (r round) result(ctx context.Context, err error, discovery bool) Result {
 		note = "; host key trusted for this check only, nothing written"
 	}
 	if err == nil {
-		if s.attempted && s.credentialSent() {
+		// A keyboard-interactive exchange that asks no question is accepted without the
+		// password, so only an answered challenge counts as sending it.
+		if s.attempted && (s.name != "keyboard-interactive" || s.cred.kb != nil && s.cred.kb.answered) {
 			return Result{Outcome: Verified, Method: s.cred.method, HostKey: fingerprint, Detail: "the server accepted the credential; no session was opened" + note}
 		}
 		return Result{Outcome: NoCredentialAccepted, HostKey: fingerprint, Detail: "the server accepted the connection without a credential; netdoc treats this as a finding and opened no session"}

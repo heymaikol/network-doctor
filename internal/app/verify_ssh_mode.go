@@ -273,22 +273,20 @@ func buildAttempt(ctx context.Context, f verifySSHFlags, tgt sshverify.Target, n
 func readVerifySecret(ctx context.Context, stderr io.Writer, prompt string, fromStdin bool) ([]byte, error) {
 	var value []byte
 	if fromStdin {
-		type stdinLine struct {
-			line []byte
-			err  error
-		}
-		got := make(chan stdinLine, 1)
+		var line []byte
+		var err error
+		done := make(chan struct{})
 		go func() {
+			defer close(done)
 			reader := bufio.NewReaderSize(io.LimitReader(verifyStdin, maxSecretLen+1), maxSecretLen+1)
-			line, err := reader.ReadBytes('\n')
-			got <- stdinLine{line, err}
+			line, err = reader.ReadBytes('\n')
 		}()
 		select {
-		case read := <-got:
-			if read.err != nil && !errors.Is(read.err, io.EOF) {
+		case <-done:
+			if err != nil && !errors.Is(err, io.EOF) {
 				return nil, errors.New("could not read the secret from standard input")
 			}
-			value = bytes.TrimRight(read.line, "\r\n")
+			value = bytes.TrimRight(line, "\r\n")
 		case <-ctx.Done():
 			return nil, errors.New("interrupted before the secret was read; nothing was sent")
 		}

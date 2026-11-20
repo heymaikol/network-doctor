@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -41,6 +42,9 @@ type profileLabCase struct {
 const profileLabCanary = "stand-in worker answered"
 
 func TestProfileNeverRetriesARefusedBatchInteractively(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the lab's ssh wrapper and stand-in worker are POSIX shell scripts, which Windows cannot run")
+	}
 	forwardings := "  ForwardAgent yes\n  ForwardX11 yes\n  LocalForward 127.0.0.1:5999 127.0.0.1:9\n  DynamicForward 127.0.0.1:5998\n"
 	local := "  PermitLocalCommand yes\n  LocalCommand {localcommand}\n"
 	for _, c := range []profileLabCase{

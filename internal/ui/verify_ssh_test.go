@@ -427,3 +427,43 @@ func TestVerifyUneditedLoginKeepsItsRoute(t *testing.T) {
 		t.Fatal("a check with an unedited login did not start on its route")
 	}
 }
+
+// A key passphrase typed under the key method is not a password: switching the method
+// clears it, so the password attempt has nothing to send and does not reuse it.
+func TestVerifyMethodSwitchClearsThePassphrase(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.keys = []string{"/keys/id_ed25519"}
+	m.verify.focus(vrMethod)
+	u, _ := m.handleVerifyKey(keyPress("right"))
+	m = asModel(t, u)
+	m.verify.focus(vrSecret)
+	u, _ = m.handleVerifyKey(keyPress("my-passphrase"))
+	m = asModel(t, u)
+	m.verify.focus(vrMethod)
+	u, _ = m.handleVerifyKey(keyPress("left"))
+	m = asModel(t, u)
+
+	if got := m.verify.secret.Value(); got != "" {
+		t.Fatalf("switching to password kept the passphrase: %d characters", len(got))
+	}
+	a, note := m.verify.attempt()
+	if len(a.Password) != 0 || note == "" {
+		t.Fatalf("password attempt built from the passphrase: password=%q note=%q", a.Password, note)
+	}
+}
+
+// Control: a password typed in password mode is still carried to the attempt.
+func TestVerifyPasswordTypedInPasswordModeIsCarried(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.focus(vrSecret)
+	u, _ := m.handleVerifyKey(keyPress("the-password"))
+	m = asModel(t, u)
+	a, note := m.verify.attempt()
+	if note != "" || string(a.Password) != "the-password" {
+		t.Fatalf("typed password not carried: password=%q note=%q", a.Password, note)
+	}
+}

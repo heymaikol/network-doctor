@@ -413,6 +413,9 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch p.row {
 		case vrMethod:
 			p.method = (p.method + delta + len(verifyMethods)) % len(verifyMethods)
+			// The secret belongs to the method that was chosen when it was typed. A
+			// passphrase must never become a password, so a change clears it.
+			p.secret.SetValue("")
 			p.note = ""
 			p.syncSecretPrompt()
 		case vrKey:

@@ -150,7 +150,7 @@ func TestTimeoutEndsTheClientAndItsChildren(t *testing.T) {
 func TestSuccessfulReadLeavesNoBackgroundChild(t *testing.T) {
 	dir := t.TempDir()
 	child := filepath.Join(dir, "child.pid")
-	client := fakeClient(t, fmt.Sprintf("sleep 300 &\necho $! > %s\nprintf 'hostname h\\nport 22\\nuser u\\n'\nexit 0\n", child))
+	client := fakeClient(t, fmt.Sprintf("sleep 300 &\necho $! > %s\nprintf 'hostname h\\nport 22\\nuser u\\nrevokedhostkeys none\\n'\nexit 0\n", child))
 	useFakeClient(t, client, time.Minute)
 
 	target, err := Resolve(context.Background(), "host", 0, "")
@@ -194,7 +194,7 @@ func TestChildOutsideTheGroupIsAnError(t *testing.T) {
 	client := fakeClient(t, fmt.Sprintf(
 		"%s='%s' '%s' -test.run='^TestHoldDiagnosticPipe$' 2>/dev/null &\n"+
 			"while [ ! -e '%s' ]; do sleep 0.05; done\n"+
-			"printf 'hostname h\\nport 22\\nuser u\\n'\nexit 0\n",
+			"printf 'hostname h\\nport 22\\nuser u\\nrevokedhostkeys none\\n'\nexit 0\n",
 		holdEnv, pidFile, self, pidFile))
 	useFakeClient(t, client, 10*time.Second)
 	outputGrace = 100 * time.Millisecond
@@ -220,7 +220,7 @@ func TestRepeatedReadsDoNotLeakDescriptors(t *testing.T) {
 	if _, err := os.ReadDir("/proc/self/fd"); err != nil {
 		t.Skip("descriptor counts are read from /proc, which this platform does not have")
 	}
-	client := fakeClient(t, "printf 'hostname h\\nport 22\\nuser u\\n'\n")
+	client := fakeClient(t, "printf 'hostname h\\nport 22\\nuser u\\nrevokedhostkeys none\\n'\n")
 	useFakeClient(t, client, time.Minute)
 	count := func() int {
 		entries, err := os.ReadDir("/proc/self/fd")
@@ -281,7 +281,7 @@ func settledGoroutines() int {
 // Repeated reads start output readers and a wait each time. If any of them outlives
 // its read, the goroutine count grows with every read.
 func TestRepeatedReadsDoNotLeakGoroutines(t *testing.T) {
-	client := fakeClient(t, "printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n")
+	client := fakeClient(t, "printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\nrevokedhostkeys none\\n'\nexit 0\n")
 	useFakeClient(t, client, 5*time.Second)
 	read := func() {
 		t.Helper()
@@ -303,7 +303,7 @@ func TestRepeatedReadsDoNotLeakGoroutines(t *testing.T) {
 // Diagnostics larger than netdoc reads are not a prefix to classify. A Match exec
 // reported after the limit would be missed, so the read is refused.
 func TestTruncatedDiagnosticsAreRefused(t *testing.T) {
-	client := fakeClient(t, "yes 'debug2: filler line' | head -c 2097152 >&2\nprintf 'debug1: Executing command: x\\n' >&2\nprintf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n")
+	client := fakeClient(t, "yes 'debug2: filler line' | head -c 2097152 >&2\nprintf 'debug1: Executing command: x\\n' >&2\nprintf 'hostname 127.0.0.1\\nport 22\\nuser demo\\nrevokedhostkeys none\\n'\nexit 0\n")
 	useFakeClient(t, client, 10*time.Second)
 	_, err := Resolve(context.Background(), "host", 0, "")
 	if err == nil || !strings.Contains(err.Error(), "larger than netdoc reads") {
@@ -330,7 +330,7 @@ func TestIncompleteDiagnosticsAreRefused(t *testing.T) {
 	client := fakeClient(t, fmt.Sprintf(
 		"%s='%s' '%s' -test.run='^TestHoldDiagnosticPipe$' >/dev/null &\n"+
 			"while [ ! -e '%s' ]; do sleep 0.05; done\n"+
-			"printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n",
+			"printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\nrevokedhostkeys none\\n'\nexit 0\n",
 		holdEnv, pidFile, self, pidFile))
 	useFakeClient(t, client, 10*time.Second)
 	outputGrace = 100 * time.Millisecond
@@ -439,11 +439,21 @@ func TestCanaryPassesWithTheInstalledOpenSSH(t *testing.T) {
 // The read itself runs the canary first, so a client that fails it is refused before
 // the target's configuration is read.
 func TestResolveRunsTheCanaryFirst(t *testing.T) {
-	client := fakeClient(t, "printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\n'\nexit 0\n")
+	client := fakeClient(t, "printf 'hostname 127.0.0.1\\nport 22\\nuser demo\\nrevokedhostkeys none\\n'\nexit 0\n")
 	useFakeClient(t, client, 10*time.Second)
 	canaryCheck = ensureCanary
 	_, err := Resolve(context.Background(), "host", 0, "")
 	if err == nil || !strings.Contains(err.Error(), `failed canary probe "marker-exec"`) {
 		t.Fatalf("a read with a client that fails the canary returned %v; want the canary refusal", err)
+	}
+}
+
+// The verification read refuses a configured revocation list before anything is sent,
+// through the same client path a real read uses.
+func TestVerificationReadRefusesARevocationList(t *testing.T) {
+	client := fakeClient(t, "printf 'hostname h\\nport 22\\nuser u\\nrevokedhostkeys /etc/ssh/revoked\\n'\nexit 0\n")
+	useFakeClient(t, client, time.Minute)
+	if _, err := Resolve(context.Background(), "host", 0, ""); err == nil || !strings.Contains(err.Error(), "RevokedHostKeys is set") {
+		t.Fatalf("a configured revocation list was not refused by the verification read: %v", err)
 	}
 }

@@ -19,6 +19,7 @@ identityfile /keys/%r.key
 identityagent /run/agent.sock
 userknownhostsfile /home/u/.ssh/known_hosts /home/u/.ssh/known_hosts2
 globalknownhostsfile /etc/ssh/ssh_known_hosts /etc/ssh/extra
+revokedhostkeys none
 `
 
 func TestParseConfigReadsTheResolvedValues(t *testing.T) {
@@ -45,7 +46,7 @@ func TestParseConfigReadsTheResolvedValues(t *testing.T) {
 
 func TestParseConfigRefusesProxiedRoutes(t *testing.T) {
 	for _, directive := range []string{"proxyjump bastion", "proxycommand nc %h %p"} {
-		tg, err := parseConfig([]byte("user u\nhostname h\nport 22\n"+directive+"\n"), "")
+		tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\n"+directive+"\n"), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -56,7 +57,7 @@ func TestParseConfigRefusesProxiedRoutes(t *testing.T) {
 }
 
 func TestParseConfigNoProxyIsNotUnsupported(t *testing.T) {
-	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nproxyjump none\nproxycommand none\n"), "")
+	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nproxyjump none\nproxycommand none\n"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestParseConfigNoProxyIsNotUnsupported(t *testing.T) {
 }
 
 func TestParseConfigIdentityAgentNoneDisablesTheAgent(t *testing.T) {
-	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nidentityagent none\n"), "")
+	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nidentityagent none\n"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,5 +112,21 @@ func TestResolveReportsConfigurationErrorsWithoutTheRoute(t *testing.T) {
 	_, err := Resolve(context.Background(), "host", 0, "")
 	if err == nil || !strings.Contains(err.Error(), "could not read the SSH configuration") {
 		t.Errorf("err = %v, want the configuration error named", err)
+	}
+}
+
+// A configured RevocationList is refused by the verification read, which cannot read it.
+// A listing that does not report RevokedHostKeys is refused too, since netdoc cannot
+// tell whether a revoked key is trusted.
+func TestParseConfigRefusesARevocationListAndAnUnreportedOne(t *testing.T) {
+	base := "user u\nhostname h\nport 22\n"
+	if _, err := parseConfig([]byte(base+"revokedhostkeys /etc/ssh/revoked\n"), ""); err == nil || !strings.Contains(err.Error(), "RevokedHostKeys is set") {
+		t.Errorf("a configured RevokedHostKeys was not refused: %v", err)
+	}
+	if _, err := parseConfig([]byte(base), ""); err == nil || !strings.Contains(err.Error(), "does not report RevokedHostKeys") {
+		t.Errorf("a listing without RevokedHostKeys was not refused: %v", err)
+	}
+	if _, err := parseConfig([]byte(base+"revokedhostkeys none\n"), ""); err != nil {
+		t.Errorf("RevokedHostKeys none was refused: %v", err)
 	}
 }

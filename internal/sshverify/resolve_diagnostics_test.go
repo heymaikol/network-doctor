@@ -39,6 +39,7 @@ func TestClassifyRefusesWhatItCannotMatch(t *testing.T) {
 		{"canonicalization on", capOf(testReading, "hostname x\ncanonicalizehostname true\nproxyjump none\n", map[string]string{"/c": "Host x\n"}), RouteUnknown, "CanonicalizeHostname is on"},
 		{"canonicalization not reported", capOf(testReading, "hostname x\nproxyjump none\n", map[string]string{"/c": "Host x\n"}), RouteUnknown, "does not report it"},
 		{"KnownHostsCommand in the listing", capOf(testReading, "hostname x\ncanonicalizehostname false\nknownhostscommand touch /t\n", map[string]string{"/c": "Host x\n"}), RouteUnknown, "KnownHostsCommand"},
+		{"RevokedHostKeys does not change the batch route", capOf(testReading, "hostname x\ncanonicalizehostname false\nrevokedhostkeys /etc/ssh/revoked\nproxyjump none\n", map[string]string{"/c": "Host x\n"}), RouteDirect, ""},
 		{"KnownHostsCommand none is not a command", capOf(testReading, "hostname x\ncanonicalizehostname false\nknownhostscommand none\n", map[string]string{"/c": "Host x\n"}), RouteDirect, ""},
 		{"ProxyJump in the listing is proxied", capOf(testReading, "hostname x\ncanonicalizehostname false\nproxyjump bastion\n", map[string]string{"/c": "Host x\n"}), RouteProxied, ""},
 		{"ProxyCommand in the listing is proxied", capOf(testReading, "hostname x\ncanonicalizehostname false\nproxycommand nc %h %p\n", map[string]string{"/c": "Host x\n"}), RouteProxied, ""},

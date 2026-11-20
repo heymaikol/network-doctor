@@ -565,6 +565,7 @@ func sshExecutable(name string) (string, error) {
 // space-separated paths. home expands the ~ that ssh leaves in identity paths.
 func parseConfig(out []byte, home string) (Target, error) {
 	var t Target
+	revocationSeen := false
 	for _, line := range strings.Split(string(out), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), " ")
 		if !ok {
@@ -592,6 +593,13 @@ func parseConfig(out []byte, home string) (Target, error) {
 			} else {
 				t.AgentSocket = expandHome(value, home)
 			}
+		case "revokedhostkeys":
+			// netdoc does not read a revocation list, so a configured one could let a
+			// revoked key be trusted. The batch transport does not override it, so ssh applies it there.
+			if value != "none" {
+				return Target{}, errors.New("RevokedHostKeys is set, and netdoc does not read a revocation list, so a revoked host key could be trusted; nothing was sent")
+			}
+			revocationSeen = true
 		case "userknownhostsfile":
 			t.KnownHosts = append(t.KnownHosts, splitPaths(value, home)...)
 		case "globalknownhostsfile":
@@ -604,6 +612,9 @@ func parseConfig(out []byte, home string) (Target, error) {
 	}
 	if t.Host == "" || t.Port == 0 || t.User == "" {
 		return Target{}, errors.New("the SSH configuration did not name a host, port and user")
+	}
+	if !revocationSeen {
+		return Target{}, errors.New("the SSH configuration does not report RevokedHostKeys, so netdoc cannot tell whether a revoked host key is trusted; nothing was sent")
 	}
 	return t, nil
 }

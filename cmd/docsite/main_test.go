@@ -199,34 +199,49 @@ func TestBuildRefusesParentOfWorkingDirectory(t *testing.T) {
 // removing anything. Each case moves a source under a marked output, so the
 // tree changes only if the build removes it.
 func TestBuildRefusesMarkedOutputThatHoldsASource(t *testing.T) {
+	type paths struct{ out, shell, docs, wiki, assets string }
 	for _, tc := range []struct {
 		name  string
-		setup func(t *testing.T) (out, shell, docs string)
+		setup func(t *testing.T) paths
 	}{
-		{"equal to the shell", func(t *testing.T) (string, string, string) {
+		{"equal to the shell", func(t *testing.T) paths {
 			markedDir(t, "site")
-			return "site", "site", "docs"
+			return paths{out: "site", shell: "site", docs: "docs", wiki: "wiki", assets: "assets"}
 		}},
-		{"contains the shell", func(t *testing.T) (string, string, string) {
+		{"contains the shell", func(t *testing.T) paths {
 			markedDir(t, "outer")
 			if err := os.Rename("site", filepath.Join("outer", "site")); err != nil {
 				t.Fatal(err)
 			}
-			return "outer", "outer/site", "docs"
+			return paths{out: "outer", shell: "outer/site", docs: "docs", wiki: "wiki", assets: "assets"}
 		}},
-		{"contains docs", func(t *testing.T) (string, string, string) {
+		{"contains docs", func(t *testing.T) paths {
 			markedDir(t, "outer")
 			if err := os.Rename("docs", filepath.Join("outer", "docs")); err != nil {
 				t.Fatal(err)
 			}
-			return "outer", "site", "outer/docs"
+			return paths{out: "outer", shell: "site", docs: "outer/docs", wiki: "wiki", assets: "assets"}
+		}},
+		{"contains wiki", func(t *testing.T) paths {
+			markedDir(t, "outer")
+			if err := os.Rename("wiki", filepath.Join("outer", "wiki")); err != nil {
+				t.Fatal(err)
+			}
+			return paths{out: "outer", shell: "site", docs: "docs", wiki: "outer/wiki", assets: "assets"}
+		}},
+		{"contains assets", func(t *testing.T) paths {
+			markedDir(t, "outer")
+			if err := os.Rename("assets", filepath.Join("outer", "assets")); err != nil {
+				t.Fatal(err)
+			}
+			return paths{out: "outer", shell: "site", docs: "docs", wiki: "wiki", assets: "outer/assets"}
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, wiki, _ := fixture(t)
-			out, shell, docs := tc.setup(t)
+			fixture(t)
+			p := tc.setup(t)
 			before := snapshot(t, ".")
-			if err := build("", shell, docs, wiki, "assets", out); err == nil || !strings.Contains(err.Error(), "or contains the source") {
+			if err := build("", p.shell, p.docs, p.wiki, p.assets, p.out); err == nil || !strings.Contains(err.Error(), "or contains the source") {
 				t.Fatalf("build did not refuse the output holding a source: %v", err)
 			}
 			if !maps.Equal(before, snapshot(t, ".")) {
@@ -314,6 +329,26 @@ func TestBuildRefusesOutputInsideShell(t *testing.T) {
 			t.Fatal("shell changed after a refused missing parent")
 		}
 	})
+}
+
+// On a case-insensitive filesystem (macOS by default, Windows) an upper-case
+// spelling of the shell names the same directory. within must match it, and the
+// build must refuse an output under it. Case-sensitive filesystems skip.
+func TestWithinMatchesCaseInsensitiveAlias(t *testing.T) {
+	docs, wiki, shell := fixture(t)
+	alias := strings.ToUpper(shell)
+	a, errA := os.Stat(shell)
+	b, errB := os.Stat(alias)
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		t.Skip("filesystem is case-sensitive")
+	}
+	if inside, err := within(alias, shell); err != nil || !inside {
+		t.Fatalf("within did not match the case alias %q of %q: %v, %v", alias, shell, inside, err)
+	}
+	err := build("", shell, docs, wiki, "assets", filepath.Join(alias, "generated"))
+	if err == nil || !strings.Contains(err.Error(), "inside the site shell") {
+		t.Fatalf("build did not refuse an output under the case alias of the shell: %v", err)
+	}
 }
 
 // A failed build must leave output that the next build may replace. The marker

@@ -55,11 +55,9 @@ func newHostCheck(files []string, trust string) (*hostCheck, error) {
 	var present []string
 	for _, f := range files {
 		_, err := os.Stat(f)
-		switch {
-		case err == nil:
+		if err == nil {
 			present = append(present, f)
-		case errors.Is(err, os.ErrNotExist):
-		default:
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, errKnownHostsUnreadable
 		}
 	}

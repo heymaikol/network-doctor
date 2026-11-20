@@ -188,11 +188,11 @@ func TestChildOutsideTheGroupIsAnError(t *testing.T) {
 	}
 	pidFile := filepath.Join(t.TempDir(), "holder.pid")
 	t.Cleanup(func() { killRecorded(pidFile) })
-	// The holder is TestHoldDiagnosticPipe, started with its stdout left as the listing pipe, so
-	// the listing stays open. It leaves the client's session with Setsid, so the client's group
+	// The holder is TestHoldDiagnosticPipe, started with its stdout left as the listing pipe and its
+	// stderr sent to /dev/null, so the listing is the only stream it holds open. It leaves the client's session with Setsid, so the client's group
 	// kill does not reach it: the test is about a child that escaped. No external setsid is run.
 	client := fakeClient(t, fmt.Sprintf(
-		"%s='%s' '%s' -test.run='^TestHoldDiagnosticPipe$' &\n"+
+		"%s='%s' '%s' -test.run='^TestHoldDiagnosticPipe$' 2>/dev/null &\n"+
 			"while [ ! -e '%s' ]; do sleep 0.05; done\n"+
 			"printf 'hostname h\\nport 22\\nuser u\\n'\nexit 0\n",
 		holdEnv, pidFile, self, pidFile))

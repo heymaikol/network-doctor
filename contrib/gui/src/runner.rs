@@ -150,7 +150,8 @@ fn start_version_limited(
                     text.push_str(&line);
                     text.push('\n');
                 });
-                (!over)
+                // A version from a probe that failed or expired is a partial answer.
+                (!over && h.expired().is_none())
                     .then(|| report::clean_lines(&text).trim().to_string())
                     .filter(|v| !v.is_empty())
             }
@@ -1340,6 +1341,37 @@ mod tests {
         let seen = until_finished(&rx, Duration::from_secs(20));
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "finished"]));
+    }
+
+    /// A version printed before the probe stalls is not shown: the answer
+    /// would come from a probe that expired.
+    #[cfg(unix)]
+    #[test]
+    fn a_version_printed_before_a_stall_is_discarded() {
+        let dir = scratch("version-stall");
+        let rx = start_version_limited(
+            Duration::from_secs(1),
+            fake_netdoc(&dir, "printf 'netdoc v1\\n'\nexec sleep 60"),
+            || {},
+        );
+        let answer = rx.recv_timeout(Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(answer, Ok(None));
+    }
+
+    /// A version followed by unreadable data is not shown either.
+    #[cfg(unix)]
+    #[test]
+    fn a_version_followed_by_unreadable_data_is_discarded() {
+        let dir = scratch("version-unreadable");
+        let rx = start_version_limited(
+            Duration::from_secs(5),
+            fake_netdoc(&dir, "printf 'netdoc v1\\n\\377\\n'"),
+            || {},
+        );
+        let answer = rx.recv_timeout(Duration::from_secs(10));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(answer, Ok(None));
     }
 
     /// The version is shown to the user, so it is cleaned as the error text is.

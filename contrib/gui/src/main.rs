@@ -958,11 +958,10 @@ impl App {
             ui.spacing_mut().item_spacing.y = 6.0;
             ui.spacing_mut().interact_size.y = 20.0;
             ui.add_space(4.0);
-            let (head, explain, tone) = report::verdict_text(&r.verdict);
-            let head = if r.ok { "Everything checks out." } else { head };
+            let (head, explain, tone) = report::headline(r);
             ui.label(RichText::new(head).size(17.0).color(tone_color(tone)));
             ui.add(egui::Label::new(&r.summary).wrap());
-            if !r.ok {
+            if !r.healthy() {
                 ui.add(egui::Label::new(weak(explain)).wrap());
             }
 
@@ -1205,8 +1204,7 @@ impl App {
                 ui.spacing_mut().item_spacing.x = 3.0;
                 let current = self.shown.unwrap_or(self.history.len().saturating_sub(1));
                 for (i, (t, r)) in self.history.iter().enumerate() {
-                    let c = if r.ok() { good() } else { tone_color(r.tone()) };
-                    let c = if !r.ok() && c == good() { bad() } else { c };
+                    let c = tone_color(r.tone());
                     let (rect, resp) =
                         ui.allocate_exact_size(vec2(9.0, 22.0), egui::Sense::click());
                     ui.painter().rect_filled(

@@ -131,6 +131,25 @@ impl Component {
     }
 }
 
+impl Report {
+    /// The verdict to show. netdoc clears `ok` for a FAIL or a check with no
+    /// result, so verdict "ok" with `ok` false means a check never reported:
+    /// that is shown as incomplete, never as healthy.
+    pub fn shown_verdict(&self) -> &str {
+        if self.verdict == "ok" && !self.ok {
+            "incomplete"
+        } else {
+            &self.verdict
+        }
+    }
+
+    /// Only a clean run is healthy. A WARN keeps netdoc's `ok` true, so `ok`
+    /// alone is not enough.
+    pub fn healthy(&self) -> bool {
+        self.shown_verdict() == "ok"
+    }
+}
+
 /// What one run of netdoc produced.
 #[derive(Clone, Debug)]
 pub enum Outcome {
@@ -141,7 +160,7 @@ pub enum Outcome {
 impl Outcome {
     pub fn ok(&self) -> bool {
         match self {
-            Outcome::Single(r) => r.ok,
+            Outcome::Single(r) => r.healthy(),
             // A profile is "ok" when anything works; only all-PASS is trouble-free.
             Outcome::Profile(p) => p.aggregate.status == "PASS",
         }
@@ -156,7 +175,7 @@ impl Outcome {
 
     pub fn tone(&self) -> Tone {
         match self {
-            Outcome::Single(r) => verdict_text(&r.verdict).2,
+            Outcome::Single(r) => verdict_text(r.shown_verdict()).2,
             Outcome::Profile(p) => match p.aggregate.status.as_str() {
                 "PASS" => Tone::Good,
                 "WARN" => Tone::Warn,
@@ -168,7 +187,7 @@ impl Outcome {
     /// The short word for the header pill.
     pub fn pill(&self) -> &'static str {
         match self {
-            Outcome::Single(r) => match r.verdict.as_str() {
+            Outcome::Single(r) => match r.shown_verdict() {
                 "ok" => "Online",
                 "degraded" => "Working, with a problem",
                 "dns" => "Names don't work",
@@ -425,6 +444,17 @@ pub fn verdict_text(v: &str) -> (&'static str, &'static str, Tone) {
     }
 }
 
+/// The headline and explanation for a report, the one place the GUI decides
+/// what a result says. Only a healthy report gets "Everything checks out".
+pub fn headline(r: &Report) -> (&'static str, &'static str, Tone) {
+    let (head, explain, tone) = verdict_text(r.shown_verdict());
+    if r.healthy() {
+        ("Everything checks out.", explain, tone)
+    } else {
+        (head, explain, tone)
+    }
+}
+
 pub fn status_tone(s: &str) -> Tone {
     match s {
         "PASS" => Tone::Good,
@@ -589,7 +619,7 @@ pub fn step_says(c: &Check, host: Option<&str>) -> String {
 /// The whole result as text, for "Copy report".
 pub fn as_text(r: &Report) -> String {
     let host = r.target.as_ref().map(|t| t.host.as_str());
-    let (head, _, _) = verdict_text(&r.verdict);
+    let (head, _, _) = headline(r);
     let mut s = format!("Network Doctor: {head}\n{}\n", r.summary);
     for f in &r.findings {
         if let Some(rem) = &f.remediation {
@@ -659,6 +689,27 @@ mod tests {
                 c.id
             );
         }
+    }
+
+    #[test]
+    fn degraded_is_not_healthy() {
+        // netdoc keeps ok for a WARN; only a FAIL or an unreported check clears it.
+        let r = load("degraded");
+        assert!(r.ok);
+        let o = Outcome::Single(r.clone());
+        assert!(!o.ok(), "a degraded verdict must not count as healthy");
+        assert_eq!(o.tone(), Tone::Warn);
+        assert_eq!(headline(&r).0, "Working, with a problem");
+        assert_eq!(headline(&load("healthy")).0, "Everything checks out.");
+    }
+
+    #[test]
+    fn unfinished_ok_is_not_healthy() {
+        // verdict "ok" with ok false: a check never reported, so it is incomplete.
+        let r = parse_report(r#"{"verdict":"ok","ok":false,"checks":[],"summary":""}"#).unwrap();
+        assert_eq!(r.shown_verdict(), "incomplete");
+        assert!(!Outcome::Single(r.clone()).ok());
+        assert_eq!(headline(&r).0, "The checks didn't finish");
     }
 
     #[test]

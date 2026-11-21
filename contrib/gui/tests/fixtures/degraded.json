@@ -1,0 +1,187 @@
+{
+  "version": "2.2.1",
+  "target": {
+    "host": "github.com",
+    "port": 443,
+    "protocol": "tls+http"
+  },
+  "checks": [
+    {
+      "id": "iface",
+      "name": "Interface",
+      "status": "PASS",
+      "ms": 1,
+      "detail": "interface wlan0 is up",
+      "iface": "wlan0"
+    },
+    {
+      "id": "internet_tcp",
+      "name": "Internet (TCP egress)",
+      "status": "PASS",
+      "address_families": {
+        "ipv4": "reachable",
+        "ipv6": "reachable"
+      },
+      "ms": 123,
+      "detail": "IPv4 egress via 1.1.1.1 in 18ms (src 192.0.2.10 wlan0); IPv6 egress via 2606:4700:4700::1111 in 18ms",
+      "selected_ip": "1.1.1.1",
+      "source": "192.0.2.10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "1.1.1.1",
+          "ms": 18
+        },
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 18
+        }
+      ]
+    },
+    {
+      "id": "quic_udp_443",
+      "name": "QUIC / UDP 443",
+      "status": "PASS",
+      "ms": 69,
+      "detail": "QUIC v1 handshake with connectivitycheck.gstatic.com over UDP/443 in 46ms (h3)",
+      "selected_ip": "2001:4860:4826:7800::",
+      "source": "2001:db8::10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "2001:4860:4826:7800::",
+          "ms": 46
+        }
+      ]
+    },
+    {
+      "id": "proxy_connect",
+      "name": "Internet (env proxy)",
+      "status": "N/A",
+      "ms": 1,
+      "detail": "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)"
+    },
+    {
+      "id": "dns",
+      "name": "DNS github.com",
+      "status": "PASS",
+      "ms": 22,
+      "detail": "github.com → 140.82.114.3 (resolver tried: 127.0.0.53)",
+      "addrs": [
+        "140.82.114.3"
+      ],
+      "resolver_targets": [
+        "127.0.0.53:53"
+      ]
+    },
+    {
+      "id": "dns_public",
+      "name": "DNS (public)",
+      "status": "PASS",
+      "ms": 21,
+      "detail": "github.com. → 140.82.112.3 (via 8.8.8.8); queried github.com. only; system lookup may use search suffixes, so answers are not compared",
+      "addrs": [
+        "140.82.112.3"
+      ],
+      "dns_name_scope": "rooted_relative",
+      "resolver_targets": [
+        "8.8.8.8:53"
+      ]
+    },
+    {
+      "id": "dns_encrypted",
+      "name": "DNS (encrypted DoH/DoT)",
+      "status": "PASS",
+      "ms": 70,
+      "detail": "DoT completed a DNS query for connectivitycheck.gstatic.com via cloudflare-dns.com in 70ms",
+      "selected_ip": "2606:4700:4700::1111",
+      "source": "2001:db8::10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 18
+        },
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 18
+        }
+      ]
+    },
+    {
+      "id": "target_tcp",
+      "name": "TCP github.com:443",
+      "status": "PASS",
+      "address_families": {
+        "ipv4": "reachable"
+      },
+      "ms": 30,
+      "detail": "connected to 140.82.114.3:443 in 29ms (src 192.0.2.10 wlan0)",
+      "selected_ip": "140.82.114.3",
+      "source": "192.0.2.10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "140.82.114.3",
+          "ms": 29
+        }
+      ]
+    },
+    {
+      "id": "path_mtu",
+      "name": "Path MTU github.com:443",
+      "status": "WARN",
+      "ms": 84,
+      "detail": "13 KiB of the 24 KiB payload acknowledged; some larger segments were dropped at a 1424-byte TCP MSS",
+      "selected_ip": "140.82.114.3",
+      "fix": "Some large packets are being dropped. Check the MTU on this computer's connection or on any VPN."
+    },
+    {
+      "id": "ssid",
+      "name": "Wi-Fi network",
+      "status": "PASS",
+      "ms": 1,
+      "detail": "connected to Example Wi-Fi",
+      "network": "Example Wi-Fi"
+    },
+    {
+      "id": "tls",
+      "name": "TLS github.com",
+      "status": "PASS",
+      "ms": 38,
+      "detail": "TLS handshake OK (SNI github.com)",
+      "selected_ip": "140.82.114.3"
+    },
+    {
+      "id": "http",
+      "name": "HTTP github.com",
+      "status": "PASS",
+      "ms": 63,
+      "detail": "HTTP 301 (responded)",
+      "selected_ip": "140.82.114.3",
+      "attempts": [
+        {
+          "ip": "140.82.114.3",
+          "ms": 29
+        }
+      ]
+    },
+    {
+      "id": "https",
+      "name": "HTTPS github.com",
+      "status": "PASS",
+      "ms": 35,
+      "detail": "HTTPS 200 (responded)",
+      "selected_ip": "140.82.114.3",
+      "attempts": [
+        {
+          "ip": "140.82.114.3",
+          "ms": 29
+        }
+      ]
+    }
+  ],
+  "summary": "Everything you asked for works, but part of the path is impaired. github.com:443 connects.",
+  "verdict": "degraded",
+  "ok": true
+}

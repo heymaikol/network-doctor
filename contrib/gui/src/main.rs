@@ -161,6 +161,8 @@ fn save_theme(i: usize) {
 struct App {
     netdoc: Option<PathBuf>,
     netdoc_version: Option<String>,
+    /// The version check, until its answer arrives.
+    version_rx: Option<Receiver<Option<String>>>,
     /// 0 = my connection, 1 = a website or server.
     mode: usize,
     target: String,
@@ -202,7 +204,7 @@ impl App {
         look::set_theme(&ctx, theme);
         look::install(&ctx);
         let netdoc = runner::find_netdoc();
-        let netdoc_version = netdoc.as_deref().and_then(runner::version);
+        let version_rx = netdoc.clone().map(runner::start_version);
         let target = std::env::var("NETDOC_GUI_TARGET").unwrap_or_default();
         let mode = std::env::var("NETDOC_GUI_MODE")
             .ok()
@@ -210,7 +212,8 @@ impl App {
             .filter(|m| *m < MODES.len());
         let mut app = App {
             netdoc,
-            netdoc_version,
+            netdoc_version: None,
+            version_rx,
             profile: std::env::var("NETDOC_GUI_PROFILE")
                 .ok()
                 .and_then(|p| PROFILES.iter().position(|x| x.0 == p))
@@ -339,6 +342,21 @@ impl App {
     fn poll(&mut self) {
         self.poll_check();
         self.poll_save();
+    }
+
+    /// Takes the version check's answer once it has arrived.
+    fn poll_version(&mut self) {
+        let Some(rx) = self.version_rx.as_ref() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(v) => {
+                self.netdoc_version = v;
+                self.version_rx = None;
+            }
+            Err(TryRecvError::Disconnected) => self.version_rx = None,
+            Err(TryRecvError::Empty) => {}
+        }
     }
 
     fn poll_check(&mut self) {
@@ -529,6 +547,16 @@ impl App {
                 (Some(p), Some(v)) => {
                     ui.label(weak(format!("Checks are run by {v} ({})", p.display())).small())
                 }
+                (Some(_), None) if self.version_rx.is_some() => {
+                    ui.label(weak("Checking netdoc's version…").small())
+                }
+                (Some(p), None) => ui.label(
+                    weak(format!(
+                        "Checks are run by netdoc ({}); its version couldn't be read.",
+                        p.display()
+                    ))
+                    .small(),
+                ),
                 _ => ui.label(weak("netdoc wasn't found.").small()),
             };
             ui.label(weak("This is an unofficial front-end. Network Doctor itself is made by its own authors: github.com/heymaikol/network-doctor").small());
@@ -1034,6 +1062,7 @@ impl App {
     /// The whole window, drawn into `ui`. Tests drive this without a native window.
     fn show(&mut self, ui: &mut egui::Ui) {
         self.poll();
+        self.poll_version();
         self.take_screenshot(ui);
         egui::Panel::top("top")
             .frame(

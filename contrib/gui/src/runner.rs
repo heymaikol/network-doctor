@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -96,9 +96,40 @@ fn die_with_parent(cmd: &mut Command) {
     }
 }
 
-pub fn version(bin: &Path) -> Option<String> {
-    let out = netdoc_command(bin).arg("--version").output().ok()?;
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+/// How long netdoc may take to print its version.
+const VERSION_LIMIT: Duration = Duration::from_secs(5);
+
+/// Asks netdoc for its version on a thread of its own, bounded like any other
+/// run, so the window starts without waiting for it. The answer is `None` if
+/// netdoc printed nothing in time.
+pub fn start_version(bin: PathBuf) -> Receiver<Option<String>> {
+    start_version_limited(VERSION_LIMIT, bin)
+}
+
+fn start_version_limited(limit: Duration, bin: PathBuf) -> Receiver<Option<String>> {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let h = Handle::default();
+        let _limit = watchdog(h.clone(), limit, "netdoc didn't print its version in time.");
+        let mut cmd = netdoc_command(&bin);
+        cmd.arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let version = match cmd.spawn() {
+            Ok(child) => {
+                let mut text = String::new();
+                supervise(&h, child, |line| {
+                    text.push_str(&line);
+                    text.push('\n');
+                });
+                Some(text.trim().to_string()).filter(|v| !v.is_empty())
+            }
+            Err(_) => None,
+        };
+        let _ = tx.send(version);
+    });
+    rx
 }
 
 /// A running netdoc that can be stopped. `stop` works at any time: a child
@@ -871,6 +902,43 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "finished"]));
         assert!(!alive, "a descendant outlived netdoc");
+    }
+
+    /// A netdoc that stalls on `--version` must not hold the caller: the
+    /// answer comes back as `None` once the limit and the stop grace have passed.
+    #[cfg(unix)]
+    #[test]
+    fn a_stalled_version_check_does_not_block_its_caller() {
+        let dir = scratch("stalled-version");
+        let body = format!(
+            "trap '' TERM\necho $$ > {}\nexec sleep 600",
+            dir.join("pid").display()
+        );
+        let started = Instant::now();
+        let rx = start_version_limited(Duration::from_secs(1), fake_netdoc(&dir, &body));
+        let caller_waited = started.elapsed();
+        let answer = rx.recv_timeout(Duration::from_secs(20));
+        kill_recorded_pid(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            caller_waited < Duration::from_millis(500),
+            "the caller waited {caller_waited:?}"
+        );
+        assert_eq!(answer, Ok(None));
+    }
+
+    /// Negative control: a prompt netdoc's version is read.
+    #[cfg(unix)]
+    #[test]
+    fn a_prompt_version_check_reads_the_version() {
+        let dir = scratch("prompt-version");
+        let rx = start_version_limited(
+            Duration::from_secs(5),
+            fake_netdoc(&dir, "echo 'netdoc v9.9.9'"),
+        );
+        let answer = rx.recv_timeout(Duration::from_secs(10));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(answer, Ok(Some("netdoc v9.9.9".to_string())));
     }
 
     /// A check that never finishes is expired, so the window can't wait forever.

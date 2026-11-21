@@ -193,6 +193,7 @@ impl Outcome {
                 "dns" => "Names don't work",
                 "network" => "Can't get out",
                 "service" => "The site has a problem",
+                "incomplete" => "Didn't finish",
                 _ => "No answer yet",
             },
             Outcome::Profile(p) => match p.aggregate.status.as_str() {
@@ -1001,6 +1002,16 @@ mod tests {
         // come out healthy.
         let json = r#"{"version":"x","target":null,"checks":[],"summary":"s","verdict":"ok","ok":false,"ok\u200b":true}"#;
         assert!(parse(json).is_err());
+    }
+
+    #[test]
+    fn an_unfinished_result_reads_the_same_in_header_and_steps() {
+        // The header and the step rows must agree: "Didn't finish" in both.
+        let r = parse_report(
+            r#"{"version":"x","target":null,"checks":[],"summary":"s","verdict":"incomplete","ok":false}"#,
+        )
+        .unwrap();
+        assert_eq!(Outcome::Single(r).pill(), "Didn't finish");
     }
 
     #[test]

@@ -243,7 +243,7 @@ const BAD_OUTPUT: &str = "netdoc's output wasn't a report this app understands";
 pub fn parse(json: &str) -> Result<Outcome, String> {
     let mut v: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
-    clean_strings(&mut v);
+    clean_strings(&mut v)?;
     if v.get("schema")
         .and_then(|s| s.as_str())
         .is_some_and(|s| s.starts_with("netdoc.profile-report."))
@@ -275,16 +275,29 @@ pub fn parse(json: &str) -> Result<Outcome, String> {
     Ok(Outcome::Single(r))
 }
 
-/// Cleans every string in a report, once, where netdoc output enters the
-/// window: no escapes, invisible or direction-changing characters. Line breaks
-/// are kept, and nothing else is rewritten.
-fn clean_strings(v: &mut serde_json::Value) {
+/// Cleans every string and every object key in a report, once, where netdoc
+/// output enters the window: no escapes, invisible or direction-changing
+/// characters. Line breaks are kept, and nothing else is rewritten. Two keys
+/// that clean to the same name make the report unreadable, so it is rejected
+/// rather than letting one silently replace the other.
+fn clean_strings(v: &mut serde_json::Value) -> Result<(), String> {
     match v {
         serde_json::Value::String(s) => *s = clean_lines(s),
-        serde_json::Value::Array(a) => a.iter_mut().for_each(clean_strings),
-        serde_json::Value::Object(o) => o.values_mut().for_each(clean_strings),
+        serde_json::Value::Array(a) => a.iter_mut().try_for_each(clean_strings)?,
+        serde_json::Value::Object(o) => {
+            let mut cleaned = serde_json::Map::new();
+            for (key, mut value) in std::mem::take(o) {
+                clean_strings(&mut value)?;
+                let key = clean_lines(&key);
+                if cleaned.insert(key.clone(), value).is_some() {
+                    return Err(format!("{BAD_OUTPUT}: two keys read as \"{key}\""));
+                }
+            }
+            *o = cleaned;
+        }
         _ => {}
     }
+    Ok(())
 }
 
 /// Fails unless `v` has each key. The keys are the schema's required fields
@@ -965,6 +978,29 @@ mod tests {
         let rem = r.findings[0].remediation.as_ref().unwrap();
         assert_eq!(rem.action, "ab");
         assert_eq!(rem.steps, ["one\ntwo"]);
+    }
+
+    #[test]
+    fn keys_are_cleaned_as_well_as_values() {
+        // A right-to-left override in an address-family key must not change how
+        // the family reads: the step still says IPv4.
+        let r = parse_report(
+            r#"{"version":"x","target":null,"checks":[{"id":"internet_tcp","name":"Internet","status":"PASS","ms":1,"detail":"","address_families":{"ipv4\u202e":"reachable"}}],"summary":"s","verdict":"ok","ok":true}"#,
+        )
+        .unwrap();
+        let fams = r.checks[0].address_families.as_ref().unwrap();
+        assert!(fams.contains_key("ipv4"), "keys: {fams:?}");
+        assert!(fams.keys().all(|k| !k.contains('\u{202e}')));
+        assert_eq!(r.checks[0].says, "Reaches the internet over IPv4.");
+    }
+
+    #[test]
+    fn keys_that_clean_to_the_same_name_are_rejected() {
+        // "ok" and "ok" with a zero-width space are different keys, but read the
+        // same. One must not silently replace the other: a failed report could
+        // come out healthy.
+        let json = r#"{"version":"x","target":null,"checks":[],"summary":"s","verdict":"ok","ok":false,"ok\u200b":true}"#;
+        assert!(parse(json).is_err());
     }
 
     #[test]

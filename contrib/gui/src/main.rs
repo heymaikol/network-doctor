@@ -1253,6 +1253,11 @@ mod access {
         })
     }
 
+    /// Whether the stand-in netdoc has been asked to run a check.
+    fn checks_started() -> bool {
+        netdoc_stub().with_file_name("invoked").exists()
+    }
+
     fn window() -> Harness<'static, App> {
         netdoc_stub();
         Harness::new_ui_state(
@@ -1377,6 +1382,21 @@ mod access {
             .map(|((_, name), _)| *name)
             .collect();
         assert!(missed.is_empty(), "Tab never reached: {missed:?}");
+        // Moving focus must start no diagnostic check. App::new's version probe
+        // is not a check, and the stub records only checks.
+        assert!(!checks_started(), "moving focus with Tab started a check");
+        // Control: Enter on the focused Check button must start one, or the
+        // assertion above would prove nothing.
+        h.get_by_role_and_label(Role::Button, "Check again").focus();
+        h.run();
+        h.key_press(egui::Key::Enter);
+        let waited = std::time::Instant::now();
+        while !checks_started() && waited.elapsed() < std::time::Duration::from_secs(10) {
+            // One frame at a time: a running check keeps the window repainting.
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(checks_started(), "Enter on Check again started no check");
     }
 
     #[test]

@@ -103,10 +103,29 @@ pub struct Handle(Arc<Mutex<Slot>>);
 struct Slot {
     child: Option<Child>,
     stopped: bool,
+    /// Set when netdoc was stopped for running too long, not at the user's request.
+    expired: Option<&'static str>,
 }
 
 /// How long netdoc gets to exit after a stop, before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// How long netdoc gets to exit after its output has ended.
+const EXIT_GRACE: Duration = Duration::from_secs(5);
+
+const CLOSED_OUTPUT: &str = "netdoc closed its output but didn't exit, so it was stopped.";
+
+/// Stops netdoc for running out of time. A stop the user asked for comes first and wins.
+fn expire_locked(s: &mut Slot, reason: &'static str) {
+    if s.stopped {
+        return;
+    }
+    s.stopped = true;
+    s.expired = Some(reason);
+    if let Some(c) = s.child.as_mut() {
+        ask_to_stop(c);
+    }
+}
 
 /// SIGTERM on Unix, which netdoc answers by cancelling its probes and removing
 /// its temporary files. Windows has no such signal, so the process is ended.
@@ -144,9 +163,17 @@ impl Handle {
         s.child = Some(child);
     }
 
+    /// Why netdoc was stopped for running out of time, if it was.
+    fn expired(&self) -> Option<&'static str> {
+        self.0.lock().unwrap().expired
+    }
+
     /// Waits for the attached child and returns its exit code. It is reaped
     /// under the lock, so a stop never signals a process that is already gone.
-    fn reap(&self) -> Option<i32> {
+    /// With a grace period, a child still running that long after the wait
+    /// began is expired with that period's reason.
+    fn reap(&self, grace: Option<(Duration, &'static str)>) -> Option<i32> {
+        let started = Instant::now();
         let mut asked: Option<Instant> = None;
         loop {
             {
@@ -168,7 +195,13 @@ impl Handle {
                             let _ = child.kill();
                         }
                     }
-                    Ok(None) => {}
+                    Ok(None) => {
+                        if let Some((limit, reason)) = grace
+                            && started.elapsed() > limit
+                        {
+                            expire_locked(&mut s, reason);
+                        }
+                    }
                 }
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -243,6 +276,7 @@ pub fn run(
         let stdout = child.stdout.take().unwrap();
         let err_thread = keep_tail(child.stderr.take().unwrap());
         h.attach(child);
+        let mut reported = false;
         if watch.is_some() {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if line.trim().is_empty() {
@@ -250,6 +284,7 @@ pub fn run(
                 }
                 match report::parse(&line) {
                     Ok(r) => {
+                        reported = true;
                         let _ = tx.send(Msg::Report(r));
                         wake();
                     }
@@ -269,13 +304,22 @@ pub fn run(
             let _ = BufReader::new(stdout).read_to_string(&mut s);
             if !s.trim().is_empty() && !h.stopped() {
                 let _ = tx.send(match report::parse(&s) {
-                    Ok(r) => Msg::Report(r),
+                    Ok(r) => {
+                        reported = true;
+                        Msg::Report(r)
+                    }
                     Err(e) => Msg::Failed(e),
                 });
             }
         }
-        let code = h.reap();
+        // Output has ended. netdoc gets EXIT_GRACE to exit before it is expired.
+        let code = h.reap(Some((EXIT_GRACE, CLOSED_OUTPUT)));
         let stderr = err_thread.join().unwrap_or_default();
+        // An expiry after a report is quiet: the report stands. Without one, say why.
+        if !reported && let Some(reason) = h.expired() {
+            let _ = tx.send(Msg::Failed(reason.into()));
+            wake();
+        }
         let _ = tx.send(Msg::Finished { code, stderr });
         wake();
     });
@@ -322,7 +366,7 @@ pub fn save_support(
                     Ok(mut child) => {
                         let err_thread = keep_tail(child.stderr.take().unwrap());
                         h.attach(child);
-                        let code = h.reap();
+                        let code = h.reap(None);
                         let stderr = err_thread.join().unwrap_or_default();
                         // 0 = healthy, 1 = a problem was found; both write the file.
                         // Anything else (2 = usage or write error, or a stop) means it didn't.
@@ -525,6 +569,38 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(finished, "the export worker didn't finish after a stop");
         assert!(!left, "a stopped export left its claimed file behind");
+    }
+
+    /// netdoc prints its report, closes its output, and then never exits. The
+    /// window must not wait on it indefinitely.
+    #[cfg(unix)]
+    #[test]
+    fn output_closed_without_exit_still_finishes() {
+        let dir = scratch("closed-output");
+        let (tx, rx) = channel();
+        let body = "echo '{\"verdict\":\"ok\",\"ok\":true,\"checks\":[],\"summary\":\"x\"}'\n\
+                    exec >&- 2>&-\nexec sleep 60";
+        let _h = run(fake_netdoc(&dir, body), None, None, None, tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "finished"]));
+    }
+
+    /// Negative control: a netdoc that prints its report and exits must not
+    /// wait out the exit grace.
+    #[cfg(unix)]
+    #[test]
+    fn a_normal_exit_is_not_delayed_by_the_grace() {
+        let dir = scratch("normal-exit");
+        let (tx, rx) = channel();
+        let started = Instant::now();
+        let body = "echo '{\"verdict\":\"ok\",\"ok\":true,\"checks\":[],\"summary\":\"x\"}'";
+        let _h = run(fake_netdoc(&dir, body), None, None, None, tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        let took = started.elapsed();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "finished"]));
+        assert!(took < Duration::from_secs(2), "a normal exit took {took:?}");
     }
 
     #[cfg(unix)]

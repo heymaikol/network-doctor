@@ -1,6 +1,7 @@
 //! Finds and runs the `netdoc` program.
 
 use crate::report::{self, Outcome};
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -178,46 +179,6 @@ impl Handle {
     fn expired(&self) -> Option<&'static str> {
         self.0.lock().unwrap().expired
     }
-
-    /// Waits for the attached child and returns its exit code. It is reaped
-    /// under the lock, so a stop never signals a process that is already gone.
-    /// With a grace period, a child still running that long after the wait
-    /// began is expired with that period's reason.
-    fn reap(&self, grace: Option<(Duration, &'static str)>) -> Option<i32> {
-        let started = Instant::now();
-        let mut asked: Option<Instant> = None;
-        loop {
-            {
-                let mut s = self.0.lock().unwrap();
-                let stopped = s.stopped;
-                let child = s.child.as_mut()?;
-                match child.try_wait() {
-                    Ok(Some(status)) => {
-                        s.child = None;
-                        return status.code();
-                    }
-                    Err(_) => {
-                        s.child = None;
-                        return None;
-                    }
-                    Ok(None) if stopped => {
-                        let since = *asked.get_or_insert_with(Instant::now);
-                        if since.elapsed() > STOP_GRACE {
-                            let _ = child.kill();
-                        }
-                    }
-                    Ok(None) => {
-                        if let Some((limit, reason)) = grace
-                            && started.elapsed() > limit
-                        {
-                            expire_locked(&mut s, reason);
-                        }
-                    }
-                }
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
 }
 
 /// Expires `h` with `reason` once `limit` has passed. Dropping the returned
@@ -252,6 +213,96 @@ fn keep_tail(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<St
         }
         String::from_utf8_lossy(&kept).into_owned()
     })
+}
+
+/// How long readers get to deliver what netdoc printed, once netdoc has exited.
+const READ_GRACE: Duration = Duration::from_secs(1);
+
+/// How often the supervisor looks at netdoc and at its readers.
+const POLL: Duration = Duration::from_millis(20);
+
+/// Runs a started netdoc to its end, with every wait bounded, and passes each
+/// stdout line to `on_line` as it arrives. Returns the exit code and the end of
+/// stderr.
+///
+/// Output is read on threads of their own, so a pipe that stays open, held by a
+/// descendant or by netdoc itself, cannot hold the window: once netdoc has
+/// exited, its readers get READ_GRACE and are then left behind.
+fn supervise(
+    h: &Handle,
+    mut child: Child,
+    mut on_line: impl FnMut(String),
+) -> (Option<i32>, String) {
+    let stdout = child.stdout.take().unwrap();
+    let stderr = keep_tail(child.stderr.take().unwrap());
+    let queue: Arc<Mutex<VecDeque<String>>> = Arc::default();
+    let reader_queue = Arc::clone(&queue);
+    let out = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            // Once the supervisor has gone it is the only other owner left, and
+            // nothing reads what is pushed: stop reading.
+            if Arc::strong_count(&reader_queue) == 1 {
+                break;
+            }
+            reader_queue.lock().unwrap().push_back(line);
+        }
+    });
+    h.attach(child);
+    let mut out_ended: Option<Instant> = None;
+    let mut stop_seen: Option<Instant> = None;
+    let code = loop {
+        flush(&queue, &mut on_line);
+        {
+            let mut s = h.0.lock().unwrap();
+            match s.child.as_mut().map(Child::try_wait) {
+                Some(Ok(Some(status))) => {
+                    s.child = None;
+                    break status.code();
+                }
+                Some(Ok(None)) => {}
+                Some(Err(_)) | None => {
+                    s.child = None;
+                    break None;
+                }
+            }
+            if out.is_finished() {
+                let since = *out_ended.get_or_insert_with(Instant::now);
+                if since.elapsed() > EXIT_GRACE {
+                    expire_locked(&mut s, CLOSED_OUTPUT);
+                }
+            }
+            if s.stopped {
+                let since = *stop_seen.get_or_insert_with(Instant::now);
+                if since.elapsed() > STOP_GRACE
+                    && let Some(c) = s.child.as_mut()
+                {
+                    let _ = c.kill();
+                }
+            }
+        }
+        std::thread::sleep(POLL);
+    };
+    // netdoc has exited. Its readers get READ_GRACE to finish what it printed.
+    let deadline = Instant::now() + READ_GRACE;
+    while !(out.is_finished() && stderr.is_finished()) && Instant::now() < deadline {
+        flush(&queue, &mut on_line);
+        std::thread::sleep(POLL);
+    }
+    flush(&queue, &mut on_line);
+    let tail = if stderr.is_finished() {
+        stderr.join().unwrap_or_default()
+    } else {
+        String::new()
+    };
+    (code, tail)
+}
+
+/// Passes on the lines the reader has queued so far.
+fn flush(queue: &Mutex<VecDeque<String>>, on_line: &mut impl FnMut(String)) {
+    let lines: Vec<String> = queue.lock().unwrap().drain(..).collect();
+    for line in lines {
+        on_line(line);
+    }
 }
 
 /// Run `netdoc --json [--profile NAME] [--watch] [target]`. One report per line in watch mode.
@@ -298,7 +349,7 @@ fn start_run(
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = match cmd.spawn() {
+        let child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
                 let _ = tx.send(Msg::Failed(format!("Couldn't start netdoc: {e}")));
@@ -311,15 +362,14 @@ fn start_run(
                 return;
             }
         };
-        let stdout = child.stdout.take().unwrap();
-        let err_thread = keep_tail(child.stderr.take().unwrap());
-        h.attach(child);
         let mut reported = false;
-        if watch.is_some() {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if line.trim().is_empty() {
-                    continue;
-                }
+        let mut failed = false;
+        let mut body = String::new();
+        let (code, stderr) = supervise(&h, child, |line| {
+            if watch.is_none() {
+                body.push_str(&line);
+                body.push('\n');
+            } else if !failed && !line.trim().is_empty() {
                 match report::parse(&line) {
                     Ok(r) => {
                         reported = true;
@@ -327,32 +377,33 @@ fn start_run(
                         wake();
                     }
                     // A line cut short by a stop the user asked for is not a bad report.
-                    Err(_) if h.stopped() => break,
+                    Err(_) if h.stopped() => {}
                     Err(e) => {
                         // Stop netdoc for real, so "stopped" on screen is true.
+                        failed = true;
                         h.stop();
                         let _ = tx.send(Msg::Failed(e));
                         wake();
-                        break;
                     }
                 }
             }
-        } else {
-            let mut s = String::new();
-            let _ = BufReader::new(stdout).read_to_string(&mut s);
-            if !s.trim().is_empty() && !h.stopped() {
-                let _ = tx.send(match report::parse(&s) {
-                    Ok(r) => {
-                        reported = true;
-                        Msg::Report(r)
-                    }
-                    Err(e) => Msg::Failed(e),
-                });
+        });
+        // The whole body is parsed even when netdoc was expired: a complete report stands.
+        if watch.is_none() && !body.trim().is_empty() {
+            match report::parse(&body) {
+                Ok(r) => {
+                    reported = true;
+                    let _ = tx.send(Msg::Report(r));
+                    wake();
+                }
+                // A body cut short by a stop the user asked for is not a bad report.
+                Err(_) if h.stopped() => {}
+                Err(e) => {
+                    let _ = tx.send(Msg::Failed(e));
+                    wake();
+                }
             }
         }
-        // Output has ended. netdoc gets EXIT_GRACE to exit before it is expired.
-        let code = h.reap(Some((EXIT_GRACE, CLOSED_OUTPUT)));
-        let stderr = err_thread.join().unwrap_or_default();
         // An expiry after a report is quiet: the report stands. Without one, say why.
         if !reported && let Some(reason) = h.expired() {
             let _ = tx.send(Msg::Failed(reason.into()));
@@ -407,18 +458,15 @@ fn start_save(
                     cmd.arg("--").arg(t);
                 }
                 cmd.stdin(Stdio::null())
-                    .stdout(Stdio::null())
+                    .stdout(Stdio::piped())
                     .stderr(Stdio::piped());
                 match cmd.spawn() {
                     Err(e) => {
                         let _ = std::fs::remove_file(&dest);
                         Err(format!("Couldn't start netdoc: {e}"))
                     }
-                    Ok(mut child) => {
-                        let err_thread = keep_tail(child.stderr.take().unwrap());
-                        h.attach(child);
-                        let code = h.reap(None);
-                        let stderr = err_thread.join().unwrap_or_default();
+                    Ok(child) => {
+                        let (code, stderr) = supervise(&h, child, |_| {});
                         // 0 = healthy, 1 = a problem was found; both write the file.
                         // Anything else (2 = usage or write error, or a stop) means it didn't.
                         let written = matches!(code, Some(0 | 1))
@@ -654,6 +702,116 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "finished"]));
         assert!(took < Duration::from_secs(2), "a normal exit took {took:?}");
+    }
+
+    /// Kills a descendant a test left running, using the pid it wrote to `pid`.
+    #[cfg(unix)]
+    fn kill_recorded_pid(dir: &Path) {
+        if let Ok(pid) = std::fs::read_to_string(dir.join("pid")) {
+            let _ = std::process::Command::new("kill")
+                .args(["-KILL", pid.trim()])
+                .status();
+        }
+    }
+
+    /// Output held open by a descendant must not hold the window on "Checking…".
+    #[cfg(unix)]
+    #[test]
+    fn output_held_by_a_descendant_does_not_hold_the_window() {
+        let dir = scratch("held-output");
+        let body = format!(
+            "echo '{{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}}'\n\
+             sleep 600 &\necho $! > {}\nexit 0",
+            dir.join("pid").display()
+        );
+        let (tx, rx) = channel();
+        let started = Instant::now();
+        let _h = run(fake_netdoc(&dir, &body), None, None, None, tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(15));
+        let took = started.elapsed();
+        kill_recorded_pid(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "finished"]));
+        assert!(took < Duration::from_secs(8), "the window waited {took:?}");
+    }
+
+    /// netdoc that ignores SIGTERM and keeps its output open must still be
+    /// stopped: Finished arrives after the stop grace.
+    #[cfg(unix)]
+    #[test]
+    fn stop_reaches_a_netdoc_that_ignores_sigterm() {
+        let dir = scratch("ignores-term");
+        let body = format!(
+            "trap '' TERM\necho $$ > {}\nexec sleep 600",
+            dir.join("pid").display()
+        );
+        let (tx, rx) = channel();
+        let h = run(fake_netdoc(&dir, &body), None, None, None, tx, || {});
+        std::thread::sleep(Duration::from_millis(500));
+        h.stop();
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        kill_recorded_pid(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["finished"]));
+    }
+
+    /// Negative control: a netdoc that honours SIGTERM ends at once. The stop
+    /// grace must not delay it.
+    #[cfg(unix)]
+    #[test]
+    fn a_stop_is_quick_when_netdoc_honours_sigterm() {
+        let dir = scratch("honours-term");
+        let (tx, rx) = channel();
+        let h = run(
+            fake_netdoc(&dir, "exec sleep 600"),
+            None,
+            None,
+            None,
+            tx,
+            || {},
+        );
+        std::thread::sleep(Duration::from_millis(500));
+        let stopped_at = Instant::now();
+        h.stop();
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        let took = stopped_at.elapsed();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["finished"]));
+        assert!(took < Duration::from_secs(2), "a stop took {took:?}");
+    }
+
+    /// An export whose stderr a descendant holds open must still release its
+    /// reserved name: the failed export removes its claim.
+    #[cfg(unix)]
+    #[test]
+    fn an_export_held_open_by_a_descendant_releases_its_claim() {
+        let dir = scratch("held-export");
+        let dest = dir.join("network-doctor-report.ndoc");
+        let body = format!(
+            "sleep 600 >&2 &\necho $! > {}\nexit 1",
+            dir.join("pid").display()
+        );
+        let (tx, rx) = channel();
+        let _join = save_support(
+            Handle::default(),
+            fake_netdoc(&dir, &body),
+            None,
+            None,
+            dest.clone(),
+            tx,
+            || {},
+        );
+        // Clean up before asserting, so a failed assertion leaves nothing running.
+        let res = match rx.recv_timeout(Duration::from_secs(15)) {
+            Ok(Msg::Saved(r)) => Some(r),
+            _ => None,
+        };
+        let left = dest.exists();
+        kill_recorded_pid(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(res.is_some(), "the export never reported back");
+        assert!(res.unwrap().is_err());
+        assert!(!left, "a failed export left its claimed file behind");
     }
 
     /// A check that never finishes is expired, so the window can't wait forever.

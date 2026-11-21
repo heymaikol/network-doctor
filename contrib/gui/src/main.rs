@@ -403,7 +403,7 @@ impl App {
                     self.saving = None;
                     self.note = Some((
                         format!(
-                            "Saved {}. Read it before sending it to anyone: it can still mention your network.",
+                            "Saved {}. It is a fresh diagnostic run, so it may differ from the result on screen. Read it before sending it to anyone: it can still mention your network.",
                             p.display()
                         ),
                         false,
@@ -1232,6 +1232,26 @@ mod access {
         assert!(
             h.state().show_settings,
             "Enter on the focused Settings button did nothing"
+        );
+    }
+
+    #[test]
+    fn a_finished_export_says_it_is_a_fresh_run() {
+        let mut h = window();
+        let (tx, rx) = channel();
+        tx.send(Msg::Saved(Ok(PathBuf::from("/tmp/report.ndoc"))))
+            .unwrap();
+        h.state_mut().save_rx = Some(rx);
+        h.run();
+        let note = h
+            .state()
+            .note
+            .clone()
+            .map(|(text, _)| text)
+            .unwrap_or_default();
+        assert!(
+            note.contains("fresh diagnostic run"),
+            "the export note doesn't say so: {note}"
         );
     }
 

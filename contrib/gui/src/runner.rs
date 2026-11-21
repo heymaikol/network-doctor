@@ -601,7 +601,10 @@ fn start_run(
             }
         });
         // The whole body is parsed even when netdoc was expired: a complete report stands.
-        if watch.is_none() && !over && !body.trim().is_empty() {
+        // Output that ended in unreadable data is not a complete report, even when
+        // the text before it parses. A process that only failed to exit is not this.
+        let unreadable = h.expired() == Some(UNREADABLE);
+        if watch.is_none() && !over && !unreadable && !body.trim().is_empty() {
             match report::parse(&body) {
                 Ok(r) => {
                     reported = true;
@@ -1296,6 +1299,34 @@ mod tests {
         let seen = until_finished(&rx, Duration::from_secs(20));
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
+    }
+
+    /// Output that ends in unreadable bytes is a failure, even when the report
+    /// before them is complete.
+    #[cfg(unix)]
+    #[test]
+    fn a_one_shot_with_unreadable_trailing_data_is_not_a_report() {
+        let dir = scratch("oneshot-unreadable");
+        let (tx, rx) = channel();
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\nprintf '\\377\\n'";
+        let _h = run(fake_netdoc(&dir, body), None, None, None, tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["failed", "finished"]));
+    }
+
+    /// A complete report whose process never exits is still shown: only the
+    /// exit timed out, and the output was readable.
+    #[cfg(unix)]
+    #[test]
+    fn a_complete_one_shot_report_stands_when_only_the_exit_times_out() {
+        let dir = scratch("oneshot-exit-timeout");
+        let (tx, rx) = channel();
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\nexec >&- 2>&-\nexec sleep 60";
+        let _h = run(fake_netdoc(&dir, body), None, None, None, tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(30));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "finished"]));
     }
 
     /// A one-shot check that reported stands, whatever netdoc exited with.

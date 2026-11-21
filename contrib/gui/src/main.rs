@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::time::Instant;
 
 const MAX_HISTORY: usize = 120;
@@ -125,6 +125,20 @@ fn ago(t: Instant) -> String {
     }
 }
 
+/// The error to show when netdoc ends without a report. A healthy or problem
+/// exit (0 or 1) has a report, and a stop the user asked for is not an error.
+fn exit_error(code: Option<i32>, stderr: &str, stopped_by_user: bool) -> Option<String> {
+    if matches!(code, Some(0) | Some(1)) || stopped_by_user {
+        return None;
+    }
+    let msg = stderr.trim();
+    Some(if msg.is_empty() {
+        "netdoc stopped without a result.".into()
+    } else {
+        msg.to_string()
+    })
+}
+
 /// The user's home folder: %USERPROFILE% on Windows, $HOME elsewhere.
 fn home_dir() -> Option<PathBuf> {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
@@ -181,8 +195,14 @@ struct App {
     show_settings: bool,
     theme: usize,
     running: Option<Handle>,
-    tx: Sender<Msg>,
-    rx: Receiver<Msg>,
+    /// Messages from the current check only. Each check gets a new channel,
+    /// so nothing from an earlier one can reach the window.
+    rx: Option<Receiver<Msg>>,
+    /// The user pressed Stop, so the run ending is not an error.
+    stop_requested: bool,
+    /// The running export and its messages.
+    saving: Option<Handle>,
+    save_rx: Option<Receiver<Msg>>,
     /// Shared, so showing a report each frame doesn't copy it.
     history: Vec<(Instant, Rc<Outcome>)>,
     /// Which service profile is chosen, and which of its parts is open.
@@ -204,7 +224,6 @@ impl App {
         let theme = load_theme();
         look::set_theme(&ctx, theme);
         look::install(&ctx);
-        let (tx, rx) = channel();
         let netdoc = runner::find_netdoc();
         let netdoc_version = netdoc.as_deref().and_then(runner::version);
         let target = std::env::var("NETDOC_GUI_TARGET").unwrap_or_default();
@@ -242,8 +261,10 @@ impl App {
             show_settings: false,
             theme,
             running: None,
-            tx,
-            rx,
+            rx: None,
+            stop_requested: false,
+            saving: None,
+            save_rx: None,
             history: vec![],
             shown: None,
             error: None,
@@ -355,11 +376,18 @@ impl App {
         let Some(bin) = self.netdoc.clone() else {
             return;
         };
+        // One check at a time: a second start would orphan the first one's handle.
+        if self.running.is_some() {
+            return;
+        }
         self.error = None;
         self.note = None;
         self.history.clear();
         self.shown = None;
         self.part = None;
+        self.stop_requested = false;
+        let (tx, rx) = channel();
+        self.rx = Some(rx);
         let ctx = self.ctx.clone();
         let watch = self.watch.then_some(self.interval);
         self.running = Some(runner::run(
@@ -367,7 +395,7 @@ impl App {
             self.profile_arg(),
             self.target_arg(),
             watch,
-            self.tx.clone(),
+            tx,
             move || ctx.request_repaint(),
         ));
     }
@@ -375,6 +403,7 @@ impl App {
     fn stop(&mut self) {
         if let Some(h) = &self.running {
             h.stop();
+            self.stop_requested = true;
         }
     }
 
@@ -382,6 +411,9 @@ impl App {
         let Some(bin) = self.netdoc.clone() else {
             return;
         };
+        if self.saving.is_some() {
+            return;
+        }
         let home = home_dir().unwrap_or_else(|| PathBuf::from("."));
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -392,47 +424,66 @@ impl App {
             "Writing the report… it runs the checks again, so give it a few seconds.".into(),
             false,
         ));
+        let (tx, rx) = channel();
+        self.save_rx = Some(rx);
         let ctx = self.ctx.clone();
-        runner::save_support(
+        self.saving = Some(runner::save_support(
             bin,
             self.profile_arg(),
             self.target_arg(),
             dest,
-            self.tx.clone(),
+            tx,
             move || ctx.request_repaint(),
-        );
+        ));
     }
 
     fn poll(&mut self) {
-        while let Ok(m) = self.rx.try_recv() {
-            match m {
-                Msg::Report(r) => {
+        self.poll_check();
+        self.poll_save();
+    }
+
+    fn poll_check(&mut self) {
+        let Some(rx) = self.rx.take() else {
+            return;
+        };
+        loop {
+            match rx.try_recv() {
+                Ok(Msg::Report(r)) => {
                     self.history.push((Instant::now(), Rc::new(r)));
                     if self.history.len() > MAX_HISTORY {
                         self.history.remove(0);
                         self.shown = self.shown.and_then(|i| i.checked_sub(1));
                     }
                 }
-                Msg::Finished { code, stderr } => {
-                    self.running = None;
-                    // 0 = healthy, 1 = a problem was found; both come with a report.
-                    if !matches!(code, Some(0) | Some(1))
-                        && self.history.is_empty()
-                        && self.error.is_none()
-                    {
-                        let msg = stderr.trim();
-                        self.error = Some(if msg.is_empty() {
-                            "netdoc stopped without a result.".into()
-                        } else {
-                            msg.to_string()
-                        });
-                    }
+                // Only Finished ends the check: a failure can still have netdoc running.
+                Ok(Msg::Failed(e)) => self.error = Some(e),
+                Ok(Msg::Finished { code, stderr }) => return self.finish_check(code, &stderr),
+                Ok(Msg::Saved(_)) => {}
+                Err(TryRecvError::Empty) => {
+                    self.rx = Some(rx);
+                    return;
                 }
-                Msg::Failed(e) => {
-                    self.running = None;
-                    self.error = Some(e);
-                }
-                Msg::Saved(Ok(p)) => {
+                // The worker ended without its Finished: don't leave "Checking…" up.
+                Err(TryRecvError::Disconnected) => return self.finish_check(None, ""),
+            }
+        }
+    }
+
+    fn finish_check(&mut self, code: Option<i32>, stderr: &str) {
+        self.running = None;
+        if self.history.is_empty() && self.error.is_none() {
+            self.error = exit_error(code, stderr, self.stop_requested);
+        }
+    }
+
+    fn poll_save(&mut self) {
+        let Some(rx) = self.save_rx.take() else {
+            return;
+        };
+        loop {
+            match rx.try_recv() {
+                Ok(Msg::Saved(Ok(p))) => {
+                    self.saving = None;
                     self.note = Some((
                         format!(
                             "Saved {}. Read it before sending it to anyone: it can still mention your network.",
@@ -440,8 +491,23 @@ impl App {
                         ),
                         false,
                     ));
+                    return;
                 }
-                Msg::Saved(Err(e)) => self.note = Some((e, true)),
+                Ok(Msg::Saved(Err(e))) => {
+                    self.saving = None;
+                    self.note = Some((e, true));
+                    return;
+                }
+                Ok(_) => {}
+                Err(TryRecvError::Empty) => {
+                    self.save_rx = Some(rx);
+                    return;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    self.saving = None;
+                    self.note = Some(("The report wasn't written.".into(), true));
+                    return;
+                }
             }
         }
     }
@@ -523,7 +589,7 @@ impl App {
                 if look::button(ui, "⚙", false, true).on_hover_text("Settings").clicked() {
                     self.show_settings = !self.show_settings;
                 }
-                if look::button(ui, "Export report", true, self.netdoc.is_some() && self.running.is_none())
+                if look::button(ui, "Export report", true, self.netdoc.is_some() && self.running.is_none() && self.saving.is_none())
                     .on_hover_text("Saves a report with private details left out, for whoever is helping you. Nothing is uploaded.")
                     .clicked()
                 {
@@ -1308,6 +1374,9 @@ impl Drop for App {
             c.store(true, Ordering::Relaxed);
         }
         self.stop();
+        if let Some(h) = &self.saving {
+            h.stop();
+        }
     }
 }
 
@@ -1329,4 +1398,23 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| Ok(Box::new(App::new(cc.egui_ctx.clone())))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exit_error;
+
+    #[test]
+    fn only_an_unexplained_end_is_an_error() {
+        // A stop the user asked for is quiet, whatever netdoc exited with.
+        assert_eq!(exit_error(None, "", true), None);
+        assert_eq!(exit_error(Some(2), "boom", true), None);
+        // 0 and 1 both come with a report.
+        assert_eq!(exit_error(Some(1), "", false), None);
+        assert_eq!(exit_error(None, " boom \n", false), Some("boom".into()));
+        assert_eq!(
+            exit_error(None, "", false),
+            Some("netdoc stopped without a result.".into())
+        );
+    }
 }

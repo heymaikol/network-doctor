@@ -193,6 +193,9 @@ struct App {
     shown: Option<usize>,
     error: Option<String>,
     note: Option<(String, bool)>,
+    /// A failure after a report. It stays until the next check starts, so a
+    /// notice such as an export message cannot cover it.
+    failure: Option<String>,
     ctx: egui::Context,
     /// NETDOC_GUI_SCREENSHOT=file.ppm: save the window, then quit.
     screenshot: Option<(String, u32)>,
@@ -281,6 +284,7 @@ impl App {
             shown: None,
             error: None,
             note: None,
+            failure: None,
             ctx,
             screenshot: screenshot.map(|p| (p, 0)),
         };
@@ -324,6 +328,7 @@ impl App {
         }
         self.error = None;
         self.note = None;
+        self.failure = None;
         self.history.clear();
         self.shown = None;
         self.part = None;
@@ -418,9 +423,9 @@ impl App {
                 }
                 // Only Finished ends the check: a failure can still have netdoc running.
                 // With a report on screen the failure goes beside it, in the status
-                // line, so the last result stays readable.
+                // bar, so the last result stays readable.
                 Ok(Msg::Failed(e)) if self.history.is_empty() => self.error = Some(e),
-                Ok(Msg::Failed(e)) => self.note = Some((e, true)),
+                Ok(Msg::Failed(e)) => self.failure = Some(e),
                 Ok(Msg::Finished { code, stderr }) => return self.finish_check(code, &stderr),
                 Ok(Msg::Saved(_)) => {}
                 Err(TryRecvError::Empty) => {
@@ -1153,13 +1158,17 @@ impl App {
                 self.header(ui);
             });
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(pal().bg).inner_margin(egui::Margin::symmetric(16, 6))).show(ui, |ui| {
+            if let Some(f) = &self.failure {
+                ui.add(egui::Label::new(RichText::new(f).small().color(bad())).wrap());
+            }
             match &self.note {
                 Some((n, err)) => {
                     ui.add(egui::Label::new(RichText::new(n).small().color(if *err { bad() } else { pal().text })).wrap());
                 }
-                None => {
+                None if self.failure.is_none() => {
                     ui.label(weak("Results come from Network Doctor (netdoc). This window only shows them.").small());
                 }
+                None => {}
             }
         });
         egui::CentralPanel::default()
@@ -1384,6 +1393,43 @@ mod access {
     }
 
     #[test]
+    fn a_failure_after_a_report_survives_an_export_notice() {
+        let mut app = App::new(egui::Context::default(), Startup::default());
+        let outcome = report::parse(include_str!("../tests/fixtures/healthy.json")).unwrap();
+        app.history.push((Instant::now(), Rc::new(outcome)));
+        let (tx, rx) = channel();
+        tx.send(Msg::Failed("the bad line".into())).unwrap();
+        app.rx = Some(rx);
+        app.poll_check();
+        assert_eq!(app.failure.as_deref(), Some("the bad line"));
+        assert!(
+            app.error.is_none() && app.history.len() == 1,
+            "the report was covered"
+        );
+        // An export finishing afterwards writes its own notice, not over the failure.
+        let (tx, rx) = channel();
+        tx.send(Msg::Saved(Ok(PathBuf::from("/tmp/netdoc-report.json"))))
+            .unwrap();
+        app.save_rx = Some(rx);
+        app.poll_save();
+        assert!(app.note.is_some(), "the export notice was not shown");
+        assert_eq!(
+            app.failure.as_deref(),
+            Some("the bad line"),
+            "the export notice covered the failure"
+        );
+    }
+
+    #[test]
+    fn a_new_check_clears_the_last_failure() {
+        let mut app = App::new(egui::Context::default(), Startup::default());
+        app.failure = Some("an old failure".into());
+        app.netdoc = Some(PathBuf::from("/nonexistent/netdoc"));
+        app.start();
+        assert!(app.failure.is_none(), "the old failure is still shown");
+    }
+
+    #[test]
     fn startup_options_do_not_come_from_the_environment() {
         let h = window();
         let app = h.state();
@@ -1445,7 +1491,10 @@ mod access {
         let app = h.state();
         assert_eq!(app.history.len(), 1);
         assert!(app.error.is_none(), "the failure replaced the report");
-        assert_eq!(app.note, Some(("netdoc was stopped.".into(), true)));
+        assert_eq!(app.failure.as_deref(), Some("netdoc was stopped."));
+        // It is drawn in the status bar, beside the report.
+        h.run();
+        h.get_by_label("netdoc was stopped.");
     }
 
     #[test]

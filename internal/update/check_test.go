@@ -385,7 +385,7 @@ func TestCacheReadsNeverSeeAPartialWrite(t *testing.T) {
 		// A read can fail outright while a replace holds the file (a Windows sharing
 		// violation). That is not a partial record; a successful read of truncated or
 		// empty content is the failure this test exists to catch.
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) // #nosec G304 -- the test's own cache file under a temporary directory
 		if err != nil {
 			continue
 		}

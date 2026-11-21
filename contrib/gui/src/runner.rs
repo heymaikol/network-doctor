@@ -151,7 +151,7 @@ fn start_version_limited(
                     text.push('\n');
                 });
                 (!over)
-                    .then(|| text.trim().to_string())
+                    .then(|| report::clean_lines(&text).trim().to_string())
                     .filter(|v| !v.is_empty())
             }
             Err(_) => None,
@@ -1259,6 +1259,28 @@ mod tests {
         let seen = until_finished(&rx, Duration::from_secs(30));
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
+    }
+
+    /// The version is shown to the user, so it is cleaned as the error text is.
+    #[cfg(unix)]
+    #[test]
+    fn a_version_with_escapes_and_bidi_is_cleaned() {
+        let dir = scratch("version-cleaned");
+        let rx = start_version_limited(
+            Duration::from_secs(5),
+            fake_netdoc(&dir, r"printf 'netdoc\033[31m v9.9.9\007\342\200\256\n'"),
+            || {},
+        );
+        let answer = rx.recv_timeout(Duration::from_secs(10));
+        std::fs::remove_dir_all(&dir).unwrap();
+        let version = answer.unwrap().unwrap();
+        assert!(!version.contains('\u{1b}'), "escape left in {version:?}");
+        assert!(!version.contains('\u{7}'), "bell left in {version:?}");
+        assert!(
+            !version.contains('\u{202e}'),
+            "bidi override left in {version:?}"
+        );
+        assert!(version.contains("v9.9.9"), "version lost: {version:?}");
     }
 
     /// A check that never finishes is expired, so the window can't wait forever.

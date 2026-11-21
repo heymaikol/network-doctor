@@ -26,6 +26,9 @@ it, the `netdoc` binary does not change, and the Go toolchain never sees it.
   (`netdoc --support`) to your home folder. It runs the same check again, for
   the same target and profile as the result on screen, so the file shows the
   network as it is at export time. It never replaces a file.
+- **Copy report** copies the result as text. That text is **not** redacted: it
+  can include addresses and network names. Use Export report for a
+  privacy-reduced file.
 - Eight colour themes, light and dark.
 
 ## Build and run

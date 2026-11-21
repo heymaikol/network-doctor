@@ -691,9 +691,9 @@ impl App {
                             self.start();
                         }
                         if let Some(r) = current.as_ref().and_then(|(_, o)| o.detail(part))
-                            && look::chip(ui, "Copy report", true, true).on_hover_text("Copy the result and every step, to paste into an email or chat").clicked() {
+                            && look::chip(ui, "Copy report", true, true).on_hover_text("Copy the result and every step. The text is not redacted: it can include addresses and network names.").clicked() {
                                 ui.ctx().copy_text(report::as_text(r));
-                                self.note = Some(("Copied. Paste it into an email or chat.".into(), false));
+                                self.note = Some(("Copied. The text is not redacted, so check it before you send it. For a privacy-reduced file, use Export report.".into(), false));
                             }
                     }
                 });

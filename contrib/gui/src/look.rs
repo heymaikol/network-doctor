@@ -183,6 +183,19 @@ fn pulse(ctx: &egui::Context, id: egui::Id, clicked: bool) -> Option<f32> {
 }
 
 /// An accent ring spreading out from `rect` and fading.
+/// A ring around a control that has keyboard focus. egui draws no focus on
+/// controls painted by hand, so these do.
+fn focus_ring(p: &egui::Painter, rect: Rect, radius: f32, focused: bool) {
+    if focused {
+        p.rect_stroke(
+            rect.expand(3.0),
+            radius + 3.0,
+            Stroke::new(2.0, pal().accent),
+            egui::StrokeKind::Outside,
+        );
+    }
+}
+
 fn paint_pulse(p: &egui::Painter, rect: Rect, radius: f32, t: f32) {
     let k = egui::emath::easing::cubic_out(t);
     let grow = 9.0 * k;
@@ -297,6 +310,7 @@ pub fn toggle(ui: &mut egui::Ui, label: &str, on: &mut bool) -> Response {
             Color32::from_black_alpha(60),
         );
         p.circle_filled(pos2(x, rect.center().y), knob, Color32::WHITE);
+        focus_ring(p, rect, r, resp.has_focus());
     }
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -318,6 +332,7 @@ pub fn swatch(ui: &mut egui::Ui, theme: &Palette, selected: bool) -> Response {
         if sel > 0.0 {
             p.circle_stroke(c, r + 3.0, Stroke::new(2.0, pal().text.gamma_multiply(sel)));
         }
+        focus_ring(p, rect, d / 2.0, resp.has_focus());
     }
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -373,6 +388,7 @@ pub fn button(ui: &mut egui::Ui, text: &str, primary: bool, enabled: bool) -> Re
             .painter()
             .layout_no_wrap(text.to_string(), font, text_color);
         p.galley(r.center() - galley.size() / 2.0, galley, text_color);
+        focus_ring(p, rect, 10.0, resp.has_focus());
         if let Some(t) = pulse(ui.ctx(), resp.id, resp.clicked()) {
             paint_pulse(p, rect, 10.0, t);
         }
@@ -412,10 +428,12 @@ pub fn tabs(ui: &mut egui::Ui, id: &str, chosen: &mut usize, labels: &[&str]) ->
         x += w;
     }
     let mut changed = false;
+    let mut focused = vec![false; rects.len()];
     for (i, r) in rects.iter().enumerate() {
         let resp = ui
             .interact(*r, ui.id().with(id).with(i), Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand);
+        focused[i] = resp.has_focus();
         resp.widget_info(|| {
             egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, i == *chosen, labels[i])
         });
@@ -441,6 +459,7 @@ pub fn tabs(ui: &mut egui::Ui, id: &str, chosen: &mut usize, labels: &[&str]) ->
     );
     for (i, r) in rects.iter().enumerate() {
         let color = if i == *chosen { pal().text } else { pal().weak };
+        focus_ring(&p, *r, 8.0, focused[i]);
         p.text(
             r.center(),
             egui::Align2::CENTER_CENTER,
@@ -542,6 +561,7 @@ pub fn chip(ui: &mut egui::Ui, text: &str, enabled: bool, clickable: bool) -> Re
         color.gamma_multiply(if hover { 0.24 } else { 0.12 }),
     );
     p.galley(rect.center() - galley.size() / 2.0, galley, color);
+    focus_ring(p, rect, 7.0, resp.has_focus());
     if enabled {
         resp.on_hover_cursor(egui::CursorIcon::PointingHand)
     } else {

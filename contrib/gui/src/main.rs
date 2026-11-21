@@ -178,6 +178,9 @@ struct App {
     /// The running export: its stop handle, its worker, and its messages.
     saving: Option<(Handle, std::thread::JoinHandle<()>)>,
     save_rx: Option<Receiver<Msg>>,
+    /// The profile and target of the check on screen. Export uses these, not the
+    /// form, so the file belongs to the result the user is looking at.
+    run_args: (Option<String>, Option<String>),
     /// Shared, so showing a report each frame doesn't copy it.
     history: Vec<(Instant, Rc<Outcome>)>,
     /// Which service profile is chosen, and which of its parts is open.
@@ -226,6 +229,7 @@ impl App {
             stop_requested: false,
             saving: None,
             save_rx: None,
+            run_args: (None, None),
             history: vec![],
             shown: None,
             error: None,
@@ -281,10 +285,11 @@ impl App {
         self.rx = Some(rx);
         let ctx = self.ctx.clone();
         let watch = self.watch.then_some(self.interval);
+        self.run_args = (self.profile_arg(), self.target_arg());
         self.running = Some(runner::run(
             bin,
-            self.profile_arg(),
-            self.target_arg(),
+            self.run_args.0.clone(),
+            self.run_args.1.clone(),
             watch,
             tx,
             move || ctx.request_repaint(),
@@ -322,8 +327,8 @@ impl App {
         let join = runner::save_support(
             stop.clone(),
             bin,
-            self.profile_arg(),
-            self.target_arg(),
+            self.run_args.0.clone(),
+            self.run_args.1.clone(),
             dest,
             tx,
             move || ctx.request_repaint(),
@@ -477,8 +482,8 @@ impl App {
                 if look::button(ui, "⚙", false, true).on_hover_text("Settings").clicked() {
                     self.show_settings = !self.show_settings;
                 }
-                if look::button(ui, "Export report", true, self.netdoc.is_some() && self.running.is_none() && self.saving.is_none())
-                    .on_hover_text("Saves a report with private details left out, for whoever is helping you. Nothing is uploaded.")
+                if look::button(ui, "Export report", true, self.netdoc.is_some() && self.running.is_none() && self.saving.is_none() && self.current().is_some())
+                    .on_hover_text("Saves a privacy-reduced report of this check, for whoever is helping you. It runs the same check again for the same target. Nothing is uploaded.")
                     .clicked()
                 {
                     self.export();

@@ -22,8 +22,10 @@ it, the `netdoc` binary does not change, and the Go toolchain never sees it.
   confident `netdoc` is, and the other causes it ruled out.
 - **Keep watching** runs `netdoc --watch` and keeps a short history, for
   problems that come and go.
-- **Export report** writes the privacy-conscious `.ndoc` file
-  (`netdoc --support`) to your home folder. It never replaces a file.
+- **Export report** writes the privacy-reduced `.ndoc` file
+  (`netdoc --support`) to your home folder. It runs the same check again, for
+  the same target and profile as the result on screen, so the file shows the
+  network as it is at export time. It never replaces a file.
 - Eight colour themes, light and dark.
 
 ## Build and run

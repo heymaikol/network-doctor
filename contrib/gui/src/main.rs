@@ -200,8 +200,8 @@ struct App {
     rx: Option<Receiver<Msg>>,
     /// The user pressed Stop, so the run ending is not an error.
     stop_requested: bool,
-    /// The running export and its messages.
-    saving: Option<Handle>,
+    /// The running export: its stop handle, its worker, and its messages.
+    saving: Option<(Handle, std::thread::JoinHandle<()>)>,
     save_rx: Option<Receiver<Msg>>,
     /// Shared, so showing a report each frame doesn't copy it.
     history: Vec<(Instant, Rc<Outcome>)>,
@@ -427,14 +427,17 @@ impl App {
         let (tx, rx) = channel();
         self.save_rx = Some(rx);
         let ctx = self.ctx.clone();
-        self.saving = Some(runner::save_support(
+        let stop = Handle::default();
+        let join = runner::save_support(
+            stop.clone(),
             bin,
             self.profile_arg(),
             self.target_arg(),
             dest,
             tx,
             move || ctx.request_repaint(),
-        ));
+        );
+        self.saving = Some((stop, join));
     }
 
     fn poll(&mut self) {
@@ -1374,8 +1377,11 @@ impl Drop for App {
             c.store(true, Ordering::Relaxed);
         }
         self.stop();
-        if let Some(h) = &self.saving {
+        // Closing the window waits for a running export to stop and remove its
+        // claimed file. netdoc exits within moments of SIGTERM, so this is short.
+        if let Some((h, join)) = self.saving.take() {
             h.stop();
+            let _ = join.join();
         }
     }
 }

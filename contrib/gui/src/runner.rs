@@ -283,17 +283,18 @@ pub fn run(
 }
 
 /// `netdoc --support FILE [target]`: the privacy-conscious report for sharing.
-/// Its handle stops it, which closing the window does.
+/// `stop` ends it early. The caller joins the returned thread, which is when
+/// the claimed file has been cleaned up.
 pub fn save_support(
+    stop: Handle,
     bin: PathBuf,
     profile: Option<String>,
     target: Option<String>,
     dest: PathBuf,
     tx: Sender<Msg>,
     wake: impl Fn() + Send + 'static,
-) -> Handle {
-    let handle = Handle::default();
-    let h = handle.clone();
+) -> std::thread::JoinHandle<()> {
+    let h = stop;
     std::thread::spawn(move || {
         // The name is claimed before netdoc runs, so no other export can take
         // it. netdoc's own write replaces the empty claim; a failed or stopped
@@ -343,8 +344,7 @@ pub fn save_support(
         };
         let _ = tx.send(Msg::Saved(res));
         wake();
-    });
-    handle
+    })
 }
 
 /// How many names to try in one folder before giving up.
@@ -495,6 +495,36 @@ mod tests {
             Some(vec!["finished"]),
             "a stop must not report a failure"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stopped_export_removes_its_claim_promptly() {
+        let dir = scratch("stopped-export");
+        let dest = dir.join("network-doctor-report.ndoc");
+        let (tx, _rx) = channel();
+        let stop = Handle::default();
+        let join = save_support(
+            stop.clone(),
+            fake_netdoc(&dir, "exec sleep 60"),
+            None,
+            None,
+            dest.clone(),
+            tx,
+            || {},
+        );
+        std::thread::sleep(Duration::from_millis(200));
+        stop.stop();
+        let (done_tx, done_rx) = channel();
+        std::thread::spawn(move || {
+            let _ = join.join();
+            let _ = done_tx.send(());
+        });
+        let finished = done_rx.recv_timeout(Duration::from_secs(20)).is_ok();
+        let left = dest.exists();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(finished, "the export worker didn't finish after a stop");
+        assert!(!left, "a stopped export left its claimed file behind");
     }
 
     #[cfg(unix)]

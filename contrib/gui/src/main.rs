@@ -1285,6 +1285,16 @@ mod access {
         stub_log().exists()
     }
 
+    /// Lets the window run for half a second, so a check started by a focus
+    /// change has time to reach the stub.
+    fn settle(h: &mut Harness<'static, App>) {
+        let started = std::time::Instant::now();
+        while started.elapsed() < std::time::Duration::from_millis(500) {
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     fn window() -> Harness<'static, App> {
         Harness::new_ui_state(
             |ui, app: &mut App| app.show(ui),
@@ -1391,6 +1401,9 @@ mod access {
         h.state_mut()
             .history
             .push((Instant::now(), Rc::new(outcome)));
+        // Mode 1 with a target renders the target field, which Tab must pass through.
+        h.state_mut().mode = 1;
+        h.state_mut().target = "github.com".into();
         h.run();
         let controls = [
             (Role::Button, "Settings"),
@@ -1399,18 +1412,47 @@ mod access {
             (Role::RadioButton, "A website or server"),
             (Role::RadioButton, "A service"),
             (Role::CheckBox, "Keep watching"),
+            (Role::TextInput, "Address to check"),
             (Role::Button, "Check again"),
         ];
         let mut reached = vec![false; controls.len()];
         for _ in 0..80 {
             h.key_press(egui::Key::Tab);
-            h.run();
+            // Not run(): a check started by a focus change keeps the spinner repainting.
+            h.run_steps(4);
             for (i, (role, name)) in controls.iter().enumerate() {
-                if h.get_by_role_and_label(*role, name).is_focused() {
+                // query, not get: a control can vanish while a check runs, and the
+                // invariant below should be what reports that.
+                if h.query_by_role_and_label(*role, name)
+                    .is_some_and(|node| node.is_focused())
+                {
                     reached[i] = true;
                 }
             }
         }
+        // Focus into the target field with Tab, then away from it with Tab.
+        let mut in_field = false;
+        for _ in 0..40 {
+            if h.query_by_role_and_label(Role::TextInput, "Address to check")
+                .is_some_and(|node| node.is_focused())
+            {
+                in_field = true;
+                break;
+            }
+            h.key_press(egui::Key::Tab);
+            h.run_steps(4);
+        }
+        h.key_press(egui::Key::Tab);
+        h.run_steps(4);
+        // Moving focus must start no diagnostic check. App::new's version probe
+        // is not a check, and the stub records only checks. Settle first: a check
+        // started by a focus change reaches the stub a moment after the change.
+        settle(&mut h);
+        assert!(
+            !checks_started(),
+            "moving focus into or out of the target field started a check"
+        );
+        assert!(in_field, "Tab never reached the target field");
         let missed: Vec<&str> = controls
             .iter()
             .zip(&reached)
@@ -1418,9 +1460,6 @@ mod access {
             .map(|((_, name), _)| *name)
             .collect();
         assert!(missed.is_empty(), "Tab never reached: {missed:?}");
-        // Moving focus must start no diagnostic check. App::new's version probe
-        // is not a check, and the stub records only checks.
-        assert!(!checks_started(), "moving focus with Tab started a check");
         // Control: Enter on the focused Check button must start one, or the
         // assertion above would prove nothing.
         h.get_by_role_and_label(Role::Button, "Check again").focus();

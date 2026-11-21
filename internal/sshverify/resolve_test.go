@@ -115,19 +115,18 @@ func TestResolveReportsConfigurationErrorsWithoutTheRoute(t *testing.T) {
 	}
 }
 
-// A configured RevocationList is refused by the verification read, which cannot read it.
-// A listing that does not report RevokedHostKeys is refused too, since netdoc cannot
-// tell whether a revoked key is trusted.
-func TestParseConfigRefusesARevocationListAndAnUnreportedOne(t *testing.T) {
+// A configured revocation list is refused by the verification read, which cannot read it.
+// An unset one is absent from the listing or printed as none, and neither refuses.
+func TestParseConfigRefusesARevocationListOnly(t *testing.T) {
 	base := "user u\nhostname h\nport 22\n"
 	if _, err := parseConfig([]byte(base+"revokedhostkeys /etc/ssh/revoked\n"), ""); err == nil || !strings.Contains(err.Error(), "RevokedHostKeys is set") {
 		t.Errorf("a configured RevokedHostKeys was not refused: %v", err)
 	}
-	if _, err := parseConfig([]byte(base), ""); err == nil || !strings.Contains(err.Error(), "does not report RevokedHostKeys") {
-		t.Errorf("a listing without RevokedHostKeys was not refused: %v", err)
-	}
 	if _, err := parseConfig([]byte(base+"revokedhostkeys none\n"), ""); err != nil {
 		t.Errorf("RevokedHostKeys none was refused: %v", err)
+	}
+	if _, err := parseConfig([]byte(base), ""); err != nil {
+		t.Errorf("an unset RevokedHostKeys, omitted from the listing, was refused: %v", err)
 	}
 }
 

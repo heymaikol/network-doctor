@@ -244,11 +244,13 @@ const BAD_OUTPUT: &str = "netdoc's output wasn't a report this app understands";
 pub fn parse(json: &str) -> Result<Outcome, String> {
     let mut v: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
-    clean_strings(&mut v)?;
-    if v.get("schema")
+    // The required keys are checked as netdoc wrote them, before any cleaning:
+    // a key that only reads as "ok" once cleaned must not stand in for "ok".
+    let profile = v
+        .get("schema")
         .and_then(|s| s.as_str())
-        .is_some_and(|s| s.starts_with("netdoc.profile-report."))
-    {
+        .is_some_and(|s| s.starts_with("netdoc.profile-report."));
+    if profile {
         require(
             &v,
             "a profile report",
@@ -261,6 +263,11 @@ pub fn parse(json: &str) -> Result<Outcome, String> {
                 validate_report(r)?;
             }
         }
+    } else {
+        validate_report(&v)?;
+    }
+    clean_strings(&mut v)?;
+    if profile {
         let mut p: ProfileReport =
             serde_json::from_value(v).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
         for c in &mut p.components {
@@ -270,7 +277,6 @@ pub fn parse(json: &str) -> Result<Outcome, String> {
         }
         return Ok(Outcome::Profile(p));
     }
-    validate_report(&v)?;
     let mut r: Report = serde_json::from_value(v).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
     finish(&mut r);
     Ok(Outcome::Single(r))
@@ -1001,6 +1007,18 @@ mod tests {
         // same. One must not silently replace the other: a failed report could
         // come out healthy.
         let json = r#"{"version":"x","target":null,"checks":[],"summary":"s","verdict":"ok","ok":false,"ok\u200b":true}"#;
+        assert!(parse(json).is_err());
+    }
+
+    #[test]
+    fn a_key_that_only_reads_as_required_does_not_count() {
+        // No literal "ok": the look-alike must not satisfy the requirement and
+        // then be read as the real field.
+        let json = r#"{"version":"x","target":null,"checks":[],"summary":"s","verdict":"ok","o\u200bk":true}"#;
+        let err = parse(json).unwrap_err();
+        assert!(err.contains("has no \"ok\""), "{err}");
+        // The same inside a profile's component report.
+        let json = r#"{"schema":"netdoc.profile-report.v1","title":"t","aggregate":{"status":"PASS","summary":"s"},"components":[{"label":"l","status":"PASS","report":{"version":"x","target":null,"checks":[],"summary":"s","verdict":"ok","o\u200bk":true}}]}"#;
         assert!(parse(json).is_err());
     }
 

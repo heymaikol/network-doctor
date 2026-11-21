@@ -2,7 +2,7 @@
 
 use crate::report::{self, Outcome};
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
@@ -11,6 +11,19 @@ use std::time::{Duration, Instant};
 
 /// How much of netdoc's error output to keep.
 const STDERR_KEEP: usize = 8 * 1024;
+
+/// The most one report may be: one line of a watch, or all a one-shot check prints.
+const MAX_REPORT: usize = 4 * 1024 * 1024;
+
+/// The most output that may wait for the window to take it.
+const MAX_QUEUED: usize = 2 * MAX_REPORT;
+
+/// The most `netdoc --version` may print.
+const MAX_VERSION: usize = 4 * 1024;
+
+const TOO_MUCH: &str = "netdoc printed more than this app accepts, so it was stopped.";
+
+const UNREADABLE: &str = "netdoc's output couldn't be read, so it was stopped.";
 
 pub enum Msg {
     Report(Outcome),
@@ -101,12 +114,17 @@ const VERSION_LIMIT: Duration = Duration::from_secs(5);
 
 /// Asks netdoc for its version on a thread of its own, bounded like any other
 /// run, so the window starts without waiting for it. The answer is `None` if
-/// netdoc printed nothing in time.
-pub fn start_version(bin: PathBuf) -> Receiver<Option<String>> {
-    start_version_limited(VERSION_LIMIT, bin)
+/// netdoc printed nothing in time, or more than a version. `wake` is called
+/// once the answer is sent, so the window redraws with it.
+pub fn start_version(bin: PathBuf, wake: impl Fn() + Send + 'static) -> Receiver<Option<String>> {
+    start_version_limited(VERSION_LIMIT, bin, wake)
 }
 
-fn start_version_limited(limit: Duration, bin: PathBuf) -> Receiver<Option<String>> {
+fn start_version_limited(
+    limit: Duration,
+    bin: PathBuf,
+    wake: impl Fn() + Send + 'static,
+) -> Receiver<Option<String>> {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         let h = Handle::default();
@@ -119,15 +137,27 @@ fn start_version_limited(limit: Duration, bin: PathBuf) -> Receiver<Option<Strin
         let version = match cmd.spawn() {
             Ok(child) => {
                 let mut text = String::new();
+                let mut over = false;
                 supervise(&h, child, |line| {
+                    if over {
+                        return;
+                    }
+                    if text.len() + line.len() + 1 > MAX_VERSION {
+                        over = true;
+                        h.expire(TOO_MUCH);
+                        return;
+                    }
                     text.push_str(&line);
                     text.push('\n');
                 });
-                Some(text.trim().to_string()).filter(|v| !v.is_empty())
+                (!over)
+                    .then(|| text.trim().to_string())
+                    .filter(|v| !v.is_empty())
             }
             Err(_) => None,
         };
         let _ = tx.send(version);
+        wake();
     });
     rx
 }
@@ -183,6 +213,34 @@ fn kill_tree(pid: u32) {
 #[cfg(not(unix))]
 fn kill_tree(_pid: u32) {}
 
+/// Whether netdoc has exited. On Unix this looks without reaping it, so its
+/// process id, and the group id with it, stay reserved until `try_wait`.
+#[cfg(unix)]
+fn has_exited(child: &mut Child) -> std::io::Result<bool> {
+    // SAFETY: `info` is plain data that waitid fills in, and the child is not
+    // yet reaped, so its id is still its own. WNOWAIT leaves it waitable.
+    unsafe {
+        let mut info: libc::siginfo_t = std::mem::zeroed();
+        let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
+        if libc::waitid(libc::P_PID, child.id() as libc::id_t, &mut info, flags) != 0 {
+            let e = std::io::Error::last_os_error();
+            return if e.kind() == std::io::ErrorKind::Interrupted {
+                Ok(false)
+            } else {
+                Err(e)
+            };
+        }
+        // With WNOHANG a child that is still running leaves si_pid at zero.
+        Ok(info.si_pid() != 0)
+    }
+}
+
+/// Elsewhere there is no process group to protect, so this reaps.
+#[cfg(not(unix))]
+fn has_exited(child: &mut Child) -> std::io::Result<bool> {
+    child.try_wait().map(|status| status.is_some())
+}
+
 /// SIGTERM on Unix, which netdoc answers by cancelling its probes and removing
 /// its temporary files. Windows has no such signal, so the process is ended.
 fn ask_to_stop(child: &mut Child) {
@@ -208,6 +266,11 @@ impl Handle {
 
     fn stopped(&self) -> bool {
         self.0.lock().unwrap().stopped
+    }
+
+    /// Stops netdoc for `reason`, unless the user already stopped it.
+    fn expire(&self, reason: &'static str) {
+        expire_locked(&mut self.0.lock().unwrap(), reason);
     }
 
     /// Hands the started child over. A stop asked for before this applies now.
@@ -265,52 +328,131 @@ const READ_GRACE: Duration = Duration::from_secs(1);
 /// How often the supervisor looks at netdoc and at its readers.
 const POLL: Duration = Duration::from_millis(20);
 
+/// Lines read from netdoc that the supervisor has not taken yet.
+#[derive(Default)]
+struct Lines {
+    queued: VecDeque<String>,
+    /// The size of `queued`, in bytes.
+    bytes: usize,
+    /// Why reading stopped early, until the supervisor takes it.
+    failed: Option<&'static str>,
+}
+
+/// Reads `pipe` to its end in fixed-size chunks and queues each line. A line
+/// longer than `line_cap`, or more than `queue_cap` waiting to be taken, ends
+/// the reading with TOO_MUCH. A read error or text that isn't UTF-8 ends it
+/// with UNREADABLE. Neither is mistaken for the end of the output.
+fn read_lines(
+    mut pipe: impl Read,
+    lines: &Arc<Mutex<Lines>>,
+    line_cap: usize,
+    queue_cap: usize,
+) -> Result<(), &'static str> {
+    let mut line: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = match pipe.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(UNREADABLE),
+        };
+        let mut rest = &buf[..n];
+        while let Some(end) = rest.iter().position(|b| *b == b'\n') {
+            line.extend_from_slice(&rest[..end]);
+            rest = &rest[end + 1..];
+            if line.len() > line_cap {
+                return Err(TOO_MUCH);
+            }
+            if !queue_line(lines, std::mem::take(&mut line), queue_cap)? {
+                return Ok(());
+            }
+        }
+        line.extend_from_slice(rest);
+        if line.len() > line_cap {
+            return Err(TOO_MUCH);
+        }
+    }
+    if !line.is_empty() {
+        queue_line(lines, line, queue_cap)?;
+    }
+    Ok(())
+}
+
+/// Queues one line. False once the supervisor has gone: it is then the only
+/// other owner left, nothing reads what is queued, and reading can stop.
+fn queue_line(
+    lines: &Arc<Mutex<Lines>>,
+    mut line: Vec<u8>,
+    queue_cap: usize,
+) -> Result<bool, &'static str> {
+    if Arc::strong_count(lines) == 1 {
+        return Ok(false);
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+    let line = String::from_utf8(line).map_err(|_| UNREADABLE)?;
+    let mut l = lines.lock().unwrap();
+    if l.bytes + line.len() > queue_cap {
+        return Err(TOO_MUCH);
+    }
+    l.bytes += line.len();
+    l.queued.push_back(line);
+    Ok(true)
+}
+
 /// Runs a started netdoc to its end, with every wait bounded, and passes each
 /// stdout line to `on_line` as it arrives. Returns the exit code and the end of
-/// stderr.
+/// stderr. A child started without a stdout or stderr pipe has nothing read
+/// from that stream.
 ///
 /// Output is read on threads of their own, so a pipe that stays open, held by a
 /// descendant or by netdoc itself, cannot hold the window: once netdoc has
-/// exited, its readers get READ_GRACE and are then left behind.
+/// exited, its readers get READ_GRACE and are then left behind. Output that
+/// can't be read, or is too large, expires the run with the reason.
 fn supervise(
     h: &Handle,
     mut child: Child,
     mut on_line: impl FnMut(String),
 ) -> (Option<i32>, String) {
-    let stdout = child.stdout.take().unwrap();
-    let stderr = keep_tail(child.stderr.take().unwrap());
-    let pid = child.id();
-    let queue: Arc<Mutex<VecDeque<String>>> = Arc::default();
-    let reader_queue = Arc::clone(&queue);
-    let out = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            // Once the supervisor has gone it is the only other owner left, and
-            // nothing reads what is pushed: stop reading.
-            if Arc::strong_count(&reader_queue) == 1 {
-                break;
+    let lines: Arc<Mutex<Lines>> = Arc::default();
+    let out = child.stdout.take().map(|pipe| {
+        let lines = Arc::clone(&lines);
+        std::thread::spawn(move || {
+            if let Err(reason) = read_lines(pipe, &lines, MAX_REPORT, MAX_QUEUED) {
+                lines.lock().unwrap().failed = Some(reason);
             }
-            reader_queue.lock().unwrap().push_back(line);
-        }
+        })
     });
+    let stderr = child.stderr.take().map(keep_tail);
+    let pid = child.id();
     h.attach(child);
     let mut out_ended: Option<Instant> = None;
     let mut stop_seen: Option<Instant> = None;
     let code = loop {
-        flush(&queue, &mut on_line);
+        flush(&lines, &mut on_line);
         {
             let mut s = h.0.lock().unwrap();
-            match s.child.as_mut().map(Child::try_wait) {
-                Some(Ok(Some(status))) => {
-                    s.child = None;
-                    break status.code();
+            if let Some(reason) = lines.lock().unwrap().failed.take() {
+                expire_locked(&mut s, reason);
+            }
+            match s.child.as_mut().map(has_exited) {
+                Some(Ok(true)) => {
+                    // netdoc has exited but is not reaped yet, so its group id
+                    // cannot have been reused: kill what it left behind first
+                    // (a descendant may still hold a pipe open), then reap it.
+                    kill_tree(pid);
+                    let status = s.child.take().and_then(|mut c| c.try_wait().ok().flatten());
+                    break status.and_then(|st| st.code());
                 }
-                Some(Ok(None)) => {}
+                Some(Ok(false)) => {}
                 Some(Err(_)) | None => {
                     s.child = None;
                     break None;
                 }
             }
-            if out.is_finished() {
+            if out.as_ref().is_some_and(|t| t.is_finished()) {
                 let since = *out_ended.get_or_insert_with(Instant::now);
                 if since.elapsed() > EXIT_GRACE {
                     expire_locked(&mut s, CLOSED_OUTPUT);
@@ -328,29 +470,35 @@ fn supervise(
         }
         std::thread::sleep(POLL);
     };
-    // The leader is reaped, but a descendant may still hold a pipe open. Kill the
-    // group now, while the group id is certainly still ours, then give the
-    // readers their grace.
-    kill_tree(pid);
     // netdoc has exited. Its readers get READ_GRACE to finish what it printed.
+    let done = |t: &Option<std::thread::JoinHandle<()>>| t.as_ref().is_none_or(|t| t.is_finished());
     let deadline = Instant::now() + READ_GRACE;
-    while !(out.is_finished() && stderr.is_finished()) && Instant::now() < deadline {
-        flush(&queue, &mut on_line);
+    while !(done(&out) && stderr.as_ref().is_none_or(|t| t.is_finished()))
+        && Instant::now() < deadline
+    {
+        flush(&lines, &mut on_line);
         std::thread::sleep(POLL);
     }
-    flush(&queue, &mut on_line);
-    let tail = if stderr.is_finished() {
-        stderr.join().unwrap_or_default()
-    } else {
-        String::new()
+    flush(&lines, &mut on_line);
+    // Reading may have failed just as netdoc exited: the reason still counts.
+    if let Some(reason) = lines.lock().unwrap().failed.take() {
+        h.expire(reason);
+    }
+    let tail = match stderr {
+        Some(t) if t.is_finished() => t.join().unwrap_or_default(),
+        _ => String::new(),
     };
     (code, tail)
 }
 
 /// Passes on the lines the reader has queued so far.
-fn flush(queue: &Mutex<VecDeque<String>>, on_line: &mut impl FnMut(String)) {
-    let lines: Vec<String> = queue.lock().unwrap().drain(..).collect();
-    for line in lines {
+fn flush(lines: &Mutex<Lines>, on_line: &mut impl FnMut(String)) {
+    let taken: Vec<String> = {
+        let mut l = lines.lock().unwrap();
+        l.bytes = 0;
+        l.queued.drain(..).collect()
+    };
+    for line in taken {
         on_line(line);
     }
 }
@@ -415,8 +563,18 @@ fn start_run(
         let mut reported = false;
         let mut failed = false;
         let mut body = String::new();
+        let mut over = false;
         let (code, stderr) = supervise(&h, child, |line| {
             if watch.is_none() {
+                if over {
+                    return;
+                }
+                if body.len() + line.len() + 1 > MAX_REPORT {
+                    over = true;
+                    body.clear();
+                    h.expire(TOO_MUCH);
+                    return;
+                }
                 body.push_str(&line);
                 body.push('\n');
             } else if !failed && !line.trim().is_empty() {
@@ -439,7 +597,7 @@ fn start_run(
             }
         });
         // The whole body is parsed even when netdoc was expired: a complete report stands.
-        if watch.is_none() && !body.trim().is_empty() {
+        if watch.is_none() && !over && !body.trim().is_empty() {
             match report::parse(&body) {
                 Ok(r) => {
                     reported = true;
@@ -454,8 +612,12 @@ fn start_run(
                 }
             }
         }
-        // An expiry after a report is quiet: the report stands. Without one, say why.
-        if !reported && let Some(reason) = h.expired() {
+        // A one-shot check that produced its report stands, so an expiry after
+        // it is quiet. A watch was meant to go on, so its expiry is always said:
+        // the window shows it beside the last report.
+        if (!reported || watch.is_some())
+            && let Some(reason) = h.expired()
+        {
             let _ = tx.send(Msg::Failed(reason.into()));
             wake();
         }
@@ -507,8 +669,9 @@ fn start_save(
                     // "--" so a target can never be read as an option.
                     cmd.arg("--").arg(t);
                 }
+                // Nothing reads what an export prints, so it is not collected.
                 cmd.stdin(Stdio::null())
-                    .stdout(Stdio::piped())
+                    .stdout(Stdio::null())
                     .stderr(Stdio::piped());
                 match cmd.spawn() {
                     Err(e) => {
@@ -772,6 +935,21 @@ mod tests {
         }
     }
 
+    /// Waits, for a bounded time, until a fake netdoc has written its pid file.
+    #[cfg(unix)]
+    fn wait_for_pid_file(dir: &Path) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if std::fs::read_to_string(dir.join("pid")).is_ok_and(|p| !p.trim().is_empty()) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// Output held open by a descendant must not hold the window on "Checking…".
     #[cfg(unix)]
     #[test]
@@ -805,11 +983,13 @@ mod tests {
         );
         let (tx, rx) = channel();
         let h = run(fake_netdoc(&dir, &body), None, None, None, tx, || {});
-        std::thread::sleep(Duration::from_millis(500));
+        // The fixture writes its pid after it has started ignoring SIGTERM.
+        let ready = wait_for_pid_file(&dir);
         h.stop();
         let seen = until_finished(&rx, Duration::from_secs(20));
         kill_recorded_pid(&dir);
         std::fs::remove_dir_all(&dir).unwrap();
+        assert!(ready, "the fake netdoc never wrote its pid file");
         assert_eq!(seen, Some(vec!["finished"]));
     }
 
@@ -918,7 +1098,7 @@ mod tests {
             dir.join("pid").display()
         );
         let started = Instant::now();
-        let rx = start_version_limited(Duration::from_secs(1), fake_netdoc(&dir, &body));
+        let rx = start_version_limited(Duration::from_secs(1), fake_netdoc(&dir, &body), || {});
         let caller_waited = started.elapsed();
         let answer = rx.recv_timeout(Duration::from_secs(20));
         kill_recorded_pid(&dir);
@@ -935,13 +1115,128 @@ mod tests {
     #[test]
     fn a_prompt_version_check_reads_the_version() {
         let dir = scratch("prompt-version");
+        let (woke_tx, woke_rx) = channel();
         let rx = start_version_limited(
             Duration::from_secs(5),
             fake_netdoc(&dir, "echo 'netdoc v9.9.9'"),
+            move || {
+                let _ = woke_tx.send(());
+            },
         );
         let answer = rx.recv_timeout(Duration::from_secs(10));
+        let woke = woke_rx.recv_timeout(Duration::from_secs(10)).is_ok();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(answer, Ok(Some("netdoc v9.9.9".to_string())));
+        assert!(woke, "the window was not woken for the version");
+    }
+
+    /// A version far longer than a version is refused, not kept.
+    #[cfg(unix)]
+    #[test]
+    fn an_oversized_version_is_refused() {
+        let dir = scratch("big-version");
+        let body = "i=0\nwhile [ $i -lt 200 ]; do echo 0123456789012345678901234567890123456789; i=$((i+1)); done";
+        let rx = start_version_limited(Duration::from_secs(5), fake_netdoc(&dir, body), || {});
+        let answer = rx.recv_timeout(Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(answer, Ok(None));
+    }
+
+    /// The lines `read_lines` queues from `input`, and how the reading ended.
+    fn lines_of(
+        input: &[u8],
+        line_cap: usize,
+        queue_cap: usize,
+    ) -> (Vec<String>, Result<(), &'static str>) {
+        let lines: Arc<Mutex<Lines>> = Arc::default();
+        // A second owner, as the supervisor is: without one the reader stops.
+        let _supervisor = Arc::clone(&lines);
+        let end = read_lines(input, &lines, line_cap, queue_cap);
+        let queued = lines.lock().unwrap().queued.drain(..).collect();
+        (queued, end)
+    }
+
+    #[test]
+    fn lines_up_to_the_cap_are_kept_whole() {
+        // Both line endings, and a last line with none.
+        let (got, end) = lines_of(b"12345678\nab\r\n\nlast", 8, 64);
+        assert_eq!(got, ["12345678", "ab", "", "last"]);
+        assert_eq!(end, Ok(()));
+        // A line longer than one read chunk is still one line.
+        let long = "x".repeat(20_000);
+        let (got, end) = lines_of(format!("{long}\n").as_bytes(), 20_000, 64_000);
+        assert_eq!(got, [long]);
+        assert_eq!(end, Ok(()));
+    }
+
+    #[test]
+    fn output_over_a_cap_is_a_failure_not_an_end() {
+        // One line over the line cap, with and without its line break.
+        assert_eq!(lines_of(b"123456789\n", 8, 64).1, Err(TOO_MUCH));
+        assert_eq!(lines_of(b"123456789", 8, 64).1, Err(TOO_MUCH));
+        // Lines that fit one by one, but not all waiting at once.
+        let (got, end) = lines_of(b"1234\n1234\n1234\n", 8, 8);
+        assert_eq!(got, ["1234", "1234"]);
+        assert_eq!(end, Err(TOO_MUCH));
+    }
+
+    #[test]
+    fn unreadable_output_is_a_failure_not_an_end() {
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("broken pipe"))
+            }
+        }
+        let lines: Arc<Mutex<Lines>> = Arc::default();
+        assert_eq!(read_lines(Broken, &lines, 8, 64), Err(UNREADABLE));
+        let (got, end) = lines_of(b"ok\n\xff\xfe\nnever\n", 8, 64);
+        assert_eq!(got, ["ok"]);
+        assert_eq!(end, Err(UNREADABLE));
+    }
+
+    /// A one-shot check whose output isn't text fails with the reason. It must
+    /// not read as a normal end with a cut-off report.
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_output_fails_the_check() {
+        let dir = scratch("unreadable");
+        let (tx, rx) = channel();
+        let _h = run(
+            fake_netdoc(&dir, "printf '\\377\\376\\n'\nexit 0"),
+            None,
+            None,
+            None,
+            tx,
+            || {},
+        );
+        let mut reason = None;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(left) {
+                Ok(Msg::Failed(e)) => reason = Some(e),
+                Ok(Msg::Finished { .. }) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(reason.as_deref(), Some(UNREADABLE));
+    }
+
+    /// A watch that has reported and then closes its output without exiting
+    /// is expired, and says so: the window must not show it as still watching
+    /// or as a quiet end.
+    #[cfg(unix)]
+    #[test]
+    fn a_watch_expiry_is_said_even_after_a_report() {
+        let dir = scratch("watch-expiry");
+        let (tx, rx) = channel();
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\n\
+                    exec >&- 2>&-\nexec sleep 60";
+        let _h = run(fake_netdoc(&dir, body), None, None, Some(5), tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(30));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
     }
 
     /// A check that never finishes is expired, so the window can't wait forever.

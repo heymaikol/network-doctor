@@ -198,31 +198,75 @@ struct App {
     screenshot: Option<(String, u32)>,
 }
 
-impl App {
-    fn new(ctx: egui::Context) -> Self {
-        let theme = load_theme();
-        look::set_theme(&ctx, theme);
-        look::install(&ctx);
-        let netdoc = runner::find_netdoc();
-        let version_rx = netdoc.clone().map(runner::start_version);
-        let target = std::env::var("NETDOC_GUI_TARGET").unwrap_or_default();
-        let mode = std::env::var("NETDOC_GUI_MODE")
-            .ok()
-            .and_then(|m| m.parse().ok())
-            .filter(|m| *m < MODES.len());
-        let mut app = App {
-            netdoc,
-            netdoc_version: None,
-            version_rx,
+/// How the window starts. The real window reads these from its surroundings
+/// (`Startup::from_env`); anything else, such as a test, states them.
+#[derive(Default)]
+struct Startup {
+    netdoc: Option<PathBuf>,
+    theme: usize,
+    target: String,
+    mode: Option<usize>,
+    profile: usize,
+    why: bool,
+    watch: bool,
+    /// Start a check as soon as the window opens.
+    autorun: bool,
+    /// Save the window to this file, then quit.
+    screenshot: Option<String>,
+}
+
+impl Startup {
+    /// The installed netdoc, the saved theme, and the NETDOC_GUI_* variables.
+    fn from_env() -> Self {
+        Startup {
+            netdoc: runner::find_netdoc(),
+            theme: load_theme(),
+            target: std::env::var("NETDOC_GUI_TARGET").unwrap_or_default(),
+            mode: std::env::var("NETDOC_GUI_MODE")
+                .ok()
+                .and_then(|m| m.parse().ok())
+                .filter(|m| *m < MODES.len()),
             profile: std::env::var("NETDOC_GUI_PROFILE")
                 .ok()
                 .and_then(|p| PROFILES.iter().position(|x| x.0 == p))
                 .unwrap_or(0),
-            part: None,
             why: std::env::var_os("NETDOC_GUI_WHY").is_some(),
+            watch: std::env::var_os("NETDOC_GUI_WATCH").is_some(),
+            autorun: std::env::var_os("NETDOC_GUI_AUTORUN").is_some(),
+            screenshot: std::env::var("NETDOC_GUI_SCREENSHOT").ok(),
+        }
+    }
+}
+
+impl App {
+    fn new(ctx: egui::Context, startup: Startup) -> Self {
+        let Startup {
+            netdoc,
+            theme,
+            target,
+            mode,
+            profile,
+            why,
+            watch,
+            autorun,
+            screenshot,
+        } = startup;
+        look::set_theme(&ctx, theme);
+        look::install(&ctx);
+        let version_rx = netdoc.clone().map(|bin| {
+            let ctx = ctx.clone();
+            runner::start_version(bin, move || ctx.request_repaint())
+        });
+        let mut app = App {
+            netdoc,
+            netdoc_version: None,
+            version_rx,
+            profile,
+            part: None,
+            why,
             mode: mode.unwrap_or(if target.is_empty() { 0 } else { 1 }),
             target,
-            watch: std::env::var_os("NETDOC_GUI_WATCH").is_some(),
+            watch,
             interval: 5,
             details: false,
             show_settings: false,
@@ -238,9 +282,9 @@ impl App {
             error: None,
             note: None,
             ctx,
-            screenshot: std::env::var("NETDOC_GUI_SCREENSHOT").ok().map(|p| (p, 0)),
+            screenshot: screenshot.map(|p| (p, 0)),
         };
-        if std::env::var_os("NETDOC_GUI_AUTORUN").is_some() {
+        if autorun {
             app.start();
         }
         app
@@ -373,7 +417,10 @@ impl App {
                     }
                 }
                 // Only Finished ends the check: a failure can still have netdoc running.
-                Ok(Msg::Failed(e)) => self.error = Some(e),
+                // With a report on screen the failure goes beside it, in the status
+                // line, so the last result stays readable.
+                Ok(Msg::Failed(e)) if self.history.is_empty() => self.error = Some(e),
+                Ok(Msg::Failed(e)) => self.note = Some((e, true)),
                 Ok(Msg::Finished { code, stderr }) => return self.finish_check(code, &stderr),
                 Ok(Msg::Saved(_)) => {}
                 Err(TryRecvError::Empty) => {
@@ -685,8 +732,26 @@ impl App {
                     });
                 })
                 .response;
-            if ui
-                .interact(resp.rect, ui.id().with(("part", i)), egui::Sense::click())
+            // The row is one control: a choice among the parts, named after its
+            // part and its status, that Enter or Space picks like a click does.
+            let row = ui.interact(resp.rect, ui.id().with(("part", i)), egui::Sense::click());
+            row.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::RadioButton,
+                    true,
+                    i == part,
+                    format!("{}: {}", c.label, c.word()),
+                )
+            });
+            if row.has_focus() {
+                ui.painter().rect_stroke(
+                    resp.rect.expand(3.0),
+                    11.0,
+                    egui::Stroke::new(2.0, pal().accent),
+                    egui::StrokeKind::Outside,
+                );
+            }
+            if row
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
             {
@@ -1173,7 +1238,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Network Doctor",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc.egui_ctx.clone())))),
+        Box::new(|cc| Ok(Box::new(App::new(cc.egui_ctx.clone(), Startup::from_env())))),
     )
 }
 
@@ -1203,7 +1268,7 @@ mod access {
     use super::*;
     use egui::accesskit::Role;
     use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
 
     /// Writes the stand-in netdoc into `dir`. It answers `--version`, which
     /// `App::new` asks for, and records anything else in `dir/invoked`.
@@ -1274,10 +1339,15 @@ mod access {
         assert!(finished, "the child test {child} never reached its end");
     }
 
+    /// The stand-in netdoc, in the child process the helper starts. The helper
+    /// hands the path over in NETDOC; the window is given it directly.
+    fn stub() -> PathBuf {
+        PathBuf::from(std::env::var_os("NETDOC").expect("run by the stub-process helper"))
+    }
+
     /// The stand-in netdoc's record of checks, read by the child process.
     fn stub_log() -> PathBuf {
-        PathBuf::from(std::env::var_os("NETDOC").expect("run by the stub-process helper"))
-            .with_file_name("invoked")
+        stub().with_file_name("invoked")
     }
 
     /// Whether the stand-in netdoc has been asked to run a check.
@@ -1295,11 +1365,87 @@ mod access {
         }
     }
 
+    /// A window with stated startup options and no netdoc. Nothing is read
+    /// from the environment, so an installed netdoc, a saved theme or a
+    /// NETDOC_GUI_* variable in the test run cannot change what is tested.
     fn window() -> Harness<'static, App> {
+        window_with(None)
+    }
+
+    fn window_with(netdoc: Option<PathBuf>) -> Harness<'static, App> {
+        let startup = Startup {
+            netdoc,
+            ..Startup::default()
+        };
         Harness::new_ui_state(
             |ui, app: &mut App| app.show(ui),
-            App::new(egui::Context::default()),
+            App::new(egui::Context::default(), startup),
         )
+    }
+
+    #[test]
+    fn startup_options_do_not_come_from_the_environment() {
+        let h = window();
+        let app = h.state();
+        assert!(app.netdoc.is_none() && app.version_rx.is_none());
+        assert!(app.running.is_none(), "a check started on its own");
+        assert!(app.screenshot.is_none());
+        assert_eq!((app.mode, app.theme, app.watch), (0, 0, false));
+    }
+
+    /// Whether a choice is the selected one. egui reports that as "toggled".
+    fn chosen(node: &egui_kittest::Node<'_>) -> bool {
+        node.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+    }
+
+    #[test]
+    fn each_part_of_a_profile_is_a_named_choice_the_keyboard_can_pick() {
+        let mut h = window();
+        let outcome = report::parse(include_str!("../tests/fixtures/profile-web.json")).unwrap();
+        let Outcome::Profile(p) = &outcome else {
+            panic!("not a profile")
+        };
+        let names: Vec<String> = p
+            .components
+            .iter()
+            .map(|c| format!("{}: {}", c.label, c.word()))
+            .collect();
+        assert!(names.len() > 1, "the fixture needs more than one part");
+        let first = outcome.first_problem();
+        h.state_mut()
+            .history
+            .push((Instant::now(), Rc::new(outcome)));
+        h.run();
+        // The part opened first is the selected one, and only that one.
+        for (i, name) in names.iter().enumerate() {
+            let row = h.get_by_role_and_label(Role::RadioButton, name);
+            assert_eq!(chosen(&row), i == first, "{name}");
+        }
+        // Enter on another part opens that part's steps.
+        let other = (first + 1) % names.len();
+        h.get_by_role_and_label(Role::RadioButton, &names[other])
+            .focus();
+        h.run();
+        h.key_press(egui::Key::Enter);
+        h.run();
+        assert_eq!(h.state().part, Some(other));
+        let row = h.get_by_role_and_label(Role::RadioButton, &names[other]);
+        assert!(chosen(&row), "the picked part is not the selected one");
+    }
+
+    #[test]
+    fn a_failure_after_a_report_is_shown_beside_it() {
+        let mut h = window();
+        let (tx, rx) = channel();
+        let outcome = report::parse(include_str!("../tests/fixtures/healthy.json")).unwrap();
+        tx.send(Msg::Report(outcome)).unwrap();
+        tx.send(Msg::Failed("netdoc was stopped.".into())).unwrap();
+        h.state_mut().rx = Some(rx);
+        h.run();
+        let app = h.state();
+        assert_eq!(app.history.len(), 1);
+        assert!(app.error.is_none(), "the failure replaced the report");
+        assert_eq!(app.note, Some(("netdoc was stopped.".into(), true)));
     }
 
     #[test]
@@ -1396,7 +1542,7 @@ mod access {
         }
         // With a result on screen Export is enabled; before one, it is rightly
         // disabled and cannot take focus.
-        let mut h = window();
+        let mut h = window_with(Some(stub()));
         let outcome = report::parse(include_str!("../tests/fixtures/healthy.json")).unwrap();
         h.state_mut()
             .history

@@ -1293,6 +1293,46 @@ mod access {
     }
 
     #[test]
+    fn tab_reaches_every_main_control() {
+        // With a result on screen Export is enabled; before one, it is rightly
+        // disabled and cannot take focus. netdoc is pinned to a path that is never
+        // run, so the test does not depend on what is installed.
+        let mut h = window();
+        h.state_mut().netdoc = Some(PathBuf::from("netdoc"));
+        let outcome = report::parse(include_str!("../tests/fixtures/healthy.json")).unwrap();
+        h.state_mut()
+            .history
+            .push((Instant::now(), Rc::new(outcome)));
+        h.run();
+        let controls = [
+            (Role::Button, "Settings"),
+            (Role::Button, "Export report"),
+            (Role::RadioButton, "My connection"),
+            (Role::RadioButton, "A website or server"),
+            (Role::RadioButton, "A service"),
+            (Role::CheckBox, "Keep watching"),
+            (Role::Button, "Check again"),
+        ];
+        let mut reached = vec![false; controls.len()];
+        for _ in 0..80 {
+            h.key_press(egui::Key::Tab);
+            h.run();
+            for (i, (role, name)) in controls.iter().enumerate() {
+                if h.get_by_role_and_label(*role, name).is_focused() {
+                    reached[i] = true;
+                }
+            }
+        }
+        let missed: Vec<&str> = controls
+            .iter()
+            .zip(&reached)
+            .filter(|(_, got)| !**got)
+            .map(|((_, name), _)| *name)
+            .collect();
+        assert!(missed.is_empty(), "Tab never reached: {missed:?}");
+    }
+
+    #[test]
     fn tab_reaches_a_mode_choice_and_enter_selects_it() {
         let mut h = window();
         h.run();

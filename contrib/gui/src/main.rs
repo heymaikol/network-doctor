@@ -1239,27 +1239,49 @@ mod access {
         bin
     }
 
-    /// The stand-in netdoc, installed once through NETDOC, so the window tests
-    /// never depend on the real executable or on PATH. Nothing else reads NETDOC.
-    fn netdoc_stub() -> &'static PathBuf {
-        static STUB: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-        STUB.get_or_init(|| {
-            let dir = std::env::temp_dir().join(format!("netdoc-gui-stub-{}", std::process::id()));
-            std::fs::create_dir_all(&dir).unwrap();
-            let bin = write_stub(&dir);
-            // SAFETY: done once, before any window is built, and no other test reads NETDOC.
-            unsafe { std::env::set_var("NETDOC", &bin) };
-            bin
-        })
+    /// Runs the named test in a process of its own, with NETDOC pointing at a
+    /// stand-in netdoc in a fresh directory. The variable is set on that child
+    /// only, never on this process, so the stub cannot reach any other test.
+    fn run_in_stub_process(child: &str) {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("netdoc-gui-stub-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let stub = write_stub(&dir);
+        let before = std::env::var_os("NETDOC");
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", child])
+            .env("NETDOC", &stub)
+            .env("NETDOC_GUI_STUB_CHILD", "1")
+            .output()
+            .unwrap();
+        let after = std::env::var_os("NETDOC");
+        std::fs::remove_dir_all(&dir).unwrap();
+        // This process's environment must be unchanged: the stub stays in the child.
+        assert_eq!(after, before, "the stub leaked into this process");
+        assert!(
+            out.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// The stand-in netdoc's record of checks, read by the child process.
+    fn stub_log() -> PathBuf {
+        PathBuf::from(std::env::var_os("NETDOC").expect("run by the stub-process helper"))
+            .with_file_name("invoked")
     }
 
     /// Whether the stand-in netdoc has been asked to run a check.
     fn checks_started() -> bool {
-        netdoc_stub().with_file_name("invoked").exists()
+        stub_log().exists()
     }
 
     fn window() -> Harness<'static, App> {
-        netdoc_stub();
         Harness::new_ui_state(
             |ui, app: &mut App| app.show(ui),
             App::new(egui::Context::default()),
@@ -1348,6 +1370,16 @@ mod access {
 
     #[test]
     fn tab_reaches_every_main_control() {
+        run_in_stub_process("access::tab_reaches_every_main_control_child");
+    }
+
+    /// The body of the test above. Run as an ordinary test it does nothing: it
+    /// acts only in the child process that the helper starts.
+    #[test]
+    fn tab_reaches_every_main_control_child() {
+        if std::env::var_os("NETDOC_GUI_STUB_CHILD").is_none() {
+            return;
+        }
         // With a result on screen Export is enabled; before one, it is rightly
         // disabled and cannot take focus.
         let mut h = window();

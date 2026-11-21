@@ -301,7 +301,8 @@ fn watchdog(h: Handle, limit: Duration, reason: &'static str) -> Sender<()> {
 }
 
 /// Keeps only the end of a pipe's output: a long watch can't grow it without
-/// limit, and the last lines are the useful ones.
+/// limit, and the last lines are the useful ones. The text is cleaned here,
+/// because it is shown to the user.
 fn keep_tail(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<String> {
     std::thread::spawn(move || {
         let mut kept: Vec<u8> = Vec::new();
@@ -318,7 +319,7 @@ fn keep_tail(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<St
         if kept.len() > STDERR_KEEP {
             kept.drain(..kept.len() - STDERR_KEEP);
         }
-        String::from_utf8_lossy(&kept).into_owned()
+        report::clean_lines(&String::from_utf8_lossy(&kept))
     })
 }
 
@@ -792,6 +793,27 @@ mod tests {
         std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
         p
+    }
+
+    /// Netdoc's error text is shown to the user, so escape sequences, other
+    /// control characters and bidi overrides are removed when it is read. Line
+    /// breaks stay. ponytail: the ESC goes but its "[31m" parameters stay
+    /// visible; stripping whole CSI sequences would also change report text.
+    #[test]
+    fn netdoc_error_text_is_cleaned_and_keeps_its_lines() {
+        let raw: &'static [u8] = b"\x1b[31mboom\x07\xe2\x80\xae txt\nsecond line\n";
+        let text = keep_tail(raw).join().unwrap();
+        assert!(!text.contains('\u{1b}'), "escape left in {text:?}");
+        assert!(!text.contains('\u{7}'), "bell left in {text:?}");
+        assert!(!text.contains('\u{202e}'), "bidi override left in {text:?}");
+        assert!(
+            text.contains("boom") && text.contains("txt"),
+            "text lost: {text:?}"
+        );
+        assert!(
+            text.contains("txt\nsecond line"),
+            "line break lost: {text:?}"
+        );
     }
 
     #[test]

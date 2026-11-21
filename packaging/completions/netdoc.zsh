@@ -99,6 +99,7 @@ _arguments \
   '(--peer-connect -peer-connect)'{--peer-connect,-peer-connect}'[read a temporary pairing string and run a two-ended diagnosis]' \
   '(--via -via)'{--via,-via}='[run remotely, or provide side B for live two-sided diagnosis]:destination:_hosts' \
   '(- *)'{--list-checks,-list-checks}'[list stable probe IDs and names, then exit]' \
+  '(- *)'{--update-check,-update-check}'[check GitHub for a newer stable netdoc release, then exit]' \
   '*'{--check,-check}='[run stable probe IDs (comma-separated; repeatable)]:probe IDs:_netdoc_probes' \
   '*'{--skip,-skip}='[skip stable probe IDs (comma-separated; repeatable)]:probe IDs:_netdoc_probes' \
   '(--no-reference-egress -no-reference-egress)'{--no-reference-egress,-no-reference-egress}"[don't contact netdoc's own built-in reference services]" \

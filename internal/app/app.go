@@ -119,6 +119,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	keys := fs.String("keys", "", "keybinding `preset` for the TUI: "+strings.Join(ui.KeyPresets(), " or "))
 	listChecks := fs.Bool("list-checks", false, "list stable probe IDs accepted by -check and -skip, then exit")
 	showVersion := fs.Bool("version", false, "print version and exit")
+	updateCheck := fs.Bool("update-check", false, "check GitHub for a newer stable netdoc release, print the answer, then exit")
 	timeout := fs.Duration("timeout", diagnostic.DefaultProbeTimeout, "per-check probe timeout")
 
 	// The stdlib flag package stops parsing at the first non-flag argument;
@@ -253,6 +254,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *showVersion {
 		fmt.Fprintln(stdout, "netdoc", version)
 		return 0
+	}
+	if *updateCheck {
+		return runUpdateCheck(setFlagNames(fs), positional, *jsonOut, stdout, stderr)
 	}
 	if *listChecks {
 		setFlags := setFlagNames(fs)

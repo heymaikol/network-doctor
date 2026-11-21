@@ -55,6 +55,7 @@ complete -c netdoc -o via -l via -r -f \
     -a '(__fish_print_hostnames)' \
     -d 'Run remotely, or provide side B for live two-sided diagnosis'
 complete -c netdoc -o list-checks -l list-checks -d 'List stable probe IDs and names, then exit'
+complete -c netdoc -o update-check -l update-check -d 'Check GitHub for a newer stable netdoc release, then exit'
 # Stable probe IDs. Both flags take a comma-separated list, which a plain
 # `complete -a` cannot complete: it replaces the whole token, so the elements
 # already typed are lost. __fish_complete_list splits the token on the comma

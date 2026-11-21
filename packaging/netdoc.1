@@ -952,6 +952,20 @@ as it does locally. A
 acquisition carries an overall bound derived from it as well; see
 .BR \-via .
 .TP
+.B \-update\-check
+Ask GitHub for the latest stable Network Doctor release and print whether it is
+newer than this build, then exit 0. This is the one request an update check
+makes: a GET of the releases endpoint with no query, no body, no credential, and
+a generic user agent that does not name the installed version. Nothing from a
+target, a report, or the machine is sent. The answer is cached for 24 hours, and
+a failed attempt is cached the same way. Development and prerelease builds make
+no request. With
+.B \-json
+it prints one object conforming to the netdoc.update-check.v1 schema. With
+.B \-no\-reference\-egress
+it reports disabled and makes no request. Combining it with a target or any
+other operational flag exits 2 before any request.
+.TP
 .B \-version
 Print the version and exit.
 .TP

@@ -17,6 +17,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --profile ssh target
        netdoc --via ssh-destination [flags] [target]
        netdoc --peer-listen IP:port [--peer-listen IP:port]
+       netdoc --update-check [--json]
        netdoc --peer-connect [--json]
        netdoc --compare before.ndoc after.ndoc [--json]
        netdoc --explain topology.json DEST [--fail NODE[:INTERFACE]] [--json]

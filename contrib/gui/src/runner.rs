@@ -18,6 +18,11 @@ const MAX_REPORT: usize = 4 * 1024 * 1024;
 /// The most output that may wait for the window to take it.
 const MAX_QUEUED: usize = 2 * MAX_REPORT;
 
+/// The most lines waiting to be taken. An empty line costs no bytes, so the byte
+/// cap alone would let a stream of them grow the queue without limit. A report
+/// of this many lines would already be near MAX_REPORT.
+const MAX_QUEUED_LINES: usize = 256 * 1024;
+
 /// The most `netdoc --version` may print.
 const MAX_VERSION: usize = 4 * 1024;
 
@@ -399,7 +404,7 @@ fn queue_line(
     }
     let line = String::from_utf8(line).map_err(|_| UNREADABLE)?;
     let mut l = lines.lock().unwrap();
-    if l.bytes + line.len() > queue_cap {
+    if l.bytes + line.len() > queue_cap || l.queued.len() >= MAX_QUEUED_LINES {
         return Err(TOO_MUCH);
     }
     l.bytes += line.len();
@@ -827,6 +832,17 @@ mod tests {
             text.contains("txt\nsecond line"),
             "line break lost: {text:?}"
         );
+    }
+
+    /// Empty lines cost no bytes, so the line count is what bounds them.
+    #[test]
+    fn a_stream_of_empty_lines_is_bounded_by_its_count() {
+        let at_cap = vec![b'\n'; MAX_QUEUED_LINES];
+        let (_, end) = lines_of(&at_cap, 20_000, 64_000);
+        assert_eq!(end, Ok(()), "a queue at its cap was refused");
+        let over = vec![b'\n'; MAX_QUEUED_LINES + 1];
+        let (_, end) = lines_of(&over, 20_000, 64_000);
+        assert_eq!(end, Err(TOO_MUCH));
     }
 
     #[test]

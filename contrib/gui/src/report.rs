@@ -266,7 +266,7 @@ pub fn parse(json: &str) -> Result<Outcome, String> {
     } else {
         validate_report(&v)?;
     }
-    clean_strings(&mut v)?;
+    clean_strings(&mut v, false)?;
     if profile {
         let mut p: ProfileReport =
             serde_json::from_value(v).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
@@ -287,17 +287,28 @@ pub fn parse(json: &str) -> Result<Outcome, String> {
 /// characters. Line breaks are kept, and nothing else is rewritten. Two keys
 /// that clean to the same name make the report unreadable, so it is rejected
 /// rather than letting one silently replace the other.
-fn clean_strings(v: &mut serde_json::Value) -> Result<(), String> {
+/// Cleans every text value. A key in a display map (the address families) is
+/// cleaned too, because it is shown. Any other key is a field name, and netdoc
+/// writes those exactly: one with hidden characters is rejected rather than
+/// renamed, so it cannot stand in for the field it reads as.
+fn clean_strings(v: &mut serde_json::Value, display_map: bool) -> Result<(), String> {
     match v {
         serde_json::Value::String(s) => *s = clean_lines(s),
-        serde_json::Value::Array(a) => a.iter_mut().try_for_each(clean_strings)?,
+        serde_json::Value::Array(a) => {
+            for item in a {
+                clean_strings(item, false)?;
+            }
+        }
         serde_json::Value::Object(o) => {
             let mut cleaned = serde_json::Map::new();
             for (key, mut value) in std::mem::take(o) {
-                clean_strings(&mut value)?;
-                let key = clean_lines(&key);
-                if cleaned.insert(key.clone(), value).is_some() {
-                    return Err(format!("{BAD_OUTPUT}: two keys read as \"{key}\""));
+                clean_strings(&mut value, key == "address_families")?;
+                let name = clean_lines(&key);
+                if name != key && !display_map {
+                    return Err(format!("{BAD_OUTPUT}: a field name has hidden characters"));
+                }
+                if cleaned.insert(name.clone(), value).is_some() {
+                    return Err(format!("{BAD_OUTPUT}: two keys read as \"{name}\""));
                 }
             }
             *o = cleaned;
@@ -1008,6 +1019,19 @@ mod tests {
         // come out healthy.
         let json = r#"{"version":"x","target":null,"checks":[],"summary":"s","verdict":"ok","ok":false,"ok\u200b":true}"#;
         assert!(parse(json).is_err());
+    }
+
+    #[test]
+    fn a_field_name_with_hidden_characters_is_rejected() {
+        // A profile component's "report" written with a zero-width space would
+        // skip validation and then be renamed to "report": it must be rejected.
+        let json = r#"{"schema":"netdoc.profile-report.v1","title":"t","aggregate":{"status":"PASS","summary":"s"},"components":[{"label":"l","status":"PASS","re\u200bport":{"verdict":"ok","ok":true}}]}"#;
+        let err = parse(json).unwrap_err();
+        assert!(err.contains("hidden characters"), "{err}");
+        // An extra field that is not required gets the same rule.
+        let json = r#"{"version":"x","target":null,"checks":[],"summary":"s","verdict":"ok","ok":true,"extra\u200b":1}"#;
+        let err = parse(json).unwrap_err();
+        assert!(err.contains("hidden characters"), "{err}");
     }
 
     #[test]

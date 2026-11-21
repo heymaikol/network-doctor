@@ -216,44 +216,77 @@ pub fn save_support(
     wake: impl Fn() + Send + 'static,
 ) {
     std::thread::spawn(move || {
-        // Never replace a file that's already there.
-        let dest = unused_name(dest);
-        let mut cmd = netdoc_command(&bin);
-        cmd.arg("--support").arg(&dest);
-        if let Some(p) = &profile {
-            cmd.arg("--profile").arg(p);
-        }
-        if let Some(t) = &target {
-            cmd.arg("--").arg(t);
-        }
-        let res = match cmd.stdin(Stdio::null()).output() {
-            // 0 = healthy, 1 = a problem was found; both write the file.
-            // Anything else (2 = usage or write error) means it didn't.
-            Ok(out) if matches!(out.status.code(), Some(0) | Some(1)) && dest.is_file() => Ok(dest),
-            Ok(out) => Err(format!(
-                "netdoc didn't write the report: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            )),
-            Err(e) => Err(format!("Couldn't start netdoc: {e}")),
+        // The name is claimed before netdoc runs, so no other export can take
+        // it. netdoc's own write replaces the empty claim; a failed export
+        // removes it, so nothing that looks like a report is left behind.
+        let res = match reserve(dest) {
+            Err(e) => Err(format!("Couldn't create the report file: {e}")),
+            Ok(dest) => {
+                let mut cmd = netdoc_command(&bin);
+                cmd.arg("--support").arg(&dest);
+                if let Some(p) = &profile {
+                    cmd.arg("--profile").arg(p);
+                }
+                if let Some(t) = &target {
+                    cmd.arg("--").arg(t);
+                }
+                let out = cmd.stdin(Stdio::null()).output();
+                // 0 = healthy, 1 = a problem was found; both write the file.
+                // Anything else (2 = usage or write error) means it didn't.
+                let written = matches!(out.as_ref().map(|o| o.status.code()), Ok(Some(0 | 1)))
+                    && std::fs::metadata(&dest).is_ok_and(|m| m.len() > 0);
+                if written {
+                    Ok(dest)
+                } else {
+                    let _ = std::fs::remove_file(&dest);
+                    Err(match out {
+                        Ok(out) => format!(
+                            "netdoc didn't write the report: {}",
+                            String::from_utf8_lossy(&out.stderr).trim()
+                        ),
+                        Err(e) => format!("Couldn't start netdoc: {e}"),
+                    })
+                }
+            }
         };
         let _ = tx.send(Msg::Saved(res));
         wake();
     });
 }
 
-/// `name.ndoc`, or `name-2.ndoc`, `name-3.ndoc`… if that's taken.
-fn unused_name(dest: PathBuf) -> PathBuf {
-    if !dest.exists() {
-        return dest;
-    }
+/// How many names to try in one folder before giving up.
+const NAME_TRIES: u32 = 1000;
+
+/// Claims the first free `name.ndoc`, `name-2.ndoc`, `name-3.ndoc`… by
+/// creating it empty. Creating is the claim: the check and the reservation are
+/// one operation, so exports in other processes can't pick the same name.
+fn reserve(dest: PathBuf) -> std::io::Result<PathBuf> {
     let stem = dest
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    (2..)
-        .map(|n| dest.with_file_name(format!("{stem}-{n}.ndoc")))
-        .find(|p| !p.exists())
-        .unwrap()
+    for n in 1..=NAME_TRIES {
+        let path = if n == 1 {
+            dest.clone()
+        } else {
+            dest.with_file_name(format!("{stem}-{n}.ndoc"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            // The handle closes here, before netdoc writes to the path (Windows
+            // can't rename over a file that is still open).
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no free file name for the report",
+    ))
 }
 
 #[cfg(test)]
@@ -281,9 +314,76 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("netdoc-gui-names-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let a = dir.join("r.ndoc");
-        assert_eq!(unused_name(a.clone()), a);
-        std::fs::write(&a, "x").unwrap();
-        assert_eq!(unused_name(a.clone()), dir.join("r-2.ndoc"));
+        assert_eq!(reserve(a.clone()).unwrap(), a);
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "");
+        assert_eq!(reserve(a.clone()).unwrap(), dir.join("r-2.ndoc"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Exports from separate processes must never share a name. Each child
+    /// picks a name, then waits until every peer has picked one, so a
+    /// check-then-write choice gives all of them the same path.
+    #[test]
+    fn concurrent_exports_never_share_a_name() {
+        const PEERS: usize = 8;
+        if let Ok(dir) = std::env::var("NETDOC_GUI_CLAIM_DIR") {
+            let dir = PathBuf::from(dir);
+            let me: usize = std::env::var("NETDOC_GUI_CLAIM_ID")
+                .unwrap()
+                .parse()
+                .unwrap();
+            let name = reserve(dir.join("network-doctor-report.ndoc")).unwrap();
+            std::fs::write(dir.join(format!("ready-{me}")), "").unwrap();
+            while std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().starts_with("ready-"))
+                .count()
+                < PEERS
+            {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            println!("CLAIM {}", name.display());
+            return;
+        }
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("netdoc-gui-claim-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let children: Vec<_> = (0..PEERS)
+            .map(|i| {
+                std::process::Command::new(&exe)
+                    .args([
+                        "--exact",
+                        "runner::tests::concurrent_exports_never_share_a_name",
+                        "--nocapture",
+                    ])
+                    .env("NETDOC_GUI_CLAIM_DIR", &dir)
+                    .env("NETDOC_GUI_CLAIM_ID", i.to_string())
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        let mut names = std::collections::BTreeSet::new();
+        for child in children {
+            let out = child.wait_with_output().unwrap();
+            assert!(
+                out.status.success(),
+                "child failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                if let Some(p) = line.strip_prefix("CLAIM ") {
+                    names.insert(p.to_string());
+                }
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(names.len(), PEERS, "exports shared a name: {names:?}");
     }
 }

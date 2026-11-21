@@ -182,6 +182,9 @@ const STOP_GRACE: Duration = Duration::from_secs(3);
 const EXIT_GRACE: Duration = Duration::from_secs(5);
 
 const CLOSED_OUTPUT: &str = "netdoc closed its output but didn't exit, so it was stopped.";
+/// What the window says when a watch ends without being stopped or expired.
+const WATCH_ENDED: &str =
+    "netdoc stopped watching unexpectedly, so the result above may be out of date.";
 
 /// How long a one-shot check or export may run. netdoc budgets its worst-case
 /// pass at 20 s, so two minutes means it is hung. Watch mode has no limit: Stop ends it.
@@ -620,6 +623,12 @@ fn start_run(
             && let Some(reason) = h.expired()
         {
             let _ = tx.send(Msg::Failed(reason.into()));
+            wake();
+        }
+        // A watch is meant to go on. An end it was not stopped for, or expired
+        // for, is said beside its last report. A stop and an expiry both set stopped.
+        if watch.is_some() && !h.stopped() {
+            let _ = tx.send(Msg::Failed(WATCH_ENDED.into()));
             wake();
         }
         let _ = tx.send(Msg::Finished { code, stderr });
@@ -1259,6 +1268,47 @@ mod tests {
         let seen = until_finished(&rx, Duration::from_secs(30));
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
+    }
+
+    /// A watch that ends after a report, without a stop from the window, is said
+    /// beside that report. This one is killed from outside.
+    #[cfg(unix)]
+    #[test]
+    fn a_watch_killed_from_outside_after_a_report_is_said() {
+        let dir = scratch("watch-killed");
+        let (tx, rx) = channel();
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\nkill -KILL $$";
+        let _h = run(fake_netdoc(&dir, body), None, None, Some(5), tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
+    }
+
+    /// netdoc exits 1 after an interrupt when its last pass was not OK, so an
+    /// exit 1 can be an outside SIGTERM as well as a clean end.
+    #[cfg(unix)]
+    #[test]
+    fn a_watch_that_exits_1_after_a_report_is_said() {
+        let dir = scratch("watch-exit1");
+        let (tx, rx) = channel();
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\nexit 1";
+        let _h = run(fake_netdoc(&dir, body), None, None, Some(5), tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
+    }
+
+    /// A one-shot check that reported stands, whatever netdoc exited with.
+    #[cfg(unix)]
+    #[test]
+    fn a_one_shot_that_exits_1_after_its_report_is_quiet() {
+        let dir = scratch("oneshot-exit1");
+        let (tx, rx) = channel();
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\nexit 1";
+        let _h = run(fake_netdoc(&dir, body), None, None, None, tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "finished"]));
     }
 
     /// The version is shown to the user, so it is cleaned as the error text is.

@@ -572,7 +572,7 @@ mod tests {
         let h = run(
             fake_netdoc(
                 &dir,
-                "echo '{\"verdict\":\"ok\",\"ok\":true,\"checks\":[],\"summary\":\"x\"}'\nexec sleep 60",
+                "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\nexec sleep 60",
             ),
             None,
             None,
@@ -631,7 +631,7 @@ mod tests {
     fn output_closed_without_exit_still_finishes() {
         let dir = scratch("closed-output");
         let (tx, rx) = channel();
-        let body = "echo '{\"verdict\":\"ok\",\"ok\":true,\"checks\":[],\"summary\":\"x\"}'\n\
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\n\
                     exec >&- 2>&-\nexec sleep 60";
         let _h = run(fake_netdoc(&dir, body), None, None, None, tx, || {});
         let seen = until_finished(&rx, Duration::from_secs(20));
@@ -647,7 +647,7 @@ mod tests {
         let dir = scratch("normal-exit");
         let (tx, rx) = channel();
         let started = Instant::now();
-        let body = "echo '{\"verdict\":\"ok\",\"ok\":true,\"checks\":[],\"summary\":\"x\"}'";
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'";
         let _h = run(fake_netdoc(&dir, body), None, None, None, tx, || {});
         let seen = until_finished(&rx, Duration::from_secs(20));
         let took = started.elapsed();

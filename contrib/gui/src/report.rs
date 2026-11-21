@@ -247,6 +247,18 @@ pub fn parse(json: &str) -> Result<Outcome, String> {
         .and_then(|s| s.as_str())
         .is_some_and(|s| s.starts_with("netdoc.profile-report."))
     {
+        require(
+            &v,
+            "a profile report",
+            &["title", "components", "aggregate"],
+        )?;
+        require(&v["aggregate"], "the aggregate", &["status", "summary"])?;
+        for c in v["components"].as_array().into_iter().flatten() {
+            require(c, "a component", &["label", "status"])?;
+            if let Some(r) = c.get("report").filter(|r| !r.is_null()) {
+                validate_report(r)?;
+            }
+        }
         let mut p: ProfileReport =
             serde_json::from_value(v).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
         for c in &mut p.components {
@@ -256,9 +268,45 @@ pub fn parse(json: &str) -> Result<Outcome, String> {
         }
         return Ok(Outcome::Profile(p));
     }
+    validate_report(&v)?;
     let mut r: Report = serde_json::from_value(v).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
     finish(&mut r);
     Ok(Outcome::Single(r))
+}
+
+/// Fails unless `v` has each key. The keys are the schema's required fields
+/// (schema/report-v1.schema.json): a report missing one is rejected rather than
+/// shown with defaults. A null is present, so it passes.
+fn require(v: &serde_json::Value, what: &str, keys: &[&str]) -> Result<(), String> {
+    match keys.iter().find(|k| v.get(**k).is_none()) {
+        Some(k) => Err(format!("{BAD_OUTPUT}: {what} has no \"{k}\"")),
+        None => Ok(()),
+    }
+}
+
+/// The required fields of an ordinary report and of the objects inside it.
+fn validate_report(v: &serde_json::Value) -> Result<(), String> {
+    require(
+        v,
+        "a report",
+        &["version", "target", "checks", "summary", "verdict", "ok"],
+    )?;
+    if let Some(t) = v.get("target").filter(|t| !t.is_null()) {
+        require(t, "a target", &["host", "port", "protocol"])?;
+    }
+    for c in v["checks"].as_array().into_iter().flatten() {
+        require(c, "a check", &["id", "name", "status", "ms", "detail"])?;
+    }
+    for f in v["findings"].as_array().into_iter().flatten() {
+        require(f, "a finding", &["id"])?;
+        if let Some(r) = f.get("remediation").filter(|r| !r.is_null()) {
+            require(r, "a remediation", &["id", "action"])?;
+        }
+        for e in f["causal_evidence"].as_array().into_iter().flatten() {
+            require(e, "a piece of evidence", &["kind", "check"])?;
+        }
+    }
+    Ok(())
 }
 
 /// An ordinary (non-profile) report.
@@ -706,7 +754,10 @@ mod tests {
     #[test]
     fn unfinished_ok_is_not_healthy() {
         // verdict "ok" with ok false: a check never reported, so it is incomplete.
-        let r = parse_report(r#"{"verdict":"ok","ok":false,"checks":[],"summary":""}"#).unwrap();
+        let r = parse_report(
+            r#"{"version":"x","target":null,"verdict":"ok","ok":false,"checks":[],"summary":""}"#,
+        )
+        .unwrap();
         assert_eq!(r.shown_verdict(), "incomplete");
         assert!(!Outcome::Single(r.clone()).ok());
         assert_eq!(headline(&r).0, "The checks didn't finish");
@@ -782,7 +833,7 @@ mod tests {
         assert_eq!(clean(evil), "ls[2Jrm -rf ~ txt.exe");
         assert_eq!(shell_line(&["echo".into(), "a\nb".into()]), "echo ab");
         let mut r =
-            parse_report(r#"{"summary":"ok\u001b[31m","verdict":"ok","ok":true,"checks":[]}"#)
+            parse_report(r#"{"version":"x","target":null,"summary":"ok\u001b[31m","verdict":"ok","ok":true,"checks":[]}"#)
                 .unwrap();
         r.summary.push('\u{202E}');
         let t = as_text(&r);
@@ -858,8 +909,35 @@ mod tests {
     }
 
     #[test]
+    fn missing_required_fields_are_rejected() {
+        // The schema's required fields. A null target is present, so it is allowed.
+        let base: serde_json::Value = serde_json::from_str(
+            r#"{"version":"x","target":null,"checks":[{"id":"dns","name":"DNS","status":"PASS","ms":1,"detail":""}],"summary":"s","verdict":"ok","ok":true}"#,
+        )
+        .unwrap();
+        assert!(
+            parse(&base.to_string()).is_ok(),
+            "the complete report must parse"
+        );
+        for key in ["version", "target", "checks", "summary", "verdict", "ok"] {
+            let mut v = base.clone();
+            v.as_object_mut().unwrap().remove(key);
+            assert!(
+                parse(&v.to_string()).is_err(),
+                "a report without {key} was accepted"
+            );
+        }
+        let mut v = base.clone();
+        v["checks"][0].as_object_mut().unwrap().remove("detail");
+        assert!(
+            parse(&v.to_string()).is_err(),
+            "a check without detail was accepted"
+        );
+    }
+
+    #[test]
     fn unknown_fields_are_ignored() {
-        let r = parse_report(r#"{"version":"9","checks":[{"id":"new_check","status":"PASS","brand_new":1}],"verdict":"ok","ok":true,"extra":{}}"#).unwrap();
+        let r = parse_report(r#"{"version":"9","target":null,"summary":"","checks":[{"id":"new_check","name":"New","status":"PASS","ms":1,"detail":"","brand_new":1}],"verdict":"ok","ok":true,"extra":{}}"#).unwrap();
         assert_eq!(r.checks[0].id, "new_check");
     }
 }

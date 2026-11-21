@@ -288,7 +288,8 @@ impl App {
             ctx,
             screenshot: screenshot.map(|p| (p, 0)),
         };
-        if autorun {
+        // The same rule as the Check button: a target-based check needs a target.
+        if autorun && app.can_check() {
             app.start();
         }
         app
@@ -1427,6 +1428,33 @@ mod access {
         app.netdoc = Some(PathBuf::from("/nonexistent/netdoc"));
         app.start();
         assert!(app.failure.is_none(), "the old failure is still shown");
+    }
+
+    #[test]
+    fn autorun_without_a_target_starts_nothing() {
+        // A website or server check with no target would show a generic result
+        // under the wrong heading. The Check button refuses it, so autorun must too.
+        let startup = Startup {
+            netdoc: Some(PathBuf::from("/nonexistent/netdoc")),
+            autorun: true,
+            mode: Some(1),
+            ..Startup::default()
+        };
+        let app = App::new(egui::Context::default(), startup);
+        assert!(app.running.is_none(), "a check started with no target");
+    }
+
+    #[test]
+    fn autorun_with_a_target_starts_its_check() {
+        let startup = Startup {
+            netdoc: Some(PathBuf::from("/nonexistent/netdoc")),
+            autorun: true,
+            mode: Some(1),
+            target: "github.com".into(),
+            ..Startup::default()
+        };
+        let app = App::new(egui::Context::default(), startup);
+        assert!(app.running.is_some(), "autorun with a target did not start");
     }
 
     #[test]

@@ -616,6 +616,14 @@ impl App {
                 .hint_text(hint)
                 .desired_width(f32::INFINITY),
         );
+        // egui names a text field by its hint. Give it a real name, and keep its
+        // current text in the tree, which a bare label override would drop.
+        let (enabled, text) = (ui.is_enabled(), self.target.clone());
+        edit.widget_info(|| {
+            let mut info = egui::WidgetInfo::text_edit(enabled, &text, &text, hint);
+            info.label = Some("Address to check".to_string());
+            info
+        });
         if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && self.can_check() {
             self.start();
         }
@@ -1233,6 +1241,16 @@ mod access {
             h.state().show_settings,
             "Enter on the focused Settings button did nothing"
         );
+    }
+
+    #[test]
+    fn the_target_field_has_a_name_and_its_text() {
+        let mut h = window();
+        h.state_mut().mode = 1;
+        h.state_mut().target = "github.com".into();
+        h.run();
+        let field = h.get_by_role_and_label(Role::TextInput, "Address to check");
+        assert_eq!(field.value().as_deref(), Some("github.com"));
     }
 
     #[test]

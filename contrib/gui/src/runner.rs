@@ -584,6 +584,12 @@ fn reserve(dest: PathBuf) -> std::io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    //! Lifecycle tests. Those marked `cfg(unix)` run fake netdoc shell scripts,
+    //! so they run on Unix only, and the Linux-only ones also read /proc.
+    //! Windows does not exercise the stop, expiry, descendant or stalled-version
+    //! paths: they need Unix signals and process groups. On Windows, only the
+    //! child itself can be killed, so a descendant that outlives netdoc is not
+    //! cleaned up. Those paths are checked there by reading the code only.
     use super::*;
     use std::sync::mpsc::{Receiver, channel};
     use std::time::{Duration, Instant};

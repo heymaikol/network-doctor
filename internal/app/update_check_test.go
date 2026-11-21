@@ -43,6 +43,7 @@ func setUpdateTest(t *testing.T, u *updateTest, installed string) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("APPDATA", home) // os.UserConfigDir reads this on Windows
 	savedVersion, savedClient := version, updateClient
 	t.Cleanup(func() { version, updateClient = savedVersion, savedClient })
 	version = installed

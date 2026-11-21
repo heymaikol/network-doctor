@@ -181,7 +181,7 @@
       ]
     }
   ],
-  "summary": "Everything you asked for works, but part of the path is impaired. github.com:443 connects.",
+  "summary": "The target works, but some checks are degraded (see the ! rows for details).",
   "verdict": "degraded",
   "ok": true
 }

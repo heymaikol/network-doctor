@@ -191,6 +191,10 @@ func Check(ctx context.Context, client *http.Client, cachePath, installed string
 	r := load(cachePath)
 	age := now.Sub(r.CheckedAt)
 	if r.CheckedAt.IsZero() || age < 0 || age >= TTL {
+		// Record the attempt before asking, as offline until it answers. An attempt
+		// the process abandons mid-request, because the view quit first, still
+		// counts toward the TTL, so reopening does not repeat it.
+		save(cachePath, record{CheckedAt: now, Outcome: outcomeOffline})
 		tag, outcome := Latest(ctx, client)
 		r = record{CheckedAt: now, Outcome: outcome, Latest: tag}
 		save(cachePath, r)

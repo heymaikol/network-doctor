@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -380,5 +381,40 @@ func TestCacheReadsNeverSeeAPartialWrite(t *testing.T) {
 	}
 	if reads == 0 {
 		t.Fatal("no read of the cache succeeded")
+	}
+}
+
+// An attempt the process abandons mid-request, because the view quit first,
+// still counts toward the TTL. The attempt never returns here, which is what a
+// quit looks like: the cache must already say an attempt happened.
+func TestAbandonedAttemptIsNotRepeated(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	path := cachePath(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	// The abandoned Check is released and waited for before the directory is
+	// removed, so its last write cannot race the cleanup.
+	t.Cleanup(func() { close(release); <-done })
+	var once sync.Once
+	s := &stub{do: func(*http.Request) (*http.Response, error) {
+		once.Do(func() { close(started) })
+		<-release
+		return nil, io.ErrUnexpectedEOF
+	}}
+	go func() {
+		Check(context.Background(), s.client(), path, "2.2.1", now, true)
+		close(done)
+	}()
+	<-started
+	if r := load(path); !r.CheckedAt.Equal(now) {
+		t.Fatalf("the attempt is not recorded while it is in flight: %+v", r)
+	}
+	again := Check(context.Background(), s.client(), path, "2.2.1", now.Add(time.Minute), true)
+	if n := s.calls.Load(); n != 1 {
+		t.Fatalf("an abandoned attempt was repeated: %d requests, want 1", n)
+	}
+	if again.Status != Offline || !again.Cached {
+		t.Fatalf("reopening reported %q cached=%v, want the cached attempt", again.Status, again.Cached)
 	}
 }

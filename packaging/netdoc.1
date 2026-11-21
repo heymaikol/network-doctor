@@ -966,6 +966,16 @@ it prints one object conforming to the netdoc.update-check.v1 schema. With
 it reports disabled and makes no request. Combining it with a target or any
 other operational flag exits 2 before any request.
 .TP
+.B \-no\-update\-check
+Do not check GitHub for a newer release when the interactive view opens. The
+explicit
+.B \-update\-check
+still answers when asked. The same opt-out is set persistently by
+.B NETDOC_NO_UPDATE_CHECK=1
+in the environment. Automatic checks are also off under
+.B \-no\-reference\-egress
+and in peer mode, which never opens the interactive view.
+.TP
 .B \-version
 Print the version and exit.
 .TP

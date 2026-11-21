@@ -9,12 +9,30 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/heymaikol/network-doctor/v2/internal/ui"
 	"github.com/heymaikol/network-doctor/v2/internal/update"
 )
 
 // updateClient builds the client an update check uses. Tests replace it so no
 // check opens a socket.
 var updateClient = update.NewClient
+
+// updateOptOutEnv is the persistent opt-out for automatic checks. Set it to 1
+// in a shell profile and the interactive view stops checking. It does not
+// affect the explicit -update-check.
+const updateOptOutEnv = "NETDOC_NO_UPDATE_CHECK"
+
+// updateNotice returns the option that starts one automatic check when the
+// interactive view opens, or nil when automatic checks are off: by flag, by the
+// environment, or by --no-reference-egress.
+func updateNotice(noUpdateCheckFlag, noReferenceEgress bool) ui.Option {
+	if noUpdateCheckFlag || noReferenceEgress || os.Getenv(updateOptOutEnv) == "1" {
+		return nil
+	}
+	return ui.WithUpdateNotice(func() update.Result {
+		return update.Check(context.Background(), updateClient(), updateCachePath(), version, time.Now(), true)
+	})
+}
 
 // updateSchema names the JSON contract `-update-check -json` writes. The
 // published schema is schema/netdoc-update-check-v1.schema.json.
@@ -50,6 +68,7 @@ func runUpdateCheck(setFlags map[string]bool, positional []string, jsonOut bool,
 	delete(setFlags, "update-check")
 	delete(setFlags, "json")
 	delete(setFlags, "no-reference-egress")
+	delete(setFlags, "no-update-check")
 	if len(positional) != 0 || len(setFlags) != 0 {
 		fmt.Fprintln(stderr, "netdoc: -update-check cannot be combined with a target or other flags, except -json and -no-reference-egress")
 		return 2

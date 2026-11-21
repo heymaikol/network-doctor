@@ -238,3 +238,48 @@ func TestVersionMakesNoRequest(t *testing.T) {
 		t.Fatalf("-version made %d requests", n)
 	}
 }
+
+// The automatic check is off by flag, by the environment, and by
+// --no-reference-egress, and on otherwise.
+func TestUpdateNoticeGates(t *testing.T) {
+	t.Setenv(updateOptOutEnv, "")
+	if updateNotice(false, false) == nil {
+		t.Fatal("the automatic check is off by default")
+	}
+	if updateNotice(true, false) != nil {
+		t.Fatal("-no-update-check did not turn the automatic check off")
+	}
+	if updateNotice(false, true) != nil {
+		t.Fatal("--no-reference-egress did not turn the automatic check off")
+	}
+	t.Setenv(updateOptOutEnv, "1")
+	if updateNotice(false, false) != nil {
+		t.Fatal("NETDOC_NO_UPDATE_CHECK=1 did not turn the automatic check off")
+	}
+}
+
+// The explicit command answers even when the environment opt-out is set: the
+// user asked for it directly.
+func TestExplicitCheckIgnoresTheEnvironmentOptOut(t *testing.T) {
+	u := &updateTest{tag: "v2.3.0", code: http.StatusOK}
+	setUpdateTest(t, u, "2.2.1")
+	t.Setenv(updateOptOutEnv, "1")
+	code, out, _ := runUpdate("-update-check", "-json")
+	if code != 0 || !strings.Contains(out, `"status":"update_available"`) {
+		t.Fatalf("exit %d, stdout %q", code, out)
+	}
+	if n := u.calls.Load(); n != 1 {
+		t.Fatalf("the explicit check made %d requests, want 1", n)
+	}
+}
+
+// -no-update-check may accompany the explicit command: it has no effect on
+// the answer, so the combination is accepted.
+func TestNoUpdateCheckFlagAcceptedWithTheExplicitCheck(t *testing.T) {
+	u := &updateTest{tag: "v2.3.0", code: http.StatusOK}
+	setUpdateTest(t, u, "2.2.1")
+	code, _, errOut := runUpdate("-update-check", "-json", "-no-update-check")
+	if code != 0 || errOut != "" {
+		t.Fatalf("exit %d, stderr %q", code, errOut)
+	}
+}

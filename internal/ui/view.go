@@ -446,6 +446,9 @@ func (m model) headerView() string {
 	if n := m.networkLine(); n != "" {
 		optional = append(optional, n)
 	}
+	if m.updateLatest != "" {
+		optional = append(optional, "newer Network Doctor release on GitHub: "+m.updateLatest)
+	}
 	if len(groups) == 0 && len(optional) == 0 {
 		return ""
 	}

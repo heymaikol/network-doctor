@@ -120,6 +120,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	listChecks := fs.Bool("list-checks", false, "list stable probe IDs accepted by -check and -skip, then exit")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	updateCheck := fs.Bool("update-check", false, "check GitHub for a newer stable netdoc release, print the answer, then exit")
+	noUpdateCheck := fs.Bool("no-update-check", false, "don't check GitHub for a newer release when the interactive view opens; -update-check still answers when asked")
 	timeout := fs.Duration("timeout", diagnostic.DefaultProbeTimeout, "per-check probe timeout")
 
 	// The stdlib flag package stops parsing at the first non-flag argument;
@@ -555,9 +556,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// No mouse tracking: terminals translate the wheel to arrow keys in the
 	// alt screen (alternate scroll), and grabbing the mouse would break
 	// native text selection.
-	p := tea.NewProgram(ui.NewWithSelection(t, sources, *toolbox, *watch, historyFile(*noHistory), version, *publicDNS, publicDNSAuto, selection,
+	uiOpts := []ui.Option{
 		ui.WithKeymap(keymap), ui.WithProbeTimeout(*timeout), ui.WithThemeFile(themeFile()),
-		ui.WithSnapshotSelection(checks.strings(), skips.strings()), ui.WithRouteEvents(), ui.WithWatchInterval(interval)), tea.WithAltScreen())
+		ui.WithSnapshotSelection(checks.strings(), skips.strings()), ui.WithRouteEvents(), ui.WithWatchInterval(interval),
+	}
+	if notice := updateNotice(*noUpdateCheck, *noReferenceEgress); notice != nil {
+		uiOpts = append(uiOpts, notice)
+	}
+	p := tea.NewProgram(ui.NewWithSelection(t, sources, *toolbox, *watch, historyFile(*noHistory), version, *publicDNS, publicDNSAuto, selection, uiOpts...), tea.WithAltScreen())
 	final, err := p.Run()
 	// Every way out of Run lands here, including the ones that never reached
 	// the model's own quit path.

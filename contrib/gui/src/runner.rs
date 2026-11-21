@@ -4,7 +4,7 @@ use crate::report::{self, Outcome};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -115,6 +115,12 @@ const EXIT_GRACE: Duration = Duration::from_secs(5);
 
 const CLOSED_OUTPUT: &str = "netdoc closed its output but didn't exit, so it was stopped.";
 
+/// How long a one-shot check or export may run. netdoc budgets its worst-case
+/// pass at 20 s, so two minutes means it is hung. Watch mode has no limit: Stop ends it.
+const RUN_LIMIT: Duration = Duration::from_secs(120);
+
+const TOO_LONG: &str = "netdoc didn't finish within two minutes, so it was stopped.";
+
 /// Stops netdoc for running out of time. A stop the user asked for comes first and wins.
 fn expire_locked(s: &mut Slot, reason: &'static str) {
     if s.stopped {
@@ -163,6 +169,11 @@ impl Handle {
         s.child = Some(child);
     }
 
+    /// Stops netdoc for running out of time, with the reason the window shows.
+    fn expire(&self, reason: &'static str) {
+        expire_locked(&mut self.0.lock().unwrap(), reason);
+    }
+
     /// Why netdoc was stopped for running out of time, if it was.
     fn expired(&self) -> Option<&'static str> {
         self.0.lock().unwrap().expired
@@ -209,6 +220,18 @@ impl Handle {
     }
 }
 
+/// Expires `h` with `reason` once `limit` has passed. Dropping the returned
+/// sender first ends the watchdog, which the worker does once netdoc is reaped.
+fn watchdog(h: Handle, limit: Duration, reason: &'static str) -> Sender<()> {
+    let (done, wait) = channel::<()>();
+    std::thread::spawn(move || {
+        if let Err(RecvTimeoutError::Timeout) = wait.recv_timeout(limit) {
+            h.expire(reason);
+        }
+    });
+    done
+}
+
 /// Keeps only the end of a pipe's output: a long watch can't grow it without
 /// limit, and the last lines are the useful ones.
 fn keep_tail(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<String> {
@@ -240,9 +263,24 @@ pub fn run(
     tx: Sender<Msg>,
     wake: impl Fn() + Send + 'static,
 ) -> Handle {
+    start_run(RUN_LIMIT, bin, profile, target, watch, tx, wake)
+}
+
+fn start_run(
+    limit: Duration,
+    bin: PathBuf,
+    profile: Option<String>,
+    target: Option<String>,
+    watch: Option<u32>,
+    tx: Sender<Msg>,
+    wake: impl Fn() + Send + 'static,
+) -> Handle {
     let handle = Handle::default();
     let h = handle.clone();
     std::thread::spawn(move || {
+        let _limit = watch
+            .is_none()
+            .then(|| watchdog(h.clone(), limit, TOO_LONG));
         let mut cmd = netdoc_command(&bin);
         cmd.arg("--json");
         if let Some(p) = &profile {
@@ -338,8 +376,21 @@ pub fn save_support(
     tx: Sender<Msg>,
     wake: impl Fn() + Send + 'static,
 ) -> std::thread::JoinHandle<()> {
+    start_save(RUN_LIMIT, stop, bin, (profile, target), dest, tx, wake)
+}
+
+fn start_save(
+    limit: Duration,
+    stop: Handle,
+    bin: PathBuf,
+    (profile, target): (Option<String>, Option<String>),
+    dest: PathBuf,
+    tx: Sender<Msg>,
+    wake: impl Fn() + Send + 'static,
+) -> std::thread::JoinHandle<()> {
     let h = stop;
     std::thread::spawn(move || {
+        let _limit = watchdog(h.clone(), limit, TOO_LONG);
         // The name is claimed before netdoc runs, so no other export can take
         // it. netdoc's own write replaces the empty claim; a failed or stopped
         // export removes it, so nothing that looks like a report is left behind.
@@ -376,7 +427,9 @@ pub fn save_support(
                             Ok(dest)
                         } else {
                             let _ = std::fs::remove_file(&dest);
-                            Err(if h.stopped() {
+                            Err(if let Some(reason) = h.expired() {
+                                reason.into()
+                            } else if h.stopped() {
                                 "The report was stopped before it was written.".into()
                             } else {
                                 format!("netdoc didn't write the report: {}", stderr.trim())
@@ -601,6 +654,52 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "finished"]));
         assert!(took < Duration::from_secs(2), "a normal exit took {took:?}");
+    }
+
+    /// A check that never finishes is expired, so the window can't wait forever.
+    #[cfg(unix)]
+    #[test]
+    fn a_check_that_never_finishes_is_expired() {
+        let dir = scratch("never-finishes");
+        let (tx, rx) = channel();
+        let _h = start_run(
+            Duration::from_secs(1),
+            fake_netdoc(&dir, "exec sleep 60"),
+            None,
+            None,
+            None,
+            tx,
+            || {},
+        );
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["failed", "finished"]));
+    }
+
+    /// An export that never finishes is expired, and its claimed name is released.
+    #[cfg(unix)]
+    #[test]
+    fn a_stalled_export_is_expired_and_leaves_no_claim() {
+        let dir = scratch("stalled-export");
+        let dest = dir.join("network-doctor-report.ndoc");
+        let (tx, rx) = channel();
+        let _join = start_save(
+            Duration::from_secs(1),
+            Handle::default(),
+            fake_netdoc(&dir, "exec sleep 60"),
+            (None, None),
+            dest.clone(),
+            tx,
+            || {},
+        );
+        let res = match rx.recv_timeout(Duration::from_secs(20)) {
+            Ok(Msg::Saved(r)) => r,
+            _ => panic!("the stalled export never finished"),
+        };
+        let left = dest.exists();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(res.is_err(), "a stalled export reported success");
+        assert!(!left, "a stalled export left its claimed file behind");
     }
 
     #[cfg(unix)]

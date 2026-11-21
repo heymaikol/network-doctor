@@ -1476,6 +1476,19 @@ mod tests {
         assert_eq!(seen, Some(vec!["failed", "finished"]));
     }
 
+    /// A bad line after a report is still said, and it stops netdoc.
+    #[cfg(unix)]
+    #[test]
+    fn a_bad_watch_line_after_a_report_is_still_said() {
+        let dir = scratch("bad-line-after-report");
+        let (tx, rx) = channel();
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\necho 'not json'\nexec sleep 60";
+        let _h = run(fake_netdoc(&dir, body), None, None, Some(5), tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
+    }
+
     #[test]
     fn path_lookup_ignores_the_current_folder() {
         let dir = std::env::temp_dir().join(format!("netdoc-gui-test-{}", std::process::id()));

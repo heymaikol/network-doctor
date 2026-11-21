@@ -1259,6 +1259,9 @@ mod access {
             .output()
             .unwrap();
         let after = std::env::var_os("NETDOC");
+        // The child writes this last. Without it the child ran nothing: a wrong name
+        // makes libtest run zero tests and still report success.
+        let finished = dir.join("finished").exists();
         std::fs::remove_dir_all(&dir).unwrap();
         // This process's environment must be unchanged: the stub stays in the child.
         assert_eq!(after, before, "the stub leaked into this process");
@@ -1268,6 +1271,7 @@ mod access {
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
+        assert!(finished, "the child test {child} never reached its end");
     }
 
     /// The stand-in netdoc's record of checks, read by the child process.
@@ -1429,6 +1433,7 @@ mod access {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(checks_started(), "Enter on Check again started no check");
+        std::fs::write(stub_log().with_file_name("finished"), "").unwrap();
     }
 
     #[test]

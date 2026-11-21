@@ -607,6 +607,8 @@ mod tests {
         }
     }
 
+    /// A fresh directory for one test. Only the Unix-only lifecycle tests use it.
+    #[cfg(unix)]
     fn scratch(name: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

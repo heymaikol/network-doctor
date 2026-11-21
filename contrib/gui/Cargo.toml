@@ -11,8 +11,9 @@ eframe = { version = "=0.36.2", default-features = false, features = ["glow", "d
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# Only the Linux device-name lookup and the stop-with-the-window guard need it.
-[target.'cfg(target_os = "linux")'.dependencies]
+# The stop signal (SIGTERM) on Unix, the Linux device-name lookup, and the
+# stop-with-the-window guard on Linux.
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [profile.release]

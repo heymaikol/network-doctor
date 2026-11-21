@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// How much of netdoc's error output to keep.
 const STDERR_KEEP: usize = 8 * 1024;
@@ -93,16 +94,108 @@ pub fn version(bin: &Path) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// A running diagnosis that can be stopped.
+/// A running netdoc that can be stopped. `stop` works at any time: a child
+/// that isn't attached yet is stopped as soon as it is.
 #[derive(Clone, Default)]
-pub struct Handle(Arc<Mutex<Option<Child>>>);
+pub struct Handle(Arc<Mutex<Slot>>);
+
+#[derive(Default)]
+struct Slot {
+    child: Option<Child>,
+    stopped: bool,
+}
+
+/// How long netdoc gets to exit after a stop, before it is killed.
+const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// SIGTERM on Unix, which netdoc answers by cancelling its probes and removing
+/// its temporary files. Windows has no such signal, so the process is ended.
+fn ask_to_stop(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: the child is attached and not yet reaped, so its id is still its own.
+        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
+}
 
 impl Handle {
     pub fn stop(&self) {
-        if let Some(c) = self.0.lock().unwrap().as_mut() {
-            let _ = c.kill();
+        let mut s = self.0.lock().unwrap();
+        s.stopped = true;
+        if let Some(c) = s.child.as_mut() {
+            ask_to_stop(c);
         }
     }
+
+    fn stopped(&self) -> bool {
+        self.0.lock().unwrap().stopped
+    }
+
+    /// Hands the started child over. A stop asked for before this applies now.
+    fn attach(&self, mut child: Child) {
+        let mut s = self.0.lock().unwrap();
+        if s.stopped {
+            ask_to_stop(&mut child);
+        }
+        s.child = Some(child);
+    }
+
+    /// Waits for the attached child and returns its exit code. It is reaped
+    /// under the lock, so a stop never signals a process that is already gone.
+    fn reap(&self) -> Option<i32> {
+        let mut asked: Option<Instant> = None;
+        loop {
+            {
+                let mut s = self.0.lock().unwrap();
+                let stopped = s.stopped;
+                let child = s.child.as_mut()?;
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        s.child = None;
+                        return status.code();
+                    }
+                    Err(_) => {
+                        s.child = None;
+                        return None;
+                    }
+                    Ok(None) if stopped => {
+                        let since = *asked.get_or_insert_with(Instant::now);
+                        if since.elapsed() > STOP_GRACE {
+                            let _ = child.kill();
+                        }
+                    }
+                    Ok(None) => {}
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+/// Keeps only the end of a pipe's output: a long watch can't grow it without
+/// limit, and the last lines are the useful ones.
+fn keep_tail(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut kept: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = pipe.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            kept.extend_from_slice(&buf[..n]);
+            if kept.len() > 2 * STDERR_KEEP {
+                kept.drain(..kept.len() - STDERR_KEEP);
+            }
+        }
+        if kept.len() > STDERR_KEEP {
+            kept.drain(..kept.len() - STDERR_KEEP);
+        }
+        String::from_utf8_lossy(&kept).into_owned()
+    })
 }
 
 /// Run `netdoc --json [--profile NAME] [--watch] [target]`. One report per line in watch mode.
@@ -138,32 +231,18 @@ pub fn run(
             Ok(c) => c,
             Err(e) => {
                 let _ = tx.send(Msg::Failed(format!("Couldn't start netdoc: {e}")));
+                // Every run ends with Finished, so the window is never left waiting.
+                let _ = tx.send(Msg::Finished {
+                    code: None,
+                    stderr: String::new(),
+                });
                 wake();
                 return;
             }
         };
         let stdout = child.stdout.take().unwrap();
-        let mut stderr = child.stderr.take().unwrap();
-        *h.0.lock().unwrap() = Some(child);
-        // Only the end of the error output is kept: a long watch can't
-        // grow it without limit, and the last lines are the useful ones.
-        let err_thread = std::thread::spawn(move || {
-            let mut kept: Vec<u8> = Vec::new();
-            let mut buf = [0u8; 4096];
-            while let Ok(n) = stderr.read(&mut buf) {
-                if n == 0 {
-                    break;
-                }
-                kept.extend_from_slice(&buf[..n]);
-                if kept.len() > 2 * STDERR_KEEP {
-                    kept.drain(..kept.len() - STDERR_KEEP);
-                }
-            }
-            if kept.len() > STDERR_KEEP {
-                kept.drain(..kept.len() - STDERR_KEEP);
-            }
-            String::from_utf8_lossy(&kept).into_owned()
-        });
+        let err_thread = keep_tail(child.stderr.take().unwrap());
+        h.attach(child);
         if watch.is_some() {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if line.trim().is_empty() {
@@ -174,6 +253,8 @@ pub fn run(
                         let _ = tx.send(Msg::Report(r));
                         wake();
                     }
+                    // A line cut short by a stop the user asked for is not a bad report.
+                    Err(_) if h.stopped() => break,
                     Err(e) => {
                         // Stop netdoc for real, so "stopped" on screen is true.
                         h.stop();
@@ -186,19 +267,14 @@ pub fn run(
         } else {
             let mut s = String::new();
             let _ = BufReader::new(stdout).read_to_string(&mut s);
-            if !s.trim().is_empty() {
+            if !s.trim().is_empty() && !h.stopped() {
                 let _ = tx.send(match report::parse(&s) {
                     Ok(r) => Msg::Report(r),
                     Err(e) => Msg::Failed(e),
                 });
             }
         }
-        let code =
-            h.0.lock()
-                .unwrap()
-                .take()
-                .and_then(|mut c| c.wait().ok())
-                .and_then(|s| s.code());
+        let code = h.reap();
         let stderr = err_thread.join().unwrap_or_default();
         let _ = tx.send(Msg::Finished { code, stderr });
         wake();
@@ -207,6 +283,7 @@ pub fn run(
 }
 
 /// `netdoc --support FILE [target]`: the privacy-conscious report for sharing.
+/// Its handle stops it, which closing the window does.
 pub fn save_support(
     bin: PathBuf,
     profile: Option<String>,
@@ -214,11 +291,13 @@ pub fn save_support(
     dest: PathBuf,
     tx: Sender<Msg>,
     wake: impl Fn() + Send + 'static,
-) {
+) -> Handle {
+    let handle = Handle::default();
+    let h = handle.clone();
     std::thread::spawn(move || {
         // The name is claimed before netdoc runs, so no other export can take
-        // it. netdoc's own write replaces the empty claim; a failed export
-        // removes it, so nothing that looks like a report is left behind.
+        // it. netdoc's own write replaces the empty claim; a failed or stopped
+        // export removes it, so nothing that looks like a report is left behind.
         let res = match reserve(dest) {
             Err(e) => Err(format!("Couldn't create the report file: {e}")),
             Ok(dest) => {
@@ -228,30 +307,44 @@ pub fn save_support(
                     cmd.arg("--profile").arg(p);
                 }
                 if let Some(t) = &target {
+                    // "--" so a target can never be read as an option.
                     cmd.arg("--").arg(t);
                 }
-                let out = cmd.stdin(Stdio::null()).output();
-                // 0 = healthy, 1 = a problem was found; both write the file.
-                // Anything else (2 = usage or write error) means it didn't.
-                let written = matches!(out.as_ref().map(|o| o.status.code()), Ok(Some(0 | 1)))
-                    && std::fs::metadata(&dest).is_ok_and(|m| m.len() > 0);
-                if written {
-                    Ok(dest)
-                } else {
-                    let _ = std::fs::remove_file(&dest);
-                    Err(match out {
-                        Ok(out) => format!(
-                            "netdoc didn't write the report: {}",
-                            String::from_utf8_lossy(&out.stderr).trim()
-                        ),
-                        Err(e) => format!("Couldn't start netdoc: {e}"),
-                    })
+                cmd.stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped());
+                match cmd.spawn() {
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&dest);
+                        Err(format!("Couldn't start netdoc: {e}"))
+                    }
+                    Ok(mut child) => {
+                        let err_thread = keep_tail(child.stderr.take().unwrap());
+                        h.attach(child);
+                        let code = h.reap();
+                        let stderr = err_thread.join().unwrap_or_default();
+                        // 0 = healthy, 1 = a problem was found; both write the file.
+                        // Anything else (2 = usage or write error, or a stop) means it didn't.
+                        let written = matches!(code, Some(0 | 1))
+                            && std::fs::metadata(&dest).is_ok_and(|m| m.len() > 0);
+                        if written {
+                            Ok(dest)
+                        } else {
+                            let _ = std::fs::remove_file(&dest);
+                            Err(if h.stopped() {
+                                "The report was stopped before it was written.".into()
+                            } else {
+                                format!("netdoc didn't write the report: {}", stderr.trim())
+                            })
+                        }
+                    }
                 }
             }
         };
         let _ = tx.send(Msg::Saved(res));
         wake();
     });
+    handle
 }
 
 /// How many names to try in one folder before giving up.
@@ -292,6 +385,135 @@ fn reserve(dest: PathBuf) -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::{Receiver, channel};
+    use std::time::{Duration, Instant};
+
+    /// The kinds of message up to and including `Finished`, or None if it
+    /// doesn't arrive within `limit`.
+    fn until_finished(rx: &Receiver<Msg>, limit: Duration) -> Option<Vec<&'static str>> {
+        let deadline = Instant::now() + limit;
+        let mut seen = Vec::new();
+        loop {
+            let left = deadline.checked_duration_since(Instant::now())?;
+            match rx.recv_timeout(left).ok()? {
+                Msg::Report(_) => seen.push("report"),
+                Msg::Failed(_) => seen.push("failed"),
+                Msg::Saved(_) => seen.push("saved"),
+                Msg::Finished { .. } => {
+                    seen.push("finished");
+                    return Some(seen);
+                }
+            }
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("netdoc-gui-{name}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A stand-in netdoc: a shell script running `body`.
+    #[cfg(unix)]
+    fn fake_netdoc(dir: &Path, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join("netdoc-fake");
+        std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    }
+
+    #[test]
+    fn a_missing_netdoc_still_finishes() {
+        let (tx, rx) = channel();
+        let _h = run(
+            PathBuf::from("/nonexistent/netdoc"),
+            None,
+            None,
+            None,
+            tx,
+            || {},
+        );
+        assert_eq!(
+            until_finished(&rx, Duration::from_secs(10)),
+            Some(vec!["failed", "finished"])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_reaches_a_netdoc_that_is_still_starting() {
+        let dir = scratch("early-stop");
+        let (tx, rx) = channel();
+        let h = run(
+            fake_netdoc(&dir, "exec sleep 60"),
+            None,
+            None,
+            None,
+            tx,
+            || {},
+        );
+        h.stop();
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            seen.is_some(),
+            "a stop before the child was attached was lost"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stop_after_a_report_is_quiet() {
+        let dir = scratch("late-stop");
+        let (tx, rx) = channel();
+        let h = run(
+            fake_netdoc(
+                &dir,
+                "echo '{\"verdict\":\"ok\",\"ok\":true,\"checks\":[],\"summary\":\"x\"}'\nexec sleep 60",
+            ),
+            None,
+            None,
+            Some(5),
+            tx,
+            || {},
+        );
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(10)),
+            Ok(Msg::Report(_))
+        ));
+        h.stop();
+        let rest = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            rest,
+            Some(vec!["finished"]),
+            "a stop must not report a failure"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_bad_watch_line_stops_netdoc_and_says_so() {
+        let dir = scratch("bad-line");
+        let (tx, rx) = channel();
+        let _h = run(
+            fake_netdoc(&dir, "echo 'not json'\nexec sleep 60"),
+            None,
+            None,
+            Some(5),
+            tx,
+            || {},
+        );
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["failed", "finished"]));
+    }
 
     #[test]
     fn path_lookup_ignores_the_current_folder() {

@@ -446,6 +446,8 @@ mod tests {
         let port = l.local_addr().unwrap().port();
         assert!(knock(Ipv4Addr::LOCALHOST, port) == Answer::Open);
         drop(l);
-        assert!(knock(Ipv4Addr::LOCALHOST, port) == Answer::Refused);
+        // A freed ephemeral port can become another test's outgoing source port,
+        // which then connects back to itself. Port 1 is never ephemeral.
+        assert!(knock(Ipv4Addr::LOCALHOST, 1) == Answer::Refused);
     }
 }

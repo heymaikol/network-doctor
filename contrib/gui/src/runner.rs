@@ -1034,70 +1034,128 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Exports from separate processes must never share a name. Each child
-    /// picks a name, then waits until every peer has picked one, so a
-    /// check-then-write choice gives all of them the same path.
-    #[test]
-    fn concurrent_exports_never_share_a_name() {
-        const PEERS: usize = 8;
-        if let Ok(dir) = std::env::var("NETDOC_GUI_CLAIM_DIR") {
-            let dir = PathBuf::from(dir);
-            let me: usize = std::env::var("NETDOC_GUI_CLAIM_ID")
-                .unwrap()
-                .parse()
-                .unwrap();
-            let name = reserve(dir.join("network-doctor-report.ndoc")).unwrap();
-            std::fs::write(dir.join(format!("ready-{me}")), "").unwrap();
-            while std::fs::read_dir(&dir)
-                .unwrap()
-                .filter_map(Result::ok)
-                .filter(|e| e.file_name().to_string_lossy().starts_with("ready-"))
-                .count()
-                < PEERS
-            {
-                std::thread::sleep(std::time::Duration::from_millis(2));
-            }
-            println!("CLAIM {}", name.display());
-            return;
+    /// How many child processes race for a name in `run_claims`.
+    const PEERS: usize = 8;
+
+    /// How many peers have written their ready file so far.
+    fn ready_peers(dir: &Path) -> usize {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().starts_with("ready-"))
+            .count()
+    }
+
+    /// The check-then-write claim that export naming used before `reserve`.
+    fn naive_claim(dir: &Path) -> PathBuf {
+        let dest = dir.join("network-doctor-report.ndoc");
+        if dest.exists() {
+            dir.join("network-doctor-report-2.ndoc")
+        } else {
+            dest
         }
+    }
+
+    /// The first claim that another peer also holds, if any.
+    fn duplicate_claim(claims: &[String]) -> Option<&String> {
+        let mut seen = std::collections::HashSet::new();
+        claims.iter().find(|c| !seen.insert(c.as_str()))
+    }
+
+    /// The child side of `run_claims`. As an ordinary test it does nothing: it
+    /// acts only when the parent has set its environment. It claims a name,
+    /// writes the claim to a file, and waits until every peer has claimed too.
+    #[test]
+    fn claim_child() {
+        let Ok(dir) = std::env::var("NETDOC_GUI_CLAIM_DIR") else {
+            return;
+        };
+        let dir = PathBuf::from(dir);
+        let me: usize = std::env::var("NETDOC_GUI_CLAIM_ID")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let claim = if std::env::var_os("NETDOC_GUI_CLAIM_NAIVE").is_some() {
+            naive_claim(&dir)
+        } else {
+            reserve(dir.join("network-doctor-report.ndoc")).unwrap()
+        };
+        std::fs::write(dir.join(format!("claim-{me}")), claim.display().to_string()).unwrap();
+        std::fs::write(dir.join(format!("ready-{me}")), "").unwrap();
+        // Bounded, so a peer that failed before becoming ready cannot hang the run.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while ready_peers(&dir) < PEERS {
+            assert!(
+                Instant::now() < deadline,
+                "the peers never all became ready"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// `PEERS` child processes claim names at the same moment, and this returns
+    /// each child's claim, read from the file it wrote. Results travel through
+    /// files, not stdout, so they do not depend on libtest's output format or on
+    /// the thread count the runner was given.
+    fn run_claims(naive: bool) -> Vec<String> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let dir =
-            std::env::temp_dir().join(format!("netdoc-gui-claim-{}-{nanos}", std::process::id()));
+            std::env::temp_dir().join(format!("netdoc-gui-claims-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let exe = std::env::current_exe().unwrap();
         let children: Vec<_> = (0..PEERS)
             .map(|i| {
-                std::process::Command::new(&exe)
-                    .args([
-                        "--exact",
-                        "runner::tests::concurrent_exports_never_share_a_name",
-                        "--nocapture",
-                    ])
+                let mut cmd = std::process::Command::new(&exe);
+                cmd.args(["--exact", "runner::tests::claim_child", "--nocapture"])
                     .env("NETDOC_GUI_CLAIM_DIR", &dir)
                     .env("NETDOC_GUI_CLAIM_ID", i.to_string())
-                    .stdout(Stdio::piped())
-                    .spawn()
-                    .unwrap()
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped());
+                if naive {
+                    cmd.env("NETDOC_GUI_CLAIM_NAIVE", "1");
+                }
+                cmd.spawn().unwrap()
             })
             .collect();
-        let mut names = std::collections::BTreeSet::new();
+        let mut failures = Vec::new();
         for child in children {
             let out = child.wait_with_output().unwrap();
-            assert!(
-                out.status.success(),
-                "child failed: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-            for line in String::from_utf8_lossy(&out.stdout).lines() {
-                if let Some(p) = line.strip_prefix("CLAIM ") {
-                    names.insert(p.to_string());
-                }
+            if !out.status.success() {
+                failures.push(String::from_utf8_lossy(&out.stderr).into_owned());
             }
         }
+        let claims: Vec<String> = (0..PEERS)
+            .filter_map(|i| std::fs::read_to_string(dir.join(format!("claim-{i}"))).ok())
+            .collect();
         std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(names.len(), PEERS, "exports shared a name: {names:?}");
+        assert!(failures.is_empty(), "a child failed: {failures:?}");
+        assert_eq!(claims.len(), PEERS, "a child wrote no claim");
+        claims
+    }
+
+    /// Exports from separate processes must never share a name.
+    #[test]
+    fn concurrent_exports_never_share_a_name() {
+        let claims = run_claims(false);
+        assert_eq!(
+            duplicate_claim(&claims),
+            None,
+            "exports shared a name: {claims:?}"
+        );
+    }
+
+    /// Negative control: the harness must catch the check-then-write claim.
+    /// Every child sees the name free before any of them writes, so they all pick it.
+    #[test]
+    fn duplicate_claims_are_caught() {
+        assert_eq!(duplicate_claim(&["a".to_string(), "b".to_string()]), None);
+        let claims = run_claims(true);
+        assert!(
+            duplicate_claim(&claims).is_some(),
+            "the harness missed a shared name: {claims:?}"
+        );
     }
 }

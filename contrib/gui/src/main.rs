@@ -479,7 +479,9 @@ impl App {
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
-                if look::button(ui, "⚙", false, true).on_hover_text("Settings").clicked() {
+                let gear = look::button(ui, "⚙", false, true);
+                gear.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings"));
+                if gear.on_hover_text("Settings").clicked() {
                     self.show_settings = !self.show_settings;
                 }
                 if look::button(ui, "Export report", true, self.netdoc.is_some() && self.running.is_none() && self.saving.is_none() && self.current().is_some())
@@ -506,10 +508,16 @@ impl App {
             ui.label("Theme");
             ui.horizontal_wrapped(|ui| {
                 for (i, (name, theme)) in look::THEMES.iter().enumerate() {
-                    if look::swatch(ui, theme, i == self.theme)
-                        .on_hover_text(*name)
-                        .clicked()
-                    {
+                    let swatch = look::swatch(ui, theme, i == self.theme);
+                    swatch.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::RadioButton,
+                            true,
+                            i == self.theme,
+                            *name,
+                        )
+                    });
+                    if swatch.on_hover_text(*name).clicked() {
                         self.theme = i;
                         look::set_theme(ui.ctx(), i);
                         save_theme(i);
@@ -560,7 +568,7 @@ impl App {
                     }
                 }
                 ui.horizontal(|ui| {
-                    look::toggle(ui, &mut self.watch).on_hover_text("Keep checking, to catch problems that come and go");
+                    look::toggle(ui, "Keep watching", &mut self.watch).on_hover_text("Keep checking, to catch problems that come and go");
                     ui.label("Keep watching");
                     if self.watch {
                         ui.label(weak("every"));
@@ -876,7 +884,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(look::caption("Step by step"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    look::toggle(ui, &mut self.details);
+                    look::toggle(ui, "Show details", &mut self.details);
                     ui.label(weak("Show details"));
                 });
             });
@@ -1022,8 +1030,9 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+impl App {
+    /// The whole window, drawn into `ui`. Tests drive this without a native window.
+    fn show(&mut self, ui: &mut egui::Ui) {
         self.poll();
         self.take_screenshot(ui);
         egui::Panel::top("top")
@@ -1087,6 +1096,12 @@ impl eframe::App for App {
     }
 }
 
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.show(ui);
+    }
+}
+
 impl Drop for App {
     fn drop(&mut self) {
         self.stop();
@@ -1134,6 +1149,87 @@ mod tests {
         assert_eq!(
             exit_error(None, "", false),
             Some("netdoc stopped without a result.".into())
+        );
+    }
+}
+
+/// The window driven headlessly through its accessibility tree: names,
+/// roles and keyboard use, as an assistive technology would see them.
+#[cfg(test)]
+mod access {
+    use super::*;
+    use egui::accesskit::Role;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    fn window() -> Harness<'static, App> {
+        Harness::new_ui_state(
+            |ui, app: &mut App| app.show(ui),
+            App::new(egui::Context::default()),
+        )
+    }
+
+    #[test]
+    fn the_main_controls_have_names_and_roles() {
+        let mut h = window();
+        h.run();
+        h.get_by_role_and_label(Role::Button, "Settings");
+        h.get_by_role_and_label(Role::Button, "Export report");
+        h.get_by_role_and_label(Role::Button, "Check my connection");
+        h.get_by_role_and_label(Role::RadioButton, "My connection");
+        h.get_by_role_and_label(Role::RadioButton, "A website or server");
+        h.get_by_role_and_label(Role::RadioButton, "A service");
+        h.get_by_role_and_label(Role::CheckBox, "Keep watching");
+    }
+
+    #[test]
+    fn the_theme_swatches_are_named() {
+        let mut h = window();
+        h.state_mut().show_settings = true;
+        h.run();
+        for (name, _) in look::THEMES.iter() {
+            h.get_by_role_and_label(Role::RadioButton, name);
+        }
+    }
+
+    #[test]
+    fn the_settings_button_opens_from_the_keyboard() {
+        let mut h = window();
+        h.run();
+        h.get_by_role_and_label(Role::Button, "Settings").focus();
+        h.run();
+        h.key_press(egui::Key::Enter);
+        h.run();
+        assert!(
+            h.state().show_settings,
+            "Enter on the focused Settings button did nothing"
+        );
+    }
+
+    #[test]
+    fn tab_reaches_a_mode_choice_and_enter_selects_it() {
+        let mut h = window();
+        h.run();
+        for _ in 0..60 {
+            if h.get_by_role_and_label(Role::RadioButton, "A service")
+                .is_focused()
+            {
+                break;
+            }
+            h.key_press(egui::Key::Tab);
+            h.run();
+        }
+        assert!(
+            h.get_by_role_and_label(Role::RadioButton, "A service")
+                .is_focused(),
+            "Tab never reached the A service choice"
+        );
+        h.key_press(egui::Key::Enter);
+        h.run();
+        assert_eq!(
+            h.state().mode,
+            2,
+            "Enter on the focused choice did not select it"
         );
     }
 }

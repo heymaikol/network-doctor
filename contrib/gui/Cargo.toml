@@ -19,3 +19,6 @@ libc = "0.2"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+[dev-dependencies]
+egui_kittest = { version = "=0.36.2", default-features = false }

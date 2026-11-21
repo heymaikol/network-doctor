@@ -273,7 +273,7 @@ pub fn install(ctx: &egui::Context) {
 }
 
 /// An on/off switch whose knob slides across.
-pub fn toggle(ui: &mut egui::Ui, on: &mut bool) -> Response {
+pub fn toggle(ui: &mut egui::Ui, label: &str, on: &mut bool) -> Response {
     let size = vec2(44.0, 24.0);
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     if resp.clicked() {
@@ -281,7 +281,7 @@ pub fn toggle(ui: &mut egui::Ui, on: &mut bool) -> Response {
         resp.mark_changed();
     }
     resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, label)
     });
     if ui.is_rect_visible(rect) {
         let t = ease(ui.ctx(), resp.id, *on, 0.18);
@@ -338,6 +338,7 @@ pub fn button(ui: &mut egui::Ui, text: &str, primary: bool, enabled: bool) -> Re
             Sense::hover()
         },
     );
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, text));
     if ui.is_rect_visible(rect) {
         let hover = ease(
             ui.ctx(),
@@ -415,6 +416,9 @@ pub fn tabs(ui: &mut egui::Ui, id: &str, chosen: &mut usize, labels: &[&str]) ->
         let resp = ui
             .interact(*r, ui.id().with(id).with(i), Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand);
+        resp.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, i == *chosen, labels[i])
+        });
         if resp.clicked() && *chosen != i {
             *chosen = i;
             changed = true;
@@ -527,6 +531,9 @@ pub fn chip(ui: &mut egui::Ui, text: &str, enabled: bool, clickable: bool) -> Re
             Sense::hover()
         },
     );
+    resp.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && clickable, text)
+    });
     let hover = enabled && ui.rect_contains_pointer(rect);
     let p = ui.painter();
     p.rect_filled(

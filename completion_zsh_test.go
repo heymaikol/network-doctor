@@ -276,3 +276,75 @@ func TestZshCompletionOffersSnapshotsOnlyWhereTheyAreRead(t *testing.T) {
 		})
 	}
 }
+
+// zshListedOption matches one entry of zsh's match list, "NAME  -- description".
+// Matching the bare name would also count a name that appears only in another
+// option's description, such as --verify-ssh in "with --verify-ssh, ...".
+var zshListedOption = regexp.MustCompile(`(?m)^\s*(-{1,2}[a-z][a-z-]*)\s+--\s`)
+
+// TestZshCompletionKeepsVerifySSHBesideItsCompanions checks that the verification
+// flags complete beside one another. Each companion excluded --verify-ssh, so typing
+// any companion removed the mode flag from completion, and a companion's single-dash
+// spelling stayed offered after its double-dash spelling was used.
+func TestZshCompletionKeepsVerifySSHBesideItsCompanions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("zpty needs a pseudo-terminal")
+	}
+
+	cases := []struct {
+		name string
+		line string
+		// listed must be offered and absent must not be. Each prefix still has at
+		// least two candidates, so zsh lists them rather than completing one.
+		listed []string
+		absent []string
+	}{
+		{
+			name:   "mode after a companion",
+			line:   "netdoc --verify-user alice --verify-",
+			listed: []string{"--verify-ssh", "--verify-auth"},
+		},
+		{
+			name:   "mode after the trust flag",
+			line:   "netdoc --trust-host-key fp --verify-",
+			listed: []string{"--verify-ssh"},
+		},
+		{
+			name:   "single-dash mode after a companion, which is itself used",
+			line:   "netdoc --verify-user alice -verify-",
+			listed: []string{"-verify-ssh"},
+			absent: []string{"-verify-user"},
+		},
+		{
+			name:   "companion after the mode",
+			line:   "netdoc --verify-ssh --verify-",
+			listed: []string{"--verify-user", "--verify-auth"},
+		},
+		{
+			name:   "trust flag after a companion",
+			line:   "netdoc --verify-user alice --t",
+			listed: []string{"--trust-host-key"},
+		},
+	}
+
+	fixture := completionFixture(t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := completionMatches(t, fixture, tc.line)
+			names := map[string]bool{}
+			for _, m := range zshListedOption.FindAllStringSubmatch(got, -1) {
+				names[m[1]] = true
+			}
+			for _, want := range tc.listed {
+				if !names[want] {
+					t.Errorf("%q did not list %s\n%s", tc.line, want, got)
+				}
+			}
+			for _, not := range tc.absent {
+				if names[not] {
+					t.Errorf("%q still listed %s\n%s", tc.line, not, got)
+				}
+			}
+		})
+	}
+}

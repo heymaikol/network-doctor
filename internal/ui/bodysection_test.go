@@ -325,7 +325,6 @@ func TestBoxedSurfacesKeepTheirBorders(t *testing.T) {
 		{"actions menu", func(m model) string { return m.actionsView(0) }},
 		{"theme picker", func(m model) string { return m.themeView() }},
 		{"restart prompt", func(m model) string { m.entering = true; return m.promptView(true) }},
-		{"ssh form", func(m model) string { m.ssh.host = "192.168.1.50:22"; return m.sshFormView() }},
 		{"tool confirmation", func(m model) string {
 			m.confirmTool = &m.tools[0]
 			return m.confirmView()

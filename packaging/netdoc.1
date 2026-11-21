@@ -177,6 +177,43 @@ The per-check timeout set by
 .B \-timeout
 is independent of this pause.
 .TP
+.B \-verify\-ssh
+Check the SSH authentication of the target without opening a shell.
+Without
+.B \-verify\-auth
+it lists the methods the server offers and sends no credential.
+With it, exactly one credential is sent, once, and the result is reported.
+Runs no probes.
+.TP
+.BI \-verify\-auth " method"
+With
+.BR \-verify\-ssh ,
+verify one credential: \fBpassword\fR, \fBkey\fR, or \fBagent\fR.
+.TP
+.BI \-verify\-key " file"
+With \fB\-verify\-auth key\fR, the private key file to verify.
+.TP
+.BI \-verify\-agent\-key " fingerprint"
+With \fB\-verify\-auth agent\fR, the SHA256 fingerprint of the agent key
+to offer.
+.TP
+.BI \-verify\-user " name"
+With
+.BR \-verify\-ssh ,
+the login name. The default is the one in your SSH configuration.
+.TP
+.B \-password\-stdin
+With
+.BR \-verify\-auth ,
+read the password or key passphrase from one line of standard input,
+not the terminal.
+.TP
+.BI \-trust\-host\-key " fingerprint"
+With
+.BR \-verify\-ssh ,
+accept an unknown host key with this SHA256 fingerprint for this check
+only. Nothing is written to known_hosts.
+.TP
 .BI \-profile " name"
 Run a built-in service diagnostic plan headlessly. Use
 .B \-profile list

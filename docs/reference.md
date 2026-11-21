@@ -143,6 +143,7 @@ netdoc --public-dns 9.9.9.9 host  # take the second opinion from Quad9 instead
 netdoc --no-history host          # don't read or save the target history file
 netdoc --peer-listen 192.168.1.20:4242  # wait for one directly reachable peer
 netdoc --peer-connect             # paste its temporary pairing string when prompted
+netdoc -verify-ssh tester@host  # list the SSH methods the server offers; sends no credential
 ```
 
 `--timeout` overrides the per-check probe timeout; see `netdoc --help` for the default. It takes a positive Go duration that is a whole number of milliseconds, because milliseconds are the precision the snapshot option and the remote request can carry, and a setting accepted here has to mean the same thing on the machine that probes and in the artifact that records it. A finer value such as `500us` or `1.9ms` is a usage error (exit `2`) reported before any probe or SSH connection starts, rather than a budget quietly rounded to something else. It stays a per-check budget under `--via`, where the acquisition additionally carries an overall bound derived from it; see [Time limits](#time-limits). `--watch` starts another pass after each run, five seconds later by default. `--watch-interval DURATION` sets that pause to any duration of at least one second, such as `30s` or `1m`; it is measured from the end of one pass to the start of the next, so a slow pass is neither overlapped nor cut short, and it is refused without `--watch`. It does not change `--timeout`, which still bounds each check. In the TUI and in `--watch` without `--profile`, a passing check can be answered from its measurement on an earlier pass for up to a minute, so a stable pass runs only the checks it cannot reuse. On Linux, a route, address, link, policy-rule, or nexthop change reported by netlink refuses every reused check, so the next pass measures them again; other platforms rely on the minute alone. If a pass that reused a check finds a status or cause changed, or finds that the routes measured by the checks that always run have changed, that pass is discarded and the next one, which measures every check, is shown instead. After a pass that is not OK, every check runs until the network is OK again, and a pass that measures every check comes at least once a minute, or on every pass when the interval is a minute or longer. With `--profile`, every pass runs every check. The TUI labels a reused check with the time it was measured, and builds incident timelines only from passes that measured every check; a healthy pass that a route change landed during is left out as well, while a failing one is kept. In the TUI it shows the last 20 states plus a failure count for every check, and with `--json` it streams the same report on stdout, one compact JSON object per line, until the process is interrupted. Those lines carry an extra `ts` field (RFC 3339, UTC) and are otherwise the one-shot report unchanged, except that a reused check reports `ms` as 0 and carries no marker yet; one-shot output stays pretty-printed, with no `ts`.
@@ -209,11 +210,11 @@ The TUI's default key bindings:
 | `y` / `w` (viewer) | copy / save the viewer's retained output (up to 5,000 lines; respects its filter) |
 | `r` | restart with a new target |
 | `R` | retest: rerun the same checks on the same target, after acting on the remediation the answer block shows |
-| `S` | SSH login: a form for username, key, and password, then hands the terminal to `ssh` (hinted only once the SSH banner check passes, but usable against any target) |
 | `tab` | switch between running tool jobs |
 | `esc` | cancel the focused job only (`tab` picks which), or leave an opened device on the map; `q` is the stop-everything path |
 | `y` / `w` | yank / write (copy / save locally) a reviewable report of the chain plus every tool job |
 | `T` | pick a colour theme, previewed as you move; `enter` keeps it, `esc` restores the one you had |
+| `S` | check SSH credentials: list the methods the server offers, then send one password, key, or agent credential, once; offered after the SSH banner check passes. See [SSH credential verification](#ssh-credential-verification) |
 | `?` | full-screen key cheatsheet; any key closes it |
 | `q` | quit (cancels running jobs first, then exits) |
 
@@ -225,7 +226,7 @@ The `?` cheatsheet is sectioned by the same groups the Actions menu sorts into (
 
 `space` opens the Actions menu: the actions and drill-down tools that apply to the current state, labelled with their active-preset key when they have one. Up/down or `j`/`k` move, `enter` runs the selected row, `esc` closes, and any shortcut pressed while it is open runs exactly as it does outside it, the confirmation gate on the active scans included. Rescan network is deliberately menu-only and appears after a LAN scan finishes. The rows are generated from the same action and tool definitions used by dispatch, so menu selection keeps stable action identity even as rows appear or disappear.
 
-The rows are grouped by what the action acts on, under headings in a fixed order: `This run` (the diagnosis and its evidence: full output, switch/cancel job, expand checks, explain why, incidents, retest), `This network` (the network map, open device, diagnose service, rescan network, SSH login), `Drill down` (the installed tools), `Report` (copy, save) and `Session` (restart, theme, help, quit). The order is the distance from the question the menu answers, "what do I do about this run?", so the next troubleshooting step is always above the housekeeping. Within a group the rows keep the cheatsheet's order, so state can move a row between groups but never inside one. The headings are drawn from the rows, so an empty group prints nothing, they are never selectable, and `enter` only ever runs an action. A group whose rows are scrolled out of view still labels the window it opens in; on a terminal too short for the labels to explain more rows than they cost, the menu drops them and spends every line on actions. It is discovery only: no probe, diagnosis, report, or exit code changes with it.
+The rows are grouped by what the action acts on, under headings in a fixed order: `This run` (the diagnosis and its evidence: full output, switch/cancel job, expand checks, explain why, incidents, retest), `This network` (the network map, open device, diagnose service, rescan network), `Drill down` (the installed tools), `Report` (copy, save) and `Session` (restart, theme, help, quit). The order is the distance from the question the menu answers, "what do I do about this run?", so the next troubleshooting step is always above the housekeeping. Within a group the rows keep the cheatsheet's order, so state can move a row between groups but never inside one. The headings are drawn from the rows, so an empty group prints nothing, they are never selectable, and `enter` only ever runs an action. A group whose rows are scrolled out of view still labels the window it opens in; on a terminal too short for the labels to explain more rows than they cost, the menu drops them and spends every line on actions. It is discovery only: no probe, diagnosis, report, or exit code changes with it.
 
 `T` opens the theme picker: up/down or `j`/`k` move through the built-in themes and apply the highlighted one at once, `enter` keeps it, and `esc` restores the theme that was active when the picker opened. It is presentation only, so no probe, diagnosis, status, report, snapshot, or exit code changes with it, and every status keeps the glyph and word it always had. The built-ins are `terminal` (the default, the 16 ANSI colours, which follow your terminal's own palette), `harbor`, `ember`, `contrast` (high contrast), and `monochrome` (colour-free, with bold and faint emphasis). There is no `--theme` flag: the picker is the way to choose one. `NO_COLOR=1 netdoc ...` disables colour for a run; an empty `NO_COLOR` value does not.
 
@@ -405,7 +406,8 @@ derived sentences remain display text.
   per pass with `ts`, paced by `--watch-interval` as it is for an ordinary
   watch. A profile has no multi-pane TUI, so profile watch without
   `--json` is rejected. As with ordinary remote execution, `--watch` and
-  `--via` cannot be combined.
+  `--via` cannot be combined, and neither can `--watch` with `--save` or
+  `--support`: a saved artifact is one finished run, and a watch never finishes.
 - `--via` sends one ordinary remote protocol version 1 request per component.
   Targets and selections travel as JSON data, never shell text. The remote
   binary does not need to know the profile name, so a version-1 remote worker
@@ -426,9 +428,9 @@ derived sentences remain display text.
   decided differently on a later component could start a jump child or a proxy
   program, and neither of those inherits the options below. The pin only ever
   applies to a destination your own configuration already reached directly; a
-  configured proxy is never pinned away, and an accelerated acquisition that
-  fails hands the work back to the ordinary transport, which reads and honors
-  your configuration as it stands at that moment, proxy included. A
+  configured proxy is never pinned away. An accelerated acquisition that is
+  refused fails the pass; a timeout that ends it is that component's failure,
+  and the pass goes on. Neither is handed back to the ordinary transport. A
   nondeterministic `Match exec` can therefore still make one pass's accelerated
   attempt use the route the preflight read rather than a later one.
 - For a destination reached without a proxy, the first component is acquired
@@ -440,10 +442,29 @@ derived sentences remain display text.
   agent are not used at all. What is left is an unencrypted private key on
   disk. When that first component lands, the rest run concurrently over the same
   refusing transport, so the pass costs one connection setup plus the slowest of
-  the others rather than the sum of all of them. Every other setup falls back to
-  acquiring one component at a time exactly as before, at the cost of one
-  refused attempt on the first component, so a prompt is never competing with
-  another for the terminal. Results stay in registry order either way.
+  the others rather than the sum of all of them. If that first attempt is
+  refused, the pass fails: netdoc does not retry the destination over the
+  transport that can prompt, so no passphrase, host-key confirmation, agent,
+  LocalCommand, or forwarding is used for it. The error says that no question
+  was asked. A refused host key or passphrase can be answered by a run from a
+  terminal. OpenSSH's own timeouts, such as ConnectTimeout and the ServerAlive
+  settings, end the ssh process with its failure status, and netdoc treats that
+  as a refusal: the pass fails, conservatively, rather than recording a
+  component timeout. A destination reached through a proxy, or whose
+  configuration cannot be read, is acquired one
+  component at a time over the ordinary transport, as before. Results stay in
+  registry order either way.
+- A timeout is not a refusal. When the transport's own deadline ends a batch
+  acquisition, that component is recorded as failed, and the other components
+  still run. A pass with one is not saved by `-save` or `-support`, because an
+  artifact cannot hold a component without its snapshot; netdoc says so on
+  stderr and exits 2, as a failed save does. An interactive run's deadline is not a
+  component timeout: it also covers the time a person takes to answer a prompt,
+  so it ends the pass, as it did before. A timeout while netdoc reads the
+  configuration or checks the route is not a component timeout either: headless,
+  it refuses the run, and on a terminal the destination is acquired one component
+  at a time over the ordinary transport, as it already is when the configuration
+  cannot be read.
 - `--iface`, `--public-dns`, and `--timeout` apply independently to every
   component. Interface names are resolved on the machine that probes, as in
   every ordinary local or remote run.
@@ -821,39 +842,116 @@ Discovery finds a device only if it accepts or refuses a TCP connect on port 80 
 
 When nothing answers, the panel says which of the two things happened: refused connections show the device is on the network with nothing listening on those ports, while silence leaves powered off, gone, and dropping traffic all open. A target on this machine's own network is also diagnosed as one: a failed connect to it is never explained by the state of internet egress, which it does not use.
 
-### SSH login
+### SSH credential verification
 
-`S` logs in to the current target, the machine the checks are about, so it needs one (`r` sets it). The form asks for the three things that are yours rather than the target's: `tab` moves between fields, `←`/`→` picks the key, `enter` connects, and `esc` backs out.
+`S` in the TUI, and `netdoc -verify-ssh` on the command line, check the credentials of an SSH server without opening a shell. They do two separate things:
 
+- **Discovery** lists the authentication methods the server offers. It sends no credential.
+- **Verification** sends one credential, once, and reports whether the server accepted it. The credential is a password, a private key file (with its passphrase when the file is encrypted), or a key the SSH agent holds, chosen by its fingerprint.
+
+Neither step runs a remote command or opens a session. The connection closes once the server has answered. A check sends at most one credential. It never tries the next key or password by itself, and it never guesses. Every credential attempt is one action that you start.
+
+A password or key check opens two connections. The first is discovery: it checks the host key and lists the methods, and it sends no credential. The secret is requested only after that host key is trusted. The second connection makes the credential attempt, and it accepts only the host key the first one saw, so a key that changed in between is refused before anything is sent. An agent check opens one connection. If the server's host key is of a type that `known_hosts` does not record, a connection may make one more try restricted to the recorded types. That try also happens before any credential is sent.
+
+Before any credential is sent, netdoc reads your SSH configuration with `ssh -G -v`, which connects to nothing. The read stops after 15 seconds, and an interrupt or closing the TUI panel cancels it. Reading the configuration runs the `Match exec` commands in it, as `ssh` does when it reads the same configuration, so a command in your configuration can run during the read even when netdoc then refuses the route. Refusing the route means netdoc does not connect by it.
+
+netdoc classifies the route the read establishes, and it connects only when the route is known. A route is unknown, and nothing is sent by it, in each of these cases:
+
+- The configuration runs a `Match exec` command, including one in a file pulled in with `Include`, and one that applies only to some hosts. Its answer depends on the environment, which netdoc cannot reproduce for your own `ssh`. This applies on a terminal too.
+- A `$` in the configuration, on a terminal, is not on the short list of keywords that the installed client keeps literal (`HostName`, `Host` and `IdentityFile`). An `Include` with a variable is refused on a terminal too, because netdoc cannot show which file ssh reads. For a headless run every `$` outside a comment is refused, because the environment of a headless run cannot be matched to yours. A variable in `User`, `UserKnownHostsFile`, `IdentityAgent` or a similar keyword can select another account, trust file or agent, so it is refused on a terminal as well.
+- `CanonicalizeHostname` is set, or the listing does not report it. Canonicalization reads the configuration again under the canonical name, so the blocks that apply can change after the name is resolved.
+- `KnownHostsCommand` is set. ssh runs it when it decides whether to trust a host key, so it can change the trust decision, and netdoc does not run it. This applies on a terminal and headless, for verification and for a `--via` run.
+- `RevokedHostKeys` is set, or the listing does not report it. netdoc does not read a revocation list, so it cannot tell whether a revoked key is trusted. This refuses a verification only: a `--via` run is not refused for it, because ssh applies its own revocation list there.
+- The client's diagnostic output is not in a form netdoc recognizes, is larger than 1 MiB, or is not complete when the read ends. The configuration is also refused if a file it names changes between the two reads netdoc makes.
+- The installed `ssh` fails the canary. netdoc checks the client once per program with fixed probes, each written with a positive control, which the client must show, and a negative control, which it must not. The probes check that `!canonical` runs an exec test and `canonical` does not, that a set `ProxyJump` is listed and `none` is not, that a `KnownHostsCommand` is listed and not run, that the canonical and include reports are as expected, and that a variable expands in `User` and stays literal in `HostName`, `IdentityFile` and a `Host` pattern. The probes run with HOME set to their own directory and without the `SSH_*` variables. A mismatch refuses the client, and the message names the probe that failed, so a difference in the installed OpenSSH can be told apart from a real risk.
+
+A route with a proxy, `ProxyJump` or `ProxyCommand` that is not `none`, is a known proxied route. Verification refuses such a route: a terminal run reports it as unsupported, and a headless run refuses it before anything is sent. A `--via` run on a terminal sends it to the interactive transport, which runs the proxy as `ssh` does, and a headless run does not use it.
+
+The same read decides whether the `--via` batch transport may skip a destination's proxy. Only a known direct route is acquired by the batch transport. Anything else goes to the interactive transport on a terminal, and fails on a headless run.
+
+A run with no terminal of its own, as under cron, in CI, or as a service, cannot answer a prompt, so it is restricted further. It connects only by a known direct route, and every `ssh` it starts runs with `BatchMode=yes`, `PreferredAuthentications=publickey`, and the other options that make a prompt a refusal. A password, a passphrase, a host-key confirmation, and a key taken from an agent are not offered, and ssh does not run an askpass program for them. A route netdoc cannot establish headless fails that destination with the reason, and no interactive `ssh` is started for it. `--via` takes no password. `-password-stdin` belongs to `-verify-ssh`, and `--via` refuses it. Running `--via` from a terminal keeps the interactive transport, so the user can answer what `ssh` asks.
+
+A headless `--via` run starts only the batch `ssh`. A headless credential check is a different command: `-verify-ssh` with `-verify-auth password -password-stdin`, which reads one secret line from standard input, and only after the host key is trusted. It connects with netdoc's SSH library rather than an `ssh` process, so the batch options do not apply to it. The only `ssh` it starts is the configuration read, which connects to nothing. It applies the same route rule as a headless `--via` run, so a proxied or unknown route is refused before anything is sent.
+
+The batch transport has a limit that the options cannot close. netdoc classifies the route in a read that runs before the connection, and the connection then reads your configuration again. The batch options pin off the proxies, the trust commands, the agents and askpass, the control master, `LocalCommand`, forwardings and the tunnel, X11 and host-key updates. A headless connection also pins `HostName` and `Port` to the values its read classified. The connection still reads the other options from your files, such as identity files and the known hosts file, and a change to those between the read and the connection is not detected. A run on a terminal is not pinned to its read, because the batch path does not read the configuration there; its caller establishes the direct route first. netdoc treats your own configuration files as trusted input, as ssh does: a process that can rewrite them can already run commands as you.
+
+The client runs in its own process group. A cancelled or timed-out read kills that group, so no command it started is left running, and output is drained as it arrives, so a large listing does not stall the read. A batch transport run does the same for the `ssh` it starts. On Windows only the client itself is stopped.
+
+Credential verification and the configuration read are refused on Windows and FreeBSD, with a message that says they are not supported there, because netdoc has no validated way to read the configuration on those systems. On Windows a profile `--via` run on a terminal uses the interactive transport in place of the batch transport; a headless run fails. Linux and macOS are supported. The probes run against the ssh client the user has installed, and a client they do not match is refused at run time. CI runs the remote and verifier tests that use a real OpenSSH client on Linux only. The app package's integration tests, which include the profile batch tests, also run on the macOS and Windows runners, against the ssh and sshd those runners provide, and skip a tool they lack.
+
+This classification does not cover how a host name is resolved. A `HostName` is resolved by the system resolver when `ssh` connects, not by the read, so a resolver setting that differs from yours can connect to another address. netdoc does not yet test resolver behaviour, and it makes no claim about it.
+
+On Unix, cancelling the read, or its deadline, kills the `ssh` process and each process still in its process group. A process that has left the group, for example with `setsid`, is not killed. If it keeps the diagnostic or configuration output open, the read is refused as incomplete.
+
+netdoc then checks the server's host key against your user `known_hosts` file and the system-wide one, which `ssh -G` lists as `UserKnownHostsFile` and `GlobalKnownHostsFile`:
+
+- A key that matches is used.
+- A key that differs from the recorded key is refused. netdoc shows the fingerprint of the key the server presented, not the fingerprint recorded in `known_hosts`. To see the recorded fingerprint, run `ssh-keygen -F HOST -l`. Without `-l`, `-F` prints the recorded key line, not a fingerprint. That command reads your user `known_hosts` file by default. For the system-wide file, add `-f FILE`, using the path that `ssh -G` lists as `GlobalKnownHostsFile`, usually `/etc/ssh/ssh_known_hosts`. There is no override.
+- A key with no record is reported with its fingerprint, and the check stops there with no prompt. You can accept that one fingerprint for the next action, with `-trust-host-key FINGERPRINT` on the command line or the trust row in the TUI. Nothing is written to `known_hosts`.
+
+A known-hosts file that exists but cannot be checked stops the check before any connection, so an unreadable file is never taken for an empty one. A file that does not exist is simply absent. A value of `none` alone names no file.
+
+Once the host key is trusted, a password or key check asks for the secret. The TUI's Verify does nothing until Discover methods has trusted the host, or until you have confirmed its unknown key. Changing the login drops the route read for the previous login, and Verify waits until the route is read for the login shown. Changing the method clears the typed secret, so a key passphrase is never sent as a password.
+
+A secret is read from a prompt with echo off, or from one line of standard input with `-password-stdin`. It is never taken from argv or the environment, and it never appears in output or in the JSON report. netdoc overwrites the byte slices that carry a secret once the attempt ends. A password also becomes a Go string, because the SSH library takes its password as a string. The TUI's input widget keeps its own copy of what was typed. Closing the panel discards that input state. It does not erase the memory that held the typed secret at once, and netdoc cannot erase the underlying Go string. That memory is reclaimed only when the garbage collector runs. The CLI has the same limit for the string made for the library. Ctrl-C at the password prompt exits and puts the terminal's echo back.
+
+Each check ends in one outcome:
+
+| Outcome | Meaning | Exit |
+|---|---|---|
+| methods listed | The methods the server advertises. Nothing was sent. | 0 |
+| verified | The server accepted the credential. No session was opened. | 0 |
+| refused | The server rejected the credential. | 1 |
+| partial | The server accepted this method and still requires more. The remaining methods are listed. | 1 |
+| method not offered | The server does not advertise this method. Nothing was sent. | 1 |
+| accepted with no credential | The server admitted the connection without any credential. That is reported as a finding, and no session is opened. | 1 |
+| host key unknown, host key changed | The host key was not accepted. Nothing was sent. | 2 |
+| unsupported | The route goes through a proxy, or the server asked for more than one password prompt. Nothing was sent. | 2 |
+| not sent | A local problem, such as a missing key file, a wrong passphrase, or no agent key. The server was not contacted. | 2 |
+| not completed | The connection failed, timed out, or was cancelled, or it ended during authentication so the result is unknown. | 2 |
+
+On the command line, the exit status says what happened:
+
+- `0`: the server accepted the credential, or the methods were listed.
+- `1`: the server answered and did not accept the credential (refused, partial, method not offered, or accepted with no credential).
+- `2`: the check could not be completed. This covers a misused flag, an unknown or changed host key, a missing or unusable key file, a proxied route, and a connection that failed or ended early. Where a credential may already have reached the server, the result says the outcome is unknown. Listing an agent's keys without `-verify-agent-key` also exits 2, because no credential was chosen, and so does `-json` with that listing, which is refused before the agent is asked. An interrupt while `-password-stdin` waits for its line also exits 2, with nothing sent.
+
+The command line takes one destination and one method:
+
+```sh
+netdoc -verify-ssh tester@host.example                 # list the methods; sends nothing
+netdoc -verify-ssh -verify-auth password -password-stdin host.example
+netdoc -verify-ssh -verify-auth key -verify-key ~/.ssh/id_ed25519 host.example
+netdoc -verify-ssh -verify-auth agent -verify-agent-key SHA256:... host.example
+netdoc -verify-ssh -verify-auth agent host.example     # without a fingerprint, lists the agent's keys
 ```
-╭────────────────────────────────────────────────────╮
-│ SSH login to 192.168.1.50:2222                     │
-│   Username  mplaczek                               │
-│ ▸ Key       id_rsa  (3 of 4)  ←/→                  │
-│   Password  *******                                │
-╰────────────────────────────────────────────────────╯
-```
 
-Unlike the drill-down tools, this is not a bounded job: `netdoc` suspends itself and gives `ssh` the real terminal, so the session is fully interactive and anything the form left blank (a key passphrase, a host-key check, a 2FA code) is asked by `ssh` on screen. When the session ends the TUI comes back with `ssh`'s stderr in the job pane, so a `Permission denied` is still readable afterwards instead of being painted over.
+Flags that the chosen method would never read are refused, not ignored. `-password-stdin` needs `-verify-auth password`, or `key` with an encrypted key file, since an unencrypted key has no passphrase to read. `-verify-key` needs `-verify-auth key`, and `-verify-auth key` needs `-verify-key`. `-verify-agent-key` needs `-verify-auth agent`, and `-json` with `-verify-auth agent` needs `-verify-agent-key`, because the key listing is plain text. `-trust-host-key` must be a SHA256 fingerprint in the form `ssh-keygen -lf` prints: `SHA256:` followed by 43 characters. Each misuse exits 2 before the configuration is read, the host is contacted, or any input is read.
 
-The form fills in `ssh` options, nothing more:
+`-json` prints the same result as one object with no secret in it.
 
-| Field | Effect |
-|-------|--------|
-| (host) | the target, plus `-p` when it named a non-default port |
-| Username | `-l <login>`, not `login@host`, so a name starting with `-` stays a name |
-| Key | `-i <path> -o IdentitiesOnly=yes`, so a loaded agent can't spend the server's auth attempts before this key is tried |
-| Password | see below |
+What works in this build:
 
-The key list is the private keys in `~/.ssh`, each recognized by its `.pub` half sitting next to it, and no key file is ever opened or parsed. `none` (the first entry) leaves key selection to `ssh`, i.e. to the agent and `ssh_config`, which is also where a key kept outside `~/.ssh` belongs.
+- Password authentication. If the server offers keyboard-interactive rather than password, netdoc answers only a single prompt that does not echo, with the same password. A server that asks for anything more is reported as unsupported, and no further answer is given. A server that accepts the keyboard-interactive exchange without asking any question is not reported as verified, because the password was never sent. The result is no credential accepted.
+- Unencrypted and encrypted private key files, and keys held by an SSH agent, reached through `SSH_AUTH_SOCK` or the `IdentityAgent` setting. `IdentityAgent none` turns the agent off.
+- A `HostKeyAlias` changes the name the host key is checked under, as it does for `ssh`.
 
-The typed password is echoed as dots and never reaches a command line, notice, or report. It is passed to `ssh` through the environment (`SSH_ASKPASS`), where `ssh` re-executes `netdoc` as its askpass helper and reads the secret from the helper's stdout. What that buys: the secret stays out of argv, which every process on the machine can read, and out of your shell history, though not out of memory. The password field is cleared once connecting starts, but by then the value has been copied into `ssh`'s environment, where it stays until `ssh` exits and is inherited by the whole subtree `ssh` starts: `ProxyCommand`, `LocalCommand`, and `ProxyJump`'s own `ssh`. On Linux that environment is readable through `/proc` by your own processes and by root; anything your `ssh_config` runs sees it too. `-o NumberOfPasswordPrompts=1` stops `ssh` re-offering a rejected one.
+What does not work in this build. Each gap is refused and reported, never dropped silently:
 
-On Windows, this password handoff requires OpenSSH_for_Windows 8.6p1 or newer. Network Doctor checks `ssh -V` before connecting; an older or unrecognized client leaves the form open with an explanation instead of launching `ssh` with an ignored password. Leave the password field blank on that client to have `ssh` ask on the terminal.
+- `ProxyJump` and `ProxyCommand` routes. netdoc does not run proxies, so it refuses the check rather than connecting to the resolved host around the proxy.
+- Multi-factor and keyboard-interactive prompts beyond one password prompt, including one-time codes.
+- OpenSSH certificates, which are not presented, and security keys held as files, which need the device. Hardware-backed FIDO2 keys held by an agent have not been tested in this build.
+- The Windows OpenSSH agent pipe. On Windows, password and key files work and agent keys are unavailable.
 
-Because forced askpass routes *every* prompt to the helper, the helper answers only password and passphrase prompts and refuses the rest. So the first connection to an unknown host, where `ssh` asks you to verify the host key, needs one run with the password field blank, which puts that question back on your terminal where it belongs.
+netdoc does not give you a shell, so to log in, run `ssh` in a terminal.
 
-The whole `ssh` subtree inherits the askpass setting, so with `ProxyJump` in your `ssh_config` the jump host's `ssh` asks the helper too. The prompt names the machine it is asking for (`user@host's password:`), and the helper answers only when that host matches the target, so the jump host's prompt goes back to your terminal. Prompts naming no host (a key passphrase, a PAM keyboard-interactive `Password:`) are still answered on a direct connection, where only one machine can be asking; refusing those would break ordinary logins. Add a proxy and they name no host *and* could be either end, so the helper refuses all of them. Wording is no help there, since keyboard-interactive text is written by the far end, so a jump host can call its question a passphrase, and that run wants the password field blank anyway, which puts the prompt back on your terminal. All of this depends on netdoc being able to read your resolved config (`ssh -G`); when that lookup fails there is no way to tell whose prompt is whose, so password-assisted login is refused outright and the form says so.
+The `c` check is the TUI's other SSH action, a bounded handshake check that runs `ssh -v -o BatchMode=yes`. It sets `PreferredAuthentications=none` and so offers no credential. It also sets `StrictHostKeyChecking=no`, which removes host-key confirmation and the refusal on a mismatch. An unknown host key is accepted without asking. A key that differs from the one in the system-wide known-hosts file is accepted with OpenSSH's changed-key warning, subject to some restrictions. The check sets `UserKnownHostsFile` to the null device, so your `known_hosts` file is neither consulted nor written. `PreferredAuthentications=none` applies only to the destination's own ssh. A `ProxyJump` or `ProxyCommand` starts a separate ssh that authenticates to the proxy and can prompt, so the check's no-credential and noninteractive claims hold only for a direct destination.
+
+An ordinary `--via` run uses the interactive transport. Its `ssh` runs on your controlling terminal, so it can prompt for a password, a key passphrase, or a host-key confirmation, and you answer those prompts yourself.
+
+A profile with a `--via` destination uses the batch transport for its first component only when the destination reads as direct and the profile has at least two components. The batch transport refuses interactive authentication instead of prompting. If that first component succeeds, the remaining components run concurrently over the same batch transport. If that first component is refused, the pass fails: no other component runs, and nothing is retried over the interactive transport. If it times out, that component is recorded as failed, and the remaining components still run over the batch transport. A profile with a proxied destination, a destination whose configuration cannot be read, or a single component acquires its components one at a time over the interactive transport.
+
+[Flags and execution modes](#flags-and-execution-modes) explains which prompts the batch transport refuses, and when each transport applies.
 
 ### JSON output
 
@@ -2519,13 +2617,18 @@ the remote `netdoc`, the exchange itself, and teardown. With the default `4s`
 timeout the ceiling is `1m20s`; with `--timeout 30s` it is `3m30s`.
 
 Reaching it ends the local `ssh` process and reports an acquisition failure that
-names the destination, and it exits `2`. It is **not a diagnosis of the remote
+names the destination. A single run exits `2`. It is **not a diagnosis of the remote
 network**: nothing was measured, and a run that had already produced a complete
 response is still returned even if the SSH session is slow to close afterwards.
 It is also not an interruption, which is the user's own Ctrl-C and still exits
-`1`. A profile stops at the component that timed out and reports that component;
-live `--two-sided` treats it as the remote acquisition failure it already knows,
-cancels the local side, and exits `2`.
+`1`. On a profile, a batch component that timed out is recorded as failed, and the
+other components still run, as described under Flags and execution modes. The
+pass reads a warning, and exits `0`, while another component works; it reads a
+failure, and exits `1`, only when no component works. With `-save` or `-support`,
+a pass that a component did not finish exits `2`, because nothing is written for
+it. An interactive run's deadline ends the pass instead. Live `--two-sided` treats the
+deadline as the remote acquisition failure it already knows, cancels the local
+side, and exits `2`.
 
 ### Cancellation
 
@@ -2549,7 +2652,7 @@ Both ends bound what they will read from the other, and neither trusts the other
   different feature.
 - There is no live progress. The probes run on the far end and the answer arrives when the run is finished, which is why `--via` is headless rather than a remote terminal UI.
 - The probe IDs given to `--check` and `--skip` are validated locally as well as remotely, so a probe ID that exists only on a newer remote netdoc is rejected before the connection opens.
-- The drill-down tools, the LAN map, and the SSH login form are terminal UI features and are not part of a remote run.
+- The drill-down tools and the LAN map are terminal UI features and are not part of a remote run.
 
 ### Route-policy change simulation
 

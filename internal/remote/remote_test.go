@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 	"io"
 	"math"
 	"os"
@@ -45,6 +46,8 @@ const (
 	// file exists for the whole test, and once it is gone it stays gone, so the
 	// grandchild cannot miss the signal.
 	fakeSSHGrandchildStop = "NETDOC_TEST_FAKE_SSH_GRANDCHILD_STOP"
+	// fakeSSHConfig names the real configuration file a listing reports reading.
+	fakeSSHConfig = "NETDOC_TEST_FAKE_SSH_CONFIG"
 )
 
 func TestMain(m *testing.M) {
@@ -79,12 +82,27 @@ func fakeSSH(mode string) int {
 	case "garbage":
 		fmt.Fprintln(os.Stdout, "Welcome to the machine.")
 		return 0
-	case "config", "configproxy", "configproxycommand", "confignoneproxy":
+	case "config", "configproxy", "configproxycommand", "confignoneproxy", "configexec", "configthenhang":
+		if mode == "configthenhang" && !hasArg(os.Args[1:], "-G") {
+			// A connection that gets as far as the configuration, and then never answers the
+			// request: the worker stalls.
+			stall()
+			return 0
+		}
 		// `ssh -G`: the effective configuration, one lowercased keyword per
 		// line, printed without connecting to anything. ssh leaves a proxy
 		// keyword out entirely when it is unset or set to none, and
 		// confignoneproxy prints it anyway to pin that the value is read too.
+		if hasArg(os.Args[1:], "-v") {
+			// At -v a real client reports each configuration file it reads, and
+			// each Match exec command it runs.
+			fmt.Fprintln(os.Stderr, "debug1: Reading configuration data "+os.Getenv(fakeSSHConfig))
+			if mode == "configexec" {
+				fmt.Fprintln(os.Stderr, "debug1: Executing command: 'proxy-decider'")
+			}
+		}
 		fmt.Fprintln(os.Stdout, "user maikol")
+		fmt.Fprintln(os.Stdout, "canonicalizehostname false")
 		fmt.Fprintln(os.Stdout, "hostname 10.0.0.5")
 		switch mode {
 		case "configproxy":
@@ -335,14 +353,28 @@ func stall() {
 func useFakeSSH(t *testing.T, mode string) (argvPath, requestPath string) {
 	t.Helper()
 	previous := sshProgram
-	sshProgram = os.Args[0]
-	t.Cleanup(func() { sshProgram = previous })
+	sshProgram = fakeSSHProgram(t)
+	// The stand-in is read as if netdoc had its terminal, which the configuration
+	// read requires; the refusal without one has its own test.
+	previousTerminal := sshverify.TerminalAvailable
+	sshverify.TerminalAvailable = func() bool { return true }
+	t.Cleanup(func() {
+		sshProgram = previous
+		sshverify.TerminalAvailable = previousTerminal
+	})
 	argvPath = t.TempDir() + string(os.PathSeparator) + "argv"
 	requestPath = t.TempDir() + string(os.PathSeparator) + "request"
 	t.Setenv(fakeSSHEnv, mode)
 	t.Setenv(fakeSSHArgv, argvPath)
 	t.Setenv(fakeSSHRequest, requestPath)
 	t.Setenv(fakeSSHAlive, "")
+	// A listing names a configuration file that exists, as a real client's does, so
+	// netdoc can read the file it reports.
+	cfg := filepath.Join(t.TempDir(), "ssh_config")
+	if err := os.WriteFile(cfg, []byte("Host *\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(fakeSSHConfig, cfg)
 	return argvPath, requestPath
 }
 
@@ -353,6 +385,21 @@ func readLines(t *testing.T, path string) []string {
 		t.Fatalf("the stand-in ssh recorded nothing: %v", err)
 	}
 	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+}
+
+// configReadRuns says whether the configuration read runs here. sshverify refuses it on the
+// other platforms before any ssh starts, so a headless run and Direct start no ssh there.
+func configReadRuns() bool {
+	return runtime.GOOS == "linux" || runtime.GOOS == "darwin"
+}
+
+// noSSHRan fails the test when the stand-in recorded a call: a platform that refuses the read must
+// not have started ssh.
+func noSSHRan(t *testing.T, argvPath string) {
+	t.Helper()
+	if _, err := os.Stat(argvPath); err == nil {
+		t.Errorf("a platform that refuses the configuration read started ssh: %q", readLines(t, argvPath))
+	}
 }
 
 func TestRunPassesTheDestinationThroughUntouchedWithAFixedRemoteCommand(t *testing.T) {
@@ -425,11 +472,20 @@ func TestRunBatchTellsSSHToRefuseEveryInteractiveAuthentication(t *testing.T) {
 		"-o", "PreferredAuthentications=publickey",
 		"-o", "ProxyJump=none",
 		"-o", "ProxyCommand=none",
+		"-o", "KnownHostsCommand=none",
 		"-o", "PubkeyAcceptedAlgorithms=-sk-*,webauthn-sk-*",
 		"-o", "IdentityAgent=none",
 		"-o", "AddKeysToAgent=no",
 		"-o", "PKCS11Provider=none",
 		"-o", "GSSAPIAuthentication=no",
+		"-o", "PermitLocalCommand=no",
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", "UpdateHostKeys=no",
+		"-o", "ForwardAgent=no",
+		"-o", "ClearAllForwardings=yes",
+		"-o", "ForwardX11=no",
 		"ideapad", DefaultCommand, WorkerFlag,
 	}
 	if got := readLines(t, argvPath); strings.Join(got, " ") != strings.Join(want, " ") {
@@ -491,6 +547,9 @@ func TestDirectReadsTheEffectiveConfiguration(t *testing.T) {
 		{"confignoneproxy", true},
 		{"configproxy", false},
 		{"configproxycommand", false},
+		// A Match exec test ran. Its answer depends on a terminal and environment
+		// netdoc cannot reproduce, so the listing is refused, which is not direct.
+		{"configexec", false},
 		// ssh itself failed, so nothing was established. Anything unestablished
 		// is treated as proxied, which costs an overlap and never a prompt.
 		{"sshfail", false},
@@ -498,11 +557,17 @@ func TestDirectReadsTheEffectiveConfiguration(t *testing.T) {
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			argvPath, _ := useFakeSSH(t, tc.mode)
-			if got := Direct(context.Background(), "ideapad"); got != tc.want {
-				t.Errorf("Direct = %t, want %t", got, tc.want)
+			// A platform that refuses the read refuses every mode, before any ssh starts.
+			want := tc.want && configReadRuns()
+			if got := Direct(context.Background(), "ideapad"); got != want {
+				t.Errorf("Direct = %t, want %t", got, want)
 			}
-			if got := readLines(t, argvPath); strings.Join(got, " ") != "-G ideapad" {
-				t.Errorf("ssh argv = %q, want the configuration of ideapad and no connection", got)
+			if !configReadRuns() {
+				noSSHRan(t, argvPath)
+				return
+			}
+			if got := readLines(t, argvPath); strings.Join(got, " ") != "-v -G ideapad" {
+				t.Errorf("ssh argv = %q, want the verbose configuration of ideapad and no connection", got)
 			}
 		})
 	}
@@ -2185,4 +2250,129 @@ func diagnosedPair(tool snapshot.Tool, ok bool) (report.Report, snapshot.Snapsho
 		Diagnosis: snapshot.Diagnosis{Verdict: verdict, FailedStage: failed},
 	}
 	return rep, snap
+}
+
+// fakeCanaryConfig reports whether argv is the configuration check sshverify runs
+// against the client: a verbose listing of the host "canary" from a file it wrote.
+
+// fakeCanary answers the check the way OpenSSH does: it reports the file it reads,
+// reports the Match exec test only in the file that has one, and lists the host.
+
+func hasArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Headless, a direct route is read as direct, and a proxied one is not. A route the
+// run cannot establish is never direct, so the batch transport is not offered for it.
+func TestDirectOnlyAcceptsAKnownDirectRouteHeadless(t *testing.T) {
+	argvPath, _ := useFakeSSH(t, "config")
+	withoutTerminal(t)
+	// The read runs on Linux and macOS only. Every other platform refuses it, as documented, so a
+	// route is never known as direct there.
+	if got := Direct(context.Background(), "ideapad"); got != configReadRuns() {
+		t.Errorf("a headless run read a known direct route as %t, want %t on %s", got, configReadRuns(), runtime.GOOS)
+	}
+	_ = argvPath
+	useFakeSSH(t, "configproxy")
+	withoutTerminal(t)
+	if Direct(context.Background(), "ideapad") {
+		t.Error("a headless run read a proxied route as direct")
+	}
+}
+
+// fakeCanaryShell is the canary's probe client, answering as OpenSSH does. A race-built
+// test binary takes about a second to start, and the canary runs fourteen probes, which
+// would not finish inside a read's budget under -race. The probes are answered here, by
+// a shell script, and every other call still runs the test binary.
+const fakeCanaryShell = `#!/bin/sh
+BROKEN=""
+cfg=""
+prev=""
+last=""
+for a in "$@"; do
+  if [ "$prev" = "-F" ]; then cfg="$a"; fi
+  prev="$a"
+  last="$a"
+done
+# Every file read is announced, and each Include is followed to its own includes. A
+# client that stops following at the first level is the include-announcement break.
+walk() {
+  echo "debug1: Reading configuration data $1" >&2
+  for i in $(sed -n 's/^Include //p' "$1"); do
+    if [ "$BROKEN" = include-announcement ] && [ "$2" -ge 1 ]; then continue; fi
+    walk "$i" $(( $2 + 1 ))
+  done
+}
+walk "$cfg" 0
+case "$(cat "$cfg")" in
+  *"Match !canonical exec"*) [ "$BROKEN" = canonical-positive ] || echo "debug1: Executing command: 'true'" >&2 ;;
+  *"Match canonical exec"*) [ "$BROKEN" = canonical-exec ] && echo "debug1: Executing command: 'true'" >&2 ;;
+  *"Match host canary exec"*) echo "debug1: Executing command: 'true'" >&2 ;;
+esac
+case "$(cat "$cfg")" in
+  *"ProxyJump 127.0.0.2"*) [ "$BROKEN" = proxyjump-positive ] || echo "proxyjump [127.0.0.2]" ;;
+  *"ProxyJump none"*) [ "$BROKEN" = proxyjump ] && echo "proxyjump bastion" ;;
+esac
+case "$(cat "$cfg")" in
+  *"KnownHostsCommand touch"*)
+    echo "knownhostscommand touch x"
+    if [ "$BROKEN" = knownhostscommand ]; then
+      sentinel=$(sed -n 's/.*KnownHostsCommand touch //p' "$cfg"); touch "$sentinel"
+    fi ;;
+  *"KnownHostsCommand none"*) echo "knownhostscommand none" ;;
+esac
+case "$(cat "$cfg")" in
+  *'User ${NETDOC_CANARY_VAR}u'*)
+    if [ "$BROKEN" = environment ]; then echo 'user ${netdoc_canary_var}u'; else echo "user alphau"; fi ;;
+esac
+hn="127.0.0.1"
+case "$(cat "$cfg")" in
+  *'HostName ${NETDOC_CANARY_VAR}.example'*)
+    hn='${netdoc_canary_var}.example'
+    if [ "$BROKEN" = environment-literal ]; then echo "identityfile alpha/k"; else echo 'identityfile ${NETDOC_CANARY_VAR}/k'; fi ;;
+  *'Host ${NETDOC_CANARY_VAR}'*)
+    if [ "$BROKEN" = environment-host ]; then hn="127.0.0.9"; else hn="$last"; fi ;;
+esac
+case "$(cat "$cfg")" in
+  *"CanonicalizeHostname yes"*)
+    if [ "$BROKEN" = canonicalizehostname ] || [ "$BROKEN" = canonicalizehostname-positive ]; then echo "canonicalizehostname false"; else echo "canonicalizehostname true"; fi ;;
+  *)
+    if [ "$BROKEN" = canonicalizehostname ]; then echo "canonicalizehostname true"; else echo "canonicalizehostname false"; fi ;;
+esac
+echo "hostname $hn"
+exit 0
+`
+
+// fakeSSHProgram is the program a stand-in test uses as ssh. It sends the canary's
+// verbose configuration reads to fakeCanaryShell, and every other call to this test
+// binary in fake mode.
+func fakeSSHProgram(t *testing.T) string {
+	t.Helper()
+	// Windows cannot run the shell script below, so the test binary answers every call there.
+	// The canary is served only by the configuration read, which is refused on Windows before it
+	// runs, so nothing else is needed.
+	if runtime.GOOS == "windows" {
+		return os.Args[0]
+	}
+	dir := t.TempDir()
+	canary := filepath.Join(dir, "canary.sh")
+	if err := os.WriteFile(canary, []byte(fakeCanaryShell), 0o700); err != nil { // #nosec G306 -- an executable test script on purpose
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(dir, "ssh")
+	script := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"  -v) case \" $* \" in *\" -F \"*) exec /bin/sh '" + canary + "' \"$@\" ;; esac ;;\n" +
+		"esac\n" +
+		"exec '" + os.Args[0] + "' \"$@\"\n"
+	// #nosec G306 G703 -- an executable test script in a directory this test created
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return wrapper
 }

@@ -27,6 +27,10 @@ func TestPackageLayering(t *testing.T) {
 	// import reads recorded captures and compares their LSDB through that OSPF
 	// reasoning, so it sits one layer above it. The BGP summary decoder reads one
 	// recorded transcript and imports only textsafe, so it sits at layer one.
+	// SSH credential verification imports only textsafe and the SSH library,
+	// reads configuration through ssh -G, and never probes, so it sits at
+	// layer one too. Remote execution reads a route through that package's gated
+	// configuration read, so it sits one layer above it.
 	// Checking every direct edge also rules out a transitive path to the same or
 	// a higher layer.
 	layers := map[string]int{
@@ -42,7 +46,8 @@ func TestPackageLayering(t *testing.T) {
 		"internal/frrospf":    2,
 		"internal/ospf":       1,
 		"internal/routepath":  1,
-		"internal/remote":     1,
+		"internal/remote":     2,
+		"internal/sshverify":  1,
 		"internal/incident":   2,
 		"internal/peer":       2,
 		"internal/profile":    2,

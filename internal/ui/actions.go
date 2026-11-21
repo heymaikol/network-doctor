@@ -150,8 +150,6 @@ func (m model) actionAvailable(act keyAction) bool {
 		// is either already running or waiting on the restart key, and a second
 		// way to start it would only be a second name for restart.
 		return m.allDone() && m.chainRan()
-	case actSSH:
-		return m.sshDetected()
 	case actRescanNetwork:
 		j, _ := (&m).newestJob(lanDiscoveryName)
 		return j != nil && j.active == nil
@@ -161,6 +159,8 @@ func (m model) actionAvailable(act keyAction) bool {
 		}
 		_, hiddenPass, hiddenNA := m.compactRows()
 		return hiddenPass+hiddenNA > 0
+	case actVerifySSH:
+		return m.target != nil && m.sshDetected()
 	case actNetworkMap, actRestart, actActions, actTheme, actHelp, actQuit:
 		return true
 	}

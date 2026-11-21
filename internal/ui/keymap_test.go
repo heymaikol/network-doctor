@@ -48,7 +48,7 @@ func TestDefaultPresetKeepsHistoricalBindings(t *testing.T) {
 		{ctxList, "enter", actOpen}, {ctxList, "esc", actCancelJob},
 		{ctxList, "tab", actSwitchJob}, {ctxList, "y", actCopy},
 		{ctxList, "w", actSave}, {ctxList, "r", actRestart},
-		{ctxList, "S", actSSH}, {ctxList, "v", actNetworkMap},
+		{ctxList, "v", actNetworkMap},
 		{ctxList, "e", actExplain}, {ctxList, "i", actIncidents},
 		{ctxList, "?", actHelp}, {ctxList, "q", actQuit},
 		{ctxViewer, "up", actUp}, {ctxViewer, "k", actUp},
@@ -247,7 +247,7 @@ func TestActionMetadataMatchesDispatchAndHelp(t *testing.T) {
 					t.Errorf("%s %q dispatches to %d, ok=%v", def.name, seq, act, ok)
 				}
 			}
-			if km.bound(ctx, def.act) && def.act != actSSH &&
+			if km.bound(ctx, def.act) &&
 				(!strings.Contains(help, km.label(ctx, def.act)) || !strings.Contains(help, metadata.details)) {
 				t.Errorf("help is missing %s in context %d", def.name, ctx)
 			}

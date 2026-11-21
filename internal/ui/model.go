@@ -260,13 +260,6 @@ type model struct {
 	histDraft string
 	histPath  string // ""; disables persistence (tests, or no config dir)
 
-	// SSH login form (S): host, username, key file, password. Enter hands the
-	// terminal to ssh; esc closes it. Every S starts a fresh form, so a typed
-	// password lives only as long as the form is open.
-	sshPrompt  bool
-	ssh        sshForm
-	sshRequest uint64
-
 	// Confirm gate: a tool marked Confirm (nmap) is held here after its hotkey,
 	// showing the exact command until 'y' runs it or esc cancels.
 	confirmTool *Tool
@@ -295,6 +288,13 @@ type model struct {
 	theming  bool
 	themeSel int
 	themeWas Theme
+
+	// SSH credential check (S). verifying is whether the panel is open,
+	// verify its state, and verifySeq numbers each panel so a result for one
+	// closed meanwhile is dropped.
+	verifying bool
+	verify    verifyPanel
+	verifySeq uint64
 
 	// keys resolves keypresses to actions. The zero value is the default
 	// keymap, so a model built without one behaves as netdoc always has.
@@ -581,24 +581,20 @@ func (m model) reportReady() bool {
 	return m.allDone() && !m.jobsRunning() && m.cur.status != JobRunning
 }
 
-// sshDetected reports whether this run found an SSH server to log in to: the
+// sshDetected reports whether this run found an SSH server to check: the
 // banner probe passed, i.e. the port answered with an SSH- identification
 // string. A warn is deliberately not enough: that one means the port answered
 // with silence, and ssh always speaks first.
-//
-// Presence first: a target with no SSH rung has no entry here at all, and the
-// zero ProbeResult a missing key returns carries StatusPass (the first iota).
 func (m model) sshDetected() bool {
 	r, ok := m.results[diagnostic.ProbeSSH]
 	return ok && r.Status == diagnostic.StatusPass
 }
 
 // spinnerActive reports whether the spinner tick chain should keep running for
-// probes, jobs, name lookups, a device's service check, or SSH configuration
-// resolution.
+// probes, jobs, name lookups, or a device's service check.
 func (m model) spinnerActive() bool {
 	return ((!m.toolbox || m.generation > 0 || m.chainRan()) && !m.allDone()) || m.jobsRunning() ||
-		len(m.namesPending) > 0 || m.svcPending() || m.ssh.pending != nil
+		len(m.namesPending) > 0 || m.svcPending() || (m.verifying && m.verify.busy)
 }
 
 // svcPending reports whether an opened device's service check is still in
@@ -678,11 +674,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.confirmTool != nil {
 			return m.handleConfirmKey(msg)
 		}
+		if m.verifying {
+			return m.handleVerifyKey(msg)
+		}
 		if m.theming {
 			return m.handleThemeKey(msg)
-		}
-		if m.sshPrompt {
-			return m.handleSSHKey(msg)
 		}
 		if m.entering {
 			return m.handlePromptKey(msg)
@@ -701,6 +697,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.handleKey(msg)
 
+	case verifyResolvedMsg, verifyResultMsg:
+		next, cmd, _ := m.handleVerifyMsg(msg)
+		return next, cmd
 	case noticeDoneMsg:
 		if msg.deadline.Equal(m.noticeDeadline) {
 			m.noticeDeadline = time.Time{}
@@ -710,44 +709,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-
-	case sshDoneMsg:
-		// The session's own screen is gone the moment the TUI repaints, so
-		// whatever ssh said lands in a job pane like any other tool's output.
-		m.stashJob()
-		m.cur = jobState{name: "SSH login", display: msg.display, status: JobDone}
-		for line := range strings.SplitSeq(strings.TrimRight(msg.output, "\n"), "\n") {
-			if line != "" {
-				m.appendJobLine(textsafe.Clean(line))
-			}
-		}
-		notice := "ssh session ended"
-		if msg.err != nil {
-			m.cur.status = JobFailed
-			m.appendJobLine(textsafe.Clean(msg.err.Error()))
-			notice = "ssh failed: press enter for the output"
-		}
-		if m.viewing {
-			m.refreshViewport()
-		}
-		return m, m.setNotice(notice, msg.err == nil)
-
-	case sshResolvedMsg:
-		if !m.sshPrompt || m.ssh.pending == nil || msg.id != m.ssh.pending.id {
-			return m, nil
-		}
-		pending := m.ssh.pending
-		m.ssh.pending = nil
-		if msg.err != nil {
-			m.ssh.err = textsafe.Clean(msg.err.Error())
-			return m, nil
-		}
-		args, env := sshAskpass(pending.args, m.ssh.pass.Value(), pending.self, msg.host, msg.proxied)
-		m.sshPrompt = false
-		// The password is in env now, so the form has no reason to keep it.
-		// Go strings cannot be wiped; this only shortens the window.
-		m.ssh.pass.SetValue("")
-		return m, runSSH(args, env)
 
 	case scheduleMsg:
 		if msg.gen != m.generation {

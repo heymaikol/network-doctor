@@ -219,11 +219,6 @@ impl Handle {
         s.child = Some(child);
     }
 
-    /// Stops netdoc for running out of time, with the reason the window shows.
-    fn expire(&self, reason: &'static str) {
-        expire_locked(&mut self.0.lock().unwrap(), reason);
-    }
-
     /// Why netdoc was stopped for running out of time, if it was.
     fn expired(&self) -> Option<&'static str> {
         self.0.lock().unwrap().expired
@@ -236,7 +231,7 @@ fn watchdog(h: Handle, limit: Duration, reason: &'static str) -> Sender<()> {
     let (done, wait) = channel::<()>();
     std::thread::spawn(move || {
         if let Err(RecvTimeoutError::Timeout) = wait.recv_timeout(limit) {
-            h.expire(reason);
+            expire_locked(&mut h.0.lock().unwrap(), reason);
         }
     });
     done

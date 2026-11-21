@@ -241,8 +241,9 @@ const BAD_OUTPUT: &str = "netdoc's output wasn't a report this app understands";
 
 /// Either kind of report netdoc prints with `--json`.
 pub fn parse(json: &str) -> Result<Outcome, String> {
-    let v: serde_json::Value =
+    let mut v: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
+    clean_strings(&mut v);
     if v.get("schema")
         .and_then(|s| s.as_str())
         .is_some_and(|s| s.starts_with("netdoc.profile-report."))
@@ -272,6 +273,18 @@ pub fn parse(json: &str) -> Result<Outcome, String> {
     let mut r: Report = serde_json::from_value(v).map_err(|e| format!("{BAD_OUTPUT}: {e}"))?;
     finish(&mut r);
     Ok(Outcome::Single(r))
+}
+
+/// Cleans every string in a report, once, where netdoc output enters the
+/// window: no escapes, invisible or direction-changing characters. Line breaks
+/// are kept, and nothing else is rewritten.
+fn clean_strings(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::String(s) => *s = clean_lines(s),
+        serde_json::Value::Array(a) => a.iter_mut().for_each(clean_strings),
+        serde_json::Value::Object(o) => o.values_mut().for_each(clean_strings),
+        _ => {}
+    }
 }
 
 /// Fails unless `v` has each key. The keys are the schema's required fields
@@ -933,6 +946,25 @@ mod tests {
             parse(&v.to_string()).is_err(),
             "a check without detail was accepted"
         );
+    }
+
+    #[test]
+    fn every_text_field_is_cleaned_when_parsed() {
+        // Escapes, a right-to-left override and a NUL in each kind of text field.
+        // Line breaks in steps are kept: they are structure, not a control hazard.
+        let r = parse_report(
+            r#"{"version":"x","target":{"host":"h\u001b[2J","port":1,"protocol":"tcp"},"checks":[{"id":"dns","name":"DNS\u202e","status":"FAIL","ms":1,"detail":"d\u0007","fix":"f\u001b"}],"summary":"s\u001b[31m","verdict":"service","ok":false,"findings":[{"id":"x","remediation":{"id":"r","action":"a\u0000b","steps":["one\ntwo"]}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(r.summary, "s[31m");
+        assert_eq!(r.target.unwrap().host, "h[2J");
+        assert_eq!(r.checks[0].name, "DNS");
+        assert_eq!(r.checks[0].detail, "d");
+        assert_eq!(r.checks[0].fix.as_deref(), Some("f"));
+        assert_eq!(r.checks[0].status, "FAIL", "identifiers are left alone");
+        let rem = r.findings[0].remediation.as_ref().unwrap();
+        assert_eq!(rem.action, "ab");
+        assert_eq!(rem.steps, ["one\ntwo"]);
     }
 
     #[test]

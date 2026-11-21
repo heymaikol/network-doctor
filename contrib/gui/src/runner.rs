@@ -1076,22 +1076,22 @@ mod tests {
             .unwrap()
             .parse()
             .unwrap();
+        std::fs::write(dir.join(format!("ready-{me}")), "").unwrap();
+        // Released together: the parent opens the gate once every child is ready,
+        // so the claims race within microseconds of each other. Bounded.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !dir.join("go").exists() {
+            assert!(
+                Instant::now() < deadline,
+                "the parent never opened the gate"
+            );
+        }
         let claim = if std::env::var_os("NETDOC_GUI_CLAIM_NAIVE").is_some() {
             naive_claim(&dir)
         } else {
             reserve(dir.join("network-doctor-report.ndoc")).unwrap()
         };
         std::fs::write(dir.join(format!("claim-{me}")), claim.display().to_string()).unwrap();
-        std::fs::write(dir.join(format!("ready-{me}")), "").unwrap();
-        // Bounded, so a peer that failed before becoming ready cannot hang the run.
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while ready_peers(&dir) < PEERS {
-            assert!(
-                Instant::now() < deadline,
-                "the peers never all became ready"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
     }
 
     /// `PEERS` child processes claim names at the same moment, and this returns
@@ -1121,6 +1121,11 @@ mod tests {
                 cmd.spawn().unwrap()
             })
             .collect();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while ready_peers(&dir) < PEERS && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        std::fs::write(dir.join("go"), "").unwrap();
         let mut failures = Vec::new();
         for child in children {
             let out = child.wait_with_output().unwrap();

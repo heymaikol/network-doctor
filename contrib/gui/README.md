@@ -14,8 +14,8 @@ it, the `netdoc` binary does not change, and the Go toolchain never sees it.
 
 ## What it does
 
-- **Four things to check:** your own connection, a website or server, a
-  service profile (`--profile`), or a device on your own network.
+- **Three things to check:** your own connection, a website or server, or a
+  service profile (`--profile`).
 - **A plain verdict first,** then every step `netdoc` ran, each with one
   sentence saying what it found.
 - **"Why?"** shows the evidence behind a finding: what was observed, how
@@ -24,8 +24,6 @@ it, the `netdoc` binary does not change, and the Go toolchain never sees it.
   problems that come and go.
 - **Export report** writes the privacy-conscious `.ndoc` file
   (`netdoc --support`) to your home folder. It never replaces a file.
-- **Devices nearby** lists what answers on your own private network, so you
-  can pick one to check. See the limits below.
 - Eight colour themes, light and dark.
 
 ## Build and run
@@ -68,20 +66,10 @@ control characters before it is shown.
 | | Linux | macOS | Windows |
 | --- | --- | --- | --- |
 | Run checks, Why?, watch, export | yes | yes | yes |
-| Devices nearby: devices that answer on a web port | yes | yes | yes |
-| Devices nearby: names, router label, silent devices | yes | no | no |
 | `netdoc` stops if the window crashes | yes | no | no |
 
-The last two rows read Linux's `/proc` and use a Linux process flag. Closing
-the window normally stops `netdoc` on every system.
-
-## Devices nearby
-
-This part does not come from `netdoc`. It makes ordinary TCP connections to
-ports 80 and 443 on each address of your own /24, then asks the devices it
-found about a fixed list of 15 common ports. It needs no admin rights, sends
-nothing after a connect, asks before it starts, and refuses to run when this
-computer has a public address.
+The last row uses a Linux process flag. Closing the window normally stops
+`netdoc` on every system.
 
 ## Tests
 

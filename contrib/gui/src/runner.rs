@@ -57,9 +57,15 @@ fn find_in_path(path: &std::ffi::OsStr) -> Option<PathBuf> {
 /// (see `Drop for App`), but a crash does not. On Windows it runs without a
 /// console window of its own.
 fn netdoc_command(bin: &Path) -> Command {
-    // Only Linux and Windows change the command below.
-    #[cfg_attr(not(any(target_os = "linux", windows)), allow(unused_mut))]
+    // Only Unix and Windows change the command below.
+    #[cfg_attr(not(any(unix, windows)), allow(unused_mut))]
     let mut cmd = Command::new(bin);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so a SIGKILL to the group reaches its descendants.
+        cmd.process_group(0);
+    }
     #[cfg(target_os = "linux")]
     die_with_parent(&mut cmd);
     #[cfg(windows)]
@@ -133,6 +139,18 @@ fn expire_locked(s: &mut Slot, reason: &'static str) {
         ask_to_stop(c);
     }
 }
+
+/// SIGKILL to netdoc's whole process group on Unix, so the descendants it left
+/// behind go too. Elsewhere only the child itself can be killed, by the caller.
+#[cfg(unix)]
+fn kill_tree(pid: u32) {
+    // SAFETY: a negative pid addresses the process group led by netdoc. If the
+    // group has gone, the call fails harmlessly.
+    unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+}
+
+#[cfg(not(unix))]
+fn kill_tree(_pid: u32) {}
 
 /// SIGTERM on Unix, which netdoc answers by cancelling its probes and removing
 /// its temporary files. Windows has no such signal, so the process is ended.
@@ -235,6 +253,7 @@ fn supervise(
 ) -> (Option<i32>, String) {
     let stdout = child.stdout.take().unwrap();
     let stderr = keep_tail(child.stderr.take().unwrap());
+    let pid = child.id();
     let queue: Arc<Mutex<VecDeque<String>>> = Arc::default();
     let reader_queue = Arc::clone(&queue);
     let out = std::thread::spawn(move || {
@@ -273,15 +292,20 @@ fn supervise(
             }
             if s.stopped {
                 let since = *stop_seen.get_or_insert_with(Instant::now);
-                if since.elapsed() > STOP_GRACE
-                    && let Some(c) = s.child.as_mut()
-                {
-                    let _ = c.kill();
+                if since.elapsed() > STOP_GRACE {
+                    kill_tree(pid);
+                    if let Some(c) = s.child.as_mut() {
+                        let _ = c.kill();
+                    }
                 }
             }
         }
         std::thread::sleep(POLL);
     };
+    // The leader is reaped, but a descendant may still hold a pipe open. Kill the
+    // group now, while the group id is certainly still ours, then give the
+    // readers their grace.
+    kill_tree(pid);
     // netdoc has exited. Its readers get READ_GRACE to finish what it printed.
     let deadline = Instant::now() + READ_GRACE;
     while !(out.is_finished() && stderr.is_finished()) && Instant::now() < deadline {
@@ -812,6 +836,41 @@ mod tests {
         assert!(res.is_some(), "the export never reported back");
         assert!(res.unwrap().is_err());
         assert!(!left, "a failed export left its claimed file behind");
+    }
+
+    /// Whether a process is still running. A zombie has exited, so it doesn't count.
+    #[cfg(target_os = "linux")]
+    fn process_alive(pid: &str) -> bool {
+        std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+            stat.rsplit(')')
+                .next()
+                .is_some_and(|rest| !rest.trim_start().starts_with('Z'))
+        })
+    }
+
+    /// A descendant that netdoc leaves behind must not outlive it. Linux only:
+    /// the check reads /proc.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_descendant_left_behind_is_killed() {
+        let dir = scratch("descendant");
+        let body = format!(
+            "sleep 600 &\necho $! > {}\necho '{{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}}'\nexit 0",
+            dir.join("pid").display()
+        );
+        let (tx, rx) = channel();
+        let _h = run(fake_netdoc(&dir, &body), None, None, None, tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(15));
+        let pid = std::fs::read_to_string(dir.join("pid")).unwrap_or_default();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while process_alive(pid.trim()) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let alive = process_alive(pid.trim());
+        kill_recorded_pid(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "finished"]));
+        assert!(!alive, "a descendant outlived netdoc");
     }
 
     /// A check that never finishes is expired, so the window can't wait forever.

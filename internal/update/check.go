@@ -173,12 +173,24 @@ type Result struct {
 	Cached     bool
 }
 
-// Check answers whether a newer stable release exists than installed. It makes
-// no request when allow is false, when installed is not a stable release, or
-// when the cache is younger than TTL and not in the future. Otherwise it makes
-// one request and records the attempt, success or failure. It never returns an
-// error: a broken cache or an unwritable directory only costs the cache.
+// Check answers whether a newer stable release exists than installed, for the
+// automatic check. It makes no request when allow is false, when installed is
+// not a stable release, or when the cache is younger than TTL and not in the
+// future. Otherwise it makes one request and records the attempt, success or
+// failure. It never returns an error: a broken cache or an unwritable directory
+// only costs the cache.
 func Check(ctx context.Context, client *http.Client, cachePath, installed string, now time.Time, allow bool) Result {
+	return check(ctx, client, cachePath, installed, now, allow, false)
+}
+
+// CheckNow is Check for an explicit request. A cache whose last attempt did not
+// succeed (offline, rate limited, a bad answer, or an attempt that never
+// finished) is asked again instead of being reused within the TTL.
+func CheckNow(ctx context.Context, client *http.Client, cachePath, installed string, now time.Time, allow bool) Result {
+	return check(ctx, client, cachePath, installed, now, allow, true)
+}
+
+func check(ctx context.Context, client *http.Client, cachePath, installed string, now time.Time, allow, explicit bool) Result {
 	res := Result{Installed: installed}
 	if !allow {
 		res.Status = Disabled
@@ -190,7 +202,7 @@ func Check(ctx context.Context, client *http.Client, cachePath, installed string
 	}
 	r := load(cachePath)
 	age := now.Sub(r.CheckedAt)
-	if r.CheckedAt.IsZero() || age < 0 || age >= TTL {
+	if r.CheckedAt.IsZero() || age < 0 || age >= TTL || (explicit && r.Outcome != outcomeOK) {
 		// Record the attempt before asking, as offline until it answers. An attempt
 		// the process abandons mid-request, because the view quit first, still
 		// counts toward the TTL, so reopening does not repeat it.

@@ -62,7 +62,7 @@ type updateReport struct {
 // runUpdateCheck answers an explicit request for the update status. The user
 // asked for it directly, so it overrides the automatic-check opt-out, but it
 // still obeys --no-reference-egress. It exits 0 for every answer, since no
-// answer is a diagnosis.
+// answer is a diagnosis. It asks again after an unsuccessful earlier attempt.
 func runUpdateCheck(setFlags map[string]bool, positional []string, jsonOut bool, stdout, stderr io.Writer) int {
 	noEgress := setFlags["no-reference-egress"]
 	delete(setFlags, "update-check")
@@ -73,7 +73,7 @@ func runUpdateCheck(setFlags map[string]bool, positional []string, jsonOut bool,
 		fmt.Fprintln(stderr, "netdoc: -update-check cannot be combined with a target or other flags, except -json and -no-reference-egress")
 		return 2
 	}
-	res := update.Check(context.Background(), updateClient(), updateCachePath(), version, time.Now(), !noEgress)
+	res := update.CheckNow(context.Background(), updateClient(), updateCachePath(), version, time.Now(), !noEgress)
 	if jsonOut {
 		out := updateReport{Schema: updateSchema, Status: res.Status, Installed: res.Installed, Latest: res.Latest, ReleaseURL: res.ReleaseURL, Cached: res.Cached}
 		if !res.CheckedAt.IsZero() {

@@ -7,10 +7,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -87,6 +89,35 @@ func validateUpdate(sch *jsonschema.Schema, blob string) error {
 		return err
 	}
 	return sch.Validate(inst)
+}
+
+// An explicit -update-check asks again after an unsuccessful attempt, here the
+// record an interrupted attempt leaves behind, and reports the fresh answer.
+func TestExplicitCheckRefreshesAnUnsuccessfulCache(t *testing.T) {
+	u := &updateTest{tag: "v2.3.0", code: 200}
+	setUpdateTest(t, u, "2.2.1")
+	path := updateCachePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seed := `{"checked_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","outcome":"offline","latest":""}`
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runUpdate("-update-check", "-json")
+	if code != 0 || u.calls.Load() != 1 {
+		t.Fatalf("exit %d with %d requests, want exit 0 and one request; stderr %q", code, u.calls.Load(), errOut)
+	}
+	if err := validateUpdate(compileUpdateSchema(t), out); err != nil {
+		t.Fatalf("answer does not match the schema: %v\n%s", err, out)
+	}
+	var got updateReport
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "update_available" || got.Cached {
+		t.Fatalf("status %q cached=%v, want a fresh update_available", got.Status, got.Cached)
+	}
 }
 
 func TestUpdateCheckHumanNoticeNamesTheNewerRelease(t *testing.T) {

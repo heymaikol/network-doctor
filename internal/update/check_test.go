@@ -256,6 +256,45 @@ func TestFailedAttemptIsNotRepeatedWithinTheTTL(t *testing.T) {
 	}
 }
 
+// The explicit check asks again after an attempt that did not succeed, which
+// includes the record an attempt leaves behind before it is answered. The
+// automatic check keeps that same failure for the TTL.
+func TestCheckNowAsksAgainAfterAnUnsuccessfulAttempt(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	cases := []struct{ name, outcome string }{
+		{"abandoned or offline attempt", outcomeOffline},
+		{"rate limited", outcomeRateLimit},
+		{"bad answer", outcomeBad},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := cachePath(t)
+			save(path, record{CheckedAt: now, Outcome: c.outcome})
+			s := &stub{do: reply(200, release("v2.3.0", false, false))}
+			if auto := Check(context.Background(), s.client(), path, "2.2.1", now, true); !auto.Cached || s.calls.Load() != 0 {
+				t.Fatalf("automatic check: cached=%v requests=%d, want the failure kept for the TTL", auto.Cached, s.calls.Load())
+			}
+			res := CheckNow(context.Background(), s.client(), path, "2.2.1", now, true)
+			if res.Status != UpdateAvailable || res.Cached || s.calls.Load() != 1 {
+				t.Fatalf("explicit check: status %q cached=%v requests=%d, want one fresh request", res.Status, res.Cached, s.calls.Load())
+			}
+		})
+	}
+}
+
+// An answer that succeeded is still reused within the TTL: an explicit check
+// costs no request while the answer is fresh.
+func TestCheckNowKeepsASuccessfulAnswerWithinTheTTL(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	path := cachePath(t)
+	save(path, record{CheckedAt: now.Add(-time.Minute), Outcome: outcomeOK, Latest: "v2.3.0"})
+	s := &stub{do: reply(500, "")}
+	res := CheckNow(context.Background(), s.client(), path, "2.2.1", now, true)
+	if res.Status != UpdateAvailable || !res.Cached || s.calls.Load() != 0 {
+		t.Fatalf("status %q cached=%v requests=%d, want the cached answer and no request", res.Status, res.Cached, s.calls.Load())
+	}
+}
+
 // Negative controls: each gate makes no request at all.
 func TestNoRequestWhenDisabledOrUnknown(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)

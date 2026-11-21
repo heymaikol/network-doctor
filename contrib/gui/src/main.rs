@@ -1205,7 +1205,56 @@ mod access {
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
+    /// Writes the stand-in netdoc into `dir`. It answers `--version`, which
+    /// `App::new` asks for, and records anything else in `dir/invoked`.
+    #[cfg(unix)]
+    fn write_stub(dir: &std::path::Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = dir.join("netdoc");
+        let log = dir.join("invoked");
+        std::fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'netdoc test stub'; exit 0; fi\necho \"$*\" >> '{}'\nexit 2\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    #[cfg(windows)]
+    fn write_stub(dir: &std::path::Path) -> PathBuf {
+        let bin = dir.join("netdoc.bat");
+        let log = dir.join("invoked");
+        std::fs::write(
+            &bin,
+            format!(
+                "@echo off\r\nif \"%~1\"==\"--version\" (echo netdoc test stub) else (echo %* >> \"{}\")\r\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        bin
+    }
+
+    /// The stand-in netdoc, installed once through NETDOC, so the window tests
+    /// never depend on the real executable or on PATH. Nothing else reads NETDOC.
+    fn netdoc_stub() -> &'static PathBuf {
+        static STUB: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        STUB.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("netdoc-gui-stub-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let bin = write_stub(&dir);
+            // SAFETY: done once, before any window is built, and no other test reads NETDOC.
+            unsafe { std::env::set_var("NETDOC", &bin) };
+            bin
+        })
+    }
+
     fn window() -> Harness<'static, App> {
+        netdoc_stub();
         Harness::new_ui_state(
             |ui, app: &mut App| app.show(ui),
             App::new(egui::Context::default()),
@@ -1295,10 +1344,8 @@ mod access {
     #[test]
     fn tab_reaches_every_main_control() {
         // With a result on screen Export is enabled; before one, it is rightly
-        // disabled and cannot take focus. netdoc is pinned to a path that is never
-        // run, so the test does not depend on what is installed.
+        // disabled and cannot take focus.
         let mut h = window();
-        h.state_mut().netdoc = Some(PathBuf::from("netdoc"));
         let outcome = report::parse(include_str!("../tests/fixtures/healthy.json")).unwrap();
         h.state_mut()
             .history

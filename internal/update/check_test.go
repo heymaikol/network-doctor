@@ -105,6 +105,22 @@ func TestLatestIsBoundedByTheCallersDeadline(t *testing.T) {
 	}
 }
 
+// The TUI passes a background context, so the request's own bound is the only
+// thing that stops a stuck answer from running forever. The request must carry
+// a deadline no later than Deadline.
+func TestLatestBoundsRequestsWithoutACallerDeadline(t *testing.T) {
+	bounded := false
+	s := &stub{do: func(req *http.Request) (*http.Response, error) {
+		dl, ok := req.Context().Deadline()
+		bounded = ok && time.Until(dl) <= Deadline
+		return reply(200, release("v2.3.0", false, false))(req)
+	}}
+	Latest(context.Background(), s.client())
+	if !bounded {
+		t.Fatal("a request made with a background context has no deadline of its own")
+	}
+}
+
 // Negative control for the client: without refusing redirects, the stub would
 // be asked a second time at the redirect target.
 func TestRedirectsAreRefused(t *testing.T) {

@@ -338,3 +338,47 @@ func TestUnknownCachedOutcomeIsStale(t *testing.T) {
 		t.Fatalf("an unknown outcome was trusted: cached=%v requests=%d", res.Cached, s.calls.Load())
 	}
 }
+
+// The cache is read while another process rewrites it. A successful read must
+// see the old record or the new one, never a truncated file that reads as
+// corrupt, because that would cost an extra request.
+func TestCacheReadsNeverSeeAPartialWrite(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	path := cachePath(t)
+	save(path, record{CheckedAt: now, Outcome: outcomeOK, Latest: "v2.3.0"})
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				save(path, record{CheckedAt: now, Outcome: outcomeOK, Latest: "v2.3.0"})
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		<-writerDone
+	}()
+	reads := 0
+	for i := 0; i < 2000; i++ {
+		// A read can fail outright while a replace holds the file (a Windows sharing
+		// violation). That is not a partial record; a successful read of truncated or
+		// empty content is the failure this test exists to catch.
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		reads++
+		var r record
+		if json.Unmarshal(data, &r) != nil || r.Outcome != outcomeOK {
+			t.Fatalf("read %d saw a partial record: %q", i, data)
+		}
+	}
+	if reads == 0 {
+		t.Fatal("no read of the cache succeeded")
+	}
+}

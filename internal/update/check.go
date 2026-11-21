@@ -149,7 +149,18 @@ func save(path string, r record) {
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o600)
+	// Write beside the cache and rename into place, so a concurrent reader never
+	// sees a truncated file. On Windows the rename can fail while another process
+	// has the cache open; the old record then stays, and the next run asks again.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".update-check-*")
+	if err != nil {
+		return
+	}
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil || os.Rename(tmp.Name(), path) != nil {
+		_ = os.Remove(tmp.Name())
+	}
 }
 
 // Result is one check's answer, recomputed against the installed version.

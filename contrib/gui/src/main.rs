@@ -950,7 +950,13 @@ impl App {
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 1.0;
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(&c.title).strong());
+                                ui.label(RichText::new(&c.title).strong()).widget_info(|| {
+                                    egui::WidgetInfo::labeled(
+                                        egui::WidgetType::Label,
+                                        true,
+                                        format!("{}: {}", c.title, report::status_word(&c.status)),
+                                    )
+                                });
                                 if r.failed_stage.as_deref() == Some(c.id.as_str()) {
                                     ui.label(RichText::new("stopped here").small().color(col));
                                 }
@@ -1251,6 +1257,19 @@ mod access {
         h.run();
         let field = h.get_by_role_and_label(Role::TextInput, "Address to check");
         assert_eq!(field.value().as_deref(), Some("github.com"));
+    }
+
+    #[test]
+    fn each_step_exposes_its_status_word() {
+        // The status is a symbol on screen; the tree must carry the word too.
+        let mut h = window();
+        let outcome = report::parse(include_str!("../tests/fixtures/degraded.json")).unwrap();
+        h.state_mut()
+            .history
+            .push((Instant::now(), Rc::new(outcome)));
+        h.run();
+        h.get_by_label("Large data gets through: Warning");
+        h.get_by_label("Reaches the internet: OK");
     }
 
     #[test]

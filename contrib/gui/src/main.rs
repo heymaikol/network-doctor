@@ -140,6 +140,10 @@ fn config_file() -> Option<PathBuf> {
 }
 
 /// Where the update check keeps what the window remembers: beside the theme.
+/// The warning when there is no config folder to keep the update setting in.
+const NO_SETTINGS_FOLDER: &str =
+    "No settings folder was found, so this change lasts only until this window closes.";
+
 fn memory_file() -> Option<PathBuf> {
     config_file().map(|p| p.with_file_name("update"))
 }
@@ -215,6 +219,8 @@ struct App {
     /// What the update check remembers, and the file it lives in.
     memory: update::Memory,
     memory_path: Option<PathBuf>,
+    /// Why the last change to the update setting was not kept, while it is not.
+    memory_warning: Option<String>,
     /// NETDOC_NO_UPDATE_CHECK=1 is set, which holds the switch off.
     update_env_opt_out: bool,
     /// The newer release the banner shows, if any.
@@ -329,6 +335,7 @@ impl App {
             screenshot: screenshot.map(|p| (p, 0)),
             memory,
             memory_path: update_memory,
+            memory_warning: None,
             update_env_opt_out,
             update: None,
             update_rx: None,
@@ -474,11 +481,25 @@ impl App {
 
     /// Makes one change to the update memory against the file as it is now, so
     /// a window that loaded the file earlier cannot undo another window's change.
-    /// The window then shows what the file holds.
-    fn change_memory(&mut self, change: impl FnOnce(&mut update::Memory)) {
-        match &self.memory_path {
-            Some(p) => self.memory = update::change(p, change),
-            None => change(&mut self.memory),
+    /// The window shows the change either way. When it is not kept, a warning
+    /// says it lasts only until the window closes.
+    fn change_memory(&mut self, change: impl Fn(&mut update::Memory)) {
+        let Some(path) = self.memory_path.clone() else {
+            change(&mut self.memory);
+            self.memory_warning = Some(NO_SETTINGS_FOLDER.to_string());
+            return;
+        };
+        match update::change(&path, &change) {
+            Ok(m) => {
+                self.memory = m;
+                self.memory_warning = None;
+            }
+            Err(e) => {
+                change(&mut self.memory);
+                self.memory_warning = Some(format!(
+                    "Could not save the update setting ({e}), so this change lasts only until this window closes."
+                ));
+            }
         }
     }
 
@@ -491,8 +512,18 @@ impl App {
     fn dismiss_update(&mut self) {
         if let Some(r) = self.update.take() {
             let latest = r.latest;
-            self.change_memory(|m| m.dismissed = Some(latest));
+            self.change_memory(|m| m.dismissed = Some(latest.clone()));
         }
+    }
+
+    /// Shows why the last change to the update setting was not kept, so an
+    /// unsaved setting never looks saved.
+    fn memory_warning_line(&self, ui: &mut egui::Ui) {
+        let Some(text) = self.memory_warning.as_deref() else {
+            return;
+        };
+        ui.add_space(8.0);
+        ui.add(egui::Label::new(RichText::new(text).color(bad())).wrap());
     }
 
     /// Opens the release page the banner names. If it can't open, says where it is.
@@ -1317,6 +1348,7 @@ impl App {
             .show(ui, |ui| {
                 self.header(ui);
                 self.update_banner(ui);
+                self.memory_warning_line(ui);
             });
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(pal().bg).inner_margin(egui::Margin::symmetric(16, 6))).show(ui, |ui| {
             if let Some(f) = &self.failure {
@@ -2342,6 +2374,68 @@ mod update_notice {
         assert!(!h.state().memory.off, "the switch changed the setting");
         assert!(!path.exists(), "the environment wrote the stored setting");
         cleanup(&path);
+    }
+
+    /// A change the window cannot save is still shown, and the window says it
+    /// lasts only until it closes, so an unsaved setting never looks saved.
+    #[test]
+    fn a_change_that_cannot_be_saved_is_warned_not_hidden() {
+        let path = memory_in_a_fresh_folder("unsaved");
+        // A folder where the temporary file must go makes the save fail.
+        std::fs::create_dir(path.with_file_name(format!("update.{}.tmp", std::process::id())))
+            .unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(
+            h.state().memory.off,
+            "the change is not shown for this session"
+        );
+        assert!(!path.exists(), "a failed save wrote the file");
+        h.get_by_label_contains("Could not save the update setting");
+        h.get_by_label_contains("lasts only until this window closes");
+        cleanup(&path);
+    }
+
+    /// Negative control: a change that is saved shows no warning.
+    #[test]
+    fn a_saved_change_shows_no_warning() {
+        let path = memory_in_a_fresh_folder("saved-warning");
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(update::load(&path).off, "the setting was not saved");
+        assert!(
+            h.query_by_label_contains("Could not save the update setting")
+                .is_none()
+        );
+        assert!(h.state().memory_warning.is_none());
+        cleanup(&path);
+    }
+
+    /// Without a config folder the change lasts only for this session, and the
+    /// window says so.
+    #[test]
+    fn without_a_settings_folder_the_change_is_warned() {
+        let mut h = Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(None));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(
+            h.state().memory.off,
+            "the change is not shown for this session"
+        );
+        h.get_by_label_contains("No settings folder was found");
     }
 
     #[test]

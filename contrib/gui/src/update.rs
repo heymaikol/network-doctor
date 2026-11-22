@@ -5,6 +5,7 @@
 
 use crate::report;
 use serde_json::Value;
+use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -105,8 +106,14 @@ pub struct Memory {
     pub off: bool,
 }
 
-pub fn load(path: &Path) -> Memory {
-    let text = std::fs::read_to_string(path).unwrap_or_default();
+/// Reads the memory. A missing file is the default. Any other read error is
+/// returned, so a change never writes over a file it could not read.
+pub fn read(path: &Path) -> io::Result<Memory> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e),
+    };
     let mut m = Memory::default();
     for line in text.lines() {
         match line.split_once('=') {
@@ -116,12 +123,18 @@ pub fn load(path: &Path) -> Memory {
             _ => {}
         }
     }
-    m
+    Ok(m)
 }
 
-/// Writes the memory. A folder or file that can't be written costs only the
-/// memory, so errors are not reported.
-pub fn save(path: &Path, m: &Memory) {
+/// The memory the window starts with: what `read` finds, or the default when it
+/// cannot be read.
+pub fn load(path: &Path) -> Memory {
+    read(path).unwrap_or_default()
+}
+
+/// Writes the memory. An error is returned, so the caller can say the setting
+/// was not kept.
+pub fn save(path: &Path, m: &Memory) -> io::Result<()> {
     let mut text = String::new();
     if let Some(v) = &m.dismissed {
         text += &format!("dismissed={v}\n");
@@ -133,31 +146,31 @@ pub fn save(path: &Path, m: &Memory) {
         text += "off=1\n";
     }
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        std::fs::create_dir_all(dir)?;
     }
     // Write beside the file, then rename it into place, so a reader never sees
     // half of it. The temporary name carries this process's id, so two windows
     // never write the same temporary file.
     let tmp = path.with_file_name(format!("update.{}.tmp", std::process::id()));
-    if std::fs::write(&tmp, text).is_err() || std::fs::rename(&tmp, path).is_err() {
+    let written = std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, path));
+    if written.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
+    written
 }
 
 /// Makes one change to the memory as the file holds it now, and writes only if
 /// that changes the file. A window that loaded the file earlier then cannot
 /// write its stale copy back over another window's change. Returns what the
-/// file holds afterwards.
-// ponytail: no lock, so two windows that write in the same instant can still
-// lose one change; a per-file lock if that ever matters.
-pub fn change(path: &Path, change: impl FnOnce(&mut Memory)) -> Memory {
-    let before = load(path);
+/// file holds afterwards, or the error that stopped the change.
+pub fn change(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
+    let before = read(path)?;
     let mut after = before.clone();
     change(&mut after);
     if after != before {
-        save(path, &after);
+        save(path, &after)?;
     }
-    after
+    Ok(after)
 }
 
 /// Whether the window may ask at launch. The user's setting and the environment
@@ -348,7 +361,7 @@ mod tests {
             failed_at: Some(1_800_000_000),
             off: true,
         };
-        save(&path, &m);
+        save(&path, &m).unwrap();
         assert_eq!(load(&path), m);
         std::fs::write(
             &path,
@@ -414,6 +427,56 @@ mod tests {
             to_show(parse(&newer).unwrap(), &dismissed_it).is_some(),
             "a newer release did not show again"
         );
+    }
+
+    /// A folder of its own for one test, removed when the test ends.
+    struct Folder(std::path::PathBuf);
+
+    impl Folder {
+        fn new(name: &str) -> Folder {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "netdoc-gui-memory-{name}-{}-{nanos}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            Folder(dir)
+        }
+
+        fn file(&self) -> std::path::PathBuf {
+            self.0.join("update")
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A save that cannot write is an error, not a silent success. A folder
+    /// where the temporary file must go makes the write fail.
+    #[test]
+    fn a_failed_save_is_an_error_and_the_file_is_unchanged() {
+        let folder = Folder::new("failed-save");
+        std::fs::create_dir(folder.0.join(format!("update.{}.tmp", std::process::id()))).unwrap();
+        assert!(
+            change(&folder.file(), |m| m.off = true).is_err(),
+            "a failed save looked successful"
+        );
+        assert!(!folder.file().exists(), "a failed save wrote the file");
+    }
+
+    /// Negative control: the same change is saved when nothing blocks the write.
+    #[test]
+    fn a_change_is_saved_when_the_folder_can_be_written() {
+        let folder = Folder::new("saved");
+        let m = change(&folder.file(), |m| m.off = true).unwrap();
+        assert!(m.off);
+        assert!(read(&folder.file()).unwrap().off);
     }
 
     #[test]

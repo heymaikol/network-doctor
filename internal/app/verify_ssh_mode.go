@@ -310,15 +310,20 @@ func readVerifySecret(ctx context.Context, stderr io.Writer, prompt string, from
 }
 
 // readTerminalSecret reads a secret with echo off, and it puts the terminal back
-// whether the read ends normally or the process is interrupted. ReadPassword
-// restores echo in a defer, and a defer does not run when an interrupt ends the
-// process, so the state saved here is restored by an interrupt handler instead.
+// whether the read ends normally or the process is interrupted. Echo goes
+// off before the prompt is written, so a key typed while the prompt shows is not
+// echoed. ReadPassword saves the state it finds, which is then the echo-off state,
+// so the state saved here is restored after the read. A defer does not run when a
+// signal ends the process, so the signal handler restores it instead.
 func readTerminalSecret(stderr io.Writer, prompt string) ([]byte, error) {
 	fd := os.Stdin.Fd()
 	state, err := term.GetState(fd)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = term.Restore(fd, state) }()
+	// The handler is installed before echo goes off, so a signal in that window
+	// restores the terminal too.
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(interrupts)
@@ -333,6 +338,9 @@ func readTerminalSecret(stderr io.Writer, prompt string) ([]byte, error) {
 		case <-finished:
 		}
 	}()
+	if err := setEchoOff(fd); err != nil {
+		return nil, err
+	}
 	fmt.Fprint(stderr, prompt)
 	value, err := verifyReadPass()
 	fmt.Fprintln(stderr)

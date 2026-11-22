@@ -77,9 +77,9 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 	if err != nil {
 		return Target{}, fmt.Errorf("could not read the SSH configuration: %w", err)
 	}
-	// An unset RevokedHostKeys is left out of the listing, and only OpenSSH from the
-	// floor up is verified to leave it out exactly when it is unset. An older or unknown
-	// client is refused for an omitted line, as it was before that rule.
+	// An omitted RevokedHostKeys setting is accepted by policy from the floor up. This
+	// behavior was verified directly only for the releases listed in docs/reference.md.
+	// An older or unknown client is refused for an omitted line, as it was before that rule.
 	if _, set := listingValue(out, "revokedhostkeys"); !set {
 		if reason := omittedRevocationRefusal(ctx); reason != "" {
 			return Target{}, fmt.Errorf("the SSH configuration leaves RevokedHostKeys out, which netdoc accepts only from OpenSSH 10.0p2: %s, so netdoc cannot tell whether a revoked host key is trusted; nothing was sent", reason)

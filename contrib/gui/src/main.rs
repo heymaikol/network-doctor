@@ -1578,13 +1578,20 @@ mod tests {
     }
 
     /// A check that is still waiting for netdoc's update answer holds nothing: a
-    /// diagnostic started meanwhile finishes, and the window stays in its hands.
+    /// diagnostic started meanwhile finishes, and the update answer is still pending
+    /// when it does. The fake update process holds its answer until released, and
+    /// the diagnostic starts only once that process is running.
     #[cfg(unix)]
     #[test]
     fn a_pending_update_check_does_not_hold_a_diagnostic() {
         let dir = scratch_dir("update-and-run");
-        let body =
-            format!("case \"$1\" in\n-update-check) exec sleep 600;;\nesac\necho '{REPORT_LINE}'");
+        let started = dir.join("update-started");
+        let release = dir.join("update-release");
+        let body = format!(
+            "case \"$1\" in\n-update-check) touch '{}'; while [ ! -e '{}' ]; do sleep 0.05; done; exit 0;;\nesac\necho '{REPORT_LINE}'",
+            started.display(),
+            release.display()
+        );
         let startup = Startup {
             netdoc: Some(fake_netdoc(&dir, &body)),
             update_check: true,
@@ -1592,18 +1599,27 @@ mod tests {
         };
         let mut app = App::new(egui::Context::default(), startup);
         assert!(app.update_rx.is_some(), "the update check did not start");
+        let deadline = Instant::now() + std::time::Duration::from_secs(30);
+        while !started.exists() {
+            assert!(Instant::now() < deadline, "the update check never started");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         app.start();
         let ended = wait_for_the_check(&mut app);
         let reports = app.history.len();
-        // The update answer is still pending, so the diagnostic ran alongside it.
-        let still_pending = app.update_rx.is_some();
+        // Nothing has arrived on the update channel: the answer is still pending.
+        let pending = matches!(
+            app.update_rx.as_ref().map(|rx| rx.try_recv()),
+            Some(Err(std::sync::mpsc::TryRecvError::Empty))
+        );
+        std::fs::write(&release, "").unwrap();
         drop(app);
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(ended, "the diagnostic waited for the pending update check");
         assert_eq!(reports, 1, "the diagnostic produced no report");
         assert!(
-            still_pending,
-            "the update check had finished first, so this proved nothing"
+            pending,
+            "the update answer had already arrived, so this proved nothing"
         );
     }
 

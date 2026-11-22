@@ -68,7 +68,7 @@ control characters before it is shown.
 
 ## Update notice
 
-Once per launch, the window asks netdoc for a newer stable release, in a background process. It runs `netdoc -update-check -json`, which makes the one GitHub request an update check makes. If a newer release exists, a passive banner names it, with an "Open release page" button and a "Dismiss" button. Dismissing hides that release's banner, and a later release shows again.
+Once per launch, the window asks netdoc for a newer stable release, in a background process. It runs `netdoc -update-check -json`, which makes the one GitHub request an update check makes. GitHub receives the public IP address the request comes from, as with any HTTPS request. If a newer release exists, a passive banner names it, with an "Open release page" button and a "Dismiss" button. Dismissing hides that release's banner, and a later release shows again.
 
 The check is off when the setting "Check for updates when the window opens" is off, or when `NETDOC_NO_UPDATE_CHECK=1` is set. After a check that GitHub did not answer (offline, rate limited, or a bad answer), the window waits 24 hours before it asks again. That wait is the window's own, kept in its `update` file. Each launch the window does try runs `netdoc -update-check`, which asks GitHub again unless netdoc's last successful answer is under 24 hours old. A check the window closes before netdoc answers holds nothing, so the next launch asks again. A netdoc without the command, or one whose answer breaks the shared schema, shows no banner. The window keeps its memory of the check beside the theme, in a file named `update`.
 

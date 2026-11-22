@@ -734,6 +734,9 @@ impl App {
                 ui.label("Check for updates when the window opens");
             });
             ui.label(weak("Asks GitHub once a launch for a newer release. NETDOC_NO_UPDATE_CHECK=1 also turns it off.").small());
+            ui.label(
+                weak("GitHub receives this computer's public IP address with each check.").small(),
+            );
             match (&self.netdoc, &self.netdoc_version) {
                 (Some(p), Some(v)) => {
                     ui.label(weak(format!("Checks are run by {v} ({})", p.display())).small())
@@ -1851,6 +1854,18 @@ mod access {
         h.state_mut().show_settings = true;
         h.run();
         h.get_by_role_and_label(Role::Label, "Check for updates when the window opens");
+    }
+
+    /// The Settings say who receives the request, so the privacy line is visible.
+    #[test]
+    fn the_settings_say_github_receives_the_public_address() {
+        let mut h = window();
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(
+            Role::Label,
+            "GitHub receives this computer's public IP address with each check.",
+        );
     }
 
     #[test]

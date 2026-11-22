@@ -33,7 +33,7 @@ it, the `netdoc` binary does not change, and the Go toolchain never sees it.
 
 ## Build and run
 
-It needs a Rust toolchain (edition 2024) and, to be useful, `netdoc`.
+It needs Rust 1.95 or newer (edition 2024), the lowest version its dependencies declare, and, to be useful, `netdoc`.
 
 ```sh
 cd contrib/gui

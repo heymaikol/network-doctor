@@ -2,6 +2,9 @@
 name = "netdoc-gui"
 version = "0.1.0"
 edition = "2024"
+# The effective minimum: the egui 0.36 family declares it, and no resolved
+# dependency asks for more.
+rust-version = "1.95"
 description = "Desktop window for Network Doctor (netdoc)"
 license = "Apache-2.0"
 publish = false

@@ -574,6 +574,23 @@ impl App {
         }
     }
 
+    /// Reads an unreadable preference again, when Settings opens. A repaired file
+    /// takes effect without restarting the window, and one still unreadable stays
+    /// off.
+    fn reread_preference(&mut self) {
+        let Some(path) = self.memory_path.clone() else {
+            return;
+        };
+        if !self.preference_unreadable {
+            return;
+        }
+        if let Ok(m) = update::read(&path) {
+            self.memory = m;
+            self.preference_unreadable = false;
+            self.memory_warning = None;
+        }
+    }
+
     /// Shows why the last change to the update setting was not kept, so an
     /// unsaved setting never looks saved.
     fn memory_warning_line(&self, ui: &mut egui::Ui) {
@@ -780,6 +797,9 @@ impl App {
                 gear.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings"));
                 if gear.on_hover_text("Settings").clicked() {
                     self.show_settings = !self.show_settings;
+                    if self.show_settings {
+                        self.reread_preference();
+                    }
                 }
                 if look::button(ui, "Export report", true, self.netdoc.is_some() && self.running.is_none() && self.saving.is_none() && self.current().is_some())
                     .on_hover_text("Saves a privacy-reduced report of this check, for whoever is helping you. It runs the same check again for the same target. Nothing is uploaded.")
@@ -2911,6 +2931,54 @@ mod update_notice {
         assert!(!disk.off, "window A's older opt-out overwrote a later save");
         assert_eq!(disk.dismissed.as_deref(), Some("v2.3.0"));
         assert!(a.memory.off, "window A's session opt-out was dropped");
+        cleanup(&path);
+    }
+
+    /// Repairing an unreadable preference takes effect when Settings opens, without
+    /// restarting the window.
+    #[test]
+    fn a_repaired_preference_is_read_again_when_settings_open() {
+        let path = memory_in_a_fresh_folder("repaired");
+        std::fs::create_dir(&path).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.run();
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, "off=0\n").unwrap();
+        h.get_by_role_and_label(Role::Button, "Settings").click();
+        h.run();
+        assert!(h.state().show_settings, "Settings did not open");
+        assert!(
+            !h.state().preference_unreadable,
+            "the repaired preference is still treated as unreadable"
+        );
+        assert!(
+            h.state().memory_warning.is_none(),
+            "the warning outlived the repair"
+        );
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens");
+        cleanup(&path);
+    }
+
+    /// Negative control: a preference that still cannot be read stays unreadable
+    /// when Settings opens, so the fail-closed state is not cleared by opening it.
+    #[test]
+    fn an_unrepaired_preference_stays_unreadable_when_settings_open() {
+        let path = memory_in_a_fresh_folder("still-unreadable");
+        std::fs::create_dir(&path).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.run();
+        h.get_by_role_and_label(Role::Button, "Settings").click();
+        h.run();
+        assert!(
+            h.state().preference_unreadable,
+            "an unreadable preference was treated as readable"
+        );
+        assert!(
+            h.state().memory_warning.is_some(),
+            "the warning was cleared"
+        );
         cleanup(&path);
     }
 

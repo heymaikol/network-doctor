@@ -17,11 +17,14 @@ const Endpoint = "https://api.github.com/repos/heymaikol/network-doctor/releases
 
 // Deadline bounds one request, and TTL is how long an answer is reused before
 // the next request. A failed attempt is cached for the same TTL, so offline
-// use, timeouts and rate limits never cause repeated requests.
+// use, timeouts and rate limits never cause repeated requests. An attempt the
+// process abandons before it answers is asked again after interruptedRetry
+// instead, so one quit cannot hide the next notice for a day.
 const (
-	Deadline = 5 * time.Second
-	TTL      = 24 * time.Hour
-	maxBody  = 64 << 10
+	Deadline         = 5 * time.Second
+	TTL              = 24 * time.Hour
+	interruptedRetry = time.Hour
+	maxBody          = 64 << 10
 )
 
 // userAgent names the program without the installed version, so the request
@@ -34,6 +37,9 @@ const (
 	outcomeOffline   = "offline"
 	outcomeRateLimit = "rate_limited"
 	outcomeBad       = "bad_response"
+	// outcomeInterrupted marks an attempt that had not answered when the process
+	// left. It is never a verdict.
+	outcomeInterrupted = "interrupted"
 )
 
 // Statuses reported for one check.
@@ -133,7 +139,7 @@ func load(path string) record {
 		if !validTag(r.Latest) {
 			return record{}
 		}
-	case outcomeOffline, outcomeRateLimit, outcomeBad:
+	case outcomeOffline, outcomeRateLimit, outcomeBad, outcomeInterrupted:
 	default:
 		return record{}
 	}
@@ -163,6 +169,14 @@ func save(path string, r record) {
 	}
 }
 
+// staleAfter is how old a record may be before the next request, by outcome.
+func staleAfter(outcome string) time.Duration {
+	if outcome == outcomeInterrupted {
+		return interruptedRetry
+	}
+	return TTL
+}
+
 // Result is one check's answer, recomputed against the installed version.
 type Result struct {
 	Status     string
@@ -175,8 +189,9 @@ type Result struct {
 
 // Check answers whether a newer stable release exists than installed, for the
 // automatic check. It makes no request when allow is false, when installed is
-// not a stable release, or when the cache is younger than TTL and not in the
-// future. Otherwise it makes one request and records the attempt, success or
+// not a stable release, or when the cache is younger than its retry interval
+// (TTL, or interruptedRetry after an interrupted attempt) and not in the future.
+// Otherwise it makes one request and records the attempt, success or
 // failure. It never returns an error: a broken cache or an unwritable directory
 // only costs the cache.
 func Check(ctx context.Context, client *http.Client, cachePath, installed string, now time.Time, allow bool) Result {
@@ -202,11 +217,12 @@ func check(ctx context.Context, client *http.Client, cachePath, installed string
 	}
 	r := load(cachePath)
 	age := now.Sub(r.CheckedAt)
-	if r.CheckedAt.IsZero() || age < 0 || age >= TTL || (explicit && r.Outcome != outcomeOK) {
-		// Record the attempt before asking, as offline until it answers. An attempt
-		// the process abandons mid-request, because the view quit first, still
-		// counts toward the TTL, so reopening does not repeat it.
-		save(cachePath, record{CheckedAt: now, Outcome: outcomeOffline})
+	if r.CheckedAt.IsZero() || age < 0 || age >= staleAfter(r.Outcome) || (explicit && r.Outcome != outcomeOK) {
+		// Record the attempt before asking, as interrupted until it answers. An
+		// attempt the process abandons mid-request, because the view quit first,
+		// counts toward interruptedRetry rather than the TTL, so reopening does not
+		// repeat it and the next notice is not held for a day.
+		save(cachePath, record{CheckedAt: now, Outcome: outcomeInterrupted})
 		tag, outcome := Latest(ctx, client)
 		r = record{CheckedAt: now, Outcome: outcome, Latest: tag}
 		save(cachePath, r)
@@ -223,7 +239,8 @@ func check(ctx context.Context, client *http.Client, cachePath, installed string
 		} else {
 			res.Status = UpToDate
 		}
-	case outcomeOffline:
+	case outcomeOffline, outcomeInterrupted:
+		// An interrupted attempt obtained no answer, so it reads as offline.
 		res.Status = Offline
 	case outcomeRateLimit:
 		res.Status = RateLimited

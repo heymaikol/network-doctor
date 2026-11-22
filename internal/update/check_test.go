@@ -440,8 +440,9 @@ func TestCacheReadsNeverSeeAPartialWrite(t *testing.T) {
 }
 
 // An attempt the process abandons mid-request, because the view quit first,
-// still counts toward the TTL. The attempt never returns here, which is what a
-// quit looks like: the cache must already say an attempt happened.
+// still counts toward its retry interval. The attempt never returns here, which
+// is what a quit looks like: the cache must already say an attempt happened,
+// and that it did not answer.
 func TestAbandonedAttemptIsNotRepeated(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	path := cachePath(t)
@@ -462,8 +463,8 @@ func TestAbandonedAttemptIsNotRepeated(t *testing.T) {
 		close(done)
 	}()
 	<-started
-	if r := load(path); !r.CheckedAt.Equal(now) {
-		t.Fatalf("the attempt is not recorded while it is in flight: %+v", r)
+	if r := load(path); r.Outcome != outcomeInterrupted || !r.CheckedAt.Equal(now) {
+		t.Fatalf("the attempt is not recorded as interrupted while it is in flight: %+v", r)
 	}
 	again := Check(context.Background(), s.client(), path, "2.2.1", now.Add(time.Minute), true)
 	if n := s.calls.Load(); n != 1 {
@@ -471,5 +472,47 @@ func TestAbandonedAttemptIsNotRepeated(t *testing.T) {
 	}
 	if again.Status != Offline || !again.Cached {
 		t.Fatalf("reopening reported %q cached=%v, want the cached attempt", again.Status, again.Cached)
+	}
+}
+
+// One quit must not hide the next notice for a day: an abandoned attempt is
+// asked again once an hour has passed, not after the TTL.
+func TestInterruptedAttemptIsRetriedAfterAnHour(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	path := cachePath(t)
+	save(path, record{CheckedAt: now, Outcome: outcomeInterrupted})
+	s := &stub{do: reply(200, release("v2.3.0", false, false))}
+	inside := Check(context.Background(), s.client(), path, "2.2.1", now.Add(time.Hour-time.Minute), true)
+	if inside.Status != Offline || !inside.Cached || s.calls.Load() != 0 {
+		t.Fatalf("inside the hour: status %q cached=%v requests %d; want the cached attempt and no request", inside.Status, inside.Cached, s.calls.Load())
+	}
+	after := Check(context.Background(), s.client(), path, "2.2.1", now.Add(time.Hour), true)
+	if after.Status != UpdateAvailable || after.Cached || s.calls.Load() != 1 {
+		t.Fatalf("after the hour: status %q cached=%v requests %d; want a fresh update_available", after.Status, after.Cached, s.calls.Load())
+	}
+}
+
+// Negative control: a completed failure is still held for the whole TTL. The
+// shorter retry applies only to an attempt that never answered.
+func TestCompletedFailureIsHeldForTheTTL(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		do   func(*http.Request) (*http.Response, error)
+		want string
+	}{
+		{"offline", func(*http.Request) (*http.Response, error) { return nil, io.ErrUnexpectedEOF }, Offline},
+		{"rate limited", reply(429, "{}"), RateLimited},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := cachePath(t)
+			s := &stub{do: tc.do}
+			Check(context.Background(), s.client(), path, "2.2.1", now, true)
+			held := Check(context.Background(), s.client(), path, "2.2.1", now.Add(time.Hour), true)
+			if held.Status != tc.want || !held.Cached || s.calls.Load() != 1 {
+				t.Fatalf("an hour later: status %q cached=%v requests %d; want the held failure and no request", held.Status, held.Cached, s.calls.Load())
+			}
+		})
 	}
 }

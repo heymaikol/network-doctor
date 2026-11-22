@@ -959,7 +959,8 @@ makes: a GET of the releases endpoint with no query, no body, no credential, and
 a generic user agent that does not name the installed version. Nothing from a
 target, a report, or the machine is sent. The answer is cached for 24 hours, and
 a failed attempt is cached the same way, so automatic checks make no repeated
-requests while offline or rate limited. This option asks again whenever the
+requests while offline or rate limited. An automatic check the view closed
+before GitHub answered is asked again after one hour. This option asks again whenever the
 cached attempt did not succeed; a cached success is reused for 24 hours.
 Development and prerelease builds make no request. With
 .B \-json

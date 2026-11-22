@@ -7,6 +7,9 @@ import (
 	"testing"
 )
 
+// TestAtLeastRevocationFloor asserts the version-comparison policy only. The rows for
+// 10.1p1 and 11.0p1 show what the comparison accepts. netdoc's tests do not run those
+// releases, so the rows say nothing about runtime compatibility.
 func TestAtLeastRevocationFloor(t *testing.T) {
 	cases := []struct {
 		line string
@@ -42,9 +45,10 @@ func fixedListing(t *testing.T, listing, version string, versionErr error) error
 }
 
 // The listing an unset RevokedHostKeys produces, with no line for it, is accepted from
-// OpenSSH 10.0p2 up. The versions named are the ones the regression covers: 10.0p2 (the
-// floor), 10.2p1 (the CI runner), and 10.5p1 (run locally). Below the floor it is
-// refused, and the refusal names the release it found.
+// OpenSSH 10.0p2 up by policy. The version strings are stubbed, so these rows assert the
+// comparison and the listing rule, not a run of each release. Direct netdoc runs are
+// listed in docs/reference.md. Below the floor the line is refused, and the refusal
+// names the release it found.
 func TestOmittedRevocationLineListingByVersion(t *testing.T) {
 	const omitted = "user demo\nhostname 127.0.0.1\nport 2260\n"
 	accepted := []string{"OpenSSH_10.0p2, OpenSSL 3.0.13", "OpenSSH_10.2p1, OpenSSL 3.0.13", "OpenSSH_10.5p1, OpenSSL 4.0.3 29 Sep 2026"}

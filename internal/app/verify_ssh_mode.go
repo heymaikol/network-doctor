@@ -14,8 +14,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/charmbracelet/x/term"
-
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
@@ -60,7 +58,7 @@ func verifyFlagMisuse(set map[string]bool, verifySSH bool) string {
 var (
 	verifyStdin     io.Reader = os.Stdin
 	verifyIsTTY               = func() bool { return termIsTerminal(os.Stdin.Fd()) }
-	verifyReadPass            = func() ([]byte, error) { return term.ReadPassword(os.Stdin.Fd()) }
+	verifyReadPass            = readTerminalLine
 	verifyResolve             = sshverify.Resolve
 	verifyDiscover            = sshverify.Discover
 	verifyVerify              = sshverify.Verify
@@ -314,16 +312,16 @@ func readVerifySecret(ctx context.Context, stderr io.Writer, prompt string, from
 // readTerminalSecret reads a secret with echo off, and it puts the terminal back
 // whether the read ends normally or the process is interrupted or quit. Echo goes
 // off before the prompt is written, so a key typed while the prompt shows is not
-// echoed. ReadPassword saves the state it finds, which is then the echo-off state,
-// so the state saved here is restored after the read. A defer does not run when a
-// signal ends the process, so the signal handler restores it instead.
+// echoed. secretEcho is the only writer of the terminal state, so the reader makes
+// no termios write of its own and a late write cannot undo an interrupt. A defer
+// does not run when a signal ends the process, so the signal handler restores it
+// instead.
 func readTerminalSecret(stderr io.Writer, prompt string) ([]byte, error) {
-	fd := os.Stdin.Fd()
-	state, err := term.GetState(fd)
+	echo, err := newSecretEcho(os.Stdin.Fd())
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = term.Restore(fd, state) }()
+	defer echo.restore()
 	// The handler is installed before echo goes off, so a signal in that window
 	// restores the terminal too.
 	interrupts := make(chan os.Signal, 1)
@@ -334,13 +332,13 @@ func readTerminalSecret(stderr io.Writer, prompt string) ([]byte, error) {
 	go func() {
 		select {
 		case <-interrupts:
-			_ = term.Restore(fd, state)
+			echo.restore()
 			fmt.Fprintln(stderr)
 			os.Exit(130)
 		case <-finished:
 		}
 	}()
-	if err := setEchoOff(fd); err != nil {
+	if err := echo.off(); err != nil {
 		return nil, err
 	}
 	fmt.Fprint(stderr, prompt)

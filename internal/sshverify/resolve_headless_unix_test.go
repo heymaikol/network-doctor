@@ -142,6 +142,22 @@ func TestHeadlessProxyIsRefused(t *testing.T) {
 	}
 }
 
+// A configured revocation list is refused headless too, before any connection: netdoc
+// cannot read it, so it cannot tell whether a revoked key would be trusted. An unset
+// one is not refused, which the plain control above covers.
+func TestHeadlessRevokedHostKeysPathIsRefused(t *testing.T) {
+	requireOpenSSH(t)
+	cfg := filepath.Join(t.TempDir(), "revoked.config")
+	body := "Host target\n  HostName 127.0.0.1\n  RevokedHostKeys /etc/ssh/revoked\n  Port 2260\n  User demo\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	line := runHeadless(t, cfg)
+	if !strings.Contains(line, "resolve-error:") || !strings.Contains(line, "RevokedHostKeys is set") || strings.Contains(line, "dials=") {
+		t.Fatalf("a headless configured revocation list was not refused before connecting: %q", line)
+	}
+}
+
 // A variable in a directive is refused headless, because a headless run cannot match
 // the user's environment for it.
 func TestHeadlessVariableIsRefused(t *testing.T) {

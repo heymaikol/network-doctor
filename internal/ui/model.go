@@ -226,6 +226,7 @@ type model struct {
 	spinner    spinner.Model
 
 	generation int
+	jobSeq     uint64 // unique job IDs within a run, independent of clock resolution
 	// Generation context; cancel kills all in-flight probes and the active job on
 	// restart/quit. Kept alive after the chain completes so tools can run under it.
 	ctx    context.Context

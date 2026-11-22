@@ -487,6 +487,18 @@ func TestNetworkMapStreamsReachabilityAndCacheSeparately(t *testing.T) {
 	}
 }
 
+func TestToolJobIDsRemainDistinctWithoutClockProgress(t *testing.T) {
+	m := model{generation: 3}
+	first, second := m.nextToolID("v"), m.nextToolID("v")
+	if first != "v-3-1" || second != "v-3-2" {
+		t.Fatalf("consecutive tool IDs = %q, %q", first, second)
+	}
+	m.generation++
+	if next := m.nextToolID("v"); next != "v-4-3" {
+		t.Fatalf("tool ID after restart = %q", next)
+	}
+}
+
 func TestLANSnapshotLabelsFollowTheirScanAcrossRescan(t *testing.T) {
 	const first, second = "192.168.12.50", "192.168.12.51"
 	old := discoverLAN
@@ -537,6 +549,9 @@ func TestLANSnapshotLabelsFollowTheirScanAcrossRescan(t *testing.T) {
 			}
 			m = finish(t, sendKey(t, sendKey(t, selectMenu(t, m, "Rescan network"), "enter"), "y"))
 			b := m.cur.lanID
+			if a == b {
+				t.Fatalf("rescan reused the previous scan ID %q", a)
+			}
 			updated, _ := m.Update(lanNamesMsg{gen: m.generation, job: b, names: map[string]lanName{
 				first: {label: "new-printer"}, second: {label: "new-router"},
 			}})

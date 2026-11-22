@@ -832,6 +832,11 @@ func (m *model) resetPresentation() {
 	m.notice = ""
 }
 
+func (m *model) nextToolID(key string) string {
+	m.jobSeq++
+	return fmt.Sprintf("%s-%d-%d", key, m.generation, m.jobSeq)
+}
+
 func (m *model) launchTool(tool Tool) tea.Cmd {
 	// Refuse before stashing: stashJob clears the slot, so a late bail would
 	// blank the pane the user is looking at. A missing binary spawns nothing,
@@ -855,7 +860,7 @@ func (m *model) launchTool(tool Tool) tea.Cmd {
 	}
 	wasTicking := m.spinnerActive()
 	args, env, display := tool.Build(m.target, m.selectedIP())
-	id := fmt.Sprintf("%s-%d-%d", tool.Key, m.generation, time.Now().UnixNano())
+	id := m.nextToolID(tool.Key)
 	// Toolbox mode: a tool can launch before the first 'r' creates the
 	// generation context, so initialize it lazily, exactly as scheduleMsg does.
 	if m.ctx == nil {

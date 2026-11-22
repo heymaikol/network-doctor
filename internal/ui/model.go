@@ -697,7 +697,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.handleKey(msg)
 
-	case verifyResolvedMsg, verifyResultMsg:
+	case verifyResolvedMsg, verifyResultMsg, verifyKeysMsg:
 		next, cmd, _ := m.handleVerifyMsg(msg)
 		return next, cmd
 	case noticeDoneMsg:

@@ -86,3 +86,20 @@ func TestResponsiveAgentKeysArriveSeparately(t *testing.T) {
 		t.Fatalf("agent keys = %#v, want one key for panel 2", msg)
 	}
 }
+
+// The listing reaches the chooser through the model's update, not only through
+// the command. A message the update drops leaves the chooser empty.
+func TestVerifyAgentKeysReachTheChooserThroughUpdate(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	for i, mt := range verifyMethods {
+		if mt == sshverify.MethodAgent {
+			m.verify.method = i
+		}
+	}
+	next, _ := m.Update(verifyKeysMsg{id: m.verify.id, keys: []sshverify.AgentKey{{Fingerprint: "SHA256:test", Type: "ssh-ed25519", Comment: "test"}}})
+	if got := next.(model).verify.agentKeys; len(got) != 1 {
+		t.Fatalf("the chooser has %d agent keys, want 1: the listing message was not delivered", len(got))
+	}
+}

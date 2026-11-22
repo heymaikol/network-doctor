@@ -87,12 +87,11 @@ func DiscoverLAN(ctx context.Context, source netip.Addr, iface string, bound fun
 	if err != nil {
 		return nil, err
 	}
+	readNeighbors := lanNeighborReader(link)
 	bound(link.binding())
 	echo, echoErr := lanEchoProbe(link)
 	dial := link.dialer()
-	return scanLAN(ctx, link, echo, echoErr, dial.DialContext, func() ([]netip.Addr, error) {
-		return lanNeighbors(link)
-	}, emit)
+	return scanLAN(ctx, link, echo, echoErr, dial.DialContext, readNeighbors, emit)
 }
 
 func (l lanLink) binding() LANBinding {

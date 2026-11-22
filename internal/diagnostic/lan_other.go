@@ -10,3 +10,7 @@ import (
 func bindLANSocket(uintptr, lanLink) error       { return errors.ErrUnsupported }
 func lanEchoProbe(lanLink) (lanProbe, error)     { return nil, errors.ErrUnsupported }
 func lanNeighbors(lanLink) ([]netip.Addr, error) { return nil, errors.ErrUnsupported }
+
+func lanNeighborReader(link lanLink) func() ([]netip.Addr, error) {
+	return func() ([]netip.Addr, error) { return lanNeighbors(link) }
+}

@@ -26,6 +26,10 @@ func lanNeighbors(link lanLink) ([]netip.Addr, error) {
 	return darwinLANNeighbors(rows, link.Index), nil
 }
 
+func lanNeighborReader(link lanLink) func() ([]netip.Addr, error) {
+	return func() ([]netip.Addr, error) { return lanNeighbors(link) }
+}
+
 func darwinLANNeighbors(rows []route.Message, index int) []netip.Addr {
 	var ips []netip.Addr
 	for _, row := range rows {

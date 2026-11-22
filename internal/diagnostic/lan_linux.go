@@ -26,6 +26,10 @@ func lanNeighbors(link lanLink) ([]netip.Addr, error) {
 	return linuxLANNeighbors(string(raw), link.Name), nil
 }
 
+func lanNeighborReader(link lanLink) func() ([]netip.Addr, error) {
+	return func() ([]netip.Addr, error) { return lanNeighbors(link) }
+}
+
 func linuxLANNeighbors(raw, iface string) []netip.Addr {
 	var ips []netip.Addr
 	for line := range strings.SplitSeq(raw, "\n") {

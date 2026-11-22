@@ -127,8 +127,11 @@ func TestWindowsLANUnicastTableLayout(t *testing.T) {
 
 func TestWindowsLANNeighbors(t *testing.T) {
 	mac := []byte{2, 1, 2, 3, 4, 5}
+	const luid = 42
 	overlong := neighborRow(7, "10.0.0.7", nlNeighborReachable, mac)
 	overlong.PhysicalAddressLength = 33
+	replacement := neighborRow(7, "10.0.0.9", nlNeighborReachable, mac)
+	replacement.InterfaceLuid = 99 // index recycled by a different adapter
 	rows := []mibIPNetRow2{
 		neighborRow(7, "10.0.0.1", nlNeighborStale, mac),
 		neighborRow(7, "10.0.0.2", nlNeighborReachable, mac),
@@ -138,11 +141,41 @@ func TestWindowsLANNeighbors(t *testing.T) {
 		neighborRow(7, "10.0.0.6", nlNeighborStale, nil),
 		neighborRow(7, "fe80::1", nlNeighborStale, mac),
 		overlong,
+		replacement,
 	}
-	if got := windowsLANNeighbors(rows, 7); !slices.Equal(got, []netip.Addr{netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2")}) {
+	for i := range rows {
+		if rows[i].InterfaceIndex == 7 && rows[i].InterfaceLuid == 0 {
+			rows[i].InterfaceLuid = luid
+		}
+	}
+	if got := windowsLANNeighbors(rows, 7, luid); !slices.Equal(got, []netip.Addr{netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2")}) {
 		t.Fatalf("selected neighbors = %v", got)
 	}
 	if got := windowsEchoAddr(netip.MustParseAddr("10.20.30.40")); got != 0x281e140a {
 		t.Fatalf("ICMP IPAddr memory order = %x", got)
+	}
+}
+
+func TestWindowsLANNeighborIdentity(t *testing.T) {
+	selected := mibIPInterfaceRow{Family: windows.AF_INET, InterfaceIndex: 7, InterfaceLuid: 42}
+	other := mibIPInterfaceRow{Family: windows.AF_INET, InterfaceIndex: 8, InterfaceLuid: 99}
+	ipv6 := selected
+	ipv6.Family = windows.AF_INET6
+	for _, tc := range []struct {
+		name string
+		rows []mibIPInterfaceRow
+		want uint64
+	}{
+		{"original adapter", []mibIPInterfaceRow{other, selected, ipv6}, 42},
+		{"index absent", []mibIPInterfaceRow{other}, 0},
+		{"missing LUID", []mibIPInterfaceRow{{Family: windows.AF_INET, InterfaceIndex: 7}}, 0},
+		{"duplicate index", []mibIPInterfaceRow{selected, selected}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := windowsLANNeighborLUID(tc.rows, 7)
+			if got != tc.want || (err != nil) != (tc.want == 0) {
+				t.Fatalf("LUID = %d, error %v, want %d", got, err, tc.want)
+			}
+		})
 	}
 }

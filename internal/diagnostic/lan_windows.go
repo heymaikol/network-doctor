@@ -177,20 +177,55 @@ func windowsEchoAddr(ip netip.Addr) uint32 {
 	return binary.NativeEndian.Uint32(b[:])
 }
 
-func lanNeighbors(link lanLink) ([]netip.Addr, error) {
+// Capture the LUID once, before either cache read. An index can be reused by a
+// replacement adapter during a sweep, but its LUID cannot identify the old
+// adapter's neighbors. Cache failures do not disable TCP or ICMP discovery.
+func lanNeighborReader(link lanLink) func() ([]netip.Addr, error) {
+	rows, free, err := getIPInterfaceRows(windows.AF_INET)
+	var luid uint64
+	if err == nil {
+		luid, err = windowsLANNeighborLUID(rows, link.Index)
+		free()
+	}
+	return func() ([]netip.Addr, error) {
+		if err != nil {
+			return nil, fmt.Errorf("identify LAN neighbor interface: %w", err)
+		}
+		return lanNeighborsWithLUID(link, luid)
+	}
+}
+
+func windowsLANNeighborLUID(rows []mibIPInterfaceRow, index int) (uint64, error) {
+	var luid uint64
+	for _, row := range rows {
+		if row.Family != windows.AF_INET || int(row.InterfaceIndex) != index {
+			continue
+		}
+		if luid != 0 || row.InterfaceLuid == 0 {
+			return 0, fmt.Errorf("IPv4 interface index %d has an ambiguous identity", index)
+		}
+		luid = row.InterfaceLuid
+	}
+	if luid == 0 {
+		return 0, fmt.Errorf("IPv4 interface index %d is missing from the IP Helper table", index)
+	}
+	return luid, nil
+}
+
+func lanNeighborsWithLUID(link lanLink, luid uint64) ([]netip.Addr, error) {
 	rows, free, err := getIPNetTable2(windows.AF_INET)
 	if err != nil {
 		return nil, err
 	}
 	defer free()
-	return windowsLANNeighbors(rows, link.Index), nil
+	return windowsLANNeighbors(rows, link.Index, luid), nil
 }
 
-func windowsLANNeighbors(rows []mibIPNetRow2, index int) []netip.Addr {
+func windowsLANNeighbors(rows []mibIPNetRow2, index int, luid uint64) []netip.Addr {
 	var ips []netip.Addr
 	for i := range rows {
 		row := &rows[i]
-		if int(row.InterfaceIndex) != index || row.Address.Family != windows.AF_INET ||
+		if int(row.InterfaceIndex) != index || row.InterfaceLuid != luid || row.Address.Family != windows.AF_INET ||
 			row.State <= nlNeighborIncomplete || row.PhysicalAddressLength > uint32(len(row.PhysicalAddress)) ||
 			!validLANHardware(row.PhysicalAddress[:row.PhysicalAddressLength]) {
 			continue

@@ -181,6 +181,10 @@ func (p *verifyPanel) dropRoute() {
 		p.resolveCancel()
 		p.resolveCancel = nil
 	}
+	if p.keysCancel != nil {
+		p.keysCancel()
+		p.keysCancel = nil
+	}
 	p.resolveSeq++
 	p.keysSeq++
 	p.resolved = false

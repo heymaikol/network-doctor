@@ -124,3 +124,20 @@ func TestVerifyStaleAgentListingIsDropped(t *testing.T) {
 		t.Fatalf("a listing for a dropped route filled the chooser: %v", m.verify.agentKeys)
 	}
 }
+
+// A listing still running when its route is dropped is cancelled, so it does not
+// keep the agent busy for a route nobody will use.
+func TestDropRouteCancelsARunningAgentListing(t *testing.T) {
+	m := pressed(t, sshModel(t), keyPress("S"))
+	m = resolved(t, m)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.verify.keysCancel = cancel
+	m.verify.dropRoute()
+	if ctx.Err() == nil {
+		t.Fatal("the agent listing of a dropped route was not cancelled")
+	}
+	if m.verify.keysCancel != nil {
+		t.Fatal("the dropped route kept a cancel for its agent listing")
+	}
+}

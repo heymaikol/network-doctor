@@ -4,8 +4,10 @@ package diagnostic
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -30,36 +32,47 @@ func loopbackLAN(tb testing.TB) lanLink {
 
 func TestLANBoundLoopback(t *testing.T) {
 	link := loopbackLAN(t)
-	ctx, cancel := context.WithTimeout(t.Context(), lanAttempt)
-	defer cancel()
-	echo, err := lanEchoProbe(link)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok, err := echo(ctx, netip.MustParseAddr("127.0.0.2")); !ok || err != nil {
-		t.Fatalf("bound ICMP loopback reply = %t, %v", ok, err)
-	}
+	t.Run("ICMP", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), lanAttempt)
+		defer cancel()
+		echo, err := lanEchoProbe(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := echo(ctx, netip.MustParseAddr("127.0.0.2")); err != nil {
+			if errors.Is(err, os.ErrPermission) {
+				t.Skipf("bound ICMP sockets unavailable without permission: %v", err)
+			}
+			t.Fatalf("bound ICMP loopback reply = %t, %v", ok, err)
+		} else if !ok {
+			t.Fatal("bound ICMP loopback received no reply")
+		}
+	})
+	t.Run("TCP", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), lanAttempt)
+		defer cancel()
 
-	listen, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = listen.Close() }()
-	dial := net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IP(link.source.AsSlice())}, Control: lanSocketControl(link)}
-	conn, err := dial.DialContext(ctx, "tcp4", listen.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = conn.Close() }()
-	if ip := conn.LocalAddr().(*net.TCPAddr).IP; !ip.Equal(net.IP(link.source.AsSlice())) {
-		t.Fatalf("bound TCP source = %v, want %v", ip, link.source)
-	}
-	link.Index = 1<<31 - 1
-	dial.Control = lanSocketControl(link)
-	if conn, err := dial.DialContext(ctx, "tcp4", listen.Addr().String()); err == nil {
-		_ = conn.Close()
-		t.Fatal("TCP fell back to an unbound socket")
-	}
+		listen, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = listen.Close() }()
+		dial := net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IP(link.source.AsSlice())}, Control: lanSocketControl(link)}
+		conn, err := dial.DialContext(ctx, "tcp4", listen.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close() }()
+		if ip := conn.LocalAddr().(*net.TCPAddr).IP; !ip.Equal(net.IP(link.source.AsSlice())) {
+			t.Fatalf("bound TCP source = %v, want %v", ip, link.source)
+		}
+		link.Index = 1<<31 - 1
+		dial.Control = lanSocketControl(link)
+		if conn, err := dial.DialContext(ctx, "tcp4", listen.Addr().String()); err == nil {
+			_ = conn.Close()
+			t.Fatal("TCP fell back to an unbound socket")
+		}
+	})
 }
 
 func BenchmarkLANLoopback(b *testing.B) {

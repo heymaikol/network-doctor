@@ -77,11 +77,13 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 	if err != nil {
 		return Target{}, fmt.Errorf("could not read the SSH configuration: %w", err)
 	}
-	// An unset RevokedHostKeys is left out of the listing. Only OpenSSH from the floor
-	// up is verified to leave it out exactly when it is unset, so an older client that
-	// omits the line is refused, as it was before that rule.
-	if _, set := listingValue(out, "revokedhostkeys"); !set && !revocationOmissionVerified(ctx) {
-		return Target{}, errors.New("the SSH configuration does not report RevokedHostKeys, so netdoc cannot tell whether a revoked host key is trusted; nothing was sent")
+	// An unset RevokedHostKeys is left out of the listing, and only OpenSSH from the
+	// floor up is verified to leave it out exactly when it is unset. An older or unknown
+	// client is refused for an omitted line, as it was before that rule.
+	if _, set := listingValue(out, "revokedhostkeys"); !set {
+		if reason := omittedRevocationRefusal(ctx); reason != "" {
+			return Target{}, fmt.Errorf("the SSH configuration leaves RevokedHostKeys out, which netdoc accepts only from OpenSSH 10.0p2: %s, so netdoc cannot tell whether a revoked host key is trusted; nothing was sent", reason)
+		}
 	}
 	home, _ := os.UserHomeDir()
 	return parseConfig(out, home)
@@ -104,13 +106,13 @@ var clientVersion = func(ctx context.Context) (string, error) {
 }
 
 // openSSHRelease matches the release in a version line, as ssh -V prints it.
-var openSSHRelease = regexp.MustCompile(`OpenSSH_(\d+)\.(\d+)`)
+var openSSHRelease = regexp.MustCompile(`OpenSSH_(\d+)\.(\d+)(?:p(\d+))?`)
 
-// atLeastRevocationFloor reports whether a version line names OpenSSH 10.2p1 or newer,
-// the first release verified to leave RevokedHostKeys out exactly when it is unset
-// (openssh-portable V_10_2_P1, and the CI runner's 10.2). The same rule appears in the
-// 9.9p1 and 10.1p1 sources, but neither was run, so both are refused until they are.
-// A line that names no release is not verified.
+// atLeastRevocationFloor reports whether a version line names OpenSSH 10.0p2 or newer,
+// the floor for leaving RevokedHostKeys out exactly when it is unset. The source of
+// openssh-portable V_10_0_P2 dumps and clears the setting as V_10_2_P1 does, and D
+// validated 10.0p2 independently on Debian 13, Fedora 43 and Alpine 3.22. A line that
+// names no release is not verified.
 func atLeastRevocationFloor(line string) bool {
 	m := openSSHRelease.FindStringSubmatch(line)
 	if m == nil {
@@ -118,13 +120,29 @@ func atLeastRevocationFloor(line string) bool {
 	}
 	major, _ := strconv.Atoi(m[1])
 	minor, _ := strconv.Atoi(m[2])
-	return major > 10 || (major == 10 && minor >= 2)
+	patch := 0
+	if m[3] != "" {
+		patch, _ = strconv.Atoi(m[3])
+	}
+	return major > 10 || (major == 10 && (minor > 0 || patch >= 2))
 }
 
-// revocationOmissionVerified reports whether the installed client is at the floor.
-func revocationOmissionVerified(ctx context.Context) bool {
+// omittedRevocationRefusal says why an omitted RevokedHostKeys line cannot be trusted
+// on the installed client, or returns "" when it can. The reason names the client's
+// release, so the refusal describes an unsupported version.
+func omittedRevocationRefusal(ctx context.Context) string {
 	line, err := clientVersion(ctx)
-	return err == nil && atLeastRevocationFloor(line)
+	if err != nil {
+		return "the installed OpenSSH version could not be read"
+	}
+	release := openSSHRelease.FindString(line)
+	if release == "" {
+		return "the installed client does not name an OpenSSH release"
+	}
+	if !atLeastRevocationFloor(line) {
+		return "the installed client is " + release + ", which is older than OpenSSH 10.0p2"
+	}
+	return ""
 }
 
 // resolveOutput runs ssh with args and returns its standard output. Standard

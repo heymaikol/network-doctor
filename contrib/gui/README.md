@@ -66,6 +66,12 @@ Only fixed argument lists, never a shell string: `--json`, `--profile NAME`,
 a target can never be read as an option. Text that comes back is stripped of
 control characters before it is shown.
 
+## Update notice
+
+Once per launch, the window asks netdoc for a newer stable release, in a background process. It runs `netdoc -update-check -json`, which makes the one GitHub request an update check makes. If a newer release exists, a passive banner names it, with an "Open release page" button and a "Dismiss" button. Dismissing hides that release's banner, and a later release shows again.
+
+The check is off when the setting "Check for updates when the window opens" is off, or when `NETDOC_NO_UPDATE_CHECK=1` is set. After a failed check (offline, rate limited, or a bad answer) the next launch waits 24 hours. A netdoc without the command, or one whose answer breaks the shared schema, shows no banner. The window keeps its memory of the check beside the theme, in a file named `update`.
+
 ## Platforms
 
 | | Linux | macOS | Windows |

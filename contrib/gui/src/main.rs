@@ -724,6 +724,12 @@ impl App {
                 }
             });
             ui.add_space(6.0);
+            let mut check = !self.memory.off;
+            if look::toggle(ui, "Check for updates when the window opens", &mut check).changed() {
+                self.memory.off = !check;
+                self.save_memory();
+            }
+            ui.label(weak("Asks GitHub once a launch for a newer release. NETDOC_NO_UPDATE_CHECK=1 also turns it off.").small());
             match (&self.netdoc, &self.netdoc_version) {
                 (Some(p), Some(v)) => {
                     ui.label(weak(format!("Checks are run by {v} ({})", p.display())).small())
@@ -2183,6 +2189,34 @@ mod update_notice {
             allowed.update_rx.is_some(),
             "the launch check did not start"
         );
+    }
+
+    #[test]
+    fn the_setting_turns_the_launch_check_off_across_a_restart() {
+        let path = memory_in_a_fresh_folder("setting");
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(h.state().memory.off, "the setting did not turn checks off");
+        assert!(update::load(&path).off, "the setting was not saved");
+        let next = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: Some(PathBuf::from("/nonexistent/netdoc-for-a-test")),
+                update_check: true,
+                update_memory: Some(path.clone()),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            next.update_rx.is_none(),
+            "the launch check ran after the user turned it off"
+        );
+        cleanup(&path);
     }
 
     #[test]

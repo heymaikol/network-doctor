@@ -266,13 +266,15 @@ func buildAttempt(ctx context.Context, f verifySSHFlags, tgt sshverify.Target, n
 }
 
 // readVerifySecret returns one password or passphrase. With -password-stdin it
-// takes one line of standard input. Otherwise it needs a terminal and reads
-// with echo off. It is never taken from argv or the environment. A read of standard
-// input does not end on its own when the process is interrupted, so it runs
-// beside ctx, and an interrupt ends the wait; the read is left to the exit.
+// takes one line of standard input. When standard input is a terminal, the line is
+// read with echo off, as a prompt is, so a typed secret is not echoed. Otherwise it
+// needs a terminal and reads with echo off. It is never taken from argv or the
+// environment. A read of a pipe does not end on its own when the process is
+// interrupted, so it runs beside ctx, and an interrupt ends the wait; the read is
+// left to the exit.
 func readVerifySecret(ctx context.Context, stderr io.Writer, prompt string, fromStdin bool) ([]byte, error) {
 	var value []byte
-	if fromStdin {
+	if fromStdin && !verifyIsTTY() {
 		type stdinLine struct {
 			line []byte
 			err  error

@@ -3,7 +3,9 @@
 package app
 
 import (
+	"context"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +48,28 @@ func TestPromptIsWrittenWithEchoOff(t *testing.T) {
 	}
 	if !echoOn(t, slave) {
 		t.Fatal("echo is still off after the prompt")
+	}
+}
+
+// With -password-stdin on a terminal the secret is typed on that terminal, so it is
+// read with echo off. The pipe is left unread: it is not the secret's source here.
+func TestPasswordStdinOnATerminalIsReadWithEchoOff(t *testing.T) {
+	master, slave := openTerminal(t)
+	defer master.Close()
+	defer slave.Close()
+	oldStdin, oldRead, oldIn, oldTTY := os.Stdin, verifyReadPass, verifyStdin, verifyIsTTY
+	os.Stdin = slave
+	verifyReadPass = func() ([]byte, error) { return []byte("demo-password"), nil }
+	verifyStdin = strings.NewReader("not-the-source\n")
+	verifyIsTTY = func() bool { return true }
+	t.Cleanup(func() { os.Stdin, verifyReadPass, verifyStdin, verifyIsTTY = oldStdin, oldRead, oldIn, oldTTY })
+
+	probe := &echoProbe{t: t, slave: slave}
+	if _, err := readVerifySecret(context.Background(), probe, "Password: ", true); err != nil {
+		t.Fatalf("the secret was not read: %v", err)
+	}
+	if !probe.written || probe.echo {
+		t.Fatalf("the -password-stdin secret on a terminal was read without a prompt, or with echo on (prompt written=%v, echo on=%v)", probe.written, probe.echo)
 	}
 }
 

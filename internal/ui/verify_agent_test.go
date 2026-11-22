@@ -141,3 +141,22 @@ func TestDropRouteCancelsARunningAgentListing(t *testing.T) {
 		t.Fatal("the dropped route kept a cancel for its agent listing")
 	}
 }
+
+// A discovery numbers its agent listing. A discovery that starts while an earlier
+// listing still runs replaces it, so the earlier listing is dropped when it lands.
+func TestNewDiscoveryDropsTheEarlierAgentListing(t *testing.T) {
+	m := resolved(t, pressed(t, sshModel(t), keyPress("S")))
+	for i, mt := range verifyMethods {
+		if mt == sshverify.MethodAgent {
+			m.verify.method = i
+		}
+	}
+	m, _ = m.startVerifyAction(false)
+	first := m.verify.keysSeq
+	m.verify.busy = false // the discovery result arrived; its listing is still running
+	m, _ = m.startVerifyAction(false)
+	m, _, _ = m.handleVerifyMsg(verifyKeysMsg{id: m.verify.id, seq: first, keys: []sshverify.AgentKey{{Fingerprint: "old"}}})
+	if len(m.verify.agentKeys) != 0 {
+		t.Fatalf("an earlier listing filled the chooser: %v", m.verify.agentKeys)
+	}
+}

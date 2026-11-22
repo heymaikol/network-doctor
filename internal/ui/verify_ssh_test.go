@@ -481,3 +481,17 @@ func TestVerifyResolveErrorIsClearedByAGoodRead(t *testing.T) {
 		t.Fatalf("a successful read still shows the old error: %q", m.verify.resolveErr)
 	}
 }
+
+// A retry hides the old error while it runs, so the panel does not show a failure
+// that the new read has not confirmed.
+func TestVerifyResolveErrorIsHiddenWhileARetryRuns(t *testing.T) {
+	m := pressed(t, sshModel(t), keyPress("S"))
+	m, _, _ = m.handleVerifyMsg(verifyResolvedMsg{id: m.verify.id, seq: m.verify.resolveSeq, err: errors.New("the SSH configuration is unreadable")})
+	if m.verify.resolveErr == "" {
+		t.Fatal("a failed read showed no error")
+	}
+	m.verify.readRoute()
+	if m.verify.resolveErr != "" {
+		t.Fatalf("the old error still shows while the retry runs: %q", m.verify.resolveErr)
+	}
+}

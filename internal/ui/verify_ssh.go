@@ -166,6 +166,7 @@ func (p *verifyPanel) readRoute() tea.Cmd {
 	p.resolveSeq++
 	ctx, cancel := context.WithCancel(context.Background())
 	p.resolveCancel = cancel
+	p.resolveErr = ""
 	id, seq, host, port := p.id, p.resolveSeq, p.host, p.port
 	login := strings.TrimSpace(p.user.Value())
 	return func() tea.Msg {

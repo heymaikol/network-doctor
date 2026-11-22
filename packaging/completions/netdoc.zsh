@@ -99,7 +99,7 @@ _arguments \
   '(--peer-connect -peer-connect)'{--peer-connect,-peer-connect}'[read a temporary pairing string and run a two-ended diagnosis]' \
   '(--via -via)'{--via,-via}='[run remotely, or provide side B for live two-sided diagnosis]:destination:_hosts' \
   '(- *)'{--list-checks,-list-checks}'[list stable probe IDs and names, then exit]' \
-  '(- *)'{--update-check,-update-check}'[check GitHub for a newer stable netdoc release, then exit]' \
+  '(* --change-route-policy -change-route-policy --check -check --compare -compare --explain -explain --fail -fail --fail-bgp-session -fail-bgp-session --fail-next-hop -fail-next-hop --fail-ospf -fail-ospf --iface -iface --import-frr-bgp -import-frr-bgp --import-frr-ospf -import-frr-ospf --import-tunnels -import-tunnels --keys -keys --list-checks -list-checks --no-history -no-history --peer-connect -peer-connect --peer-listen -peer-listen --profile -profile --public-dns -public-dns --route-a -route-a --route-b -route-b --save -save --skip -skip --sources -sources --support -support --timeout -timeout --toolbox -toolbox --two-sided -two-sided --version -version --via -via --watch -watch --watch-interval -watch-interval --withdraw-bgp -withdraw-bgp --write-topology -write-topology)'{--update-check,-update-check}'[check GitHub for a newer stable netdoc release, then exit]' \
   '(--no-update-check -no-update-check)'{--no-update-check,-no-update-check}"[don't check GitHub for a newer release when the interactive view opens]" \
   '*'{--check,-check}='[run stable probe IDs (comma-separated; repeatable)]:probe IDs:_netdoc_probes' \
   '*'{--skip,-skip}='[skip stable probe IDs (comma-separated; repeatable)]:probe IDs:_netdoc_probes' \

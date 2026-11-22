@@ -290,6 +290,11 @@ pub fn change(
 
 /// How long a change waits for another window's lock before it reports that it
 /// could not save. The window waits on this on its UI thread, so it stays short.
+// ponytail: a contended change blocks the UI thread for up to this long. Measured:
+// a change holds the lock for 15 to 70 microseconds, so the wait is rare, and a
+// holder that never lets go is the only way to reach the full second. Upgrade path:
+// run `change` on a worker and reconcile its result on the UI thread, if a stall
+// is ever seen in practice.
 const LOCK_WAIT: Duration = Duration::from_secs(1);
 
 /// Takes the exclusive lock, giving up after `wait`, so a stalled holder cannot
@@ -784,6 +789,10 @@ mod tests {
         holder.wait().ok();
         let err = result.expect_err("a change waited for a stalled holder instead of giving up");
         assert_eq!(err.error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(
+            err.revision, None,
+            "a change that never read the file reported a base revision"
+        );
         assert!(
             elapsed < std::time::Duration::from_secs(3),
             "the change took {elapsed:?} to give up"

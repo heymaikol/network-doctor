@@ -221,6 +221,8 @@ struct App {
     memory_path: Option<PathBuf>,
     /// Why the last change to the update setting was not kept, while it is not.
     memory_warning: Option<String>,
+    /// The user's choices this session that the file does not hold yet.
+    pending: update::Pending,
     /// NETDOC_NO_UPDATE_CHECK=1 is set, which holds the switch off.
     update_env_opt_out: bool,
     /// The newer release the banner shows, if any.
@@ -336,6 +338,7 @@ impl App {
             memory,
             memory_path: update_memory,
             memory_warning: None,
+            pending: update::Pending::default(),
             update_env_opt_out,
             update: None,
             update_rx: None,
@@ -486,16 +489,24 @@ impl App {
     fn change_memory(&mut self, change: impl Fn(&mut update::Memory)) {
         let Some(path) = self.memory_path.clone() else {
             change(&mut self.memory);
+            self.pending.apply(&mut self.memory);
+            self.pending = update::Pending::default();
             self.memory_warning = Some(NO_SETTINGS_FOLDER.to_string());
             return;
         };
-        match update::change(&path, &change) {
+        let pending = self.pending.clone();
+        match update::change(&path, |m| {
+            change(m);
+            pending.apply(m);
+        }) {
             Ok(m) => {
                 self.memory = m;
+                self.pending = update::Pending::default();
                 self.memory_warning = None;
             }
             Err(e) => {
                 change(&mut self.memory);
+                self.pending.apply(&mut self.memory);
                 self.memory_warning = Some(format!(
                     "Could not save the update setting ({e}), so this change lasts only until this window closes."
                 ));
@@ -503,16 +514,18 @@ impl App {
         }
     }
 
-    /// Turns automatic update checks on or off, as the Settings switch does.
+    /// Turns automatic update checks on or off, as the Settings switch does. The
+    /// choice is kept until it is saved, even if this save fails.
     fn set_update_check(&mut self, on: bool) {
-        self.change_memory(|m| m.off = !on);
+        self.pending.off = Some(!on);
+        self.change_memory(|_| {});
     }
 
     /// Records that the user dismissed the banner for this release.
     fn dismiss_update(&mut self) {
         if let Some(r) = self.update.take() {
-            let latest = r.latest;
-            self.change_memory(|m| m.dismissed = Some(latest.clone()));
+            self.pending.dismissed = Some(r.latest);
+            self.change_memory(|_| {});
         }
     }
 
@@ -2436,6 +2449,95 @@ mod update_notice {
             "the change is not shown for this session"
         );
         h.get_by_label_contains("No settings folder was found");
+    }
+
+    /// A change that could not be saved is the user's explicit choice for this
+    /// session. A later save that does not touch it must not discard it.
+    #[test]
+    fn a_failed_opt_out_survives_a_later_save_that_does_not_change_it() {
+        let path = memory_in_a_fresh_folder("pending-save");
+        let conflict = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+        std::fs::create_dir(&conflict).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(h.state().memory.off, "the failed change is not shown");
+        // The folder is writable again. A later answer changes only the failure time.
+        std::fs::remove_dir(&conflict).unwrap();
+        h.state_mut().update_rx = Some(answer(OFFLINE));
+        h.state_mut().poll_update();
+        assert!(
+            h.state().memory.off,
+            "the later save dropped the unsaved opt-out"
+        );
+        assert!(
+            update::read(&path).unwrap().off,
+            "the opt-out was never saved"
+        );
+        assert!(
+            h.state().memory_warning.is_none(),
+            "the warning outlived the save"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a failed opt-out is also kept through a dismissal, so the
+    /// fix does not only cover one kind of later change.
+    #[test]
+    fn a_failed_opt_out_survives_a_later_dismissal() {
+        let path = memory_in_a_fresh_folder("pending-dismiss");
+        let conflict = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+        std::fs::create_dir(&conflict).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        std::fs::remove_dir(&conflict).unwrap();
+        h.state_mut().update = match update::parse(AVAILABLE) {
+            Some(update::Answer::Newer(r)) => Some(r),
+            _ => panic!("the fixture is not a newer release"),
+        };
+        h.state_mut().dismiss_update();
+        let disk = update::read(&path).unwrap();
+        assert!(disk.off, "the dismissal dropped the unsaved opt-out");
+        assert_eq!(disk.dismissed.as_deref(), Some("v2.3.0"));
+        cleanup(&path);
+    }
+
+    /// Negative control: a later explicit choice to turn checks back on wins over
+    /// the failed opt-out. The pending choice is the latest one, not a sticky one.
+    #[test]
+    fn a_later_choice_to_turn_checks_back_on_wins_over_a_failed_opt_out() {
+        let path = memory_in_a_fresh_folder("pending-on");
+        let conflict = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+        std::fs::create_dir(&conflict).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        std::fs::remove_dir(&conflict).unwrap();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(
+            !h.state().memory.off,
+            "the later choice to turn checks on was not shown"
+        );
+        assert!(
+            !update::read(&path).unwrap().off,
+            "the later choice was not saved"
+        );
+        cleanup(&path);
     }
 
     #[test]

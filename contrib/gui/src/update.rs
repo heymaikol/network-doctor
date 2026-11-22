@@ -106,6 +106,26 @@ pub struct Memory {
     pub off: bool,
 }
 
+/// What the user chose this session and has not saved yet. Every later change
+/// applies it on top of the latest file state, so a save that does not touch it
+/// cannot drop it. A save that succeeds makes it part of the file, and it clears.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pending {
+    pub off: Option<bool>,
+    pub dismissed: Option<String>,
+}
+
+impl Pending {
+    pub fn apply(&self, m: &mut Memory) {
+        if let Some(off) = self.off {
+            m.off = off;
+        }
+        if let Some(latest) = &self.dismissed {
+            m.dismissed = Some(latest.clone());
+        }
+    }
+}
+
 /// Reads the memory. A missing file is the default. Any other read error is
 /// returned, so a change never writes over a file it could not read.
 pub fn read(path: &Path) -> io::Result<Memory> {
@@ -509,12 +529,16 @@ mod tests {
                     change(&file, |m| m.failed_at = Some(m.failed_at.unwrap_or(0) + 1)).unwrap();
                 }
             }
-            // Holds the lock across a pause. It marks "held" once the lock is
+            // Holds the lock for a while. It marks "held" once the lock is
             // taken, and "released" just before the change ends.
             "hold" => {
+                let hold: u64 = std::env::var("NETDOC_UPDATE_HELPER_HOLD_MS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(1000);
                 change(&file, |_| {
                     std::fs::write(dir.join("held"), "").unwrap();
-                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    std::thread::sleep(std::time::Duration::from_millis(hold));
                     std::fs::write(dir.join("released"), "").unwrap();
                 })
                 .unwrap();
@@ -529,6 +553,17 @@ mod tests {
             .args(["--exact", "update::tests::helper_process"])
             .env("NETDOC_UPDATE_HELPER", mode)
             .env("NETDOC_UPDATE_HELPER_DIR", dir)
+            .spawn()
+            .unwrap()
+    }
+
+    /// A second process that holds the lock for `hold_ms` milliseconds.
+    fn spawn_holder(dir: &Path, hold_ms: u64) -> std::process::Child {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "update::tests::helper_process"])
+            .env("NETDOC_UPDATE_HELPER", "hold")
+            .env("NETDOC_UPDATE_HELPER_DIR", dir)
+            .env("NETDOC_UPDATE_HELPER_HOLD_MS", hold_ms.to_string())
             .spawn()
             .unwrap()
     }
@@ -567,7 +602,7 @@ mod tests {
     #[test]
     fn a_change_waits_for_another_process_to_finish() {
         let folder = Folder::new("wait");
-        let mut holder = spawn_helper("hold", &folder.0);
+        let mut holder = spawn_holder(&folder.0, 300);
         wait_for(&folder.0.join("held"));
         let released_first = std::cell::Cell::new(false);
         change(&folder.file(), |m| {
@@ -587,7 +622,7 @@ mod tests {
     #[test]
     fn without_the_lock_a_change_does_not_wait() {
         let folder = Folder::new("no-wait");
-        let mut holder = spawn_helper("hold", &folder.0);
+        let mut holder = spawn_holder(&folder.0, 1000);
         wait_for(&folder.0.join("held"));
         let released_first = std::cell::Cell::new(false);
         change_without_lock(&folder.file(), |m| {

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,9 @@ import (
 // reach the user's local service through this session. The control shows the interactive
 // transport opens all three, and the remote reaches the local banner through the remote one.
 func TestBatchOpensNoForwarding(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the listener probe reads /proc/net/tcp, which only Linux has")
+	}
 	lab := newBatchLab(t)
 	target, banner := localBanner(t)
 	lp, dp, rp := freeLoopbackPort(t), freeLoopbackPort(t), freeLoopbackPort(t)

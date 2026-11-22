@@ -105,6 +105,8 @@ pub struct Memory {
     pub failed_at: Option<u64>,
     /// Automatic checks are off, by the user's choice.
     pub off: bool,
+    /// How many times the file has been saved. A file without one is revision 0.
+    pub revision: u64,
 }
 
 /// What the user chose this session and has not saved yet. Every later change
@@ -140,6 +142,14 @@ pub fn read(path: &Path) -> io::Result<Memory> {
         match line.split_once('=') {
             Some(("dismissed", v)) if is_tag(v) => m.dismissed = Some(v.to_string()),
             Some(("failed_at", v)) => m.failed_at = v.parse().ok(),
+            Some(("revision", v)) => {
+                m.revision = v.parse().map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "the update setting has an unreadable revision",
+                    )
+                })?;
+            }
             Some(("off", "1")) => m.off = true,
             Some(("off", "0")) => m.off = false,
             // A value the format does not know is not the default: an opt-out
@@ -169,6 +179,7 @@ pub fn save(path: &Path, m: &Memory) -> io::Result<()> {
     if m.off {
         text += "off=1\n";
     }
+    text += &format!("revision={}\n", m.revision);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -234,6 +245,7 @@ fn apply(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
     let mut after = before.clone();
     change(&mut after);
     if after != before {
+        after.revision = before.revision + 1;
         save(path, &after)?;
     }
     Ok(after)
@@ -432,6 +444,7 @@ mod tests {
             dismissed: Some("v2.3.0".into()),
             failed_at: Some(1_800_000_000),
             off: true,
+            revision: 3,
         };
         save(&path, &m).unwrap();
         assert_eq!(read(&path).unwrap(), m);
@@ -722,6 +735,47 @@ mod tests {
         assert!(read(&folder.file()).is_err());
         std::fs::write(folder.file(), "off=0\n").unwrap();
         assert!(!read(&folder.file()).unwrap().off, "off=0 is checks on");
+    }
+
+    /// Every save moves the revision on by one. A change that writes nothing does not.
+    #[test]
+    fn every_save_moves_the_revision_on() {
+        let folder = Folder::new("revision");
+        assert_eq!(read(&folder.file()).unwrap().revision, 0);
+        assert_eq!(
+            change(&folder.file(), |m| m.off = true).unwrap().revision,
+            1
+        );
+        assert_eq!(
+            change(&folder.file(), |m| m.off = false).unwrap().revision,
+            2
+        );
+        assert_eq!(change(&folder.file(), |_| {}).unwrap().revision, 2);
+        assert_eq!(read(&folder.file()).unwrap().revision, 2);
+    }
+
+    /// A file written before revisions existed reads as revision 0, and its
+    /// first save writes revision 1.
+    #[test]
+    fn a_file_without_a_revision_is_revision_zero_and_saves_as_one() {
+        let folder = Folder::new("compat-revision");
+        std::fs::write(folder.file(), "off=1\n").unwrap();
+        let m = read(&folder.file()).unwrap();
+        assert!(m.off);
+        assert_eq!(m.revision, 0);
+        assert_eq!(
+            change(&folder.file(), |m| m.off = false).unwrap().revision,
+            1
+        );
+    }
+
+    /// A revision the file cannot be trusted about is an unreadable file, so the
+    /// window fails closed instead of guessing which choice is newest.
+    #[test]
+    fn an_unreadable_revision_is_an_error() {
+        let folder = Folder::new("bad-revision");
+        std::fs::write(folder.file(), "off=0\nrevision=two\n").unwrap();
+        assert!(read(&folder.file()).is_err());
     }
 
     /// Negative control: the same change is saved when nothing blocks the write.

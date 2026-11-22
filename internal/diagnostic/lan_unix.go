@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -63,7 +65,7 @@ func lanEchoProbe(link lanLink) (lanProbe, error) {
 			return false, err
 		}
 		if _, err := conn.WriteTo(request, &net.UDPAddr{IP: net.IP(dst.AsSlice())}); err != nil {
-			return false, nil
+			return false, lanICMPSendError(err)
 		}
 		var packet [128]byte
 		for ctx.Err() == nil {
@@ -77,6 +79,13 @@ func lanEchoProbe(link lanLink) (lanProbe, error) {
 		}
 		return false, nil
 	}, nil
+}
+
+func lanICMPSendError(err error) error {
+	if errors.Is(err, syscall.EPERM) {
+		return fmt.Errorf("%w: %w", errLANICMPSendDenied, err)
+	}
+	return nil // destination-specific send failures do not disable the sweep
 }
 
 func lanEchoReply(packet, nonce []byte) bool {

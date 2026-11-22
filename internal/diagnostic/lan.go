@@ -22,6 +22,11 @@ const (
 	lanAttempt     = 750 * time.Millisecond
 )
 
+// A local ICMP send permission denial is not a silent peer. Some policies
+// deny only particular destinations, so the whole method is unavailable only
+// when every attempted destination was denied this way.
+var errLANICMPSendDenied = errors.New("local ICMP send denied")
+
 // LANEvidence records what an address supplied during a LAN scan.
 type LANEvidence uint8
 
@@ -193,14 +198,18 @@ func scanLAN(ctx context.Context, link lanLink, echo lanProbe, echoErr error,
 	}
 	cacheErr := readNeighbors()
 	probes := []struct {
-		name     string
-		evidence LANEvidence
-		probe    lanProbe
-		err      error
+		name      string
+		evidence  LANEvidence
+		probe     lanProbe
+		err       error
+		attempts  atomic.Uint32
+		denials   atomic.Uint32
+		denied    atomic.Bool
+		deniedErr error
 	}{
-		{"ICMP echo", LANICMP, echo, echoErr},
-		{"TCP 80", LANTCP, lanTCPProbe(dial, "80"), nil},
-		{"TCP 443", LANTCP, lanTCPProbe(dial, "443"), nil},
+		{name: "ICMP echo", evidence: LANICMP, probe: echo, err: echoErr},
+		{name: "TCP 80", evidence: LANTCP, probe: lanTCPProbe(dial, "80")},
+		{name: "TCP 443", evidence: LANTCP, probe: lanTCPProbe(dial, "443")},
 	}
 	var wg sync.WaitGroup
 	for i := range probes {
@@ -215,6 +224,14 @@ func scanLAN(ctx context.Context, link lanLink, echo lanProbe, echoErr error,
 					attempt, cancel := context.WithTimeout(ctx, lanAttempt)
 					ok, err := p.probe(attempt, ips[j])
 					cancel()
+					p.attempts.Add(1)
+					if errors.Is(err, errLANICMPSendDenied) {
+						p.denials.Add(1)
+						if p.denied.CompareAndSwap(false, true) {
+							p.deniedErr = err
+						}
+						continue
+					}
 					if ok {
 						record(ips[j], p.evidence)
 					}
@@ -226,6 +243,12 @@ func scanLAN(ctx context.Context, link lanLink, echo lanProbe, echoErr error,
 		}
 	}
 	wg.Wait()
+	for i := range probes {
+		p := &probes[i]
+		if p.err == nil && p.attempts.Load() != 0 && p.attempts.Load() == p.denials.Load() {
+			p.err = p.deniedErr
+		}
+	}
 	if ctx.Err() == nil && cacheErr == nil {
 		// Ordinary IP traffic may have populated the cache via kernel ARP.
 		cacheErr = readNeighbors()
@@ -234,8 +257,8 @@ func scanLAN(ctx context.Context, link lanLink, echo lanProbe, echoErr error,
 	if cacheErr != nil {
 		warnings = append(warnings, "Neighbor cache unavailable: "+cacheErr.Error())
 	}
-	for _, p := range probes {
-		if p.err != nil {
+	for i := range probes {
+		if p := &probes[i]; p.err != nil {
 			warnings = append(warnings, p.name+" unavailable: "+p.err.Error())
 		}
 	}

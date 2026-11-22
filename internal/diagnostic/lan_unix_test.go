@@ -3,6 +3,10 @@
 package diagnostic
 
 import (
+	"context"
+	"errors"
+	"net"
+	"syscall"
 	"testing"
 
 	"golang.org/x/net/icmp"
@@ -36,5 +40,27 @@ func TestLANValidatesICMPEchoReply(t *testing.T) {
 	}
 	if lanEchoReply([]byte{0, 0, 0}, nonce) {
 		t.Error("truncated reply matched")
+	}
+}
+
+func TestLANICMPSendErrorClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		denied bool
+	}{
+		{"local EPERM", syscall.EPERM, true},
+		{"wrapped EPERM", &net.OpError{Op: "write", Err: syscall.EPERM}, true},
+		{"host unreachable", syscall.EHOSTUNREACH, false},
+		{"destination blocked", syscall.EACCES, false},
+		{"canceled", context.Canceled, false},
+		{"deadline", context.DeadlineExceeded, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := lanICMPSendError(tc.err)
+			if errors.Is(err, errLANICMPSendDenied) != tc.denied || (err != nil) != tc.denied {
+				t.Fatalf("classified %v as %v, want denial %t", tc.err, err, tc.denied)
+			}
+		})
 	}
 }

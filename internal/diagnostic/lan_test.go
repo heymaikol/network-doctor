@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -198,6 +199,41 @@ func TestLANUnavailableMechanisms(t *testing.T) {
 			})
 			if len(warnings) != tc.warnings || (err != nil) != tc.wantError || n != tc.observed {
 				t.Fatalf("warnings %v, error %v, observations %d", warnings, err, n)
+			}
+		})
+	}
+}
+
+func TestLANICMPPermissionDenialsRequireEveryDestination(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		allDenied bool
+		wantErr   bool
+		wantWarns int
+	}{
+		{"all sends denied", true, true, 4},
+		{"one destination denied", false, false, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts atomic.Int32
+			link := lanTestLink()
+			echo := func(_ context.Context, dst netip.Addr) (bool, error) {
+				attempts.Add(1)
+				if tc.allDenied || dst == netip.MustParseAddr("192.168.10.2") {
+					return false, errLANICMPSendDenied
+				}
+				return false, nil // sent, but the peer did not reply
+			}
+			dial := func(context.Context, string, string) (net.Conn, error) { return nil, errLANUnavailable }
+			cache := func() ([]netip.Addr, error) { return nil, errors.New("no neighbor cache") }
+			warnings, err := scanLAN(t.Context(), link, echo, nil, dial, cache, func(o LANObservation) {
+				t.Errorf("permission denied peer became reachable: %v", o)
+			})
+			if (err != nil) != tc.wantErr || len(warnings) != tc.wantWarns || attempts.Load() != int32(len(link.targets())) {
+				t.Fatalf("attempted %d peers, warnings %v, error %v", attempts.Load(), warnings, err)
+			}
+			if got := slices.ContainsFunc(warnings, func(w string) bool { return strings.HasPrefix(w, "ICMP echo unavailable:") }); got != tc.allDenied {
+				t.Fatalf("ICMP method warning = %t, want %t: %v", got, tc.allDenied, warnings)
 			}
 		})
 	}

@@ -2222,7 +2222,7 @@ mod update_notice {
             "the failure was not remembered"
         );
         assert!(
-            !update::may_check(&update::load(&path), false, now_secs()),
+            !update::may_check(&update::read(&path).unwrap(), false, now_secs()),
             "the next launch would ask again at once"
         );
         cleanup(&path);
@@ -2341,7 +2341,7 @@ mod update_notice {
         a.set_update_check(false);
         b.update_rx = Some(answer(OFFLINE));
         b.poll_update();
-        let disk = update::load(&path);
+        let disk = update::read(&path).unwrap();
         assert!(disk.off, "a stale window wrote checks back on");
         assert!(
             disk.failed_at.is_some(),
@@ -2350,7 +2350,7 @@ mod update_notice {
         b.update_rx = Some(answer(AVAILABLE));
         b.poll_update();
         b.dismiss_update();
-        let disk = update::load(&path);
+        let disk = update::read(&path).unwrap();
         assert!(
             disk.off,
             "a stale window wrote checks back on after a dismissal"
@@ -2373,7 +2373,7 @@ mod update_notice {
         a.set_update_check(false);
         b.set_update_check(true);
         assert!(
-            !update::load(&path).off,
+            !update::read(&path).unwrap().off,
             "the stale window could not turn checks back on"
         );
         cleanup(&path);
@@ -2443,7 +2443,10 @@ mod update_notice {
         h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
             .click();
         h.run();
-        assert!(update::load(&path).off, "the setting was not saved");
+        assert!(
+            update::read(&path).unwrap().off,
+            "the setting was not saved"
+        );
         assert!(
             h.query_by_label_contains("Could not save the update setting")
                 .is_none()
@@ -2659,7 +2662,10 @@ mod update_notice {
             .click();
         h.run();
         assert!(h.state().memory.off, "the setting did not turn checks off");
-        assert!(update::load(&path).off, "the setting was not saved");
+        assert!(
+            update::read(&path).unwrap().off,
+            "the setting was not saved"
+        );
         let next = App::new(
             egui::Context::default(),
             Startup {

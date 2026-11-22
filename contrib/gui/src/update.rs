@@ -156,12 +156,6 @@ pub fn read(path: &Path) -> io::Result<Memory> {
     Ok(m)
 }
 
-/// The memory the window starts with: what `read` finds, or the default when it
-/// cannot be read.
-pub fn load(path: &Path) -> Memory {
-    read(path).unwrap_or_default()
-}
-
 /// Writes the memory. An error is returned, so the caller can say the setting
 /// was not kept.
 pub fn save(path: &Path, m: &Memory) -> io::Result<()> {
@@ -440,20 +434,20 @@ mod tests {
             off: true,
         };
         save(&path, &m).unwrap();
-        assert_eq!(load(&path), m);
+        assert_eq!(read(&path).unwrap(), m);
         std::fs::write(
             &path,
             "dismissed=not-a-tag\nfailed_at=soon\nunknown=1\noff=0\n",
         )
         .unwrap();
-        assert_eq!(load(&path), Memory::default());
+        assert_eq!(read(&path).unwrap(), Memory::default());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn a_missing_memory_file_is_the_default() {
         let path = std::env::temp_dir().join("netdoc-gui-no-such-memory-file");
-        assert_eq!(load(&path), Memory::default());
+        assert_eq!(read(&path).unwrap(), Memory::default());
     }
 
     const NOW: u64 = 1_800_000_000;

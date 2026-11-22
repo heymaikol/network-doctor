@@ -160,10 +160,27 @@ pub fn save(path: &Path, m: &Memory) -> io::Result<()> {
 }
 
 /// Makes one change to the memory as the file holds it now, and writes only if
-/// that changes the file. A window that loaded the file earlier then cannot
-/// write its stale copy back over another window's change. Returns what the
-/// file holds afterwards, or the error that stopped the change.
+/// that changes the file. Windows and processes take turns: an exclusive lock
+/// on a file of its own covers the whole read, change and write, so a change
+/// never runs on a copy another change is about to replace. The lock lives on
+/// its own file because the memory file itself is replaced by a rename. Returns
+/// what the file holds afterwards, or the error that stopped the change.
 pub fn change(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path.with_file_name("update.lock"))?;
+    // Released when `lock` is dropped, after the change is written.
+    lock.lock()?;
+    apply(path, change)
+}
+
+/// The read, change and write of `change`, without taking the lock.
+fn apply(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
     let before = read(path)?;
     let mut after = before.clone();
     change(&mut after);
@@ -171,6 +188,12 @@ pub fn change(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
         save(path, &after)?;
     }
     Ok(after)
+}
+
+/// Negative control for the tests: the same change, without the lock.
+#[cfg(test)]
+fn change_without_lock(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
+    apply(path, change)
 }
 
 /// Whether the window may ask at launch. The user's setting and the environment
@@ -468,6 +491,115 @@ mod tests {
             "a failed save looked successful"
         );
         assert!(!folder.file().exists(), "a failed save wrote the file");
+    }
+
+    /// Not a test: the work a second process does, when a test asks for it
+    /// through the environment. Without the environment it does nothing.
+    #[test]
+    fn helper_process() {
+        let Ok(mode) = std::env::var("NETDOC_UPDATE_HELPER") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(std::env::var_os("NETDOC_UPDATE_HELPER_DIR").unwrap());
+        let file = dir.join("update");
+        match mode.as_str() {
+            // Fifty increments of a counter kept in `failed_at`, each one a whole change.
+            "count" => {
+                for _ in 0..50 {
+                    change(&file, |m| m.failed_at = Some(m.failed_at.unwrap_or(0) + 1)).unwrap();
+                }
+            }
+            // Holds the lock across a pause. It marks "held" once the lock is
+            // taken, and "released" just before the change ends.
+            "hold" => {
+                change(&file, |_| {
+                    std::fs::write(dir.join("held"), "").unwrap();
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    std::fs::write(dir.join("released"), "").unwrap();
+                })
+                .unwrap();
+            }
+            other => panic!("unknown helper mode {other}"),
+        }
+    }
+
+    /// Runs this test binary again, as a second process, to do `mode` on `dir`.
+    fn spawn_helper(mode: &str, dir: &Path) -> std::process::Child {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "update::tests::helper_process"])
+            .env("NETDOC_UPDATE_HELPER", mode)
+            .env("NETDOC_UPDATE_HELPER_DIR", dir)
+            .spawn()
+            .unwrap()
+    }
+
+    /// Waits until another process has reached `marker`, or fails the test.
+    fn wait_for(marker: &Path) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !marker.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the other process never reached {}",
+                marker.display()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// Two processes each make fifty changes to one counter. Each change is a
+    /// whole transaction under the lock, so none is lost.
+    #[test]
+    fn two_processes_do_not_lose_each_others_changes() {
+        let folder = Folder::new("count");
+        let mut a = spawn_helper("count", &folder.0);
+        let mut b = spawn_helper("count", &folder.0);
+        assert!(a.wait().unwrap().success());
+        assert!(b.wait().unwrap().success());
+        assert_eq!(
+            read(&folder.file()).unwrap().failed_at,
+            Some(100),
+            "a change was lost between two processes"
+        );
+    }
+
+    /// A change waits while another process holds the lock, so it runs only
+    /// after that process has released.
+    #[test]
+    fn a_change_waits_for_another_process_to_finish() {
+        let folder = Folder::new("wait");
+        let mut holder = spawn_helper("hold", &folder.0);
+        wait_for(&folder.0.join("held"));
+        let released_first = std::cell::Cell::new(false);
+        change(&folder.file(), |m| {
+            released_first.set(folder.0.join("released").exists());
+            m.off = true;
+        })
+        .unwrap();
+        assert!(holder.wait().unwrap().success());
+        assert!(
+            released_first.get(),
+            "a change ran while another process held the lock"
+        );
+    }
+
+    /// Negative control: without the lock the same change runs while the other
+    /// process still holds its change, so the test above is not vacuous.
+    #[test]
+    fn without_the_lock_a_change_does_not_wait() {
+        let folder = Folder::new("no-wait");
+        let mut holder = spawn_helper("hold", &folder.0);
+        wait_for(&folder.0.join("held"));
+        let released_first = std::cell::Cell::new(false);
+        change_without_lock(&folder.file(), |m| {
+            released_first.set(folder.0.join("released").exists());
+            m.off = true;
+        })
+        .unwrap();
+        assert!(holder.wait().unwrap().success());
+        assert!(
+            !released_first.get(),
+            "the change waited without a lock, so the control proves nothing"
+        );
     }
 
     /// Negative control: the same change is saved when nothing blocks the write.

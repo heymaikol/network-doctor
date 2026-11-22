@@ -6,7 +6,9 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"net"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -22,9 +24,9 @@ func stubServices(t *testing.T, scan diagnostic.ServiceScan) *[]string {
 	t.Helper()
 	var asked []string
 	old := discoverServices
-	discoverServices = func(_ context.Context, _ *diagnostic.SourceAddresses, host string, _ time.Duration) diagnostic.ServiceScan {
-		asked = append(asked, host)
-		return scan
+	discoverServices = func(_ context.Context, _ diagnostic.LANBinding, host netip.Addr, _ time.Duration) (diagnostic.ServiceScan, error) {
+		asked = append(asked, host.String())
+		return scan, nil
 	}
 	t.Cleanup(func() { discoverServices = old })
 	return &asked
@@ -37,13 +39,38 @@ func mapModel(t *testing.T) model {
 	doneResults(&m, "")
 	m.width, m.height = 100, 40
 	m.networkMap = true
-	m.networkCIDR = "192.168.12.0/24"
+	m.cur.networkCIDR = "192.168.12.0/24"
 	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
-	m.cur.lines = []string{
-		"Host: 192.168.12.1 (router.lan)\tStatus: Up",
-		"Host: 192.168.12.50 (printer.lan)\tStatus: Up",
-	}
+	setLANHosts(&m, "192.168.12.1 router.lan", "192.168.12.50 printer.lan")
 	return m
+}
+
+func TestOpenedDeviceUsesOriginatingSnapshotBinding(t *testing.T) {
+	m := mapModel(t)
+	m.cur.lanID = "scan-a"
+	m.cur.lanBinding = diagnostic.LANBinding{Source: netip.MustParseAddr("192.168.12.34"), Interface: "lan", Index: 7}
+	olderBinding := m.cur.lanBinding
+	m.stashJob()
+	m.cur = jobState{name: lanDiscoveryName, status: JobDone, lanID: "scan-b",
+		lanBinding: diagnostic.LANBinding{Source: netip.MustParseAddr("192.168.12.2"), Interface: "vpn", Index: 18}}
+	setLANHosts(&m, "192.168.12.1 unrelated-device.lan")
+	m.selectJob(0)
+	m.networkMap = true
+	if m.sources != nil {
+		t.Fatal("fixture must use automatic source selection")
+	}
+	old := discoverServices
+	t.Cleanup(func() { discoverServices = old })
+	discoverServices = func(_ context.Context, binding diagnostic.LANBinding, peer netip.Addr, _ time.Duration) (diagnostic.ServiceScan, error) {
+		if binding != olderBinding || peer.String() != "192.168.12.1" {
+			t.Fatalf("old snapshot asked for %v on %+v, want its original LAN", peer, binding)
+		}
+		return diagnostic.ServiceScan{}, errors.New("LAN snapshot interface unavailable; rescan the network")
+	}
+	m = openDevice(t, m)
+	if view := flat(m.networkMapView()); !strings.Contains(view, "LAN snapshot interface unavailable; rescan the network") || strings.Contains(view, "Nothing answered") {
+		t.Fatalf("interface failure rendered as device silence: %s", view)
+	}
 }
 
 // msgsFrom resolves a command to the messages it produces, following batches,
@@ -238,11 +265,14 @@ func TestOpenedDeviceIgnoresStaleScans(t *testing.T) {
 	fresh := scanOf(diagnostic.LocalService{Port: 22, Name: "SSH", Scheme: "ssh"})
 	stale := scanOf(diagnostic.LocalService{Port: 5900, Name: "VNC"})
 	stubServices(t, fresh)
-	m := openDevice(t, mapModel(t))
+	m := mapModel(t)
+	m.cur.lanID = "current-snapshot"
+	m = openDevice(t, m)
 
 	for _, msg := range []lanServicesMsg{
-		{gen: m.generation + 1, host: m.svc.host, scan: stale},  // a restart happened
-		{gen: m.generation, host: "192.168.12.99", scan: stale}, // another device
+		{gen: m.generation + 1, job: m.cur.lanID, request: m.svcRequest, scan: stale},
+		{gen: m.generation, job: m.cur.lanID, request: m.svcRequest - 1, scan: stale},
+		{gen: m.generation, job: "previous-snapshot", request: m.svcRequest, scan: stale},
 	} {
 		u, _ := m.Update(msg)
 		m = asModel(t, u)
@@ -358,7 +388,10 @@ func TestOpenedDeviceClearedByANewSweepAndByARestart(t *testing.T) {
 	}
 
 	relaunched := m
-	relaunched.launchTool(Tool{Key: "v", Name: lanDiscoveryName, Bin: "nmap"})
+	stubLANScan(t)
+	relaunched.launchTool(lanDiscoveryTool(netip.MustParseAddr("192.168.12.34"), "", "192.168.12.0/24"))
+	relaunched.cur.active.cancel()
+	_, _ = drain(t, relaunched.cur.active.ch)
 	if relaunched.svc.host != "" {
 		t.Errorf("a fresh sweep left device %q open from the previous one", relaunched.svc.host)
 	}
@@ -418,7 +451,7 @@ func TestNetworkMapWithoutDevices(t *testing.T) {
 		status JobStatus
 		want   string
 	}{
-		{"nothing replied", JobDone, "No other devices replied"},
+		{"nothing replied", JobDone, "No device evidence recorded"},
 		{"the sweep failed", JobFailed, "Discovery failed"},
 		{"the sweep was cancelled", JobCanceled, "Discovery canceled"},
 		{"the sweep timed out", JobTimedOut, "Discovery timed out"},
@@ -426,7 +459,7 @@ func TestNetworkMapWithoutDevices(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			m := mapModel(t)
-			m.cur.lines, m.cur.status = nil, c.status
+			m.cur.lanHosts, m.cur.status = nil, c.status
 			if view := m.View(); !strings.Contains(view, c.want) {
 				t.Fatalf("view must explain the empty map:\n%s", view)
 			}
@@ -441,8 +474,6 @@ func TestNetworkMapWithoutDevices(t *testing.T) {
 	}
 }
 
-// nmap is what discovery needs, and its absence has to be said rather than
-// discovered as a blank panel.
 func TestNetworkMapWithoutNmap(t *testing.T) {
 	old := toolLookPath
 	toolLookPath = func(string) (string, error) { return "", net.UnknownNetworkError("not found") }
@@ -456,10 +487,7 @@ func TestNetworkMapWithoutNmap(t *testing.T) {
 
 	u, _ := m.Update(keyMsg("v"))
 	nm := asModel(t, u)
-	if nm.confirmTool != nil || nm.networkMap {
-		t.Fatal("v must not open a map it cannot fill")
-	}
-	if !strings.Contains(nm.notice, "nmap") {
-		t.Errorf("notice = %q, want it to name the missing binary", nm.notice)
+	if nm.confirmTool == nil || nm.confirmTool.Bin != "" || nm.networkMap {
+		t.Fatal("built-in discovery must confirm even when external tools are absent")
 	}
 }

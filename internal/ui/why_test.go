@@ -285,11 +285,11 @@ func TestRestartClosesTheExplanation(t *testing.T) {
 func TestWatchPassResetsOnlyRunState(t *testing.T) {
 	m := whyOnWatch(t)
 	m.notice, m.selMoved, m.expanded = "kept", true, true
-	m.networkMap, m.mapSelected, m.networkCIDR = true, 3, "192.0.2.0/24"
-	m.hostNames = map[string]string{"192.0.2.9": "printer"}
-	m.namesPending = map[string]bool{"192.0.2.9": true}
+	m.networkMap, m.mapSelected, m.cur.networkCIDR = true, 3, "192.0.2.0/24"
+	m.cur.lanNames = map[string]lanName{"192.0.2.9": {label: "printer"}}
+	m.cur.lanPending = map[string]bool{"192.0.2.9": true}
 	m.svc = serviceChoice{host: "192.0.2.9"}
-	m.cur.name = "nmap"
+	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
 	gen, results := m.generation, len(m.results)
 	if results == 0 {
 		t.Fatal("the finished pass recorded no results to replace")
@@ -306,8 +306,8 @@ func TestWatchPassResetsOnlyRunState(t *testing.T) {
 		t.Errorf("the pass kept the previous run's results: %d results, %d started", len(next.results), len(next.started))
 	}
 	// namesPending is generation-scoped, so its replies are dropped with it.
-	if len(next.namesPending) != 0 {
-		t.Errorf("namesPending = %v, want the old generation's lookups dropped", next.namesPending)
+	if len(next.cur.lanPending) != 0 {
+		t.Errorf("namesPending = %v, want the old generation's lookups dropped", next.cur.lanPending)
 	}
 	// Presentation: untouched.
 	for _, f := range []struct {
@@ -321,10 +321,10 @@ func TestWatchPassResetsOnlyRunState(t *testing.T) {
 		{"notice", next.notice, "kept"},
 		{"networkMap", next.networkMap, true},
 		{"mapSelected", next.mapSelected, 3},
-		{"networkCIDR", next.networkCIDR, "192.0.2.0/24"},
-		{"hostNames", next.hostNames["192.0.2.9"], "printer"},
+		{"networkCIDR", next.cur.networkCIDR, "192.0.2.0/24"},
+		{"hostNames", next.cur.lanNames["192.0.2.9"].label, "printer"},
 		{"svc host", next.svc.host, "192.0.2.9"},
-		{"parked job", next.cur.name, "nmap"},
+		{"selected job", next.cur.name, lanDiscoveryName},
 	} {
 		if f.got != f.want {
 			t.Errorf("%s = %v, want %v", f.name, f.got, f.want)

@@ -331,7 +331,7 @@ func TestBoxedSurfacesKeepTheirBorders(t *testing.T) {
 			return m.confirmView()
 		}},
 		{"network map", func(m model) string {
-			m.networkCIDR = "192.168.1.0/24"
+			m.cur.networkCIDR = "192.168.1.0/24"
 			return m.networkMapView()
 		}},
 	} {

@@ -1497,58 +1497,23 @@ func (m model) selectedPortalURL() string {
 	return r.Portal.RedirectURL
 }
 
-// upHostLine pulls the host field out of an nmap -oG "Host: … Status: Up" line.
-func upHostLine(line string) (string, bool) {
-	host, ok := strings.CutPrefix(line, "Host: ")
-	if !ok {
-		return "", false
-	}
-	host, status, ok := strings.Cut(host, "Status: ")
-	if !ok || strings.TrimSpace(status) != "Up" {
-		return "", false
-	}
-	return strings.TrimSpace(host), true
-}
-
 func (m model) networkHosts() []string {
-	source, _ := m.discoveryNetwork()
-	var hosts []string
-	for _, line := range m.cur.lines {
-		host, ok := upHostLine(line)
-		if !ok || source != nil && strings.HasPrefix(host, source.String()+" ") {
-			continue
-		}
-		host = strings.TrimSuffix(host, " ()")
-		// An OS-resolved name beats whatever nmap's raw PTR race printed.
-		if ip, _, _ := strings.Cut(host, " "); m.hostNames[ip] != "" {
-			host = ip + " (" + m.hostNames[ip] + ")"
+	hosts := make([]string, 0, len(m.cur.lanHosts))
+	for _, observation := range m.cur.lanHosts {
+		host := observation.IP.String()
+		name := m.cur.lanNames[host]
+		if name.sshAlias {
+			host += " (SSH alias: " + name.label + ")"
+		} else if name.label != "" {
+			host += " (" + name.label + ")"
 		}
 		hosts = append(hosts, host)
 	}
 	return hosts
 }
 
-// discoveredIPs pulls the addresses of Up hosts out of nmap -oG output lines.
-func discoveredIPs(lines []string) []string {
-	var ips []string
-	for _, line := range lines {
-		host, ok := upHostLine(line)
-		if !ok {
-			continue
-		}
-		ip, _, _ := strings.Cut(host, " ")
-		if net.ParseIP(ip) == nil {
-			continue
-		}
-		ips = append(ips, ip)
-	}
-	return ips
-}
-
-// namePending reports whether address is still waiting on a name we'd rather
-// show than nmap's: during the scan itself, or until its own lookup returns.
 func (m model) namePending(address string) bool {
-	return m.hostNames[address] == "" && (m.namesPending[address] || m.cur.active != nil)
+	return m.cur.lanNames[address].label == "" && (m.cur.lanPending[address] || m.cur.active != nil)
 }
 
 // serviceChooserView renders what one opened device answered on the common
@@ -1574,6 +1539,8 @@ func (m model) serviceChooserViewRows(rows int) string {
 	switch {
 	case !m.svc.done:
 		fixed = append(fixed, m.spinner.View()+m.st.faint.Render(" checking common service ports…"))
+	case m.svc.err != "":
+		fixed = append(fixed, m.svc.err)
 	case len(scan.Open) > 0:
 		for i, svc := range scan.Open {
 			branch := "├─ "
@@ -1618,7 +1585,11 @@ func (m model) snapshotLine(hosts bool) string {
 	at := m.cur.start.Add(m.cur.dur)
 	when := durationText(m.mapAge(at)) + " ago (" + at.Format("2006-01-02 15:04:05 MST") + ")"
 	if m.cur.status == JobDone {
-		return "Cached snapshot · captured " + when
+		line := "Cached snapshot · captured " + when
+		if m.cur.lanLimited {
+			line += " · discovery methods unavailable"
+		}
+		return line
 	}
 	line := "Cached snapshot · scan " + m.cur.status.String() + " " + when
 	if hosts {
@@ -1660,14 +1631,12 @@ func (m model) networkMapViewRows(rows int) string {
 	if m.svc.host != "" {
 		return m.serviceChooserViewRows(rows)
 	}
-	source, _ := m.discoveryNetwork()
 	hosts := m.networkHosts()
-	// Only names that carry a domain vote here: a bare ssh alias like
-	// "pihole" shouldn't veto stripping ".attlocal.net" off its neighbors.
+	// SSH aliases are user labels, even when they contain dots.
 	domains := map[string]int{}
 	domainedHosts := 0
 	for _, host := range hosts {
-		if address, name, ok := strings.Cut(host, " ("); ok && !m.namePending(address) {
+		if address, name, ok := strings.Cut(host, " ("); ok && !m.namePending(address) && !m.cur.lanNames[address].sshAlias {
 			if _, domain, ok := strings.Cut(strings.TrimSuffix(name, ")"), "."); ok {
 				domainedHosts++
 				domains[strings.ToLower(domain)]++
@@ -1682,7 +1651,7 @@ func (m model) networkMapViewRows(rows int) string {
 	}
 
 	panelWidth := fitPanelWidth(m.st.panel, m.width)
-	title := m.st.panelTitle.Render(mapTitle + ": " + lanDiscoveryName + " · " + m.networkCIDR)
+	title := m.st.panelTitle.Render(mapTitle + ": " + lanDiscoveryName + " · " + m.cur.networkCIDR)
 	if commonDomain != "" {
 		domain := m.st.faint.Render("Domain: " + commonDomain)
 		contentWidth := panelWidth - m.st.panel.GetHorizontalPadding()
@@ -1700,22 +1669,23 @@ func (m model) networkMapViewRows(rows int) string {
 	thisDevice := m.st.sel.Render("◆") + " This device"
 	if m.watch {
 		thisDevice += " now"
-	}
-	if source != nil {
-		thisDevice += " " + source.String()
+		if current, _ := m.discoveryNetwork(); current != nil {
+			thisDevice += " " + current.String()
+		}
+	} else if m.cur.lanSource.IsValid() {
+		thisDevice += " " + m.cur.lanSource.String()
 	}
 	full = append(full, thisDevice)
 
 	var items []string
 	for i, host := range hosts {
 		address, name, named := strings.Cut(host, " (")
-		if named {
+		if named && !m.cur.lanNames[address].sshAlias {
 			name = strings.TrimSuffix(name, ")")
 			if short, domain, ok := strings.Cut(name, "."); ok && strings.EqualFold(domain, commonDomain) {
 				host = address + " (" + short + ")"
 			}
 		}
-		// A name we're still working on beats nmap's "unknownaabbcc" placeholder.
 		if m.namePending(address) {
 			host = address + " " + m.spinner.View()
 		}
@@ -1728,7 +1698,11 @@ func (m model) networkMapViewRows(rows int) string {
 			marker = m.st.sel.Render("› ")
 			host = m.st.sel.Render(host)
 		}
-		items = append(items, marker+m.st.faint.Render(branch)+m.st.pass.Render("●")+" "+host)
+		evidence := m.st.faint.Render("○ cached neighbor")
+		if m.cur.lanHosts[i].Evidence.Confirmed() {
+			evidence = m.st.pass.Render("●") + " reachable"
+		}
+		items = append(items, marker+m.st.faint.Render(branch)+evidence+" "+host)
 	}
 	if len(hosts) == 0 {
 		switch {
@@ -1737,7 +1711,7 @@ func (m model) networkMapViewRows(rows int) string {
 		case m.cur.status != JobDone:
 			full = append(full, m.st.fail.Render("└─ Discovery "+m.cur.status.String()))
 		default:
-			full = append(full, m.st.faint.Render("└─ No other devices replied"))
+			full = append(full, m.st.faint.Render("└─ No device evidence recorded"))
 		}
 	}
 	return m.mapPanel(full, fixed, items, m.mapSelected, rows)
@@ -1780,8 +1754,10 @@ func (m model) discoveryNetwork() (net.IP, string) {
 	for _, id := range []diagnostic.ProbeID{diagnostic.ProbeInternet, diagnostic.ProbeProxy, diagnostic.ProbeTargetTCP} {
 		ip := m.results[id].Source
 		if v4 := ip.To4(); v4 != nil && ip.IsPrivate() {
-			// The source /24 is the sweep, not the interface's real prefix: a
-			// /16 is 65k hosts, far past what the scan's 60s timeout can cover.
+			if m.sources != nil && !ip.Equal(m.sources.IPv4) {
+				continue
+			}
+			// The source /24 caps the sweep even on a larger interface prefix.
 			return ip, v4.Mask(net.CIDRMask(24, 32)).String() + "/24"
 		}
 	}
@@ -1836,9 +1812,12 @@ func helpKeys(st styles, width int, kv ...string) string {
 // command and a run/cancel gate, so the scan is always shown before it runs.
 func (m model) confirmView() string {
 	_, _, display := m.confirmTool.Build(m.target, m.selectedIP())
+	if m.confirmTool.Bin != "" {
+		display = "$ " + display
+	}
 	body := m.st.panelTitle.Render("Run "+m.confirmTool.Name+"?") + "\n" +
 		m.st.faint.Render("Actively probes the shown scope, and may trip intrusion detection.") + "\n" +
-		"$ " + display
+		display
 	w := min(fitPanelWidth(m.st.focusPanel, m.width), 76)
 	return m.st.focusPanel.Width(w).Render(body) + "\n" + helpKeys(m.st, m.width, "y", "run", "esc", "cancel")
 }

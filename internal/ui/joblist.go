@@ -35,6 +35,18 @@ func (m *model) jobByID(id string) *jobState {
 	return nil
 }
 
+// lanJobByID also finds completed scans with pending name lookups.
+func (m *model) lanJobByID(id string) *jobState {
+	if id != "" {
+		for j := range m.jobs {
+			if j.lanID == id {
+				return j
+			}
+		}
+	}
+	return nil
+}
+
 // newestJob returns the named run with the greatest start time. Selection and
 // tab order can change without making an older measurement newer. parked is
 // -1 when the run is already selected.
@@ -132,6 +144,7 @@ func (m *model) selectJob(i int) {
 	m.otherJobs = append(m.otherJobs[:i], m.otherJobs[i+1:]...)
 	m.stashJob()
 	m.cur = next
+	m.mapSelected, m.svc = 0, serviceChoice{}
 }
 
 // switchJob is tab: select the oldest parked run.
@@ -139,7 +152,9 @@ func (m *model) switchJob() tea.Cmd {
 	if len(m.otherJobs) == 0 {
 		return nil
 	}
+	showMap := m.networkMap
 	m.selectJob(0)
+	m.networkMap = showMap && m.cur.name == lanDiscoveryName
 	if m.viewing {
 		m.follow = true
 	}

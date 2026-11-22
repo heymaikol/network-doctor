@@ -538,9 +538,13 @@ impl App {
                 self.memory_warning =
                     conflicted.then(|| conflict_warning(self.pending.off.is_some()));
             }
-            Err(e) => {
+            Err(failed) => {
+                let e = &failed.error;
                 change(&mut self.memory);
-                self.pending.record_base(self.memory.revision);
+                // A choice made against the revision a failed save read, when that save got
+                // as far as reading. Otherwise the window's last known revision.
+                self.pending
+                    .record_base(failed.revision.unwrap_or(self.memory.revision));
                 self.pending.apply(&mut self.memory);
                 self.memory_warning = Some(format!(
                     "Could not save the update setting ({e}), so this change lasts only until this window closes."
@@ -2832,6 +2836,81 @@ mod update_notice {
                 .is_some_and(|w| w.contains("Another window changed the update setting")),
             "window A did not warn about the conflict"
         );
+        cleanup(&path);
+    }
+
+    /// Window A's save reads revision 1 under the lock, then fails to write. Its
+    /// retry must judge the opt-out against the revision that save read. Nothing
+    /// saved after the choice, so the opt-out holds and is written.
+    #[test]
+    fn a_retry_judges_a_failed_save_against_the_revision_that_save_read() {
+        let path = memory_in_a_fresh_folder("failed-base");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        b.update = match update::parse(AVAILABLE) {
+            Some(update::Answer::Newer(r)) => Some(r),
+            _ => panic!("the fixture is not a newer release"),
+        };
+        b.dismiss_update();
+        assert_eq!(update::read(&path).unwrap().revision, 1);
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        assert!(
+            !update::read(&path).unwrap().off,
+            "the failed save wrote the file"
+        );
+        std::fs::remove_dir(&conflict).unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the retry dropped an opt-out that no save has overtaken"
+        );
+        assert!(a.memory.off, "the opt-out is not in effect");
+        cleanup(&path);
+    }
+
+    /// Negative control: a retry with no intervening save applies its opt-out.
+    #[test]
+    fn a_retry_with_no_intervening_save_applies_its_opt_out() {
+        let path = memory_in_a_fresh_folder("failed-base-clean");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the retry did not save the opt-out"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a save made after the failed attempt still takes
+    /// precedence. A's older opt-out stays unsaved and does not overwrite it.
+    #[test]
+    fn a_save_after_a_failed_attempt_still_takes_precedence() {
+        let path = memory_in_a_fresh_folder("failed-base-later");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        let mut b = app(Some(path.clone()));
+        b.update = match update::parse(AVAILABLE) {
+            Some(update::Answer::Newer(r)) => Some(r),
+            _ => panic!("the fixture is not a newer release"),
+        };
+        b.dismiss_update();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        let disk = update::read(&path).unwrap();
+        assert!(!disk.off, "window A's older opt-out overwrote a later save");
+        assert_eq!(disk.dismissed.as_deref(), Some("v2.3.0"));
+        assert!(a.memory.off, "window A's session opt-out was dropped");
         cleanup(&path);
     }
 

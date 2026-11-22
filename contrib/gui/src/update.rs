@@ -246,13 +246,35 @@ pub fn save(path: &Path, m: &Memory) -> io::Result<()> {
     written
 }
 
+/// A change that did not reach the file. `revision` is the revision the attempt
+/// read under the lock, when it got that far. A choice that failed to save was
+/// made against that revision, so a retry judges it against the same one.
+#[derive(Debug)]
+pub struct Failed {
+    pub error: io::Error,
+    pub revision: Option<u64>,
+}
+
+impl From<io::Error> for Failed {
+    fn from(error: io::Error) -> Failed {
+        Failed {
+            error,
+            revision: None,
+        }
+    }
+}
+
 /// Makes one change to the memory as the file holds it now, and writes only if
 /// that changes the file. Windows and processes take turns: an exclusive lock
 /// on a file of its own covers the whole read, change and write, so a change
 /// never runs on a copy another change is about to replace. The lock lives on
 /// its own file because the memory file itself is replaced by a rename. Returns
-/// what the file holds afterwards, or the error that stopped the change.
-pub fn change(path: &Path, pending: &Pending, change: impl Fn(&mut Memory)) -> io::Result<Changed> {
+/// what the file holds afterwards, or why the change did not reach it.
+pub fn change(
+    path: &Path,
+    pending: &Pending,
+    change: impl Fn(&mut Memory),
+) -> Result<Changed, Failed> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -292,7 +314,7 @@ fn lock_within(file: &std::fs::File, wait: Duration) -> io::Result<()> {
 }
 
 /// The read, change and write of `change`, without taking the lock.
-fn apply(path: &Path, pending: &Pending, change: impl Fn(&mut Memory)) -> io::Result<Changed> {
+fn apply(path: &Path, pending: &Pending, change: impl Fn(&mut Memory)) -> Result<Changed, Failed> {
     let before = read(path)?;
     let mut after = before.clone();
     change(&mut after);
@@ -302,7 +324,10 @@ fn apply(path: &Path, pending: &Pending, change: impl Fn(&mut Memory)) -> io::Re
     // revision and makes any older unsaved choice stale.
     if after != before || !live.is_empty() {
         after.revision = before.revision + 1;
-        save(path, &after)?;
+        save(path, &after).map_err(|error| Failed {
+            error,
+            revision: Some(before.revision),
+        })?;
     }
     Ok(Changed {
         memory: after,
@@ -316,7 +341,7 @@ fn change_without_lock(
     path: &Path,
     pending: &Pending,
     change: impl Fn(&mut Memory),
-) -> io::Result<Changed> {
+) -> Result<Changed, Failed> {
     apply(path, pending, change)
 }
 
@@ -758,7 +783,7 @@ mod tests {
         holder.kill().ok();
         holder.wait().ok();
         let err = result.expect_err("a change waited for a stalled holder instead of giving up");
-        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(err.error.kind(), io::ErrorKind::TimedOut);
         assert!(
             elapsed < std::time::Duration::from_secs(3),
             "the change took {elapsed:?} to give up"
@@ -974,6 +999,18 @@ mod tests {
         let done = change(&folder.file(), &Pending::default(), |_| {}).unwrap();
         assert_eq!(done.memory.revision, 4);
         assert_eq!(read(&folder.file()).unwrap().revision, 4);
+    }
+
+    /// A write that fails reports the revision its locked read saw, so a retry can
+    /// judge the choice against that revision.
+    #[test]
+    fn a_failed_write_reports_the_revision_it_read() {
+        let folder = Folder::new("failed-revision");
+        std::fs::write(folder.file(), "off=0\nrevision=7\n").unwrap();
+        std::fs::create_dir(folder.0.join(format!("update.{}.tmp", std::process::id()))).unwrap();
+        let failed = change(&folder.file(), &Pending::default(), |m| m.off = true)
+            .expect_err("the write succeeded");
+        assert_eq!(failed.revision, Some(7));
     }
 
     /// Negative control: the same change is saved when nothing blocks the write.

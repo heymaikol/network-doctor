@@ -541,10 +541,13 @@ impl App {
             Err(failed) => {
                 let e = &failed.error;
                 change(&mut self.memory);
-                // A choice made against the revision a failed save read, when that save got
-                // as far as reading. Otherwise the window's last known revision.
-                self.pending
-                    .record_base(failed.revision.unwrap_or(self.memory.revision));
+                // The newest revision this window has seen: the one a failed save read, when
+                // that save got as far as reading. A choice that fails before reading keeps
+                // this revision as its base.
+                if let Some(revision) = failed.revision {
+                    self.memory.revision = revision;
+                }
+                self.pending.record_base(self.memory.revision);
                 self.pending.apply(&mut self.memory);
                 self.memory_warning = Some(format!(
                     "Could not save the update setting ({e}), so this change lasts only until this window closes."
@@ -3025,6 +3028,109 @@ mod update_notice {
         assert!(
             h.state().memory_warning.is_some(),
             "the warning was cleared"
+        );
+        cleanup(&path);
+    }
+
+    fn hold_the_lock(path: &Path) -> std::fs::File {
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path.with_file_name("update.lock"))
+            .unwrap();
+        lock.lock().unwrap();
+        lock
+    }
+
+    /// A choice that fails before reading the file keeps the newest revision the
+    /// window has seen. Here that is revision 1, which a failed save read, not the
+    /// window's startup revision 0. With no save after the choice, it is applied.
+    #[test]
+    fn a_choice_that_fails_before_reading_keeps_the_revision_already_observed() {
+        let path = memory_in_a_fresh_folder("observed-revision");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        b.update_rx = Some(answer(OFFLINE));
+        b.poll_update();
+        assert_eq!(update::read(&path).unwrap().revision, 1);
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        let holder = hold_the_lock(&path);
+        a.set_update_check(false);
+        drop(holder);
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the opt-out was not saved although no save followed it"
+        );
+        assert!(
+            a.memory_warning.is_none(),
+            "a conflict was reported although no other window saved after the choice"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a genuine save by another window after the failures still
+    /// takes precedence, so the older opt-out is left out and warned about.
+    #[test]
+    fn a_genuine_save_after_the_failures_still_takes_precedence() {
+        let path = memory_in_a_fresh_folder("observed-later");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        b.update_rx = Some(answer(OFFLINE));
+        b.poll_update();
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        let holder = hold_the_lock(&path);
+        a.set_update_check(false);
+        drop(holder);
+        b.set_update_check(true);
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            !update::read(&path).unwrap().off,
+            "window A's older opt-out overwrote another window's later enable"
+        );
+        assert!(
+            a.memory_warning
+                .as_deref()
+                .is_some_and(|w| w.contains("Another window changed")),
+            "window A did not warn about the later save"
+        );
+        cleanup(&path);
+    }
+
+    /// A choice whose read fails keeps the newest revision already observed, so a
+    /// retry against the revision a later repair restores judges it correctly.
+    #[test]
+    fn a_failed_read_keeps_the_revision_already_observed() {
+        let path = memory_in_a_fresh_folder("failed-read-observed");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        b.update_rx = Some(answer(OFFLINE));
+        b.poll_update();
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        // The file cannot be read, so the next choice fails before reading it.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        a.set_update_check(false);
+        // The file is repaired at the revision window A observed.
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, "off=0\nrevision=1\n").unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the retry judged the opt-out against a revision that was already observed"
         );
         cleanup(&path);
     }

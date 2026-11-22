@@ -952,6 +952,36 @@ as it does locally. A
 acquisition carries an overall bound derived from it as well; see
 .BR \-via .
 .TP
+.B \-update\-check
+Ask GitHub for the latest stable Network Doctor release and print whether it is
+newer than this build, then exit 0. This is the one request an update check
+makes: a GET of the releases endpoint with no query, no body, no credential, and
+a generic user agent that does not name the installed version. GitHub receives
+the public IP address the request originates from, which may
+be a proxy's address, as it does for any HTTPS request. Nothing else from a
+target, a report, or the machine is sent. The answer is cached for 24 hours, and
+a failed attempt is cached the same way, so automatic checks make no repeated
+requests while offline or after a bad answer. A rate limit, and an automatic
+check the view closed before GitHub answered, are asked again after one hour.
+This option asks again whenever the
+cached attempt did not succeed; a cached success is reused for 24 hours.
+Development and prerelease builds make no request. With
+.B \-json
+it prints one object conforming to the netdoc.update-check.v1 schema. With
+.B \-no\-reference\-egress
+it reports disabled and makes no request. Combining it with a target or any
+other operational flag exits 2 before any request.
+.TP
+.B \-no\-update\-check
+Do not check GitHub for a newer release when the interactive view opens. The
+explicit
+.B \-update\-check
+still answers when asked. The same opt-out is set persistently by
+.B NETDOC_NO_UPDATE_CHECK=1
+in the environment. Automatic checks are also off under
+.B \-no\-reference\-egress
+and in peer mode, which never opens the interactive view.
+.TP
 .B \-version
 Print the version and exit.
 .TP

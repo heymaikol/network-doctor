@@ -19,7 +19,11 @@ import (
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/incident"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/update"
 )
+
+// updateMsg carries one update-check answer from the background command.
+type updateMsg struct{ res update.Result }
 
 // scheduleMsg asks Update to dispatch any newly-runnable probes for generation
 // gen. A stale gen is ignored.
@@ -342,6 +346,12 @@ type model struct {
 	incidentVP       viewport.Model
 	now              func() time.Time
 
+	// updateCheck, when set, asks whether a newer stable release exists. It runs
+	// as a command, never in Init, so it cannot delay a probe.
+	updateCheck func() update.Result
+	// updateLatest is the newer release the header names, "" when there is none.
+	updateLatest string
+
 	// notice is one-line feedback from export or the Ctrl+C quit hint.
 	notice         string
 	noticeOK       bool
@@ -352,6 +362,13 @@ type model struct {
 
 // Option adjusts a new model without growing its positional constructor.
 type Option func(*model)
+
+// WithUpdateNotice starts one update check when the view opens. check runs in
+// a background command, and the header names a newer stable release only when
+// check reports one.
+func WithUpdateNotice(check func() update.Result) Option {
+	return func(m *model) { m.updateCheck = check }
+}
 
 // WithKeymap runs the TUI on a resolved keymap instead of the default one.
 func WithKeymap(km Keymap) Option {
@@ -551,6 +568,15 @@ func writeConfigFile(path, content string) {
 }
 
 func (m model) Init() tea.Cmd {
+	cmd := m.chainInit()
+	if m.updateCheck == nil {
+		return cmd
+	}
+	check := m.updateCheck
+	return tea.Batch(cmd, func() tea.Msg { return updateMsg{res: check()} })
+}
+
+func (m model) chainInit() tea.Cmd {
 	if m.toolbox {
 		return m.spinner.Tick // chain deferred until 'r'; tick drives the job timer
 	}
@@ -716,6 +742,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleActionsKey(msg)
 		}
 		return m.handleKey(msg)
+
+	case updateMsg:
+		m.updateLatest = ""
+		if msg.res.Status == update.UpdateAvailable {
+			m.updateLatest = msg.res.Latest
+		}
+		return m, nil
 
 	case noticeDoneMsg:
 		if msg.deadline.Equal(m.noticeDeadline) {

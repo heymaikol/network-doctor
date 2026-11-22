@@ -169,6 +169,70 @@ fn start_version_limited(
     rx
 }
 
+/// How long netdoc may take to answer an update check. It budgets 5 s for its
+/// request, so this only catches a hang.
+const UPDATE_LIMIT: Duration = Duration::from_secs(20);
+
+/// The largest update answer kept. The answer is a few hundred bytes.
+const MAX_UPDATE: usize = 8 * 1024;
+
+/// Runs `netdoc -update-check -json` on a thread of its own, bounded like the
+/// version probe. The answer is netdoc's text, or `None` when netdoc exited with
+/// an error (an older netdoc has no such command), ran out of time, printed more
+/// than MAX_UPDATE, or was stopped through the handle. `wake` is called once the
+/// answer is sent.
+pub fn start_update_check(
+    bin: PathBuf,
+    wake: impl Fn() + Send + 'static,
+) -> (Handle, Receiver<Option<String>>) {
+    start_update_check_limited(UPDATE_LIMIT, bin, wake)
+}
+
+fn start_update_check_limited(
+    limit: Duration,
+    bin: PathBuf,
+    wake: impl Fn() + Send + 'static,
+) -> (Handle, Receiver<Option<String>>) {
+    let (tx, rx) = channel();
+    let h = Handle::default();
+    let worker = h.clone();
+    std::thread::spawn(move || {
+        let _limit = watchdog(
+            worker.clone(),
+            limit,
+            "netdoc didn't answer the update check in time.",
+        );
+        let mut cmd = netdoc_command(&bin);
+        cmd.args(["-update-check", "-json"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let answer = match cmd.spawn() {
+            Ok(child) => {
+                let mut text = String::new();
+                let mut over = false;
+                let (code, _) = supervise(&worker, child, |line| {
+                    if over {
+                        return;
+                    }
+                    if text.len() + line.len() + 1 > MAX_UPDATE {
+                        over = true;
+                        worker.expire(TOO_MUCH);
+                        return;
+                    }
+                    text.push_str(&line);
+                    text.push('\n');
+                });
+                (code == Some(0) && !over && worker.expired().is_none()).then_some(text)
+            }
+            Err(_) => None,
+        };
+        let _ = tx.send(answer);
+        wake();
+    });
+    (h, rx)
+}
+
 /// A running netdoc that can be stopped. `stop` works at any time: a child
 /// that isn't attached yet is stopped as soon as it is.
 #[derive(Clone, Default)]
@@ -1166,6 +1230,104 @@ mod tests {
             caller_waited < Duration::from_millis(500),
             "the caller waited {caller_waited:?}"
         );
+        assert_eq!(answer, Ok(None));
+    }
+
+    /// The answer is netdoc's text, and the command is exactly `-update-check -json`.
+    #[cfg(unix)]
+    #[test]
+    fn a_prompt_update_check_returns_netdocs_answer() {
+        let dir = scratch("update-answer");
+        let (woke_tx, woke_rx) = channel();
+        let body = format!(
+            "echo \"$*\" > '{}'\necho '{{\"status\":\"up_to_date\"}}'",
+            dir.join("args").display()
+        );
+        let (_h, rx) = start_update_check_limited(
+            Duration::from_secs(5),
+            fake_netdoc(&dir, &body),
+            move || {
+                let _ = woke_tx.send(());
+            },
+        );
+        let answer = rx.recv_timeout(Duration::from_secs(10));
+        let woke = woke_rx.recv_timeout(Duration::from_secs(10)).is_ok();
+        let args = std::fs::read_to_string(dir.join("args")).unwrap_or_default();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            answer,
+            Ok(Some("{\"status\":\"up_to_date\"}\n".to_string()))
+        );
+        assert_eq!(args.trim(), "-update-check -json");
+        assert!(woke, "the window was not woken for the answer");
+    }
+
+    /// An older netdoc has no such command: it exits with an error, and gives no answer.
+    #[cfg(unix)]
+    #[test]
+    fn an_older_netdoc_without_the_command_gives_no_answer() {
+        let dir = scratch("update-old");
+        let body = "echo 'flag provided but not defined: -update-check' >&2\nexit 2";
+        let (_h, rx) =
+            start_update_check_limited(Duration::from_secs(5), fake_netdoc(&dir, body), || {});
+        let answer = rx.recv_timeout(Duration::from_secs(10));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(answer, Ok(None));
+    }
+
+    /// A stalled update check does not hold its caller, and gives no answer when its time is up.
+    #[cfg(unix)]
+    #[test]
+    fn a_stalled_update_check_does_not_block_its_caller() {
+        let dir = scratch("update-stalled");
+        let body = format!(
+            "trap '' TERM\necho $$ > {}\nexec sleep 600",
+            dir.join("pid").display()
+        );
+        let started = Instant::now();
+        let (_h, rx) =
+            start_update_check_limited(Duration::from_secs(1), fake_netdoc(&dir, &body), || {});
+        let caller_waited = started.elapsed();
+        let answer = rx.recv_timeout(Duration::from_secs(20));
+        kill_recorded_pid(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            caller_waited < Duration::from_millis(500),
+            "the caller waited {caller_waited:?}"
+        );
+        assert_eq!(answer, Ok(None));
+    }
+
+    /// Stopping the check (closing the window) ends netdoc and gives no answer, quickly.
+    #[cfg(unix)]
+    #[test]
+    fn stopping_the_update_check_ends_it_without_an_answer() {
+        let dir = scratch("update-stop");
+        let body = format!("echo $$ > {}\nexec sleep 600", dir.join("pid").display());
+        let (h, rx) =
+            start_update_check_limited(Duration::from_secs(60), fake_netdoc(&dir, &body), || {});
+        let started = wait_for_pid_file(&dir);
+        let stopped = Instant::now();
+        h.stop();
+        let answer = rx.recv_timeout(Duration::from_secs(20));
+        let took = stopped.elapsed();
+        kill_recorded_pid(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(started, "the stand-in never started");
+        assert_eq!(answer, Ok(None));
+        assert!(took < Duration::from_secs(10), "the stop took {took:?}");
+    }
+
+    /// An update answer far larger than the shared JSON is refused, not kept.
+    #[cfg(unix)]
+    #[test]
+    fn an_oversized_update_answer_is_refused() {
+        let dir = scratch("update-big");
+        let body = "i=0\nwhile [ $i -lt 300 ]; do echo 0123456789012345678901234567890123456789; i=$((i+1)); done";
+        let (_h, rx) =
+            start_update_check_limited(Duration::from_secs(5), fake_netdoc(&dir, body), || {});
+        let answer = rx.recv_timeout(Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(answer, Ok(None));
     }
 

@@ -134,6 +134,8 @@ _netdoc() {
         -peer-connect --peer-connect
         -via --via
         -list-checks --list-checks
+        -update-check --update-check
+        -no-update-check --no-update-check
         -check --check
         -skip --skip
         -no-reference-egress --no-reference-egress

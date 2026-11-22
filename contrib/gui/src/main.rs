@@ -4,6 +4,7 @@
 mod look;
 mod report;
 mod runner;
+mod update;
 
 use eframe::egui::{self, Color32, RichText, vec2};
 use look::{bad, good, pal, warn};
@@ -12,7 +13,7 @@ use runner::{Handle, Msg};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_HISTORY: usize = 120;
 const MAX_WIDTH: f32 = 820.0;
@@ -138,6 +139,37 @@ fn config_file() -> Option<PathBuf> {
     Some(base.join("netdoc-gui").join("theme"))
 }
 
+/// Where the update check keeps what the window remembers: beside the theme.
+/// The warning when another window saved the update setting after this window
+/// made an unsaved choice. The choice is not applied, and an opt-out that
+/// stays in effect is said to be unsaved.
+fn conflict_warning(opt_out_kept: bool) -> String {
+    let mut text = String::from(
+        "Another window changed the update setting, so an unsaved choice from this window was not applied.",
+    );
+    if opt_out_kept {
+        text.push_str(
+            " This window's opt-out stays in effect for this session but is not saved; choose it again to save it.",
+        );
+    }
+    text
+}
+
+/// The warning when there is no config folder to keep the update setting in.
+const NO_SETTINGS_FOLDER: &str =
+    "No settings folder was found, so this change lasts only until this window closes.";
+
+fn memory_file() -> Option<PathBuf> {
+    config_file().map(|p| p.with_file_name("update"))
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn load_theme() -> usize {
     if let Some(i) = std::env::var("NETDOC_GUI_THEME")
         .ok()
@@ -199,6 +231,24 @@ struct App {
     ctx: egui::Context,
     /// NETDOC_GUI_SCREENSHOT=file.ppm: save the window, then quit.
     screenshot: Option<(String, u32)>,
+    /// What the update check remembers, and the file it lives in.
+    memory: update::Memory,
+    memory_path: Option<PathBuf>,
+    /// Why the last change to the update setting was not kept, while it is not.
+    memory_warning: Option<String>,
+    /// The user's choices this session that the file does not hold yet.
+    pending: update::Pending,
+    /// The preference exists but cannot be read, so automatic checks stay off.
+    preference_unreadable: bool,
+    /// NETDOC_NO_UPDATE_CHECK=1 is set, which holds the switch off.
+    update_env_opt_out: bool,
+    /// The newer release the banner shows, if any.
+    update: Option<update::Release>,
+    /// The update check's answer, until it arrives, and the probe that is asking.
+    update_rx: Option<Receiver<Option<String>>>,
+    update_probe: Option<runner::Handle>,
+    /// How the release page opens. A test replaces it.
+    open_page: fn(&str) -> bool,
 }
 
 /// How the window starts. The real window reads these from its surroundings
@@ -216,6 +266,11 @@ struct Startup {
     autorun: bool,
     /// Save the window to this file, then quit.
     screenshot: Option<String>,
+    /// Ask netdoc for a newer release at launch, subject to the update memory.
+    update_check: bool,
+    update_memory: Option<PathBuf>,
+    /// NETDOC_NO_UPDATE_CHECK=1 is set, which turns the launch check off.
+    update_env_opt_out: bool,
 }
 
 impl Startup {
@@ -237,6 +292,9 @@ impl Startup {
             watch: std::env::var_os("NETDOC_GUI_WATCH").is_some(),
             autorun: std::env::var_os("NETDOC_GUI_AUTORUN").is_some(),
             screenshot: std::env::var("NETDOC_GUI_SCREENSHOT").ok(),
+            update_check: true,
+            update_memory: memory_file(),
+            update_env_opt_out: std::env::var("NETDOC_NO_UPDATE_CHECK").is_ok_and(|v| v == "1"),
         }
     }
 }
@@ -253,12 +311,27 @@ impl App {
             watch,
             autorun,
             screenshot,
+            update_check,
+            update_memory,
+            update_env_opt_out,
         } = startup;
         look::set_theme(&ctx, theme);
         look::install(&ctx);
         let version_rx = netdoc.clone().map(|bin| {
             let ctx = ctx.clone();
             runner::start_version(bin, move || ctx.request_repaint())
+        });
+        // A preference that exists but cannot be read is not the default: checks
+        // stay off until it can be read again.
+        let (memory, unreadable) = match update_memory.as_deref().map(update::read) {
+            Some(Err(e)) => (update::Memory::default(), Some(e)),
+            Some(Ok(m)) => (m, None),
+            None => (update::Memory::default(), None),
+        };
+        let memory_warning = unreadable.as_ref().map(|e| {
+            format!(
+                "The update setting could not be read ({e}), so automatic update checks are off until it can be read again."
+            )
         });
         let mut app = App {
             netdoc,
@@ -287,7 +360,28 @@ impl App {
             failure: None,
             ctx,
             screenshot: screenshot.map(|p| (p, 0)),
+            memory,
+            memory_path: update_memory,
+            memory_warning,
+            pending: update::Pending::default(),
+            preference_unreadable: unreadable.is_some(),
+            update_env_opt_out,
+            update: None,
+            update_rx: None,
+            update_probe: None,
+            open_page: update::open_page,
         };
+        // Once per launch, unless the user, the environment, or an earlier failure says no.
+        if update_check
+            && let Some(bin) = app.netdoc.clone()
+            && !app.preference_unreadable
+            && update::may_check(&app.memory, update_env_opt_out, now_secs())
+        {
+            let ctx = app.ctx.clone();
+            let (probe, answer) = runner::start_update_check(bin, move || ctx.request_repaint());
+            app.update_probe = Some(probe);
+            app.update_rx = Some(answer);
+        }
         // The same rule as the Check button: a target-based check needs a target.
         if autorun && app.can_check() {
             app.start();
@@ -392,6 +486,168 @@ impl App {
     fn poll(&mut self) {
         self.poll_check();
         self.poll_save();
+    }
+
+    /// Takes the update check's answer once it has arrived. An unanswered check
+    /// is remembered, so the next launch waits; any other valid answer clears that.
+    fn poll_update(&mut self) {
+        let Some(rx) = self.update_rx.as_ref() else {
+            return;
+        };
+        let text = match rx.try_recv() {
+            Ok(text) => text,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => None,
+        };
+        self.update_rx = None;
+        self.update_probe = None;
+        let Some(answer) = text.as_deref().and_then(update::parse) else {
+            return;
+        };
+        let failed = matches!(answer, update::Answer::Unanswered).then(now_secs);
+        self.change_memory(|m| m.failed_at = failed);
+        self.update = update::to_show(answer, &self.memory);
+    }
+
+    /// Makes one change to the update memory against the file as it is now, so
+    /// a window that loaded the file earlier cannot undo another window's change.
+    /// The window shows the change either way. When it is not kept, a warning
+    /// says it lasts only until the window closes.
+    fn change_memory(&mut self, change: impl Fn(&mut update::Memory)) {
+        let Some(path) = self.memory_path.clone() else {
+            change(&mut self.memory);
+            self.pending.apply(&mut self.memory);
+            self.pending = update::Pending::default();
+            self.memory_warning = Some(NO_SETTINGS_FOLDER.to_string());
+            return;
+        };
+        match update::change(&path, &self.pending, &change) {
+            Ok(done) => {
+                // An opt-out another window's newer save made stale stays in effect
+                // for this session, unsaved. A choice to enable checks does not.
+                let conflicted = !done.stale.is_empty();
+                let kept = done.stale.off.filter(|o| o.value);
+                self.memory = done.memory;
+                if kept.is_some() {
+                    self.memory.off = true;
+                }
+                self.pending = update::Pending {
+                    off: kept,
+                    dismissed: None,
+                };
+                self.memory_warning =
+                    conflicted.then(|| conflict_warning(self.pending.off.is_some()));
+            }
+            Err(failed) => {
+                let e = &failed.error;
+                change(&mut self.memory);
+                // The newest revision this window has seen: the one a failed save read, when
+                // that save got as far as reading. A choice that fails before reading keeps
+                // this revision as its base.
+                if let Some(revision) = failed.revision {
+                    self.memory.revision = revision;
+                }
+                self.pending.record_base(self.memory.revision);
+                self.pending.apply(&mut self.memory);
+                self.memory_warning = Some(format!(
+                    "Could not save the update setting ({e}), so this change lasts only until this window closes."
+                ));
+            }
+        }
+    }
+
+    /// Turns automatic update checks on or off, as the Settings switch does. The
+    /// choice is kept until it is saved, even if this save fails.
+    fn set_update_check(&mut self, on: bool) {
+        self.pending.off = Some(update::Unsaved {
+            value: !on,
+            base: None,
+        });
+        self.change_memory(|_| {});
+    }
+
+    /// Records that the user dismissed the banner for this release.
+    fn dismiss_update(&mut self) {
+        if let Some(r) = self.update.take() {
+            self.pending.dismissed = Some(update::Unsaved {
+                value: r.latest,
+                base: None,
+            });
+            self.change_memory(|_| {});
+        }
+    }
+
+    /// Reads an unreadable preference again, when Settings opens. A repaired file
+    /// takes effect without restarting the window, and one still unreadable stays
+    /// off.
+    fn reread_preference(&mut self) {
+        let Some(path) = self.memory_path.clone() else {
+            return;
+        };
+        if !self.preference_unreadable {
+            return;
+        }
+        if let Ok(m) = update::read(&path) {
+            self.memory = m;
+            self.preference_unreadable = false;
+            self.memory_warning = None;
+        }
+    }
+
+    /// Shows why the last change to the update setting was not kept, so an
+    /// unsaved setting never looks saved.
+    fn memory_warning_line(&self, ui: &mut egui::Ui) {
+        let Some(text) = self.memory_warning.as_deref() else {
+            return;
+        };
+        ui.add_space(8.0);
+        ui.add(egui::Label::new(RichText::new(text).color(bad())).wrap());
+    }
+
+    /// Opens the release page the banner names. If it can't open, says where it is.
+    fn open_update_page(&mut self) {
+        let Some(r) = self.update.as_ref() else {
+            return;
+        };
+        if (self.open_page)(&r.url) {
+            // The browser's exit is not seen, so the address stays on screen in case no
+            // browser opens.
+            self.note = Some((
+                format!(
+                    "Opening the release page. If no browser opens, its address is {}",
+                    r.url
+                ),
+                false,
+            ));
+        } else {
+            self.note = Some((
+                format!("Couldn't open the release page. Its address is {}", r.url),
+                true,
+            ));
+        }
+    }
+
+    /// The passive notice for a newer release. It takes no focus and blocks nothing.
+    fn update_banner(&mut self, ui: &mut egui::Ui) {
+        let Some(r) = self.update.as_ref() else {
+            return;
+        };
+        let text = format!(
+            "Network Doctor {} is available. You have {}.",
+            r.latest, r.installed
+        );
+        ui.add_space(8.0);
+        look::card(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(text).strong());
+                if look::button(ui, "Open release page", true, true).clicked() {
+                    self.open_update_page();
+                }
+                if look::button(ui, "Dismiss", false, true).clicked() {
+                    self.dismiss_update();
+                }
+            });
+        });
     }
 
     /// Takes the version check's answer once it has arrived.
@@ -554,6 +810,9 @@ impl App {
                 gear.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Settings"));
                 if gear.on_hover_text("Settings").clicked() {
                     self.show_settings = !self.show_settings;
+                    if self.show_settings {
+                        self.reread_preference();
+                    }
                 }
                 if look::button(ui, "Export report", true, self.netdoc.is_some() && self.running.is_none() && self.saving.is_none() && self.current().is_some())
                     .on_hover_text("Saves a privacy-reduced report of this check, for whoever is helping you. It runs the same check again for the same target. Nothing is uploaded.")
@@ -596,6 +855,33 @@ impl App {
                 }
             });
             ui.add_space(6.0);
+            // With NETDOC_NO_UPDATE_CHECK=1 set, the switch shows off and ignores clicks.
+            let env_off = self.update_env_opt_out;
+            // Off, and inert, while the environment or an unreadable preference holds it.
+            let held = self.preference_unreadable;
+            let mut check = !self.memory.off && !env_off && !held;
+            ui.add_enabled_ui(!env_off && !held, |ui| {
+                ui.horizontal(|ui| {
+                    if look::toggle(ui, "Check for updates when the window opens", &mut check)
+                        .changed()
+                        && !env_off
+                        && !held
+                    {
+                        self.set_update_check(check);
+                    }
+                    ui.label("Check for updates when the window opens");
+                });
+            });
+            if env_off {
+                ui.label(weak("Off in this environment: NETDOC_NO_UPDATE_CHECK=1 is set. Unset it to use this switch.").small());
+            }
+            if held {
+                ui.label(weak("Off until the update setting can be read again.").small());
+            }
+            ui.label(weak("Asks GitHub once a launch for a newer release. NETDOC_NO_UPDATE_CHECK=1 also turns it off.").small());
+            ui.label(
+                weak("GitHub receives the public IP address this request originates from, which may be a proxy's.").small(),
+            );
             match (&self.netdoc, &self.netdoc_version) {
                 (Some(p), Some(v)) => {
                     ui.label(weak(format!("Checks are run by {v} ({})", p.display())).small())
@@ -1148,6 +1434,7 @@ impl App {
     fn show(&mut self, ui: &mut egui::Ui) {
         self.poll();
         self.poll_version();
+        self.poll_update();
         self.take_screenshot(ui);
         egui::Panel::top("top")
             .frame(
@@ -1157,6 +1444,8 @@ impl App {
             )
             .show(ui, |ui| {
                 self.header(ui);
+                self.update_banner(ui);
+                self.memory_warning_line(ui);
             });
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(pal().bg).inner_margin(egui::Margin::symmetric(16, 6))).show(ui, |ui| {
             if let Some(f) = &self.failure {
@@ -1223,6 +1512,9 @@ impl eframe::App for App {
 impl Drop for App {
     fn drop(&mut self) {
         self.stop();
+        if let Some(probe) = self.update_probe.take() {
+            probe.stop();
+        }
         // Closing the window waits for a running export to stop and remove its
         // claimed file. netdoc exits within moments of SIGTERM, so this is short.
         if let Some((h, join)) = self.saving.take() {
@@ -1286,6 +1578,52 @@ mod tests {
             std::env::temp_dir().join(format!("netdoc-gui-{name}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// A check that is still waiting for netdoc's update answer holds nothing: a
+    /// diagnostic started meanwhile finishes, and the update answer is still pending
+    /// when it does. The fake update process holds its answer until released, and
+    /// the diagnostic starts only once that process is running.
+    #[cfg(unix)]
+    #[test]
+    fn a_pending_update_check_does_not_hold_a_diagnostic() {
+        let dir = scratch_dir("update-and-run");
+        let started = dir.join("update-started");
+        let release = dir.join("update-release");
+        let body = format!(
+            "case \"$1\" in\n-update-check) touch '{}'; while [ ! -e '{}' ]; do sleep 0.05; done; exit 0;;\nesac\necho '{REPORT_LINE}'",
+            started.display(),
+            release.display()
+        );
+        let startup = Startup {
+            netdoc: Some(fake_netdoc(&dir, &body)),
+            update_check: true,
+            ..Startup::default()
+        };
+        let mut app = App::new(egui::Context::default(), startup);
+        assert!(app.update_rx.is_some(), "the update check did not start");
+        let deadline = Instant::now() + std::time::Duration::from_secs(30);
+        while !started.exists() {
+            assert!(Instant::now() < deadline, "the update check never started");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        app.start();
+        let ended = wait_for_the_check(&mut app);
+        let reports = app.history.len();
+        // Nothing has arrived on the update channel: the answer is still pending.
+        let pending = matches!(
+            app.update_rx.as_ref().map(|rx| rx.try_recv()),
+            Some(Err(std::sync::mpsc::TryRecvError::Empty))
+        );
+        std::fs::write(&release, "").unwrap();
+        drop(app);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(ended, "the diagnostic waited for the pending update check");
+        assert_eq!(reports, 1, "the diagnostic produced no report");
+        assert!(
+            pending,
+            "the update answer had already arrived, so this proved nothing"
+        );
     }
 
     /// A window whose next check runs `body` as netdoc, with the watch setting given.
@@ -1670,6 +2008,28 @@ mod access {
         }
     }
 
+    /// The switch draws no text of its own, so the words beside it are a
+    /// visible label, not only the name a screen reader hears.
+    #[test]
+    fn the_update_switch_has_a_visible_label() {
+        let mut h = window();
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::Label, "Check for updates when the window opens");
+    }
+
+    /// The Settings say who receives the request, so the privacy line is visible.
+    #[test]
+    fn the_settings_say_github_receives_the_public_address() {
+        let mut h = window();
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(
+            Role::Label,
+            "GitHub receives the public IP address this request originates from, which may be a proxy's.",
+        );
+    }
+
     #[test]
     fn the_settings_button_opens_from_the_keyboard() {
         let mut h = window();
@@ -1844,6 +2204,982 @@ mod access {
             h.state().mode,
             2,
             "Enter on the focused choice did not select it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod update_notice {
+    use super::*;
+    use egui::accesskit::Role;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    const AVAILABLE: &str = include_str!("../tests/fixtures/update-available.json");
+    const OFFLINE: &str = include_str!("../tests/fixtures/update-offline.json");
+
+    /// A window that starts no check of its own, remembering in `memory`.
+    fn app(memory: Option<PathBuf>) -> App {
+        let startup = Startup {
+            update_memory: memory,
+            ..Startup::default()
+        };
+        App::new(egui::Context::default(), startup)
+    }
+
+    /// The memory file for one test, in a folder of its own.
+    fn memory_in_a_fresh_folder(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "netdoc-gui-update-{name}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("update")
+    }
+
+    fn cleanup(memory: &Path) {
+        let _ = std::fs::remove_dir_all(memory.parent().unwrap());
+    }
+
+    /// A channel that already holds `text` as the check's answer.
+    fn answer(text: &str) -> Receiver<Option<String>> {
+        let (tx, rx) = channel();
+        tx.send(Some(text.to_string())).unwrap();
+        rx
+    }
+
+    #[test]
+    fn a_newer_release_shows_the_banner_once_answered() {
+        let mut a = app(None);
+        a.update_rx = Some(answer(AVAILABLE));
+        a.poll_update();
+        let r = a.update.clone().expect("the banner did not show");
+        assert_eq!(r.latest, "v2.3.0");
+        assert!(a.update_rx.is_none());
+    }
+
+    #[test]
+    fn dismissing_hides_the_release_across_a_restart_and_a_newer_one_shows() {
+        let path = memory_in_a_fresh_folder("dismiss");
+        let mut first = app(Some(path.clone()));
+        first.update_rx = Some(answer(AVAILABLE));
+        first.poll_update();
+        first.dismiss_update();
+        assert!(first.update.is_none());
+
+        let mut second = app(Some(path.clone()));
+        second.update_rx = Some(answer(AVAILABLE));
+        second.poll_update();
+        assert!(
+            second.update.is_none(),
+            "the dismissed banner came back after a restart"
+        );
+
+        let newer = AVAILABLE.replace("v2.3.0", "v2.4.0");
+        let mut third = app(Some(path.clone()));
+        third.update_rx = Some(answer(&newer));
+        third.poll_update();
+        assert_eq!(
+            third.update.as_ref().map(|r| r.latest.as_str()),
+            Some("v2.4.0")
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn an_unanswered_check_is_remembered_and_holds_the_next_launch() {
+        let path = memory_in_a_fresh_folder("offline");
+        let mut a = app(Some(path.clone()));
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(a.update.is_none());
+        assert!(
+            a.memory.failed_at.is_some(),
+            "the failure was not remembered"
+        );
+        assert!(
+            !update::may_check(&update::read(&path).unwrap(), false, now_secs()),
+            "the next launch would ask again at once"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_broken_answer_or_no_answer_changes_nothing() {
+        let path = memory_in_a_fresh_folder("broken");
+        let mut a = app(Some(path.clone()));
+        a.update_rx = Some(answer("{\"schema\":\"something-else\"}"));
+        a.poll_update();
+        assert!(a.update.is_none());
+        assert_eq!(a.memory, update::Memory::default());
+        assert!(!path.exists(), "a broken answer wrote the memory");
+
+        let (tx, rx) = channel::<Option<String>>();
+        drop(tx);
+        a.update_rx = Some(rx);
+        a.poll_update();
+        assert!(
+            a.update_rx.is_none(),
+            "a check that ended without an answer kept waiting"
+        );
+        assert!(a.update.is_none());
+        cleanup(&path);
+    }
+
+    static OPENED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    fn record_open(url: &str) -> bool {
+        OPENED.lock().unwrap().push(url.to_string());
+        true
+    }
+
+    fn refuse_open(_url: &str) -> bool {
+        false
+    }
+
+    fn accept_open(_url: &str) -> bool {
+        true
+    }
+
+    #[test]
+    fn opening_the_release_page_passes_the_checked_url() {
+        let mut a = app(None);
+        a.open_page = record_open;
+        a.update_rx = Some(answer(AVAILABLE));
+        a.poll_update();
+        a.open_update_page();
+        assert_eq!(
+            *OPENED.lock().unwrap(),
+            vec!["https://github.com/heymaikol/network-doctor/releases/tag/v2.3.0".to_string()]
+        );
+    }
+
+    /// A launch that starts still says where the page is, because the window cannot
+    /// see whether a browser actually opened.
+    #[test]
+    fn an_accepted_open_still_says_where_the_release_page_is() {
+        let mut a = app(None);
+        a.open_page = accept_open;
+        a.update_rx = Some(answer(AVAILABLE));
+        a.poll_update();
+        a.open_update_page();
+        let (note, is_error) = a.note.clone().expect("no note after an accepted open");
+        assert!(!is_error, "an accepted open was shown as an error");
+        assert!(
+            note.contains("releases/tag/v2.3.0"),
+            "the note hides the address: {note}"
+        );
+    }
+
+    #[test]
+    fn a_refused_open_says_where_the_release_page_is() {
+        let mut a = app(None);
+        a.open_page = refuse_open;
+        a.update_rx = Some(answer(AVAILABLE));
+        a.poll_update();
+        a.open_update_page();
+        let (note, is_error) = a.note.clone().expect("no note");
+        assert!(is_error);
+        assert!(
+            note.contains("releases/tag/v2.3.0"),
+            "the note hides the address: {note}"
+        );
+    }
+
+    #[test]
+    fn the_launch_check_starts_only_when_allowed() {
+        let missing = Some(PathBuf::from("/nonexistent/netdoc-for-a-test"));
+        let no_check = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: missing.clone(),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            no_check.update_rx.is_none(),
+            "a launch without the check asked netdoc"
+        );
+        let env_off = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: missing.clone(),
+                update_check: true,
+                update_env_opt_out: true,
+                ..Startup::default()
+            },
+        );
+        assert!(
+            env_off.update_rx.is_none(),
+            "NETDOC_NO_UPDATE_CHECK=1 was ignored"
+        );
+        let allowed = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: missing,
+                update_check: true,
+                ..Startup::default()
+            },
+        );
+        assert!(
+            allowed.update_rx.is_some(),
+            "the launch check did not start"
+        );
+    }
+
+    /// Two windows on one memory file. Window B loaded the file before window A
+    /// turned checks off, so B's copy still says they are on. B's later writes
+    /// must leave A's setting alone.
+    #[test]
+    fn a_stale_window_does_not_undo_another_windows_setting() {
+        let path = memory_in_a_fresh_folder("two-windows");
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        a.set_update_check(false);
+        b.update_rx = Some(answer(OFFLINE));
+        b.poll_update();
+        let disk = update::read(&path).unwrap();
+        assert!(disk.off, "a stale window wrote checks back on");
+        assert!(
+            disk.failed_at.is_some(),
+            "the failed check was not recorded"
+        );
+        b.update_rx = Some(answer(AVAILABLE));
+        b.poll_update();
+        b.dismiss_update();
+        let disk = update::read(&path).unwrap();
+        assert!(
+            disk.off,
+            "a stale window wrote checks back on after a dismissal"
+        );
+        assert_eq!(
+            disk.dismissed.as_deref(),
+            Some("v2.3.0"),
+            "the dismissal was not saved"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: the stale window's own switch still works, so the fix
+    /// does not make the setting sticky.
+    #[test]
+    fn a_stale_window_can_still_turn_checks_back_on() {
+        let path = memory_in_a_fresh_folder("stale-own");
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        a.set_update_check(false);
+        b.set_update_check(true);
+        assert!(
+            !update::read(&path).unwrap().off,
+            "the stale window could not turn checks back on"
+        );
+        cleanup(&path);
+    }
+
+    /// With NETDOC_NO_UPDATE_CHECK=1 the switch is shown off and explained, and
+    /// clicking it stores nothing, so the environment never becomes a stored choice.
+    #[test]
+    fn the_switch_is_off_and_inert_under_the_environment_opt_out() {
+        let path = memory_in_a_fresh_folder("env-off");
+        let startup = Startup {
+            update_memory: Some(path.clone()),
+            update_env_opt_out: true,
+            ..Startup::default()
+        };
+        let mut h = Harness::new_ui_state(
+            |ui, app: &mut App| app.show(ui),
+            App::new(egui::Context::default(), startup),
+        );
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(
+            Role::Label,
+            "Off in this environment: NETDOC_NO_UPDATE_CHECK=1 is set. Unset it to use this switch.",
+        );
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(!h.state().memory.off, "the switch changed the setting");
+        assert!(!path.exists(), "the environment wrote the stored setting");
+        cleanup(&path);
+    }
+
+    /// A change the window cannot save is still shown, and the window says it
+    /// lasts only until it closes, so an unsaved setting never looks saved.
+    #[test]
+    fn a_change_that_cannot_be_saved_is_warned_not_hidden() {
+        let path = memory_in_a_fresh_folder("unsaved");
+        // A folder where the temporary file must go makes the save fail.
+        std::fs::create_dir(path.with_file_name(format!("update.{}.tmp", std::process::id())))
+            .unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(
+            h.state().memory.off,
+            "the change is not shown for this session"
+        );
+        assert!(!path.exists(), "a failed save wrote the file");
+        h.get_by_label_contains("Could not save the update setting");
+        h.get_by_label_contains("lasts only until this window closes");
+        cleanup(&path);
+    }
+
+    /// Negative control: a change that is saved shows no warning.
+    #[test]
+    fn a_saved_change_shows_no_warning() {
+        let path = memory_in_a_fresh_folder("saved-warning");
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the setting was not saved"
+        );
+        assert!(
+            h.query_by_label_contains("Could not save the update setting")
+                .is_none()
+        );
+        assert!(h.state().memory_warning.is_none());
+        cleanup(&path);
+    }
+
+    /// Without a config folder the change lasts only for this session, and the
+    /// window says so.
+    #[test]
+    fn without_a_settings_folder_the_change_is_warned() {
+        let mut h = Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(None));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(
+            h.state().memory.off,
+            "the change is not shown for this session"
+        );
+        h.get_by_label_contains("No settings folder was found");
+    }
+
+    /// A change that could not be saved is the user's explicit choice for this
+    /// session. A later save that does not touch it must not discard it.
+    #[test]
+    fn a_failed_opt_out_survives_a_later_save_that_does_not_change_it() {
+        let path = memory_in_a_fresh_folder("pending-save");
+        let conflict = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+        std::fs::create_dir(&conflict).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(h.state().memory.off, "the failed change is not shown");
+        // The folder is writable again. A later answer changes only the failure time.
+        std::fs::remove_dir(&conflict).unwrap();
+        h.state_mut().update_rx = Some(answer(OFFLINE));
+        h.state_mut().poll_update();
+        assert!(
+            h.state().memory.off,
+            "the later save dropped the unsaved opt-out"
+        );
+        assert!(
+            update::read(&path).unwrap().off,
+            "the opt-out was never saved"
+        );
+        assert!(
+            h.state().memory_warning.is_none(),
+            "the warning outlived the save"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a failed opt-out is also kept through a dismissal, so the
+    /// fix does not only cover one kind of later change.
+    #[test]
+    fn a_failed_opt_out_survives_a_later_dismissal() {
+        let path = memory_in_a_fresh_folder("pending-dismiss");
+        let conflict = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+        std::fs::create_dir(&conflict).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        std::fs::remove_dir(&conflict).unwrap();
+        h.state_mut().update = match update::parse(AVAILABLE) {
+            Some(update::Answer::Newer(r)) => Some(r),
+            _ => panic!("the fixture is not a newer release"),
+        };
+        h.state_mut().dismiss_update();
+        let disk = update::read(&path).unwrap();
+        assert!(disk.off, "the dismissal dropped the unsaved opt-out");
+        assert_eq!(disk.dismissed.as_deref(), Some("v2.3.0"));
+        cleanup(&path);
+    }
+
+    /// Negative control: a later explicit choice to turn checks back on wins over
+    /// the failed opt-out. The pending choice is the latest one, not a sticky one.
+    #[test]
+    fn a_later_choice_to_turn_checks_back_on_wins_over_a_failed_opt_out() {
+        let path = memory_in_a_fresh_folder("pending-on");
+        let conflict = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+        std::fs::create_dir(&conflict).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        std::fs::remove_dir(&conflict).unwrap();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(
+            !h.state().memory.off,
+            "the later choice to turn checks on was not shown"
+        );
+        assert!(
+            !update::read(&path).unwrap().off,
+            "the later choice was not saved"
+        );
+        cleanup(&path);
+    }
+
+    /// An existing preference that cannot be read must not become "checks on".
+    /// The launch check does not run, and the window says why.
+    #[test]
+    fn an_unreadable_preference_turns_the_launch_check_off() {
+        let path = memory_in_a_fresh_folder("unreadable");
+        // A folder where the file should be is unreadable as a preference.
+        std::fs::create_dir(&path).unwrap();
+        let app = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: Some(PathBuf::from("/nonexistent/netdoc-for-a-test")),
+                update_check: true,
+                update_memory: Some(path.clone()),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            app.update_rx.is_none(),
+            "the launch check ran although the preference could not be read"
+        );
+        assert!(
+            app.memory_warning
+                .as_deref()
+                .is_some_and(|w| w.contains("could not be read")),
+            "the window did not say the preference could not be read"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a missing preference file is the default, so the launch
+    /// check still runs.
+    #[test]
+    fn a_missing_preference_file_still_allows_the_launch_check() {
+        let path = memory_in_a_fresh_folder("missing");
+        let app = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: Some(PathBuf::from("/nonexistent/netdoc-for-a-test")),
+                update_check: true,
+                update_memory: Some(path.clone()),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            app.update_rx.is_some(),
+            "a missing file held the launch check"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a readable preference that says checks are on still
+    /// lets the launch check run.
+    #[test]
+    fn a_readable_preference_that_says_on_still_allows_the_launch_check() {
+        let path = memory_in_a_fresh_folder("readable-on");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let app = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: Some(PathBuf::from("/nonexistent/netdoc-for-a-test")),
+                update_check: true,
+                update_memory: Some(path.clone()),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            app.update_rx.is_some(),
+            "a readable on-setting held the launch check"
+        );
+        cleanup(&path);
+    }
+
+    /// The switch shows off and says why, and clicking it does not overwrite the
+    /// preference it could not read.
+    #[test]
+    fn an_unreadable_preference_shows_the_switch_off_and_leaves_the_file_alone() {
+        let path = memory_in_a_fresh_folder("unreadable-switch");
+        std::fs::create_dir(&path).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_label_contains("could not be read");
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(path.is_dir(), "a click overwrote the unreadable preference");
+        cleanup(&path);
+    }
+
+    /// Blocks window A's save by a folder where its temporary file must go.
+    fn block_saves(path: &Path) -> PathBuf {
+        let conflict = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+        std::fs::create_dir(&conflict).unwrap();
+        conflict
+    }
+
+    /// Window A has an unsaved choice to enable checks. Window B then disables
+    /// checks and saves. A saves something else. A must not write its older choice
+    /// over B's newer opt-out, and must not silently enable checks.
+    #[test]
+    fn a_later_save_does_not_undo_another_windows_newer_opt_out() {
+        let path = memory_in_a_fresh_folder("newer-opt-out");
+        std::fs::write(&path, "off=1\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(true);
+        assert!(
+            !a.memory.off,
+            "the unsaved choice to enable checks is not shown"
+        );
+        std::fs::remove_dir(&conflict).unwrap();
+        let mut b = app(Some(path.clone()));
+        b.set_update_check(true);
+        b.set_update_check(false);
+        assert!(
+            update::read(&path).unwrap().off,
+            "window B's opt-out was not saved"
+        );
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "window A's older unsaved choice overwrote window B's newer opt-out"
+        );
+        assert!(a.memory.off, "window A silently enabled checks");
+        assert!(
+            a.memory_warning
+                .as_deref()
+                .is_some_and(|w| w.contains("Another window changed the update setting")),
+            "window A did not warn that another window changed the setting"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: when nothing else saved in between, A's own retry saves
+    /// its unsaved choice to enable checks.
+    #[test]
+    fn a_same_window_retry_saves_its_unsaved_choice_when_nothing_intervened() {
+        let path = memory_in_a_fresh_folder("same-window-on");
+        std::fs::write(&path, "off=1\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(true);
+        std::fs::remove_dir(&conflict).unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            !update::read(&path).unwrap().off,
+            "the retry did not save the choice"
+        );
+        assert!(!a.memory.off);
+        assert!(a.memory_warning.is_none(), "a clean retry still warned");
+        cleanup(&path);
+    }
+
+    /// Negative control: an unsaved opt-out in A stays in effect when B enables
+    /// checks and saves. A does not overwrite B's choice, and keeps its opt-out.
+    #[test]
+    fn an_unsaved_opt_out_stays_in_effect_when_another_window_enables_checks() {
+        let path = memory_in_a_fresh_folder("kept-opt-out");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(false);
+        assert!(a.memory.off, "the unsaved opt-out is not shown");
+        std::fs::remove_dir(&conflict).unwrap();
+        let mut b = app(Some(path.clone()));
+        b.set_update_check(false);
+        b.set_update_check(true);
+        assert!(
+            !update::read(&path).unwrap().off,
+            "window B's enable was not saved"
+        );
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            !update::read(&path).unwrap().off,
+            "window A's older opt-out overwrote window B's newer enable"
+        );
+        assert!(a.memory.off, "window A's session opt-out was dropped");
+        assert!(
+            a.memory_warning.is_some(),
+            "window A did not warn about the conflict"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: when nothing else saved in between, A's own retry saves
+    /// its unsaved opt-out.
+    #[test]
+    fn a_same_window_retry_saves_its_unsaved_opt_out_when_nothing_intervened() {
+        let path = memory_in_a_fresh_folder("same-window-off");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the retry did not save the opt-out"
+        );
+        assert!(a.memory.off);
+        cleanup(&path);
+    }
+
+    /// B's exact reproduction. Window A has an unsaved enable, made against the
+    /// stored opt-out. Window B's disable matches the stored value. That still
+    /// counts as an applied choice, so it advances the revision, and A's older
+    /// enable must then be left out instead of written over B's opt-out.
+    #[test]
+    fn a_matching_disable_makes_an_older_enable_stale() {
+        let path = memory_in_a_fresh_folder("matching-disable");
+        std::fs::write(&path, "off=1\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(true);
+        assert!(!a.memory.off, "the unsaved enable is not shown");
+        std::fs::remove_dir(&conflict).unwrap();
+        let mut b = app(Some(path.clone()));
+        b.set_update_check(false);
+        let disk = update::read(&path).unwrap();
+        assert!(disk.off, "window B's opt-out was not kept");
+        assert_eq!(
+            disk.revision, 1,
+            "a disable that matched the stored value did not advance the revision"
+        );
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "window A's older enable overwrote window B's opt-out"
+        );
+        assert!(a.memory.off, "window A silently enabled checks");
+        assert!(
+            a.memory_warning
+                .as_deref()
+                .is_some_and(|w| w.contains("Another window changed the update setting")),
+            "window A did not warn about the conflict"
+        );
+        cleanup(&path);
+    }
+
+    /// Window A's save reads revision 1 under the lock, then fails to write. Its
+    /// retry must judge the opt-out against the revision that save read. Nothing
+    /// saved after the choice, so the opt-out holds and is written.
+    #[test]
+    fn a_retry_judges_a_failed_save_against_the_revision_that_save_read() {
+        let path = memory_in_a_fresh_folder("failed-base");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        b.update = match update::parse(AVAILABLE) {
+            Some(update::Answer::Newer(r)) => Some(r),
+            _ => panic!("the fixture is not a newer release"),
+        };
+        b.dismiss_update();
+        assert_eq!(update::read(&path).unwrap().revision, 1);
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        assert!(
+            !update::read(&path).unwrap().off,
+            "the failed save wrote the file"
+        );
+        std::fs::remove_dir(&conflict).unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the retry dropped an opt-out that no save has overtaken"
+        );
+        assert!(a.memory.off, "the opt-out is not in effect");
+        cleanup(&path);
+    }
+
+    /// Negative control: a retry with no intervening save applies its opt-out.
+    #[test]
+    fn a_retry_with_no_intervening_save_applies_its_opt_out() {
+        let path = memory_in_a_fresh_folder("failed-base-clean");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the retry did not save the opt-out"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a save made after the failed attempt still takes
+    /// precedence. A's older opt-out stays unsaved and does not overwrite it.
+    #[test]
+    fn a_save_after_a_failed_attempt_still_takes_precedence() {
+        let path = memory_in_a_fresh_folder("failed-base-later");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        let mut b = app(Some(path.clone()));
+        b.update = match update::parse(AVAILABLE) {
+            Some(update::Answer::Newer(r)) => Some(r),
+            _ => panic!("the fixture is not a newer release"),
+        };
+        b.dismiss_update();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        let disk = update::read(&path).unwrap();
+        assert!(!disk.off, "window A's older opt-out overwrote a later save");
+        assert_eq!(disk.dismissed.as_deref(), Some("v2.3.0"));
+        assert!(a.memory.off, "window A's session opt-out was dropped");
+        cleanup(&path);
+    }
+
+    /// Repairing an unreadable preference takes effect when Settings opens, without
+    /// restarting the window.
+    #[test]
+    fn a_repaired_preference_is_read_again_when_settings_open() {
+        let path = memory_in_a_fresh_folder("repaired");
+        std::fs::create_dir(&path).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.run();
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, "off=0\n").unwrap();
+        h.get_by_role_and_label(Role::Button, "Settings").click();
+        h.run();
+        assert!(h.state().show_settings, "Settings did not open");
+        assert!(
+            !h.state().preference_unreadable,
+            "the repaired preference is still treated as unreadable"
+        );
+        assert!(
+            h.state().memory_warning.is_none(),
+            "the warning outlived the repair"
+        );
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens");
+        cleanup(&path);
+    }
+
+    /// Negative control: a preference that still cannot be read stays unreadable
+    /// when Settings opens, so the fail-closed state is not cleared by opening it.
+    #[test]
+    fn an_unrepaired_preference_stays_unreadable_when_settings_open() {
+        let path = memory_in_a_fresh_folder("still-unreadable");
+        std::fs::create_dir(&path).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.run();
+        h.get_by_role_and_label(Role::Button, "Settings").click();
+        h.run();
+        assert!(
+            h.state().preference_unreadable,
+            "an unreadable preference was treated as readable"
+        );
+        assert!(
+            h.state().memory_warning.is_some(),
+            "the warning was cleared"
+        );
+        cleanup(&path);
+    }
+
+    fn hold_the_lock(path: &Path) -> std::fs::File {
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path.with_file_name("update.lock"))
+            .unwrap();
+        lock.lock().unwrap();
+        lock
+    }
+
+    /// A choice that fails before reading the file keeps the newest revision the
+    /// window has seen. Here that is revision 1, which a failed save read, not the
+    /// window's startup revision 0. With no save after the choice, it is applied.
+    #[test]
+    fn a_choice_that_fails_before_reading_keeps_the_revision_already_observed() {
+        let path = memory_in_a_fresh_folder("observed-revision");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        b.update_rx = Some(answer(OFFLINE));
+        b.poll_update();
+        assert_eq!(update::read(&path).unwrap().revision, 1);
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        let holder = hold_the_lock(&path);
+        a.set_update_check(false);
+        drop(holder);
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the opt-out was not saved although no save followed it"
+        );
+        assert!(
+            a.memory_warning.is_none(),
+            "a conflict was reported although no other window saved after the choice"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a genuine save by another window after the failures still
+    /// takes precedence, so the older opt-out is left out and warned about.
+    #[test]
+    fn a_genuine_save_after_the_failures_still_takes_precedence() {
+        let path = memory_in_a_fresh_folder("observed-later");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        b.update_rx = Some(answer(OFFLINE));
+        b.poll_update();
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        let holder = hold_the_lock(&path);
+        a.set_update_check(false);
+        drop(holder);
+        b.set_update_check(true);
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            !update::read(&path).unwrap().off,
+            "window A's older opt-out overwrote another window's later enable"
+        );
+        assert!(
+            a.memory_warning
+                .as_deref()
+                .is_some_and(|w| w.contains("Another window changed")),
+            "window A did not warn about the later save"
+        );
+        cleanup(&path);
+    }
+
+    /// A choice whose read fails keeps the newest revision already observed, so a
+    /// retry against the revision a later repair restores judges it correctly.
+    #[test]
+    fn a_failed_read_keeps_the_revision_already_observed() {
+        let path = memory_in_a_fresh_folder("failed-read-observed");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        b.update_rx = Some(answer(OFFLINE));
+        b.poll_update();
+        let conflict = block_saves(&path);
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        // The file cannot be read, so the next choice fails before reading it.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        a.set_update_check(false);
+        // The file is repaired at the revision window A observed.
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, "off=0\nrevision=1\n").unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the retry judged the opt-out against a revision that was already observed"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn the_setting_turns_the_launch_check_off_across_a_restart() {
+        let path = memory_in_a_fresh_folder("setting");
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(h.state().memory.off, "the setting did not turn checks off");
+        assert!(
+            update::read(&path).unwrap().off,
+            "the setting was not saved"
+        );
+        let next = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: Some(PathBuf::from("/nonexistent/netdoc-for-a-test")),
+                update_check: true,
+                update_memory: Some(path.clone()),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            next.update_rx.is_none(),
+            "the launch check ran after the user turned it off"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn the_banner_names_its_buttons_and_dismiss_hides_it() {
+        let mut h = Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(None));
+        h.state_mut().update = match update::parse(AVAILABLE) {
+            Some(update::Answer::Newer(r)) => Some(r),
+            _ => panic!("the fixture is not a newer release"),
+        };
+        h.run();
+        h.get_by_role_and_label(Role::Button, "Open release page");
+        h.get_by_role_and_label(Role::Button, "Dismiss").click();
+        h.run();
+        assert!(
+            h.state().update.is_none(),
+            "Dismiss did not hide the banner"
         );
     }
 }

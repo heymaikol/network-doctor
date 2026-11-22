@@ -143,7 +143,7 @@ fn start_version_limited(
             Ok(child) => {
                 let mut text = String::new();
                 let mut over = false;
-                supervise(&h, child, |line| {
+                let (code, _) = supervise(&h, child, |line| {
                     if over {
                         return;
                     }
@@ -155,8 +155,9 @@ fn start_version_limited(
                     text.push_str(&line);
                     text.push('\n');
                 });
+                // A probe that exits with an error did not answer, whatever it printed.
                 // A version from a probe that failed or expired is a partial answer.
-                (!over && h.expired().is_none())
+                (code == Some(0) && !over && h.expired().is_none())
                     .then(|| report::clean_lines(&text).trim().to_string())
                     .filter(|v| !v.is_empty())
             }
@@ -1357,6 +1358,35 @@ mod tests {
         let seen = until_finished(&rx, Duration::from_secs(20));
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "finished"]));
+    }
+
+    /// A probe that exits with an error did not answer, whatever it printed.
+    /// A probe that exits 0 still gives its version.
+    #[cfg(unix)]
+    #[test]
+    fn a_version_from_a_probe_that_exits_2_is_discarded() {
+        let ok_dir = scratch("version-exit0");
+        let ok = start_version_limited(
+            Duration::from_secs(5),
+            fake_netdoc(&ok_dir, "echo 'netdoc v1'\nexit 0"),
+            || {},
+        );
+        let bad_dir = scratch("version-exit2");
+        let bad = start_version_limited(
+            Duration::from_secs(5),
+            fake_netdoc(&bad_dir, "echo 'netdoc v1'\nexit 2"),
+            || {},
+        );
+        let ok = ok.recv_timeout(Duration::from_secs(10));
+        let bad = bad.recv_timeout(Duration::from_secs(10));
+        std::fs::remove_dir_all(&ok_dir).unwrap();
+        std::fs::remove_dir_all(&bad_dir).unwrap();
+        assert_eq!(ok, Ok(Some("netdoc v1".to_string())));
+        assert_eq!(
+            bad,
+            Ok(None),
+            "a version from a probe that exited 2 was shown"
+        );
     }
 
     /// A version printed before the probe stalls is not shown: the answer

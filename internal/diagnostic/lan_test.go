@@ -229,7 +229,7 @@ func TestLANICMPPermissionDenialsRequireEveryDestination(t *testing.T) {
 			warnings, err := scanLAN(t.Context(), link, echo, nil, dial, cache, func(o LANObservation) {
 				t.Errorf("permission denied peer became reachable: %v", o)
 			})
-			if (err != nil) != tc.wantErr || len(warnings) != tc.wantWarns || attempts.Load() != int32(len(link.targets())) {
+			if (err != nil) != tc.wantErr || len(warnings) != tc.wantWarns || int(attempts.Load()) != len(link.targets()) {
 				t.Fatalf("attempted %d peers, warnings %v, error %v", attempts.Load(), warnings, err)
 			}
 			if got := slices.ContainsFunc(warnings, func(w string) bool { return strings.HasPrefix(w, "ICMP echo unavailable:") }); got != tc.allDenied {

@@ -215,6 +215,8 @@ struct App {
     /// What the update check remembers, and the file it lives in.
     memory: update::Memory,
     memory_path: Option<PathBuf>,
+    /// NETDOC_NO_UPDATE_CHECK=1 is set, which holds the switch off.
+    update_env_opt_out: bool,
     /// The newer release the banner shows, if any.
     update: Option<update::Release>,
     /// The update check's answer, until it arrives, and the probe that is asking.
@@ -327,6 +329,7 @@ impl App {
             screenshot: screenshot.map(|p| (p, 0)),
             memory,
             memory_path: update_memory,
+            update_env_opt_out,
             update: None,
             update_rx: None,
             update_probe: None,
@@ -730,14 +733,23 @@ impl App {
                 }
             });
             ui.add_space(6.0);
-            let mut check = !self.memory.off;
-            ui.horizontal(|ui| {
-                if look::toggle(ui, "Check for updates when the window opens", &mut check).changed()
-                {
-                    self.set_update_check(check);
-                }
-                ui.label("Check for updates when the window opens");
+            // With NETDOC_NO_UPDATE_CHECK=1 set, the switch shows off and ignores clicks.
+            let env_off = self.update_env_opt_out;
+            let mut check = !self.memory.off && !env_off;
+            ui.add_enabled_ui(!env_off, |ui| {
+                ui.horizontal(|ui| {
+                    if look::toggle(ui, "Check for updates when the window opens", &mut check)
+                        .changed()
+                        && !env_off
+                    {
+                        self.set_update_check(check);
+                    }
+                    ui.label("Check for updates when the window opens");
+                });
             });
+            if env_off {
+                ui.label(weak("Off in this environment: NETDOC_NO_UPDATE_CHECK=1 is set. Unset it to use this switch.").small());
+            }
             ui.label(weak("Asks GitHub once a launch for a newer release. NETDOC_NO_UPDATE_CHECK=1 also turns it off.").small());
             ui.label(
                 weak("GitHub receives this computer's public IP address with each check.").small(),
@@ -2301,6 +2313,34 @@ mod update_notice {
             !update::load(&path).off,
             "the stale window could not turn checks back on"
         );
+        cleanup(&path);
+    }
+
+    /// With NETDOC_NO_UPDATE_CHECK=1 the switch is shown off and explained, and
+    /// clicking it stores nothing, so the environment never becomes a stored choice.
+    #[test]
+    fn the_switch_is_off_and_inert_under_the_environment_opt_out() {
+        let path = memory_in_a_fresh_folder("env-off");
+        let startup = Startup {
+            update_memory: Some(path.clone()),
+            update_env_opt_out: true,
+            ..Startup::default()
+        };
+        let mut h = Harness::new_ui_state(
+            |ui, app: &mut App| app.show(ui),
+            App::new(egui::Context::default(), startup),
+        );
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(
+            Role::Label,
+            "Off in this environment: NETDOC_NO_UPDATE_CHECK=1 is set. Unset it to use this switch.",
+        );
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(!h.state().memory.off, "the switch changed the setting");
+        assert!(!path.exists(), "the environment wrote the stored setting");
         cleanup(&path);
     }
 

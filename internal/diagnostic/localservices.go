@@ -46,6 +46,16 @@ func (s LocalService) Target(host string) string {
 	return s.Scheme + "://" + endpoint
 }
 
+// ServiceTarget keeps the LAN snapshot binding with the selected endpoint.
+func (b LANBinding) ServiceTarget(s LocalService, host string) (*Target, error) {
+	t, err := ParseTarget(s.Target(host))
+	if err != nil {
+		return nil, err
+	}
+	t.lanBinding = &b
+	return t, nil
+}
+
 // localServices is the fixed list DiscoverServices dials: the services a
 // person actually tries to reach on a device on their own network, one
 // connection each. It is deliberately short and deliberately fixed. Widening

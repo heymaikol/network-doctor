@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,89 @@ func TestOpenedDeviceUsesOriginatingSnapshotBinding(t *testing.T) {
 	if view := flat(m.networkMapView()); !strings.Contains(view, "LAN snapshot interface unavailable; rescan the network") || strings.Contains(view, "Nothing answered") {
 		t.Fatalf("interface failure rendered as device silence: %s", view)
 	}
+}
+
+func TestLANServiceSelectionRetestAndManualTarget(t *testing.T) {
+	peer := netip.MustParseAddr("192.168.12.1")
+	first := diagnostic.LANBinding{Source: netip.MustParseAddr("192.168.12.34"), Interface: "snapshot-a\x00", Index: 7}
+	second := diagnostic.LANBinding{Source: netip.MustParseAddr("192.168.12.2"), Interface: "snapshot-b\x00", Index: 18}
+	oldLAN, oldServices := discoverLAN, discoverServices
+	t.Cleanup(func() { discoverLAN, discoverServices = oldLAN, oldServices })
+	discoverLAN = func(_ context.Context, source netip.Addr, iface string, bound func(diagnostic.LANBinding), emit func(diagnostic.LANObservation)) ([]string, error) {
+		if iface != "" {
+			return nil, errors.New("fixture expects automatic source selection")
+		}
+		binding := first
+		if source == second.Source {
+			binding = second
+		}
+		bound(binding)
+		emit(diagnostic.LANObservation{IP: peer, Evidence: diagnostic.LANICMP})
+		return nil, nil
+	}
+	discoverServices = func(_ context.Context, binding diagnostic.LANBinding, host netip.Addr, _ time.Duration) (diagnostic.ServiceScan, error) {
+		if host != peer || (binding != first && binding != second) {
+			t.Fatalf("unexpected service check for %s on %+v", host, binding)
+		}
+		if binding == second {
+			return scanOf(diagnostic.LocalService{Port: 80, Scheme: "http"}), nil
+		}
+		return scanOf(diagnostic.LocalService{Port: 22, Scheme: "ssh"}), nil
+	}
+	scan := func(m model, source netip.Addr) model {
+		m.results[diagnostic.ProbeInternet] = diagnostic.ProbeResult{Source: net.IP(source.AsSlice())}
+		u, _ := m.confirmLANDiscovery()
+		m = sendKey(t, asModel(t, u), "y")
+		for m.cur.active != nil {
+			select {
+			case msg := <-m.cur.active.ch:
+				u, _ := m.Update(msg)
+				m = asModel(t, u)
+			case <-time.After(time.Second):
+				t.Fatal("LAN scan did not finish")
+			}
+		}
+		return m
+	}
+	m := scan(lanLifecycleModel(t), first.Source)
+	m = scan(m, second.Source)
+	u, stale := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = asModel(t, u)
+	m = sendKey(t, m, "tab")
+	m = openDevice(t, m)
+	for _, msg := range msgsFrom(t, stale) {
+		u, _ := m.Update(msg)
+		m = asModel(t, u)
+	}
+	beforeSelection := m.generation
+	m = sendKey(t, m, "enter")
+	if m.target.Port != 22 || m.target.Host != peer.String() {
+		t.Fatalf("selected the other snapshot's service: %+v", m.target)
+	}
+	// Invalid fixture interface names make the real TCP row fail before any dial.
+	checkTCP := func(m model, want string) {
+		i := slices.IndexFunc(m.probes, func(p diagnostic.Probe) bool { return p.ID == diagnostic.ProbeTargetTCP })
+		got := m.probes[i].Run(t.Context(), nil)
+		if got.Status != diagnostic.StatusFail || !strings.Contains(got.Detail, want) {
+			t.Fatalf("target %s reported %+v, want failure mentioning %q", m.target.Host, got, want)
+		}
+	}
+	checkTCP(m, "snapshot-a")
+	u, _ = m.Update(probeDoneMsg{gen: beforeSelection, id: diagnostic.ProbeTargetTCP, res: diagnostic.ProbeResult{Status: diagnostic.StatusPass}})
+	m = asModel(t, u)
+	if _, ok := m.results[diagnostic.ProbeTargetTCP]; ok {
+		t.Fatal("a result from before service selection landed in the new run")
+	}
+	u, _ = m.retest()
+	m = asModel(t, u)
+	checkTCP(m, "snapshot-a")
+	m = sendKey(t, m, "r")
+	m.input.SetValue("198.51.100.19:22")
+	m = sendKey(t, m, "enter")
+	if m.target.Host != "198.51.100.19" {
+		t.Fatalf("manual target did not replace service target: %+v", m.target)
+	}
+	checkTCP(m, "no resolved addresses")
 }
 
 // msgsFrom resolves a command to the messages it produces, following batches,

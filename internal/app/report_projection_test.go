@@ -95,6 +95,8 @@ var reportProjection = map[string]decision{
 	"diagnostic.Probe.link": {category: transient, why: "the handoff slot the TCP, TLS and HTTPS rows of one target " +
 		"share during a run. It holds a live socket, which a report cannot carry, and every run releases it before the " +
 		"report is built."},
+	"diagnostic.Probe.fresh": {category: transient, why: "whether Watch must execute this row before publishing " +
+		"evidence. The report contains the result and its reuse provenance."},
 	"diagnostic.Probe.Reference": {category: absent, why: "whether this node dials Network Doctor's own reference " +
 		"infrastructure. It decides which probes the graph builds, so what it concluded is already visible as the " +
 		"set of rows the document carries."},
@@ -112,6 +114,8 @@ var reportProjection = map[string]decision{
 	"diagnostic.Target.PortExplicit": {category: absent, why: "whether the port was typed or came from a scheme " +
 		"default. It is how the parser reached target.port, not what it reached, and the TUI reads it to offer an " +
 		"ssh command. The document publishes the effective port."},
+	"diagnostic.Target.lanBinding": {category: transient, why: "the live interface binding for a TUI service selection. " +
+		"The target endpoint and observed interface belong in the report, while the binding is used only to open sockets."},
 
 	// The live result. Everything here either reaches the document or says why
 	// a consumer is not given it.

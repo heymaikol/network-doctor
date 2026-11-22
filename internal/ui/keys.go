@@ -374,7 +374,7 @@ func (m model) openDevice(row string) (tea.Model, tea.Cmd) {
 		return m, m.setNotice("invalid discovered IPv4 device", false)
 	}
 	wasTicking := m.spinnerActive()
-	m.svc = serviceChoice{host: address, name: row}
+	m.svc = serviceChoice{host: address, name: row, binding: m.cur.lanBinding}
 	m.svcRequest++
 	// The scan can be the first thing a --toolbox session does, before any
 	// generation context exists, so initialize it lazily as launchTool does.
@@ -382,7 +382,7 @@ func (m model) openDevice(row string) (tea.Model, tea.Cmd) {
 		m.ctx, m.cancel = context.WithCancel(context.Background())
 	}
 	ctx, gen, timeout := m.ctx, m.generation, m.probeTimeout
-	job, binding, request := m.cur.lanID, m.cur.lanBinding, m.svcRequest
+	job, binding, request := m.cur.lanID, m.svc.binding, m.svcRequest
 	cmd := func() tea.Msg {
 		scan, err := discoverServices(ctx, binding, peer, timeout)
 		return lanServicesMsg{gen: gen, job: job, request: request, scan: scan, err: err}
@@ -406,7 +406,7 @@ func (m model) diagnoseService() (tea.Model, tea.Cmd) {
 		return m, m.setNotice("no service answered on "+m.svc.host+": press "+m.keys.label(ctxList, actRestart)+" to name a port yourself", false)
 	}
 	svc := open[min(m.svc.sel, len(open)-1)]
-	t, err := diagnostic.ParseTarget(svc.Target(m.svc.host))
+	t, err := m.svc.binding.ServiceTarget(svc, m.svc.host)
 	if err != nil {
 		return m, m.setNotice("invalid discovered target: "+err.Error(), false)
 	}
@@ -724,11 +724,9 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // retest restarts probe execution, and the session it is part of continues
 // across it rather than being thrown away by it.
 //
-// The same question means the same run configuration, and the target is the
-// whole of what can change here. The rest of what decides a run (the source
-// addresses, the resolver, the probe selection, the timeout) is fixed when the
-// model is built and never moves again, so a retest cannot silently change one
-// underneath the preserved history.
+// The target carries any binding from the LAN snapshot that selected it.
+// Retest keeps that target, and a manually parsed target starts without it.
+// The configured sources, resolver, probe selection and timeout are fixed.
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
 	if newQuestion && m.watchSession != nil {

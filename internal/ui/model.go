@@ -86,12 +86,13 @@ type lanServicesMsg struct {
 // host is empty whenever no device has been opened, which is the whole of the
 // "is the chooser showing" question.
 type serviceChoice struct {
-	host string
-	name string // the map's label for the device, for the panel title
-	scan diagnostic.ServiceScan
-	err  string
-	done bool // the scan landed, so an empty Open means "none", not "not yet"
-	sel  int
+	host    string
+	name    string // the map's label for the device, for the panel title
+	binding diagnostic.LANBinding
+	scan    diagnostic.ServiceScan
+	err     string
+	done    bool // the scan landed, so an empty Open means "none", not "not yet"
+	sel     int
 }
 
 // pendingAction is a state change deferred until the active job's terminal event

@@ -111,6 +111,10 @@ func recordingOps(log *egressLog) *netops {
 			log.record(network + " dial to " + addr)
 			return nil, errNoNetworkInThisTest
 		},
+		dialLAN: func(_ context.Context, link lanLink, addr string) (net.Conn, error) {
+			log.record("LAN dial through " + link.Name + " to " + addr)
+			return nil, errNoNetworkInThisTest
+		},
 		dialTLS: func(_ context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
 			log.record(network + " TLS dial to " + addr + " as " + cfg.ServerName)
 			return nil, errNoNetworkInThisTest
@@ -142,8 +146,8 @@ func recordingOps(log *egressLog) *netops {
 // name a destination to something that will. netopsLocalFields are the ones
 // that only ask this machine about itself.
 var (
-	netopsEmittingFields = []string{"lookupIP", "lookupPublicIP", "dialContext", "dialTLS", "quicHandshake", "portalCheck", "proxyFromEnv"}
-	netopsLocalFields    = []string{"interfaces", "interfaceAddrs", "sources", "sendBuffer", "queued", "tcpMSS", "tlsRootCAs", "ssid", "routeCause", "routeFor", "routeForZone", "passRoutes", "defaultRoutes", "routes", "scope"}
+	netopsEmittingFields = []string{"lookupIP", "lookupPublicIP", "dialContext", "dialLAN", "dialTLS", "quicHandshake", "portalCheck", "proxyFromEnv"}
+	netopsLocalFields    = []string{"interfaces", "interfaceAddrs", "sources", "lanBinding", "sendBuffer", "queued", "tcpMSS", "tlsRootCAs", "ssid", "routeCause", "routeFor", "routeForZone", "passRoutes", "defaultRoutes", "routes", "scope"}
 )
 
 // TestEveryNetopsTouchpointIsClassifiedAndRecorded is the guard that keeps the
@@ -249,6 +253,21 @@ func TestNoReferenceEgressAttemptsNoBuiltInDestination(t *testing.T) {
 		log := runRecorded(t, targetForReference(t), DefaultPublicDNS, true, ProbeSelection{NoReferenceEgress: true})
 		assertNoReferenceEgress(t, "a target run", log)
 		assertAttemptedAll(t, "a target run", log, "dns query for "+referenceTarget)
+	})
+
+	t.Run("LAN service still uses its snapshot path", func(t *testing.T) {
+		fixture, binding, _ := lanTargetFixture(t)
+		log := new(egressLog)
+		ops := recordingOps(log)
+		ops.interfaces, ops.interfaceAddrs = fixture.interfaces, fixture.interfaceAddrs
+		target, err := binding.ServiceTarget(LocalService{Port: 22}, "192.168.12.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		selection := ProbeSelection{NoReferenceEgress: true}
+		RunAll(t.Context(), selection.Apply(ops.buildProbes(target, DefaultPublicDNS, true)), 500*time.Millisecond)
+		assertNoReferenceEgress(t, "LAN service", log)
+		assertAttemptedAll(t, "LAN service", log, "LAN dial through lan to 192.168.12.1:22")
 	})
 
 	// The generic run's DNS rows exist only to have something to resolve, and

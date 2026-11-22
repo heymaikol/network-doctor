@@ -471,6 +471,11 @@ func interpret(t *Target, order []ProbeID, res map[ProbeID]ProbeResult) Diagnosi
 
 	host := t.Host
 	hp := net.JoinHostPort(host, strconv.Itoa(t.Port)) // brackets IPv6 literals
+	for _, id := range order {
+		if fail(id) && res[id].Cause == ConnectionCauseLANBinding {
+			return blame(DiagnosisReachabilityUntested, id, "Could not verify the selected LAN binding for "+hp+". Rescan the LAN and select the service again.", VerdictNetwork)
+		}
+	}
 
 	// Targeted mode: walk up the protocol stack (DNS → TCP → TLS → HTTP →
 	// banner) and report the first rung that broke. Everything above it

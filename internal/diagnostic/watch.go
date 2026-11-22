@@ -298,7 +298,7 @@ func (p *WatchPass) wrap(probe Probe) Probe {
 		return probe
 	}
 	id := probe.ID
-	reusable := watchReusable[id]
+	reusable := watchReusable[id] && !probe.fresh
 	probe.Run = func(ctx context.Context, in map[ProbeID]ProbeResult) ProbeResult {
 		sampled := p.session.now()
 		if reusable {

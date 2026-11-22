@@ -1,0 +1,346 @@
+{
+  "schema": "netdoc.profile-report.v1",
+  "profile": "web",
+  "profile_version": 1,
+  "title": "Web",
+  "description": "Tests certificate-validated HTTPS and plain HTTP independently.",
+  "components": [
+    {
+      "id": "https",
+      "label": "HTTPS service on port 443",
+      "target": {
+        "host": "expired.badssl.com",
+        "port": 443,
+        "protocol": "tls+http"
+      },
+      "focus": "https",
+      "status": "SKIP",
+      "report": {
+        "version": "2.2.1",
+        "target": {
+          "host": "expired.badssl.com",
+          "port": 443,
+          "protocol": "tls+http"
+        },
+        "checks": [
+          {
+            "id": "iface",
+            "name": "Interface",
+            "status": "PASS",
+            "ms": 1,
+            "detail": "interface wlan0 is up",
+            "iface": "wlan0"
+          },
+          {
+            "id": "internet_tcp",
+            "name": "Internet (TCP egress)",
+            "status": "PASS",
+            "address_families": {
+              "ipv4": "reachable",
+              "ipv6": "reachable"
+            },
+            "ms": 42,
+            "detail": "IPv4 egress via 1.1.1.1 in 16ms (src 192.0.2.10 wlan0); IPv6 egress via 2606:4700:4700::1111 in 16ms",
+            "selected_ip": "1.1.1.1",
+            "source": "192.0.2.10",
+            "iface": "wlan0",
+            "attempts": [
+              {
+                "ip": "1.1.1.1",
+                "ms": 16
+              },
+              {
+                "ip": "2606:4700:4700::1111",
+                "ms": 16
+              }
+            ]
+          },
+          {
+            "id": "proxy_connect",
+            "name": "Internet (env proxy)",
+            "status": "N/A",
+            "ms": 1,
+            "detail": "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)"
+          },
+          {
+            "id": "dns",
+            "name": "DNS expired.badssl.com",
+            "status": "PASS",
+            "ms": 47,
+            "detail": "expired.badssl.com \u2192 104.154.89.105 (resolver tried: 127.0.0.53)",
+            "addrs": [
+              "104.154.89.105"
+            ],
+            "resolver_targets": [
+              "127.0.0.53:53"
+            ]
+          },
+          {
+            "id": "dns_public",
+            "name": "DNS (public)",
+            "status": "PASS",
+            "ms": 49,
+            "detail": "expired.badssl.com. \u2192 104.154.89.105 (via 8.8.8.8); queried expired.badssl.com. only; system lookup may use search suffixes, so answers are not compared",
+            "addrs": [
+              "104.154.89.105"
+            ],
+            "dns_name_scope": "rooted_relative",
+            "resolver_targets": [
+              "8.8.8.8:53"
+            ]
+          },
+          {
+            "id": "target_tcp",
+            "name": "TCP expired.badssl.com:443",
+            "status": "PASS",
+            "address_families": {
+              "ipv4": "reachable"
+            },
+            "ms": 47,
+            "detail": "connected to 104.154.89.105:443 in 46ms (src 192.0.2.10 wlan0)",
+            "selected_ip": "104.154.89.105",
+            "source": "192.0.2.10",
+            "iface": "wlan0",
+            "attempts": [
+              {
+                "ip": "104.154.89.105",
+                "ms": 46
+              }
+            ]
+          },
+          {
+            "id": "path_mtu",
+            "name": "Path MTU expired.badssl.com:443",
+            "status": "PASS",
+            "ms": 155,
+            "detail": "1 KiB of the 24 KiB payload acknowledged by the peer at a 1408-byte TCP MSS",
+            "selected_ip": "104.154.89.105"
+          },
+          {
+            "id": "tls",
+            "name": "TLS expired.badssl.com",
+            "status": "FAIL",
+            "cause": "certificate_expired",
+            "ms": 66,
+            "detail": "TLS check to 104.154.89.105 failed: tls: failed to verify certificate: x509: certificate has expired or is not yet valid: current time 2026-11-17T13:15:17-06:00 is after 2015-04-12T23:59:59Z",
+            "fix": "cert is only valid 2015-04-09 \u2192 2015-04-12: renew the cert, or check this machine's clock",
+            "selected_ip": "104.154.89.105"
+          },
+          {
+            "id": "http",
+            "name": "HTTP expired.badssl.com",
+            "status": "PASS",
+            "ms": 99,
+            "detail": "HTTP 301 (responded)",
+            "selected_ip": "104.154.89.105",
+            "attempts": [
+              {
+                "ip": "104.154.89.105",
+                "ms": 46
+              }
+            ]
+          },
+          {
+            "id": "https",
+            "name": "HTTPS expired.badssl.com",
+            "status": "SKIP",
+            "ms": 0,
+            "detail": "skipped: a prerequisite failed"
+          }
+        ],
+        "summary": "TCP reaches expired.badssl.com:443 but TLS rejects the certificate as expired according to this machine's clock.",
+        "verdict": "service",
+        "failed_stage": "tls",
+        "findings": [
+          {
+            "id": "tls_certificate_expired",
+            "focus": "tls",
+            "confidence": "medium",
+            "evidence": [
+              "tls",
+              "target_tcp"
+            ],
+            "causal_evidence": [
+              {
+                "kind": "support",
+                "check": "tls",
+                "observation": "cause"
+              },
+              {
+                "kind": "support",
+                "check": "target_tcp",
+                "observation": "status_pass"
+              },
+              {
+                "kind": "ruled_out",
+                "check": "target_tcp",
+                "observation": "status_pass",
+                "candidate": "tls_tcp_unreachable"
+              }
+            ],
+            "remediation": {
+              "id": "renew_certificate",
+              "action": "Renew the certificate, or check this machine's clock",
+              "why": "The handshake was rejected because the certificate is outside its validity window. Either it really has expired, or this machine's clock runs far enough ahead to make a valid one look expired.",
+              "steps": [
+                "Compare the validity dates on the TLS row with today's date.",
+                "Confirm this machine's clock before blaming the certificate."
+              ],
+              "command": [
+                "timedatectl",
+                "status"
+              ],
+              "expect": "A certificate whose validity window covers now, on a machine whose clock is right."
+            }
+          }
+        ],
+        "ok": false
+      }
+    },
+    {
+      "id": "http",
+      "label": "Plain HTTP service on port 80",
+      "target": {
+        "host": "expired.badssl.com",
+        "port": 80,
+        "protocol": "http"
+      },
+      "focus": "http",
+      "status": "PASS",
+      "report": {
+        "version": "2.2.1",
+        "target": {
+          "host": "expired.badssl.com",
+          "port": 80,
+          "protocol": "http"
+        },
+        "checks": [
+          {
+            "id": "iface",
+            "name": "Interface",
+            "status": "PASS",
+            "ms": 1,
+            "detail": "interface wlan0 is up",
+            "iface": "wlan0"
+          },
+          {
+            "id": "internet_tcp",
+            "name": "Internet (TCP egress)",
+            "status": "PASS",
+            "address_families": {
+              "ipv4": "reachable",
+              "ipv6": "reachable"
+            },
+            "ms": 42,
+            "detail": "IPv4 egress via 1.1.1.1 in 16ms (src 192.0.2.10 wlan0); IPv6 egress via 2606:4700:4700::1111 in 16ms",
+            "selected_ip": "1.1.1.1",
+            "source": "192.0.2.10",
+            "iface": "wlan0",
+            "attempts": [
+              {
+                "ip": "1.1.1.1",
+                "ms": 16
+              },
+              {
+                "ip": "2606:4700:4700::1111",
+                "ms": 16
+              }
+            ]
+          },
+          {
+            "id": "proxy_connect",
+            "name": "Internet (env proxy)",
+            "status": "N/A",
+            "ms": 1,
+            "detail": "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)"
+          },
+          {
+            "id": "dns",
+            "name": "DNS expired.badssl.com",
+            "status": "PASS",
+            "ms": 47,
+            "detail": "expired.badssl.com \u2192 104.154.89.105 (resolver tried: 127.0.0.53)",
+            "addrs": [
+              "104.154.89.105"
+            ],
+            "resolver_targets": [
+              "127.0.0.53:53"
+            ]
+          },
+          {
+            "id": "dns_public",
+            "name": "DNS (public)",
+            "status": "PASS",
+            "ms": 44,
+            "detail": "expired.badssl.com. \u2192 104.154.89.105 (via 8.8.8.8); queried expired.badssl.com. only; system lookup may use search suffixes, so answers are not compared",
+            "addrs": [
+              "104.154.89.105"
+            ],
+            "dns_name_scope": "rooted_relative",
+            "resolver_targets": [
+              "8.8.8.8:53"
+            ]
+          },
+          {
+            "id": "target_tcp",
+            "name": "TCP expired.badssl.com:80",
+            "status": "PASS",
+            "address_families": {
+              "ipv4": "reachable"
+            },
+            "ms": 47,
+            "detail": "connected to 104.154.89.105:80 in 46ms (src 192.0.2.10 wlan0)",
+            "selected_ip": "104.154.89.105",
+            "source": "192.0.2.10",
+            "iface": "wlan0",
+            "attempts": [
+              {
+                "ip": "104.154.89.105",
+                "ms": 46
+              }
+            ]
+          },
+          {
+            "id": "path_mtu",
+            "name": "Path MTU expired.badssl.com:80",
+            "status": "PASS",
+            "ms": 155,
+            "detail": "13 KiB of the 24 KiB payload acknowledged by the peer at a 1408-byte TCP MSS",
+            "selected_ip": "104.154.89.105"
+          },
+          {
+            "id": "http",
+            "name": "HTTP expired.badssl.com",
+            "status": "PASS",
+            "ms": 109,
+            "detail": "HTTP 301 (responded)",
+            "selected_ip": "104.154.89.105",
+            "attempts": [
+              {
+                "ip": "104.154.89.105",
+                "ms": 53
+              }
+            ]
+          }
+        ],
+        "summary": "All checks passed. expired.badssl.com:80 looks healthy.",
+        "verdict": "ok",
+        "ok": true
+      }
+    }
+  ],
+  "aggregate": {
+    "status": "WARN",
+    "summary": "Some Web components are unavailable or degraded while others work.",
+    "finding": {
+      "id": "web_partial_reachability",
+      "affected_components": [
+        "https"
+      ],
+      "working_components": [
+        "http"
+      ]
+    }
+  },
+  "ok": true
+}

@@ -1,0 +1,121 @@
+{
+  "version": "2.2.1",
+  "target": null,
+  "checks": [
+    {
+      "id": "iface",
+      "name": "Interface",
+      "status": "PASS",
+      "ms": 1,
+      "detail": "interface wlan0 is up",
+      "iface": "wlan0"
+    },
+    {
+      "id": "internet_tcp",
+      "name": "Internet (TCP egress)",
+      "status": "PASS",
+      "address_families": {
+        "ipv4": "reachable",
+        "ipv6": "reachable"
+      },
+      "ms": 45,
+      "detail": "IPv4 egress via 1.1.1.1 in 19ms (src 192.0.2.10 wlan0); IPv6 egress via 2606:4700:4700::1111 in 19ms",
+      "selected_ip": "1.1.1.1",
+      "source": "192.0.2.10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "1.1.1.1",
+          "ms": 19
+        },
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 19
+        }
+      ]
+    },
+    {
+      "id": "quic_udp_443",
+      "name": "QUIC / UDP 443",
+      "status": "PASS",
+      "ms": 53,
+      "detail": "QUIC v1 handshake with connectivitycheck.gstatic.com over UDP/443 in 52ms (h3)",
+      "selected_ip": "2001:4860:4826:7800::",
+      "source": "2001:db8::10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "2001:4860:4826:7800::",
+          "ms": 52
+        }
+      ]
+    },
+    {
+      "id": "proxy_connect",
+      "name": "Internet (env proxy)",
+      "status": "N/A",
+      "ms": 1,
+      "detail": "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)"
+    },
+    {
+      "id": "dns",
+      "name": "DNS",
+      "status": "PASS",
+      "ms": 1,
+      "detail": "connectivitycheck.gstatic.com \u2192 2001:4860:4826:7800::, 142.251.150.120 (resolver tried: 127.0.0.53)",
+      "addrs": [
+        "2001:4860:4826:7800::",
+        "142.251.150.120"
+      ],
+      "resolver_targets": [
+        "127.0.0.53:53"
+      ]
+    },
+    {
+      "id": "dns_public",
+      "name": "DNS (public)",
+      "status": "PASS",
+      "ms": 21,
+      "detail": "connectivitycheck.gstatic.com. \u2192 2001:4860:4826:7800::, 142.251.150.120 (via 8.8.8.8); queried connectivitycheck.gstatic.com. only; system lookup may use search suffixes, so answers are not compared",
+      "addrs": [
+        "2001:4860:4826:7800::",
+        "142.251.150.120"
+      ],
+      "dns_name_scope": "rooted_relative",
+      "resolver_targets": [
+        "8.8.8.8:53"
+      ]
+    },
+    {
+      "id": "dns_encrypted",
+      "name": "DNS (encrypted DoH/DoT)",
+      "status": "PASS",
+      "ms": 76,
+      "detail": "DoH and DoT both completed a DNS query for connectivitycheck.gstatic.com via cloudflare-dns.com (DoH 75ms, DoT 76ms)",
+      "selected_ip": "2606:4700:4700::1111",
+      "source": "2001:db8::10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 19
+        },
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 19
+        }
+      ]
+    },
+    {
+      "id": "ssid",
+      "name": "Wi-Fi network",
+      "status": "PASS",
+      "ms": 1,
+      "detail": "connected to Example Wi-Fi",
+      "network": "Example Wi-Fi"
+    }
+  ],
+  "summary": "Online: direct TCP egress and DNS both work.",
+  "verdict": "ok",
+  "ok": true
+}

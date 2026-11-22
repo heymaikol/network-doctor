@@ -238,16 +238,12 @@ func TestWatchPreservesOpenUIState(t *testing.T) {
 		}},
 		{"network map", func(m *model) {
 			m.width = 100
-			m.networkMap, m.mapSelected, m.networkCIDR = true, 1, "192.168.12.0/24"
-			m.hostNames = map[string]string{"192.168.12.1": "pihole"}
+			m.networkMap, m.mapSelected, m.cur.networkCIDR = true, 1, "192.168.12.0/24"
 			m.cur.name, m.cur.status = lanDiscoveryName, JobDone
-			m.cur.lines = []string{
-				"Host: 192.168.12.1 (isp-cpe-4471.example)\tStatus: Up",
-				"Host: 192.168.12.50 ()\tStatus: Up",
-			}
+			setLANHosts(m, "192.168.12.1 pihole", "192.168.12.50")
 		}, func(t *testing.T, m model) {
-			if !m.networkMap || m.mapSelected != 1 || m.networkCIDR != "192.168.12.0/24" {
-				t.Errorf("map state = open:%v sel:%d cidr:%q, want it preserved", m.networkMap, m.mapSelected, m.networkCIDR)
+			if !m.networkMap || m.mapSelected != 1 || m.cur.networkCIDR != "192.168.12.0/24" {
+				t.Errorf("map state = open:%v sel:%d cidr:%q, want it preserved", m.networkMap, m.mapSelected, m.cur.networkCIDR)
 			}
 			want := []string{"192.168.12.1 (pihole)", "192.168.12.50"}
 			if got := m.networkHosts(); !reflect.DeepEqual(got, want) {
@@ -258,9 +254,9 @@ func TestWatchPreservesOpenUIState(t *testing.T) {
 			}
 		}},
 		{"no network map", func(m *model) {}, func(t *testing.T, m model) {
-			if m.networkMap || m.mapSelected != 0 || m.networkCIDR != "" || len(m.hostNames) != 0 {
+			if m.networkMap || m.mapSelected != 0 || m.cur.networkCIDR != "" || len(m.cur.lanNames) != 0 {
 				t.Errorf("map state = open:%v sel:%d cidr:%q names:%v, want all zero",
-					m.networkMap, m.mapSelected, m.networkCIDR, m.hostNames)
+					m.networkMap, m.mapSelected, m.cur.networkCIDR, m.cur.lanNames)
 			}
 		}},
 	} {

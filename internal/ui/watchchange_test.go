@@ -345,13 +345,13 @@ func TestUnchangedWatchPassLeavesTheCursorAlone(t *testing.T) {
 func TestWatchChangeDoesNotDisturbOpenState(t *testing.T) {
 	m := watchRun(t, watchModel(t), nil)
 	m.viewing, m.follow = true, true
-	m.networkMap, m.mapSelected, m.networkCIDR = true, 2, "192.168.1.0/24"
+	m.networkMap, m.mapSelected, m.cur.networkCIDR = true, 2, "192.168.1.0/24"
 	m.svc = serviceChoice{host: "192.168.1.5", name: "printer", done: true}
 	where := m.selected
 	m = watchRun(t, m, dnsOutage)
-	if !m.viewing || !m.networkMap || m.mapSelected != 2 || m.networkCIDR != "192.168.1.0/24" {
+	if !m.viewing || !m.networkMap || m.mapSelected != 2 || m.cur.networkCIDR != "192.168.1.0/24" {
 		t.Fatalf("the pass disturbed open state: viewing=%v map=%v sel=%d cidr=%q",
-			m.viewing, m.networkMap, m.mapSelected, m.networkCIDR)
+			m.viewing, m.networkMap, m.mapSelected, m.cur.networkCIDR)
 	}
 	if m.svc.host != "192.168.1.5" {
 		t.Fatalf("the opened device was dropped: %+v", m.svc)

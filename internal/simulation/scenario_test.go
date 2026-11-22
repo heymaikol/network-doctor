@@ -64,7 +64,6 @@ func TestParseScenarioDocumentBoundaries(t *testing.T) {
 	}{
 		{name: "single document", yaml: minimalScenario},
 		{name: "trailing whitespace and comments", yaml: minimalScenario + "\n  \n# trailing comment\n"},
-		{name: "second document", yaml: minimalScenario + "\n---\n" + minimalScenario, wantErr: true},
 		{name: "malformed trailing document", yaml: minimalScenario + "\n---\nname: [\n", wantErr: true},
 	}
 

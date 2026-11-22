@@ -284,14 +284,6 @@ func TestUnbindableToolsAreUnchanged(t *testing.T) {
 		}
 	}
 
-	// The LAN sweep already follows the selection through the probe source its
-	// CIDR is derived from; nmap -sn takes the network, not a binding.
-	tool := lanDiscoveryTool(shellArgs, "10.7.0.0/24")
-	args, _, _ := tool.Build(nil, nil)
-	want := []string{"--unprivileged", "-sn", "-T3", "--host-timeout", "5s", "-oG", "-", "10.7.0.0/24"}
-	if !slices.Equal(args, want) {
-		t.Errorf("LAN scan argv = %q, want %q", args, want)
-	}
 }
 
 // Build must not hand out a slice a later Build can overwrite: the binding is

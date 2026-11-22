@@ -167,6 +167,25 @@ func TestZshCompletionOffersWriteTopologyWithImportTunnels(t *testing.T) {
 	}
 }
 
+// After --update-check, the companion options the command accepts must still be
+// offered, and the options it refuses must not be.
+func TestZshCompletionKeepsCompanionsAfterUpdateCheck(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("zpty needs a pseudo-terminal")
+	}
+	fixture := completionFixture(t)
+	got := completionMatches(t, fixture, "netdoc --update-check --")
+	for _, want := range []string{"--json", "--no-reference-egress", "--no-update-check"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("after --update-check, %s was not offered\n%s", want, got)
+		}
+	}
+	// Negative control: a refused option stays excluded.
+	if strings.Contains(got, "--iface") {
+		t.Errorf("after --update-check, --iface was offered although the command refuses it\n%s", got)
+	}
+}
+
 func TestZshCompletionOffersSnapshotsOnlyWhereTheyAreRead(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("zpty needs a pseudo-terminal")

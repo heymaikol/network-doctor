@@ -137,15 +137,16 @@ func TestShortChecksWindowFollowsEveryCursorPosition(t *testing.T) {
 func manyHostMap(t *testing.T) model {
 	t.Helper()
 	m := blackHoleModel(t)
-	m.networkMap, m.networkCIDR = true, "192.0.2.0/24"
+	m.networkMap, m.cur.networkCIDR = true, "192.0.2.0/24"
 	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
 	m.cur.start = time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	m.cur.dur = 2 * time.Second
 	m.now = func() time.Time { return time.Date(2026, 9, 13, 12, 3, 0, 0, time.UTC) }
-	m.cur.lines = nil
+	var rows []string
 	for i := 1; i <= 24; i++ {
-		m.cur.lines = append(m.cur.lines, fmt.Sprintf("Host: 192.0.2.%d (device-%02d.lab)\tStatus: Up", i, i))
+		rows = append(rows, fmt.Sprintf("192.0.2.%d device-%02d.lab", i, i))
 	}
+	setLANHosts(&m, rows...)
 	return m
 }
 

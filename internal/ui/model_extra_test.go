@@ -1155,50 +1155,46 @@ func TestSaveHistoryDoesNotFollowSymlink(t *testing.T) {
 }
 
 // Each row spins until its own name lands: the advertised batch clears the rows
-// it named, a per-address reverse lookup clears the rest one at a time, and
-// nmap's PTR placeholder is never shown in the meantime.
+// it named and a per-address reverse lookup clears the rest one at a time.
 func TestNetworkMapSpinsPerRowUntilNamesArrive(t *testing.T) {
 	m := newModel(mustTarget(t, "example.com:22"), false)
 	m.width = 100
 	m.networkMap = true
-	m.networkCIDR = "192.168.1.0/24"
+	m.cur.networkCIDR = "192.168.1.0/24"
 	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
-	m.cur.lines = []string{
-		"Host: 192.168.1.7 (unknownaabbcc.attlocal.net)\tStatus: Up",
-		"Host: 192.168.1.8 (unknownddeeff.attlocal.net)\tStatus: Up",
-	}
+	setLANHosts(&m, "192.168.1.7", "192.168.1.8")
 	ips := []string{"192.168.1.7", "192.168.1.8"}
-	m.namesPending = map[string]bool{ips[0]: true, ips[1]: true}
+	m.cur.lanID = "test-scan"
+	m.cur.lanPending = map[string]bool{ips[0]: true, ips[1]: true}
 
-	if view := m.View(); strings.Contains(view, "unknownaabbcc") || strings.Contains(view, "Domain:") {
-		t.Fatalf("placeholder name or its domain shown while names are pending:\n%s", view)
+	if view := m.View(); !strings.Contains(view, "192.168.1.7") || strings.Contains(view, "Domain:") {
+		t.Fatalf("address must be visible during lookup:\n%s", view)
 	}
 	if !m.spinnerActive() {
 		t.Fatal("spinner tick chain must stay alive while names are pending")
 	}
 
 	// The advertised batch names one host and leaves the other to reverse DNS.
-	u, _ := m.Update(lanNamesMsg{gen: 0, ips: ips, names: map[string]string{ips[0]: "printer"}})
+	u, _ := m.Update(lanNamesMsg{gen: 0, job: m.cur.lanID, names: map[string]lanName{ips[0]: {label: "printer"}}})
 	m = asModel(t, u)
 	view := m.View()
-	if !strings.Contains(view, "192.168.1.7 (printer)") || m.namesPending[ips[0]] {
+	if !strings.Contains(view, "192.168.1.7 (printer)") || m.cur.lanPending[ips[0]] {
 		t.Fatalf("advertised name should have cleared its own row:\n%s", view)
 	}
-	if !m.namesPending[ips[1]] || strings.Contains(view, "unknownddeeff") {
+	if !m.cur.lanPending[ips[1]] {
 		t.Fatalf("the unnamed row must keep spinning:\n%s", view)
 	}
 
-	// An empty reverse-DNS result still stops the spin, since there is nothing better
-	// coming, so nmap's own name is finally the best on offer.
-	u, _ = m.Update(lanNameMsg{gen: 0, ip: ips[1], name: ""})
+	// An empty reverse-DNS result leaves the numeric address visible.
+	u, _ = m.Update(lanNameMsg{gen: 0, job: m.cur.lanID, ip: ips[1], name: ""})
 	m = asModel(t, u)
-	if view := m.View(); !strings.Contains(view, "192.168.1.8 (unknownddeeff)") || m.namesPending[ips[1]] {
-		t.Fatalf("empty reverse lookup should end the spin and fall back to nmap:\n%s", view)
+	if view := m.View(); !strings.Contains(view, "192.168.1.8") || m.cur.lanPending[ips[1]] {
+		t.Fatalf("empty reverse lookup should end the spin and keep the address:\n%s", view)
 	}
 
-	u, _ = m.Update(lanNameMsg{gen: 1, ip: ips[0], name: "stale"})
-	if m = asModel(t, u); m.hostNames[ips[0]] != "printer" {
-		t.Fatalf("stale-generation name must be ignored: %v", m.hostNames)
+	u, _ = m.Update(lanNameMsg{gen: 1, job: m.cur.lanID, ip: ips[0], name: "stale"})
+	if m = asModel(t, u); m.cur.lanNames[ips[0]].label != "printer" {
+		t.Fatalf("stale-generation name must be ignored: %v", m.cur.lanNames)
 	}
 }
 
@@ -1206,7 +1202,7 @@ func TestNetworkMapSpinsPerRowUntilNamesArrive(t *testing.T) {
 // error paths); mergeLANNames must still hand back a usable map, and ssh
 // aliases must keep winning collisions once one is allocated.
 func TestMergeLANNames(t *testing.T) {
-	if got := mergeLANNames(nil, map[string]string{"192.168.1.7": "printer"}); got["192.168.1.7"] != "printer" {
+	if got := mergeLANNames(nil, map[string]string{"192.168.1.7": "printer"}); got["192.168.1.7"] != (lanName{label: "printer", sshAlias: true}) {
 		t.Fatalf("nil advertised names must not drop aliases: %v", got)
 	}
 
@@ -1214,7 +1210,7 @@ func TestMergeLANNames(t *testing.T) {
 		map[string]string{"192.168.1.7": "attlocal-guess"},
 		map[string]string{"192.168.1.7": "printer"},
 	)
-	if got["192.168.1.7"] != "printer" {
+	if got["192.168.1.7"] != (lanName{label: "printer", sshAlias: true}) {
 		t.Fatalf("ssh alias must win over an advertised name for the same IP: %v", got)
 	}
 }

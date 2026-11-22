@@ -3,6 +3,8 @@
 package diagnostic
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"syscall"
@@ -41,11 +43,11 @@ func routeFailureCause(destination net.IP) string {
 
 	// Windows route metrics are only comparable once the owning interface's
 	// metric is added in, so the interface table is not optional evidence.
-	var interfaces *windows.MibIpInterfaceTable
-	if err := windows.GetIpInterfaceTable(family, &interfaces); err != nil {
+	interfaces, freeInterfaces, err := getIPInterfaceRows(family)
+	if err != nil {
 		return ""
 	}
-	defer windows.FreeMibTable(unsafe.Pointer(interfaces))
+	defer freeInterfaces()
 
 	// A neighbor table we could not read is not evidence of a healthy
 	// neighbor, so on failure the list stays empty and no gateway is accused.
@@ -54,11 +56,11 @@ func routeFailureCause(destination net.IP) string {
 		defer free()
 	}
 
-	return routeFailureCauseFromTables(family, forward.Rows(), ipInterfaceRows(interfaces), neighbors)
+	return routeFailureCauseFromTables(family, forward.Rows(), interfaces, neighbors)
 }
 
 func routeFailureCauseFromTables(family uint16, routes []windows.MibIpForwardRow2,
-	interfaces []windows.MibIpInterfaceRow, neighbors []mibIPNetRow2) string {
+	interfaces []mibIPInterfaceRow, neighbors []mibIPNetRow2) string {
 	return classifyDefaultRoutes(windowsDefaultRoutes(family, routes, interfaces), func(r defaultRouteState) bool {
 		return r.gateway != nil && windowsNeighborUnresolved(family, neighbors, r.gateway, r.iface)
 	})
@@ -67,7 +69,7 @@ func routeFailureCauseFromTables(family uint16, routes []windows.MibIpForwardRow
 // windowsDefaultRoutes keeps the zero-length-prefix routes of this family whose
 // interface is connected and is allowed to carry default routes.
 func windowsDefaultRoutes(family uint16, routes []windows.MibIpForwardRow2,
-	interfaces []windows.MibIpInterfaceRow) []defaultRouteState {
+	interfaces []mibIPInterfaceRow) []defaultRouteState {
 	usable := make(map[uint64]uint32, len(interfaces))
 	for i := range interfaces {
 		row := &interfaces[i]
@@ -136,10 +138,80 @@ func sockaddrInetIP(addr *windows.RawSockaddrInet) net.IP {
 	return nil
 }
 
-// MibIpInterfaceTable is a header followed by a variable-length row array, the
-// same shape MibIpForwardTable2 already has a Rows accessor for.
-func ipInterfaceRows(table *windows.MibIpInterfaceTable) []windows.MibIpInterfaceRow {
-	return unsafe.Slice(&table.Table[0], table.NumEntries)
+// The SDK packs each NL_INTERFACE_OFFLOAD_ROD into one byte. x/sys uses
+// uint32 for each, shifting DisableDefaultRoutes and inflating the row stride.
+type mibIPInterfaceRow struct {
+	Family               uint16
+	_                    [6]byte
+	InterfaceLuid        uint64
+	InterfaceIndex       uint32
+	_                    [22]byte // MaxReassemblySize through ForwardingEnabled
+	WeakHostSend         uint8
+	WeakHostReceive      uint8
+	_                    [104]byte // UseAutomaticMetric through SitePrefixLength
+	Metric               uint32
+	_                    [4]byte // NlMtu
+	Connected            uint8
+	_                    [7]byte // SupportsWakeUpPatterns through ReachableTime
+	TransmitOffload      uint8
+	ReceiveOffload       uint8
+	DisableDefaultRoutes uint8
+	_                    byte
+}
+
+type mibIPInterfaceTable struct {
+	NumEntries uint32
+	_          [4]byte // The first row is 8-byte aligned.
+	Table      [1]mibIPInterfaceRow
+}
+
+func ipInterfaceRows(raw *windows.MibIpInterfaceTable, family uint16) ([]mibIPInterfaceRow, error) {
+	if raw == nil {
+		return nil, errors.New("IP Helper returned a nil interface table")
+	}
+	table := (*mibIPInterfaceTable)(unsafe.Pointer(raw))
+	if table.NumEntries == 0 {
+		return nil, nil
+	}
+	rows := unsafe.Slice(&table.Table[0], table.NumEntries)
+	for i := range rows {
+		row := &rows[i]
+		if row.Family != family || row.InterfaceIndex == 0 {
+			return nil, fmt.Errorf("invalid IP Helper interface row %d (family %d, index %d) for family %d",
+				i, row.Family, row.InterfaceIndex, family)
+		}
+	}
+	return rows, nil
+}
+
+// The returned rows borrow the IP Helper allocation until free is called.
+func getIPInterfaceRows(family uint16) ([]mibIPInterfaceRow, func(), error) {
+	var table *windows.MibIpInterfaceTable
+	if err := windows.GetIpInterfaceTable(family, &table); err != nil {
+		return nil, nil, err
+	}
+	free := func() {
+		if table != nil {
+			windows.FreeMibTable(unsafe.Pointer(table))
+		}
+	}
+	rows, err := ipInterfaceRows(table, family)
+	if err != nil {
+		free()
+		return nil, nil, err
+	}
+	return rows, free, nil
+}
+
+func getIPInterfaceEntry(row *mibIPInterfaceRow) error {
+	if err := procGetIPInterfaceEntry.Find(); err != nil {
+		return err
+	}
+	code, _, _ := syscall.SyscallN(procGetIPInterfaceEntry.Addr(), uintptr(unsafe.Pointer(row)))
+	if code != 0 {
+		return syscall.Errno(code)
+	}
+	return nil
 }
 
 // mibIPNetRow2 is MIB_IPNET_ROW2, the neighbor (ARP and NDP) cache entry.
@@ -168,8 +240,9 @@ type mibIPNetTable2 struct {
 }
 
 var (
-	modiphlpapi        = windows.NewLazySystemDLL("iphlpapi.dll")
-	procGetIpNetTable2 = modiphlpapi.NewProc("GetIpNetTable2")
+	modiphlpapi             = windows.NewLazySystemDLL("iphlpapi.dll")
+	procGetIpNetTable2      = modiphlpapi.NewProc("GetIpNetTable2")
+	procGetIPInterfaceEntry = modiphlpapi.NewProc("GetIpInterfaceEntry")
 )
 
 // getIPNetTable2 returns the neighbor cache and the function that releases it.

@@ -36,6 +36,7 @@ func TestPackageLayering(t *testing.T) {
 	layers := map[string]int{
 		"internal/app":        4,
 		"internal/textsafe":   0,
+		"internal/update":     0,
 		"internal/report":     0,
 		"internal/snapshot":   0,
 		"internal/netmodel":   0,

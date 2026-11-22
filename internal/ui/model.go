@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,7 +19,11 @@ import (
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/incident"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
+	"github.com/heymaikol/network-doctor/v2/internal/update"
 )
+
+// updateMsg carries one update-check answer from the background command.
+type updateMsg struct{ res update.Result }
 
 // scheduleMsg asks Update to dispatch any newly-runnable probes for generation
 // gen. A stale gen is ignored.
@@ -36,25 +41,26 @@ type probeDoneMsg struct {
 	res diagnostic.ProbeResult
 }
 
-// lanNamesMsg carries the advertised names and ssh aliases for the LAN-scan
-// IPs, which arrive as one batch. They override nmap's own reverse-DNS guesses
-// in the network map (see networkHosts). ips is the full scanned set, so Update
-// knows which addresses still need a reverse lookup.
+// lanNamesMsg carries the initial labels for one LAN scan.
 type lanNamesMsg struct {
 	gen   int
-	ips   []string
-	names map[string]string
+	job   string
+	names map[string]lanName
 }
 
-// mergeLANNames combines platform-advertised names with the user's ssh
-// aliases into one freshly allocated map. AdvertisedNames legitimately
-// returns nil on non-Linux systems and several Linux error paths, so the
-// result must never depend on either input being non-nil. Aliases are
-// copied last: the user's own ssh config outranks whatever DNS thinks.
-func mergeLANNames(advertised, aliases map[string]string) map[string]string {
-	names := make(map[string]string, len(advertised)+len(aliases))
-	maps.Copy(names, advertised)
-	maps.Copy(names, aliases)
+type lanName struct {
+	label    string
+	sshAlias bool
+}
+
+func mergeLANNames(advertised, aliases map[string]string) map[string]lanName {
+	names := make(map[string]lanName, len(advertised)+len(aliases))
+	for ip, label := range advertised {
+		names[ip] = lanName{label: label}
+	}
+	for ip, label := range aliases {
+		names[ip] = lanName{label: label, sshAlias: true}
+	}
 	return names
 }
 
@@ -62,17 +68,18 @@ func mergeLANNames(advertised, aliases map[string]string) map[string]string {
 // means "stop spinning for this row".
 type lanNameMsg struct {
 	gen  int
+	job  string
 	ip   string
 	name string
 }
 
-// lanServicesMsg carries what one opened map device answered on its common
-// service ports. host is checked as well as gen, so a scan the user has
-// already moved on from cannot repaint the device they moved to.
+// lanServicesMsg carries replies for one address in one LAN snapshot.
 type lanServicesMsg struct {
-	gen  int
-	host string
-	scan diagnostic.ServiceScan
+	gen     int
+	job     string
+	request uint64
+	scan    diagnostic.ServiceScan
+	err     error
 }
 
 // serviceChoice is the network map's second step: the services one discovered
@@ -83,11 +90,13 @@ type lanServicesMsg struct {
 // host is empty whenever no device has been opened, which is the whole of the
 // "is the chooser showing" question.
 type serviceChoice struct {
-	host string
-	name string // the map's label for the device, for the panel title
-	scan diagnostic.ServiceScan
-	done bool // the scan landed, so an empty Open means "none", not "not yet"
-	sel  int
+	host    string
+	name    string // the map's label for the device, for the panel title
+	binding diagnostic.LANBinding
+	scan    diagnostic.ServiceScan
+	err     string
+	done    bool // the scan landed, so an empty Open means "none", not "not yet"
+	sel     int
 }
 
 // pendingAction is a state change deferred until the active job's terminal event
@@ -122,13 +131,21 @@ type jobState struct {
 	evicted int
 	start   time.Time
 	dur     time.Duration
+
+	networkCIDR string
+	lanSource   netip.Addr
+	lanBinding  diagnostic.LANBinding
+	lanHosts    []diagnostic.LANObservation
+	lanLimited  bool
+	lanID       string
+	lanNames    map[string]lanName
+	lanPending  map[string]bool
 }
 
 const (
 	maxJobLines  = 5000 // ring-buffer cap: older lines become a "discarded" count, not a memory bill
 	jobTailLines = 14   // main-screen tail fallback when the terminal height is unknown
-	// maxActiveJobs caps live subprocesses. A held-down hotkey is one keypress
-	// per repeat, and every one of them used to fork.
+	// maxActiveJobs caps live tools. A held-down hotkey repeats the launch.
 	maxActiveJobs = 4
 	// maxParkedJobs caps the tab ring. Each parked run still owns its output
 	// buffer, so an unbounded ring is a memory bill nobody asked for.
@@ -206,19 +223,14 @@ type model struct {
 	selMoved    bool
 	networkMap  bool
 	mapSelected int
-	networkCIDR string
-	// hostNames maps discovered IPs to resolved or advertised names; entries
-	// beat the names nmap printed.
-	hostNames map[string]string
-	// namesPending holds the IPs whose name lookup is still in flight; those
-	// rows show a spinner instead of nmap's PTR guess.
-	namesPending map[string]bool
 	// svc is the opened device's service list, the step between picking a
 	// device on the map and pointing the checks at one endpoint on it.
-	svc     serviceChoice
-	spinner spinner.Model
+	svc        serviceChoice
+	svcRequest uint64
+	spinner    spinner.Model
 
 	generation int
+	jobSeq     uint64 // unique job IDs within a run, independent of clock resolution
 	// Generation context; cancel kills all in-flight probes and the active job on
 	// restart/quit. Kept alive after the chain completes so tools can run under it.
 	ctx    context.Context
@@ -334,6 +346,12 @@ type model struct {
 	incidentVP       viewport.Model
 	now              func() time.Time
 
+	// updateCheck, when set, asks whether a newer stable release exists. It runs
+	// as a command, never in Init, so it cannot delay a probe.
+	updateCheck func() update.Result
+	// updateLatest is the newer release the header names, "" when there is none.
+	updateLatest string
+
 	// notice is one-line feedback from export or the Ctrl+C quit hint.
 	notice         string
 	noticeOK       bool
@@ -344,6 +362,13 @@ type model struct {
 
 // Option adjusts a new model without growing its positional constructor.
 type Option func(*model)
+
+// WithUpdateNotice starts one update check when the view opens. check runs in
+// a background command, and the header names a newer stable release only when
+// check reports one.
+func WithUpdateNotice(check func() update.Result) Option {
+	return func(m *model) { m.updateCheck = check }
+}
 
 // WithKeymap runs the TUI on a resolved keymap instead of the default one.
 func WithKeymap(km Keymap) Option {
@@ -543,6 +568,15 @@ func writeConfigFile(path, content string) {
 }
 
 func (m model) Init() tea.Cmd {
+	cmd := m.chainInit()
+	if m.updateCheck == nil {
+		return cmd
+	}
+	check := m.updateCheck
+	return tea.Batch(cmd, func() tea.Msg { return updateMsg{res: check()} })
+}
+
+func (m model) chainInit() tea.Cmd {
 	if m.toolbox {
 		return m.spinner.Tick // chain deferred until 'r'; tick drives the job timer
 	}
@@ -593,8 +627,16 @@ func (m model) sshDetected() bool {
 // spinnerActive reports whether the spinner tick chain should keep running for
 // probes, jobs, name lookups, or a device's service check.
 func (m model) spinnerActive() bool {
-	return ((!m.toolbox || m.generation > 0 || m.chainRan()) && !m.allDone()) || m.jobsRunning() ||
-		len(m.namesPending) > 0 || m.svcPending() || (m.verifying && m.verify.busy)
+	if ((!m.toolbox || m.generation > 0 || m.chainRan()) && !m.allDone()) ||
+		m.jobsRunning() || m.svcPending() || (m.verifying && m.verify.busy) {
+		return true
+	}
+	for job := range m.jobs {
+		if len(job.lanPending) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // svcPending reports whether an opened device's service check is still in
@@ -700,6 +742,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case verifyResolvedMsg, verifyResultMsg, verifyKeysMsg:
 		next, cmd, _ := m.handleVerifyMsg(msg)
 		return next, cmd
+	case updateMsg:
+		m.updateLatest = ""
+		if msg.res.Status == update.UpdateAvailable {
+			m.updateLatest = msg.res.Latest
+		}
+		return m, nil
+
 	case noticeDoneMsg:
 		if msg.deadline.Equal(m.noticeDeadline) {
 			m.noticeDeadline = time.Time{}
@@ -805,6 +854,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case lanBindingMsg:
+		if msg.gen != m.generation {
+			return m, nil
+		}
+		job := m.jobByID(msg.job)
+		if job == nil {
+			return m, nil
+		}
+		job.lanBinding = msg.binding
+		return m, waitForMsg(job.active.ch)
+
 	case ToolOutputMsg:
 		if msg.Generation != m.generation {
 			return m, nil
@@ -812,6 +872,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		j := m.jobByID(msg.JobID)
 		if j == nil {
 			return m, nil
+		}
+		if msg.LAN.IP.IsValid() {
+			i := 0
+			for i < len(j.lanHosts) && j.lanHosts[i].IP != msg.LAN.IP {
+				i++
+			}
+			if i == len(j.lanHosts) {
+				j.lanHosts = append(j.lanHosts, msg.LAN)
+			} else {
+				j.lanHosts[i] = msg.LAN
+			}
 		}
 		// The selected run appends through the model: only its buffer is on
 		// screen, so only it has to keep the open viewport's offset honest.
@@ -834,23 +905,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		done.status, done.dropped, done.active = msg.Status, msg.Dropped, nil
+		done.lanLimited = msg.LANLimited
 		done.dur = time.Since(done.start)
 		if m.pending != nil && !m.jobsRunning() {
 			p := m.pending
 			m.pending = nil
 			return m.runPending(p)
 		}
-		if done.name == lanDiscoveryName && msg.Status == JobDone {
-			if ips := discoveredIPs(done.lines); len(ips) > 0 {
-				ctx, gen := m.ctx, m.generation
-				m.namesPending = make(map[string]bool, len(ips))
-				for _, ip := range ips {
-					m.namesPending[ip] = true
-				}
-				return m, func() tea.Msg {
-					names := mergeLANNames(diagnostic.AdvertisedNames(ctx, ips), diagnostic.SSHHostAliases())
-					return lanNamesMsg{gen: gen, ips: ips, names: names}
-				}
+		if done.lanID != "" && msg.Status == JobDone && len(done.lanHosts) > 0 {
+			ips := make([]string, 0, len(done.lanHosts))
+			done.lanPending = make(map[string]bool, len(done.lanHosts))
+			for _, host := range done.lanHosts {
+				ip := host.IP.String()
+				ips = append(ips, ip)
+				done.lanPending[ip] = true
+			}
+			ctx, gen := m.ctx, m.generation
+			return m, func() tea.Msg {
+				names := mergeLANNames(diagnostic.AdvertisedNames(ctx, ips), diagnostic.SSHHostAliases())
+				return lanNamesMsg{gen: gen, job: msg.JobID, names: names}
 			}
 		}
 		return m, nil
@@ -859,47 +932,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen != m.generation {
 			return m, nil
 		}
-		if m.hostNames == nil {
-			m.hostNames = msg.names
-		} else {
-			maps.Copy(m.hostNames, msg.names)
+		job := m.lanJobByID(msg.job)
+		if job == nil || len(job.lanPending) == 0 {
+			return m, nil
 		}
-		// Reverse DNS runs only for what advertised nothing, one command per
-		// address: each row stops spinning as its own name lands, and no row
-		// ever shows a PTR guess that an advertised name would then replace.
+		if job.lanNames == nil {
+			job.lanNames = make(map[string]lanName)
+		}
 		var cmds []tea.Cmd
-		for _, ip := range msg.ips {
-			if m.hostNames[ip] != "" {
-				delete(m.namesPending, ip)
+		for _, host := range job.lanHosts {
+			ip := host.IP.String()
+			if !job.lanPending[ip] {
+				continue
+			}
+			if name := msg.names[ip]; name.label != "" {
+				job.lanNames[ip] = name
+				delete(job.lanPending, ip)
 				continue
 			}
 			ctx, gen := m.ctx, m.generation
 			cmds = append(cmds, func() tea.Msg {
-				return lanNameMsg{gen: gen, ip: ip, name: diagnostic.ReverseName(ctx, ip)}
+				return lanNameMsg{gen: gen, job: msg.job, ip: ip, name: diagnostic.ReverseName(ctx, ip)}
 			})
 		}
 		return m, tea.Batch(cmds...)
 
 	case lanServicesMsg:
-		// The device is checked as well as the generation: esc and a second
-		// device both leave an in-flight scan behind, and its reply must not
-		// land on whatever is on screen by the time it arrives.
-		if msg.gen != m.generation || msg.host != m.svc.host {
+		if msg.gen != m.generation || msg.job != m.cur.lanID || msg.request != m.svcRequest || m.svc.host == "" {
 			return m, nil
 		}
 		m.svc.scan, m.svc.done, m.svc.sel = msg.scan, true, 0
+		if msg.err != nil {
+			m.svc.err = textsafe.Clean(msg.err.Error())
+		}
 		return m, nil
 
 	case lanNameMsg:
 		if msg.gen != m.generation {
 			return m, nil
 		}
-		delete(m.namesPending, msg.ip)
+		job := m.lanJobByID(msg.job)
+		if job == nil || !job.lanPending[msg.ip] {
+			return m, nil
+		}
+		delete(job.lanPending, msg.ip)
 		if msg.name != "" {
-			if m.hostNames == nil {
-				m.hostNames = map[string]string{}
-			}
-			m.hostNames[msg.ip] = msg.name
+			job.lanNames[msg.ip] = lanName{label: msg.name}
 		}
 		return m, nil
 

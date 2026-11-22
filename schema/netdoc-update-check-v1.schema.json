@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/heymaikol/network-doctor/main/schema/netdoc-update-check-v1.schema.json",
+  "title": "Network Doctor update check",
+  "description": "The JSON object `netdoc -update-check -json` writes: whether a newer stable release exists than the installed netdoc. The answer is recomputed against the installed version on every call, so it is never stale after an upgrade. Readers ignore keys they do not recognize, and an absent optional field means not known.",
+  "type": "object",
+  "required": ["schema", "status", "installed", "cached"],
+  "properties": {
+    "schema": { "const": "netdoc.update-check.v1" },
+    "status": {
+      "enum": ["update_available", "up_to_date", "unknown_version", "disabled", "offline", "rate_limited", "bad_response"],
+      "description": "update_available and up_to_date are answers about the latest stable release. unknown_version means the installed build is not a stable release. disabled means no request was made. offline, rate_limited and bad_response mean no answer was obtained."
+    },
+    "installed": { "type": "string", "description": "The installed netdoc version as it reports it, for example 2.2.1 or dev." },
+    "latest": { "type": "string", "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", "description": "The latest stable release tag. Present when a release was learned." },
+    "release_url": { "type": "string", "pattern": "^https://github\\.com/heymaikol/network-doctor/releases/tag/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$", "description": "The release page for latest." },
+    "checked_at": { "type": "string", "format": "date-time", "description": "When the answer was obtained, in UTC." },
+    "cached": { "type": "boolean", "description": "true when the answer came from the cache rather than a request made by this call." }
+  },
+  "if": { "properties": { "status": { "const": "update_available" } } },
+  "then": { "required": ["latest", "release_url", "checked_at"] }
+}

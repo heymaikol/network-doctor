@@ -101,10 +101,6 @@ func validateYAML(sch *jsonschema.Schema, data []byte) error {
 	return sch.Validate(inst)
 }
 
-func TestScenarioSchemaCompiles(t *testing.T) {
-	compileScenarioSchema(t)
-}
-
 // TestBuiltInScenariosValidateAgainstSchema is the schema's main obligation.
 // The files are discovered through the same embedded filesystem the simulator
 // loads them from, so a scenario added to the library is validated the moment

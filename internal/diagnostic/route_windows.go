@@ -75,6 +75,17 @@ func lookupRouteDecision(dst, source net.IP) (RouteDecision, bool) {
 
 // bestRoute performs one GetBestRoute2 call, optionally from a chosen source.
 func bestRoute(addr, src netip.Addr, constrained bool) (RouteDecision, bool) {
+	best, bestSource, err := bestRouteRow(addr, src, constrained, 0)
+	if err != nil {
+		if unreachableRouteError(err) {
+			return RouteDecision{Unreachable: true}, true
+		}
+		return RouteDecision{}, false
+	}
+	return routeDecisionFromBestRoute(&best, &bestSource, addr), true
+}
+
+func bestRouteRow(addr, src netip.Addr, constrained bool, index uint32) (windows.MibIpForwardRow2, windows.RawSockaddrInet, error) {
 	destination := sockaddrInet(addr)
 	// A nil source is the call's own way of saying "no constraint, select one
 	// too", so the pointer is built here and converted inside the call rather
@@ -87,19 +98,16 @@ func bestRoute(addr, src netip.Addr, constrained bool) (RouteDecision, bool) {
 	var best windows.MibIpForwardRow2
 	var bestSource windows.RawSockaddrInet
 	code, _, _ := syscall.SyscallN(procGetBestRoute2.Addr(),
-		0, 0, // no interface constraint: ask for the machine's own decision
+		0, uintptr(index),
 		uintptr(unsafe.Pointer(from)),
 		uintptr(unsafe.Pointer(&destination)),
 		0, // AddressSortOptions
 		uintptr(unsafe.Pointer(&best)),
 		uintptr(unsafe.Pointer(&bestSource)))
 	if code != 0 {
-		if unreachableRouteError(syscall.Errno(code)) {
-			return RouteDecision{Unreachable: true}, true
-		}
-		return RouteDecision{}, false
+		return best, bestSource, syscall.Errno(code)
 	}
-	return routeDecisionFromBestRoute(&best, &bestSource, addr), true
+	return best, bestSource, nil
 }
 
 // routeDecisionFromBestRoute reads one MIB_IPFORWARD_ROW2 into the shared
@@ -117,8 +125,8 @@ func routeDecisionFromBestRoute(best *windows.MibIpForwardRow2, source *windows.
 		out.Gateway = gateway
 	}
 	metric := uint64(best.Metric)
-	if row := (windows.MibIpInterfaceRow{Family: best.DestinationPrefix.Prefix.Family,
-		InterfaceLuid: best.InterfaceLuid}); windows.GetIpInterfaceEntry(&row) == nil {
+	if row := (mibIPInterfaceRow{Family: best.DestinationPrefix.Prefix.Family,
+		InterfaceLuid: best.InterfaceLuid}); getIPInterfaceEntry(&row) == nil {
 		metric += uint64(row.Metric)
 	}
 	if metric <= uint64(^uint32(0)) {
@@ -207,12 +215,12 @@ func defaultRoutesFor(family string) []defaultRouteState {
 		return nil
 	}
 	defer windows.FreeMibTable(unsafe.Pointer(forward))
-	var interfaces *windows.MibIpInterfaceTable
-	if err := windows.GetIpInterfaceTable(af, &interfaces); err != nil {
+	interfaces, freeInterfaces, err := getIPInterfaceRows(af)
+	if err != nil {
 		return nil
 	}
-	defer windows.FreeMibTable(unsafe.Pointer(interfaces))
-	routes := windowsDefaultRoutes(af, forward.Rows(), ipInterfaceRows(interfaces))
+	defer freeInterfaces()
+	routes := windowsDefaultRoutes(af, forward.Rows(), interfaces)
 	for i := range routes {
 		routes[i].iface = interfaceNameForIndex(routes[i].iface)
 	}

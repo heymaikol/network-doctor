@@ -1,0 +1,209 @@
+{
+  "version": "2.2.1",
+  "target": {
+    "host": "nonexistent-host.invalid",
+    "port": 443,
+    "protocol": "tls+http"
+  },
+  "checks": [
+    {
+      "id": "iface",
+      "name": "Interface",
+      "status": "PASS",
+      "ms": 1,
+      "detail": "interface wlan0 is up",
+      "iface": "wlan0"
+    },
+    {
+      "id": "internet_tcp",
+      "name": "Internet (TCP egress)",
+      "status": "PASS",
+      "address_families": {
+        "ipv4": "reachable",
+        "ipv6": "reachable"
+      },
+      "ms": 45,
+      "detail": "IPv4 egress via 1.1.1.1 in 17ms (src 192.0.2.10 wlan0); IPv6 egress via 2606:4700:4700::1111 in 17ms",
+      "selected_ip": "1.1.1.1",
+      "source": "192.0.2.10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "1.1.1.1",
+          "ms": 17
+        },
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 17
+        }
+      ]
+    },
+    {
+      "id": "quic_udp_443",
+      "name": "QUIC / UDP 443",
+      "status": "PASS",
+      "ms": 62,
+      "detail": "QUIC v1 handshake with connectivitycheck.gstatic.com over UDP/443 in 61ms (h3)",
+      "selected_ip": "2001:4860:4826:7800::",
+      "source": "2001:db8::10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "2001:4860:4826:7800::",
+          "ms": 61
+        }
+      ]
+    },
+    {
+      "id": "proxy_connect",
+      "name": "Internet (env proxy)",
+      "status": "N/A",
+      "ms": 1,
+      "detail": "no proxy in environment (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY unset)"
+    },
+    {
+      "id": "dns",
+      "name": "DNS nonexistent-host.invalid",
+      "status": "FAIL",
+      "ms": 4,
+      "detail": "cannot resolve nonexistent-host.invalid (resolver tried: 127.0.0.53): lookup nonexistent-host.invalid on 127.0.0.53:53: no such host",
+      "fix": "name resolution failing: check /etc/resolv.conf / DNS",
+      "resolver_targets": [
+        "127.0.0.53:53"
+      ]
+    },
+    {
+      "id": "dns_public",
+      "name": "DNS (public)",
+      "status": "PASS",
+      "ms": 19,
+      "detail": "8.8.8.8 reports no A/AAAA records for nonexistent-host.invalid.; queried nonexistent-host.invalid. only; system lookup may use search suffixes, so answers are not compared",
+      "dns_name_scope": "rooted_relative",
+      "resolver_targets": [
+        "8.8.8.8:53"
+      ]
+    },
+    {
+      "id": "dns_encrypted",
+      "name": "DNS (encrypted DoH/DoT)",
+      "status": "PASS",
+      "ms": 86,
+      "detail": "DoH completed a DNS query for connectivitycheck.gstatic.com via cloudflare-dns.com in 85ms",
+      "selected_ip": "2606:4700:4700::1111",
+      "source": "2001:db8::10",
+      "iface": "wlan0",
+      "attempts": [
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 17
+        },
+        {
+          "ip": "2606:4700:4700::1111",
+          "ms": 17
+        }
+      ]
+    },
+    {
+      "id": "target_tcp",
+      "name": "TCP nonexistent-host.invalid:443",
+      "status": "SKIP",
+      "ms": 0,
+      "detail": "skipped: a prerequisite failed"
+    },
+    {
+      "id": "path_mtu",
+      "name": "Path MTU nonexistent-host.invalid:443",
+      "status": "SKIP",
+      "ms": 0,
+      "detail": "skipped: a prerequisite failed"
+    },
+    {
+      "id": "ssid",
+      "name": "Wi-Fi network",
+      "status": "PASS",
+      "ms": 1,
+      "detail": "connected to Example Wi-Fi",
+      "network": "Example Wi-Fi"
+    },
+    {
+      "id": "tls",
+      "name": "TLS nonexistent-host.invalid",
+      "status": "SKIP",
+      "ms": 0,
+      "detail": "skipped: a prerequisite failed"
+    },
+    {
+      "id": "http",
+      "name": "HTTP nonexistent-host.invalid",
+      "status": "SKIP",
+      "ms": 0,
+      "detail": "skipped: a prerequisite failed"
+    },
+    {
+      "id": "https",
+      "name": "HTTPS nonexistent-host.invalid",
+      "status": "SKIP",
+      "ms": 0,
+      "detail": "skipped: a prerequisite failed"
+    }
+  ],
+  "summary": "Cannot resolve nonexistent-host.invalid: DNS failure. (The general internet is reachable.)",
+  "verdict": "dns",
+  "failed_stage": "dns",
+  "findings": [
+    {
+      "id": "dns_failure",
+      "focus": "dns",
+      "confidence": "low",
+      "evidence": [
+        "dns",
+        "dns_public",
+        "internet_tcp"
+      ],
+      "causal_evidence": [
+        {
+          "kind": "support",
+          "check": "dns",
+          "observation": "dns_not_found"
+        },
+        {
+          "kind": "support",
+          "check": "dns_public",
+          "observation": "dns_not_found"
+        },
+        {
+          "kind": "support",
+          "check": "internet_tcp",
+          "observation": "status_pass"
+        },
+        {
+          "kind": "ruled_out",
+          "check": "internet_tcp",
+          "observation": "status_pass",
+          "candidate": "offline"
+        },
+        {
+          "kind": "not_evaluated",
+          "check": "target_tcp",
+          "observation": "status_skip",
+          "reason": "prerequisite_failed"
+        }
+      ],
+      "remediation": {
+        "id": "check_name_resolution",
+        "action": "Check name resolution on this machine",
+        "why": "Resolution is failing with no second opinion to separate a broken resolver from a name that does not exist, so both are still possible.",
+        "steps": [
+          "Check which resolvers are configured, and whether they answer anything at all.",
+          "Rerun with the public DNS check enabled to get the second opinion that tells those two apart."
+        ],
+        "command": [
+          "cat",
+          "/etc/resolv.conf"
+        ],
+        "expect": "Either a resolver that answers, or a second opinion showing the name itself is missing."
+      }
+    }
+  ],
+  "ok": false
+}

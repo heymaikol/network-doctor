@@ -147,6 +147,8 @@ var evidenceProjection = map[string]decision{
 	"diagnostic.Target.PortExplicit":     {category: replayed},
 	"diagnostic.Target.Zone": {category: redundant, why: "Raw carries the zone, and the zone is no part of Host " +
 		"or IP. Only a dial address reads it, and replay dials nothing, so it is left behind."},
+	"diagnostic.Target.lanBinding": {category: transient, why: "the live interface binding of a TUI service selection. " +
+		"Replay needs the result's observed source, interface and failure cause. It opens no sockets."},
 
 	// The durable model. Everything here either comes back as diagnostic state
 	// or says why the artifact keeps it without replay reading it.
@@ -345,9 +347,11 @@ func maximalResult() ProbeResult {
 // field classified as transient, and the artifact must not contain it.
 const transientSentinel = "zz-transient-alternate-zz"
 
+const lanBindingSentinel = "zz-transient-lan-interface-zz"
+
 func maximalTarget() *Target {
 	return &Target{Raw: "[fe80::10%eth0]:443", Host: "fe80::10", IP: net.ParseIP("fe80::10"), Zone: "eth0",
-		Port: 443, Proto: ProtoTLSHTTP, PortExplicit: true}
+		Port: 443, Proto: ProtoTLSHTTP, PortExplicit: true, lanBinding: &LANBinding{Interface: lanBindingSentinel}}
 }
 
 // projected runs the fixture down the real path: BuildSnapshot, a real Encode,
@@ -401,7 +405,10 @@ func TestReplayedEvidenceSurvivesTheRealArtifactPath(t *testing.T) {
 	assertNoZeroFields(t, "diagnostic.ProbeResult", reflect.ValueOf(live))
 	assertNoZeroFields(t, "diagnostic.Target", reflect.ValueOf(*maximalTarget()))
 
-	_, _, back := projected(t)
+	data, _, back := projected(t)
+	if strings.Contains(string(data), lanBindingSentinel) {
+		t.Fatal("a live LAN selection binding reached the snapshot")
+	}
 	lost := map[string]bool{}
 	compareEvidence(t, "", reflect.ValueOf(live), reflect.ValueOf(back), lost)
 	for key := range lost {

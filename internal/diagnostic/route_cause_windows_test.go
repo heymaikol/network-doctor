@@ -3,7 +3,10 @@
 package diagnostic
 
 import (
+	"encoding/binary"
 	"net"
+	"slices"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -35,8 +38,8 @@ func forwardRow(luid uint64, index uint32, prefixLength uint8, destination, next
 	}
 }
 
-func interfaceRow(family uint16, luid uint64, index uint32, metric uint32, connected, disableDefaults uint8) windows.MibIpInterfaceRow {
-	return windows.MibIpInterfaceRow{
+func interfaceRow(family uint16, luid uint64, index uint32, metric uint32, connected, disableDefaults uint8) mibIPInterfaceRow {
+	return mibIPInterfaceRow{
 		Family: family, InterfaceLuid: luid, InterfaceIndex: index,
 		Metric: metric, Connected: connected, DisableDefaultRoutes: disableDefaults,
 	}
@@ -65,48 +68,48 @@ func TestRouteFailureCauseFromTables(t *testing.T) {
 		name       string
 		family     uint16
 		routes     []windows.MibIpForwardRow2
-		interfaces []windows.MibIpInterfaceRow
+		interfaces []mibIPInterfaceRow
 		neighbors  []mibIPNetRow2
 		want       string
 	}{
 		{"empty tables are no default route", windows.AF_INET, nil, nil, nil, RouteCauseNoDefaultRoute},
 		{"a subnet route is not a default route", windows.AF_INET,
 			[]windows.MibIpForwardRow2{forwardRow(1, 4, 24, "10.77.1.0", "0.0.0.0", 0)},
-			[]windows.MibIpInterfaceRow{up}, nil, RouteCauseNoDefaultRoute},
+			[]mibIPInterfaceRow{up}, nil, RouteCauseNoDefaultRoute},
 		{"a default route on a disconnected interface is unusable", windows.AF_INET,
 			[]windows.MibIpForwardRow2{viaGateway},
-			[]windows.MibIpInterfaceRow{interfaceRow(windows.AF_INET, 1, 4, 25, 0, 0)}, nil, RouteCauseNoDefaultRoute},
+			[]mibIPInterfaceRow{interfaceRow(windows.AF_INET, 1, 4, 25, 0, 0)}, nil, RouteCauseNoDefaultRoute},
 		{"an interface barred from default routes is unusable", windows.AF_INET,
 			[]windows.MibIpForwardRow2{viaGateway},
-			[]windows.MibIpInterfaceRow{interfaceRow(windows.AF_INET, 1, 4, 25, 1, 1)}, nil, RouteCauseNoDefaultRoute},
+			[]mibIPInterfaceRow{interfaceRow(windows.AF_INET, 1, 4, 25, 1, 1)}, nil, RouteCauseNoDefaultRoute},
 		{"a route whose interface is missing from the table is unusable", windows.AF_INET,
 			[]windows.MibIpForwardRow2{viaGateway}, nil, nil, RouteCauseNoDefaultRoute},
 		{"a reachable neighbour leaves the gateway unaccused", windows.AF_INET,
-			[]windows.MibIpForwardRow2{viaGateway}, []windows.MibIpInterfaceRow{up},
+			[]windows.MibIpForwardRow2{viaGateway}, []mibIPInterfaceRow{up},
 			[]mibIPNetRow2{neighborRow(4, "10.77.1.1", nlNeighborReachable, mac)}, RouteCauseSelectedPathFailed},
 		{"a stale neighbour still has an address and is not a failure", windows.AF_INET,
-			[]windows.MibIpForwardRow2{viaGateway}, []windows.MibIpInterfaceRow{up},
+			[]windows.MibIpForwardRow2{viaGateway}, []mibIPInterfaceRow{up},
 			[]mibIPNetRow2{neighborRow(4, "10.77.1.1", nlNeighborStale, mac)}, RouteCauseSelectedPathFailed},
 		{"an incomplete neighbour is a dead gateway", windows.AF_INET,
-			[]windows.MibIpForwardRow2{viaGateway}, []windows.MibIpInterfaceRow{up},
+			[]windows.MibIpForwardRow2{viaGateway}, []mibIPInterfaceRow{up},
 			[]mibIPNetRow2{neighborRow(4, "10.77.1.1", nlNeighborIncomplete, nil)}, RouteCauseGatewayUnreachable},
 		{"an unreachable neighbour is a dead gateway", windows.AF_INET,
-			[]windows.MibIpForwardRow2{viaGateway}, []windows.MibIpInterfaceRow{up},
+			[]windows.MibIpForwardRow2{viaGateway}, []mibIPInterfaceRow{up},
 			[]mibIPNetRow2{neighborRow(4, "10.77.1.1", nlNeighborUnreachable, mac)}, RouteCauseGatewayUnreachable},
 		// Point-to-point and tunnel media carry no link-layer addresses, so an
 		// empty PhysicalAddress on a neighbour Windows calls reachable is not
 		// evidence of anything. Only the state field decides.
 		{"a reachable neighbour with no hardware address is not a dead gateway", windows.AF_INET,
-			[]windows.MibIpForwardRow2{viaGateway}, []windows.MibIpInterfaceRow{up},
+			[]windows.MibIpForwardRow2{viaGateway}, []mibIPInterfaceRow{up},
 			[]mibIPNetRow2{neighborRow(4, "10.77.1.1", nlNeighborReachable, nil)}, RouteCauseSelectedPathFailed},
 		{"an absent neighbour entry proves nothing", windows.AF_INET,
-			[]windows.MibIpForwardRow2{viaGateway}, []windows.MibIpInterfaceRow{up}, nil, RouteCauseSelectedPathFailed},
+			[]windows.MibIpForwardRow2{viaGateway}, []mibIPInterfaceRow{up}, nil, RouteCauseSelectedPathFailed},
 		{"a dead neighbour on another interface is not this gateway", windows.AF_INET,
-			[]windows.MibIpForwardRow2{viaGateway}, []windows.MibIpInterfaceRow{up},
+			[]windows.MibIpForwardRow2{viaGateway}, []mibIPInterfaceRow{up},
 			[]mibIPNetRow2{neighborRow(9, "10.77.1.1", nlNeighborIncomplete, nil)}, RouteCauseSelectedPathFailed},
 		{"an on-link default route has no next hop to resolve", windows.AF_INET,
 			[]windows.MibIpForwardRow2{forwardRow(1, 4, 0, v4Default, "0.0.0.0", 0)},
-			[]windows.MibIpInterfaceRow{up},
+			[]mibIPInterfaceRow{up},
 			[]mibIPNetRow2{neighborRow(4, "10.77.1.1", nlNeighborIncomplete, nil)}, RouteCauseSelectedPathFailed},
 		// The route metrics alone would prefer the second interface. The
 		// effective metric Windows routes by is the route metric plus the
@@ -116,33 +119,33 @@ func TestRouteFailureCauseFromTables(t *testing.T) {
 			[]windows.MibIpForwardRow2{
 				forwardRow(1, 4, 0, v4Default, "10.77.1.1", 100),
 				forwardRow(2, 9, 0, v4Default, "10.77.3.1", 0)},
-			[]windows.MibIpInterfaceRow{up, interfaceRow(windows.AF_INET, 2, 9, 200, 1, 0)},
+			[]mibIPInterfaceRow{up, interfaceRow(windows.AF_INET, 2, 9, 200, 1, 0)},
 			nil, RouteCausePreferredPathFailed},
 		{"equally weighted defaults are load sharing, not preference", windows.AF_INET,
 			[]windows.MibIpForwardRow2{
 				forwardRow(1, 4, 0, v4Default, "10.77.1.1", 0),
 				forwardRow(2, 9, 0, v4Default, "10.77.3.1", 0)},
-			[]windows.MibIpInterfaceRow{up, interfaceRow(windows.AF_INET, 2, 9, 25, 1, 0)},
+			[]mibIPInterfaceRow{up, interfaceRow(windows.AF_INET, 2, 9, 25, 1, 0)},
 			[]mibIPNetRow2{neighborRow(4, "10.77.1.1", nlNeighborIncomplete, nil)}, RouteCauseSelectedPathFailed},
 		{"every equally weighted gateway dead is a dead gateway", windows.AF_INET,
 			[]windows.MibIpForwardRow2{
 				forwardRow(1, 4, 0, v4Default, "10.77.1.1", 0),
 				forwardRow(2, 9, 0, v4Default, "10.77.3.1", 0)},
-			[]windows.MibIpInterfaceRow{up, interfaceRow(windows.AF_INET, 2, 9, 25, 1, 0)},
+			[]mibIPInterfaceRow{up, interfaceRow(windows.AF_INET, 2, 9, 25, 1, 0)},
 			[]mibIPNetRow2{neighborRow(4, "10.77.1.1", nlNeighborIncomplete, nil),
 				neighborRow(9, "10.77.3.1", nlNeighborIncomplete, nil)}, RouteCauseGatewayUnreachable},
 		{"an IPv4 default route is not an IPv6 default route", windows.AF_INET6,
-			[]windows.MibIpForwardRow2{viaGateway}, []windows.MibIpInterfaceRow{up}, nil, RouteCauseNoDefaultRoute},
+			[]windows.MibIpForwardRow2{viaGateway}, []mibIPInterfaceRow{up}, nil, RouteCauseNoDefaultRoute},
 		{"an IPv4 interface does not carry an IPv6 route", windows.AF_INET6,
 			[]windows.MibIpForwardRow2{forwardRow(1, 4, 0, v6Default, "fe80::1", 0)},
-			[]windows.MibIpInterfaceRow{up}, nil, RouteCauseNoDefaultRoute},
+			[]mibIPInterfaceRow{up}, nil, RouteCauseNoDefaultRoute},
 		{"an incomplete NDP entry is a dead IPv6 gateway", windows.AF_INET6,
 			[]windows.MibIpForwardRow2{forwardRow(1, 4, 0, v6Default, "fe80::1", 0)},
-			[]windows.MibIpInterfaceRow{interfaceRow(windows.AF_INET6, 1, 4, 25, 1, 0)},
+			[]mibIPInterfaceRow{interfaceRow(windows.AF_INET6, 1, 4, 25, 1, 0)},
 			[]mibIPNetRow2{neighborRow(4, "fe80::1", nlNeighborIncomplete, nil)}, RouteCauseGatewayUnreachable},
 		{"a resolved NDP entry leaves the IPv6 gateway unaccused", windows.AF_INET6,
 			[]windows.MibIpForwardRow2{forwardRow(1, 4, 0, v6Default, "fe80::1", 0)},
-			[]windows.MibIpInterfaceRow{interfaceRow(windows.AF_INET6, 1, 4, 25, 1, 0)},
+			[]mibIPInterfaceRow{interfaceRow(windows.AF_INET6, 1, 4, 25, 1, 0)},
 			[]mibIPNetRow2{neighborRow(4, "fe80::1", nlNeighborReachable, mac)}, RouteCauseSelectedPathFailed},
 	}
 	for _, tc := range tests {
@@ -196,6 +199,87 @@ func TestMibIPNetRow2MatchesTheDocumentedLayout(t *testing.T) {
 	}
 }
 
+func TestMibIPInterfaceRowMatchesTheWindowsSDK(t *testing.T) {
+	var row mibIPInterfaceRow
+	var table mibIPInterfaceTable
+	for _, field := range []struct {
+		name      string
+		got, want uintptr
+	}{
+		{"Table", unsafe.Offsetof(table.Table), 8},
+		{"Family", unsafe.Offsetof(row.Family), 0},
+		{"InterfaceLuid", unsafe.Offsetof(row.InterfaceLuid), 8},
+		{"InterfaceIndex", unsafe.Offsetof(row.InterfaceIndex), 16},
+		{"WeakHostSend", unsafe.Offsetof(row.WeakHostSend), 42},
+		{"WeakHostReceive", unsafe.Offsetof(row.WeakHostReceive), 43},
+		{"Metric", unsafe.Offsetof(row.Metric), 148},
+		{"Connected", unsafe.Offsetof(row.Connected), 156},
+		{"TransmitOffload", unsafe.Offsetof(row.TransmitOffload), 164},
+		{"ReceiveOffload", unsafe.Offsetof(row.ReceiveOffload), 165},
+		{"DisableDefaultRoutes", unsafe.Offsetof(row.DisableDefaultRoutes), 166},
+		{"row stride", unsafe.Sizeof(row), 168},
+	} {
+		if field.got != field.want {
+			t.Errorf("%s = %d, want %d", field.name, field.got, field.want)
+		}
+	}
+}
+
+func TestIPInterfaceRowsReadEveryNativeRow(t *testing.T) {
+	// Lay out bytes by SDK offsets, independently of the Go types under test.
+	const firstRow, stride = 8, 168
+	want := []uint32{17, 7, 9, 1}
+	var aligned [(firstRow + 4*stride) / 8]uint64
+	raw := unsafe.Slice((*byte)(unsafe.Pointer(&aligned[0])), unsafe.Sizeof(aligned))
+	binary.LittleEndian.PutUint32(raw, 4)
+	for i, index := range want {
+		row := raw[firstRow+i*stride:]
+		binary.LittleEndian.PutUint16(row, windows.AF_INET)
+		binary.LittleEndian.PutUint64(row[8:], uint64(index))
+		binary.LittleEndian.PutUint32(row[16:], index)
+		binary.LittleEndian.PutUint32(row[148:], index)
+		row[156] = 1
+	}
+	last := raw[firstRow+3*stride:]
+	last[166] = 1
+	table := (*windows.MibIpInterfaceTable)(unsafe.Pointer(&aligned[0]))
+	rows, err := ipInterfaceRows(table, windows.AF_INET)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []uint32
+	for _, row := range rows {
+		got = append(got, row.InterfaceIndex)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("IPv4 interface indices = %v, want %v", got, want)
+	}
+	if _, err := windowsLANEchoInterface(9, rows); err != nil {
+		t.Fatalf("selected strong-host interface 9 rejected: %v", err)
+	}
+	last[43] = 1
+	if _, err := windowsLANEchoInterface(9, rows); err == nil || !strings.Contains(err.Error(), "interface index 1") {
+		t.Fatalf("weak-host receive on a different IPv4 interface was not detected: %v", err)
+	}
+
+	routes := []windows.MibIpForwardRow2{
+		forwardRow(9, 9, 0, v4Default, "10.77.1.1", 2),
+		forwardRow(1, 1, 0, v4Default, "10.77.2.1", 1),
+	}
+	defaults := windowsDefaultRoutes(windows.AF_INET, routes, rows)
+	if len(defaults) != 1 || defaults[0].iface != "9" || defaults[0].metric != 11 {
+		t.Fatalf("default routes = %+v, want only interface 9 with metric 11", defaults)
+	}
+
+	binary.LittleEndian.PutUint16(last, windows.AF_INET6)
+	if rows, err := ipInterfaceRows(table, windows.AF_INET); err == nil || rows != nil {
+		t.Fatalf("unexpected address family returned rows %v, error %v", rows, err)
+	}
+	if rows, err := ipInterfaceRows(nil, windows.AF_INET); err == nil || rows != nil {
+		t.Fatalf("nil interface table returned rows %v, error %v", rows, err)
+	}
+}
+
 // TestWindowsIPHelperTablesAvailable is the availability half of this file: the
 // unit tests above prove the reasoning, and this proves the three IP Helper
 // calls the reasoning is fed by still succeed on the Windows actually running
@@ -209,11 +293,10 @@ func TestWindowsIPHelperTablesAvailable(t *testing.T) {
 		} else {
 			windows.FreeMibTable(unsafe.Pointer(forward))
 		}
-		var interfaces *windows.MibIpInterfaceTable
-		if err := windows.GetIpInterfaceTable(family, &interfaces); err != nil {
+		if _, free, err := getIPInterfaceRows(family); err != nil {
 			t.Errorf("GetIpInterfaceTable(%d): %v", family, err)
 		} else {
-			windows.FreeMibTable(unsafe.Pointer(interfaces))
+			free()
 		}
 		if _, free, err := getIPNetTable2(family); err != nil {
 			t.Errorf("GetIpNetTable2(%d): %v", family, err)

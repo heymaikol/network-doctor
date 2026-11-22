@@ -783,7 +783,7 @@ impl App {
             }
             ui.label(weak("Asks GitHub once a launch for a newer release. NETDOC_NO_UPDATE_CHECK=1 also turns it off.").small());
             ui.label(
-                weak("GitHub receives this computer's public IP address with each check.").small(),
+                weak("GitHub receives the public IP address this request originates from, which may be a proxy's.").small(),
             );
             match (&self.netdoc, &self.netdoc_version) {
                 (Some(p), Some(v)) => {
@@ -1913,7 +1913,7 @@ mod access {
         h.run();
         h.get_by_role_and_label(
             Role::Label,
-            "GitHub receives this computer's public IP address with each check.",
+            "GitHub receives the public IP address this request originates from, which may be a proxy's.",
         );
     }
 

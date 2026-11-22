@@ -467,3 +467,17 @@ func TestVerifyPasswordTypedInPasswordModeIsCarried(t *testing.T) {
 		t.Fatalf("typed password not carried: password=%q note=%q", a.Password, note)
 	}
 }
+
+// A read that fails and then succeeds shows no error: the panel shows the route
+// that was read, not the failure of the read before it.
+func TestVerifyResolveErrorIsClearedByAGoodRead(t *testing.T) {
+	m := pressed(t, sshModel(t), keyPress("S"))
+	m, _, _ = m.handleVerifyMsg(verifyResolvedMsg{id: m.verify.id, seq: m.verify.resolveSeq, err: errors.New("the SSH configuration is unreadable")})
+	if m.verify.resolveErr == "" {
+		t.Fatal("a failed read showed no error")
+	}
+	m = resolved(t, m)
+	if m.verify.resolveErr != "" {
+		t.Fatalf("a successful read still shows the old error: %q", m.verify.resolveErr)
+	}
+}

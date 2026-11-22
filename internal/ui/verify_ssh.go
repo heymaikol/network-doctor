@@ -493,6 +493,7 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		}
 		m.verify.target = msg.target
 		m.verify.resolved = true
+		m.verify.resolveErr = ""
 		m.verify.keys = sshverify.ExistingIdentityFiles(msg.target)
 		return m, nil, true
 	case verifyKeysMsg:

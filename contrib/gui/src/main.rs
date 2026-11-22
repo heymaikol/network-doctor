@@ -1427,6 +1427,36 @@ mod tests {
         dir
     }
 
+    /// A check that is still waiting for netdoc's update answer holds nothing: a
+    /// diagnostic started meanwhile finishes, and the window stays in its hands.
+    #[cfg(unix)]
+    #[test]
+    fn a_pending_update_check_does_not_hold_a_diagnostic() {
+        let dir = scratch_dir("update-and-run");
+        let body =
+            format!("case \"$1\" in\n-update-check) exec sleep 600;;\nesac\necho '{REPORT_LINE}'");
+        let startup = Startup {
+            netdoc: Some(fake_netdoc(&dir, &body)),
+            update_check: true,
+            ..Startup::default()
+        };
+        let mut app = App::new(egui::Context::default(), startup);
+        assert!(app.update_rx.is_some(), "the update check did not start");
+        app.start();
+        let ended = wait_for_the_check(&mut app);
+        let reports = app.history.len();
+        // The update answer is still pending, so the diagnostic ran alongside it.
+        let still_pending = app.update_rx.is_some();
+        drop(app);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(ended, "the diagnostic waited for the pending update check");
+        assert_eq!(reports, 1, "the diagnostic produced no report");
+        assert!(
+            still_pending,
+            "the update check had finished first, so this proved nothing"
+        );
+    }
+
     /// A window whose next check runs `body` as netdoc, with the watch setting given.
     #[cfg(unix)]
     fn window_running(dir: &std::path::Path, body: &str, watch: bool) -> App {

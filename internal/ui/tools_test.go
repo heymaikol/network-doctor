@@ -6,6 +6,7 @@ package ui
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -305,11 +306,16 @@ func TestToolsFollowSelectedFamily(t *testing.T) {
 }
 
 func TestLANDiscoveryTool(t *testing.T) {
-	tool := lanDiscoveryTool(shellArgs, "192.168.12.0/24")
-	args, _, _ := tool.Build(nil, nil)
-	want := []string{"--unprivileged", "-sn", "-T3", "--host-timeout", "5s", "-oG", "-", "192.168.12.0/24"}
-	if !tool.Confirm || !slices.Equal(args, want) {
-		t.Fatalf("LAN scan = confirm %v, argv %q; want true, %q", tool.Confirm, args, want)
+	source := netip.MustParseAddr("192.168.12.34")
+	tool := lanDiscoveryTool(source, "lan-test", "192.168.12.0/24")
+	args, _, display := tool.Build(nil, nil)
+	if !tool.Confirm || !tool.Available || tool.Bin != "" || len(args) != 0 || tool.lanSource != source || tool.lanIface != "lan-test" {
+		t.Fatalf("LAN scan = %+v, want built-in discovery bound to the selected source", tool)
+	}
+	for _, want := range []string{"ICMP echo", "TCP 80/443", "neighbor cache", "192.168.12.34", "192.168.12.0/24"} {
+		if !strings.Contains(display, want) {
+			t.Errorf("confirmation %q does not show %q", display, want)
+		}
 	}
 }
 

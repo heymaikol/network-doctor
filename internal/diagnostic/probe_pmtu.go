@@ -61,6 +61,9 @@ func (o *netops) pmtuProbe(port int, proto Proto) func(context.Context, map[Prob
 		ip := dep.SelectedIP
 		conn, err := o.dialContext(ctx, "tcp", o.hostPort(ip, port))
 		if err != nil {
+			if errors.Is(err, errLANUnavailable) {
+				return lanTargetFailure(err)
+			}
 			// TCP connected moments ago, so a second refusal is flakiness on the
 			// path, not a verdict about it.
 			r.Status, r.SelectedIP = StatusNA, ip

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"runtime"
 	"slices"
 	"strings"
@@ -290,15 +291,16 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 }
 
 func (m model) confirmLANDiscovery() (tea.Model, tea.Cmd) {
-	_, cidr := m.discoveryNetwork()
+	ip, cidr := m.discoveryNetwork()
 	if cidr == "" {
 		return m, m.setNotice("local private IPv4 network not available yet", false)
 	}
-	tool := lanDiscoveryTool(quoterFor(runtime.GOOS), cidr)
-	if _, err := toolLookPath(tool.Bin); err != nil {
-		return m, m.setNotice("network discovery needs nmap", false)
+	source, _ := netip.AddrFromSlice(ip.To4())
+	var iface string
+	if m.sources != nil {
+		iface = m.sources.Iface
 	}
-	tool.Available = true
+	tool := lanDiscoveryTool(source, iface, cidr)
 	// Fresh discovery, whether first scan or Rescan, uses one confirmation path.
 	m.confirmTool = &tool
 	return m, nil
@@ -360,30 +362,30 @@ func (m *model) moveMap(delta int) {
 
 // discoverServices is the seam the device step dials through, so the model's
 // own tests can drive the whole flow without a network under them.
-var discoverServices = diagnostic.DiscoverServices
+var discoverServices = diagnostic.DiscoverLANServices
 
 // openDevice asks one discovered device which of the common service ports it
 // answers on, so the endpoint the checks run against comes from the device
 // rather than from a default port that has nothing to do with it.
-//
-// row is a line the LAN scan printed, and it is parsed rather than trusted:
-// past this point the address is a target like any other.
 func (m model) openDevice(row string) (tea.Model, tea.Cmd) {
 	address, _, _ := strings.Cut(row, " ")
-	t, err := diagnostic.ParseTarget(address)
-	if err != nil {
-		return m, m.setNotice("invalid discovered device: "+err.Error(), false)
+	peer, err := netip.ParseAddr(address)
+	if err != nil || !peer.Is4() {
+		return m, m.setNotice("invalid discovered IPv4 device", false)
 	}
 	wasTicking := m.spinnerActive()
-	m.svc = serviceChoice{host: t.Host, name: row}
+	m.svc = serviceChoice{host: address, name: row, binding: m.cur.lanBinding}
+	m.svcRequest++
 	// The scan can be the first thing a --toolbox session does, before any
 	// generation context exists, so initialize it lazily as launchTool does.
 	if m.ctx == nil {
 		m.ctx, m.cancel = context.WithCancel(context.Background())
 	}
-	ctx, gen, host, sources, timeout := m.ctx, m.generation, t.Host, m.sources, m.probeTimeout
+	ctx, gen, timeout := m.ctx, m.generation, m.probeTimeout
+	job, binding, request := m.cur.lanID, m.svc.binding, m.svcRequest
 	cmd := func() tea.Msg {
-		return lanServicesMsg{gen: gen, host: host, scan: discoverServices(ctx, sources, host, timeout)}
+		scan, err := discoverServices(ctx, binding, peer, timeout)
+		return lanServicesMsg{gen: gen, job: job, request: request, scan: scan, err: err}
 	}
 	if wasTicking {
 		return m, cmd
@@ -396,12 +398,15 @@ func (m model) openDevice(row string) (tea.Model, tea.Cmd) {
 // re-parsed, so a service found here reaches the probe DAG through the same
 // target grammar and the same protocol inference as one typed at the prompt.
 func (m model) diagnoseService() (tea.Model, tea.Cmd) {
+	if m.svc.err != "" {
+		return m, nil
+	}
 	open := m.svc.scan.Open
 	if len(open) == 0 {
 		return m, m.setNotice("no service answered on "+m.svc.host+": press "+m.keys.label(ctxList, actRestart)+" to name a port yourself", false)
 	}
 	svc := open[min(m.svc.sel, len(open)-1)]
-	t, err := diagnostic.ParseTarget(svc.Target(m.svc.host))
+	t, err := m.svc.binding.ServiceTarget(svc, m.svc.host)
 	if err != nil {
 		return m, m.setNotice("invalid discovered target: "+err.Error(), false)
 	}
@@ -719,11 +724,9 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // retest restarts probe execution, and the session it is part of continues
 // across it rather than being thrown away by it.
 //
-// The same question means the same run configuration, and the target is the
-// whole of what can change here. The rest of what decides a run (the source
-// addresses, the resolver, the probe selection, the timeout) is fixed when the
-// model is built and never moves again, so a retest cannot silently change one
-// underneath the preserved history.
+// The target carries any binding from the LAN snapshot that selected it.
+// Retest keeps that target, and a manually parsed target starts without it.
+// The configured sources, resolver, probe selection and timeout are fixed.
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
 	m.target = t
 	if newQuestion && m.watchSession != nil {
@@ -791,10 +794,8 @@ func (m *model) doRestart() tea.Cmd {
 // reschedules from the root. Everything it touches belongs to the run being
 // replaced and to nothing else.
 //
-// namesPending is part of that: it tracks lookups issued under the old
-// generation, whose replies this restart drops, so those rows fall back to
-// nmap's own name instead of spinning forever. The names already resolved are
-// presentation and survive with the map that shows them.
+// Pending names belong to the old generation. Resolved labels live with each
+// snapshot.
 func (m *model) restartRun() tea.Cmd {
 	wasTicking := m.spinnerActive()
 	m.clearCancel()
@@ -805,7 +806,9 @@ func (m *model) restartRun() tea.Cmd {
 	m.refreshAnalysis()
 	m.started = map[diagnostic.ProbeID]bool{}
 	m.scheduler = nil
-	m.namesPending = nil
+	for job := range m.jobs {
+		job.lanPending = nil
+	}
 	gen := m.generation
 	cmds := []tea.Cmd{func() tea.Msg { return scheduleMsg{gen: gen} }}
 	if !wasTicking {
@@ -823,11 +826,15 @@ func (m *model) resetPresentation() {
 	m.explaining = false
 	m.pending, m.confirmTool, m.sshPrompt = nil, nil, false
 	m.dropJobs()
-	m.networkMap, m.mapSelected, m.networkCIDR = false, 0, ""
+	m.networkMap, m.mapSelected = false, 0
 	m.svc = serviceChoice{}
-	m.hostNames = nil
 	m.detailsViewing = false
 	m.notice = ""
+}
+
+func (m *model) nextToolID(key string) string {
+	m.jobSeq++
+	return fmt.Sprintf("%s-%d-%d", key, m.generation, m.jobSeq)
 }
 
 func (m *model) launchTool(tool Tool) tea.Cmd {
@@ -853,16 +860,24 @@ func (m *model) launchTool(tool Tool) tea.Cmd {
 	}
 	wasTicking := m.spinnerActive()
 	args, env, display := tool.Build(m.target, m.selectedIP())
-	if tool.Name == lanDiscoveryName {
-		m.networkCIDR = tool.networkCIDR
-	}
-	id := fmt.Sprintf("%s-%d-%d", tool.Key, m.generation, time.Now().UnixNano())
+	id := m.nextToolID(tool.Key)
 	// Toolbox mode: a tool can launch before the first 'r' creates the
 	// generation context, so initialize it lazily, exactly as scheduleMsg does.
 	if m.ctx == nil {
 		m.ctx, m.cancel = context.WithCancel(context.Background())
 	}
-	j, cmd, err := startTool(m.ctx, m.generation, id, tool.Bin, args, env, tool.Timeout)
+	var (
+		j   *job
+		cmd tea.Cmd
+		err error
+	)
+	if tool.lanSource.IsValid() {
+		m.cur.networkCIDR, m.cur.lanSource = tool.networkCIDR, tool.lanSource
+		m.cur.lanID = id
+		j, cmd = startLANScan(m.ctx, m.generation, id, tool)
+	} else {
+		j, cmd, err = startTool(m.ctx, m.generation, id, tool.Bin, args, env, tool.Timeout)
+	}
 	if err != nil {
 		m.cur.name, m.cur.status = tool.Name, JobFailed
 		m.cur.lines, m.cur.dropped, m.cur.evicted = []string{textsafe.Clean(err.Error())}, 0, 0

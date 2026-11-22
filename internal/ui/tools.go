@@ -2,6 +2,7 @@ package ui
 
 import (
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"strconv"
@@ -11,13 +12,13 @@ import (
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 )
 
-// Tool is a drill-down adapter: a bounded external command keyed to a hotkey.
+// Tool is a bounded drill-down keyed to a hotkey.
 type Tool struct {
 	Key     string        // single-key hotkey / stable id
 	Name    string        // plain-English display label
 	Bin     string        // binary to resolve via LookPath
 	Timeout time.Duration // per-tool job timeout; 0 = default toolTimeout
-	Confirm bool          // show the exact command and wait for a keypress before running
+	Confirm bool          // show what will run and wait for a keypress
 	// Build returns the argv (never a shell string), the process env (nil =
 	// inherit), and a human-display command string (shell-quoted, display only).
 	// sel is the address the diagnostic chain actually reached the target on
@@ -25,8 +26,10 @@ type Tool struct {
 	// tools use it so a hostname that resolved to AAAA isn't probed over IPv4.
 	Build func(t *diagnostic.Target, sel net.IP) (args, env []string, display string)
 
-	Available   bool   // whether the tool's binary is installed
-	networkCIDR string // LAN snapshot context, committed only when discovery starts
+	Available   bool // whether the tool can run
+	networkCIDR string
+	lanSource   netip.Addr
+	lanIface    string
 }
 
 var toolLookPath = exec.LookPath
@@ -303,12 +306,12 @@ func digTool(quote func([]string) string, host string) Tool {
 	}
 }
 
-func lanDiscoveryTool(quote func([]string) string, cidr string) Tool {
+func lanDiscoveryTool(source netip.Addr, iface, cidr string) Tool {
 	return Tool{
-		Key: "v", Name: lanDiscoveryName, Bin: "nmap", Confirm: true, Timeout: 60 * time.Second, networkCIDR: cidr,
+		Key: "v", Name: lanDiscoveryName, Confirm: true, Available: true, Timeout: diagnostic.LANScanTimeout,
+		lanSource: source, lanIface: iface, networkCIDR: cidr,
 		Build: func(*diagnostic.Target, net.IP) ([]string, []string, string) {
-			args := []string{"--unprivileged", "-sn", "-T3", "--host-timeout", "5s", "-oG", "-", cidr}
-			return args, nil, "nmap " + quote(args)
+			return nil, nil, "ICMP echo, TCP 80/443 and neighbor cache\nSource " + source.String() + " · scope up to " + cidr
 		},
 	}
 }

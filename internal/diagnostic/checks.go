@@ -55,6 +55,7 @@ const (
 	ConnectionCauseClosed         = "connection_closed"
 	ConnectionCauseTimeout        = "timeout"
 	ConnectionCauseUnreachable    = "unreachable"
+	ConnectionCauseLANBinding     = "lan_binding_unavailable"
 	ConnectionCauseCanceled       = "canceled"
 )
 
@@ -294,7 +295,8 @@ type Probe struct {
 	Reference bool
 	// link is the socket chain shared by the TCP, TLS and HTTPS rows of one target,
 	// nil everywhere else. armLinks decides which handoffs this graph will use.
-	link *targetLink
+	link  *targetLink
+	fresh bool // the row must run on every Watch pass
 }
 
 // DefaultProbeTimeout bounds a single probe when the caller names no other
@@ -521,6 +523,8 @@ type netops struct {
 	// resolver), bypassing whatever the system is configured to use.
 	lookupPublicIP func(ctx context.Context, host, server string) ([]net.IP, []string, error)
 	dialContext    func(ctx context.Context, network, addr string) (net.Conn, error)
+	dialLAN        func(ctx context.Context, link lanLink, addr string) (net.Conn, error)
+	lanBinding     *LANBinding
 	quicHandshake  func(context.Context, net.Conn, *tls.Config) (quicState, error)
 	sendBuffer     func(net.Conn) (int, error)
 	// queued reports the bytes a socket has written but not had acknowledged.
@@ -616,7 +620,11 @@ var defaultOps = &netops{
 	lookupPublicIP: func(ctx context.Context, host, server string) ([]net.IP, []string, error) {
 		return lookupIPPublicWithDial(ctx, host, new(net.Dialer).DialContext, server)
 	},
-	dialContext:   new(net.Dialer).DialContext,
+	dialContext: new(net.Dialer).DialContext,
+	dialLAN: func(ctx context.Context, link lanLink, addr string) (net.Conn, error) {
+		dial := link.dialer()
+		return dial.DialContext(ctx, "tcp4", addr)
+	},
 	quicHandshake: handshakeQUIC,
 	sendBuffer:    socketSendBuffer,
 	queued:        socketQueued,
@@ -783,6 +791,7 @@ func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool
 	}
 
 	host, port := t.Host, t.Port
+	target, bind := o.forTarget(t)
 	hp := net.JoinHostPort(host, strconv.Itoa(port)) // brackets IPv6 literals
 	dns := Probe{ID: ProbeDNS, Name: "DNS " + host, Deps: []ProbeID{ProbeIface}, Run: o.dnsProbe(host, t.IP)}
 	// Only a target with a TLS and HTTPS chain shares its socket. Every other
@@ -791,10 +800,10 @@ func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool
 	if t.Proto == ProtoTLSHTTP {
 		link = newTargetLink()
 	}
-	ttcp := Probe{ID: ProbeTargetTCP, Name: "TCP " + hp, Deps: []ProbeID{ProbeDNS}, Run: o.targetTCPProbe(port, link), link: link}
+	ttcp := bind(Probe{ID: ProbeTargetTCP, Name: "TCP " + hp, Deps: []ProbeID{ProbeDNS}, Run: target.targetTCPProbe(port, link), link: link})
 	// Path MTU hangs off the TCP connect rather than off any protocol row: a
 	// black hole breaks SSH and SMTP exactly as thoroughly as it breaks TLS.
-	pmtu := Probe{ID: ProbePMTU, Name: "Path MTU " + hp, Deps: []ProbeID{ProbeTargetTCP}, Run: o.pmtuProbe(port, t.Proto)}
+	pmtu := bind(Probe{ID: ProbePMTU, Name: "Path MTU " + hp, Deps: []ProbeID{ProbeTargetTCP}, Run: target.pmtuProbe(port, t.Proto)})
 	probes := []Probe{iface, internet, quicProbe, proxy, dns}
 	if len(publicDNSResolvers) > 0 {
 		probes = append(probes, Probe{ID: ProbeDNSPublic, Name: publicDNSRowName(publicDNS, publicDNSAuto), Deps: []ProbeID{ProbeIface}, Run: o.publicDNSProbe(host, t.IP, publicDNSResolvers)})
@@ -810,25 +819,25 @@ func (o *netops) buildProbeGraph(t *Target, publicDNS string, publicDNSAuto bool
 	switch t.Proto {
 	case ProtoTLSHTTP:
 		probes = append(probes,
-			Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.tlsProbe(host, port, link), link: link},
-			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeDNS}, Run: o.httpProbe(host, 80, "http", ProbeDNS, nil)},
-			Probe{ID: ProbeHTTPS, Name: "HTTPS " + host, Deps: []ProbeID{ProbeTLS}, Run: o.httpProbe(host, port, "https", ProbeTLS, link), link: link},
+			bind(Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: target.tlsProbe(host, port, link), link: link}),
+			bind(Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeDNS}, Run: target.httpProbe(host, 80, "http", ProbeDNS, nil)}),
+			bind(Probe{ID: ProbeHTTPS, Name: "HTTPS " + host, Deps: []ProbeID{ProbeTLS}, Run: target.httpProbe(host, port, "https", ProbeTLS, link), link: link}),
 		)
 	case ProtoHTTP:
 		probes = append(probes,
-			Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.httpProbe(host, port, "http", ProbeTargetTCP, nil)},
+			bind(Probe{ID: ProbeHTTP, Name: "HTTP " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: target.httpProbe(host, port, "http", ProbeTargetTCP, nil)}),
 		)
 	case ProtoSSH:
-		probes = append(probes, o.bannerProbe(ProbeSSH, "SSH banner "+hp, "", port))
+		probes = append(probes, bind(target.bannerProbe(ProbeSSH, "SSH banner "+hp, "", port)))
 	case ProtoSMTP:
 		// Port 465 is implicit-TLS submission (RFC 8314 section 3.3): the
 		// server waits for a ClientHello and greets only inside TLS.
 		tlsHost := ""
 		if port == 465 {
 			tlsHost = host
-			probes = append(probes, Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: o.tlsProbe(host, port, nil)})
+			probes = append(probes, bind(Probe{ID: ProbeTLS, Name: "TLS " + host, Deps: []ProbeID{ProbeTargetTCP}, Run: target.tlsProbe(host, port, nil)}))
 		}
-		probes = append(probes, o.bannerProbe(ProbeSMTP, "SMTP banner "+hp, tlsHost, port))
+		probes = append(probes, bind(target.bannerProbe(ProbeSMTP, "SMTP banner "+hp, tlsHost, port)))
 	}
 	return probes
 }

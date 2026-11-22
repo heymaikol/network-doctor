@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
@@ -42,6 +43,7 @@ type ToolOutputMsg struct {
 	JobID      string
 	Generation int
 	Line       string
+	LAN        diagnostic.LANObservation
 }
 
 // ToolDoneMsg is the single guaranteed terminal event for a job. It travels on
@@ -52,6 +54,7 @@ type ToolDoneMsg struct {
 	Generation int
 	Status     JobStatus
 	Dropped    int64 // output lines dropped under overflow
+	LANLimited bool
 }
 
 const (
@@ -68,12 +71,43 @@ const (
 	exitGrace = 3 * time.Second
 )
 
-// job is a running external command. The channel carries ToolOutputMsg lines and
+// job is a running tool. The channel carries ToolOutputMsg lines and
 // then exactly one ToolDoneMsg, last.
 type job struct {
 	id     string
 	ch     chan tea.Msg
 	cancel context.CancelFunc
+}
+
+var discoverLAN = diagnostic.DiscoverLAN
+
+type lanBindingMsg struct {
+	job     string
+	gen     int
+	binding diagnostic.LANBinding
+}
+
+func startLANScan(parent context.Context, gen int, id string, tool Tool) (*job, tea.Cmd) {
+	ctx, cancel := context.WithTimeout(parent, tool.Timeout)
+	// Each of at most 255 peers can gain three evidence flags, once each.
+	j := &job{id: id, ch: make(chan tea.Msg, 4*chanBuf), cancel: cancel}
+	scan := discoverLAN
+	go func() {
+		defer cancel()
+		warnings, err := scan(ctx, tool.lanSource, tool.lanIface, func(b diagnostic.LANBinding) {
+			j.ch <- lanBindingMsg{job: id, gen: gen, binding: b}
+		}, func(o diagnostic.LANObservation) {
+			j.ch <- ToolOutputMsg{JobID: id, Generation: gen, LAN: o, Line: o.IP.String() + " · " + o.Evidence.String()}
+		})
+		for _, warning := range warnings {
+			j.ch <- ToolOutputMsg{JobID: id, Generation: gen, Line: textsafe.Clean(warning)}
+		}
+		if err != nil && ctx.Err() == nil {
+			j.ch <- ToolOutputMsg{JobID: id, Generation: gen, Line: textsafe.Clean(err.Error())}
+		}
+		j.ch <- ToolDoneMsg{JobID: id, Generation: gen, Status: classifyJob(ctx, err), LANLimited: len(warnings) > 0}
+	}()
+	return j, waitForMsg(j.ch)
 }
 
 // startTool launches name+args as a managed process tree, streaming sanitized

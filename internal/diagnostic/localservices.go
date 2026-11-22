@@ -7,7 +7,10 @@ package diagnostic
 import (
 	"cmp"
 	"context"
+	"errors"
+	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"strconv"
 	"time"
@@ -41,6 +44,16 @@ func (s LocalService) Target(host string) string {
 		return endpoint
 	}
 	return s.Scheme + "://" + endpoint
+}
+
+// ServiceTarget keeps the LAN snapshot binding with the selected endpoint.
+func (b LANBinding) ServiceTarget(s LocalService, host string) (*Target, error) {
+	t, err := ParseTarget(s.Target(host))
+	if err != nil {
+		return nil, err
+	}
+	t.lanBinding = &b
+	return t, nil
 }
 
 // localServices is the fixed list DiscoverServices dials: the services a
@@ -104,6 +117,46 @@ func DiscoverServices(ctx context.Context, sources *SourceAddresses, host string
 }
 
 func (o *netops) discoverServices(ctx context.Context, host string, services []LocalService, timeout time.Duration) ServiceScan {
+	scan, _ := scanServices(ctx, o.dialContext, host, services, timeout)
+	return scan
+}
+
+// DiscoverLANServices checks the snapshot's address through its original
+// interface. If the binding is unavailable the result carries no evidence.
+func DiscoverLANServices(ctx context.Context, binding LANBinding, peer netip.Addr, timeout time.Duration) (ServiceScan, error) {
+	link, err := binding.serviceLink(peer, net.Interfaces, (*net.Interface).Addrs)
+	if err != nil {
+		return ServiceScan{}, err
+	}
+	dial := link.dialer()
+	scan, err := scanServices(ctx, dial.DialContext, peer.String(), localServices, timeout)
+	if err != nil {
+		return ServiceScan{}, fmt.Errorf("LAN snapshot interface %q unavailable; rescan the network: %w", binding.Interface, err)
+	}
+	if _, err := binding.serviceLink(peer, net.Interfaces, (*net.Interface).Addrs); err != nil {
+		return ServiceScan{}, err
+	}
+	return scan, nil
+}
+
+func (b LANBinding) serviceLink(peer netip.Addr, interfaces func() ([]net.Interface, error), addrs func(*net.Interface) ([]net.Addr, error)) (lanLink, error) {
+	if b.Index <= 0 || b.Interface == "" {
+		return lanLink{}, errors.New("LAN snapshot has no recorded interface; rescan the network")
+	}
+	link, err := findLANLink(b.Source, b.Interface, interfaces, addrs)
+	if err != nil {
+		return lanLink{}, fmt.Errorf("LAN snapshot interface %q unavailable; rescan the network: %w", b.Interface, err)
+	}
+	if link.binding() != b {
+		return lanLink{}, fmt.Errorf("LAN snapshot interface %q has changed; rescan the network", b.Interface)
+	}
+	if !slices.Contains(link.targets(), peer) {
+		return lanLink{}, fmt.Errorf("device %s is outside the current LAN snapshot scope; rescan the network", peer)
+	}
+	return link, nil
+}
+
+func scanServices(ctx context.Context, dial func(context.Context, string, string) (net.Conn, error), host string, services []LocalService, timeout time.Duration) (ServiceScan, error) {
 	if timeout <= 0 {
 		timeout = DefaultProbeTimeout
 	}
@@ -114,15 +167,16 @@ func (o *netops) discoverServices(ctx context.Context, host string, services []L
 		svc     LocalService
 		open    bool
 		refused bool
+		err     error
 	}
 	// Buffered for every dial: a scan abandoned by its context must not leave
 	// goroutines parked on a channel nobody is reading any more.
 	replies := make(chan reply, len(services))
 	for _, svc := range services {
 		go func(svc LocalService) {
-			conn, err := o.dialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(svc.Port)))
+			conn, err := dial(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(svc.Port)))
 			if err != nil {
-				replies <- reply{svc: svc, refused: isConnectionRefused(err)}
+				replies <- reply{svc: svc, refused: isConnectionRefused(err), err: err}
 				return
 			}
 			_ = conn.Close()
@@ -131,6 +185,7 @@ func (o *netops) discoverServices(ctx context.Context, host string, services []L
 	}
 
 	var scan ServiceScan
+	var bindErr error
 	for range services {
 		switch r := <-replies; {
 		case r.open:
@@ -139,11 +194,14 @@ func (o *netops) discoverServices(ctx context.Context, host string, services []L
 			scan.Refused++
 		default:
 			scan.Silent++
+			if bindErr == nil && lanDialUnavailable(r.err) {
+				bindErr = r.err
+			}
 		}
 	}
 	// Replies arrive in whatever order the network answers, and a list that
 	// reorders itself between two runs of the same scan is not a list anyone
 	// can point a cursor at.
 	slices.SortFunc(scan.Open, func(a, b LocalService) int { return cmp.Compare(a.Port, b.Port) })
-	return scan
+	return scan, bindErr
 }

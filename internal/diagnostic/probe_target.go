@@ -126,6 +126,9 @@ func (o *netops) targetTCPProbe(port int, link *targetLink) func(context.Context
 		}
 		refused := len(r.Attempts) > 0 && ctx.Err() == nil
 		for _, attempt := range r.Attempts {
+			if errors.Is(attempt.Err, errLANUnavailable) {
+				return lanTargetFailure(attempt.Err)
+			}
 			if ConnectionFailureCause(attempt.Err) != ConnectionCauseRefused {
 				refused = false
 				break
@@ -251,6 +254,9 @@ func (o *netops) tlsProbe(host string, port int, link *targetLink) func(context.
 // that failed belongs to whatever the resolver handed us, and that's often the
 // actual culprit.
 func tlsFailed(ip net.IP, err error) ProbeResult {
+	if errors.Is(err, errLANUnavailable) {
+		return lanTargetFailure(err)
+	}
 	r := ProbeResult{Status: StatusFail, SelectedIP: ip, Cause: tlsFailureCause(err, time.Now()), Fix: tlsFix(err)}
 	// Only a handshake on a connection this probe opened observed a TLS
 	// exchange stalling. A timeout during the probe's own dial keeps the same
@@ -492,6 +498,9 @@ func (o *netops) httpProbe(host string, port int, scheme string, addressDep Prob
 		}
 		dialMu.Unlock()
 		if err != nil {
+			if errors.Is(err, errLANUnavailable) {
+				return lanTargetFailure(err)
+			}
 			r.Status = StatusFail
 			// A timeout before the exchange began is a stalled dial that
 			// exchanged nothing. SelectedIP cannot tell: a dial that finishes
@@ -611,6 +620,9 @@ func (o *netops) bannerProbe(id ProbeID, label, tlsHost string, port int) Probe 
 			}
 		}
 		if err != nil {
+			if errors.Is(err, errLANUnavailable) {
+				return lanTargetFailure(err)
+			}
 			r.Status, r.SelectedIP = StatusFail, ip
 			r.Detail = "connect to " + ip.String() + " failed: " + err.Error()
 			return r

@@ -1,9 +1,10 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"net"
-	"os"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -23,22 +24,43 @@ func lanLifecycleModel(t *testing.T) model {
 	r.Source = net.ParseIP("192.168.12.34")
 	m.results[diagnostic.ProbeInternet] = r
 	m.width, m.height = 100, 40
-	m.networkCIDR = "192.168.12.0/24"
+	m.cur.networkCIDR = "192.168.12.0/24"
 	return m
 }
 
 func lanSnapshot(at time.Time, status JobStatus, host string) jobState {
 	j := jobState{name: lanDiscoveryName, status: status, start: at, dur: 2 * time.Second}
 	if host != "" {
-		j.lines = []string{"Host: " + host + " ()\tStatus: Up"}
+		ip := netip.MustParseAddr(host)
+		j.networkCIDR = netip.PrefixFrom(ip, 24).Masked().String()
+		j.lanHosts = []diagnostic.LANObservation{{IP: ip, Evidence: diagnostic.LANTCP}}
+		j.lines = []string{host + " · TCP response"}
 	}
 	return j
 }
 
+func setLANHosts(m *model, rows ...string) {
+	m.cur.lanHosts = nil
+	m.cur.lanNames = make(map[string]lanName)
+	for _, row := range rows {
+		ip, name, _ := strings.Cut(row, " ")
+		m.cur.lanHosts = append(m.cur.lanHosts, diagnostic.LANObservation{IP: netip.MustParseAddr(ip), Evidence: diagnostic.LANTCP})
+		m.cur.lanNames[ip] = lanName{label: name}
+	}
+}
+
+func stubLANScan(t *testing.T) {
+	t.Helper()
+	old := discoverLAN
+	discoverLAN = func(ctx context.Context, _ netip.Addr, _ string, _ func(diagnostic.LANBinding), _ func(diagnostic.LANObservation)) ([]string, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() { discoverLAN = old })
+}
+
 func TestNetworkMapCacheAndRescanLifecycle(t *testing.T) {
-	oldLookPath := toolLookPath
-	toolLookPath = func(string) (string, error) { return "nmap", nil }
-	t.Cleanup(func() { toolLookPath = oldLookPath })
+	stubLANScan(t)
 
 	m := lanLifecycleModel(t)
 	u, cmd := m.Update(keyMsg("v"))
@@ -76,20 +98,14 @@ func TestNetworkMapCacheAndRescanLifecycle(t *testing.T) {
 		t.Fatal("Rescan must use the LAN confirmation without hiding the cached map")
 	}
 	canceled := sendKey(t, confirm, "esc")
-	if canceled.confirmTool != nil || !canceled.networkMap || canceled.cur.start != at || canceled.networkCIDR != "192.168.12.0/24" || len(canceled.otherJobs) != 0 {
+	if canceled.confirmTool != nil || !canceled.networkMap || canceled.cur.start != at || canceled.cur.networkCIDR != "192.168.12.0/24" || len(canceled.otherJobs) != 0 {
 		t.Fatal("canceling Rescan must leave the cached scan intact")
 	}
 
 	confirm = sendKey(t, selectMenu(t, canceled, "Rescan network"), "enter")
-	confirm.confirmTool.Bin = os.Args[0]
-	confirm.confirmTool.Timeout = 5 * time.Second
-	confirm.confirmTool.Build = func(*diagnostic.Target, net.IP) ([]string, []string, string) {
-		return []string{"-test.run=TestHelperProcess"},
-			append(os.Environ(), "GO_HELPER=1", "GO_HELPER_MODE=sleep"), "test LAN scan"
-	}
 	u, cmd = confirm.Update(keyMsg("y"))
 	fresh := asModel(t, u)
-	if cmd == nil || fresh.cur.active == nil || fresh.cur.name != lanDiscoveryName || !fresh.networkMap || fresh.networkCIDR != "10.0.0.0/24" {
+	if cmd == nil || fresh.cur.active == nil || fresh.cur.name != lanDiscoveryName || !fresh.networkMap || fresh.cur.networkCIDR != "10.0.0.0/24" {
 		t.Fatal("confirming Rescan must start a fresh LAN job")
 	}
 	if len(fresh.otherJobs) != 1 || fresh.otherJobs[0].start != at || len(fresh.otherJobs[0].lines) != 1 {
@@ -101,7 +117,7 @@ func TestNetworkMapCacheAndRescanLifecycle(t *testing.T) {
 	fresh = asModel(t, u)
 	u, _ = fresh.Update(tea.KeyMsg{Type: tea.KeyTab})
 	previous := asModel(t, u)
-	if previous.cur.start != at || !slices.Equal(discoveredIPs(previous.cur.lines), []string{"192.168.12.1"}) {
+	if previous.cur.start != at || !slices.Equal(previous.networkHosts(), []string{"192.168.12.1"}) {
 		t.Fatalf("tab cannot reach the previous scan evidence: %+v", previous.cur)
 	}
 }
@@ -119,7 +135,7 @@ func TestNetworkMapAlwaysSelectsNewestScan(t *testing.T) {
 		m.networkMap = false
 		u, cmd := m.Update(keyMsg("v"))
 		m = asModel(t, u)
-		if cmd != nil || !m.networkMap || !slices.Equal(discoveredIPs(m.cur.lines), []string{fmt.Sprintf("192.168.12.%d", i-1)}) {
+		if cmd != nil || !m.networkMap || !slices.Equal(m.networkHosts(), []string{fmt.Sprintf("192.168.12.%d", i-1)}) {
 			t.Fatalf("v did not select rescan %d as newest: start=%s lines=%v", i-2, m.cur.start, m.cur.lines)
 		}
 		m.networkMap = false
@@ -228,7 +244,7 @@ func TestLANScanEvictionKeepsNewestMeasurementAndRestartDropsAll(t *testing.T) {
 	}
 	u, _ = m.retest()
 	m = asModel(t, u)
-	if m.hasJob() || len(m.otherJobs) != 0 || m.networkMap || m.networkCIDR != "" {
+	if m.hasJob() || len(m.otherJobs) != 0 || m.networkMap || m.cur.networkCIDR != "" {
 		t.Fatal("Retest/restart must discard cached LAN scan state")
 	}
 }
@@ -375,9 +391,6 @@ func TestRetestAndRescanStayDistinct(t *testing.T) {
 		t.Fatalf("the two network actions are not both offered: %v", names)
 	}
 
-	oldLookPath := toolLookPath
-	toolLookPath = func(string) (string, error) { return "nmap", nil }
-	t.Cleanup(func() { toolLookPath = oldLookPath })
 	rescan := sendKey(t, selectMenu(t, m, "Rescan network"), "enter")
 	if rescan.confirmTool == nil || rescan.confirmTool.Name != lanDiscoveryName || rescan.generation != m.generation {
 		t.Fatal("Rescan must confirm fresh discovery without restarting the checks")
@@ -410,5 +423,176 @@ func TestMapHelpBarPointsAtRescan(t *testing.T) {
 	checks.networkMap = false
 	if bar := ansi.Strip(checks.helpView(false)); strings.Contains(bar, "rescan") {
 		t.Errorf("the checks screen advertises a map action: %q", bar)
+	}
+}
+
+func TestNetworkMapStreamsReachabilityAndCacheSeparately(t *testing.T) {
+	old := discoverLAN
+	binding := diagnostic.LANBinding{Source: netip.MustParseAddr("10.19.8.6"), Interface: "selected", Index: 7}
+	discoverLAN = func(ctx context.Context, source netip.Addr, iface string, bound func(diagnostic.LANBinding), emit func(diagnostic.LANObservation)) ([]string, error) {
+		if source.String() != "10.19.8.6" || iface != "selected" {
+			return nil, fmt.Errorf("unexpected discovery source %v on %q", source, iface)
+		}
+		bound(binding)
+		peer := netip.MustParseAddr("10.19.8.7")
+		emit(diagnostic.LANObservation{IP: peer, Evidence: diagnostic.LANNeighbor})
+		emit(diagnostic.LANObservation{IP: netip.MustParseAddr("10.19.8.8"), Evidence: diagnostic.LANNeighbor})
+		emit(diagnostic.LANObservation{IP: peer, Evidence: diagnostic.LANNeighbor | diagnostic.LANICMP})
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() { discoverLAN = old })
+	m := lanLifecycleModel(t)
+	m.sources = &diagnostic.SourceAddresses{Iface: "selected", IPv4: net.ParseIP("10.19.8.6")}
+	m.results[diagnostic.ProbeTargetTCP] = diagnostic.ProbeResult{Source: m.sources.IPv4}
+	m = sendKey(t, m, "v")
+	if m.confirmTool == nil || !strings.Contains(m.confirmView(), "10.19.8.0/24") {
+		t.Fatal("confirmation used the source of a different probe interface")
+	}
+	m = sendKey(t, m, "y")
+	select {
+	case msg := <-m.cur.active.ch:
+		updated, _ := m.Update(msg)
+		m = asModel(t, updated)
+		if m.cur.lanBinding != binding {
+			t.Fatalf("live snapshot did not retain its actual interface: %+v", m.cur.lanBinding)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no LAN binding event")
+	}
+	for i := 0; i < 3; i++ {
+		select {
+		case msg := <-m.cur.active.ch:
+			if _, ok := msg.(ToolOutputMsg); !ok {
+				t.Fatalf("observation %d: got %T", i, msg)
+			}
+			updated, _ := m.Update(msg)
+			m = asModel(t, updated)
+		case <-time.After(time.Second):
+			t.Fatal("no streaming discovery evidence")
+		}
+	}
+	m.cur.active.cancel()
+	_, done := drain(t, m.cur.active.ch)
+	updated, _ := m.Update(done)
+	m = asModel(t, updated)
+	if done.Status != JobCanceled || len(m.networkHosts()) != 2 {
+		t.Fatalf("job status %v, hosts %v", done.Status, m.networkHosts())
+	}
+	view := ansi.Strip(m.networkMapView())
+	for _, want := range []string{"partial results", "reachable 10.19.8.7", "cached neighbor 10.19.8.8"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestToolJobIDsRemainDistinctWithoutClockProgress(t *testing.T) {
+	m := model{generation: 3}
+	first, second := m.nextToolID("v"), m.nextToolID("v")
+	if first != "v-3-1" || second != "v-3-2" {
+		t.Fatalf("consecutive tool IDs = %q, %q", first, second)
+	}
+	m.generation++
+	if next := m.nextToolID("v"); next != "v-4-3" {
+		t.Fatalf("tool ID after restart = %q", next)
+	}
+}
+
+func TestLANSnapshotLabelsFollowTheirScanAcrossRescan(t *testing.T) {
+	const first, second = "192.168.12.50", "192.168.12.51"
+	old := discoverLAN
+	discoverLAN = func(_ context.Context, _ netip.Addr, _ string, _ func(diagnostic.LANBinding), emit func(diagnostic.LANObservation)) ([]string, error) {
+		for _, ip := range []string{first, second} {
+			emit(diagnostic.LANObservation{IP: netip.MustParseAddr(ip), Evidence: diagnostic.LANICMP})
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { discoverLAN = old })
+
+	finish := func(t *testing.T, m model) model {
+		t.Helper()
+		if m.cur.active == nil {
+			t.Fatal("scan did not launch")
+		}
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		for m.cur.active != nil {
+			select {
+			case msg := <-m.cur.active.ch:
+				updated, _ := m.Update(msg)
+				m = asModel(t, updated)
+			case <-timer.C:
+				t.Fatal("scan did not complete")
+			}
+		}
+		if m.cur.status != JobDone || len(m.cur.lanPending) != 2 {
+			t.Fatalf("completed scan did not start naming its two peers: %+v", m.cur)
+		}
+		return m
+	}
+
+	for _, tc := range []struct {
+		name         string
+		batchBeforeB bool
+	}{
+		{"delayed initial labels", false},
+		{"delayed reverse DNS", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := finish(t, sendKey(t, sendKey(t, lanLifecycleModel(t), "v"), "y"))
+			a := m.cur.lanID
+			batch := lanNamesMsg{gen: m.generation, job: a, names: map[string]lanName{first: {label: "old-printer"}}}
+			if tc.batchBeforeB {
+				updated, _ := m.Update(batch)
+				m = asModel(t, updated)
+			}
+			m = finish(t, sendKey(t, sendKey(t, selectMenu(t, m, "Rescan network"), "enter"), "y"))
+			b := m.cur.lanID
+			if a == b {
+				t.Fatalf("rescan reused the previous scan ID %q", a)
+			}
+			updated, _ := m.Update(lanNamesMsg{gen: m.generation, job: b, names: map[string]lanName{
+				first: {label: "new-printer"}, second: {label: "new-router"},
+			}})
+			m = asModel(t, updated)
+			if !tc.batchBeforeB {
+				updated, _ = m.Update(batch)
+				m = asModel(t, updated)
+			}
+			updated, _ = m.Update(lanNameMsg{gen: m.generation, job: a, ip: second, name: "old-router"})
+			m = asModel(t, updated)
+			if got := m.networkHosts(); !slices.Equal(got, []string{first + " (new-printer)", second + " (new-router)"}) {
+				t.Fatalf("scan B displays %v after scan A messages", got)
+			}
+			updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+			m = asModel(t, updated)
+			if got := m.networkHosts(); !m.networkMap || m.cur.lanID != a ||
+				!slices.Equal(got, []string{first + " (old-printer)", second + " (old-router)"}) {
+				t.Fatalf("Tab did not show scan A's own labels: %v", got)
+			}
+		})
+	}
+}
+
+func TestLANStaleSSHAliasIsOnlyALabel(t *testing.T) {
+	const peer, absent = "192.168.12.50", "192.168.12.51"
+	asked := stubServices(t, diagnostic.ServiceScan{Silent: 15})
+	m := lanLifecycleModel(t)
+	m.networkMap = true
+	m.cur = lanSnapshot(time.Now(), JobDone, peer)
+	m.cur.lanHosts[0].Evidence = diagnostic.LANNeighbor
+	m.cur.lanID = "scan-with-cache"
+	m.cur.lanPending = map[string]bool{peer: true}
+	updated, _ := m.Update(lanNamesMsg{gen: m.generation, job: m.cur.lanID,
+		names: mergeLANNames(nil, map[string]string{peer: "retired.ssh", absent: "absent.ssh"})})
+	m = asModel(t, updated)
+	if view := ansi.Strip(m.networkMapView()); !strings.Contains(view, "cached neighbor "+peer+" (SSH alias: retired.ssh)") ||
+		strings.Contains(view, absent) || m.cur.lanHosts[0].Evidence.Confirmed() || len(m.cur.lanNames) != 1 {
+		t.Fatalf("an alias altered the scan evidence:\n%s", view)
+	}
+	m = openDevice(t, m)
+	if !slices.Equal(*asked, []string{peer}) || len(m.svc.scan.Open) != 0 || m.sshDetected() {
+		t.Fatalf("an alias altered service detection: probed %v, services %+v", *asked, m.svc.scan)
 	}
 }

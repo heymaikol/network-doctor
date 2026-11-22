@@ -228,10 +228,7 @@ func TestHelpOverlayFitsNarrowTerminal(t *testing.T) {
 }
 
 func TestNetworkMapToggle(t *testing.T) {
-	oldLookPath := toolLookPath
-	toolLookPath = func(string) (string, error) { return "nmap", nil }
-	t.Cleanup(func() { toolLookPath = oldLookPath })
-
+	stubLANScan(t)
 	m := newModel(mustTarget(t, "example.com:443"), false)
 	doneResults(&m, diagnostic.ProbeDNS)
 	r := m.results[diagnostic.ProbeInternet]
@@ -253,22 +250,21 @@ func TestNetworkMapToggle(t *testing.T) {
 	if nm.confirmTool == nil || nm.confirmTool.Key != "v" || cmd != nil || nm.networkMap {
 		t.Fatal("v must open the confirm gate before sweeping the LAN")
 	}
-	if !strings.Contains(nm.View(), "-sn") {
+	if !strings.Contains(nm.View(), "ICMP echo") || !strings.Contains(nm.View(), "192.168.12.0/24") {
 		t.Error("confirm gate must show the discovery command")
 	}
 	u, _ = nm.Update(keyMsg("y"))
 	nm = asModel(t, u)
-	if nm.confirmTool != nil || nm.cur.name != lanDiscoveryName || nm.cur.status == JobQueued || !nm.networkMap || nm.networkCIDR != "192.168.12.0/24" || !strings.Contains(nm.View(), "LAN scan") {
+	if nm.confirmTool != nil || nm.cur.name != lanDiscoveryName || nm.cur.status == JobQueued || !nm.networkMap || nm.cur.networkCIDR != "192.168.12.0/24" || !strings.Contains(nm.View(), "LAN scan") {
 		t.Fatalf("y must run the LAN scan on the local /24:\n%s", nm.View())
 	}
 
-	nm.cur.active = nil
-	nm.cur.name, nm.cur.status = lanDiscoveryName, JobDone
-	nm.cur.lines = []string{
-		"Host: 192.168.12.1 (router.lan.example)\tStatus: Up",
-		"Host: 192.168.12.50 (living-room-tv.lan.example)\tStatus: Up",
-		"Host: 192.168.12.51 ()\tStatus: Up",
-	}
+	nm.cur.active.cancel()
+	_, done := drain(t, nm.cur.active.ch)
+	u, _ = nm.Update(done)
+	nm = asModel(t, u)
+	nm.cur.status = JobDone
+	setLANHosts(&nm, "192.168.12.1 router.lan.example", "192.168.12.50 living-room-tv.lan.example", "192.168.12.51")
 	view := nm.View()
 	if !nm.networkMap || !strings.Contains(view, "192.168.12.1 (router)") || !strings.Contains(view, "192.168.12.50 (living-room-tv)") || !strings.Contains(view, "Domain: lan.example") || !strings.Contains(view, "192.168.12.51") || strings.Contains(view, "Host:") {
 		t.Fatalf("LAN scan must render discovered devices in the network map:\n%s", view)
@@ -279,7 +275,7 @@ func TestNetworkMapToggle(t *testing.T) {
 		}
 	}
 
-	nm.cur.lines = append(nm.cur.lines, "Host: 192.168.12.52 (printer.office.example)\tStatus: Up")
+	setLANHosts(&nm, "192.168.12.1 router.lan.example", "192.168.12.50 living-room-tv.lan.example", "192.168.12.51", "192.168.12.52 printer.office.example")
 	view = nm.View()
 	if !strings.Contains(view, "router.lan.example") || !strings.Contains(view, "living-room-tv.lan.example") || !strings.Contains(view, "printer.office.example") || strings.Contains(view, "Domain:") {
 		t.Fatalf("mixed domains must remain visible in the network map:\n%s", view)
@@ -314,20 +310,15 @@ func TestNetworkMapToggle(t *testing.T) {
 }
 
 func TestNetworkMapRecalledFromOtherJobs(t *testing.T) {
-	oldLookPath := toolLookPath
-	toolLookPath = func(string) (string, error) { return "nmap", nil }
-	t.Cleanup(func() { toolLookPath = oldLookPath })
-
 	m := newModel(mustTarget(t, "example.com:443"), false)
 	doneResults(&m, "")
 	r := m.results[diagnostic.ProbeInternet]
 	r.Source = net.ParseIP("192.168.12.34")
 	m.results[diagnostic.ProbeInternet] = r
-	m.cur = jobState{name: lanDiscoveryName, status: JobDone, lines: []string{
-		"Host: 192.168.12.1 (router.lan.example)\tStatus: Up",
-	}}
+	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
+	setLANHosts(&m, "192.168.12.1 router.lan.example")
 	m.otherJobs = []jobState{{name: "ping", status: JobDone}}
-	m.networkCIDR = "192.168.12.0/24"
+	m.cur.networkCIDR = "192.168.12.0/24"
 
 	// Tab parks the finished scan; v must fetch it back, not re-gate a sweep.
 	u, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -345,50 +336,40 @@ func TestNetworkMapRecalledFromOtherJobs(t *testing.T) {
 	}
 }
 
-func TestNetworkMapPrefersResolvedNames(t *testing.T) {
+func TestNetworkMapAppliesResolvedNames(t *testing.T) {
 	m := newModel(mustTarget(t, "example.com:22"), false)
 	m.networkMap = true
-	m.networkCIDR = "192.168.12.0/24"
+	m.cur.networkCIDR = "192.168.12.0/24"
 	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
-	m.cur.lines = []string{
-		"Host: 192.168.12.1 (isp-cpe-4471.example)\tStatus: Up",
-		"Host: 192.168.12.50 ()\tStatus: Up",
-		"Host: 192.168.12.60 (asleep.lan)\tStatus: Down",
-	}
+	setLANHosts(&m, "192.168.12.1", "192.168.12.50")
 
-	if got := discoveredIPs(m.cur.lines); len(got) != 2 || got[0] != "192.168.12.1" || got[1] != "192.168.12.50" {
-		t.Fatalf("discoveredIPs = %v, want the two Up addresses", got)
-	}
-
-	u, _ := m.Update(lanNamesMsg{gen: 0, names: map[string]string{"192.168.12.1": "pihole"}})
+	m.cur.lanID = "test-scan"
+	m.cur.lanPending = map[string]bool{"192.168.12.1": true, "192.168.12.50": true}
+	u, _ := m.Update(lanNamesMsg{gen: 0, job: m.cur.lanID, names: map[string]lanName{"192.168.12.1": {label: "pihole"}}})
 	m = asModel(t, u)
 	if hosts := m.networkHosts(); len(hosts) != 2 || hosts[0] != "192.168.12.1 (pihole)" || hosts[1] != "192.168.12.50" {
-		t.Fatalf("networkHosts = %v, want the resolved name to beat nmap's", hosts)
+		t.Fatalf("networkHosts = %v, want the resolved name beside the first address", hosts)
 	}
 
-	u, _ = m.Update(lanNamesMsg{gen: 1, names: map[string]string{"192.168.12.50": "stale"}})
+	u, _ = m.Update(lanNamesMsg{gen: 1, job: m.cur.lanID, names: map[string]lanName{"192.168.12.50": {label: "stale"}}})
 	m = asModel(t, u)
 	if hosts := m.networkHosts(); hosts[1] != "192.168.12.50" {
 		t.Fatalf("stale-generation names must be ignored: %v", hosts)
 	}
 }
 
-func TestNetworkMapDomainIgnoresBareAliases(t *testing.T) {
+func TestNetworkMapDomainIgnoresSSHAliases(t *testing.T) {
 	m := newModel(mustTarget(t, "example.com:22"), false)
 	m.width = 100
 	m.networkMap = true
-	m.networkCIDR = "192.168.1.0/24"
+	m.cur.networkCIDR = "192.168.1.0/24"
 	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
-	m.cur.lines = []string{
-		"Host: 192.168.1.1 ()\tStatus: Up",
-		"Host: 192.168.1.7 (unknownaabbcc.attlocal.net)\tStatus: Up",
-		"Host: 192.168.1.8 (unknownddeeff.attlocal.net)\tStatus: Up",
-	}
-	m.hostNames = map[string]string{"192.168.1.1": "pihole"}
+	setLANHosts(&m, "192.168.1.1", "192.168.1.7 unknownaabbcc.attlocal.net", "192.168.1.8 unknownddeeff.attlocal.net")
+	m.cur.lanNames["192.168.1.1"] = lanName{label: "pihole.old.example", sshAlias: true}
 
 	view := m.View()
-	if !strings.Contains(view, "Domain: attlocal.net") || !strings.Contains(view, "192.168.1.7 (unknownaabbcc)") || !strings.Contains(view, "192.168.1.1 (pihole)") || strings.Contains(view, "attlocal.net)") {
-		t.Fatalf("bare aliases must not veto domain stripping:\n%s", view)
+	if !strings.Contains(view, "Domain: attlocal.net") || !strings.Contains(view, "192.168.1.7 (unknownaabbcc)") || !strings.Contains(view, "192.168.1.1 (SSH alias: pihole.old.example)") || strings.Contains(view, "attlocal.net)") {
+		t.Fatalf("SSH alias domains must not influence domain stripping:\n%s", view)
 	}
 }
 
@@ -397,12 +378,9 @@ func TestNetworkMapDomainIgnoresBareAliases(t *testing.T) {
 func TestNetworkMapSelectsDeviceNotADefaultService(t *testing.T) {
 	m := newModel(mustTarget(t, "example.com:22"), false)
 	m.networkMap = true
-	m.networkCIDR = "192.168.12.0/24"
+	m.cur.networkCIDR = "192.168.12.0/24"
 	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
-	m.cur.lines = []string{
-		"Host: 192.168.12.1 (router.lan)\tStatus: Up",
-		"Host: 192.168.12.50 (printer.lan)\tStatus: Up",
-	}
+	setLANHosts(&m, "192.168.12.1 router.lan", "192.168.12.50 printer.lan")
 
 	u, _ := m.Update(keyMsg("j"))
 	m = asModel(t, u)
@@ -427,9 +405,9 @@ func TestNetworkMapSelectsDeviceNotADefaultService(t *testing.T) {
 func TestNetworkMapEnterClampsAfterShrink(t *testing.T) {
 	m := newModel(mustTarget(t, "example.com:22"), false)
 	m.networkMap = true
-	m.networkCIDR = "192.168.12.0/24"
+	m.cur.networkCIDR = "192.168.12.0/24"
 	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
-	m.cur.lines = []string{"Host: 192.168.12.1 (router.lan)\tStatus: Up"}
+	setLANHosts(&m, "192.168.12.1 router.lan")
 	m.mapSelected = 3 // list shrank under the cursor
 
 	u, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -521,7 +499,7 @@ func TestRestartResets(t *testing.T) {
 	m.started[diagnostic.ProbeIface] = true
 	m.cur.status, m.cur.name, m.cur.display, m.cur.dur = JobDone, "ping", "ping example.com", 1
 	m.cur.lines = []string{"reply from example.com"}
-	m.hostNames = map[string]string{"192.168.1.1": "old-router"}
+	m.cur.lanNames = map[string]lanName{"192.168.1.1": {label: "old-router"}}
 	gen0 := m.generation
 	u, _ := m.Update(keyMsg("r"))
 	nm := asModel(t, u)
@@ -539,7 +517,7 @@ func TestRestartResets(t *testing.T) {
 	if len(nm.results) != 0 || len(nm.started) != 0 {
 		t.Error("restart must clear results/started")
 	}
-	if len(nm.hostNames) != 0 {
+	if len(nm.cur.lanNames) != 0 {
 		t.Error("restart must clear resolved LAN names")
 	}
 	if nm.ctx != nil {
@@ -1488,11 +1466,9 @@ func sshMapModel(t *testing.T) model {
 	r.Source = net.ParseIP("192.168.12.34")
 	m.results[diagnostic.ProbeInternet] = r
 	m.width, m.height = 100, 30
-	m.networkMap, m.networkCIDR = true, "192.168.12.0/24"
-	m.cur = jobState{name: lanDiscoveryName, status: JobDone, lines: []string{
-		"Host: 192.168.12.1 (router.lan)\tStatus: Up",
-		"Host: 192.168.12.50 (printer.lan)\tStatus: Up",
-	}}
+	m.networkMap, m.cur.networkCIDR = true, "192.168.12.0/24"
+	m.cur.name, m.cur.status = lanDiscoveryName, JobDone
+	setLANHosts(&m, "192.168.12.1 router.lan", "192.168.12.50 printer.lan")
 	return m
 }
 
@@ -1516,7 +1492,7 @@ func TestNetworkMapDetachesWhenSSHFinishes(t *testing.T) {
 				t.Fatalf("the map stayed open over the %q job", nm.cur.name)
 			}
 			view := ansi.Strip(nm.View())
-			if strings.Contains(view, "Discovery ") || strings.Contains(view, "No other devices replied") {
+			if strings.Contains(view, "Discovery ") || strings.Contains(view, "No device evidence recorded") {
 				t.Fatalf("an ssh exit was reported as a LAN discovery outcome:\n%s", view)
 			}
 			// The scan itself is untouched: v brings its devices straight back.
@@ -1542,7 +1518,7 @@ func TestNetworkMapDetachesOnRepeatedSSH(t *testing.T) {
 		if m.networkMap {
 			t.Fatalf("attempt %d left the map open over %q", i+1, m.cur.name)
 		}
-		if view := ansi.Strip(m.View()); strings.Contains(view, "Discovery ") || strings.Contains(view, "No other devices replied") {
+		if view := ansi.Strip(m.View()); strings.Contains(view, "Discovery ") || strings.Contains(view, "No device evidence recorded") {
 			t.Fatalf("attempt %d reported ssh as a LAN discovery outcome:\n%s", i+1, view)
 		}
 		u, _ = m.Update(keyMsg("v"))

@@ -414,6 +414,12 @@ func (o *netops) dialIPs(ctx context.Context, ips []net.IP, port int) (net.Conn,
 // UDP "connect" (sends no packets) for path identity only, not a reachability
 // claim.
 func (o *netops) pathIdentity(ctx context.Context, conn net.Conn, dstIP net.IP, port int) (net.IP, string, bool) {
+	if binding := o.lanBinding; binding != nil {
+		if conn != nil {
+			return net.IP(binding.Source.AsSlice()), binding.Interface, false
+		}
+		return nil, "", false
+	}
 	var src net.IP
 	if conn != nil {
 		if la, ok := conn.LocalAddr().(*net.TCPAddr); ok {

@@ -51,6 +51,7 @@ type Target struct {
 	Port         int
 	Proto        Proto
 	PortExplicit bool
+	lanBinding   *LANBinding // local selection, never parsed from a target string
 }
 
 // TargetForms documents the grammar ParseTarget accepts. --help and the

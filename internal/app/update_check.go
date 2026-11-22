@@ -63,8 +63,7 @@ type updateReport struct {
 // asked for it directly, so it overrides the automatic-check opt-out, but it
 // still obeys --no-reference-egress. It exits 0 for every answer, since no
 // answer is a diagnosis. It asks again after an unsuccessful earlier attempt.
-func runUpdateCheck(setFlags map[string]bool, positional []string, jsonOut bool, stdout, stderr io.Writer) int {
-	noEgress := setFlags["no-reference-egress"]
+func runUpdateCheck(setFlags map[string]bool, positional []string, jsonOut, noEgress bool, stdout, stderr io.Writer) int {
 	delete(setFlags, "update-check")
 	delete(setFlags, "json")
 	delete(setFlags, "no-reference-egress")

@@ -257,7 +257,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if *updateCheck {
-		return runUpdateCheck(setFlagNames(fs), positional, *jsonOut, stdout, stderr)
+		return runUpdateCheck(setFlagNames(fs), positional, *jsonOut, *noReferenceEgress, stdout, stderr)
 	}
 	if *listChecks {
 		setFlags := setFlagNames(fs)

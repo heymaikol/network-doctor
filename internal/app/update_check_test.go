@@ -215,6 +215,40 @@ func TestUpdateCheckObeysNoReferenceEgress(t *testing.T) {
 	}
 }
 
+// An explicit false value is not a request to skip the check. Whether the flag
+// was spelled out is not the question; its value is.
+func TestUpdateCheckHonoursAnExplicitFalseNoReferenceEgress(t *testing.T) {
+	u := &updateTest{tag: "v2.3.0", code: http.StatusOK}
+	setUpdateTest(t, u, "2.2.1")
+	code, out, errOut := runUpdate("-update-check", "-json", "-no-reference-egress=false")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr %q; want 0", code, errOut)
+	}
+	if n := u.calls.Load(); n != 1 {
+		t.Fatalf("-no-reference-egress=false made %d requests, want 1", n)
+	}
+	if !strings.Contains(out, `"status":"update_available"`) {
+		t.Fatalf("stdout = %q, want an update_available answer", out)
+	}
+}
+
+// Negative control: an explicit true still disables the check, so the fix does
+// not make the flag meaningless.
+func TestUpdateCheckHonoursAnExplicitTrueNoReferenceEgress(t *testing.T) {
+	u := &updateTest{tag: "v2.3.0", code: http.StatusOK}
+	setUpdateTest(t, u, "2.2.1")
+	code, out, _ := runUpdate("-update-check", "-json", "-no-reference-egress=true")
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if n := u.calls.Load(); n != 0 {
+		t.Fatalf("-no-reference-egress=true made %d requests, want 0", n)
+	}
+	if !strings.Contains(out, `"status":"disabled"`) {
+		t.Fatalf("stdout = %q, want a disabled answer", out)
+	}
+}
+
 // Negative control: a development or unstable build is never compared, so the
 // check makes no request for it.
 func TestUpdateCheckMakesNoRequestForUnknownBuilds(t *testing.T) {

@@ -1254,7 +1254,129 @@ fn main() -> eframe::Result {
 
 #[cfg(test)]
 mod tests {
-    use super::exit_error;
+    use super::*;
+
+    /// One result, as netdoc prints it on a single line.
+    #[cfg(unix)]
+    const REPORT_LINE: &str =
+        r#"{"version":"x","target":null,"checks":[],"summary":"x","verdict":"ok","ok":true}"#;
+
+    /// A stand-in netdoc. `--version` gets its own answer, so the version probe
+    /// never runs the check body.
+    #[cfg(unix)]
+    fn fake_netdoc(dir: &std::path::Path, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join("netdoc-fake");
+        let script = format!(
+            "#!/bin/sh\ncase \"$1\" in\n--version) echo 'netdoc test'; exit 0;;\nesac\n{body}\n"
+        );
+        std::fs::write(&p, script).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    }
+
+    /// A fresh directory for one test, removed by the test when it ends.
+    #[cfg(unix)]
+    fn scratch_dir(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("netdoc-gui-{name}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A window whose next check runs `body` as netdoc, with the watch setting given.
+    #[cfg(unix)]
+    fn window_running(dir: &std::path::Path, body: &str, watch: bool) -> App {
+        let startup = Startup {
+            netdoc: Some(fake_netdoc(dir, body)),
+            watch,
+            ..Startup::default()
+        };
+        App::new(egui::Context::default(), startup)
+    }
+
+    /// Takes the check's messages, as the frames would, until the check ends.
+    /// False if it has not ended in thirty seconds.
+    #[cfg(unix)]
+    fn wait_for_the_check(app: &mut App) -> bool {
+        let started = Instant::now();
+        while app.running.is_some() {
+            if started.elapsed() > std::time::Duration::from_secs(30) {
+                return false;
+            }
+            app.poll_check();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        true
+    }
+
+    /// W6: a one-shot check whose output ends with a complete report, and whose
+    /// process then never exits, keeps its report and says nothing.
+    #[cfg(unix)]
+    #[test]
+    fn w6_a_one_shot_that_expires_after_its_report_stays_quiet() {
+        let dir = scratch_dir("w6");
+        let body = format!("echo '{REPORT_LINE}'\nexec >&- 2>&-\nexec sleep 60");
+        let mut app = window_running(&dir, &body, false);
+        app.start();
+        let ended = wait_for_the_check(&mut app);
+        let (reports, failure, error) = (app.history.len(), app.failure.clone(), app.error.clone());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(ended, "the check never ended");
+        assert_eq!(reports, 1, "the report was lost");
+        assert!(
+            failure.is_none() && error.is_none(),
+            "the expiry was said: {failure:?} {error:?}"
+        );
+    }
+
+    /// W7: a check that started as a one-shot stays one when Keep watching is
+    /// turned on while it runs.
+    #[cfg(unix)]
+    #[test]
+    fn w7_turning_watch_on_mid_run_does_not_change_a_one_shot() {
+        let dir = scratch_dir("w7-on");
+        let body = format!("echo '{REPORT_LINE}'\nsleep 1\nexit 1");
+        let mut app = window_running(&dir, &body, false);
+        app.start();
+        app.watch = true; // the toggle, changed while the check runs
+        let ended = wait_for_the_check(&mut app);
+        let (reports, failure, error) = (app.history.len(), app.failure.clone(), app.error.clone());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(ended, "the check never ended");
+        assert_eq!(reports, 1, "the report was lost");
+        assert!(
+            failure.is_none() && error.is_none(),
+            "a one-shot was read as a watch: {failure:?} {error:?}"
+        );
+    }
+
+    /// W7: a check that started as a watch stays one when Keep watching is
+    /// turned off while it runs, so its unexpected end is still said.
+    #[cfg(unix)]
+    #[test]
+    fn w7_turning_watch_off_mid_run_does_not_change_a_watch() {
+        let dir = scratch_dir("w7-off");
+        let body = format!("echo '{REPORT_LINE}'\nsleep 1\nexit 0");
+        let mut app = window_running(&dir, &body, true);
+        app.start();
+        app.watch = false; // the toggle, changed while the check runs
+        let ended = wait_for_the_check(&mut app);
+        let (reports, failure) = (app.history.len(), app.failure.clone());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(ended, "the check never ended");
+        assert_eq!(reports, 1, "the report was lost");
+        assert!(
+            failure
+                .as_deref()
+                .is_some_and(|f| f.contains("stopped watching unexpectedly")),
+            "the watch's unexpected end was not said: {failure:?}"
+        );
+    }
 
     #[test]
     fn only_an_unexplained_end_is_an_error() {

@@ -1347,6 +1347,20 @@ mod tests {
         assert_eq!(seen, Some(vec!["report", "finished"]));
     }
 
+    /// W1: a watch that exits 0 after a report, without a stop from the window,
+    /// is said beside that report.
+    #[cfg(unix)]
+    #[test]
+    fn w1_a_watch_that_exits_0_after_a_report_is_said() {
+        let dir = scratch("w1-exit0");
+        let (tx, rx) = channel();
+        let body = "echo '{\"version\":\"x\",\"target\":null,\"checks\":[],\"summary\":\"x\",\"verdict\":\"ok\",\"ok\":true}'\nexit 0";
+        let _h = run(fake_netdoc(&dir, body), None, None, Some(5), tx, || {});
+        let seen = until_finished(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
+    }
+
     /// A one-shot check that reported stands, whatever netdoc exited with.
     #[cfg(unix)]
     #[test]

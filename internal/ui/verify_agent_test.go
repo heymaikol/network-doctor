@@ -103,3 +103,24 @@ func TestVerifyAgentKeysReachTheChooserThroughUpdate(t *testing.T) {
 		t.Fatalf("the chooser has %d agent keys, want 1: the listing message was not delivered", len(got))
 	}
 }
+
+// Only the newest listing fills the chooser. A replaced listing, or one for a
+// route that was dropped, arrives late and must not replace the keys.
+func TestVerifyStaleAgentListingIsDropped(t *testing.T) {
+	m := pressed(t, sshModel(t), keyPress("S"))
+	m = resolved(t, m)
+	m.verify.keysSeq = 2
+	m, _, _ = m.handleVerifyMsg(verifyKeysMsg{id: m.verify.id, seq: 1, keys: []sshverify.AgentKey{{Fingerprint: "old"}}})
+	if len(m.verify.agentKeys) != 0 {
+		t.Fatalf("a replaced listing filled the chooser: %v", m.verify.agentKeys)
+	}
+	m, _, _ = m.handleVerifyMsg(verifyKeysMsg{id: m.verify.id, seq: 2, keys: []sshverify.AgentKey{{Fingerprint: "new"}}})
+	if len(m.verify.agentKeys) != 1 || m.verify.agentKeys[0].Fingerprint != "new" {
+		t.Fatalf("the newest listing did not fill the chooser: %v", m.verify.agentKeys)
+	}
+	m.verify.dropRoute()
+	m, _, _ = m.handleVerifyMsg(verifyKeysMsg{id: m.verify.id, seq: 2, keys: []sshverify.AgentKey{{Fingerprint: "late"}}})
+	if len(m.verify.agentKeys) != 0 {
+		t.Fatalf("a listing for a dropped route filled the chooser: %v", m.verify.agentKeys)
+	}
+}

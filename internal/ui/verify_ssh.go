@@ -182,6 +182,7 @@ func (p *verifyPanel) dropRoute() {
 		p.resolveCancel = nil
 	}
 	p.resolveSeq++
+	p.keysSeq++
 	p.resolved = false
 	p.resolveErr = ""
 	p.target = sshverify.Target{}
@@ -501,7 +502,7 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.keys = sshverify.ExistingIdentityFiles(msg.target)
 		return m, nil, true
 	case verifyKeysMsg:
-		if !m.verifying || msg.id != m.verify.id {
+		if !m.verifying || msg.id != m.verify.id || msg.seq != m.verify.keysSeq {
 			return m, nil, true
 		}
 		if m.verify.keysCancel != nil {

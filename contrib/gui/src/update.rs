@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const SCHEMA: &str = "netdoc.update-check.v1";
 const RELEASES: &str = "https://github.com/heymaikol/network-doctor/releases/tag/";
@@ -204,8 +205,33 @@ pub fn change(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
         .write(true)
         .open(path.with_file_name("update.lock"))?;
     // Released when `lock` is dropped, after the change is written.
-    lock.lock()?;
+    lock_within(&lock, LOCK_WAIT)?;
     apply(path, change)
+}
+
+/// How long a change waits for another window's lock before it reports that it
+/// could not save. The window waits on this on its UI thread, so it stays short.
+const LOCK_WAIT: Duration = Duration::from_secs(1);
+
+/// Takes the exclusive lock, giving up after `wait`, so a stalled holder cannot
+/// freeze a window. A holder that lets go in time is waited out.
+fn lock_within(file: &std::fs::File, wait: Duration) -> io::Result<()> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(std::fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "another window is still changing the update setting",
+                ));
+            }
+            Err(std::fs::TryLockError::Error(e)) => return Err(e),
+        }
+    }
 }
 
 /// The read, change and write of `change`, without taking the lock.
@@ -643,6 +669,53 @@ mod tests {
         assert!(
             !released_first.get(),
             "the change waited without a lock, so the control proves nothing"
+        );
+    }
+
+    /// A stalled holder must not freeze a change. The change gives up within the
+    /// bound and reports that it could not save, instead of waiting for the holder.
+    #[test]
+    fn a_stalled_lock_holder_does_not_freeze_a_change() {
+        let folder = Folder::new("stalled");
+        let mut holder = spawn_holder(&folder.0, 4000);
+        wait_for(&folder.0.join("held"));
+        let started = std::time::Instant::now();
+        let result = change(&folder.file(), |m| m.off = true);
+        let elapsed = started.elapsed();
+        holder.kill().ok();
+        holder.wait().ok();
+        let err = result.expect_err("a change waited for a stalled holder instead of giving up");
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "the change took {elapsed:?} to give up"
+        );
+        assert!(
+            !folder.file().exists(),
+            "a change that gave up still wrote the file"
+        );
+    }
+
+    /// Negative control: a holder that lets go within the bound is waited out,
+    /// so the bound does not refuse every contended change.
+    #[test]
+    fn a_short_hold_within_the_bound_is_waited_out() {
+        let folder = Folder::new("short-hold");
+        let mut holder = spawn_holder(&folder.0, 100);
+        wait_for(&folder.0.join("held"));
+        let released_first = std::cell::Cell::new(false);
+        let saved = change(&folder.file(), |m| {
+            released_first.set(folder.0.join("released").exists());
+            m.off = true;
+        });
+        assert!(holder.wait().unwrap().success());
+        assert!(
+            saved.is_ok(),
+            "a short hold within the bound refused the change"
+        );
+        assert!(
+            released_first.get(),
+            "the change did not wait for the short hold"
         );
     }
 

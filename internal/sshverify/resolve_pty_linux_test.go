@@ -81,19 +81,25 @@ func runResolveChild(t *testing.T, config string, terminal bool) (string, time.D
 	cmd := exec.Command(os.Args[0], "-test.run=^TestResolveHelper$") // #nosec G702 G204 -- the test runs its own test binary (os.Args[0]) with a fixed -test.run argument, and no shell
 	cmd.Env = append(os.Environ(), "NETDOC_SSH_CONFIG="+config)
 	var master *os.File
+	var slave *os.File
 	if terminal {
 		m, s := openPTYPair(t)
-		master = m
-		defer s.Close()
+		master, slave = m, s
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = s, s, s
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	} else {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
 	var output lockedBuffer
+	copied := make(chan struct{})
 	if master != nil {
 		defer master.Close()
-		go output.copyFrom(master)
+		go func() {
+			output.copyFrom(master)
+			close(copied)
+		}()
+	} else {
+		close(copied)
 	}
 	start := time.Now()
 	if master == nil {
@@ -103,21 +109,34 @@ func runResolveChild(t *testing.T, config string, terminal bool) (string, time.D
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	// The child holds the terminal's slave side now. Closing this one lets the
+	// reader see end of file once the child has exited, after every byte is read.
+	if slave != nil {
+		_ = slave.Close()
+	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	deadline := time.Now().Add(30 * time.Second)
-	for output.resultLine() == "" {
-		if time.Now().After(deadline) {
-			_ = cmd.Process.Kill()
-			t.Fatalf("the child printed no result; output so far: %q", output.text())
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("the child failed: %v", err)
 		}
-		time.Sleep(5 * time.Millisecond)
+	case <-time.After(30 * time.Second):
+		_ = cmd.Process.Kill()
+		<-done
+		t.Fatalf("the child did not end; output so far: %q", output.text())
+	}
+	select {
+	case <-copied:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the child's output did not end; output so far: %q", output.text())
 	}
 	took := time.Since(start)
-	if err := <-done; err != nil {
-		t.Fatalf("the child failed: %v", err)
+	line := output.resultLine()
+	if line == "" {
+		t.Fatalf("the child printed no result; output: %q", output.text())
 	}
-	return output.resultLine(), took
+	return line, took
 }
 
 // interactiveHostname is what the user's own ssh resolves: the same command on a
@@ -131,7 +150,11 @@ func interactiveHostname(t *testing.T, config, typed string) string {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	var output lockedBuffer
-	go output.copyFrom(master)
+	copied := make(chan struct{})
+	go func() {
+		output.copyFrom(master)
+		close(copied)
+	}()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +172,11 @@ func interactiveHostname(t *testing.T, config, typed string) string {
 	case <-time.After(20 * time.Second):
 		_ = cmd.Process.Kill()
 		t.Fatal("the interactive ssh did not finish")
+	}
+	select {
+	case <-copied:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the interactive ssh output did not end")
 	}
 	target, err := parseConfig([]byte(output.stdoutText()), "")
 	if err != nil {

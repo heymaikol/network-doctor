@@ -109,3 +109,19 @@ func TestClientVersionReadsTheInstalledRelease(t *testing.T) {
 		t.Fatalf("the installed client's version line %q names no OpenSSH release", line)
 	}
 }
+
+// A version line that names no OpenSSH release is a readable version without a release.
+// The refusal says so, and names nothing. It must not claim the version could not be read,
+// and must not name an older release, because none was read.
+func TestOmittedRevocationLineNoReleaseNamed(t *testing.T) {
+	for _, v := range []string{"Dropbear_2024.85", "OpenSSH unknown build"} {
+		err := fixedListing(t, "user demo\nhostname 127.0.0.1\nport 2260\n", v, nil)
+		if err == nil || !strings.Contains(err.Error(), "does not name an OpenSSH release") {
+			t.Errorf("a version line %q: got %v, want a refusal saying the client does not name an OpenSSH release", v, err)
+			continue
+		}
+		if strings.Contains(err.Error(), "could not be read") || strings.Contains(err.Error(), "older than") {
+			t.Errorf("a version line %q: the refusal %q names a version it did not read", v, err)
+		}
+	}
+}

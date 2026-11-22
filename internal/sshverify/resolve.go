@@ -109,9 +109,9 @@ var clientVersion = func(ctx context.Context) (string, error) {
 var openSSHRelease = regexp.MustCompile(`OpenSSH_(\d+)\.(\d+)(?:p(\d+))?`)
 
 // atLeastRevocationFloor reports whether a version line names OpenSSH 10.0p2 or newer.
-// That is the policy floor for accepting an omitted RevokedHostKeys line as unset. It is
-// a version comparison, not a runtime test; docs/reference.md says which releases were
-// run directly. A line that names no release is not accepted.
+// Versions from the floor onward are accepted by policy, as a version comparison. Direct
+// verification covers only the releases listed in docs/reference.md. A line that names
+// no release is not accepted.
 func atLeastRevocationFloor(line string) bool {
 	m := openSSHRelease.FindStringSubmatch(line)
 	if m == nil {

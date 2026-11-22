@@ -747,3 +747,30 @@ func TestVerifyKeyboardInteractiveWithoutAPromptIsNotVerified(t *testing.T) {
 		t.Fatalf("outcome = %q, want no credential accepted; detail %q", r.Outcome, r.Detail)
 	}
 }
+
+// A server that drops the connection on the password request, before it answers,
+// causes an I/O error on the client. The library then calls the callback a second
+// time, which must not be read as the server refusing the password.
+func TestPasswordDroppedBeforeAnswerIsNotARefusal(t *testing.T) {
+	host, _ := newEd25519(t)
+	known := knownHostsFor(t, host.PublicKey())
+	opts := Options{
+		Timeout: 5 * time.Second,
+		Dial: func(ctx context.Context, addr string) (net.Conn, error) {
+			client, srv := bufferedPipe()
+			cfg := &ssh.ServerConfig{}
+			cfg.AddHostKey(host)
+			cfg.PasswordCallback = func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) {
+				_ = srv.Close() // drop the connection instead of answering
+				return nil, errors.New("dropped")
+			}
+			go func() { _, _, _, _ = ssh.NewServerConn(srv, cfg) }()
+			return client, nil
+		},
+	}
+
+	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	if r.Outcome != TransportFailure {
+		t.Fatalf("a connection dropped before the server answered gave %q, want %q; detail %q", r.Outcome, TransportFailure, r.Detail)
+	}
+}

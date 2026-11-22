@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -358,6 +359,7 @@ type authState struct {
 	// name is the protocol method the credential was offered as: password or
 	// keyboard-interactive.
 	name string
+	wire *replyTracker // the connection of this handshake
 }
 
 // callback is the ssh.ClientAuthCallback. It runs after the server's "none"
@@ -385,6 +387,35 @@ func (s *authState) callback(ctx *ssh.ClientAuthContext) (ssh.AuthMethod, error)
 	s.attempted = true
 	s.name = name
 	return s.cred.use(name), nil
+}
+
+// replyTracker wraps the connection of one handshake. After an I/O error the
+// library calls the callback again, just as it does after a refusal, so the
+// callback cannot tell the two apart. The server answered only if it sent bytes
+// after the client's last write.
+type replyTracker struct {
+	net.Conn
+	writes atomic.Int64
+	reply  atomic.Int64 // the write count at the last read that returned bytes
+}
+
+func (c *replyTracker) Write(p []byte) (int, error) {
+	c.writes.Add(1)
+	return c.Conn.Write(p)
+}
+
+func (c *replyTracker) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		c.reply.Store(c.writes.Load())
+	}
+	return n, err
+}
+
+// answered reports whether the server sent bytes after the client's last write.
+// A nil tracker, which no handshake builds, answers nothing.
+func (c *replyTracker) answered() bool {
+	return c != nil && c.writes.Load() > 0 && c.reply.Load() == c.writes.Load()
 }
 
 // round is one handshake on one connection.
@@ -442,7 +473,8 @@ func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, 
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 
-	r := round{hosts: hosts, auth: &authState{cred: cred}}
+	wire := &replyTracker{Conn: conn}
+	r := round{hosts: hosts, auth: &authState{cred: cred, wire: wire}}
 	name := net.JoinHostPort(hostKeyName(t), strconv.Itoa(t.Port))
 	cfg := &ssh.ClientConfig{
 		User:              user,
@@ -450,7 +482,7 @@ func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, 
 		HostKeyAlgorithms: algos,
 		AuthCallback:      r.auth.callback,
 	}
-	client, chans, reqs, err := ssh.NewClientConn(conn, name, cfg)
+	client, chans, reqs, err := ssh.NewClientConn(wire, name, cfg)
 	if err == nil {
 		// The server accepted the connection. Close it without opening a
 		// session, a channel, or a remote command.
@@ -538,7 +570,7 @@ func (r round) result(ctx context.Context, err error, discovery bool) Result {
 		return Result{Outcome: Unsupported, Method: r.method(), HostKey: fingerprint, Methods: sanitize(s.allowed), Detail: "the server asked for more than a password; netdoc answers only a single password prompt"}
 	}
 	if s.attempted {
-		if s.calls >= 2 {
+		if s.calls >= 2 && s.wire.answered() {
 			if len(s.partial) > 0 {
 				return Result{Outcome: Partial, Method: s.cred.method, HostKey: fingerprint, Methods: sanitize(s.partial), Remaining: sanitize(s.allowed), Detail: "the server accepted this method and requires more before it lets you in" + note}
 			}

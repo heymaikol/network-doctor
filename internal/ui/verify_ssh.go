@@ -85,6 +85,8 @@ type verifyPanel struct {
 	resolveCancel context.CancelFunc
 	// keysCancel ends the agent listing a discovery started, if it is still running.
 	keysCancel context.CancelFunc
+	// keysSeq numbers the agent listings, so a result from a replaced one is recognized.
+	keysSeq uint64
 }
 
 // verifyResolvedMsg carries the off-loop configuration read. The id rejects a
@@ -106,6 +108,7 @@ type verifyResultMsg struct {
 // message, so a slow agent cannot hold a discovery result.
 type verifyKeysMsg struct {
 	id   uint64
+	seq  uint64
 	keys []sshverify.AgentKey
 }
 
@@ -212,10 +215,10 @@ func discoverCmd(ctx context.Context, id uint64, t sshverify.Target, opts sshver
 
 // agentKeysCmd lists the agent's keys for the chooser. The listing ends with
 // its context, or at the check's timeout, whichever comes first.
-func agentKeysCmd(ctx context.Context, id uint64, t sshverify.Target, opts sshverify.Options) tea.Cmd {
+func agentKeysCmd(ctx context.Context, id, seq uint64, t sshverify.Target, opts sshverify.Options) tea.Cmd {
 	return func() tea.Msg {
 		keys, _ := sshverify.ListAgentKeys(ctx, t, opts)
-		return verifyKeysMsg{id: id, keys: keys}
+		return verifyKeysMsg{id: id, seq: seq, keys: keys}
 	}
 }
 
@@ -375,7 +378,8 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 		}
 		keysCtx, keysCancel := context.WithCancel(context.Background())
 		p.keysCancel = keysCancel
-		cmds = append(cmds, agentKeysCmd(keysCtx, p.id, p.target, opts))
+		p.keysSeq++
+		cmds = append(cmds, agentKeysCmd(keysCtx, p.id, p.keysSeq, p.target, opts))
 	}
 	if !wasTicking {
 		cmds = append(cmds, m.spinner.Tick)

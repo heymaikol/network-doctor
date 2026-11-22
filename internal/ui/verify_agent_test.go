@@ -80,7 +80,7 @@ func TestResponsiveAgentKeysArriveSeparately(t *testing.T) {
 		return client, nil
 	}
 	opts := sshverify.Options{Timeout: 5 * time.Second, Agent: serve}
-	msg := agentKeysCmd(context.Background(), 2, sshverify.Target{}, opts)()
+	msg := agentKeysCmd(context.Background(), 2, 1, sshverify.Target{}, opts)()
 	keys, ok := msg.(verifyKeysMsg)
 	if !ok || len(keys.keys) != 1 || keys.id != 2 {
 		t.Fatalf("agent keys = %#v, want one key for panel 2", msg)

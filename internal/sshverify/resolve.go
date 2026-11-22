@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -76,8 +77,54 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 	if err != nil {
 		return Target{}, fmt.Errorf("could not read the SSH configuration: %w", err)
 	}
+	// An unset RevokedHostKeys is left out of the listing. Only OpenSSH from the floor
+	// up is verified to leave it out exactly when it is unset, so an older client that
+	// omits the line is refused, as it was before that rule.
+	if _, set := listingValue(out, "revokedhostkeys"); !set && !revocationOmissionVerified(ctx) {
+		return Target{}, errors.New("the SSH configuration does not report RevokedHostKeys, so netdoc cannot tell whether a revoked host key is trusted; nothing was sent")
+	}
 	home, _ := os.UserHomeDir()
 	return parseConfig(out, home)
+}
+
+// clientVersion returns the first line of the installed client's version output. It
+// is a variable so a test can name the version.
+var clientVersion = func(ctx context.Context) (string, error) {
+	program, err := sshExecutable(sshBinary)
+	if err != nil {
+		return "", err
+	}
+	// #nosec G204 -- a fixed argument list, run on the client sshExecutable resolved
+	out, err := exec.CommandContext(ctx, program, "-V").CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	line, _, _ := strings.Cut(string(out), "\n")
+	return line, nil
+}
+
+// openSSHRelease matches the release in a version line, as ssh -V prints it.
+var openSSHRelease = regexp.MustCompile(`OpenSSH_(\d+)\.(\d+)`)
+
+// atLeastRevocationFloor reports whether a version line names OpenSSH 10.2p1 or newer,
+// the first release verified to leave RevokedHostKeys out exactly when it is unset
+// (openssh-portable V_10_2_P1, and the CI runner's 10.2). The same rule appears in the
+// 9.9p1 and 10.1p1 sources, but neither was run, so both are refused until they are.
+// A line that names no release is not verified.
+func atLeastRevocationFloor(line string) bool {
+	m := openSSHRelease.FindStringSubmatch(line)
+	if m == nil {
+		return false
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	return major > 10 || (major == 10 && minor >= 2)
+}
+
+// revocationOmissionVerified reports whether the installed client is at the floor.
+func revocationOmissionVerified(ctx context.Context) bool {
+	line, err := clientVersion(ctx)
+	return err == nil && atLeastRevocationFloor(line)
 }
 
 // resolveOutput runs ssh with args and returns its standard output. Standard

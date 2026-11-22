@@ -48,3 +48,12 @@ func TestPromptIsWrittenWithEchoOff(t *testing.T) {
 		t.Fatal("echo is still off after the prompt")
 	}
 }
+
+// Ctrl-\ sends SIGQUIT. The default action ends the process without a defer, so
+// the terminal kept echo off until the handler also covered quit.
+func TestQuitDuringPasswordPromptRestoresEcho(t *testing.T) {
+	_, echo := runSecretPrompt(t, []byte{0x1c}) // FS, the Ctrl-\ character
+	if !echo {
+		t.Fatal("echo is still off on the terminal after Ctrl-\\ at the password prompt")
+	}
+}

@@ -960,8 +960,8 @@ a generic user agent that does not name the installed version. GitHub receives t
 machine's IP address, as it does for any HTTPS request. Nothing else from a
 target, a report, or the machine is sent. The answer is cached for 24 hours, and
 a failed attempt is cached the same way, so automatic checks make no repeated
-requests while offline or rate limited. An automatic check the view closed
-before GitHub answered is asked again after one hour. This option asks again whenever the
+requests while offline or after a bad answer. A rate limit, and an automatic
+check the view closed before GitHub answered, are asked again after one hour. This option asks again whenever the
 cached attempt did not succeed; a cached success is reused for 24 hours.
 Development and prerelease builds make no request. With
 .B \-json

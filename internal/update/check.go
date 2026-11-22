@@ -17,14 +17,15 @@ const Endpoint = "https://api.github.com/repos/heymaikol/network-doctor/releases
 
 // Deadline bounds one request, and TTL is how long an answer is reused before
 // the next request. A failed attempt is cached for the same TTL, so offline
-// use, timeouts and rate limits never cause repeated requests. An attempt the
-// process abandons before it answers is asked again after interruptedRetry
-// instead, so one quit cannot hide the next notice for a day.
+// use and timeouts never cause repeated requests. Two outcomes are likely to
+// clear soon, a rate limit and an attempt the process abandons before it
+// answers, so they are asked again after shortRetry instead. An abandoned
+// attempt then cannot hide the next notice for a day.
 const (
-	Deadline         = 5 * time.Second
-	TTL              = 24 * time.Hour
-	interruptedRetry = time.Hour
-	maxBody          = 64 << 10
+	Deadline   = 5 * time.Second
+	TTL        = 24 * time.Hour
+	shortRetry = time.Hour
+	maxBody    = 64 << 10
 )
 
 // userAgent names the program without the installed version, so the request
@@ -82,8 +83,15 @@ func Latest(ctx context.Context, client *http.Client) (string, string) {
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
-	case http.StatusForbidden, http.StatusTooManyRequests:
+	case http.StatusTooManyRequests:
 		return "", outcomeRateLimit
+	case http.StatusForbidden:
+		// GitHub also answers a spent limit with 403, but it says so in these
+		// headers. Any other 403 is refused access, not a limit.
+		if resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.Header.Get("Retry-After") != "" {
+			return "", outcomeRateLimit
+		}
+		return "", outcomeBad
 	default:
 		return "", outcomeBad
 	}
@@ -171,8 +179,8 @@ func save(path string, r record) {
 
 // staleAfter is how old a record may be before the next request, by outcome.
 func staleAfter(outcome string) time.Duration {
-	if outcome == outcomeInterrupted {
-		return interruptedRetry
+	if outcome == outcomeInterrupted || outcome == outcomeRateLimit {
+		return shortRetry
 	}
 	return TTL
 }
@@ -190,7 +198,8 @@ type Result struct {
 // Check answers whether a newer stable release exists than installed, for the
 // automatic check. It makes no request when allow is false, when installed is
 // not a stable release, or when the cache is younger than its retry interval
-// (TTL, or interruptedRetry after an interrupted attempt) and not in the future.
+// (TTL, or shortRetry after an interrupted or rate-limited attempt) and not in
+// the future.
 // Otherwise it makes one request and records the attempt, success or
 // failure. It never returns an error: a broken cache or an unwritable directory
 // only costs the cache.
@@ -220,7 +229,7 @@ func check(ctx context.Context, client *http.Client, cachePath, installed string
 	if r.CheckedAt.IsZero() || age < 0 || age >= staleAfter(r.Outcome) || (explicit && r.Outcome != outcomeOK) {
 		// Record the attempt before asking, as interrupted until it answers. An
 		// attempt the process abandons mid-request, because the view quit first,
-		// counts toward interruptedRetry rather than the TTL, so reopening does not
+		// counts toward shortRetry rather than the TTL, so reopening does not
 		// repeat it and the next notice is not held for a day.
 		save(cachePath, record{CheckedAt: now, Outcome: outcomeInterrupted})
 		tag, outcome := Latest(ctx, client)

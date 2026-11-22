@@ -60,8 +60,13 @@ func TestLatestOutcomes(t *testing.T) {
 		do      func(*http.Request) (*http.Response, error)
 		outcome string
 	}{
-		{"rate limited 403", reply(403, "{}"), outcomeRateLimit},
 		{"rate limited 429", reply(429, "{}"), outcomeRateLimit},
+		{"rate limited 403", func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{"X-Ratelimit-Remaining": {"0"}}, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+		}, outcomeRateLimit},
+		// Negative control: a 403 with no limit headers is refused access, so it
+		// is not retried as a rate limit.
+		{"forbidden without limit headers", reply(403, "{}"), outcomeBad},
 		{"not found", reply(404, "{}"), outcomeBad},
 		{"server error", reply(500, "{}"), outcomeBad},
 		{"malformed JSON", reply(200, "{not json"), outcomeBad},
@@ -232,18 +237,18 @@ func TestCheckRefreshesAStaleCache(t *testing.T) {
 	}
 }
 
-// A failed attempt is cached for the TTL too: offline, rate limited, or a bad
-// answer produces no further request until the TTL passes.
+// A failed attempt is cached for the TTL too: a bad answer produces no further
+// request until the TTL passes.
 func TestFailedAttemptIsNotRepeatedWithinTheTTL(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	path := cachePath(t)
-	s := &stub{do: reply(429, "{}")}
+	s := &stub{do: reply(500, "{}")}
 	first := Check(context.Background(), s.client(), path, "2.2.1", now, true)
-	if first.Status != RateLimited {
-		t.Fatalf("first status = %q, want rate_limited", first.Status)
+	if first.Status != BadResponse {
+		t.Fatalf("first status = %q, want bad_response", first.Status)
 	}
 	again := Check(context.Background(), s.client(), path, "2.2.1", now.Add(time.Hour), true)
-	if again.Status != RateLimited || !again.Cached {
+	if again.Status != BadResponse || !again.Cached {
 		t.Fatalf("second status = %q cached=%v, want the cached failure", again.Status, again.Cached)
 	}
 	if n := s.calls.Load(); n != 1 {
@@ -256,13 +261,32 @@ func TestFailedAttemptIsNotRepeatedWithinTheTTL(t *testing.T) {
 	}
 }
 
+// A rate limit is asked again after an hour, not held for the TTL, because
+// GitHub's limit window is an hour long.
+func TestRateLimitIsRetriedAfterAnHour(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	path := cachePath(t)
+	s := &stub{do: reply(429, "{}")}
+	Check(context.Background(), s.client(), path, "2.2.1", now, true)
+	held := Check(context.Background(), s.client(), path, "2.2.1", now.Add(time.Hour-time.Minute), true)
+	if held.Status != RateLimited || !held.Cached || s.calls.Load() != 1 {
+		t.Fatalf("inside the hour: status %q cached=%v requests %d; want the cached limit and no request", held.Status, held.Cached, s.calls.Load())
+	}
+	s.do = reply(200, release("v2.3.0", false, false))
+	after := Check(context.Background(), s.client(), path, "2.2.1", now.Add(time.Hour), true)
+	if after.Status != UpdateAvailable || after.Cached || s.calls.Load() != 2 {
+		t.Fatalf("after the hour: status %q cached=%v requests %d; want a fresh update_available", after.Status, after.Cached, s.calls.Load())
+	}
+}
+
 // The explicit check asks again after an attempt that did not succeed, which
 // includes the record an attempt leaves behind before it is answered. The
 // automatic check keeps that same failure for the TTL.
 func TestCheckNowAsksAgainAfterAnUnsuccessfulAttempt(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	cases := []struct{ name, outcome string }{
-		{"abandoned or offline attempt", outcomeOffline},
+		{"interrupted attempt", outcomeInterrupted},
+		{"offline attempt", outcomeOffline},
 		{"rate limited", outcomeRateLimit},
 		{"bad answer", outcomeBad},
 	}
@@ -272,7 +296,7 @@ func TestCheckNowAsksAgainAfterAnUnsuccessfulAttempt(t *testing.T) {
 			save(path, record{CheckedAt: now, Outcome: c.outcome})
 			s := &stub{do: reply(200, release("v2.3.0", false, false))}
 			if auto := Check(context.Background(), s.client(), path, "2.2.1", now, true); !auto.Cached || s.calls.Load() != 0 {
-				t.Fatalf("automatic check: cached=%v requests=%d, want the failure kept for the TTL", auto.Cached, s.calls.Load())
+				t.Fatalf("automatic check: cached=%v requests=%d, want the failure kept for its retry interval", auto.Cached, s.calls.Load())
 			}
 			res := CheckNow(context.Background(), s.client(), path, "2.2.1", now, true)
 			if res.Status != UpdateAvailable || res.Cached || s.calls.Load() != 1 {
@@ -493,7 +517,7 @@ func TestInterruptedAttemptIsRetriedAfterAnHour(t *testing.T) {
 }
 
 // Negative control: a completed failure is still held for the whole TTL. The
-// shorter retry applies only to an attempt that never answered.
+// shorter retry applies only to an interrupted attempt and a rate limit.
 func TestCompletedFailureIsHeldForTheTTL(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -502,7 +526,8 @@ func TestCompletedFailureIsHeldForTheTTL(t *testing.T) {
 		want string
 	}{
 		{"offline", func(*http.Request) (*http.Response, error) { return nil, io.ErrUnexpectedEOF }, Offline},
-		{"rate limited", reply(429, "{}"), RateLimited},
+		{"bad answer", reply(500, "{}"), BadResponse},
+		{"forbidden without limit headers", reply(403, "{}"), BadResponse},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

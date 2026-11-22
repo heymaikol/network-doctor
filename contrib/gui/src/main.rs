@@ -4,6 +4,7 @@
 mod look;
 mod report;
 mod runner;
+mod update;
 
 use eframe::egui::{self, Color32, RichText, vec2};
 use look::{bad, good, pal, warn};
@@ -12,7 +13,7 @@ use runner::{Handle, Msg};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_HISTORY: usize = 120;
 const MAX_WIDTH: f32 = 820.0;
@@ -138,6 +139,18 @@ fn config_file() -> Option<PathBuf> {
     Some(base.join("netdoc-gui").join("theme"))
 }
 
+/// Where the update check keeps what the window remembers: beside the theme.
+fn memory_file() -> Option<PathBuf> {
+    config_file().map(|p| p.with_file_name("update"))
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn load_theme() -> usize {
     if let Some(i) = std::env::var("NETDOC_GUI_THEME")
         .ok()
@@ -199,6 +212,16 @@ struct App {
     ctx: egui::Context,
     /// NETDOC_GUI_SCREENSHOT=file.ppm: save the window, then quit.
     screenshot: Option<(String, u32)>,
+    /// What the update check remembers, and the file it lives in.
+    memory: update::Memory,
+    memory_path: Option<PathBuf>,
+    /// The newer release the banner shows, if any.
+    update: Option<update::Release>,
+    /// The update check's answer, until it arrives, and the probe that is asking.
+    update_rx: Option<Receiver<Option<String>>>,
+    update_probe: Option<runner::Handle>,
+    /// How the release page opens. A test replaces it.
+    open_page: fn(&str) -> bool,
 }
 
 /// How the window starts. The real window reads these from its surroundings
@@ -216,6 +239,11 @@ struct Startup {
     autorun: bool,
     /// Save the window to this file, then quit.
     screenshot: Option<String>,
+    /// Ask netdoc for a newer release at launch, subject to the update memory.
+    update_check: bool,
+    update_memory: Option<PathBuf>,
+    /// NETDOC_NO_UPDATE_CHECK=1 is set, which turns the launch check off.
+    update_env_opt_out: bool,
 }
 
 impl Startup {
@@ -237,6 +265,9 @@ impl Startup {
             watch: std::env::var_os("NETDOC_GUI_WATCH").is_some(),
             autorun: std::env::var_os("NETDOC_GUI_AUTORUN").is_some(),
             screenshot: std::env::var("NETDOC_GUI_SCREENSHOT").ok(),
+            update_check: true,
+            update_memory: memory_file(),
+            update_env_opt_out: std::env::var("NETDOC_NO_UPDATE_CHECK").is_ok_and(|v| v == "1"),
         }
     }
 }
@@ -253,6 +284,9 @@ impl App {
             watch,
             autorun,
             screenshot,
+            update_check,
+            update_memory,
+            update_env_opt_out,
         } = startup;
         look::set_theme(&ctx, theme);
         look::install(&ctx);
@@ -260,6 +294,10 @@ impl App {
             let ctx = ctx.clone();
             runner::start_version(bin, move || ctx.request_repaint())
         });
+        let memory = update_memory
+            .as_deref()
+            .map(update::load)
+            .unwrap_or_default();
         let mut app = App {
             netdoc,
             netdoc_version: None,
@@ -287,7 +325,23 @@ impl App {
             failure: None,
             ctx,
             screenshot: screenshot.map(|p| (p, 0)),
+            memory,
+            memory_path: update_memory,
+            update: None,
+            update_rx: None,
+            update_probe: None,
+            open_page: update::open_page,
         };
+        // Once per launch, unless the user, the environment, or an earlier failure says no.
+        if update_check
+            && let Some(bin) = app.netdoc.clone()
+            && update::may_check(&app.memory, update_env_opt_out, now_secs())
+        {
+            let ctx = app.ctx.clone();
+            let (probe, answer) = runner::start_update_check(bin, move || ctx.request_repaint());
+            app.update_probe = Some(probe);
+            app.update_rx = Some(answer);
+        }
         // The same rule as the Check button: a target-based check needs a target.
         if autorun && app.can_check() {
             app.start();
@@ -392,6 +446,80 @@ impl App {
     fn poll(&mut self) {
         self.poll_check();
         self.poll_save();
+    }
+
+    /// Takes the update check's answer once it has arrived. An unanswered check
+    /// is remembered, so the next launch waits; any other valid answer clears that.
+    fn poll_update(&mut self) {
+        let Some(rx) = self.update_rx.as_ref() else {
+            return;
+        };
+        let text = match rx.try_recv() {
+            Ok(text) => text,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => None,
+        };
+        self.update_rx = None;
+        self.update_probe = None;
+        let Some(answer) = text.as_deref().and_then(update::parse) else {
+            return;
+        };
+        let failed = matches!(answer, update::Answer::Unanswered).then(now_secs);
+        if self.memory.failed_at != failed {
+            self.memory.failed_at = failed;
+            self.save_memory();
+        }
+        self.update = update::to_show(answer, &self.memory);
+    }
+
+    fn save_memory(&self) {
+        if let Some(p) = &self.memory_path {
+            update::save(p, &self.memory);
+        }
+    }
+
+    /// Records that the user dismissed the banner for this release.
+    fn dismiss_update(&mut self) {
+        if let Some(r) = self.update.take() {
+            self.memory.dismissed = Some(r.latest);
+            self.save_memory();
+        }
+    }
+
+    /// Opens the release page the banner names. If it can't open, says where it is.
+    fn open_update_page(&mut self) {
+        let Some(r) = self.update.as_ref() else {
+            return;
+        };
+        if !(self.open_page)(&r.url) {
+            self.note = Some((
+                format!("Couldn't open the release page. Its address is {}", r.url),
+                true,
+            ));
+        }
+    }
+
+    /// The passive notice for a newer release. It takes no focus and blocks nothing.
+    fn update_banner(&mut self, ui: &mut egui::Ui) {
+        let Some(r) = self.update.as_ref() else {
+            return;
+        };
+        let text = format!(
+            "Network Doctor {} is available. You have {}.",
+            r.latest, r.installed
+        );
+        ui.add_space(8.0);
+        look::card(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(text).strong());
+                if look::button(ui, "Open release page", true, true).clicked() {
+                    self.open_update_page();
+                }
+                if look::button(ui, "Dismiss", false, true).clicked() {
+                    self.dismiss_update();
+                }
+            });
+        });
     }
 
     /// Takes the version check's answer once it has arrived.
@@ -1148,6 +1276,7 @@ impl App {
     fn show(&mut self, ui: &mut egui::Ui) {
         self.poll();
         self.poll_version();
+        self.poll_update();
         self.take_screenshot(ui);
         egui::Panel::top("top")
             .frame(
@@ -1157,6 +1286,7 @@ impl App {
             )
             .show(ui, |ui| {
                 self.header(ui);
+                self.update_banner(ui);
             });
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(pal().bg).inner_margin(egui::Margin::symmetric(16, 6))).show(ui, |ui| {
             if let Some(f) = &self.failure {
@@ -1223,6 +1353,9 @@ impl eframe::App for App {
 impl Drop for App {
     fn drop(&mut self) {
         self.stop();
+        if let Some(probe) = self.update_probe.take() {
+            probe.stop();
+        }
         // Closing the window waits for a running export to stop and remove its
         // claimed file. netdoc exits within moments of SIGTERM, so this is short.
         if let Some((h, join)) = self.saving.take() {
@@ -1844,6 +1977,228 @@ mod access {
             h.state().mode,
             2,
             "Enter on the focused choice did not select it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod update_notice {
+    use super::*;
+    use egui::accesskit::Role;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    const AVAILABLE: &str = include_str!("../tests/fixtures/update-available.json");
+    const OFFLINE: &str = include_str!("../tests/fixtures/update-offline.json");
+
+    /// A window that starts no check of its own, remembering in `memory`.
+    fn app(memory: Option<PathBuf>) -> App {
+        let startup = Startup {
+            update_memory: memory,
+            ..Startup::default()
+        };
+        App::new(egui::Context::default(), startup)
+    }
+
+    /// The memory file for one test, in a folder of its own.
+    fn memory_in_a_fresh_folder(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "netdoc-gui-update-{name}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("update")
+    }
+
+    fn cleanup(memory: &Path) {
+        let _ = std::fs::remove_dir_all(memory.parent().unwrap());
+    }
+
+    /// A channel that already holds `text` as the check's answer.
+    fn answer(text: &str) -> Receiver<Option<String>> {
+        let (tx, rx) = channel();
+        tx.send(Some(text.to_string())).unwrap();
+        rx
+    }
+
+    #[test]
+    fn a_newer_release_shows_the_banner_once_answered() {
+        let mut a = app(None);
+        a.update_rx = Some(answer(AVAILABLE));
+        a.poll_update();
+        let r = a.update.clone().expect("the banner did not show");
+        assert_eq!(r.latest, "v2.3.0");
+        assert!(a.update_rx.is_none());
+    }
+
+    #[test]
+    fn dismissing_hides_the_release_across_a_restart_and_a_newer_one_shows() {
+        let path = memory_in_a_fresh_folder("dismiss");
+        let mut first = app(Some(path.clone()));
+        first.update_rx = Some(answer(AVAILABLE));
+        first.poll_update();
+        first.dismiss_update();
+        assert!(first.update.is_none());
+
+        let mut second = app(Some(path.clone()));
+        second.update_rx = Some(answer(AVAILABLE));
+        second.poll_update();
+        assert!(
+            second.update.is_none(),
+            "the dismissed banner came back after a restart"
+        );
+
+        let newer = AVAILABLE.replace("v2.3.0", "v2.4.0");
+        let mut third = app(Some(path.clone()));
+        third.update_rx = Some(answer(&newer));
+        third.poll_update();
+        assert_eq!(
+            third.update.as_ref().map(|r| r.latest.as_str()),
+            Some("v2.4.0")
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn an_unanswered_check_is_remembered_and_holds_the_next_launch() {
+        let path = memory_in_a_fresh_folder("offline");
+        let mut a = app(Some(path.clone()));
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(a.update.is_none());
+        assert!(
+            a.memory.failed_at.is_some(),
+            "the failure was not remembered"
+        );
+        assert!(
+            !update::may_check(&update::load(&path), false, now_secs()),
+            "the next launch would ask again at once"
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_broken_answer_or_no_answer_changes_nothing() {
+        let path = memory_in_a_fresh_folder("broken");
+        let mut a = app(Some(path.clone()));
+        a.update_rx = Some(answer("{\"schema\":\"something-else\"}"));
+        a.poll_update();
+        assert!(a.update.is_none());
+        assert_eq!(a.memory, update::Memory::default());
+        assert!(!path.exists(), "a broken answer wrote the memory");
+
+        let (tx, rx) = channel::<Option<String>>();
+        drop(tx);
+        a.update_rx = Some(rx);
+        a.poll_update();
+        assert!(
+            a.update_rx.is_none(),
+            "a check that ended without an answer kept waiting"
+        );
+        assert!(a.update.is_none());
+        cleanup(&path);
+    }
+
+    static OPENED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    fn record_open(url: &str) -> bool {
+        OPENED.lock().unwrap().push(url.to_string());
+        true
+    }
+
+    fn refuse_open(_url: &str) -> bool {
+        false
+    }
+
+    #[test]
+    fn opening_the_release_page_passes_the_checked_url() {
+        let mut a = app(None);
+        a.open_page = record_open;
+        a.update_rx = Some(answer(AVAILABLE));
+        a.poll_update();
+        a.open_update_page();
+        assert_eq!(
+            *OPENED.lock().unwrap(),
+            vec!["https://github.com/heymaikol/network-doctor/releases/tag/v2.3.0".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_refused_open_says_where_the_release_page_is() {
+        let mut a = app(None);
+        a.open_page = refuse_open;
+        a.update_rx = Some(answer(AVAILABLE));
+        a.poll_update();
+        a.open_update_page();
+        let (note, is_error) = a.note.clone().expect("no note");
+        assert!(is_error);
+        assert!(
+            note.contains("releases/tag/v2.3.0"),
+            "the note hides the address: {note}"
+        );
+    }
+
+    #[test]
+    fn the_launch_check_starts_only_when_allowed() {
+        let missing = Some(PathBuf::from("/nonexistent/netdoc-for-a-test"));
+        let no_check = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: missing.clone(),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            no_check.update_rx.is_none(),
+            "a launch without the check asked netdoc"
+        );
+        let env_off = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: missing.clone(),
+                update_check: true,
+                update_env_opt_out: true,
+                ..Startup::default()
+            },
+        );
+        assert!(
+            env_off.update_rx.is_none(),
+            "NETDOC_NO_UPDATE_CHECK=1 was ignored"
+        );
+        let allowed = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: missing,
+                update_check: true,
+                ..Startup::default()
+            },
+        );
+        assert!(
+            allowed.update_rx.is_some(),
+            "the launch check did not start"
+        );
+    }
+
+    #[test]
+    fn the_banner_names_its_buttons_and_dismiss_hides_it() {
+        let mut h = Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(None));
+        h.state_mut().update = match update::parse(AVAILABLE) {
+            Some(update::Answer::Newer(r)) => Some(r),
+            _ => panic!("the fixture is not a newer release"),
+        };
+        h.run();
+        h.get_by_role_and_label(Role::Button, "Open release page");
+        h.get_by_role_and_label(Role::Button, "Dismiss").click();
+        h.run();
+        assert!(
+            h.state().update.is_none(),
+            "Dismiss did not hide the banner"
         );
     }
 }

@@ -315,3 +315,22 @@ func TestNoUpdateCheckFlagAcceptedWithTheExplicitCheck(t *testing.T) {
 		t.Fatalf("exit %d, stderr %q", code, errOut)
 	}
 }
+
+// The window's fixtures are the shared contract written as netdoc prints it, so
+// each one must validate against the published schema.
+func TestGUIFixturesAreTheSharedContract(t *testing.T) {
+	paths, err := filepath.Glob("../../contrib/gui/tests/fixtures/update-*.json")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no update fixtures found: %v", err)
+	}
+	sch := compileUpdateSchema(t)
+	for _, p := range paths {
+		data, err := os.ReadFile(p) // #nosec G304 -- the repository's own fixtures, found by a fixed glob
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateUpdate(sch, strings.TrimSpace(string(data))); err != nil {
+			t.Errorf("%s does not match the schema: %v", p, err)
+		}
+	}
+}

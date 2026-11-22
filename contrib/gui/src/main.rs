@@ -725,10 +725,14 @@ impl App {
             });
             ui.add_space(6.0);
             let mut check = !self.memory.off;
-            if look::toggle(ui, "Check for updates when the window opens", &mut check).changed() {
-                self.memory.off = !check;
-                self.save_memory();
-            }
+            ui.horizontal(|ui| {
+                if look::toggle(ui, "Check for updates when the window opens", &mut check).changed()
+                {
+                    self.memory.off = !check;
+                    self.save_memory();
+                }
+                ui.label("Check for updates when the window opens");
+            });
             ui.label(weak("Asks GitHub once a launch for a newer release. NETDOC_NO_UPDATE_CHECK=1 also turns it off.").small());
             match (&self.netdoc, &self.netdoc_version) {
                 (Some(p), Some(v)) => {
@@ -1837,6 +1841,16 @@ mod access {
         for (name, _) in look::THEMES.iter() {
             h.get_by_role_and_label(Role::RadioButton, name);
         }
+    }
+
+    /// The switch draws no text of its own, so the words beside it are a
+    /// visible label, not only the name a screen reader hears.
+    #[test]
+    fn the_update_switch_has_a_visible_label() {
+        let mut h = window();
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_role_and_label(Role::Label, "Check for updates when the window opens");
     }
 
     #[test]

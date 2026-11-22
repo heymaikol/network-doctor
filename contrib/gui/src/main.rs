@@ -606,7 +606,17 @@ impl App {
         let Some(r) = self.update.as_ref() else {
             return;
         };
-        if !(self.open_page)(&r.url) {
+        if (self.open_page)(&r.url) {
+            // The browser's exit is not seen, so the address stays on screen in case no
+            // browser opens.
+            self.note = Some((
+                format!(
+                    "Opening the release page. If no browser opens, its address is {}",
+                    r.url
+                ),
+                false,
+            ));
+        } else {
             self.note = Some((
                 format!("Couldn't open the release page. Its address is {}", r.url),
                 true,
@@ -2314,6 +2324,10 @@ mod update_notice {
         false
     }
 
+    fn accept_open(_url: &str) -> bool {
+        true
+    }
+
     #[test]
     fn opening_the_release_page_passes_the_checked_url() {
         let mut a = app(None);
@@ -2324,6 +2338,23 @@ mod update_notice {
         assert_eq!(
             *OPENED.lock().unwrap(),
             vec!["https://github.com/heymaikol/network-doctor/releases/tag/v2.3.0".to_string()]
+        );
+    }
+
+    /// A launch that starts still says where the page is, because the window cannot
+    /// see whether a browser actually opened.
+    #[test]
+    fn an_accepted_open_still_says_where_the_release_page_is() {
+        let mut a = app(None);
+        a.open_page = accept_open;
+        a.update_rx = Some(answer(AVAILABLE));
+        a.poll_update();
+        a.open_update_page();
+        let (note, is_error) = a.note.clone().expect("no note after an accepted open");
+        assert!(!is_error, "an accepted open was shown as an error");
+        assert!(
+            note.contains("releases/tag/v2.3.0"),
+            "the note hides the address: {note}"
         );
     }
 

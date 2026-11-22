@@ -636,9 +636,16 @@ fn start_run(
             wake();
         }
         // A watch is meant to go on. An end it was not stopped for, or expired
-        // for, is said beside its last report. A stop and an expiry both set stopped.
+        // for, is said. A stop and an expiry both set stopped, and a bad line has
+        // already said its own failure. Before any report, netdoc's own error is
+        // the actionable reason, so it is said instead of the generic end.
         if watch.is_some() && !h.stopped() {
-            let _ = tx.send(Msg::Failed(WATCH_ENDED.into()));
+            let reason = if !reported && !stderr.trim().is_empty() {
+                stderr.trim().to_string()
+            } else {
+                WATCH_ENDED.to_string()
+            };
+            let _ = tx.send(Msg::Failed(reason));
             wake();
         }
         let _ = tx.send(Msg::Finished { code, stderr });
@@ -1359,6 +1366,98 @@ mod tests {
         let seen = until_finished(&rx, Duration::from_secs(20));
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(seen, Some(vec!["report", "failed", "finished"]));
+    }
+
+    /// The text of each failure sent before Finished, in order.
+    #[cfg(unix)]
+    fn failure_texts(rx: &Receiver<Msg>, limit: Duration) -> Option<Vec<String>> {
+        let deadline = Instant::now() + limit;
+        let mut texts = Vec::new();
+        loop {
+            let left = deadline.checked_duration_since(Instant::now())?;
+            match rx.recv_timeout(left).ok()? {
+                Msg::Failed(text) => texts.push(text),
+                Msg::Finished { .. } => return Some(texts),
+                _ => {}
+            }
+        }
+    }
+
+    /// A watch that exits before any report says netdoc's own error, which is
+    /// the actionable reason. The generic end must not replace it.
+    #[cfg(unix)]
+    #[test]
+    fn a_watch_that_exits_2_before_any_report_says_its_error() {
+        let dir = scratch("watch-startup-error");
+        let (tx, rx) = channel();
+        let body = "echo 'unsupported scheme: ftp' >&2\nexit 2";
+        let _h = run(fake_netdoc(&dir, body), None, None, Some(5), tx, || {});
+        let texts = failure_texts(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(texts, Some(vec!["unsupported scheme: ftp".to_string()]));
+    }
+
+    /// Nothing printed and no report: the generic end is all there is to say.
+    #[cfg(unix)]
+    #[test]
+    fn a_watch_that_exits_0_before_any_report_says_it_stopped() {
+        let dir = scratch("watch-silent-exit");
+        let (tx, rx) = channel();
+        let _h = run(fake_netdoc(&dir, "exit 0"), None, None, Some(5), tx, || {});
+        let texts = failure_texts(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(texts, Some(vec![WATCH_ENDED.to_string()]));
+    }
+
+    /// A stop the user asks for is quiet before the first report, even when
+    /// netdoc has already printed an error.
+    #[cfg(unix)]
+    #[test]
+    fn a_user_stop_before_the_first_report_is_quiet() {
+        let dir = scratch("watch-early-user-stop");
+        let (tx, rx) = channel();
+        let body = "echo 'partial' >&2\nexec sleep 60";
+        let h = run(fake_netdoc(&dir, body), None, None, Some(5), tx, || {});
+        std::thread::sleep(Duration::from_millis(300));
+        h.stop();
+        let texts = failure_texts(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(texts, Some(vec![]));
+    }
+
+    /// After a report, an unexpected end says the generic message even when
+    /// netdoc printed an error too: the report stands.
+    #[cfg(unix)]
+    #[test]
+    fn a_watch_that_exits_unexpectedly_after_a_report_says_it_stopped() {
+        let dir = scratch("watch-late-error");
+        let (tx, rx) = channel();
+        let report = r#"echo '{"version":"x","target":null,"checks":[],"summary":"x","verdict":"ok","ok":true}'"#;
+        let body = format!("{report}\necho 'boom' >&2\nexit 2");
+        let _h = run(fake_netdoc(&dir, &body), None, None, Some(5), tx, || {});
+        let texts = failure_texts(&rx, Duration::from_secs(20));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(texts, Some(vec![WATCH_ENDED.to_string()]));
+    }
+
+    /// A line that is not a report fails the watch with its own reason, before
+    /// or after a report. The end that follows does not replace that reason.
+    #[cfg(unix)]
+    #[test]
+    fn a_bad_watch_line_keeps_its_own_failure() {
+        let report = r#"echo '{"version":"x","target":null,"checks":[],"summary":"x","verdict":"ok","ok":true}'"#;
+        let before = "echo 'not json'\nexec sleep 60".to_string();
+        let after = format!("{report}\necho 'not json'\nexec sleep 60");
+        for (when, body) in [("before", before), ("after", after)] {
+            let dir = scratch(&format!("bad-line-{when}"));
+            let (tx, rx) = channel();
+            let _h = run(fake_netdoc(&dir, &body), None, None, Some(5), tx, || {});
+            let texts = failure_texts(&rx, Duration::from_secs(20));
+            std::fs::remove_dir_all(&dir).unwrap();
+            let texts = texts.unwrap_or_default();
+            assert_eq!(texts.len(), 1, "{when}: {texts:?}");
+            assert!(texts[0].contains("wasn't a report"), "{when}: {texts:?}");
+        }
     }
 
     /// A one-shot check that reported stands, whatever netdoc exited with.

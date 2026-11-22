@@ -109,24 +109,76 @@ pub struct Memory {
     pub revision: u64,
 }
 
+/// A choice the window made that the file does not hold yet. `base` is the
+/// revision of the file the choice was made against. `None` means the choice has
+/// not been tried against a file yet, so the next change that tries it is the
+/// one it was made for.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Unsaved<T> {
+    pub value: T,
+    pub base: Option<u64>,
+}
+
 /// What the user chose this session and has not saved yet. Every later change
-/// applies it on top of the latest file state, so a save that does not touch it
-/// cannot drop it. A save that succeeds makes it part of the file, and it clears.
+/// applies a choice made against the file as it is now, so a save that does not
+/// touch it cannot drop it. A choice made against an older revision is left out
+/// once another window has saved, and is reported instead of applied.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Pending {
-    pub off: Option<bool>,
-    pub dismissed: Option<String>,
+    pub off: Option<Unsaved<bool>>,
+    pub dismissed: Option<Unsaved<String>>,
 }
 
 impl Pending {
-    pub fn apply(&self, m: &mut Memory) {
-        if let Some(off) = self.off {
-            m.off = off;
+    pub fn is_empty(&self) -> bool {
+        self.off.is_none() && self.dismissed.is_none()
+    }
+
+    /// Stamps the choices not yet tried with the revision this window last saw.
+    pub fn record_base(&mut self, revision: u64) {
+        if let Some(o) = &mut self.off {
+            o.base.get_or_insert(revision);
         }
-        if let Some(latest) = &self.dismissed {
-            m.dismissed = Some(latest.clone());
+        if let Some(d) = &mut self.dismissed {
+            d.base.get_or_insert(revision);
         }
     }
+
+    /// Applies every choice to `m`.
+    pub fn apply(&self, m: &mut Memory) {
+        if let Some(o) = &self.off {
+            m.off = o.value;
+        }
+        if let Some(d) = &self.dismissed {
+            m.dismissed = Some(d.value.clone());
+        }
+    }
+
+    /// Splits the choices into those that hold against `revision`, and those made
+    /// against an older revision that the file has since moved on from.
+    fn split(&self, revision: u64) -> (Pending, Pending) {
+        let holds = |base: Option<u64>| base.is_none_or(|b| b == revision);
+        let (mut live, mut stale) = (Pending::default(), Pending::default());
+        match &self.off {
+            Some(o) if holds(o.base) => live.off = Some(o.clone()),
+            Some(o) => stale.off = Some(o.clone()),
+            None => {}
+        }
+        match &self.dismissed {
+            Some(d) if holds(d.base) => live.dismissed = Some(d.clone()),
+            Some(d) => stale.dismissed = Some(d.clone()),
+            None => {}
+        }
+        (live, stale)
+    }
+}
+
+/// The result of one change: the file's state afterwards, and the choices that
+/// were left out because the file moved on since they were made.
+#[derive(Debug)]
+pub struct Changed {
+    pub memory: Memory,
+    pub stale: Pending,
 }
 
 /// Reads the memory. A missing file is the default. Any other read error is
@@ -200,7 +252,7 @@ pub fn save(path: &Path, m: &Memory) -> io::Result<()> {
 /// never runs on a copy another change is about to replace. The lock lives on
 /// its own file because the memory file itself is replaced by a rename. Returns
 /// what the file holds afterwards, or the error that stopped the change.
-pub fn change(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
+pub fn change(path: &Path, pending: &Pending, change: impl Fn(&mut Memory)) -> io::Result<Changed> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -211,7 +263,7 @@ pub fn change(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
         .open(path.with_file_name("update.lock"))?;
     // Released when `lock` is dropped, after the change is written.
     lock_within(&lock, LOCK_WAIT)?;
-    apply(path, change)
+    apply(path, pending, change)
 }
 
 /// How long a change waits for another window's lock before it reports that it
@@ -240,21 +292,30 @@ fn lock_within(file: &std::fs::File, wait: Duration) -> io::Result<()> {
 }
 
 /// The read, change and write of `change`, without taking the lock.
-fn apply(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
+fn apply(path: &Path, pending: &Pending, change: impl Fn(&mut Memory)) -> io::Result<Changed> {
     let before = read(path)?;
     let mut after = before.clone();
     change(&mut after);
+    let (live, stale) = pending.split(before.revision);
+    live.apply(&mut after);
     if after != before {
         after.revision = before.revision + 1;
         save(path, &after)?;
     }
-    Ok(after)
+    Ok(Changed {
+        memory: after,
+        stale,
+    })
 }
 
 /// Negative control for the tests: the same change, without the lock.
 #[cfg(test)]
-fn change_without_lock(path: &Path, change: impl Fn(&mut Memory)) -> io::Result<Memory> {
-    apply(path, change)
+fn change_without_lock(
+    path: &Path,
+    pending: &Pending,
+    change: impl Fn(&mut Memory),
+) -> io::Result<Changed> {
+    apply(path, pending, change)
 }
 
 /// Whether the window may ask at launch. The user's setting and the environment
@@ -549,7 +610,7 @@ mod tests {
         let folder = Folder::new("failed-save");
         std::fs::create_dir(folder.0.join(format!("update.{}.tmp", std::process::id()))).unwrap();
         assert!(
-            change(&folder.file(), |m| m.off = true).is_err(),
+            change(&folder.file(), &Pending::default(), |m| m.off = true).is_err(),
             "a failed save looked successful"
         );
         assert!(!folder.file().exists(), "a failed save wrote the file");
@@ -568,7 +629,10 @@ mod tests {
             // Fifty increments of a counter kept in `failed_at`, each one a whole change.
             "count" => {
                 for _ in 0..50 {
-                    change(&file, |m| m.failed_at = Some(m.failed_at.unwrap_or(0) + 1)).unwrap();
+                    change(&file, &Pending::default(), |m| {
+                        m.failed_at = Some(m.failed_at.unwrap_or(0) + 1)
+                    })
+                    .unwrap();
                 }
             }
             // Holds the lock for a while. It marks "held" once the lock is
@@ -578,7 +642,7 @@ mod tests {
                     .ok()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(1000);
-                change(&file, |_| {
+                change(&file, &Pending::default(), |_| {
                     std::fs::write(dir.join("held"), "").unwrap();
                     std::thread::sleep(std::time::Duration::from_millis(hold));
                     std::fs::write(dir.join("released"), "").unwrap();
@@ -647,7 +711,7 @@ mod tests {
         let mut holder = spawn_holder(&folder.0, 300);
         wait_for(&folder.0.join("held"));
         let released_first = std::cell::Cell::new(false);
-        change(&folder.file(), |m| {
+        change(&folder.file(), &Pending::default(), |m| {
             released_first.set(folder.0.join("released").exists());
             m.off = true;
         })
@@ -667,7 +731,7 @@ mod tests {
         let mut holder = spawn_holder(&folder.0, 1000);
         wait_for(&folder.0.join("held"));
         let released_first = std::cell::Cell::new(false);
-        change_without_lock(&folder.file(), |m| {
+        change_without_lock(&folder.file(), &Pending::default(), |m| {
             released_first.set(folder.0.join("released").exists());
             m.off = true;
         })
@@ -687,7 +751,7 @@ mod tests {
         let mut holder = spawn_holder(&folder.0, 4000);
         wait_for(&folder.0.join("held"));
         let started = std::time::Instant::now();
-        let result = change(&folder.file(), |m| m.off = true);
+        let result = change(&folder.file(), &Pending::default(), |m| m.off = true);
         let elapsed = started.elapsed();
         holder.kill().ok();
         holder.wait().ok();
@@ -711,7 +775,7 @@ mod tests {
         let mut holder = spawn_holder(&folder.0, 100);
         wait_for(&folder.0.join("held"));
         let released_first = std::cell::Cell::new(false);
-        let saved = change(&folder.file(), |m| {
+        let saved = change(&folder.file(), &Pending::default(), |m| {
             released_first.set(folder.0.join("released").exists());
             m.off = true;
         });
@@ -743,14 +807,26 @@ mod tests {
         let folder = Folder::new("revision");
         assert_eq!(read(&folder.file()).unwrap().revision, 0);
         assert_eq!(
-            change(&folder.file(), |m| m.off = true).unwrap().revision,
+            change(&folder.file(), &Pending::default(), |m| m.off = true)
+                .unwrap()
+                .memory
+                .revision,
             1
         );
         assert_eq!(
-            change(&folder.file(), |m| m.off = false).unwrap().revision,
+            change(&folder.file(), &Pending::default(), |m| m.off = false)
+                .unwrap()
+                .memory
+                .revision,
             2
         );
-        assert_eq!(change(&folder.file(), |_| {}).unwrap().revision, 2);
+        assert_eq!(
+            change(&folder.file(), &Pending::default(), |_| {})
+                .unwrap()
+                .memory
+                .revision,
+            2
+        );
         assert_eq!(read(&folder.file()).unwrap().revision, 2);
     }
 
@@ -764,7 +840,10 @@ mod tests {
         assert!(m.off);
         assert_eq!(m.revision, 0);
         assert_eq!(
-            change(&folder.file(), |m| m.off = false).unwrap().revision,
+            change(&folder.file(), &Pending::default(), |m| m.off = false)
+                .unwrap()
+                .memory
+                .revision,
             1
         );
     }
@@ -778,11 +857,100 @@ mod tests {
         assert!(read(&folder.file()).is_err());
     }
 
+    /// A choice made against an older revision is left out and reported, and the
+    /// file is not written for it.
+    #[test]
+    fn a_choice_made_against_an_older_revision_is_left_out() {
+        let folder = Folder::new("stale-choice");
+        std::fs::write(folder.file(), "off=1\nrevision=2\n").unwrap();
+        let pending = Pending {
+            off: Some(Unsaved {
+                value: false,
+                base: Some(1),
+            }),
+            dismissed: None,
+        };
+        let done = change(&folder.file(), &pending, |_| {}).unwrap();
+        assert!(
+            done.memory.off,
+            "a choice from an older revision was applied"
+        );
+        assert!(
+            done.stale.off.is_some(),
+            "the left-out choice was not reported"
+        );
+        assert_eq!(
+            read(&folder.file()).unwrap().revision,
+            2,
+            "the stale choice wrote the file"
+        );
+    }
+
+    /// Negative control: a choice made against the current revision is applied and
+    /// saved, and nothing is reported as left out.
+    #[test]
+    fn a_choice_made_against_the_current_revision_is_applied() {
+        let folder = Folder::new("current-choice");
+        std::fs::write(folder.file(), "off=1\nrevision=2\n").unwrap();
+        let pending = Pending {
+            off: Some(Unsaved {
+                value: false,
+                base: Some(2),
+            }),
+            dismissed: None,
+        };
+        let done = change(&folder.file(), &pending, |_| {}).unwrap();
+        assert!(!done.memory.off, "a current choice was not applied");
+        assert!(
+            done.stale.is_empty(),
+            "a current choice was reported as left out"
+        );
+        let disk = read(&folder.file()).unwrap();
+        assert!(!disk.off);
+        assert_eq!(disk.revision, 3);
+    }
+
+    /// A choice not yet tried against any file is applied by the change that tries it.
+    #[test]
+    fn an_untried_choice_is_applied() {
+        let folder = Folder::new("untried-choice");
+        let pending = Pending {
+            off: Some(Unsaved {
+                value: true,
+                base: None,
+            }),
+            dismissed: None,
+        };
+        let done = change(&folder.file(), &pending, |_| {}).unwrap();
+        assert!(done.memory.off);
+        assert!(done.stale.is_empty());
+    }
+
+    /// Recording a base stamps the choices not yet tried, and leaves the rest alone.
+    #[test]
+    fn recording_a_base_stamps_only_untried_choices() {
+        let mut pending = Pending {
+            off: Some(Unsaved {
+                value: true,
+                base: None,
+            }),
+            dismissed: Some(Unsaved {
+                value: "v2.3.0".into(),
+                base: Some(4),
+            }),
+        };
+        pending.record_base(7);
+        assert_eq!(pending.off.unwrap().base, Some(7));
+        assert_eq!(pending.dismissed.unwrap().base, Some(4));
+    }
+
     /// Negative control: the same change is saved when nothing blocks the write.
     #[test]
     fn a_change_is_saved_when_the_folder_can_be_written() {
         let folder = Folder::new("saved");
-        let m = change(&folder.file(), |m| m.off = true).unwrap();
+        let m = change(&folder.file(), &Pending::default(), |m| m.off = true)
+            .unwrap()
+            .memory;
         assert!(m.off);
         assert!(read(&folder.file()).unwrap().off);
     }

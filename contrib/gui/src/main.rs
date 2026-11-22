@@ -140,6 +140,21 @@ fn config_file() -> Option<PathBuf> {
 }
 
 /// Where the update check keeps what the window remembers: beside the theme.
+/// The warning when another window saved the update setting after this window
+/// made an unsaved choice. The choice is not applied, and an opt-out that
+/// stays in effect is said to be unsaved.
+fn conflict_warning(opt_out_kept: bool) -> String {
+    let mut text = String::from(
+        "Another window changed the update setting, so an unsaved choice from this window was not applied.",
+    );
+    if opt_out_kept {
+        text.push_str(
+            " This window's opt-out stays in effect for this session but is not saved; choose it again to save it.",
+        );
+    }
+    text
+}
+
 /// The warning when there is no config folder to keep the update setting in.
 const NO_SETTINGS_FOLDER: &str =
     "No settings folder was found, so this change lasts only until this window closes.";
@@ -506,18 +521,26 @@ impl App {
             self.memory_warning = Some(NO_SETTINGS_FOLDER.to_string());
             return;
         };
-        let pending = self.pending.clone();
-        match update::change(&path, |m| {
-            change(m);
-            pending.apply(m);
-        }) {
-            Ok(m) => {
-                self.memory = m;
-                self.pending = update::Pending::default();
-                self.memory_warning = None;
+        match update::change(&path, &self.pending, &change) {
+            Ok(done) => {
+                // An opt-out another window's newer save made stale stays in effect
+                // for this session, unsaved. A choice to enable checks does not.
+                let conflicted = !done.stale.is_empty();
+                let kept = done.stale.off.filter(|o| o.value);
+                self.memory = done.memory;
+                if kept.is_some() {
+                    self.memory.off = true;
+                }
+                self.pending = update::Pending {
+                    off: kept,
+                    dismissed: None,
+                };
+                self.memory_warning =
+                    conflicted.then(|| conflict_warning(self.pending.off.is_some()));
             }
             Err(e) => {
                 change(&mut self.memory);
+                self.pending.record_base(self.memory.revision);
                 self.pending.apply(&mut self.memory);
                 self.memory_warning = Some(format!(
                     "Could not save the update setting ({e}), so this change lasts only until this window closes."
@@ -529,14 +552,20 @@ impl App {
     /// Turns automatic update checks on or off, as the Settings switch does. The
     /// choice is kept until it is saved, even if this save fails.
     fn set_update_check(&mut self, on: bool) {
-        self.pending.off = Some(!on);
+        self.pending.off = Some(update::Unsaved {
+            value: !on,
+            base: None,
+        });
         self.change_memory(|_| {});
     }
 
     /// Records that the user dismissed the banner for this release.
     fn dismiss_update(&mut self) {
         if let Some(r) = self.update.take() {
-            self.pending.dismissed = Some(r.latest);
+            self.pending.dismissed = Some(update::Unsaved {
+                value: r.latest,
+                base: None,
+            });
             self.change_memory(|_| {});
         }
     }
@@ -2648,6 +2677,124 @@ mod update_notice {
             .click();
         h.run();
         assert!(path.is_dir(), "a click overwrote the unreadable preference");
+        cleanup(&path);
+    }
+
+    /// Blocks window A's save by a folder where its temporary file must go.
+    fn block_saves(path: &Path) -> PathBuf {
+        let conflict = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+        std::fs::create_dir(&conflict).unwrap();
+        conflict
+    }
+
+    /// Window A has an unsaved choice to enable checks. Window B then disables
+    /// checks and saves. A saves something else. A must not write its older choice
+    /// over B's newer opt-out, and must not silently enable checks.
+    #[test]
+    fn a_later_save_does_not_undo_another_windows_newer_opt_out() {
+        let path = memory_in_a_fresh_folder("newer-opt-out");
+        std::fs::write(&path, "off=1\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(true);
+        assert!(
+            !a.memory.off,
+            "the unsaved choice to enable checks is not shown"
+        );
+        std::fs::remove_dir(&conflict).unwrap();
+        let mut b = app(Some(path.clone()));
+        b.set_update_check(true);
+        b.set_update_check(false);
+        assert!(
+            update::read(&path).unwrap().off,
+            "window B's opt-out was not saved"
+        );
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "window A's older unsaved choice overwrote window B's newer opt-out"
+        );
+        assert!(a.memory.off, "window A silently enabled checks");
+        assert!(
+            a.memory_warning
+                .as_deref()
+                .is_some_and(|w| w.contains("Another window changed the update setting")),
+            "window A did not warn that another window changed the setting"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: when nothing else saved in between, A's own retry saves
+    /// its unsaved choice to enable checks.
+    #[test]
+    fn a_same_window_retry_saves_its_unsaved_choice_when_nothing_intervened() {
+        let path = memory_in_a_fresh_folder("same-window-on");
+        std::fs::write(&path, "off=1\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(true);
+        std::fs::remove_dir(&conflict).unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            !update::read(&path).unwrap().off,
+            "the retry did not save the choice"
+        );
+        assert!(!a.memory.off);
+        assert!(a.memory_warning.is_none(), "a clean retry still warned");
+        cleanup(&path);
+    }
+
+    /// Negative control: an unsaved opt-out in A stays in effect when B enables
+    /// checks and saves. A does not overwrite B's choice, and keeps its opt-out.
+    #[test]
+    fn an_unsaved_opt_out_stays_in_effect_when_another_window_enables_checks() {
+        let path = memory_in_a_fresh_folder("kept-opt-out");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(false);
+        assert!(a.memory.off, "the unsaved opt-out is not shown");
+        std::fs::remove_dir(&conflict).unwrap();
+        let mut b = app(Some(path.clone()));
+        b.set_update_check(false);
+        b.set_update_check(true);
+        assert!(
+            !update::read(&path).unwrap().off,
+            "window B's enable was not saved"
+        );
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            !update::read(&path).unwrap().off,
+            "window A's older opt-out overwrote window B's newer enable"
+        );
+        assert!(a.memory.off, "window A's session opt-out was dropped");
+        assert!(
+            a.memory_warning.is_some(),
+            "window A did not warn about the conflict"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: when nothing else saved in between, A's own retry saves
+    /// its unsaved opt-out.
+    #[test]
+    fn a_same_window_retry_saves_its_unsaved_opt_out_when_nothing_intervened() {
+        let path = memory_in_a_fresh_folder("same-window-off");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(false);
+        std::fs::remove_dir(&conflict).unwrap();
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "the retry did not save the opt-out"
+        );
+        assert!(a.memory.off);
         cleanup(&path);
     }
 

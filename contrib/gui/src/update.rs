@@ -298,7 +298,9 @@ fn apply(path: &Path, pending: &Pending, change: impl Fn(&mut Memory)) -> io::Re
     change(&mut after);
     let (live, stale) = pending.split(before.revision);
     live.apply(&mut after);
-    if after != before {
+    // A choice that matches the stored value is still applied, so it advances the
+    // revision and makes any older unsaved choice stale.
+    if after != before || !live.is_empty() {
         after.revision = before.revision + 1;
         save(path, &after)?;
     }
@@ -942,6 +944,36 @@ mod tests {
         pending.record_base(7);
         assert_eq!(pending.off.unwrap().base, Some(7));
         assert_eq!(pending.dismissed.unwrap().base, Some(4));
+    }
+
+    /// An explicit choice that matches the stored value still counts as applied,
+    /// so it advances the revision and makes older unsaved choices stale.
+    #[test]
+    fn a_matching_explicit_choice_advances_the_revision() {
+        let folder = Folder::new("matching-choice");
+        std::fs::write(folder.file(), "off=1\nrevision=4\n").unwrap();
+        let pending = Pending {
+            off: Some(Unsaved {
+                value: true,
+                base: None,
+            }),
+            dismissed: None,
+        };
+        let done = change(&folder.file(), &pending, |_| {}).unwrap();
+        assert_eq!(done.memory.revision, 5);
+        assert_eq!(read(&folder.file()).unwrap().revision, 5);
+        assert!(done.stale.is_empty());
+    }
+
+    /// Negative control: with no choice and no difference, nothing is saved and the
+    /// revision stays where it was.
+    #[test]
+    fn a_change_with_no_choice_and_no_difference_does_not_advance_the_revision() {
+        let folder = Folder::new("no-choice");
+        std::fs::write(folder.file(), "off=1\nrevision=4\n").unwrap();
+        let done = change(&folder.file(), &Pending::default(), |_| {}).unwrap();
+        assert_eq!(done.memory.revision, 4);
+        assert_eq!(read(&folder.file()).unwrap().revision, 4);
     }
 
     /// Negative control: the same change is saved when nothing blocks the write.

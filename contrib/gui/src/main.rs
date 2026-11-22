@@ -2798,6 +2798,43 @@ mod update_notice {
         cleanup(&path);
     }
 
+    /// B's exact reproduction. Window A has an unsaved enable, made against the
+    /// stored opt-out. Window B's disable matches the stored value. That still
+    /// counts as an applied choice, so it advances the revision, and A's older
+    /// enable must then be left out instead of written over B's opt-out.
+    #[test]
+    fn a_matching_disable_makes_an_older_enable_stale() {
+        let path = memory_in_a_fresh_folder("matching-disable");
+        std::fs::write(&path, "off=1\n").unwrap();
+        let conflict = block_saves(&path);
+        let mut a = app(Some(path.clone()));
+        a.set_update_check(true);
+        assert!(!a.memory.off, "the unsaved enable is not shown");
+        std::fs::remove_dir(&conflict).unwrap();
+        let mut b = app(Some(path.clone()));
+        b.set_update_check(false);
+        let disk = update::read(&path).unwrap();
+        assert!(disk.off, "window B's opt-out was not kept");
+        assert_eq!(
+            disk.revision, 1,
+            "a disable that matched the stored value did not advance the revision"
+        );
+        a.update_rx = Some(answer(OFFLINE));
+        a.poll_update();
+        assert!(
+            update::read(&path).unwrap().off,
+            "window A's older enable overwrote window B's opt-out"
+        );
+        assert!(a.memory.off, "window A silently enabled checks");
+        assert!(
+            a.memory_warning
+                .as_deref()
+                .is_some_and(|w| w.contains("Another window changed the update setting")),
+            "window A did not warn about the conflict"
+        );
+        cleanup(&path);
+    }
+
     #[test]
     fn the_setting_turns_the_launch_check_off_across_a_restart() {
         let path = memory_in_a_fresh_folder("setting");

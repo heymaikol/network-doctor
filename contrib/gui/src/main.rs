@@ -465,24 +465,30 @@ impl App {
             return;
         };
         let failed = matches!(answer, update::Answer::Unanswered).then(now_secs);
-        if self.memory.failed_at != failed {
-            self.memory.failed_at = failed;
-            self.save_memory();
-        }
+        self.change_memory(|m| m.failed_at = failed);
         self.update = update::to_show(answer, &self.memory);
     }
 
-    fn save_memory(&self) {
-        if let Some(p) = &self.memory_path {
-            update::save(p, &self.memory);
+    /// Makes one change to the update memory against the file as it is now, so
+    /// a window that loaded the file earlier cannot undo another window's change.
+    /// The window then shows what the file holds.
+    fn change_memory(&mut self, change: impl FnOnce(&mut update::Memory)) {
+        match &self.memory_path {
+            Some(p) => self.memory = update::change(p, change),
+            None => change(&mut self.memory),
         }
+    }
+
+    /// Turns automatic update checks on or off, as the Settings switch does.
+    fn set_update_check(&mut self, on: bool) {
+        self.change_memory(|m| m.off = !on);
     }
 
     /// Records that the user dismissed the banner for this release.
     fn dismiss_update(&mut self) {
         if let Some(r) = self.update.take() {
-            self.memory.dismissed = Some(r.latest);
-            self.save_memory();
+            let latest = r.latest;
+            self.change_memory(|m| m.dismissed = Some(latest));
         }
     }
 
@@ -728,8 +734,7 @@ impl App {
             ui.horizontal(|ui| {
                 if look::toggle(ui, "Check for updates when the window opens", &mut check).changed()
                 {
-                    self.memory.off = !check;
-                    self.save_memory();
+                    self.set_update_check(check);
                 }
                 ui.label("Check for updates when the window opens");
             });
@@ -2248,6 +2253,55 @@ mod update_notice {
             allowed.update_rx.is_some(),
             "the launch check did not start"
         );
+    }
+
+    /// Two windows on one memory file. Window B loaded the file before window A
+    /// turned checks off, so B's copy still says they are on. B's later writes
+    /// must leave A's setting alone.
+    #[test]
+    fn a_stale_window_does_not_undo_another_windows_setting() {
+        let path = memory_in_a_fresh_folder("two-windows");
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        a.set_update_check(false);
+        b.update_rx = Some(answer(OFFLINE));
+        b.poll_update();
+        let disk = update::load(&path);
+        assert!(disk.off, "a stale window wrote checks back on");
+        assert!(
+            disk.failed_at.is_some(),
+            "the failed check was not recorded"
+        );
+        b.update_rx = Some(answer(AVAILABLE));
+        b.poll_update();
+        b.dismiss_update();
+        let disk = update::load(&path);
+        assert!(
+            disk.off,
+            "a stale window wrote checks back on after a dismissal"
+        );
+        assert_eq!(
+            disk.dismissed.as_deref(),
+            Some("v2.3.0"),
+            "the dismissal was not saved"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: the stale window's own switch still works, so the fix
+    /// does not make the setting sticky.
+    #[test]
+    fn a_stale_window_can_still_turn_checks_back_on() {
+        let path = memory_in_a_fresh_folder("stale-own");
+        let mut a = app(Some(path.clone()));
+        let mut b = app(Some(path.clone()));
+        a.set_update_check(false);
+        b.set_update_check(true);
+        assert!(
+            !update::load(&path).off,
+            "the stale window could not turn checks back on"
+        );
+        cleanup(&path);
     }
 
     #[test]

@@ -95,7 +95,7 @@ fn shown(s: &str) -> String {
 
 /// What the window keeps between runs about update checks: one `key=value` per
 /// line in its config folder. A line it does not know is ignored.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Memory {
     /// The release whose banner the user dismissed.
     pub dismissed: Option<String>,
@@ -135,7 +135,29 @@ pub fn save(path: &Path, m: &Memory) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(path, text);
+    // Write beside the file, then rename it into place, so a reader never sees
+    // half of it. The temporary name carries this process's id, so two windows
+    // never write the same temporary file.
+    let tmp = path.with_file_name(format!("update.{}.tmp", std::process::id()));
+    if std::fs::write(&tmp, text).is_err() || std::fs::rename(&tmp, path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// Makes one change to the memory as the file holds it now, and writes only if
+/// that changes the file. A window that loaded the file earlier then cannot
+/// write its stale copy back over another window's change. Returns what the
+/// file holds afterwards.
+// ponytail: no lock, so two windows that write in the same instant can still
+// lose one change; a per-file lock if that ever matters.
+pub fn change(path: &Path, change: impl FnOnce(&mut Memory)) -> Memory {
+    let before = load(path);
+    let mut after = before.clone();
+    change(&mut after);
+    if after != before {
+        save(path, &after);
+    }
+    after
 }
 
 /// Whether the window may ask at launch. The user's setting and the environment

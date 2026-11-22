@@ -223,6 +223,8 @@ struct App {
     memory_warning: Option<String>,
     /// The user's choices this session that the file does not hold yet.
     pending: update::Pending,
+    /// The preference exists but cannot be read, so automatic checks stay off.
+    preference_unreadable: bool,
     /// NETDOC_NO_UPDATE_CHECK=1 is set, which holds the switch off.
     update_env_opt_out: bool,
     /// The newer release the banner shows, if any.
@@ -304,10 +306,18 @@ impl App {
             let ctx = ctx.clone();
             runner::start_version(bin, move || ctx.request_repaint())
         });
-        let memory = update_memory
-            .as_deref()
-            .map(update::load)
-            .unwrap_or_default();
+        // A preference that exists but cannot be read is not the default: checks
+        // stay off until it can be read again.
+        let (memory, unreadable) = match update_memory.as_deref().map(update::read) {
+            Some(Err(e)) => (update::Memory::default(), Some(e)),
+            Some(Ok(m)) => (m, None),
+            None => (update::Memory::default(), None),
+        };
+        let memory_warning = unreadable.as_ref().map(|e| {
+            format!(
+                "The update setting could not be read ({e}), so automatic update checks are off until it can be read again."
+            )
+        });
         let mut app = App {
             netdoc,
             netdoc_version: None,
@@ -337,8 +347,9 @@ impl App {
             screenshot: screenshot.map(|p| (p, 0)),
             memory,
             memory_path: update_memory,
-            memory_warning: None,
+            memory_warning,
             pending: update::Pending::default(),
+            preference_unreadable: unreadable.is_some(),
             update_env_opt_out,
             update: None,
             update_rx: None,
@@ -348,6 +359,7 @@ impl App {
         // Once per launch, unless the user, the environment, or an earlier failure says no.
         if update_check
             && let Some(bin) = app.netdoc.clone()
+            && !app.preference_unreadable
             && update::may_check(&app.memory, update_env_opt_out, now_secs())
         {
             let ctx = app.ctx.clone();
@@ -779,12 +791,15 @@ impl App {
             ui.add_space(6.0);
             // With NETDOC_NO_UPDATE_CHECK=1 set, the switch shows off and ignores clicks.
             let env_off = self.update_env_opt_out;
-            let mut check = !self.memory.off && !env_off;
-            ui.add_enabled_ui(!env_off, |ui| {
+            // Off, and inert, while the environment or an unreadable preference holds it.
+            let held = self.preference_unreadable;
+            let mut check = !self.memory.off && !env_off && !held;
+            ui.add_enabled_ui(!env_off && !held, |ui| {
                 ui.horizontal(|ui| {
                     if look::toggle(ui, "Check for updates when the window opens", &mut check)
                         .changed()
                         && !env_off
+                        && !held
                     {
                         self.set_update_check(check);
                     }
@@ -793,6 +808,9 @@ impl App {
             });
             if env_off {
                 ui.label(weak("Off in this environment: NETDOC_NO_UPDATE_CHECK=1 is set. Unset it to use this switch.").small());
+            }
+            if held {
+                ui.label(weak("Off until the update setting can be read again.").small());
             }
             ui.label(weak("Asks GitHub once a launch for a newer release. NETDOC_NO_UPDATE_CHECK=1 also turns it off.").small());
             ui.label(
@@ -2537,6 +2555,96 @@ mod update_notice {
             !update::read(&path).unwrap().off,
             "the later choice was not saved"
         );
+        cleanup(&path);
+    }
+
+    /// An existing preference that cannot be read must not become "checks on".
+    /// The launch check does not run, and the window says why.
+    #[test]
+    fn an_unreadable_preference_turns_the_launch_check_off() {
+        let path = memory_in_a_fresh_folder("unreadable");
+        // A folder where the file should be is unreadable as a preference.
+        std::fs::create_dir(&path).unwrap();
+        let app = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: Some(PathBuf::from("/nonexistent/netdoc-for-a-test")),
+                update_check: true,
+                update_memory: Some(path.clone()),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            app.update_rx.is_none(),
+            "the launch check ran although the preference could not be read"
+        );
+        assert!(
+            app.memory_warning
+                .as_deref()
+                .is_some_and(|w| w.contains("could not be read")),
+            "the window did not say the preference could not be read"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a missing preference file is the default, so the launch
+    /// check still runs.
+    #[test]
+    fn a_missing_preference_file_still_allows_the_launch_check() {
+        let path = memory_in_a_fresh_folder("missing");
+        let app = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: Some(PathBuf::from("/nonexistent/netdoc-for-a-test")),
+                update_check: true,
+                update_memory: Some(path.clone()),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            app.update_rx.is_some(),
+            "a missing file held the launch check"
+        );
+        cleanup(&path);
+    }
+
+    /// Negative control: a readable preference that says checks are on still
+    /// lets the launch check run.
+    #[test]
+    fn a_readable_preference_that_says_on_still_allows_the_launch_check() {
+        let path = memory_in_a_fresh_folder("readable-on");
+        std::fs::write(&path, "off=0\n").unwrap();
+        let app = App::new(
+            egui::Context::default(),
+            Startup {
+                netdoc: Some(PathBuf::from("/nonexistent/netdoc-for-a-test")),
+                update_check: true,
+                update_memory: Some(path.clone()),
+                ..Startup::default()
+            },
+        );
+        assert!(
+            app.update_rx.is_some(),
+            "a readable on-setting held the launch check"
+        );
+        cleanup(&path);
+    }
+
+    /// The switch shows off and says why, and clicking it does not overwrite the
+    /// preference it could not read.
+    #[test]
+    fn an_unreadable_preference_shows_the_switch_off_and_leaves_the_file_alone() {
+        let path = memory_in_a_fresh_folder("unreadable-switch");
+        std::fs::create_dir(&path).unwrap();
+        let mut h =
+            Harness::new_ui_state(|ui, app: &mut App| app.show(ui), app(Some(path.clone())));
+        h.state_mut().show_settings = true;
+        h.run();
+        h.get_by_label_contains("could not be read");
+        h.get_by_role_and_label(Role::CheckBox, "Check for updates when the window opens")
+            .click();
+        h.run();
+        assert!(path.is_dir(), "a click overwrote the unreadable preference");
         cleanup(&path);
     }
 

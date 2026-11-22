@@ -139,7 +139,16 @@ pub fn read(path: &Path) -> io::Result<Memory> {
         match line.split_once('=') {
             Some(("dismissed", v)) if is_tag(v) => m.dismissed = Some(v.to_string()),
             Some(("failed_at", v)) => m.failed_at = v.parse().ok(),
-            Some(("off", v)) => m.off = v == "1",
+            Some(("off", "1")) => m.off = true,
+            Some(("off", "0")) => m.off = false,
+            // A value the format does not know is not the default: an opt-out
+            // that reads as "checks on" would be silently lost.
+            Some(("off", _)) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "the update setting has a value this window does not recognise",
+                ));
+            }
             _ => {}
         }
     }
@@ -635,6 +644,17 @@ mod tests {
             !released_first.get(),
             "the change waited without a lock, so the control proves nothing"
         );
+    }
+
+    /// An existing preference that cannot be read is an error. A value the file
+    /// format does not know is not read as the default.
+    #[test]
+    fn an_unrecognised_off_value_is_an_error_not_the_default() {
+        let folder = Folder::new("bad-off");
+        std::fs::write(folder.file(), "off=maybe\n").unwrap();
+        assert!(read(&folder.file()).is_err());
+        std::fs::write(folder.file(), "off=0\n").unwrap();
+        assert!(!read(&folder.file()).unwrap().off, "off=0 is checks on");
     }
 
     /// Negative control: the same change is saved when nothing blocks the write.

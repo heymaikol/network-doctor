@@ -629,6 +629,7 @@ func sshExecutable(name string) (string, error) {
 // space-separated paths. home expands the ~ that ssh leaves in identity paths.
 func parseConfig(out []byte, home string) (Target, error) {
 	var t Target
+	var sawUserKnownHosts, sawGlobalKnownHosts bool
 	for _, line := range strings.Split(string(out), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), " ")
 		if !ok {
@@ -665,14 +666,21 @@ func parseConfig(out []byte, home string) (Target, error) {
 				return Target{}, errors.New("RevokedHostKeys is set, and netdoc does not read a revocation list, so a revoked host key could be trusted; nothing was sent")
 			}
 		case "userknownhostsfile":
+			sawUserKnownHosts = true
 			t.KnownHosts = append(t.KnownHosts, splitPaths(value, home)...)
 		case "globalknownhostsfile":
+			sawGlobalKnownHosts = true
 			t.GlobalHosts = append(t.GlobalHosts, splitPaths(value, home)...)
 		case "proxyjump", "proxycommand":
 			if value != "none" && t.Unsupported == "" {
 				t.Unsupported = key
 			}
 		}
+	}
+	// ssh -G always prints both keywords. A listing without one cannot say which files hold
+	// recorded host keys, so the verifier refuses it rather than reading those keys as absent.
+	if !sawUserKnownHosts || !sawGlobalKnownHosts {
+		return Target{}, errors.New("the SSH configuration listing omits UserKnownHostsFile or GlobalKnownHostsFile, so netdoc cannot tell which files hold recorded host keys; nothing was sent")
 	}
 	if t.Host == "" || t.Port == 0 || t.User == "" {
 		return Target{}, errors.New("the SSH configuration did not name a host, port and user")

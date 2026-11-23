@@ -46,7 +46,7 @@ func TestParseConfigReadsTheResolvedValues(t *testing.T) {
 
 func TestParseConfigRefusesProxiedRoutes(t *testing.T) {
 	for _, directive := range []string{"proxyjump bastion", "proxycommand nc %h %p"} {
-		tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\n"+directive+"\n"), "")
+		tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile none\nglobalknownhostsfile none\n"+directive+"\n"), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +57,7 @@ func TestParseConfigRefusesProxiedRoutes(t *testing.T) {
 }
 
 func TestParseConfigNoProxyIsNotUnsupported(t *testing.T) {
-	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nproxyjump none\nproxycommand none\n"), "")
+	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile none\nglobalknownhostsfile none\nproxyjump none\nproxycommand none\n"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestParseConfigNoProxyIsNotUnsupported(t *testing.T) {
 }
 
 func TestParseConfigIdentityAgentNoneDisablesTheAgent(t *testing.T) {
-	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nidentityagent none\n"), "")
+	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile none\nglobalknownhostsfile none\nidentityagent none\n"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestResolveReportsConfigurationErrorsWithoutTheRoute(t *testing.T) {
 // A configured revocation list is refused by the verification read, which cannot read it.
 // An unset one is absent from the listing or printed as none, and neither refuses.
 func TestParseConfigRefusesARevocationListOnly(t *testing.T) {
-	base := "user u\nhostname h\nport 22\n"
+	base := "user u\nhostname h\nport 22\nuserknownhostsfile none\nglobalknownhostsfile none\n"
 	if _, err := parseConfig([]byte(base+"revokedhostkeys /etc/ssh/revoked\n"), ""); err == nil || !strings.Contains(err.Error(), "RevokedHostKeys is set") {
 		t.Errorf("a configured RevokedHostKeys was not refused: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestKnownHostsNoneIsNoFile(t *testing.T) {
 	if len(tg.KnownHosts) != 0 || len(tg.GlobalHosts) != 0 {
 		t.Errorf("none read as files: user=%q global=%q", tg.KnownHosts, tg.GlobalHosts)
 	}
-	tg, err = parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile ./none\n"), "")
+	tg, err = parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile ./none\nglobalknownhostsfile none\n"), "")
 	if err != nil {
 		t.Fatal(err)
 	}

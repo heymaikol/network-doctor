@@ -50,7 +50,7 @@ func fixedListing(t *testing.T, listing, version string, versionErr error) error
 // listed in docs/reference.md. Below the floor the line is refused, and the refusal
 // names the release it found.
 func TestOmittedRevocationLineListingByVersion(t *testing.T) {
-	const omitted = "user demo\nhostname 127.0.0.1\nport 2260\n"
+	const omitted = "user demo\nhostname 127.0.0.1\nport 2260\nuserknownhostsfile none\nglobalknownhostsfile none\n"
 	accepted := []string{"OpenSSH_10.0p2, OpenSSL 3.0.13", "OpenSSH_10.2p1, OpenSSL 3.0.13", "OpenSSH_10.5p1, OpenSSL 4.0.3 29 Sep 2026"}
 	for _, v := range accepted {
 		if err := fixedListing(t, omitted, v, nil); err != nil {
@@ -83,7 +83,7 @@ func TestOmittedRevocationLineListingByVersion(t *testing.T) {
 // printed path is refused whatever the version, so no configured revocation list passes.
 func TestPrintedRevocationSettingByVersion(t *testing.T) {
 	versions := []string{"OpenSSH_9.9p1 Debian-3", "OpenSSH_10.0p2, OpenSSL 3.0.13", "OpenSSH_10.5p1, OpenSSL 4.0.3 29 Sep 2026"}
-	host := "user demo\nhostname 127.0.0.1\nport 2260\n"
+	host := "user demo\nhostname 127.0.0.1\nport 2260\nuserknownhostsfile none\nglobalknownhostsfile none\n"
 	for _, v := range versions {
 		if err := fixedListing(t, host+"revokedhostkeys none\n", v, errors.New("version must not be asked")); err != nil {
 			t.Errorf("a printed RevokedHostKeys none from %q was refused: %v", v, err)
@@ -118,7 +118,7 @@ func TestClientVersionReadsTheInstalledRelease(t *testing.T) {
 // and must not name an older release, because none was read.
 func TestOmittedRevocationLineNoReleaseNamed(t *testing.T) {
 	for _, v := range []string{"Dropbear_2024.85", "OpenSSH unknown build"} {
-		err := fixedListing(t, "user demo\nhostname 127.0.0.1\nport 2260\n", v, nil)
+		err := fixedListing(t, "user demo\nhostname 127.0.0.1\nport 2260\nuserknownhostsfile none\nglobalknownhostsfile none\n", v, nil)
 		if err == nil || !strings.Contains(err.Error(), "does not name an OpenSSH release") {
 			t.Errorf("a version line %q: got %v, want a refusal saying the client does not name an OpenSSH release", v, err)
 			continue

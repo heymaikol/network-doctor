@@ -910,6 +910,7 @@ netdoc then checks the server's host key against your user `known_hosts` file an
 - A key that matches is used.
 - A key that differs from the recorded key is refused. netdoc shows the fingerprint of the key the server presented, not the fingerprint recorded in `known_hosts`. To see the recorded fingerprint, run `ssh-keygen -F HOST -l`. Without `-l`, `-F` prints the recorded key line, not a fingerprint. That command reads your user `known_hosts` file by default. For the system-wide file, add `-f FILE`, using the path that `ssh -G` lists as `GlobalKnownHostsFile`, usually `/etc/ssh/ssh_known_hosts`. There is no override.
 - A key with no record is reported with its fingerprint, and the check stops there with no prompt. You can accept that one fingerprint for the next action, with `-trust-host-key FINGERPRINT` on the command line or the trust row in the TUI. Nothing is written to `known_hosts`.
+- netdoc refuses the check, and sends nothing, when the listing omits `UserKnownHostsFile` or `GlobalKnownHostsFile`, or when a listed path may contain a space. `ssh -G` prints the list space-separated, so it cannot show where a path with a space ends, and netdoc does not guess which files hold the recorded keys. A file that exists but cannot be read is refused too. A file that does not exist is skipped.
 
 A known-hosts file that exists but cannot be checked stops the check before any connection, so an unreadable file is never taken for an empty one. A file that does not exist is simply absent. A value of `none` alone names no file.
 

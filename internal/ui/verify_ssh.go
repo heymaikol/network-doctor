@@ -481,6 +481,8 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		p.user, cmd = p.user.Update(msg)
 		if p.user.Value() != before {
 			p.dropRoute()
+			// A secret is typed for the login it was typed under, so a new login starts with none.
+			p.secret.SetValue("")
 		}
 	case vrSecret:
 		p.secret, cmd = p.secret.Update(msg)

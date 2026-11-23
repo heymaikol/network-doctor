@@ -147,6 +147,22 @@ func TestProbeNamesAConnectionTheServerClosedBeforeItsKey(t *testing.T) {
 	}
 }
 
+// A server that cannot be reached, or a name that does not resolve, leaves the client's own
+// line as the only output. Each is named as such, not as a malformed record.
+func TestProbeNamesAnUnreachableServerOrName(t *testing.T) {
+	cases := map[string]string{
+		"refused": "debug1: connect to address 127.0.0.1 port 1: Connection refused\nssh: connect to host 127.0.0.1 port 1: Connection refused\n",
+		"no name": "ssh: Could not resolve hostname probe.invalid: Name or service not known\n",
+	}
+	want := map[string]string{"refused": "could not be reached", "no name": "could not be resolved"}
+	for name, out := range cases {
+		_, ok, r := parseHostTrust([]byte(out), 255)
+		if ok || r.Outcome != TransportFailure || !strings.Contains(r.Detail, want[name]) {
+			t.Errorf("%s = %+v (trusted %v), want a transport failure that says it %s", name, r, ok, want[name])
+		}
+	}
+}
+
 // With strict checking, a bare failure line after a presented key means OpenSSH did not trust
 // that key. With no presented key, the failure is not explained, and it is not called unknown.
 func TestProbeReadsABareStrictFailureAsUnknownOnlyWithAPresentedKey(t *testing.T) {

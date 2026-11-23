@@ -118,10 +118,10 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 		}
 		return refuse(TransportFailure, "OpenSSH refused the host key for a reason netdoc does not recognise")
 	}
-	if len(presented) == 0 && closedBeforeKey(lines) {
-		// sshd refuses an address with recent failed logins at the identification stage, so the
-		// client's own reset line is all the output there is. Name that, not a malformed record.
-		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: "the server closed the connection before it named its host key, as sshd does to an address with recent failed logins; nothing was sent"}
+	if len(presented) == 0 {
+		if reason := unreachable(lines); reason != "" {
+			return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: reason + "; nothing was sent"}
+		}
 	}
 	if exitStatus != 255 {
 		return refuse(TransportFailure, "OpenSSH's probe ended with an unexpected status")
@@ -135,15 +135,22 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 	return hostTrust{algorithm: probeAlgorithmLine.FindStringSubmatch(lines[algorithms[0]])[1], fingerprint: fingerprint}, true, Result{}
 }
 
-// closedBeforeKey reports whether the client printed its own line for a connection the server
-// closed. The client prints these lines itself, so the server cannot write them.
-func closedBeforeKey(lines []string) bool {
+// unreachable names why OpenSSH read no host key, from the client's own lines. The client prints
+// these lines itself, so the server cannot write them. It returns "" when none of them is there.
+func unreachable(lines []string) string {
 	for _, l := range lines {
-		if strings.HasPrefix(l, "Connection reset by ") || strings.HasPrefix(l, "Connection closed by ") {
-			return true
+		switch {
+		case strings.HasPrefix(l, "ssh: Could not resolve hostname "):
+			return "the host name could not be resolved"
+		case strings.HasPrefix(l, "ssh: connect to host "):
+			return "the server could not be reached, so it named no host key"
+		case strings.HasPrefix(l, "Connection reset by "), strings.HasPrefix(l, "Connection closed by "):
+			// sshd refuses an address with recent failed logins at the identification stage, so the
+			// client's own reset line is all the output there is.
+			return "the server closed the connection before it named its host key, as sshd does to an address with recent failed logins"
 		}
 	}
-	return false
+	return ""
 }
 
 // probeEvidenceInOrder checks the order of the evidence and the guard on injected text. The

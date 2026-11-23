@@ -85,4 +85,3 @@ complete -c netdoc -o verify-key -l verify-key -r -d 'With --verify-auth key, th
 complete -c netdoc -o verify-agent-key -l verify-agent-key -r -f -d 'With --verify-auth agent, the SHA256 fingerprint of the agent key'
 complete -c netdoc -o verify-user -l verify-user -r -f -d 'With --verify-ssh, the login name'
 complete -c netdoc -o password-stdin -l password-stdin -d 'With --verify-auth, read the secret from one line of standard input'
-complete -c netdoc -o trust-host-key -l trust-host-key -r -f -d 'With --verify-ssh, accept this unknown host key fingerprint for this check only'

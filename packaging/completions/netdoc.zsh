@@ -114,7 +114,6 @@ _arguments \
   '(--verify-agent-key -verify-agent-key)'{--verify-agent-key,-verify-agent-key}='[with --verify-auth agent, the SHA256 fingerprint of the agent key]:fingerprint:' \
   '(--verify-user -verify-user)'{--verify-user,-verify-user}='[with --verify-ssh, the login name]:user:' \
   '(--password-stdin -password-stdin)'{--password-stdin,-password-stdin}'[with --verify-auth, read the secret from one line of standard input]' \
-  '(--trust-host-key -trust-host-key)'{--trust-host-key,-trust-host-key}='[with --verify-ssh, accept this unknown host key fingerprint for this check only]:fingerprint:' \
   '(--timeout -timeout)'{--timeout,-timeout}='[per-check probe timeout (default 4s)]:duration:' \
   '(- *)'{--version,-version}'[print version and exit]' \
   '(- *)'{--help,-help,-h}'[print usage and exit]' \

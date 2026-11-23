@@ -40,7 +40,7 @@ _netdoc() {
             compopt -o nospace 2>/dev/null
             return
             ;;
-        -verify-auth | --verify-auth | -verify-key | --verify-key | -verify-agent-key | --verify-agent-key | -verify-user | --verify-user | -trust-host-key | --trust-host-key | -timeout | --timeout | -watch-interval | --watch-interval | -peer-listen | --peer-listen | -fail | --fail | -fail-ospf | --fail-ospf | -fail-next-hop | --fail-next-hop | -change-route-policy | --change-route-policy | -withdraw-bgp | --withdraw-bgp | -fail-bgp-session | --fail-bgp-session | -sources | --sources)
+        -verify-auth | --verify-auth | -verify-key | --verify-key | -verify-agent-key | --verify-agent-key | -verify-user | --verify-user | -timeout | --timeout | -watch-interval | --watch-interval | -peer-listen | --peer-listen | -fail | --fail | -fail-ospf | --fail-ospf | -fail-next-hop | --fail-next-hop | -change-route-policy | --change-route-policy | -withdraw-bgp | --withdraw-bgp | -fail-bgp-session | --fail-bgp-session | -sources | --sources)
             # These values have nothing useful to enumerate.
             return
             ;;
@@ -145,7 +145,6 @@ _netdoc() {
         -verify-agent-key --verify-agent-key
         -verify-user --verify-user
         -password-stdin --password-stdin
-        -trust-host-key --trust-host-key
         -iface --iface
         -public-dns --public-dns
         -no-history --no-history

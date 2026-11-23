@@ -324,8 +324,8 @@ func TestZshCompletionKeepsVerifySSHBesideItsCompanions(t *testing.T) {
 			listed: []string{"--verify-ssh", "--verify-auth"},
 		},
 		{
-			name:   "mode after the trust flag",
-			line:   "netdoc --trust-host-key fp --verify-",
+			name:   "mode after a key file flag",
+			line:   "netdoc --verify-key /k/id --verify-",
 			listed: []string{"--verify-ssh"},
 		},
 		{
@@ -340,9 +340,9 @@ func TestZshCompletionKeepsVerifySSHBesideItsCompanions(t *testing.T) {
 			listed: []string{"--verify-user", "--verify-auth"},
 		},
 		{
-			name:   "trust flag after a companion",
-			line:   "netdoc --verify-user alice --t",
-			listed: []string{"--trust-host-key"},
+			name:   "key file flag after a companion",
+			line:   "netdoc --verify-user alice --verify-k",
+			listed: []string{"--verify-key"},
 		},
 	}
 

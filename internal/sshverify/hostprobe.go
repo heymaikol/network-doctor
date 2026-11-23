@@ -118,6 +118,11 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 		}
 		return refuse(TransportFailure, "OpenSSH refused the host key for a reason netdoc does not recognise")
 	}
+	if len(presented) == 0 && closedBeforeKey(lines) {
+		// sshd refuses an address with recent failed logins at the identification stage, so the
+		// client's own reset line is all the output there is. Name that, not a malformed record.
+		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: "the server closed the connection before it named its host key, as sshd does to an address with recent failed logins; nothing was sent"}
+	}
 	if exitStatus != 255 {
 		return refuse(TransportFailure, "OpenSSH's probe ended with an unexpected status")
 	}
@@ -128,6 +133,17 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 		return refuse(TransportFailure, "OpenSSH's host key fingerprint is malformed")
 	}
 	return hostTrust{algorithm: probeAlgorithmLine.FindStringSubmatch(lines[algorithms[0]])[1], fingerprint: fingerprint}, true, Result{}
+}
+
+// closedBeforeKey reports whether the client printed its own line for a connection the server
+// closed. The client prints these lines itself, so the server cannot write them.
+func closedBeforeKey(lines []string) bool {
+	for _, l := range lines {
+		if strings.HasPrefix(l, "Connection reset by ") || strings.HasPrefix(l, "Connection closed by ") {
+			return true
+		}
+	}
+	return false
 }
 
 // probeEvidenceInOrder checks the order of the evidence and the guard on injected text. The

@@ -137,6 +137,16 @@ func TestProbeRefusesEveryStateWithoutTrustAndNamesTheFingerprint(t *testing.T) 
 	}
 }
 
+// A server that refuses the connection at the identification stage leaves the client's reset
+// line as the only output. That is named as a closed connection, not as a malformed record.
+func TestProbeNamesAConnectionTheServerClosedBeforeItsKey(t *testing.T) {
+	closed := "debug1: Connecting to 127.0.0.1 [127.0.0.1] port 2703.\ndebug1: Connection established.\ndebug1: kex_exchange_identification: banner line 0: Not allowed at this time\nkex_exchange_identification: read: Connection reset by peer\nConnection reset by 127.0.0.1 port 2703\n"
+	_, ok, r := parseHostTrust([]byte(closed), 255)
+	if ok || r.Outcome != TransportFailure || !strings.Contains(r.Detail, "closed the connection before it named its host key") {
+		t.Fatalf("a closed connection = %+v (trusted %v), want a transport failure that names the close", r, ok)
+	}
+}
+
 // With strict checking, a bare failure line after a presented key means OpenSSH did not trust
 // that key. With no presented key, the failure is not explained, and it is not called unknown.
 func TestProbeReadsABareStrictFailureAsUnknownOnlyWithAPresentedKey(t *testing.T) {

@@ -915,6 +915,8 @@ netdoc asks OpenSSH which host key to trust, before any credential is sent. It r
 
 `ProxyJump`, `ProxyCommand` and `KnownHostsCommand` stay refused, because each one runs a program or proxy that netdoc does not control. A host key algorithm that the SSH library netdoc uses cannot negotiate is refused before any credential is sent.
 
+After a failed login, sshd can close new connections from the same address for a while, through its per-source penalties. In testing, on the default settings, that lasted about twenty seconds. The host-key check cannot read the server's key during that time, so netdoc reports that the server closed the connection before it named its host key, and nothing is sent. Wait, then check again. `ssh` itself behaves the same way, because the check runs `ssh`. netdoc does not change sshd's penalties.
+
 Compatibility: `-trust-host-key` is removed, and so is the trust row in the TUI. A command line that passes `-trust-host-key` fails with the usual unknown-flag error, exit 2, and sends nothing. Earlier builds read `known_hosts` files themselves and refused several forms of `UserKnownHostsFile` and `GlobalKnownHostsFile`, such as a list of several files for one keyword or a path with a space. Those refusals are gone: netdoc no longer refuses a configuration for its known-hosts form, and OpenSSH decides what those files mean.
 
 Once the host key is trusted, a password or key check asks for the secret. The TUI's Verify does nothing until Discover methods has trusted the host. Changing the login drops the route read for the previous login, and Verify waits until the route is read for the login shown. Changing the method clears the typed secret, so a key passphrase is never sent as a password.

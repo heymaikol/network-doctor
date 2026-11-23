@@ -438,6 +438,10 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab", "up":
 		return m, p.moveFrom(-1)
 	case "left", "right":
+		// On a text row the key moves the caret in the field below, so it is not consumed here.
+		if p.row == vrUser || p.row == vrSecret {
+			break
+		}
 		delta := 1
 		if msg.String() == "left" {
 			delta = -1

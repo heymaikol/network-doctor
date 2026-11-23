@@ -937,7 +937,7 @@ On the command line, the exit status says what happened:
 
 - `0`: the server accepted the credential, or the methods were listed.
 - `1`: the server answered and did not accept the credential (refused, partial, method not offered, or accepted with no credential).
-- `2`: the check could not be completed. This covers a misused flag, an unknown or changed host key, a missing or unusable key file, a proxied route, and a connection that failed or ended early. Where a credential may already have reached the server, the result says the outcome is unknown. Listing an agent's keys without `-verify-agent-key` also exits 2, because no credential was chosen, and so does `-json` with that listing, which is refused before the agent is asked. An interrupt while `-password-stdin` waits for its line also exits 2, with nothing sent.
+- `2`: the check could not be completed. This covers a misused flag, an unknown or changed host key, a missing or unusable key file, a proxied route, and a connection that failed or ended early. A reply that stops partway through counts as ended early: the server's answer is not complete, so netdoc says the outcome is unknown and never reports a refusal. Where a credential may already have reached the server, the result says the outcome is unknown. Listing an agent's keys without `-verify-agent-key` also exits 2, because no credential was chosen, and so does `-json` with that listing, which is refused before the agent is asked. An interrupt while `-password-stdin` waits for its line also exits 2, with nothing sent.
 
 The command line takes one destination and one method:
 

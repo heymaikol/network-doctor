@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -343,10 +342,6 @@ func (k *keyboardAnswer) challenge(_, _ string, questions []string, echos []bool
 
 var errDeclined = errors.New("netdoc: declined a prompt it does not answer")
 
-// errStop ends the handshake after the one attempt or after discovery. It never
-// reaches the user: classify reads the recorded state instead.
-var errStop = errors.New("netdoc: stop after the one attempt")
-
 // authState records what the server told the callback, so the result comes
 // from what happened and not from the text of an error.
 type authState struct {
@@ -359,19 +354,20 @@ type authState struct {
 	// name is the protocol method the credential was offered as: password or
 	// keyboard-interactive.
 	name string
-	wire *replyTracker // the connection of this handshake
 }
 
 // callback is the ssh.ClientAuthCallback. It runs after the server's "none"
 // reply and before every attempt. It offers the credential on the first call
-// only when the server advertises a method that can carry it, and stops the
-// handshake on every later call. Nothing is retried or cycled.
+// only when the server advertises a method that can carry it. Otherwise it
+// offers nothing. The configuration lists no methods, so the library then ends
+// the handshake itself, and its error says whether the server answered (see
+// libraryRefusal). Nothing is retried or cycled.
 func (s *authState) callback(ctx *ssh.ClientAuthContext) (ssh.AuthMethod, error) {
 	s.calls++
 	s.allowed = slices.Clone(ctx.AllowedMethods)
 	s.partial = slices.Clone(ctx.PartialSuccessMethods)
 	if s.cred == nil || s.calls > 1 {
-		return nil, errStop
+		return nil, nil
 	}
 	name := ""
 	for _, offer := range s.cred.offered {
@@ -382,7 +378,7 @@ func (s *authState) callback(ctx *ssh.ClientAuthContext) (ssh.AuthMethod, error)
 	}
 	if name == "" {
 		s.notOffered = true
-		return nil, errStop
+		return nil, nil
 	}
 	s.attempted = true
 	s.name = name
@@ -393,30 +389,13 @@ func (s *authState) callback(ctx *ssh.ClientAuthContext) (ssh.AuthMethod, error)
 // library calls the callback again, just as it does after a refusal, so the
 // callback cannot tell the two apart. The server answered only if it sent bytes
 // after the client's last write.
-type replyTracker struct {
-	net.Conn
-	writes atomic.Int64
-	reply  atomic.Int64 // the write count at the last read that returned bytes
-}
-
-func (c *replyTracker) Write(p []byte) (int, error) {
-	c.writes.Add(1)
-	return c.Conn.Write(p)
-}
-
-func (c *replyTracker) Read(p []byte) (int, error) {
-	n, err := c.Conn.Read(p)
-	if n > 0 {
-		c.reply.Store(c.writes.Load())
-	}
-	return n, err
-}
-
-// answered reports whether the server sent bytes after the client's last write.
-// A nil tracker, which no handshake builds, answers nothing.
-func (c *replyTracker) answered() bool {
-	return c != nil && c.writes.Load() > 0 && c.reply.Load() == c.writes.Load()
-}
+// libraryRefusal is the text of the library's own error when a complete reply
+// leaves no method to try (golang.org/x/crypto v0.59.0, client_auth.go). Every
+// other handshake error, such as the end of the connection or a reply cut short,
+// means no complete reply arrived. The library has no typed error for this, so a
+// test pins the text. If the text changes, refusals become transport failures,
+// which is the safe direction, and that test fails.
+const libraryRefusal = "ssh: unable to authenticate"
 
 // round is one handshake on one connection.
 type round struct {
@@ -473,8 +452,7 @@ func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, 
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 
-	wire := &replyTracker{Conn: conn}
-	r := round{hosts: hosts, auth: &authState{cred: cred, wire: wire}}
+	r := round{hosts: hosts, auth: &authState{cred: cred}}
 	name := knownHostsName(t)
 	cfg := &ssh.ClientConfig{
 		User:              user,
@@ -482,7 +460,7 @@ func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, 
 		HostKeyAlgorithms: algos,
 		AuthCallback:      r.auth.callback,
 	}
-	client, chans, reqs, err := ssh.NewClientConn(wire, name, cfg)
+	client, chans, reqs, err := ssh.NewClientConn(conn, name, cfg)
 	if err == nil {
 		// The server accepted the connection. Close it without opening a
 		// session, a channel, or a remote command.
@@ -562,17 +540,18 @@ func (r round) result(ctx context.Context, err error, discovery bool) Result {
 		}
 		return Result{Outcome: NoCredentialAccepted, HostKey: fingerprint, Detail: "the server accepted the connection without a credential; netdoc treats this as a finding and opened no session"}
 	}
-	if discovery && s.calls >= 1 {
+	complete := err != nil && strings.Contains(err.Error(), libraryRefusal)
+	if discovery && complete && len(s.allowed) > 0 {
 		return Result{Outcome: Discovered, HostKey: fingerprint, Methods: sanitize(s.allowed), Detail: "no credential was sent" + note}
 	}
-	if s.notOffered {
+	if s.notOffered && complete {
 		return Result{Outcome: NotOffered, Method: r.method(), HostKey: fingerprint, Methods: sanitize(s.allowed), Detail: "the server does not offer this method; nothing was sent" + note}
 	}
 	if s.cred != nil && s.cred.kb != nil && s.cred.kb.declined {
 		return Result{Outcome: Unsupported, Method: r.method(), HostKey: fingerprint, Methods: sanitize(s.allowed), Detail: "the server asked for more than a password; netdoc answers only a single password prompt"}
 	}
 	if s.attempted {
-		if s.calls >= 2 && s.wire.answered() {
+		if complete {
 			if len(s.partial) > 0 {
 				return Result{Outcome: Partial, Method: s.cred.method, HostKey: fingerprint, Methods: sanitize(s.partial), Remaining: sanitize(s.allowed), Detail: "the server accepted this method and requires more before it lets you in" + note}
 			}

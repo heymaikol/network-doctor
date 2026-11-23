@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"reflect"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -75,10 +74,10 @@ func TestLibraryGivesTheSameCallbackContextButADifferentErrorAfterARefusalAndAPa
 	if !reflect.DeepEqual(refused.allowed, cut.allowed) || !reflect.DeepEqual(refused.tried, cut.tried) || !reflect.DeepEqual(refused.partial, cut.partial) {
 		t.Fatalf("the callback context differs; the evidence no longer holds: refused=%+v cut=%+v", refused, cut)
 	}
-	if refused.err == nil || !strings.Contains(refused.err.Error(), libraryRefusal) {
+	if !isRefusal(refused.err) {
 		t.Fatalf("a complete refusal did not end in the library's refusal error: %v", refused.err)
 	}
-	if cut.err == nil || strings.Contains(cut.err.Error(), libraryRefusal) {
+	if isRefusal(cut.err) {
 		t.Fatalf("a cut reply ended in the library's refusal error: %v", cut.err)
 	}
 	if !errors.Is(cut.err, io.ErrUnexpectedEOF) && !errors.Is(cut.err, io.EOF) {

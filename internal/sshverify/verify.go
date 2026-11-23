@@ -397,6 +397,18 @@ func (s *authState) callback(ctx *ssh.ClientAuthContext) (ssh.AuthMethod, error)
 // which is the safe direction, and that test fails.
 const libraryRefusal = "ssh: unable to authenticate"
 
+// handshakeFailed is the prefix the library gives every error that ends a handshake
+// (golang.org/x/crypto v0.59.0, client.go).
+const handshakeFailed = "ssh: handshake failed: "
+
+// isRefusal reports whether err is the library's own refusal, which ends the handshake as
+// "ssh: handshake failed: ssh: unable to authenticate". A server's disconnect also ends a
+// handshake, and the server writes its text, so the phrase can appear there. The check
+// therefore anchors to the start of the whole error. A disconnect starts with its own prefix.
+func isRefusal(err error) bool {
+	return err != nil && strings.HasPrefix(err.Error(), handshakeFailed+libraryRefusal)
+}
+
 // round is one handshake on one connection.
 type round struct {
 	hosts *hostCheck
@@ -540,7 +552,7 @@ func (r round) result(ctx context.Context, err error, discovery bool) Result {
 		}
 		return Result{Outcome: NoCredentialAccepted, HostKey: fingerprint, Detail: "the server accepted the connection without a credential; netdoc treats this as a finding and opened no session"}
 	}
-	complete := err != nil && strings.Contains(err.Error(), libraryRefusal)
+	complete := isRefusal(err)
 	if discovery && complete && len(s.allowed) > 0 {
 		return Result{Outcome: Discovered, HostKey: fingerprint, Methods: sanitize(s.allowed), Detail: "no credential was sent" + note}
 	}

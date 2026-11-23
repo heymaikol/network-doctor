@@ -40,7 +40,7 @@ func TestResolveHelper(t *testing.T) {
 		fmt.Printf("RESULT error: %s\n", err)
 		os.Exit(0)
 	}
-	target, err := parseConfig(out, "")
+	target, err := parseConfig(out, testHomeDir())
 	if err != nil {
 		fmt.Printf("RESULT error: %s\n", err)
 		os.Exit(0)
@@ -178,7 +178,7 @@ func interactiveHostname(t *testing.T, config, typed string) string {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the interactive ssh output did not end")
 	}
-	target, err := parseConfig([]byte(output.stdoutText()), "")
+	target, err := parseConfig([]byte(output.stdoutText()), testHomeDir())
 	if err != nil {
 		t.Fatalf("interactive ssh printed no usable configuration: %v; output %q", err, output.text())
 	}

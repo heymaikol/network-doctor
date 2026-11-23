@@ -4,9 +4,7 @@ import (
 	"errors"
 	"net"
 	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -54,9 +52,6 @@ type hostCheck struct {
 // not an empty list, so a broken file cannot quietly turn every host into an unknown
 // one, and a changed key cannot then be shown as unknown and trusted.
 func newHostCheck(files []string, trust string) (*hostCheck, error) {
-	if ambiguousPaths(files) {
-		return nil, errKnownHostsAmbiguous
-	}
 	var present []string
 	for _, f := range files {
 		_, err := os.Stat(f)
@@ -79,75 +74,6 @@ func newHostCheck(files []string, trust string) (*hostCheck, error) {
 }
 
 var errKnownHostsUnreadable = errors.New("a known_hosts file could not be read")
-
-// errKnownHostsAmbiguous is returned when a listed path may be one path split at a space.
-// ssh -G prints the list space-separated, so a path with a space arrives as two entries,
-// and neither names a file. The listing cannot show where the path ends, so netdoc does
-// not guess which files hold the recorded keys.
-var errKnownHostsAmbiguous = errors.New("a known_hosts path has a space in it, and the SSH configuration listing does not show where it ends, so netdoc cannot tell which files hold recorded host keys; nothing was sent")
-
-// ambiguousPaths reports whether the listed paths may be one path split at a space. Two
-// cases are checked. A run of listed paths joined by single spaces that names an existing
-// file is one. A file in the directory of an entry, whose name has the same words under
-// any spacing, is another, which covers a name with two spaces in it. An unreadable
-// directory that exists is refused too, since its files cannot be ruled out.
-// siblingSplits reports whether a directory entry is a path that the listing split at a
-// space. Such an entry starts with the token's name, then whitespace, then the start of the
-// next token. A name that merely has a space after it, such as "known_hosts copy", does not
-// match, because the next token does not begin with "copy". An entry that is the name
-// plus spaces only continues with the next token, which must then start a new path.
-func siblingSplits(base, next string, entries []os.DirEntry) bool {
-	for _, e := range entries {
-		rest, ok := strings.CutPrefix(e.Name(), base)
-		if !ok {
-			continue
-		}
-		tail := strings.TrimLeft(rest, " \t")
-		if tail == rest {
-			continue
-		}
-		if tail == "" {
-			if strings.HasPrefix(next, "/") {
-				return true
-			}
-			continue
-		}
-		if strings.HasPrefix(next, strings.Fields(tail)[0]) {
-			return true
-		}
-	}
-	return false
-}
-
-func ambiguousPaths(files []string) bool {
-	norm := func(p string) string { return strings.Join(strings.Fields(p), " ") }
-	for i := range files {
-		if i+1 == len(files) {
-			break
-		}
-		dir := filepath.Dir(files[i])
-		entries, err := os.ReadDir(dir)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return true
-		}
-		if siblingSplits(filepath.Base(files[i]), files[i+1], entries) {
-			return true
-		}
-		for j := i + 1; j < len(files); j++ {
-			run := strings.Join(files[i:j+1], " ")
-			if _, err := os.Stat(run); err == nil {
-				return true
-			}
-			for _, e := range entries {
-				name := filepath.Join(dir, e.Name())
-				if strings.ContainsAny(e.Name(), " \t") && norm(name) == norm(run) {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
 
 // callback is the ssh.HostKeyCallback. It returns an error to stop the
 // handshake; nothing after it runs.

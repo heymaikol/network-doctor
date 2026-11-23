@@ -910,7 +910,13 @@ netdoc then checks the server's host key against your user `known_hosts` file an
 - A key that matches is used.
 - A key that differs from the recorded key is refused. netdoc shows the fingerprint of the key the server presented, not the fingerprint recorded in `known_hosts`. To see the recorded fingerprint, run `ssh-keygen -F HOST -l`. Without `-l`, `-F` prints the recorded key line, not a fingerprint. That command reads your user `known_hosts` file by default. For the system-wide file, add `-f FILE`, using the path that `ssh -G` lists as `GlobalKnownHostsFile`, usually `/etc/ssh/ssh_known_hosts`. There is no override.
 - A key with no record is reported with its fingerprint, and the check stops there with no prompt. You can accept that one fingerprint for the next action, with `-trust-host-key FINGERPRINT` on the command line or the trust row in the TUI. Nothing is written to `known_hosts`.
-- netdoc refuses the check, and sends nothing, when the listing omits `UserKnownHostsFile` or `GlobalKnownHostsFile`, or when a listed path may contain a space. `ssh -G` prints the list space-separated, so it cannot show where a path with a space ends, and netdoc does not guess which files hold the recorded keys. A file that exists but cannot be read is refused too. A file that does not exist is skipped.
+- netdoc refuses the check, and sends nothing, when the listing omits `UserKnownHostsFile` or `GlobalKnownHostsFile`, or when a value is not one of the forms below. `ssh -G` prints a list with spaces and no quotes, so one path that contains a space prints the same as several paths, and the output cannot show which files OpenSSH reads. netdoc does not guess. A file that exists but cannot be read is refused too. A file that does not exist is skipped.
+
+A known-hosts value netdoc reads has one of three forms: `none`, which names no file; one path with no space, no padding, and no `%`, `$` or leading `~`; or OpenSSH's built-in pair for the keyword, `~/.ssh/known_hosts` and `~/.ssh/known_hosts2` for the user file, or `/etc/ssh/ssh_known_hosts` and `/etc/ssh/ssh_known_hosts2` for the system file. The built-in pair is matched against your home directory from `$HOME`, so a `$HOME` that differs from the one ssh uses refuses the pair, and an unset `$HOME` refuses every built-in pair.
+
+These forms are a compatibility change from earlier builds. Each of the following is now refused before anything is sent: a list of several custom files for one keyword, a path that contains a space, a value with leading or trailing spaces, and a path with `%`, `$` or a leading `~`. ssh accepts some of these, so a configuration that worked before may need one path per keyword.
+
+A known limit remains. A single path written in quotes as the built-in pair prints exactly like the pair, so netdoc reads the pair for it. OpenSSH reads only that one name, and the two can disagree, so netdoc can trust a key that OpenSSH does not. The output of `ssh -G` cannot separate the two cases.
 
 A known-hosts file that exists but cannot be checked stops the check before any connection, so an unreadable file is never taken for an empty one. A file that does not exist is simply absent. A value of `none` alone names no file.
 
@@ -965,6 +971,7 @@ What does not work in this build. Each gap is refused and reported, never droppe
 - Multi-factor and keyboard-interactive prompts beyond one password prompt, including one-time codes.
 - OpenSSH certificates, which are not presented, and security keys held as files, which need the device. Hardware-backed FIDO2 keys held by an agent have not been tested in this build.
 - The Windows OpenSSH agent pipe. On Windows, password and key files work and agent keys are unavailable.
+- Several custom known-hosts files for one keyword, a known-hosts path with a space, a known-hosts value with padding, and a known-hosts path with `%`, `$` or a leading `~`. The output of `ssh -G` cannot show where each name ends, so netdoc refuses these before sending anything. The built-in pair is accepted. See the known-hosts section above.
 
 netdoc does not give you a shell, so to log in, run `ssh` in a terminal.
 

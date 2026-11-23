@@ -61,7 +61,7 @@ func TestHeadlessHelper(t *testing.T) {
 		fmt.Printf("RESULT resolve-error: %s\n", err)
 		os.Exit(0)
 	}
-	target, err := parseConfig(out, "")
+	target, err := parseConfig(out, testHomeDir())
 	if err != nil {
 		fmt.Printf("RESULT resolve-error: %s\n", err)
 		os.Exit(0)

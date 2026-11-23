@@ -635,6 +635,9 @@ func parseConfig(out []byte, home string) (Target, error) {
 		if !ok {
 			continue
 		}
+		// The known-hosts values are read exactly as ssh printed them, padding included: a
+		// trailing or leading space names a different file to OpenSSH.
+		exact := strings.TrimPrefix(strings.TrimLeft(line, " \t"), key+" ")
 		value = strings.TrimSpace(value)
 		switch key {
 		case "hostname":
@@ -667,10 +670,18 @@ func parseConfig(out []byte, home string) (Target, error) {
 			}
 		case "userknownhostsfile":
 			sawUserKnownHosts = true
-			t.KnownHosts = append(t.KnownHosts, splitPaths(value, home)...)
+			files, err := knownHostsFiles(exact, userKnownHostsDefaults(home))
+			if err != nil {
+				return Target{}, err
+			}
+			t.KnownHosts = append(t.KnownHosts, files...)
 		case "globalknownhostsfile":
 			sawGlobalKnownHosts = true
-			t.GlobalHosts = append(t.GlobalHosts, splitPaths(value, home)...)
+			files, err := knownHostsFiles(exact, globalKnownHostsDefaults)
+			if err != nil {
+				return Target{}, err
+			}
+			t.GlobalHosts = append(t.GlobalHosts, files...)
 		case "proxyjump", "proxycommand":
 			if value != "none" && t.Unsupported == "" {
 				t.Unsupported = key
@@ -688,19 +699,36 @@ func parseConfig(out []byte, home string) (Target, error) {
 	return t, nil
 }
 
-// splitPaths returns the files a known-hosts keyword names. OpenSSH accepts none only as
-// the whole value, and it means no file, so it is not a path: reading a file called none
-// from the working directory would trust its keys.
-func splitPaths(value, home string) []string {
-	var paths []string
-	for _, p := range strings.Fields(value) {
-		if p == "none" {
-			continue
-		}
-		paths = append(paths, expandHome(p, home))
+// knownHostsFiles returns the files a known-hosts keyword names, from its value as ssh -G printed
+// it. ssh -G joins a list with spaces and does not quote it, so one path that contains a space
+// prints the same as several paths, and the output cannot show which files OpenSSH reads. netdoc
+// therefore accepts three values: none, one path with no space, padding, %, $ or a leading ~, and
+// OpenSSH's built-in pair for the keyword, which ssh uses when nothing is set. ssh expands some of
+// those tokens only when it connects, and the printed global value keeps them, so netdoc does not
+// read them. Any other value is refused, so that no credential is sent on a guess.
+func knownHostsFiles(value string, builtin []string) ([]string, error) {
+	switch {
+	case value == "none":
+		return nil, nil
+	case builtin != nil && value == strings.Join(builtin, " "):
+		return builtin, nil
+	case value != "" && !strings.ContainsAny(value, " \t%$") && !strings.HasPrefix(value, "~"):
+		return []string{value}, nil
 	}
-	return paths
+	return nil, errors.New("the SSH configuration names known-hosts files in a form netdoc cannot read exactly: a list, a path with a space or padding, or a path with %, $ or a leading ~. ssh -G does not show which file it reads for those, so netdoc cannot tell which files hold recorded host keys; nothing was sent")
 }
+
+// userKnownHostsDefaults is OpenSSH's built-in UserKnownHostsFile, in the home directory ssh
+// expands it from. A home directory netdoc does not know gives no default, so the value is refused.
+func userKnownHostsDefaults(home string) []string {
+	if home == "" {
+		return nil
+	}
+	return []string{filepath.Join(home, ".ssh", "known_hosts"), filepath.Join(home, ".ssh", "known_hosts2")}
+}
+
+// globalKnownHostsDefaults is OpenSSH's built-in GlobalKnownHostsFile.
+var globalKnownHostsDefaults = []string{"/etc/ssh/ssh_known_hosts", "/etc/ssh/ssh_known_hosts2"}
 
 // expandHome replaces a leading ~/ with the home directory. A path that still
 // holds a %-token is returned as written; the caller refuses to open it.

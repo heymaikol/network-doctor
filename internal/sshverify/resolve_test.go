@@ -18,7 +18,7 @@ identityfile ~/.ssh/id_rsa
 identityfile /keys/%r.key
 identityagent /run/agent.sock
 userknownhostsfile /home/u/.ssh/known_hosts /home/u/.ssh/known_hosts2
-globalknownhostsfile /etc/ssh/ssh_known_hosts /etc/ssh/extra
+globalknownhostsfile /etc/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts2
 revokedhostkeys none
 `
 
@@ -88,9 +88,12 @@ func TestResolveArgvEndsOptionsBeforeTheHost(t *testing.T) {
 	var got []string
 	saved := resolveOutput
 	t.Cleanup(func() { resolveOutput = saved })
+	// The home directory here is the real one, so the sample's user pair, which names /home/u,
+	// would be refused. This test checks only the arguments, so it names no known-hosts file.
+	neutral := strings.Replace(sample, "userknownhostsfile /home/u/.ssh/known_hosts /home/u/.ssh/known_hosts2", "userknownhostsfile none", 1)
 	resolveOutput = func(_ context.Context, args []string) ([]byte, error) {
 		got = args
-		return []byte(sample), nil
+		return []byte(neutral), nil
 	}
 
 	if _, err := Resolve(context.Background(), "-oProxyCommand=evil", 2250, "tester"); err != nil {

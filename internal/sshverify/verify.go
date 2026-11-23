@@ -475,7 +475,7 @@ func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, 
 
 	wire := &replyTracker{Conn: conn}
 	r := round{hosts: hosts, auth: &authState{cred: cred, wire: wire}}
-	name := net.JoinHostPort(hostKeyName(t), strconv.Itoa(t.Port))
+	name := knownHostsName(t)
 	cfg := &ssh.ClientConfig{
 		User:              user,
 		HostKeyCallback:   hosts.callback,
@@ -511,13 +511,15 @@ func dial(ctx context.Context, addr string, opts Options) (net.Conn, error) {
 	return d.DialContext(ctx, "tcp", addr)
 }
 
-// hostKeyName is the name known_hosts is keyed on. A HostKeyAlias changes it,
-// as it does for ssh itself.
-func hostKeyName(t Target) string {
+// knownHostsName is the name the host key is looked up under, as OpenSSH looks it up.
+// OpenSSH uses a HostKeyAlias verbatim and never adds the connection's port. The
+// alias is given the default port, which known_hosts stores without brackets, so
+// the lookup is the alias alone. Without an alias, the host and port form the name.
+func knownHostsName(t Target) string {
 	if t.HostKeyAlias != "" {
-		return t.HostKeyAlias
+		return net.JoinHostPort(t.HostKeyAlias, "22")
 	}
-	return t.Host
+	return net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
 }
 
 // rejectChannels turns away any channel the server opens. netdoc never asks

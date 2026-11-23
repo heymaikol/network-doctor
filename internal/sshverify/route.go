@@ -207,6 +207,11 @@ func classify(c capture, headless bool) Route {
 	if value, set := listingValue(c.listing, "knownhostscommand"); set && value != "none" {
 		return unknown("KnownHostsCommand is set: it decides host-key trust when a connection is made, and netdoc does not run it")
 	}
+	if value, set := listingValue(c.listing, "gssapikeyexchange"); set && value != "no" {
+		// A GSSAPI key exchange authenticates with the user's Kerberos credentials, which
+		// netdoc does not send. Only a listing that says no is known to send none.
+		return unknown("GSSAPIKeyExchange is set: its key exchange would use your Kerberos credentials, which netdoc does not send")
+	}
 	if value, set := listingValue(c.listing, "proxyjump"); set && value != "none" {
 		return Route{Kind: RouteProxied, Listing: c.listing}
 	}

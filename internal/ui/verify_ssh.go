@@ -637,6 +637,11 @@ func resultLines(m model, r sshverify.Result) string {
 		style = m.st.fail
 	}
 	lines := []string{style.Render("result: " + r.Outcome.Describe())}
+	if r.Outcome == sshverify.HostKeyChanged && r.HostKey != "" {
+		// The presented key is the only fingerprint netdoc has for the server, so it is shown
+		// for the user to compare with the key they expect.
+		lines = append(lines, style.Render("presented host key: "+textsafe.Clean(r.HostKey)))
+	}
 	if len(r.Methods) > 0 {
 		lines = append(lines, m.st.faint.Render("server offers: "+textsafe.Clean(strings.Join(r.Methods, ", "))))
 	}

@@ -144,6 +144,10 @@ func unreachable(lines []string) string {
 			return "the host name could not be resolved"
 		case strings.HasPrefix(l, "ssh: connect to host "):
 			return "the server could not be reached, so it named no host key"
+		case strings.HasPrefix(l, "Unable to negotiate with "):
+			// The client prints this line when the two sides share no algorithm. The server's own
+			// list follows it on the same line, which the prefix does not depend on.
+			return "OpenSSH could not agree a key exchange or host key algorithm with the server, so it named no host key"
 		case strings.HasPrefix(l, "Connection reset by "), strings.HasPrefix(l, "Connection closed by "):
 			// sshd refuses an address with recent failed logins at the identification stage, so the
 			// client's own reset line is all the output there is.

@@ -151,10 +151,11 @@ func TestProbeNamesAConnectionTheServerClosedBeforeItsKey(t *testing.T) {
 // line as the only output. Each is named as such, not as a malformed record.
 func TestProbeNamesAnUnreachableServerOrName(t *testing.T) {
 	cases := map[string]string{
-		"refused": "debug1: connect to address 127.0.0.1 port 1: Connection refused\nssh: connect to host 127.0.0.1 port 1: Connection refused\n",
-		"no name": "ssh: Could not resolve hostname probe.invalid: Name or service not known\n",
+		"refused":      "debug1: connect to address 127.0.0.1 port 1: Connection refused\nssh: connect to host 127.0.0.1 port 1: Connection refused\n",
+		"no name":      "ssh: Could not resolve hostname probe.invalid: Name or service not known\n",
+		"no agreement": "Unable to negotiate with 127.0.0.1 port 2705: no matching host key type found. Their offer: ssh-mldsa44-ed25519@openssh.com\n",
 	}
-	want := map[string]string{"refused": "could not be reached", "no name": "could not be resolved"}
+	want := map[string]string{"refused": "could not be reached", "no name": "could not be resolved", "no agreement": "could not agree"}
 	for name, out := range cases {
 		_, ok, r := parseHostTrust([]byte(out), 255)
 		if ok || r.Outcome != TransportFailure || !strings.Contains(r.Detail, want[name]) {

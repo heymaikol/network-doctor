@@ -263,6 +263,13 @@ func buildAttempt(ctx context.Context, f verifySSHFlags, tgt sshverify.Target, n
 	}
 }
 
+// trimOneLineEnd removes the line end of a secret: one LF, and a CR before it. Any
+// other byte stays, so a CR with text after it is kept, and the length check refuses it.
+func trimOneLineEnd(line []byte) []byte {
+	line = bytes.TrimSuffix(line, []byte("\n"))
+	return bytes.TrimSuffix(line, []byte("\r"))
+}
+
 // readVerifySecret returns one password or passphrase. With -password-stdin it
 // takes one line of standard input. When standard input is a terminal, the line is
 // read with echo off, as a prompt is, so a typed secret is not echoed. Otherwise it
@@ -279,7 +286,9 @@ func readVerifySecret(ctx context.Context, stderr io.Writer, prompt string, from
 		}
 		got := make(chan stdinLine, 1)
 		go func() {
-			reader := bufio.NewReaderSize(io.LimitReader(verifyStdin, maxSecretLen+1), maxSecretLen+1)
+			// The limit allows the longest secret plus CR LF, and one byte more, so an overlong
+			// line is seen whole and refused. A cut-off line would be a truncated secret.
+			reader := bufio.NewReaderSize(io.LimitReader(verifyStdin, maxSecretLen+3), maxSecretLen+3)
 			line, err := reader.ReadBytes('\n')
 			got <- stdinLine{line, err}
 		}()
@@ -288,7 +297,7 @@ func readVerifySecret(ctx context.Context, stderr io.Writer, prompt string, from
 			if read.err != nil && !errors.Is(read.err, io.EOF) {
 				return nil, errors.New("could not read the secret from standard input")
 			}
-			value = bytes.TrimRight(read.line, "\r\n")
+			value = trimOneLineEnd(read.line)
 		case <-ctx.Done():
 			return nil, errors.New("interrupted before the secret was read; nothing was sent")
 		}

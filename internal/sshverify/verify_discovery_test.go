@@ -15,7 +15,7 @@ import (
 // empty list that the server sent.
 func TestDiscoveryDroppedBeforeMethodsIsTransportFailure(t *testing.T) {
 	host, _ := newEd25519(t)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	opts := Options{
 		Timeout: 5 * time.Second,
 		Dial: func(ctx context.Context, addr string) (net.Conn, error) {
@@ -35,7 +35,7 @@ func TestDiscoveryDroppedBeforeMethodsIsTransportFailure(t *testing.T) {
 		},
 	}
 
-	r := Discover(context.Background(), target(known), opts)
+	r := Discover(context.Background(), target(), opts)
 	if r.Outcome != TransportFailure {
 		t.Fatalf("outcome = %q, want transport failure; detail %q", r.Outcome, r.Detail)
 	}

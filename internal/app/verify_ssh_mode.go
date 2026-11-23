@@ -25,20 +25,19 @@ type verifySSHFlags struct {
 	key           string
 	agentKey      string
 	user          string
-	trustHostKey  string
 	passwordStdin bool
 	jsonOut       bool
 }
 
 // verifyOnly are the flags that mean something only with -verify-ssh.
-var verifyOnly = []string{"verify-auth", "verify-key", "verify-agent-key", "verify-user", "trust-host-key", "password-stdin"}
+var verifyOnly = []string{"verify-auth", "verify-key", "verify-agent-key", "verify-user", "password-stdin"}
 
 // verifyCompatible are the flags -verify-ssh accepts. Any other mode, and any
 // probe setting, is refused by name rather than silently ignored, because the
 // check runs no probe and reads nothing from the rest.
 var verifyCompatible = map[string]bool{
 	"verify-ssh": true, "verify-auth": true, "verify-key": true, "verify-agent-key": true,
-	"verify-user": true, "trust-host-key": true, "password-stdin": true, "json": true,
+	"verify-user": true, "password-stdin": true, "json": true,
 }
 
 // verifyFlagMisuse names a verification-only flag used without -verify-ssh.
@@ -136,23 +135,22 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 		return 2
 	}
 	label := fmt.Sprintf("%s@%s:%d", tgt.User, tgt.Host, tgt.Port)
-	opts := sshverify.Options{TrustHostKey: f.trustHostKey}
+	opts := sshverify.Options{}
 
 	var result sshverify.Result
 	switch f.auth {
 	case "":
 		result = verifyDiscover(ctx, tgt, opts)
 	case "password", "key":
-		// Discovery checks the host key and sends no credential. The secret is
-		// asked for only when that key is trusted, and the credential connection
-		// then accepts only the key discovery saw, so a key that changed in
-		// between is refused before anything is sent.
+		// Discovery checks the host key with OpenSSH and sends no credential. The
+		// secret is asked for only when OpenSSH trusts the key. The check repeats
+		// that decision before it sends anything, so a key that changed in between
+		// is refused.
 		seen := verifyDiscover(ctx, tgt, opts)
 		if seen.Outcome != sshverify.Discovered || seen.HostKey == "" {
 			writeVerifyResult(stdout, label, seen, f.jsonOut)
 			return verifyExitCode(seen.Outcome)
 		}
-		opts.PinHostKey = seen.HostKey
 		attempt, code, ok := buildAttempt(ctx, f, tgt, needsPass, stdout, stderr)
 		if !ok {
 			return code
@@ -194,9 +192,6 @@ func flagProblem(set map[string]bool, f verifySSHFlags) string {
 	// refused rather than printed under a JSON contract.
 	if f.jsonOut && f.auth == "agent" && f.agentKey == "" {
 		return "-json cannot list the agent's keys, which are plain text; choose one with -verify-agent-key FINGERPRINT, or leave out -json"
-	}
-	if set["trust-host-key"] && !sshverify.ValidFingerprint(f.trustHostKey) {
-		return "-trust-host-key needs a SHA256 host key fingerprint, as ssh-keygen -lf prints it, such as SHA256:..."
 	}
 	return ""
 }

@@ -32,7 +32,6 @@ const (
 	vrAgent
 	vrDiscover
 	vrCheck
-	vrTrust
 )
 
 // verifyMethods is the order the method chooser cycles through.
@@ -69,17 +68,14 @@ type verifyPanel struct {
 	// result for an older read is dropped, so the route in use is always the one read for
 	// the login now typed.
 	resolveSeq uint64
-	// trust is an unknown host key the user confirmed for the next action only.
-	trust string
-	// pin is the host key the last trusted discovery presented. The next check
-	// must present that key, so a key that changed since discovery is refused
-	// before the secret is sent.
-	pin    string
-	result *sshverify.Result
-	note   string
-	busy   bool
-	id     uint64
-	cancel context.CancelFunc
+	result     *sshverify.Result
+	// trusted is set when the last result was a discovery that OpenSSH trusted the host for.
+	// The secret waits for it, so a check starts only after the host key is trusted.
+	trusted bool
+	note    string
+	busy    bool
+	id      uint64
+	cancel  context.CancelFunc
 	// resolveCancel ends the configuration read this panel started, if it is
 	// still running.
 	resolveCancel context.CancelFunc
@@ -194,7 +190,7 @@ func (p *verifyPanel) dropRoute() {
 	p.keys, p.keyIdx = nil, 0
 	p.agentKeys, p.agentIdx = nil, 0
 	p.result = nil
-	p.pin, p.trust = "", ""
+	p.trusted = false
 	p.note = ""
 }
 
@@ -235,9 +231,7 @@ func checkCmd(ctx context.Context, id uint64, t sshverify.Target, a sshverify.At
 	}
 }
 
-// visibleRows is the order of rows for the current method and result. A
-// trust row appears only after an unknown host key, which is the one case
-// where the user may confirm a key for the next check.
+// visibleRows is the order of rows for the current method.
 func (p verifyPanel) visibleRows() []verifyRow {
 	rows := []verifyRow{vrUser, vrMethod}
 	switch verifyMethods[p.method] {
@@ -249,9 +243,6 @@ func (p verifyPanel) visibleRows() []verifyRow {
 		rows = append(rows, vrAgent)
 	}
 	rows = append(rows, vrDiscover, vrCheck)
-	if p.result != nil && p.result.Outcome == sshverify.HostKeyUnknown && p.result.HostKey != "" {
-		rows = append(rows, vrTrust)
-	}
 	return rows
 }
 
@@ -319,22 +310,6 @@ func (p *verifyPanel) attempt() (sshverify.Attempt, string) {
 	return a, ""
 }
 
-// verifyOptions are the options for the next action. A confirmed host key
-// applies to exactly one action, and so does the pin: both are cleared as the
-// action starts. A check presents the key discovery trusted, or else the key the
-// user confirmed.
-func (p *verifyPanel) verifyOptions(check bool) sshverify.Options {
-	opts := sshverify.Options{TrustHostKey: p.trust}
-	if check {
-		opts.PinHostKey = p.pin
-		if opts.PinHostKey == "" {
-			opts.PinHostKey = p.trust
-		}
-	}
-	p.trust, p.pin = "", ""
-	return opts
-}
-
 // startAction begins a discovery or a check, and reports whether it started.
 // Each starts a fresh context, so esc can cancel it and release an agent that
 // is waiting for a touch or a PIN.
@@ -350,9 +325,9 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 			p.note = note
 			return m, nil
 		}
-		// The secret is sent only to the host key that was trusted: one a
-		// discovery presented, or one the user confirmed.
-		if p.pin == "" && p.trust == "" {
+		// The secret is sent only after a discovery trusted the host, so OpenSSH has
+		// decided on the host key before the credential is sent.
+		if !p.trusted {
 			p.note = "press enter on Discover methods first, so the host key is trusted before the secret is sent"
 			return m, nil
 		}
@@ -363,7 +338,7 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 	p.busy = true
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
-	opts := p.verifyOptions(check)
+	opts := sshverify.Options{}
 	if check {
 		// The attempt holds its own copy, so the input can be cleared as the check
 		// starts. Discovery sends no secret, so the input is left as typed.
@@ -470,11 +445,6 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startVerifyAction(false)
 		case vrCheck:
 			return m.startVerifyAction(true)
-		case vrTrust:
-			p.trust = p.result.HostKey
-			p.result = nil
-			p.note = "host key confirmed for the next check only; nothing is written. Enter the credential again and press enter on Verify."
-			return m, p.focus(vrCheck)
 		}
 		return m, p.moveFrom(1)
 	}
@@ -530,12 +500,9 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.busy = false
 		m.verify.cancel = nil
 		m.verify.result = &msg.result
-		// Only a discovery that trusted the host sets the key the next check must
-		// present; any other result clears it, so a check needs a fresh discovery.
-		m.verify.pin = ""
-		if msg.result.Outcome == sshverify.Discovered {
-			m.verify.pin = msg.result.HostKey
-		}
+		// Only a discovery that trusted the host sets the gate for the next check; any other
+		// result clears it, so a check needs a fresh discovery.
+		m.verify.trusted = msg.result.Outcome == sshverify.Discovered
 		m.verify.note = ""
 		// The focus may now sit on a row that is no longer visible.
 		if !slices.Contains(m.verify.visibleRows(), m.verify.row) {
@@ -609,9 +576,6 @@ func (m model) verifyView() string {
 	b.WriteString("\n")
 	b.WriteString(focused(vrDiscover) + "[ Discover methods ]  " + m.st.faint.Render("sends no credential") + "\n")
 	b.WriteString(focused(vrCheck) + "[ Verify credential ]  " + m.st.faint.Render("sends one credential, once") + "\n")
-	if p.result != nil && p.result.Outcome == sshverify.HostKeyUnknown && p.result.HostKey != "" {
-		b.WriteString(focused(vrTrust) + "[ Trust this host key once ]  " + textsafe.Clean(p.result.HostKey) + "\n")
-	}
 
 	if p.busy {
 		b.WriteString("\n" + m.spinner.View() + " working; esc cancels")

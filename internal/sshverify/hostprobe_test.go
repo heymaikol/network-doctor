@@ -137,6 +137,19 @@ func TestProbeRefusesEveryStateWithoutTrustAndNamesTheFingerprint(t *testing.T) 
 	}
 }
 
+// With strict checking, a bare failure line after a presented key means OpenSSH did not trust
+// that key. With no presented key, the failure is not explained, and it is not called unknown.
+func TestProbeReadsABareStrictFailureAsUnknownOnlyWithAPresentedKey(t *testing.T) {
+	bare := transcriptPrefix + "debug1: kex: host key algorithm: ssh-ed25519\ndebug1: Server host key: ssh-ed25519 " + fpEd25519 + "\nHost key verification failed.\n"
+	if _, ok, r := parseHostTrust([]byte(bare), 255); ok || r.Outcome != HostKeyUnknown || r.HostKey != fpEd25519 {
+		t.Fatalf("a bare failure after a presented key = %+v (trusted %v), want unknown with the fingerprint", r, ok)
+	}
+	none := transcriptPrefix + "Host key verification failed.\n"
+	if _, ok, r := parseHostTrust([]byte(none), 255); ok || r.Outcome != TransportFailure {
+		t.Fatalf("a bare failure with no presented key = %+v (trusted %v), want transport failure", r, ok)
+	}
+}
+
 // Each malformed transcript lacks one piece of OpenSSH's evidence, or has it out of order, or
 // ends with an unexpected status. The host-key line alone is never enough.
 func TestProbeRefusesIncompleteOrOutOfOrderEvidence(t *testing.T) {

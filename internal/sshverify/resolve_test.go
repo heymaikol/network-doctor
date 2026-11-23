@@ -30,17 +30,11 @@ func TestParseConfigReadsTheResolvedValues(t *testing.T) {
 	if tg.Host != "127.0.0.1" || tg.Port != 2250 || tg.User != "tester" {
 		t.Errorf("host/port/user = %q %d %q", tg.Host, tg.Port, tg.User)
 	}
-	if tg.HostKeyAlias != "alias-for-spike" {
-		t.Errorf("HostKeyAlias = %q", tg.HostKeyAlias)
-	}
 	if want := []string{filepath.Join("/home/u", ".ssh", "id_rsa"), "/keys/%r.key"}; !slices.Equal(tg.IdentityFile, want) {
 		t.Errorf("IdentityFile = %q, want %q", tg.IdentityFile, want)
 	}
-	if want := []string{"/home/u/.ssh/known_hosts", "/home/u/.ssh/known_hosts2"}; !slices.Equal(tg.KnownHosts, want) {
-		t.Errorf("KnownHosts = %q, want %q", tg.KnownHosts, want)
-	}
-	if len(tg.GlobalHosts) != 2 || tg.AgentSocket != "/run/agent.sock" || tg.AgentOff || tg.Unsupported != "" {
-		t.Errorf("global=%q agent=%q off=%v unsupported=%q", tg.GlobalHosts, tg.AgentSocket, tg.AgentOff, tg.Unsupported)
+	if tg.AgentSocket != "/run/agent.sock" || tg.AgentOff || tg.Unsupported != "" {
+		t.Errorf("agent=%q off=%v unsupported=%q", tg.AgentSocket, tg.AgentOff, tg.Unsupported)
 	}
 }
 
@@ -130,24 +124,5 @@ func TestParseConfigRefusesARevocationListOnly(t *testing.T) {
 	}
 	if _, err := parseConfig([]byte(base), ""); err != nil {
 		t.Errorf("an unset RevokedHostKeys, omitted from the listing, was refused: %v", err)
-	}
-}
-
-// none in a known-hosts keyword is no file, not a file named none. A path that only
-// looks like it, such as ./none, is still a path.
-func TestKnownHostsNoneIsNoFile(t *testing.T) {
-	tg, err := parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile none\nglobalknownhostsfile none\n"), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tg.KnownHosts) != 0 || len(tg.GlobalHosts) != 0 {
-		t.Errorf("none read as files: user=%q global=%q", tg.KnownHosts, tg.GlobalHosts)
-	}
-	tg, err = parseConfig([]byte("user u\nhostname h\nport 22\nrevokedhostkeys none\nuserknownhostsfile ./none\nglobalknownhostsfile none\n"), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(tg.KnownHosts, []string{"./none"}) {
-		t.Errorf("./none is a path, got user=%q", tg.KnownHosts)
 	}
 }

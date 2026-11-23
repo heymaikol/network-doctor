@@ -1,9 +1,9 @@
 // Package sshverify checks SSH credentials against a server without opening a
 // shell. Discovery reports which authentication methods a server offers and
 // sends no credential. Verification sends exactly one credential, once, and
-// reports whether the server accepted it. Host keys are checked against the
-// user's known_hosts files before any credential is sent, and a host key that
-// does not match is refused.
+// reports whether the server accepted it. OpenSSH decides which host key to trust:
+// netdoc asks it first, without a credential, and sends a credential only to the
+// key OpenSSH trusted. A key that does not match is refused.
 package sshverify
 
 import (
@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,12 +45,12 @@ type Target struct {
 	Host         string // the host name ssh would dial
 	Port         int
 	User         string   // the login name ssh would use
-	HostKeyAlias string   // the name known_hosts is keyed on, when set
 	IdentityFile []string // configured key paths, with ~ expanded
-	AgentSocket  string   // the agent socket from IdentityAgent, "" when none
-	AgentOff     bool     // IdentityAgent none: ssh uses no agent, so neither does netdoc
-	KnownHosts   []string // user known_hosts files, in ssh's order
-	GlobalHosts  []string // system-wide known_hosts files, in ssh's order
+	// dest is the destination arguments ssh -G read, which the host-key probe reuses, so the
+	// probe resolves the same configuration.
+	dest        []string
+	AgentSocket string // the agent socket from IdentityAgent, "" when none
+	AgentOff    bool   // IdentityAgent none: ssh uses no agent, so neither does netdoc
 	// Unsupported names the directive that routes the connection through a
 	// proxy. The native client does not run proxies, so a non-empty value
 	// means no verification is attempted.
@@ -63,7 +64,7 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 	if host == "" {
 		return Target{}, errors.New("no host given")
 	}
-	args := []string{"-G"}
+	args := append([]string{"-G"}, sshTestArgs...)
 	if port > 0 {
 		args = append(args, "-p", strconv.Itoa(port))
 	}
@@ -86,7 +87,9 @@ func Resolve(ctx context.Context, host string, port int, login string) (Target, 
 		}
 	}
 	home, _ := os.UserHomeDir()
-	return parseConfig(out, home)
+	t, err := parseConfig(out, home)
+	t.dest = slices.Clone(args[1:])
+	return t, err
 }
 
 // clientVersion returns the first line of the installed client's version output. It
@@ -629,15 +632,11 @@ func sshExecutable(name string) (string, error) {
 // space-separated paths. home expands the ~ that ssh leaves in identity paths.
 func parseConfig(out []byte, home string) (Target, error) {
 	var t Target
-	var sawUserKnownHosts, sawGlobalKnownHosts bool
 	for _, line := range strings.Split(string(out), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), " ")
 		if !ok {
 			continue
 		}
-		// The known-hosts values are read exactly as ssh printed them, padding included: a
-		// trailing or leading space names a different file to OpenSSH.
-		exact := strings.TrimPrefix(strings.TrimLeft(line, " \t"), key+" ")
 		value = strings.TrimSpace(value)
 		switch key {
 		case "hostname":
@@ -650,8 +649,6 @@ func parseConfig(out []byte, home string) (Target, error) {
 			t.Port = p
 		case "user":
 			t.User = value
-		case "hostkeyalias":
-			t.HostKeyAlias = value
 		case "identityfile":
 			t.IdentityFile = append(t.IdentityFile, expandHome(value, home))
 		case "identityagent":
@@ -668,67 +665,17 @@ func parseConfig(out []byte, home string) (Target, error) {
 			if value != "none" {
 				return Target{}, errors.New("RevokedHostKeys is set, and netdoc does not read a revocation list, so a revoked host key could be trusted; nothing was sent")
 			}
-		case "userknownhostsfile":
-			sawUserKnownHosts = true
-			files, err := knownHostsFiles(exact, userKnownHostsDefaults(home))
-			if err != nil {
-				return Target{}, err
-			}
-			t.KnownHosts = append(t.KnownHosts, files...)
-		case "globalknownhostsfile":
-			sawGlobalKnownHosts = true
-			files, err := knownHostsFiles(exact, globalKnownHostsDefaults)
-			if err != nil {
-				return Target{}, err
-			}
-			t.GlobalHosts = append(t.GlobalHosts, files...)
 		case "proxyjump", "proxycommand":
 			if value != "none" && t.Unsupported == "" {
 				t.Unsupported = key
 			}
 		}
 	}
-	// ssh -G always prints both keywords. A listing without one cannot say which files hold
-	// recorded host keys, so the verifier refuses it rather than reading those keys as absent.
-	if !sawUserKnownHosts || !sawGlobalKnownHosts {
-		return Target{}, errors.New("the SSH configuration listing omits UserKnownHostsFile or GlobalKnownHostsFile, so netdoc cannot tell which files hold recorded host keys; nothing was sent")
-	}
 	if t.Host == "" || t.Port == 0 || t.User == "" {
 		return Target{}, errors.New("the SSH configuration did not name a host, port and user")
 	}
 	return t, nil
 }
-
-// knownHostsFiles returns the files a known-hosts keyword names, from its value as ssh -G printed
-// it. ssh -G joins a list with spaces and does not quote it, so one path that contains a space
-// prints the same as several paths, and the output cannot show which files OpenSSH reads. netdoc
-// therefore accepts three values: none, one path with no space, padding, %, $ or a leading ~, and
-// OpenSSH's built-in pair for the keyword, which ssh uses when nothing is set. ssh expands some of
-// those tokens only when it connects, and the printed global value keeps them, so netdoc does not
-// read them. Any other value is refused, so that no credential is sent on a guess.
-func knownHostsFiles(value string, builtin []string) ([]string, error) {
-	switch {
-	case value == "none":
-		return nil, nil
-	case builtin != nil && value == strings.Join(builtin, " "):
-		return builtin, nil
-	case value != "" && !strings.ContainsAny(value, " \t%$") && !strings.HasPrefix(value, "~"):
-		return []string{value}, nil
-	}
-	return nil, errors.New("the SSH configuration names known-hosts files in a form netdoc cannot read exactly: a list, a path with a space or padding, or a path with %, $ or a leading ~. ssh -G does not show which file it reads for those, so netdoc cannot tell which files hold recorded host keys; nothing was sent")
-}
-
-// userKnownHostsDefaults is OpenSSH's built-in UserKnownHostsFile, in the home directory ssh
-// expands it from. A home directory netdoc does not know gives no default, so the value is refused.
-func userKnownHostsDefaults(home string) []string {
-	if home == "" {
-		return nil
-	}
-	return []string{filepath.Join(home, ".ssh", "known_hosts"), filepath.Join(home, ".ssh", "known_hosts2")}
-}
-
-// globalKnownHostsDefaults is OpenSSH's built-in GlobalKnownHostsFile.
-var globalKnownHostsDefaults = []string{"/etc/ssh/ssh_known_hosts", "/etc/ssh/ssh_known_hosts2"}
 
 // expandHome replaces a leading ~/ with the home directory. A path that still
 // holds a %-token is returned as written; the caller refuses to open it.

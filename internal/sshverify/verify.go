@@ -64,8 +64,8 @@ type Result struct {
 	Detail    string   `json:"detail,omitempty"`
 }
 
-// Options tunes a check. The zero value dials TCP, uses the target's agent and
-// known_hosts files, and trusts no unknown host key.
+// Options tunes a check. The zero value dials TCP and uses the target's agent. Trust in
+// the host key is OpenSSH's decision, read by the probe; no option overrides it.
 type Options struct {
 	Timeout time.Duration
 	// Dial replaces the TCP dial. Tests use it to run against an in-memory
@@ -73,14 +73,6 @@ type Options struct {
 	Dial func(ctx context.Context, addr string) (net.Conn, error)
 	// Agent replaces the connection to the ssh-agent.
 	Agent func() (io.ReadWriteCloser, error)
-	// TrustHostKey is the SHA256 fingerprint of an unknown host key the user
-	// has confirmed. It is accepted for this check only; nothing is written.
-	TrustHostKey string
-	// PinHostKey is the SHA256 fingerprint of the host key an earlier discovery of
-	// this host presented. When set, this check accepts only that key, on top of
-	// the known_hosts decision, so a key that changed between the two steps is
-	// refused before any credential is sent.
-	PinHostKey string
 }
 
 // Attempt is one credential, chosen by the user for one check.
@@ -106,7 +98,11 @@ func Discover(ctx context.Context, t Target, opts Options) Result {
 	if r, stop := unsupported(t); stop {
 		return r
 	}
-	return handshake(ctx, t, opts, nil, t.User)
+	trust, ok, r := openSSHProbe(ctx, t, opts)
+	if !ok {
+		return r
+	}
+	return handshake(ctx, t, opts, nil, t.User, trust)
 }
 
 // Verify sends one credential, once, and reports whether the server accepted
@@ -127,7 +123,11 @@ func Verify(ctx context.Context, t Target, a Attempt, opts Options) Result {
 	if user == "" {
 		user = t.User
 	}
-	return handshake(ctx, t, opts, cred, user)
+	trust, ok, r := openSSHProbe(ctx, t, opts)
+	if !ok {
+		return r
+	}
+	return handshake(ctx, t, opts, cred, user, trust)
 }
 
 // ListAgentKeys returns the keys the ssh-agent holds. Listing sends nothing to
@@ -411,13 +411,14 @@ func isRefusal(err error) bool {
 
 // round is one handshake on one connection.
 type round struct {
-	hosts *hostCheck
-	auth  *authState
+	pin  *pinCheck
+	auth *authState
 }
 
-// handshake runs the check on the target: one retry at most, for a
-// negotiation mismatch, and never a second credential.
-func handshake(ctx context.Context, t Target, opts Options, cred *credential, user string) Result {
+// handshake runs the check on one connection. It offers only the host key algorithm OpenSSH
+// negotiated and accepts only the key OpenSSH trusted, so it sends a credential only to that
+// key. It never retries.
+func handshake(ctx context.Context, t Target, opts Options, cred *credential, user string, trust hostTrust) Result {
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -425,37 +426,15 @@ func handshake(ctx context.Context, t Target, opts Options, cred *credential, us
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if cred != nil {
-		// A stop, or the deadline, must also release an agent waiting on a
-		// touch or a PIN, which the TCP close cannot reach.
+		// A stop, or the deadline, must also release an agent waiting on a touch or a PIN,
+		// which the TCP close cannot reach.
 		stop := context.AfterFunc(ctx, cred.close)
 		defer stop()
 	}
-	files := append(slices.Clone(t.GlobalHosts), t.KnownHosts...)
-	var algos []string
-	var prior *hostCheck
-	for {
-		res, again, hosts := attemptOnce(ctx, t, opts, cred, user, files, algos, prior)
-		if !again {
-			return res
-		}
-		algos = hostKeyAlgorithms(hosts.wants)
-		prior = hosts
-	}
-}
-
-// attemptOnce makes one connection and one handshake. It reports again, with
-// the key types known for the host, when the first handshake may have failed
-// only because the server negotiated a key type the known_hosts file lacks.
-func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, user string, files []string, algos []string, prior *hostCheck) (Result, bool, *hostCheck) {
-	hosts, err := newHostCheck(files, opts.TrustHostKey)
-	if err != nil {
-		return Result{Outcome: LocalFailure, Detail: err.Error() + "; nothing was sent"}, false, nil
-	}
-	hosts.pin = opts.PinHostKey
 	addr := net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
 	conn, err := dial(ctx, addr, opts)
 	if err != nil {
-		return transport(ctx, "could not connect to "+addr+": "+textsafe.Clean(err.Error())), false, nil
+		return transport(ctx, "could not connect to "+addr+": "+textsafe.Clean(err.Error()))
 	}
 	defer conn.Close()
 	if deadline, ok := ctx.Deadline(); ok {
@@ -464,33 +443,23 @@ func attemptOnce(ctx context.Context, t Target, opts Options, cred *credential, 
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 
-	r := round{hosts: hosts, auth: &authState{cred: cred}}
-	name := knownHostsName(t)
+	r := round{pin: &pinCheck{fingerprint: trust.fingerprint}, auth: &authState{cred: cred}}
 	cfg := &ssh.ClientConfig{
 		User:              user,
-		HostKeyCallback:   hosts.callback,
-		HostKeyAlgorithms: algos,
+		HostKeyCallback:   r.pin.callback,
+		HostKeyAlgorithms: []string{trust.algorithm},
 		AuthCallback:      r.auth.callback,
 	}
-	client, chans, reqs, err := ssh.NewClientConn(conn, name, cfg)
+	client, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
 	if err == nil {
-		// The server accepted the connection. Close it without opening a
-		// session, a channel, or a remote command.
+		// The server accepted the connection. Close it without opening a session, a channel,
+		// or a remote command.
 		go ssh.DiscardRequests(reqs)
 		go rejectChannels(chans)
 		_ = client.Close()
-		return r.result(ctx, nil, cred == nil), false, nil
+		return r.result(ctx, nil, cred == nil)
 	}
-	if prior != nil && prior.state == hostChanged && hosts.state == hostNotChecked {
-		// The retry was refused before the host key was checked, so it proves
-		// nothing about the key. The first round did check it and found a
-		// mismatch, and that result stands.
-		return changedResult(prior), false, nil
-	}
-	if hosts.needsRetry(algos != nil) {
-		return Result{}, true, hosts
-	}
-	return r.result(ctx, err, cred == nil), false, nil
+	return r.result(ctx, err, cred == nil)
 }
 
 func dial(ctx context.Context, addr string, opts Options) (net.Conn, error) {
@@ -499,17 +468,6 @@ func dial(ctx context.Context, addr string, opts Options) (net.Conn, error) {
 	}
 	var d net.Dialer
 	return d.DialContext(ctx, "tcp", addr)
-}
-
-// knownHostsName is the name the host key is looked up under, as OpenSSH looks it up.
-// OpenSSH uses a HostKeyAlias verbatim and never adds the connection's port. The
-// alias is given the default port, which known_hosts stores without brackets, so
-// the lookup is the alias alone. Without an alias, the host and port form the name.
-func knownHostsName(t Target) string {
-	if t.HostKeyAlias != "" {
-		return net.JoinHostPort(t.HostKeyAlias, "22")
-	}
-	return net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
 }
 
 // rejectChannels turns away any channel the server opens. netdoc never asks
@@ -523,27 +481,11 @@ func rejectChannels(chans <-chan ssh.NewChannel) {
 // result turns what the handshake and the callback recorded into one outcome.
 // discovery marks a check that sends no credential.
 func (r round) result(ctx context.Context, err error, discovery bool) Result {
-	h, s := r.hosts, r.auth
-	fingerprint := ""
-	if h.presented != nil {
-		fingerprint = ssh.FingerprintSHA256(h.presented)
-	}
-	switch h.state {
-	case hostChanged:
-		return changedResult(h)
-	case hostMoved:
-		return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the host key differs from the one this host presented when it was checked; nothing was sent"}
-	case hostRevoked:
-		return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the host key is revoked in known_hosts; nothing was sent"}
-	case hostUnknown:
-		return Result{Outcome: HostKeyUnknown, HostKey: fingerprint, Detail: "the host key is not in known_hosts; nothing was sent"}
-	case hostFailed:
-		return transport(ctx, "the host key check failed: "+textsafe.Clean(h.err.Error()))
+	s, fingerprint := r.auth, r.pin.presented
+	if r.pin.presented != "" && r.pin.presented != r.pin.fingerprint {
+		return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the server presented a host key that OpenSSH did not trust; nothing was sent"}
 	}
 	note := ""
-	if h.state == hostTrustedForCheck {
-		note = "; host key trusted for this check only, nothing written"
-	}
 	if err == nil {
 		// A keyboard-interactive exchange that asks no question is accepted without the
 		// password, so only an answered challenge counts as sending it.
@@ -572,16 +514,6 @@ func (r round) result(ctx context.Context, err error, discovery bool) Result {
 		return transport(ctx, "the connection ended during authentication, so whether the server accepted the credential is unknown")
 	}
 	return transport(ctx, "the handshake failed before authentication")
-}
-
-// changedResult reports a key that did not match known_hosts. It names the key
-// that was presented, which is the only fingerprint netdoc has for the server.
-func changedResult(h *hostCheck) Result {
-	fingerprint := ""
-	if h.presented != nil {
-		fingerprint = ssh.FingerprintSHA256(h.presented)
-	}
-	return Result{Outcome: HostKeyChanged, HostKey: fingerprint, Detail: "the host key differs from the one in known_hosts; nothing was sent"}
 }
 
 func (r round) method() Method {

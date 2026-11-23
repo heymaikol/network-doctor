@@ -1,8 +1,17 @@
 package sshverify
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"os/exec"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
 // OpenSSH decides which host key to trust. netdoc asks it once, without a credential, and
@@ -102,6 +111,10 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 			return refuse(HostKeyChanged, "OpenSSH reports that the host key is revoked")
 		case strings.Contains(failed, "host key is known for"):
 			return refuse(HostKeyUnknown, "OpenSSH has no record of this host key; establish trust with your normal SSH client first")
+		case failed == "Host key verification failed." && len(presented) == 1:
+			// With strict checking, OpenSSH ends with this line when it does not trust the key it
+			// presented. A global known-hosts setting often prints no line that says which case it is.
+			return refuse(HostKeyUnknown, "OpenSSH does not trust this host key; establish trust with your normal SSH client first")
 		}
 		return refuse(TransportFailure, "OpenSSH refused the host key for a reason netdoc does not recognise")
 	}
@@ -152,4 +165,92 @@ func failureLine(l string) string {
 		return l
 	}
 	return ""
+}
+
+// openSSHProbe is the host-key decision a check asks for. The product uses probeHostKey; tests
+// replace it with a fixed decision, and the integration tests run the real client.
+var openSSHProbe = probeHostKey
+
+// sshTestArgs are options that ssh -G and the probe both read before the destination. Only the
+// integration tests set them, to point the client at a test configuration.
+var sshTestArgs []string
+
+// probeOutputLimit bounds what the probe keeps of OpenSSH's output.
+const probeOutputLimit = 1 << 20
+
+// probeHostKey runs the probe for the target and returns OpenSSH's trust decision. It runs the
+// installed client, the one ssh -G read the configuration with, and sends no credential.
+func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool, Result) {
+	program, err := sshExecutable(sshBinary)
+	if err != nil {
+		return hostTrust{}, false, Result{Outcome: LocalFailure, Detail: textsafe.Clean(err.Error()) + "; nothing was sent"}
+	}
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	dest := t.dest
+	if dest == nil {
+		dest = append(slices.Clone(sshTestArgs), "-p", strconv.Itoa(t.Port), "-l", t.User, "--", t.Host)
+	}
+	transcript, status, err := runHostKeyProbe(ctx, program, probeArgs(dest))
+	if ctx.Err() != nil {
+		return hostTrust{}, false, transport(ctx, "the OpenSSH host-key check did not finish")
+	}
+	if err != nil {
+		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: textsafe.Clean(err.Error()) + "; nothing was sent"}
+	}
+	return parseHostTrust(transcript, status)
+}
+
+// errProbeOutput refuses a probe that wrote to standard output or ran past the output limit.
+var errProbeOutput = errors.New("the OpenSSH host-key check wrote unexpected output")
+
+// runHostKeyProbe runs program with args and returns its diagnostic output and exit status. The
+// argument vector is passed as a slice, with no shell. The probe may write nothing to standard
+// output, and its diagnostic output is held to probeOutputLimit.
+func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte, int, error) {
+	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
+	cmd.Env = append(os.Environ(), "SSH_ASKPASS_REQUIRE=never")
+	var stdout, stderr bytes.Buffer
+	out := &limitedBuffer{buf: &stdout, limit: 0}
+	diag := &limitedBuffer{buf: &stderr, limit: probeOutputLimit}
+	cmd.Stdout = out
+	cmd.Stderr = diag
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if err != nil && !errors.As(err, &exit) {
+		return nil, 0, err
+	}
+	if out.over || diag.over {
+		return nil, 0, errProbeOutput
+	}
+	status := 0
+	if exit != nil {
+		status = exit.ExitCode()
+	}
+	return stderr.Bytes(), status, nil
+}
+
+// limitedBuffer keeps at most limit bytes and records that it was asked for more, so an
+// oversized transcript is refused and never held in memory.
+type limitedBuffer struct {
+	buf   *bytes.Buffer
+	limit int
+	over  bool
+}
+
+func (l *limitedBuffer) Write(p []byte) (int, error) {
+	room := l.limit - l.buf.Len()
+	if room < len(p) {
+		l.over = true
+		if room > 0 {
+			l.buf.Write(p[:room])
+		}
+		return len(p), nil
+	}
+	l.buf.Write(p)
+	return len(p), nil
 }

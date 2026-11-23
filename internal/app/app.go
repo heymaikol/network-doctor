@@ -121,7 +121,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	verifyAgentKey := fs.String("verify-agent-key", "", "with -verify-auth agent, the SHA256 `fingerprint` of the agent key to verify")
 	verifyUser := fs.String("verify-user", "", "with -verify-ssh, the login `name`; default is the one in your SSH configuration")
 	passwordStdin := fs.Bool("password-stdin", false, "with -verify-auth, read the password or key passphrase from one line of standard input")
-	trustHostKey := fs.String("trust-host-key", "", "with -verify-ssh, accept an unknown host key with this SHA256 `fingerprint` for this check only; nothing is written")
 
 	// The stdlib flag package stops parsing at the first non-flag argument;
 	// peel positionals off and re-parse the remainder so flags are accepted
@@ -166,7 +165,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *verifySSH {
 		return runVerifySSH(positional, setFlagNames(fs), verifySSHFlags{
 			auth: *verifyAuth, key: *verifyKey, agentKey: *verifyAgentKey, user: *verifyUser,
-			trustHostKey: *trustHostKey, passwordStdin: *passwordStdin, jsonOut: *jsonOut,
+			passwordStdin: *passwordStdin, jsonOut: *jsonOut,
 		}, stdout, stderr)
 	}
 	if setFlagNames(fs)["watch-interval"] {

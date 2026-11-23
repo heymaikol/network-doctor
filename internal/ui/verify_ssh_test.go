@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -138,68 +139,6 @@ func TestVerifyEscClosesAndCancelsInFlight(t *testing.T) {
 	}
 	if m.verify.secret.Value() != "" {
 		t.Error("the secret survived closing the panel")
-	}
-}
-
-// An unknown host key is confirmed for exactly one check, and the confirmation
-// is written nowhere: the next check consumes it, and nothing persists.
-func TestVerifyUnknownHostKeyIsTrustedOnceOnly(t *testing.T) {
-	m := resolved(t, sshModel(t))
-	m = pressed(t, m, keyPress("S"))
-	m = resolved(t, m)
-	m.verify.result = &sshverify.Result{Outcome: sshverify.HostKeyUnknown, HostKey: "SHA256:example"}
-	if !containsVerifyRow(m.verify.visibleRows(), vrTrust) {
-		t.Fatal("the trust row is not offered after an unknown host key")
-	}
-	m.verify.focus(vrTrust)
-
-	u, _ := m.handleVerifyKey(keyPress("enter"))
-	m = asModel(t, u)
-	if m.verify.trust != "SHA256:example" || m.verify.result != nil {
-		t.Fatalf("trust = %q result = %v, want the fingerprint confirmed and the result cleared", m.verify.trust, m.verify.result)
-	}
-	if opts := m.verify.verifyOptions(true); opts.TrustHostKey != "SHA256:example" || opts.PinHostKey != "SHA256:example" {
-		t.Errorf("the next check carried trust %q and pin %q, want the confirmed key for both", opts.TrustHostKey, opts.PinHostKey)
-	}
-	if again := m.verify.verifyOptions(true); again.TrustHostKey != "" || again.PinHostKey != "" {
-		t.Errorf("trust or pin survived the check that used it: %q %q", again.TrustHostKey, again.PinHostKey)
-	}
-}
-
-// A check sends its secret only after a discovery trusted the host. Without
-// one there is no key to present, so nothing starts.
-func TestVerifyCheckWaitsForATrustedDiscovery(t *testing.T) {
-	m := resolved(t, sshModel(t))
-	m = pressed(t, m, keyPress("S"))
-	m = resolved(t, m)
-	m.verify.secret.SetValue("typed-secret")
-	m.verify.focus(vrCheck)
-
-	u, cmd := m.handleVerifyKey(keyPress("enter"))
-	m = asModel(t, u)
-	if cmd != nil || m.verify.busy {
-		t.Fatal("a check started without a trusted discovery")
-	}
-	if !strings.Contains(m.verify.note, "Discover methods first") {
-		t.Errorf("note %q does not say why nothing was sent", m.verify.note)
-	}
-}
-
-// The check presents the key the trusted discovery saw, and a discovery that
-// does not trust the host leaves nothing to present.
-func TestVerifyCheckPinsTheDiscoveredKey(t *testing.T) {
-	m := resolved(t, sshModel(t))
-	m = pressed(t, m, keyPress("S"))
-	m = resolved(t, m)
-
-	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered, HostKey: "SHA256:seen"}})
-	if opts := m.verify.verifyOptions(true); opts.PinHostKey != "SHA256:seen" {
-		t.Fatalf("the check was pinned to %q, want the discovered key", opts.PinHostKey)
-	}
-
-	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.HostKeyChanged, HostKey: "SHA256:moved"}})
-	if opts := m.verify.verifyOptions(true); opts.PinHostKey != "" {
-		t.Errorf("a changed-key result left the pin %q in place", opts.PinHostKey)
 	}
 }
 
@@ -394,7 +333,7 @@ func TestVerifyLoginEditDropsTheRouteAndReadsTheNewOne(t *testing.T) {
 	if m.verify.resolved {
 		t.Fatal("editing the login kept the route read for the previous login")
 	}
-	m.verify.pin = "SHA256:seen"
+	m.verify.trusted = true
 	m.verify.secret.SetValue("the-password")
 	m.verify.focus(vrCheck)
 	if u, cmd := m.startVerifyAction(true); cmd != nil || asModel(t, u).verify.busy {
@@ -420,7 +359,7 @@ func TestVerifyUneditedLoginKeepsItsRoute(t *testing.T) {
 	stubRoutes(t)
 	m, cmd := sshModel(t).openVerifySSH()
 	m = deliverReads(t, m, cmd)
-	m.verify.pin = "SHA256:seen"
+	m.verify.trusted = true
 	m.verify.secret.SetValue("the-password")
 	m.verify.focus(vrCheck)
 	if u, cmd := m.startVerifyAction(true); cmd == nil || !asModel(t, u).verify.busy {
@@ -493,5 +432,45 @@ func TestVerifyResolveErrorIsHiddenWhileARetryRuns(t *testing.T) {
 	m.verify.readRoute()
 	if m.verify.resolveErr != "" {
 		t.Fatalf("the old error still shows while the retry runs: %q", m.verify.resolveErr)
+	}
+}
+
+// An unknown host key offers no trust row: OpenSSH decides trust, and the TUI cannot override it.
+func TestVerifyUnknownHostKeyOffersNoTrustRow(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.result = &sshverify.Result{Outcome: sshverify.HostKeyUnknown, HostKey: "SHA256:example"}
+	want := []verifyRow{vrUser, vrMethod, vrSecret, vrDiscover, vrCheck}
+	if got := m.verify.visibleRows(); !slices.Equal(got, want) {
+		t.Fatalf("rows after an unknown host key = %v, want %v", got, want)
+	}
+}
+
+// The secret waits for a discovery that OpenSSH trusted. A result that is not a trusted
+// discovery, such as a changed key, withdraws that trust, so the next check needs a fresh one.
+func TestVerifyCheckWaitsForATrustedDiscovery(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.secret.SetValue("typed-secret")
+	m.verify.focus(vrCheck)
+
+	u, cmd := m.handleVerifyKey(keyPress("enter"))
+	m = asModel(t, u)
+	if cmd != nil || m.verify.busy {
+		t.Fatal("a check started without a trusted discovery")
+	}
+	if !strings.Contains(m.verify.note, "Discover methods first") {
+		t.Errorf("note %q does not say why nothing was sent", m.verify.note)
+	}
+
+	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered, HostKey: "SHA256:seen"}})
+	if !m.verify.trusted {
+		t.Fatal("a trusted discovery did not open the check")
+	}
+	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.HostKeyChanged, HostKey: "SHA256:moved"}})
+	if m.verify.trusted {
+		t.Error("a changed-key result left the check open")
 	}
 }

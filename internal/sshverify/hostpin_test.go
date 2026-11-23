@@ -2,123 +2,154 @@ package sshverify
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// knownHostsForAll is a known_hosts file that trusts every key given for the
-// test host, as a user who has connected with more than one key would have.
-func knownHostsForAll(t *testing.T, keys ...ssh.PublicKey) string {
+// mustECDSAKey returns a P-256 host key, for a server whose second key has another algorithm.
+func mustECDSAKey(t *testing.T) *ecdsa.PrivateKey {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "known_hosts")
-	var body []byte
-	for _, k := range keys {
-		body = append(body, knownhosts.Line([]string{"[" + testHost + "]:" + strconv.Itoa(testPort)}, k)...)
-		body = append(body, '\n')
-	}
-	if err := os.WriteFile(path, body, 0o600); err != nil {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return key
 }
 
-// The discovery saw host key A. Between that and the credential, the server
-// presents key B, which known_hosts also trusts. Without a pin the credential
-// goes to B; with the pin it is refused before auth and nothing is sent.
-func TestPinnedHostKeyRefusesAKeyThatMovedBeforeAuth(t *testing.T) {
+// passwordServerWith is passwordServer for a server that holds several host keys.
+func passwordServerWith(keys ...ssh.Signer) *server {
+	s := newServer(keys...)
+	s.cfg.PasswordCallback = func(conn ssh.ConnMetadata, pw []byte) (*ssh.Permissions, error) {
+		s.password.Add(1)
+		if string(pw) == testPassword {
+			return nil, nil
+		}
+		return nil, errors.New("denied")
+	}
+	return s
+}
+
+// OpenSSH trusted key A. The server presents key B, so the credential connection refuses B
+// before any credential is sent, and the result names B.
+func TestPinRefusesAKeyThatMovedAfterOpenSSHTrustedIt(t *testing.T) {
 	keyA, _ := newEd25519(t)
 	keyB, _ := newEd25519(t)
-	known := knownHostsForAll(t, keyA.PublicKey(), keyB.PublicKey())
 	moved := passwordServer(keyB)
-	opts := moved.options()
-	opts.PinHostKey = ssh.FingerprintSHA256(keyA.PublicKey())
+	trustOpenSSH(t, keyA.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, moved.options())
 
 	if r.Outcome != HostKeyChanged {
 		t.Fatalf("outcome = %q, want host key changed; detail %q", r.Outcome, r.Detail)
 	}
 	if got := moved.password.Load(); got != 0 {
-		t.Fatalf("a credential reached a host key that moved after discovery: %d attempts", got)
+		t.Fatalf("a credential reached a host key OpenSSH did not trust: %d attempts", got)
 	}
 	if r.HostKey != ssh.FingerprintSHA256(keyB.PublicKey()) {
 		t.Errorf("the result should name the key presented, got %q", r.HostKey)
 	}
 }
 
-// The same server and the same known_hosts file, with no pin: this is the case
-// the pin exists for. If it did not reach auth, the pin test above would prove
-// nothing.
-func TestWithoutAPinTheTrustedSecondKeyIsUsed(t *testing.T) {
-	keyA, _ := newEd25519(t)
-	keyB, _ := newEd25519(t)
-	known := knownHostsForAll(t, keyA.PublicKey(), keyB.PublicKey())
-	moved := passwordServer(keyB)
+// OpenSSH trusted the key the server presents: the credential is sent once and accepted.
+func TestPinAcceptsTheKeyOpenSSHTrusted(t *testing.T) {
+	key, _ := newEd25519(t)
+	s := passwordServer(key)
+	trustOpenSSH(t, key.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, moved.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
-	if r.Outcome != Verified || moved.password.Load() != 1 {
-		t.Fatalf("outcome = %q with %d attempts; the control should reach auth", r.Outcome, moved.password.Load())
+	if r.Outcome != Verified {
+		t.Fatalf("outcome = %q, want verified; detail %q", r.Outcome, r.Detail)
+	}
+	if got := s.password.Load(); got != 1 {
+		t.Errorf("password attempts = %d, want 1", got)
 	}
 }
 
-func TestPinnedHostKeyAcceptsTheSameKey(t *testing.T) {
-	keyA, _ := newEd25519(t)
-	s := passwordServer(keyA)
-	known := knownHostsFor(t, keyA.PublicKey())
-	opts := s.options()
-	opts.PinHostKey = ssh.FingerprintSHA256(keyA.PublicKey())
-
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
-
-	if r.Outcome != Verified || s.password.Load() != 1 {
-		t.Fatalf("outcome = %q with %d attempts, want verified once", r.Outcome, s.password.Load())
+// A server with two host keys negotiates the algorithm OpenSSH negotiated. The credential
+// connection offers that one algorithm, so each of the two keys verifies in turn.
+func TestPinFollowsTheAlgorithmOpenSSHNegotiated(t *testing.T) {
+	ed, _ := newEd25519(t)
+	ec := mustSigner(t, mustECDSAKey(t))
+	for _, trusted := range []ssh.Signer{ed, ec} {
+		s := passwordServerWith(ed, ec)
+		trustOpenSSH(t, trusted.PublicKey())
+		r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+		if r.Outcome != Verified {
+			t.Fatalf("trusting %s: outcome = %q, want verified; detail %q", trusted.PublicKey().Type(), r.Outcome, r.Detail)
+		}
 	}
 }
 
-// An unknown key the user confirmed is the other accept path. The pin must hold
-// there too, so a key the user did not confirm cannot take its place.
-func TestPinAppliesToAKeyTrustedForOneCheck(t *testing.T) {
-	keyA, _ := newEd25519(t)
-	keyB, _ := newEd25519(t)
-	fpA := ssh.FingerprintSHA256(keyA.PublicKey())
-	fpB := ssh.FingerprintSHA256(keyB.PublicKey())
-
-	cases := []struct {
-		name    string
-		serve   ssh.Signer
-		pin     string
-		outcome Outcome
-		sent    int32
-	}{
-		{"same key as the pin", keyA, fpA, Verified, 1},
-		{"a different key than the pin", keyB, fpA, HostKeyChanged, 0},
+// A host certificate is pinned by the key it certifies. The probe names that subject key, and
+// the credential connection accepts the certificate that carries it.
+func TestPinAcceptsACertificateBySubjectKey(t *testing.T) {
+	ca, _ := newEd25519(t)
+	hostSigner, _ := newEd25519(t)
+	cert := signedHostCertificate(t, ca, hostSigner.PublicKey())
+	certSigner, err := ssh.NewCertSigner(cert, hostSigner)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			s := passwordServer(c.serve)
-			opts := s.options()
-			opts.TrustHostKey = fpB
-			if c.serve == keyA {
-				opts.TrustHostKey = fpA
-			}
-			opts.PinHostKey = c.pin
+	s := passwordServer(certSigner)
+	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
+		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(hostSigner.PublicKey())}, true, Result{}
+	})
 
-			r := Verify(context.Background(), target(emptyKnownHosts(t)), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
-			if r.Outcome != c.outcome || s.password.Load() != c.sent {
-				t.Fatalf("outcome = %q with %d attempts, want %q with %d", r.Outcome, s.password.Load(), c.outcome, c.sent)
-			}
-		})
+	if r.Outcome != Verified {
+		t.Fatalf("outcome = %q, want verified; detail %q", r.Outcome, r.Detail)
 	}
+}
+
+// The certificate blob is not the key it certifies. A pin on the blob's fingerprint is refused.
+func TestPinRefusesACertificateBlobFingerprint(t *testing.T) {
+	ca, _ := newEd25519(t)
+	hostSigner, _ := newEd25519(t)
+	cert := signedHostCertificate(t, ca, hostSigner.PublicKey())
+	certSigner, err := ssh.NewCertSigner(cert, hostSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := passwordServer(certSigner)
+	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
+		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(cert)}, true, Result{}
+	})
+
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+
+	if r.Outcome != HostKeyChanged {
+		t.Fatalf("outcome = %q, want host key changed for a blob fingerprint; detail %q", r.Outcome, r.Detail)
+	}
+	if got := s.password.Load(); got != 0 {
+		t.Errorf("a credential was sent under a blob fingerprint: %d attempts", got)
+	}
+}
+
+// signedHostCertificate issues a host certificate for the test host, signed by ca.
+func signedHostCertificate(t *testing.T, ca ssh.Signer, key ssh.PublicKey) *ssh.Certificate {
+	t.Helper()
+	cert := &ssh.Certificate{
+		Key:             key,
+		CertType:        ssh.HostCert,
+		KeyId:           "hostcert",
+		ValidPrincipals: []string{testHost},
+		ValidBefore:     ssh.CertTimeInfinity,
+	}
+	if err := cert.SignCert(rand.Reader, ca); err != nil {
+		t.Fatal(err)
+	}
+	return cert
 }
 
 func TestValidFingerprint(t *testing.T) {
@@ -170,5 +201,24 @@ func TestKeyNeedsPassphraseNamesTheProblem(t *testing.T) {
 	}
 	if _, err := KeyNeedsPassphrase(garbage); !errors.Is(err, ErrKeyNotPrivate) {
 		t.Errorf("a non-key file: err %v, want not a private key", err)
+	}
+}
+
+// OpenSSH's decision can name a host key algorithm the SSH library cannot negotiate. The
+// credential connection then fails before any credential is sent, and never verifies.
+func TestPinRefusesAnAlgorithmTheLibraryCannotNegotiate(t *testing.T) {
+	key, _ := newEd25519(t)
+	s := passwordServer(key)
+	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
+		return hostTrust{algorithm: "ssh-mldsa-65", fingerprint: ssh.FingerprintSHA256(key.PublicKey())}, true, Result{}
+	})
+
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+
+	if r.Outcome == Verified {
+		t.Fatal("a host key algorithm the library cannot negotiate verified")
+	}
+	if got := s.password.Load(); got != 0 {
+		t.Errorf("a credential was sent over an algorithm the library cannot negotiate: %d attempts", got)
 	}
 }

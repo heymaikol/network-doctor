@@ -11,13 +11,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // listenLoopback serves s on a real loopback socket until the test ends.
@@ -44,12 +42,8 @@ func TestVerifyOverLoopbackTCP(t *testing.T) {
 	host, _ := newEd25519(t)
 	s := passwordServer(host)
 	port := listenLoopback(t, s)
-	known := filepath.Join(t.TempDir(), "known_hosts")
-	line := knownhosts.Line([]string{"[127.0.0.1]:" + strconv.Itoa(port)}, host.PublicKey())
-	if err := os.WriteFile(known, []byte(line+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	tg := Target{Host: "127.0.0.1", Port: port, User: testUser, KnownHosts: []string{known}}
+	trustOpenSSH(t, host.PublicKey())
+	tg := Target{Host: "127.0.0.1", Port: port, User: testUser}
 	opts := Options{Timeout: 5 * time.Second}
 	ctx := context.Background()
 
@@ -103,12 +97,8 @@ func TestAgentOverUnixSocket(t *testing.T) {
 		return nil, nil
 	}
 	port := listenLoopback(t, s)
-	known := filepath.Join(dir, "known_hosts")
-	line := knownhosts.Line([]string{"[127.0.0.1]:" + strconv.Itoa(port)}, host.PublicKey())
-	if err := os.WriteFile(known, []byte(line+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	tg := Target{Host: "127.0.0.1", Port: port, User: testUser, KnownHosts: []string{known}, AgentSocket: sock}
+	trustOpenSSH(t, host.PublicKey())
+	tg := Target{Host: "127.0.0.1", Port: port, User: testUser, AgentSocket: sock}
 
 	keys, err := ListAgentKeys(context.Background(), tg, Options{})
 	if err != nil || len(keys) != 1 {

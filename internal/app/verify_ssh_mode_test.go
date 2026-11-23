@@ -26,7 +26,6 @@ type stubVerify struct {
 	// preflight is what discovery returns before a secret; nil means the host
 	// key is trusted and the server lists methods.
 	preflight *sshverify.Result
-	pin       string // the PinHostKey the credential check was given
 	listed    []sshverify.AgentKey
 	listErr   error
 	needsPass bool
@@ -67,7 +66,6 @@ func installVerifyStubs(t *testing.T, s *stubVerify) {
 	verifyVerify = func(_ context.Context, _ sshverify.Target, a sshverify.Attempt, o sshverify.Options) sshverify.Result {
 		s.attempted = true
 		s.attempt = a
-		s.pin = o.PinHostKey
 		return s.result
 	}
 	verifyListAgent = func(_ context.Context, _ sshverify.Target, _ sshverify.Options) ([]sshverify.AgentKey, error) {
@@ -243,8 +241,8 @@ func refusedBeforeAnything(t *testing.T, args []string, reason string) {
 	}
 }
 
-// Each credential flag the chosen method would never read is refused, and so is
-// a malformed trust value. Nothing is read or contacted first.
+// Each credential flag the chosen method would never read is refused, and so is an
+// unknown method. Nothing is read or contacted first.
 func TestUnusedCredentialFlagsAreRefusedBeforeAnything(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -259,10 +257,6 @@ func TestUnusedCredentialFlagsAreRefusedBeforeAnything(t *testing.T) {
 		{"password-stdin with an unencrypted key", []string{"-verify-ssh", "-verify-auth", "key", "-verify-key", "/k/id", "-password-stdin", "host.example"}, "-password-stdin needs an encrypted key"},
 		{"key auth without a key file", []string{"-verify-ssh", "-verify-auth", "key", "host.example"}, "-verify-auth key needs -verify-key FILE"},
 		{"unknown auth method", []string{"-verify-ssh", "-verify-auth", "bogus", "host.example"}, "-verify-auth must be password, key, or agent"},
-		{"trust value without a prefix", []string{"-verify-ssh", "-trust-host-key", "abc", "host.example"}, "-trust-host-key needs a SHA256 host key fingerprint"},
-		{"trust value in lower case", []string{"-verify-ssh", "-trust-host-key", "sha256:" + strings.Repeat("A", 43), "host.example"}, "-trust-host-key needs a SHA256 host key fingerprint"},
-		{"empty trust value", []string{"-verify-ssh", "-trust-host-key", "", "host.example"}, "-trust-host-key needs a SHA256 host key fingerprint"},
-		{"trust value with a short digest", []string{"-verify-ssh", "-verify-auth", "password", "-password-stdin", "-trust-host-key", "SHA256:short", "host.example"}, "-trust-host-key needs a SHA256 host key fingerprint"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { refusedBeforeAnything(t, c.args, c.reason) })
@@ -292,23 +286,6 @@ func TestUntrustedHostKeyAsksForNothing(t *testing.T) {
 				t.Errorf("the output %q does not report the host key", out.String())
 			}
 		})
-	}
-}
-
-// The secret is asked for only after the host key is trusted, and the check
-// is given the key that discovery saw, so a credential cannot follow a key that
-// changed in between.
-func TestTrustedHostKeyIsPinnedForTheCheck(t *testing.T) {
-	s := &stubVerify{result: sshverify.Result{Outcome: sshverify.Verified}}
-	installVerifyStubs(t, s)
-
-	code, _, errOut := runVerify(t, "a-secret\n", "-verify-ssh", "-verify-auth", "password", "-password-stdin", "host.example")
-
-	if code != 0 || !s.attempted {
-		t.Fatalf("code = %d attempted = %v stderr %q, want the credential sent once", code, s.attempted, errOut)
-	}
-	if s.pin != stubHostKey {
-		t.Errorf("the check was given pin %q, want the discovered key %q", s.pin, stubHostKey)
 	}
 }
 

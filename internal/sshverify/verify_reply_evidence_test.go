@@ -111,7 +111,7 @@ func (c *signalConn) Read(p []byte) (int, error) {
 // A reply that arrives in part, and then the connection ends, is no answer from the server.
 func TestPartialReplyIsTransportFailure(t *testing.T) {
 	host, _ := newEd25519(t)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	sent := make(chan struct{})
 	got := make(chan struct{})
 	opts := Options{
@@ -135,7 +135,7 @@ func TestPartialReplyIsTransportFailure(t *testing.T) {
 		},
 	}
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 	select {
 	case <-got:
 	default:
@@ -170,7 +170,7 @@ func (c *cutAtWrite) Write(p []byte) (int, error) {
 
 func TestCutNoneReplyIsTransportFailureNotNotOffered(t *testing.T) {
 	host, _ := newEd25519(t)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	opts := Options{
 		Timeout: 5 * time.Second,
 		Dial: func(ctx context.Context, addr string) (net.Conn, error) {
@@ -185,7 +185,7 @@ func TestCutNoneReplyIsTransportFailureNotNotOffered(t *testing.T) {
 		},
 	}
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 	if r.Outcome != TransportFailure {
 		t.Fatalf("outcome = %q, want transport failure; a cut reply to none is not a method list; detail %q", r.Outcome, r.Detail)
 	}

@@ -3,9 +3,7 @@ package sshverify
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/json"
 	"encoding/pem"
@@ -14,8 +12,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -23,7 +19,6 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // The secret values below exist only inside these tests, and only as the
@@ -117,40 +112,18 @@ func mustSigner(t *testing.T, key any) ssh.Signer {
 	return s
 }
 
-// knownHostsFor writes a known_hosts file that trusts key for the test host,
-// and returns its path.
-func knownHostsFor(t *testing.T, key ssh.PublicKey) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "known_hosts")
-	line := knownhosts.Line([]string{"[" + testHost + "]:" + strconv.Itoa(testPort)}, key)
-	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-// emptyKnownHosts is a known_hosts file that lists no host.
-func emptyKnownHosts(t *testing.T) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "known_hosts")
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-// target returns the test destination, trusting the given known_hosts files.
-func target(known ...string) Target {
-	return Target{Host: testHost, Port: testPort, User: testUser, KnownHosts: known}
+// target returns the test destination.
+func target() Target {
+	return Target{Host: testHost, Port: testPort, User: testUser}
 }
 
 func TestVerifyPasswordAcceptedOnce(t *testing.T) {
 	host, _ := newEd25519(t)
 	s := passwordServer(host)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	pw := []byte(testPassword)
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: pw}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: pw}, s.options())
 
 	if r.Outcome != Verified || r.Method != MethodPassword {
 		t.Fatalf("outcome = %q method = %q, want verified by password; detail %q", r.Outcome, r.Method, r.Detail)
@@ -169,9 +142,9 @@ func TestVerifyPasswordAcceptedOnce(t *testing.T) {
 func TestVerifyPasswordRefusedWithoutRetry(t *testing.T) {
 	host, _ := newEd25519(t)
 	s := passwordServer(host)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testWrongPass)}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testWrongPass)}, s.options())
 
 	if r.Outcome != Refused {
 		t.Fatalf("outcome = %q, want refused; detail %q", r.Outcome, r.Detail)
@@ -184,9 +157,9 @@ func TestVerifyPasswordRefusedWithoutRetry(t *testing.T) {
 func TestDiscoverListsMethodsWithoutSendingACredential(t *testing.T) {
 	host, _ := newEd25519(t)
 	s := passwordServer(host)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Discover(context.Background(), target(known), s.options())
+	r := Discover(context.Background(), target(), s.options())
 
 	if r.Outcome != Discovered {
 		t.Fatalf("outcome = %q, want discovered; detail %q", r.Outcome, r.Detail)
@@ -206,9 +179,9 @@ func TestVerifyMethodNotOfferedSendsNothing(t *testing.T) {
 		s.pubkey.Add(1)
 		return nil, errors.New("denied")
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != NotOffered {
 		t.Fatalf("outcome = %q, want not offered; detail %q", r.Outcome, r.Detail)
@@ -221,100 +194,9 @@ func TestVerifyMethodNotOfferedSendsNothing(t *testing.T) {
 	}
 }
 
-func TestVerifyHostKeyChangedStopsBeforeAuth(t *testing.T) {
-	host, _ := newEd25519(t)
-	other, _ := newEd25519(t)
-	s := passwordServer(host)
-	known := knownHostsFor(t, other.PublicKey())
-
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
-
-	if r.Outcome != HostKeyChanged {
-		t.Fatalf("outcome = %q, want host key changed; detail %q", r.Outcome, r.Detail)
-	}
-	if got := s.password.Load(); got != 0 {
-		t.Errorf("a credential was sent to a host whose key changed: %d attempts", got)
-	}
-	if r.HostKey == "" {
-		t.Error("a changed host key should report the fingerprint presented")
-	}
-}
-
-func TestVerifyHostKeyUnknownSendsNothingUnlessTrusted(t *testing.T) {
-	host, _ := newEd25519(t)
-	s := passwordServer(host)
-	known := emptyKnownHosts(t)
-
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
-	if r.Outcome != HostKeyUnknown {
-		t.Fatalf("outcome = %q, want host key unknown; detail %q", r.Outcome, r.Detail)
-	}
-	if got := s.password.Load(); got != 0 {
-		t.Errorf("a credential was sent to an unknown host: %d attempts", got)
-	}
-	if data, _ := os.ReadFile(known); len(data) != 0 { // #nosec G304 -- a temporary file this test created
-		t.Error("an unknown host key was written to known_hosts")
-	}
-
-	opts := s.options()
-	opts.TrustHostKey = r.HostKey
-	trusted := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
-	if trusted.Outcome != Verified {
-		t.Fatalf("with the confirmed fingerprint, outcome = %q, want verified; detail %q", trusted.Outcome, trusted.Detail)
-	}
-	if data, _ := os.ReadFile(known); len(data) != 0 { // #nosec G304 -- a temporary file this test created
-		t.Error("a confirmed host key was written to known_hosts; it must be trusted for this check only")
-	}
-}
-
-func TestVerifyTrustFingerprintMustMatchExactly(t *testing.T) {
-	host, _ := newEd25519(t)
-	s := passwordServer(host)
-	opts := s.options()
-	opts.TrustHostKey = "SHA256:not-the-key"
-
-	r := Verify(context.Background(), target(emptyKnownHosts(t)), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
-
-	if r.Outcome != HostKeyUnknown {
-		t.Fatalf("outcome = %q, want host key unknown for a wrong fingerprint; detail %q", r.Outcome, r.Detail)
-	}
-	if got := s.password.Load(); got != 0 {
-		t.Errorf("a wrong fingerprint still sent %d credential attempts", got)
-	}
-}
-
-// A server that holds two host keys can negotiate the one known_hosts lacks.
-// That must not read as a changed key: the check retries with the key types
-// the file does record.
-func TestVerifyRetriesNegotiatedHostKeyTypeWithoutFalseChange(t *testing.T) {
-	ed, _ := newEd25519(t)
-	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := passwordServer(ed)
-	s.cfg.AddHostKey(mustSigner(t, ecKey))
-	known := knownHostsFor(t, ed.PublicKey())
-
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
-
-	if r.Outcome != Verified {
-		t.Fatalf("outcome = %q, want verified: a second host key type is not a change; detail %q", r.Outcome, r.Detail)
-	}
-	// Two connections prove the retry ran: the first negotiated the ECDSA key
-	// that known_hosts lacks, and the second was restricted to the recorded
-	// type. Only the second sent a credential.
-	if got := s.dials.Load(); got != 2 {
-		t.Errorf("dials = %d, want 2: the first handshake must negotiate the unrecorded type and retry", got)
-	}
-	if got := s.password.Load(); got != 1 {
-		t.Errorf("server saw %d password attempts, want exactly 1", got)
-	}
-}
-
 func TestVerifyLocalFailuresSendNothing(t *testing.T) {
 	host, _ := newEd25519(t)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	dir := t.TempDir()
 	encrypted, _ := writeKey(t, dir, "enc", testPassphrase)
 
@@ -334,7 +216,7 @@ func TestVerifyLocalFailuresSendNothing(t *testing.T) {
 			s := passwordServer(host)
 			opts := s.options()
 			opts.Agent = func() (io.ReadWriteCloser, error) { return nil, errors.New("no agent in this test") }
-			r := Verify(context.Background(), target(known), a, opts)
+			r := Verify(context.Background(), target(), a, opts)
 			if r.Outcome != LocalFailure {
 				t.Fatalf("outcome = %q, want local failure; detail %q", r.Outcome, r.Detail)
 			}
@@ -356,9 +238,9 @@ func TestVerifyKeyFileAccepted(t *testing.T) {
 		}
 		return nil, errors.New("not authorised")
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodKey, KeyPath: keyPath}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodKey, KeyPath: keyPath}, s.options())
 
 	if r.Outcome != Verified || r.Method != MethodKey {
 		t.Fatalf("outcome = %q, want verified by key; detail %q", r.Outcome, r.Detail)
@@ -375,10 +257,10 @@ func TestVerifyEncryptedKeyWithPassphrase(t *testing.T) {
 		s.pubkey.Add(1)
 		return nil, nil
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	keyPath, _ := writeKey(t, t.TempDir(), "enc", testPassphrase)
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodKey, KeyPath: keyPath, Passphrase: []byte(testPassphrase)}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodKey, KeyPath: keyPath, Passphrase: []byte(testPassphrase)}, s.options())
 
 	if r.Outcome != Verified {
 		t.Fatalf("outcome = %q, want verified; detail %q", r.Outcome, r.Detail)
@@ -393,11 +275,11 @@ func TestVerifyAgentKeyChosenByFingerprint(t *testing.T) {
 		s.pubkey.Add(1)
 		return nil, nil
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	opts := s.options()
 	opts.Agent = fakeAgent(t, priv)
 
-	keys, err := ListAgentKeys(context.Background(), target(known), opts)
+	keys, err := ListAgentKeys(context.Background(), target(), opts)
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("ListAgentKeys = %v, %v; want one key", keys, err)
 	}
@@ -405,7 +287,7 @@ func TestVerifyAgentKeyChosenByFingerprint(t *testing.T) {
 		t.Fatalf("listing agent keys contacted the server: %d attempts", got)
 	}
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, opts)
+	r := Verify(context.Background(), target(), Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, opts)
 	if r.Outcome != Verified || r.Method != MethodAgent {
 		t.Fatalf("outcome = %q, want verified by agent; detail %q", r.Outcome, r.Detail)
 	}
@@ -425,9 +307,9 @@ func TestVerifyPasswordOverKeyboardInteractive(t *testing.T) {
 		}
 		return nil, nil
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Verified {
 		t.Fatalf("outcome = %q, want verified via keyboard-interactive; detail %q", r.Outcome, r.Detail)
@@ -444,9 +326,9 @@ func TestVerifyDeclinesMultiplePrompts(t *testing.T) {
 		_, err := challenge("", "", []string{"Password: ", "Verification code: "}, []bool{false, true})
 		return nil, err
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Unsupported {
 		t.Fatalf("outcome = %q, want unsupported; detail %q", r.Outcome, r.Detail)
@@ -464,16 +346,16 @@ func TestVerifyPartialSuccessReportsWhatRemains(t *testing.T) {
 			},
 		}}
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	_, priv := newEd25519(t)
 	opts := s.options()
 	opts.Agent = fakeAgent(t, priv)
-	keys, err := ListAgentKeys(context.Background(), target(known), opts)
+	keys, err := ListAgentKeys(context.Background(), target(), opts)
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("ListAgentKeys = %v, %v", keys, err)
 	}
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, opts)
+	r := Verify(context.Background(), target(), Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, opts)
 
 	if r.Outcome != Partial {
 		t.Fatalf("outcome = %q, want partial; detail %q", r.Outcome, r.Detail)
@@ -487,9 +369,9 @@ func TestVerifyNoCredentialAcceptedIsAFinding(t *testing.T) {
 	host, _ := newEd25519(t)
 	s := newServer(host)
 	s.cfg.NoClientAuth = true
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != NoCredentialAccepted {
 		t.Fatalf("outcome = %q, want no credential accepted; detail %q", r.Outcome, r.Detail)
@@ -518,11 +400,11 @@ func TestProxiedTargetIsRefusedWithoutDialing(t *testing.T) {
 func TestCancelledCheckReportsCancellation(t *testing.T) {
 	host, _ := newEd25519(t)
 	s := passwordServer(host)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	r := Verify(ctx, target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := Verify(ctx, target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != TransportFailure || !strings.Contains(r.Detail, "cancelled") {
 		t.Fatalf("outcome = %q detail %q, want a transport failure that says cancelled", r.Outcome, r.Detail)
@@ -534,7 +416,7 @@ func TestCancelledCheckReportsCancellation(t *testing.T) {
 
 func TestSilentServerTimesOut(t *testing.T) {
 	host, _ := newEd25519(t)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	opts := Options{
 		Timeout: 100 * time.Millisecond,
 		Dial: func(ctx context.Context, addr string) (net.Conn, error) {
@@ -543,7 +425,7 @@ func TestSilentServerTimesOut(t *testing.T) {
 		},
 	}
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 
 	if r.Outcome != TransportFailure || !strings.Contains(r.Detail, "timed out") {
 		t.Fatalf("outcome = %q detail %q, want a transport failure that says timed out", r.Outcome, r.Detail)
@@ -556,13 +438,13 @@ func TestResultsNeverCarryTheSecret(t *testing.T) {
 	host, _ := newEd25519(t)
 	const secret = "never-in-a-result-value" // #nosec G101 -- a marker string the test looks for, not a credential
 	s := passwordServer(host)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	attempts := []Attempt{
 		{Method: MethodPassword, Password: []byte(testWrongPass + secret)},
 		{Method: MethodKey, KeyPath: filepath.Join(t.TempDir(), secret)},
 	}
 	for _, a := range attempts {
-		r := Verify(context.Background(), target(known), a, s.options())
+		r := Verify(context.Background(), target(), a, s.options())
 		raw, err := json.Marshal(r)
 		if err != nil {
 			t.Fatal(err)
@@ -614,32 +496,6 @@ func writeKey(t *testing.T, dir, name, passphrase string) (string, ssh.PublicKey
 	return path, mustSigner(t, priv).PublicKey()
 }
 
-// When the retry with the recorded key types fails before the host key is
-// checked, the mismatch from the first round still stands: the server presented
-// a key the file does not record, so it is a changed key, not a transport error.
-func TestVerifyKeepsAChangedKeyWhenTheRetryFailsEarly(t *testing.T) {
-	recorded, _ := newEd25519(t)
-	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	presented := mustSigner(t, ecKey)
-	s := passwordServer(presented)
-	known := knownHostsFor(t, recorded.PublicKey())
-
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
-
-	if r.Outcome != HostKeyChanged {
-		t.Fatalf("outcome = %q, want host key changed; detail %q", r.Outcome, r.Detail)
-	}
-	if r.HostKey != ssh.FingerprintSHA256(presented.PublicKey()) {
-		t.Errorf("host key = %q, want the fingerprint of the key the server presented", r.HostKey)
-	}
-	if got := s.password.Load(); got != 0 {
-		t.Errorf("a credential was sent to a host whose key changed: %d attempts", got)
-	}
-}
-
 // A keyboard-interactive server that asks the same echo-off question twice
 // must receive the password once. The second round is declined, so the same
 // credential is never sent again.
@@ -662,66 +518,15 @@ func TestKeyboardInteractiveSendsTheCredentialOnce(t *testing.T) {
 		}
 		return nil, errors.New("denied")
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Unsupported {
 		t.Fatalf("outcome = %q, want unsupported for a second prompt; detail %q", r.Outcome, r.Detail)
 	}
 	if got := received.Load(); got != 1 {
 		t.Errorf("the server received the password %d times, want exactly 1", got)
-	}
-}
-
-// A known_hosts file that exists but cannot be checked stops the check before any
-// connection. Read as missing, it would make every host unknown, and a changed key
-// could then be shown as unknown and trusted. A missing file is still first use.
-func TestUnreadableKnownHostsStopsTheCheckBeforeAnyDial(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the path cases use POSIX path errors, which Windows reports as a missing file")
-	}
-	host, _ := newEd25519(t)
-	dir := t.TempDir()
-	blocker := filepath.Join(dir, "file")
-	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cases := map[string]string{"a parent is a file": filepath.Join(blocker, "known_hosts")}
-	if os.Geteuid() != 0 {
-		locked := filepath.Join(dir, "locked")
-		if err := os.Mkdir(locked, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(locked, "known_hosts"), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chmod(locked, 0o000); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) // #nosec G302 -- restores the directory this test made, to the owner-only mode TempDir needs to remove it.
-		cases["a directory without search permission"] = filepath.Join(locked, "known_hosts")
-	}
-	for name, path := range cases {
-		s := passwordServer(host)
-		r := Verify(context.Background(), target(path), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
-		if r.Outcome != LocalFailure {
-			t.Errorf("%s: verify outcome = %q, want a local failure; detail %q", name, r.Outcome, r.Detail)
-		}
-		if d := Discover(context.Background(), target(path), s.options()); d.Outcome != LocalFailure {
-			t.Errorf("%s: discover outcome = %q, want a local failure; detail %q", name, d.Outcome, d.Detail)
-		}
-		if got := s.dials.Load(); got != 0 {
-			t.Errorf("%s: %d connections were made with an unreadable known_hosts file", name, got)
-		}
-	}
-
-	// Control: a file that does not exist is first use, so the key is unknown and the
-	// connection is made to learn it.
-	s := passwordServer(host)
-	r := Verify(context.Background(), target(filepath.Join(dir, "absent")), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
-	if r.Outcome != HostKeyUnknown {
-		t.Fatalf("a missing known_hosts file: outcome = %q, want host key unknown; detail %q", r.Outcome, r.Detail)
 	}
 }
 
@@ -737,9 +542,9 @@ func TestVerifyKeyboardInteractiveWithoutAPromptIsNotVerified(t *testing.T) {
 		}
 		return nil, nil
 	}
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 	if r.Outcome == Verified {
 		t.Fatalf("a server that asked for no password was reported as verified; detail %q", r.Detail)
 	}
@@ -753,7 +558,7 @@ func TestVerifyKeyboardInteractiveWithoutAPromptIsNotVerified(t *testing.T) {
 // time, which must not be read as the server refusing the password.
 func TestPasswordDroppedBeforeAnswerIsNotARefusal(t *testing.T) {
 	host, _ := newEd25519(t)
-	known := knownHostsFor(t, host.PublicKey())
+	trustOpenSSH(t, host.PublicKey())
 	opts := Options{
 		Timeout: 5 * time.Second,
 		Dial: func(ctx context.Context, addr string) (net.Conn, error) {
@@ -769,8 +574,49 @@ func TestPasswordDroppedBeforeAnswerIsNotARefusal(t *testing.T) {
 		},
 	}
 
-	r := Verify(context.Background(), target(known), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 	if r.Outcome != TransportFailure {
 		t.Fatalf("a connection dropped before the server answered gave %q, want %q; detail %q", r.Outcome, TransportFailure, r.Detail)
+	}
+}
+
+// The probe reports a changed key: the credential connection is never made.
+func TestVerifyHostKeyChangedStopsBeforeAuth(t *testing.T) {
+	host, _ := newEd25519(t)
+	other, _ := newEd25519(t)
+	s := passwordServer(host)
+	// OpenSSH trusted other's key. The server presents host's key, so the credential
+	// connection refuses the key before any credential is sent.
+	trustOpenSSH(t, other.PublicKey())
+
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+
+	if r.Outcome != HostKeyChanged {
+		t.Fatalf("outcome = %q, want host key changed; detail %q", r.Outcome, r.Detail)
+	}
+	if got := s.password.Load(); got != 0 {
+		t.Errorf("a credential was sent to a host whose key changed: %d attempts", got)
+	}
+	if r.HostKey != ssh.FingerprintSHA256(host.PublicKey()) {
+		t.Errorf("the fingerprint presented = %q, want the server's own key", r.HostKey)
+	}
+}
+
+// OpenSSH refused the key: netdoc makes no credential connection, and sends nothing.
+func TestVerifyHostKeyUnknownSendsNothing(t *testing.T) {
+	host, _ := newEd25519(t)
+	s := passwordServer(host)
+	refuseOpenSSH(t, Result{Outcome: HostKeyUnknown, HostKey: ssh.FingerprintSHA256(host.PublicKey()), Detail: "OpenSSH has no record of this host key"})
+
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+
+	if r.Outcome != HostKeyUnknown {
+		t.Fatalf("outcome = %q, want host key unknown; detail %q", r.Outcome, r.Detail)
+	}
+	if got := s.dials.Load(); got != 0 {
+		t.Errorf("netdoc connected %d time(s) after OpenSSH refused the key", got)
+	}
+	if got := s.password.Load(); got != 0 {
+		t.Errorf("a credential was sent to an unknown host: %d attempts", got)
 	}
 }

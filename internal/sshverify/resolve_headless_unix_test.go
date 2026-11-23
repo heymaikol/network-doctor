@@ -66,6 +66,11 @@ func TestHeadlessHelper(t *testing.T) {
 		fmt.Printf("RESULT resolve-error: %s\n", err)
 		os.Exit(0)
 	}
+	// The child reaches the dial: OpenSSH's decision is stubbed as trusting a key, so the
+	// route, not the host-key probe, decides what the test reaches.
+	openSSHProbe = func(context.Context, Target, Options) (hostTrust, bool, Result) {
+		return hostTrust{algorithm: "ssh-ed25519", fingerprint: "SHA256:" + strings.Repeat("A", 43)}, true, Result{}
+	}
 	var dials atomic.Int32
 	opts := Options{Timeout: 2 * time.Second, Dial: func(context.Context, string) (net.Conn, error) {
 		dials.Add(1)

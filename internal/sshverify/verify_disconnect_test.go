@@ -65,7 +65,7 @@ func TestServerDisconnectCarryingTheRefusalTextIsNotARefusal(t *testing.T) {
 	// The state a disconnect after the attempt leaves: the password was offered, and the callback
 	// ran once. The library returns the disconnect without calling the callback again.
 	s := &authState{cred: &credential{method: MethodPassword}, calls: 1, attempted: true, name: "password"}
-	r := round{hosts: &hostCheck{}, auth: s}
+	r := round{pin: &pinCheck{}, auth: s}
 	res := r.result(context.Background(), err, false)
 	if res.Outcome != TransportFailure {
 		t.Fatalf("outcome = %q, want transport failure: a server's disconnect is not a refusal; detail %q", res.Outcome, res.Detail)

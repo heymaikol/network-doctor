@@ -100,6 +100,9 @@ func TestPrintedRevocationSettingByVersion(t *testing.T) {
 // The installed client's version line must parse, or an omitted line is always refused.
 // The floor is not required here, so a system client older than it still passes.
 func TestClientVersionReadsTheInstalledRelease(t *testing.T) {
+	// The omitted-line path that reads this version runs only after a configuration read, which
+	// Windows refuses before any client starts.
+	requireConfigRead(t)
 	requireOpenSSH(t)
 	line, err := clientVersion(context.Background())
 	if err != nil {

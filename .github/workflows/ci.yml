@@ -328,8 +328,12 @@ jobs:
         name: Run the fast local check contributors are asked to run
         run: ./scripts/check.sh
 
+      # Linux has the OpenSSH client, so a test that needs it must run here, not skip. The variable
+      # turns a missing client into a failure in every package, not only the integration lane.
       - if: matrix.shard == 'unit-coverage'
         name: Run tests with coverage
+        env:
+          NETDOC_REQUIRE_OPENSSH: "1"
         run: |
           mkdir -p coverage
           go test -covermode=set -coverprofile=coverage/unit.out ./...

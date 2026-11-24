@@ -424,7 +424,7 @@ func TestCanaryPassesWithTheInstalledOpenSSH(t *testing.T) {
 	requireOpenSSH(t)
 	program, err := sshExecutable("ssh")
 	if err != nil {
-		t.Skip(err)
+		missingOpenSSH(t, err.Error())
 	}
 	if err := ensureCanary(context.Background(), program); err != nil {
 		t.Fatalf("the installed OpenSSH failed the canary: %v", err)

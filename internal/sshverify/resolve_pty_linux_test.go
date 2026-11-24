@@ -54,7 +54,7 @@ func openPTYPair(t *testing.T) (master, slave *os.File) {
 	t.Helper()
 	m, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
-		t.Skipf("no pseudo-terminal available: %v", err)
+		missingOpenSSH(t, "no pseudo-terminal available: "+err.Error())
 	}
 	if err := unix.IoctlSetPointerInt(m, unix.TIOCSPTLCK, 0); err != nil {
 		_ = unix.Close(m)

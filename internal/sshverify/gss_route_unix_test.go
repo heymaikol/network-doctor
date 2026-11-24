@@ -18,7 +18,7 @@ func TestGSSAPIKeyExchangeRestrictsVerificationOnly(t *testing.T) {
 	requireOpenSSH(t)
 	program, err := exec.LookPath("ssh")
 	if err != nil {
-		t.Skip("needs ssh on this host")
+		missingOpenSSH(t, "needs ssh on this host")
 	}
 	cfg := filepath.Join(t.TempDir(), "ssh_config")
 	if err := os.WriteFile(cfg, []byte("Host 127.0.0.1\n  GSSAPIKeyExchange yes\n  Port 2622\n"), 0o600); err != nil {

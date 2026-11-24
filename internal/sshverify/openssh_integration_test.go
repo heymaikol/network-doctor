@@ -66,7 +66,7 @@ func newOSHLab(t *testing.T, o oshOpts) *oshLab {
 	sshd := oshTool(t, "sshd")
 	who, err := user.Current()
 	if err != nil {
-		t.Skipf("no current user: %v", err)
+		missingOpenSSH(t, "no current user: "+err.Error())
 	}
 	dir := t.TempDir()
 	l := &oshLab{

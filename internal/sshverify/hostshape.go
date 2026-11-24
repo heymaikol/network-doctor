@@ -329,9 +329,10 @@ func unreachable(lines []string) string {
 			// list follows it on the same line, which the prefix does not depend on.
 			return "OpenSSH could not agree a key exchange or host key algorithm with the server, so it named no host key"
 		case strings.HasPrefix(l, "Connection reset by "), strings.HasPrefix(l, "Connection closed by "):
-			// sshd refuses an address with recent failed logins at the identification stage, so the
-			// client's own reset line is all the output there is.
-			return "the server closed the connection before it named its host key, as sshd does to an address with recent failed logins"
+			// sshd closes a connection before it sends its identification string when the address has
+			// recent failed logins, and when it has no key exchange algorithm or host key type to offer.
+			// The client's own reset line is all the output there is, so the two cannot be told apart.
+			return "the server closed the connection before it named its host key; sshd does this for an address with recent failed logins, and when it has no key exchange algorithm or host key type to offer"
 		}
 	}
 	return ""

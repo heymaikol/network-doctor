@@ -732,7 +732,7 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 	// The ML-DSA key when this OpenSSH can make one; otherwise ed25519, which every OpenSSH offers.
 	kind := "mldsa44-ed25519"
 	if !oshKeygenMakes(t, oshTool(t, "ssh-keygen"), kind) {
-		kind = "ed25519"
+		t.Skip("this ssh-keygen cannot make an ML-DSA host key, so the ML-DSA case did not run; the ed25519 case is TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient")
 	}
 	t.Logf("host key type: %s", kind)
 	t.Run("DefaultClientPolicy", func(t *testing.T) {
@@ -878,6 +878,20 @@ func TestOpenSSHKexMismatchDoesNotSatisfyTheHostKeyAssertion(t *testing.T) {
 	}
 	if oshHostKeyMismatch(out, status, offer) {
 		t.Fatalf("a key exchange mismatch satisfied the host-key mismatch check:\n%s", out)
+	}
+	l.requireNetdocNoTrust(t, true)
+}
+
+// TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient is the ed25519 case. Every OpenSSH
+// offers ed25519, so it runs wherever the lab runs. The client offers only ecdsa, so the host key
+// algorithm fails to agree, and netdoc must trust nothing and send no credential.
+func TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient(t *testing.T) {
+	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}, extra: oshAdvertise(t, "ed25519")})
+	l.useConfig(t, "HostKeyAlgorithms ecdsa-sha2-nistp256\n"+l.baseConfig(l.known, ""))
+	out, status := l.clientRun(t)
+	offer := oshHostKeyToken(t, l.hostKeys[0])
+	if !oshHostKeyMismatch(out, status, offer) {
+		t.Fatalf("the restricted client did not fail to agree on the %s host key (status %d):\n%s", offer, status, out)
 	}
 	l.requireNetdocNoTrust(t, true)
 }

@@ -3,6 +3,7 @@ package sshverify
 import (
 	"context"
 	"crypto/rand"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -119,5 +120,20 @@ func TestPresentedRecordMustBeOneOfOpenSSHsFormsInFull(t *testing.T) {
 		if _, ok, r := parseHostTrust([]byte(tr), 255); ok || r.Outcome != TransportFailure {
 			t.Errorf("%s: trusted or misclassified (%+v)", name, r)
 		}
+	}
+}
+
+// The "none" acceptance line counts as the authentication step only after the match. Before the
+// match, it is text the server could have written, and it must not authorize anything.
+func TestNoneAcceptanceCountsOnlyAfterTheMatch(t *testing.T) {
+	kex := "debug1: kex: host key algorithm: ssh-ed25519\n"
+	key := "debug1: Server host key: ssh-ed25519 SHA256:" + strings.Repeat("A", 43) + "\n"
+	match := "debug1: Host '" + testHost + "' is known and matches the ED25519 host key.\n"
+	accepted := "Authenticated to " + testHost + " ([127.0.0.1]:2622) using \"none\".\n"
+	if _, ok, r := parseHostTrust([]byte(kex+key+match+accepted), 255); !ok {
+		t.Fatalf("a decision followed by none acceptance was refused: %+v", r)
+	}
+	if _, ok, _ := parseHostTrust([]byte(kex+key+accepted+match), 255); ok {
+		t.Fatal("none acceptance before the match authorized trust")
 	}
 }

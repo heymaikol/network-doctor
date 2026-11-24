@@ -55,6 +55,9 @@ var (
 	probeAlgorithmLine = regexp.MustCompile(`^debug1: kex: host key algorithm: ([A-Za-z0-9@.+_-]+)$`)
 	probeMatchedLine   = regexp.MustCompile(`^debug1: Host '.*' is known and matches the .* host (?:key|certificate)\.$`)
 	probeAuthLine      = regexp.MustCompile(`^debug1: Authentications that can continue: `)
+	// The client prints this line only after the server accepted the "none" method. The probe asks
+	// for no other method, so this is the authentication step the decision must be followed by.
+	probeNoneLine = regexp.MustCompile(`^Authenticated to \S.* using "none"\.$`)
 )
 
 // probeArgs is the argument vector for the probe: the options that decide what the client
@@ -120,7 +123,7 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 			algorithms = append(algorithms, i)
 		case probeMatchedLine.MatchString(l):
 			matched = append(matched, i)
-		case probeAuthLine.MatchString(l):
+		case probeAuthLine.MatchString(l), probeNoneLine.MatchString(l):
 			auth = append(auth, i)
 		}
 		if failed == "" {
@@ -256,12 +259,17 @@ func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool,
 	if dest == nil {
 		dest = append(slices.Clone(sshTestArgs), "-p", strconv.Itoa(t.Port), "-l", t.User, "--", t.Host)
 	}
-	transcript, status, err := runHostKeyProbe(ctx, program, probeArgs(dest))
+	transcript, status, accepted, err := runHostKeyProbe(ctx, program, probeArgs(dest))
 	if ctx.Err() != nil {
 		return hostTrust{}, false, transport(ctx, "the OpenSSH host-key check did not finish")
 	}
 	if err != nil {
 		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: textsafe.Clean(err.Error()) + "; nothing was sent"}
+	}
+	if accepted {
+		// The probe ended itself, so its exit status is the stop, not OpenSSH's decision. The
+		// transcript must still show the whole decision, which the parser checks.
+		status = 255
 	}
 	return parseHostTrust(transcript, status)
 }
@@ -272,8 +280,37 @@ var errProbeOutput = errors.New("the OpenSSH host-key check wrote unexpected out
 // runHostKeyProbe runs program with args and returns its diagnostic output and exit status. The
 // argument vector is passed as a slice, with no shell. The probe may write nothing to standard
 // output, and its diagnostic output is held to probeOutputLimit.
-func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte, int, error) {
-	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
+// acceptWatch is the probe's standard error. When OpenSSH reports that the server accepted "none",
+// the decision is made, and the probe ends: with -N the client would otherwise hold the connection
+// open for as long as the timeout allows.
+type acceptWatch struct {
+	limitedBuffer
+	stop     context.CancelFunc
+	accepted bool
+}
+
+var acceptLine = []byte("Authenticated to ")
+
+func (w *acceptWatch) Write(p []byte) (int, error) {
+	n, err := w.limitedBuffer.Write(p)
+	if !w.accepted {
+		b := w.buf.Bytes()
+		if bytes.HasPrefix(b, acceptLine) || bytes.Contains(b, append([]byte("\n"), acceptLine...)) {
+			w.accepted = true
+			w.stop()
+		}
+	}
+	return n, err
+}
+
+// runHostKeyProbe runs program with args and returns its diagnostic output, its exit status, and
+// whether it ended itself because the server accepted "none". The argument vector is passed as a
+// slice, with no shell. The probe may write nothing to standard output, and its diagnostic output
+// is held to probeOutputLimit. Its whole process group ends with it.
+func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte, int, bool, error) {
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	cmd := exec.CommandContext(runCtx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
 	// The probe's group is killed with it, so no descendant outlives the deadline, and the wait
 	// for its output is bounded, so a descendant that holds the output cannot hold the check.
 	configureProcess(cmd)
@@ -281,22 +318,22 @@ func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte
 	cmd.Env = append(os.Environ(), "SSH_ASKPASS_REQUIRE=never")
 	var stdout, stderr bytes.Buffer
 	out := &limitedBuffer{buf: &stdout, limit: 0}
-	diag := &limitedBuffer{buf: &stderr, limit: probeOutputLimit}
+	diag := &acceptWatch{limitedBuffer: limitedBuffer{buf: &stderr, limit: probeOutputLimit}, stop: stop}
 	cmd.Stdout = out
 	cmd.Stderr = diag
 	err := cmd.Run()
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {
-		return nil, 0, err
+		return nil, 0, false, err
 	}
 	if out.over || diag.over {
-		return nil, 0, errProbeOutput
+		return nil, 0, false, errProbeOutput
 	}
 	status := 0
 	if exit != nil {
 		status = exit.ExitCode()
 	}
-	return stderr.Bytes(), status, nil
+	return stderr.Bytes(), status, diag.accepted, nil
 }
 
 // limitedBuffer keeps at most limit bytes and records that it was asked for more, so an

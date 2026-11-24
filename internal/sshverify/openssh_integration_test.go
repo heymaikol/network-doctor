@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // oshOpts shapes one lab server.
@@ -756,5 +757,43 @@ func TestOpenSSHProbeDoesNotRunAKnownHostsCommand(t *testing.T) {
 	}
 	if !ok {
 		t.Fatalf("the probe did not trust the recorded key: %s", r.Detail)
+	}
+}
+
+// A server that accepts no authentication lets the client authenticate with "none". OpenSSH then
+// holds the connection for -N, and prints that it authenticated. The probe must read the decision
+// OpenSSH made and end at once, not wait for its timeout. The check then reports that no
+// credential was needed, and opens no session.
+func TestOpenSSHProbeEndsPromptlyWhenTheServerAcceptsNone(t *testing.T) {
+	host, _ := newEd25519(t)
+	s := newServer(host)
+	s.cfg.NoClientAuth = true
+	port := listenLoopback(t, s)
+	dir := t.TempDir()
+	known := filepath.Join(dir, "known_hosts")
+	if err := os.WriteFile(known, []byte(knownhosts.Line([]string{"[127.0.0.1]:" + strconv.Itoa(port)}, host.PublicKey())+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "ssh_config")
+	if err := os.WriteFile(cfg, []byte("Host 127.0.0.1\n  Port "+strconv.Itoa(port)+"\n  UserKnownHostsFile "+known+"\n  GlobalKnownHostsFile none\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tg := Target{Host: "127.0.0.1", Port: port, User: testUser, dest: []string{"-F", cfg, "-p", strconv.Itoa(port), "-l", testUser, "--", "127.0.0.1"}}
+	opts := Options{Timeout: 8 * time.Second}
+
+	start := time.Now()
+	trust, ok, r := probeHostKey(context.Background(), tg, opts)
+	if elapsed := time.Since(start); elapsed > 4*time.Second {
+		t.Fatalf("the probe took %v on a server that accepted none; it must end at once (%s)", elapsed, r.Detail)
+	}
+	if !ok || trust.algorithm != "ssh-ed25519" {
+		t.Fatalf("the probe did not trust the recorded key: trusted %v, %+v", ok, r)
+	}
+	got := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	if got.Outcome != NoCredentialAccepted {
+		t.Fatalf("outcome = %q (%s), want no credential accepted", got.Outcome, got.Detail)
+	}
+	if n := s.opens.Load(); n != 0 {
+		t.Errorf("the server saw %d channel opens", n)
 	}
 }

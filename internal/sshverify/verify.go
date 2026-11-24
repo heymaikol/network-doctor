@@ -114,20 +114,21 @@ func Verify(ctx context.Context, t Target, a Attempt, opts Options) Result {
 	if r, stop := unsupported(t); stop {
 		return r
 	}
+	// The host key is checked under the target's login: its configuration, its known_hosts and
+	// its trust all belong to that login. A credential for another login is refused first.
+	if a.User != "" && a.User != t.User {
+		return Result{Outcome: LocalFailure, Detail: "the login for the credential is not the one whose SSH configuration and host key were checked; nothing was sent"}
+	}
 	cred, r := prepare(ctx, t, a, opts)
 	if cred == nil {
 		return r
 	}
 	defer cred.close()
-	user := a.User
-	if user == "" {
-		user = t.User
-	}
 	trust, ok, r := openSSHProbe(ctx, t, opts)
 	if !ok {
 		return r
 	}
-	return handshake(ctx, t, opts, cred, user, trust)
+	return handshake(ctx, t, opts, cred, t.User, trust)
 }
 
 // ListAgentKeys returns the keys the ssh-agent holds. Listing sends nothing to

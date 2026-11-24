@@ -998,3 +998,59 @@ func TestOpenSSHMatchExecThatRunsDuringTheCheckSendsNoCredential(t *testing.T) {
 		t.Fatalf("the server received %d password attempt(s) after a Match exec ran during the check", got)
 	}
 }
+
+// A malicious host presenting an untrusted certificate whose key ID injects fake OpenSSH lines
+// must not spoof the presented fingerprint or downgrade a changed or revoked host-key warning.
+func TestOpenSSHForgedKeyIDDoesNotSpoofFingerprintOrSuppressWarnings(t *testing.T) {
+	victimHost, _ := newEd25519(t)
+	victimFP := ssh.FingerprintSHA256(victimHost.PublicKey())
+	attackerCA, _ := newEd25519(t)
+	attackerHost, _ := newEd25519(t)
+	attackerFP := ssh.FingerprintSHA256(attackerHost.PublicKey())
+
+	cases := []struct {
+		name      string
+		revoked   bool
+		keyID     string
+		wantState Outcome
+	}{
+		{"spoof fingerprint on changed key", false, "x\ndebug1: Server host key: ssh-ed25519 " + victimFP + "\ndebug1: y", HostKeyChanged},
+		{"downgrade changed via Authenticated to", false, "x\nAuthenticated to 127.0.0.1 ([127.0.0.1]:22) using \"none\".\ndebug1: y", HostKeyChanged},
+		{"downgrade changed via Executing", false, "x\ndebug1: Executing command: 'true'\ndebug1: y", HostKeyChanged},
+		{"downgrade changed via Host key verification failed", false, "x\nHost key verification failed.\ndebug1: y", HostKeyChanged},
+		{"downgrade revoked via Authenticated to", true, "x\nAuthenticated to 127.0.0.1 ([127.0.0.1]:22) using \"none\".\ndebug1: y", HostKeyRevoked},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := passwordServer(certifiedSigner(t, attackerCA, attackerHost, tc.keyID))
+			port := listenLoopback(t, s)
+			dir := t.TempDir()
+			known := filepath.Join(dir, "known_hosts")
+			line := knownhosts.Line([]string{"[127.0.0.1]:" + strconv.Itoa(port)}, victimHost.PublicKey()) + "\n"
+			if tc.revoked {
+				line = "@revoked " + knownhosts.Line([]string{"[127.0.0.1]:" + strconv.Itoa(port)}, attackerHost.PublicKey()) + "\n"
+			}
+			if err := os.WriteFile(known, []byte(line), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := filepath.Join(dir, "ssh_config")
+			if err := os.WriteFile(cfg, []byte("Host 127.0.0.1\n  Port "+strconv.Itoa(port)+"\n  UserKnownHostsFile "+known+"\n  GlobalKnownHostsFile none\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			saved := sshTestArgs
+			sshTestArgs = []string{"-F", cfg}
+			t.Cleanup(func() { sshTestArgs = saved })
+			tg, err := Resolve(context.Background(), "127.0.0.1", 0, testUser)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
+			if s.password.Load() != 0 {
+				t.Fatalf("password sent to untrusted host: %d attempts", s.password.Load())
+			}
+			if r.Outcome != tc.wantState || r.HostKey != attackerFP {
+				t.Fatalf("got outcome=%q hostKey=%q (%s), want %q with %q", r.Outcome, r.HostKey, r.Detail, tc.wantState, attackerFP)
+			}
+		})
+	}
+}

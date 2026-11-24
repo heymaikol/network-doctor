@@ -159,3 +159,57 @@ func TestUnexpectedStatusIsRefused(t *testing.T) {
 		t.Fatal("a probe that exited 0 was trusted")
 	}
 }
+
+// A forged certificate key ID cannot spoof the reported host-key fingerprint or downgrade a
+// changed or revoked host-key warning into a generic failure or an unknown-key notice.
+func TestForgedCertificateKeyIDDoesNotSpoofFingerprintOrSuppressWarnings(t *testing.T) {
+	const (
+		attackerFP = "SHA256:111111111111111111111111111111111111111111A"
+		victimFP   = "SHA256:222222222222222222222222222222222222222222A"
+		caFP       = "SHA256:333333333333333333333333333333333333333333A"
+	)
+	changed := fixture(t, "changed-plain")
+	certHead := "debug1: Server host certificate: ssh-ed25519-cert-v01@openssh.com " + attackerFP + ", serial 0 ID \""
+	certTail := "\" CA ssh-ed25519 " + caFP + " valid forever"
+	replaceKey := func(base, keyID string) string {
+		t.Helper()
+		old := "debug1: Server host key: ssh-ed25519 " + presentedFingerprint(t, base)
+		out := strings.Replace(base, "kex: host key algorithm: ssh-ed25519", "kex: host key algorithm: ssh-ed25519-cert-v01@openssh.com", 1)
+		return strings.Replace(out, old, certHead+keyID+certTail, 1)
+	}
+
+	t.Run("spoofed fingerprint on changed key", func(t *testing.T) {
+		tr := replaceKey(changed, "x\ndebug1: Server host key: ssh-ed25519 "+victimFP+"\ndebug1: y")
+		_, ok, r := parseHostTrust([]byte(tr), 255)
+		if ok || r.Outcome != HostKeyChanged {
+			t.Fatalf("got outcome=%q (trusted %v, %s), want %q", r.Outcome, ok, r.Detail, HostKeyChanged)
+		}
+		if r.HostKey != attackerFP {
+			t.Fatalf("HostKey = %q, want attacker's presented key %q (must not report victim %q)", r.HostKey, attackerFP, victimFP)
+		}
+	})
+
+	for name, injected := range map[string]string{
+		"Authenticated to suppresses changed": "x\nAuthenticated to 127.0.0.1 ([127.0.0.1]:22) using \"none\".\ndebug1: y",
+		"Executing suppresses changed":        "x\ndebug1: Executing command: 'true'\ndebug1: y",
+		"unknown notice downgrades changed":   "x\nHost key verification failed.\ndebug1: y",
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr := replaceKey(changed, injected)
+			_, ok, r := parseHostTrust([]byte(tr), 255)
+			if ok || r.Outcome != HostKeyChanged || r.HostKey != attackerFP {
+				t.Fatalf("got outcome=%q hostKey=%q (trusted %v, %s), want %q with %q", r.Outcome, r.HostKey, ok, r.Detail, HostKeyChanged, attackerFP)
+			}
+		})
+	}
+
+	t.Run("Authenticated to does not suppress revoked", func(t *testing.T) {
+		revoked := strings.Replace(changed, "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @", "@       WARNING: REVOKED HOST KEY DETECTED!               @", 1)
+		revoked = strings.Replace(revoked, "Host key for [127.0.0.1]:PORT has changed", "ED25519 host key for [127.0.0.1]:PORT was revoked", 1)
+		tr := replaceKey(revoked, "x\nAuthenticated to 127.0.0.1 ([127.0.0.1]:22) using \"none\".\ndebug1: y")
+		_, ok, r := parseHostTrust([]byte(tr), 255)
+		if ok || r.Outcome != HostKeyRevoked || r.HostKey != attackerFP {
+			t.Fatalf("got outcome=%q hostKey=%q (trusted %v, %s), want %q with %q", r.Outcome, r.HostKey, ok, r.Detail, HostKeyRevoked, attackerFP)
+		}
+	})
+}

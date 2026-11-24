@@ -48,6 +48,9 @@ var shapeKexRules = []shapeRule{shapeKexInitSent, shapeKexInitRecv, shapeKexAlgo
 var (
 	shapeKeyLine  = regexp.MustCompile(`^debug1: Server host key: (\S+) (SHA256:\S+)$`)
 	shapeCertLine = regexp.MustCompile(`^debug1: Server host certificate: (\S+) (SHA256:\S+), serial \d+ ID "(.*)" CA (\S+) (SHA256:\S+)(?: valid .*)?$`)
+	// shapeCertPrefix matches the client-written head of a certificate record before the server's
+	// key ID begins, so refusal reporting extracts the presented key even if the key ID spans lines.
+	shapeCertPrefix = regexp.MustCompile(`^debug1: Server host certificate: \S+ (SHA256:\S+), serial \d+ ID "`)
 )
 
 // The section after the host-key record, to the end of the output. Each marker that decides the
@@ -190,38 +193,70 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 	return hostTrust{}, false, refusal(lines, exitStatus)
 }
 
+// presentedKeyAtPrefix returns the validated host-key fingerprint OpenSSH printed immediately
+// after a clean configuration and key-exchange prefix, so server-injected lines cannot spoof it.
+func presentedKeyAtPrefix(lines []string) string {
+	pos, _, ok := walkShape(lines, 0, shapeConfig)
+	if !ok {
+		return ""
+	}
+	pos, _, ok = walkShape(lines, pos, shapeKexRules)
+	if !ok || pos >= len(lines) {
+		return ""
+	}
+	var fp string
+	if m := shapeKeyLine.FindStringSubmatch(lines[pos]); m != nil {
+		fp = m[2]
+	} else if m := shapeCertPrefix.FindStringSubmatch(lines[pos]); m != nil {
+		fp = m[1]
+	}
+	if !ValidFingerprint(fp) {
+		return ""
+	}
+	return fp
+}
+
 // refusal names why a transcript was refused. It chooses the message only: the shape has already
 // refused, and nothing here can make a transcript trusted.
 func refusal(lines []string, exitStatus int) Result {
-	fingerprint := ""
-	for _, l := range lines {
-		if m := shapeKeyLine.FindStringSubmatch(l); m != nil {
-			fingerprint = m[2]
-		} else if m := shapeCertLine.FindStringSubmatch(l); m != nil {
-			fingerprint = m[2]
-		}
-	}
+	fingerprint := presentedKeyAtPrefix(lines)
 	out := func(outcome Outcome, detail string) Result {
 		return Result{Outcome: outcome, HostKey: fingerprint, Detail: detail + "; nothing was sent"}
 	}
+	var hasChanged, hasRevoked, hasUnknown, hasExecBeforeKex, hasAuth bool
+	beforeKex := true
 	for _, l := range lines {
-		switch {
-		case strings.HasPrefix(l, "debug1: Executing "):
-			return out(TransportFailure, "OpenSSH ran a configured command during the check, so its output is not evidence")
-		case strings.HasPrefix(l, "Authenticated to "):
-			return out(TransportFailure, "the server accepted the connection without authentication; netdoc does not verify such a server")
+		if shapeKexInitSent.re.MatchString(l) {
+			beforeKex = false
+		}
+		if beforeKex && strings.HasPrefix(l, "debug1: Executing ") {
+			hasExecBeforeKex = true
+		}
+		if strings.HasPrefix(l, "Authenticated to ") {
+			hasAuth = true
+		}
+		if failed := failureLine(l); failed != "" {
+			switch {
+			case strings.Contains(failed, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
+				hasChanged = true
+			case strings.Contains(failed, "revoked"):
+				hasRevoked = true
+			case strings.Contains(failed, "host key is known for"), failed == "Host key verification failed.":
+				hasUnknown = true
+			}
 		}
 	}
-	for _, l := range lines {
-		switch failed := failureLine(l); {
-		case failed == "":
-		case strings.Contains(failed, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
-			return out(HostKeyChanged, "OpenSSH reports that the host key has changed")
-		case strings.Contains(failed, "revoked"):
-			return out(HostKeyRevoked, "OpenSSH reports that the host key is revoked")
-		case strings.Contains(failed, "host key is known for"), failed == "Host key verification failed.":
-			return out(HostKeyUnknown, "OpenSSH has no record of this host key; establish trust with your normal SSH client first")
-		}
+	switch {
+	case hasChanged:
+		return out(HostKeyChanged, "OpenSSH reports that the host key has changed")
+	case hasRevoked:
+		return out(HostKeyRevoked, "OpenSSH reports that the host key is revoked")
+	case hasUnknown:
+		return out(HostKeyUnknown, "OpenSSH has no record of this host key; establish trust with your normal SSH client first")
+	case hasExecBeforeKex:
+		return out(TransportFailure, "OpenSSH ran a configured command during the check, so its output is not evidence")
+	case hasAuth:
+		return out(TransportFailure, "the server accepted the connection without authentication; netdoc does not verify such a server")
 	}
 	if reason := unreachable(lines); reason != "" {
 		return out(TransportFailure, reason)
@@ -256,6 +291,9 @@ func unreachable(lines []string) string {
 
 // failureLine returns l when OpenSSH printed a refusal on it, and "" otherwise.
 func failureLine(l string) string {
+	if strings.HasPrefix(l, "debug1: ") {
+		return ""
+	}
 	switch {
 	case l == "Host key verification failed.",
 		strings.Contains(l, "REMOTE HOST IDENTIFICATION HAS CHANGED"),

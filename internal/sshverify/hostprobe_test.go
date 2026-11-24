@@ -44,24 +44,28 @@ debug1: Found key in /home/u/.ssh/known_hosts:1
 debug1: SSH2_MSG_NEWKEYS received
 ` + transcriptAuthPhase
 
+const kexEd25519 = `debug1: kex: host key algorithm: ssh-ed25519
+debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+debug1: SSH2_MSG_KEX_ECDH_REPLY received
+`
+
 // unknownKey is a check that stopped because known_hosts has no record of the key.
-var unknownKey = transcriptPrefix + `debug1: kex: host key algorithm: ssh-ed25519
-debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
+var unknownKey = transcriptPrefix + kexEd25519 + `debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
 No ED25519 host key is known for [127.0.0.1]:2633 and you have requested strict checking.
 Host key verification failed.
 `
 
 // changedKey is a check that stopped because the key differs from the recorded one.
-var changedKey = transcriptPrefix + `debug1: kex: host key algorithm: ssh-ed25519
-debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
+var changedKey = transcriptPrefix + kexEd25519 + `debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
 @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
 Host key for [127.0.0.1]:2633 has changed and you have requested strict checking.
 Host key verification failed.
 `
 
 // revokedKey is a check that stopped because the key is marked revoked.
-var revokedKey = transcriptPrefix + `debug1: kex: host key algorithm: ssh-ed25519
-debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
+var revokedKey = transcriptPrefix + kexEd25519 + `debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
 @       WARNING: REVOKED HOST KEY DETECTED!               @
 The ED25519 host key for [127.0.0.1]:2633 is marked as revoked.
 ED25519 host key for [127.0.0.1]:2633 was revoked and you have requested strict checking.

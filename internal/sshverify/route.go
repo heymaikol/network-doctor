@@ -75,6 +75,11 @@ func readRoute(ctx context.Context, program string, args []string, verifying boo
 	if err != nil {
 		return Route{}, err
 	}
+	// A route the first read cannot establish is refused now. A second read would run the
+	// configuration's Match exec commands again, so it is made only for a route that is known.
+	if route := classify(first, !TerminalAvailable(), verifying); route.Kind == RouteUnknown {
+		return route, nil
+	}
 	second, err := captureConfig(ctx, program, args)
 	if err != nil {
 		return Route{}, err

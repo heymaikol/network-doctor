@@ -92,52 +92,6 @@ func TestCredentialConnectionMustPresentTheKeyIDOpenSSHChecked(t *testing.T) {
 	}
 }
 
-// Every presented-key record must be one of OpenSSH's two forms in full. A line that starts a
-// record and is neither form refuses the transcript, even when the rest of it reads as trust.
-func TestPresentedRecordMustBeOneOfOpenSSHsFormsInFull(t *testing.T) {
-	ca, _ := newEd25519(t)
-	host, _ := newEd25519(t)
-	certType := ssh.CertAlgoED25519v01
-	subject := ssh.FingerprintSHA256(host.PublicKey())
-	keyLine := "debug1: Server host key: ssh-ed25519 " + subject + "\n"
-	matchKey := "debug1: Host '" + testHost + "' is known and matches the ED25519 host key.\n"
-	auth := "debug1: Authentications that can continue: password\n"
-	kex := "debug1: kex: host key algorithm: ssh-ed25519\n"
-
-	if _, ok, r := parseHostTrust([]byte(kex+keyLine+matchKey+auth), 255); !ok {
-		t.Fatalf("a complete plain-key transcript was refused: %+v", r)
-	}
-	if _, ok, r := parseHostTrust([]byte(trustedCertTranscript(certType, subject, "hostcert", ca.PublicKey())), 255); !ok {
-		t.Fatalf("a complete certificate transcript was refused: %+v", r)
-	}
-	malformed := map[string]string{
-		"certificate line cut at a line break": kex + "debug1: Server host certificate: " + certType + " " + subject + ", serial 1 ID \"x\n" + matchKey + auth,
-		"certificate line with no CA":          kex + "debug1: Server host certificate: " + certType + " " + subject + ", serial 1 ID \"x\"\n" + matchKey + auth,
-		"key line with a trailing field":       kex + "debug1: Server host key: ssh-ed25519 " + subject + " injected\n" + matchKey + auth,
-		"key line with no fingerprint":         kex + "debug1: Server host key: ssh-ed25519\n" + matchKey + auth,
-	}
-	for name, tr := range malformed {
-		if _, ok, r := parseHostTrust([]byte(tr), 255); ok || r.Outcome != TransportFailure {
-			t.Errorf("%s: trusted or misclassified (%+v)", name, r)
-		}
-	}
-}
-
-// The "none" acceptance line counts as the authentication step only after the match. Before the
-// match, it is text the server could have written, and it must not authorize anything.
-func TestNoneAcceptanceCountsOnlyAfterTheMatch(t *testing.T) {
-	kex := "debug1: kex: host key algorithm: ssh-ed25519\n"
-	key := "debug1: Server host key: ssh-ed25519 SHA256:" + strings.Repeat("A", 43) + "\n"
-	match := "debug1: Host '" + testHost + "' is known and matches the ED25519 host key.\n"
-	accepted := "Authenticated to " + testHost + " ([127.0.0.1]:2622) using \"none\".\n"
-	if _, ok, r := parseHostTrust([]byte(kex+key+match+accepted), 255); !ok {
-		t.Fatalf("a decision followed by none acceptance was refused: %+v", r)
-	}
-	if _, ok, _ := parseHostTrust([]byte(kex+key+accepted+match), 255); ok {
-		t.Fatal("none acceptance before the match authorized trust")
-	}
-}
-
 // OpenSSH prints "Executing" when a configured command runs, and that command's standard error
 // reaches the same stream as the probe's own lines. A transcript that shows a configured command
 // ran is not evidence of a decision, whatever else it says.

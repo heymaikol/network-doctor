@@ -757,7 +757,7 @@ func TestOpenSSHProbeDoesNotRunAKnownHostsCommand(t *testing.T) {
 	program := oshTool(t, "ssh")
 	dest := []string{"-F", cfg, "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1"}
 
-	if _, _, _, err := runHostKeyProbe(context.Background(), program, probeArgs(dest)); err != nil {
+	if _, _, err := runHostKeyProbe(context.Background(), program, probeArgs(dest)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -766,11 +766,12 @@ func TestOpenSSHProbeDoesNotRunAKnownHostsCommand(t *testing.T) {
 	}
 }
 
-// A server that accepts no authentication lets the client authenticate with "none". OpenSSH then
-// holds the connection for -N, and prints that it authenticated. The probe must read the decision
-// OpenSSH made and end at once, not wait for its timeout. The check then reports that no
-// credential was needed, and opens no session.
-func TestOpenSSHProbeEndsPromptlyWhenTheServerAcceptsNone(t *testing.T) {
+// A server that accepts no authentication is not verified. OpenSSH authenticates with "none" and
+// holds the connection for -N, so the probe reads no decision it can trust and ends at its timeout.
+// The check fails closed: it trusts no key, sends no credential, and opens no session. There is no
+// early end on the acceptance line, because a line that a forged transcript could print must not
+// end the check or decide it.
+func TestOpenSSHRefusesAServerThatAcceptsNone(t *testing.T) {
 	host, _ := newEd25519(t)
 	s := newServer(host)
 	s.cfg.NoClientAuth = true
@@ -785,19 +786,14 @@ func TestOpenSSHProbeEndsPromptlyWhenTheServerAcceptsNone(t *testing.T) {
 		t.Fatal(err)
 	}
 	tg := Target{Host: "127.0.0.1", Port: port, User: testUser, dest: []string{"-F", cfg, "-p", strconv.Itoa(port), "-l", testUser, "--", "127.0.0.1"}}
-	opts := Options{Timeout: 8 * time.Second}
+	opts := Options{Timeout: 3 * time.Second}
 
-	start := time.Now()
-	trust, ok, r := probeHostKey(context.Background(), tg, opts)
-	if elapsed := time.Since(start); elapsed > 4*time.Second {
-		t.Fatalf("the probe took %v on a server that accepted none; it must end at once (%s)", elapsed, r.Detail)
-	}
-	if !ok || trust.algorithm != "ssh-ed25519" {
-		t.Fatalf("the probe did not trust the recorded key: trusted %v, %+v", ok, r)
+	if _, ok, r := probeHostKey(context.Background(), tg, opts); ok {
+		t.Fatalf("the probe trusted a server that accepted none: %+v", r)
 	}
 	got := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
-	if got.Outcome != NoCredentialAccepted {
-		t.Fatalf("outcome = %q (%s), want no credential accepted", got.Outcome, got.Detail)
+	if got.Outcome == Verified || got.Outcome == NoCredentialAccepted {
+		t.Fatalf("outcome = %q (%s), want a refusal", got.Outcome, got.Detail)
 	}
 	if n := s.opens.Load(); n != 0 {
 		t.Errorf("the server saw %d channel opens", n)

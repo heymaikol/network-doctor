@@ -19,7 +19,7 @@ func TestProbeProcessGroupEndsWithItsDescendants(t *testing.T) {
 	defer cancel()
 	start := time.Now()
 	script := "(sleep 2; touch " + marker + ") & sleep 30"
-	_, _, _, err := runHostKeyProbe(ctx, "/bin/sh", []string{"-c", script})
+	_, _, err := runHostKeyProbe(ctx, "/bin/sh", []string{"-c", script})
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("the probe waited %v for a descendant that holds its output (err %v)", elapsed, err)
 	}

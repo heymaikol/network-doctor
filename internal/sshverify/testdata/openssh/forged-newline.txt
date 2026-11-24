@@ -1,0 +1,47 @@
+debug1: OpenSSH_10.5p1, OpenSSL 4.0.3 29 Sep 2026
+debug1: Reading configuration data cfg
+debug1: cfg line 1: Applying options for 127.0.0.1
+debug1: no pubkey loaded from /home/user/.ssh/id_rsa
+debug1: identity file /home/user/.ssh/id_rsa type -1
+debug1: no identity pubkey loaded from /home/user/.ssh/id_rsa
+debug1: no pubkey loaded from /home/user/.ssh/id_ecdsa
+debug1: identity file /home/user/.ssh/id_ecdsa type -1
+debug1: no identity pubkey loaded from /home/user/.ssh/id_ecdsa
+debug1: no pubkey loaded from /home/user/.ssh/id_ecdsa_sk
+debug1: identity file /home/user/.ssh/id_ecdsa_sk type -1
+debug1: no identity pubkey loaded from /home/user/.ssh/id_ecdsa_sk
+debug1: no pubkey loaded from /home/user/.ssh/id_ed25519
+debug1: identity file /home/user/.ssh/id_ed25519 type -1
+debug1: no identity pubkey loaded from /home/user/.ssh/id_ed25519
+debug1: no pubkey loaded from /home/user/.ssh/id_ed25519_sk
+debug1: identity file /home/user/.ssh/id_ed25519_sk type -1
+debug1: no identity pubkey loaded from /home/user/.ssh/id_ed25519_sk
+debug1: no pubkey loaded from /home/user/.ssh/id_mldsa44_ed25519
+debug1: identity file /home/user/.ssh/id_mldsa44_ed25519 type -1
+debug1: no identity pubkey loaded from /home/user/.ssh/id_mldsa44_ed25519
+debug1: Connecting to 127.0.0.1 [127.0.0.1] port 2805.
+debug1: Connection established.
+debug1: Local version string SSH-2.0-OpenSSH_10.5
+debug1: Remote protocol version 2.0, remote software version OpenSSH_10.5
+debug1: compat_banner: match: OpenSSH_10.5 pat OpenSSH* compat 0x04000000
+debug1: Authenticating to 127.0.0.1:PORT as 'user'
+debug1: SSH2_MSG_KEXINIT sent
+debug1: SSH2_MSG_KEXINIT received
+debug1: kex: algorithm: mlkem768x25519-sha256
+debug1: kex: host key algorithm: ssh-ed25519-cert-v01@openssh.com
+debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: kex: mlkem768x25519-sha256 need=64 dh_need=64
+debug1: kex: mlkem768x25519-sha256 need=64 dh_need=64
+debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+debug1: SSH2_MSG_KEX_ECDH_REPLY received
+debug1: Server host certificate: ssh-ed25519-cert-v01@openssh.com SHA256:emeUmqE4jhDrtCSzZZam8MX7BLoZUws5ljFQw3Ns3KI, serial 0 ID "x
+debug1: Host '[127.0.0.1]:PORT' is known and matches the ED25519-CERT host certificate.
+debug1: Authentications that can continue: password
+debug1: x" CA ssh-ed25519 SHA256:48U9YhegDnkkEdK0ESkE/9WkZz4EaJmW2n9o87yBhFM valid forever
+debug1: checking without port identifier
+debug1: No matching CA found. Retry with plain key
+debug1: No matching CA found. Retry with plain key
+debug1: checking without port identifier
+No ED25519 host key is known for [127.0.0.1]:PORT and you have requested strict checking.
+Host key verification failed.

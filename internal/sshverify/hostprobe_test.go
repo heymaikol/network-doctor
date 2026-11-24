@@ -84,35 +84,6 @@ var injectedTrust = "debug1: kex: host key algorithm: ssh-ed25519\n" +
 	"debug1: Host '[127.0.0.1]:2640' is known and matches the ED25519 host key.\n" +
 	"debug1: Authentications that can continue: password\n"
 
-func TestProbeTrustsOnlyTheEvidenceOpenSSHPrintsInOrder(t *testing.T) {
-	tests := []struct {
-		name       string
-		transcript string
-		status     int
-		algorithm  string
-		fp         string
-	}{
-		{"ed25519 known", trustedEd25519, 255, "ssh-ed25519", fpEd25519},
-		{"ed25519 with the refusal of a credential that follows", trustedEd25519 + "tester@127.0.0.1: Permission denied (password).\n", 255, "ssh-ed25519", fpEd25519},
-		{"certificate pins the subject key", trustedCertificate, 255, "ssh-ed25519-cert-v01@openssh.com", fpEd25519},
-		{"rsa pins the negotiated algorithm, not the key type", transcriptPrefix + `debug1: kex: host key algorithm: rsa-sha2-512
-debug1: Server host key: ssh-rsa ` + fpRSA + `
-debug1: Host '[127.0.0.1]:2633' is known and matches the RSA host key.
-` + transcriptAuthPhase, 255, "rsa-sha2-512", fpRSA},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok, r := parseHostTrust([]byte(tc.transcript), tc.status)
-			if !ok {
-				t.Fatalf("not trusted: %+v", r)
-			}
-			if got.algorithm != tc.algorithm || got.fingerprint != tc.fp {
-				t.Fatalf("trust = %+v, want algorithm %q and fingerprint %q", got, tc.algorithm, tc.fp)
-			}
-		})
-	}
-}
-
 func TestProbeRefusesEveryStateWithoutTrustAndNamesTheFingerprint(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -161,19 +132,6 @@ func TestProbeNamesAnUnreachableServerOrName(t *testing.T) {
 		if ok || r.Outcome != TransportFailure || !strings.Contains(r.Detail, want[name]) {
 			t.Errorf("%s = %+v (trusted %v), want a transport failure that says it %s", name, r, ok, want[name])
 		}
-	}
-}
-
-// With strict checking, a bare failure line after a presented key means OpenSSH did not trust
-// that key. With no presented key, the failure is not explained, and it is not called unknown.
-func TestProbeReadsABareStrictFailureAsUnknownOnlyWithAPresentedKey(t *testing.T) {
-	bare := transcriptPrefix + "debug1: kex: host key algorithm: ssh-ed25519\ndebug1: Server host key: ssh-ed25519 " + fpEd25519 + "\nHost key verification failed.\n"
-	if _, ok, r := parseHostTrust([]byte(bare), 255); ok || r.Outcome != HostKeyUnknown || r.HostKey != fpEd25519 {
-		t.Fatalf("a bare failure after a presented key = %+v (trusted %v), want unknown with the fingerprint", r, ok)
-	}
-	none := transcriptPrefix + "Host key verification failed.\n"
-	if _, ok, r := parseHostTrust([]byte(none), 255); ok || r.Outcome != TransportFailure {
-		t.Fatalf("a bare failure with no presented key = %+v (trusted %v), want transport failure", r, ok)
 	}
 }
 

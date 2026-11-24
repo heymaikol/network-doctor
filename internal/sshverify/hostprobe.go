@@ -6,10 +6,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
@@ -44,21 +42,6 @@ type hostTrust struct {
 	certificate bool
 	keyID       string
 }
-
-var (
-	// A presented-key record starts with probeServerLine. Each form is matched in full, so a line
-	// that starts a record but is not one of the two forms refuses the transcript. The certificate
-	// line carries a key ID, and its end is fixed by OpenSSH's own CA and validity text.
-	probeServerLine    = regexp.MustCompile(`^debug1: Server host `)
-	probeKeyLine       = regexp.MustCompile(`^debug1: Server host key: (\S+) (SHA256:\S+)$`)
-	probeCertLine      = regexp.MustCompile(`^debug1: Server host certificate: (\S+) (SHA256:\S+), serial \d+ ID "(.*)" CA (\S+) (SHA256:\S+)(?: valid .*)?$`)
-	probeAlgorithmLine = regexp.MustCompile(`^debug1: kex: host key algorithm: ([A-Za-z0-9@.+_-]+)$`)
-	probeMatchedLine   = regexp.MustCompile(`^debug1: Host '.*' is known and matches the .* host (?:key|certificate)\.$`)
-	probeAuthLine      = regexp.MustCompile(`^debug1: Authentications that can continue: `)
-	// The client prints this line only after the server accepted the "none" method. The probe asks
-	// for no other method, so this is the authentication step the decision must be followed by.
-	probeNoneLine = regexp.MustCompile(`^Authenticated to \S.* using "none"\.$`)
-)
 
 // probeArgs is the argument vector for the probe: the options that decide what the client
 // prints and what it may do, followed by the destination ssh -G read. It overrides no known-hosts
@@ -99,143 +82,6 @@ func probeArgs(dest []string) []string {
 	}, dest...)
 }
 
-// parseHostTrust reads one probe transcript and returns OpenSSH's trust decision. When the
-// evidence is missing, ambiguous or not in order, it returns the reason to refuse, and nothing
-// is sent. The returned Result is set only when trusted is false.
-func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result) {
-	lines := strings.Split(strings.ReplaceAll(string(transcript), "\r\n", "\n"), "\n")
-	var presented, algorithms, matched, auth []int
-	var presentedFP, presentedKeyID string
-	var presentedCert, malformed bool
-	failed := ""
-	for i, l := range lines {
-		switch {
-		case probeServerLine.MatchString(l):
-			presented = append(presented, i)
-			if m := probeKeyLine.FindStringSubmatch(l); m != nil {
-				presentedFP, presentedCert, presentedKeyID = m[2], false, ""
-			} else if m := probeCertLine.FindStringSubmatch(l); m != nil {
-				presentedFP, presentedCert, presentedKeyID = m[2], true, m[3]
-			} else {
-				malformed = true
-			}
-		case probeAlgorithmLine.MatchString(l):
-			algorithms = append(algorithms, i)
-		case probeMatchedLine.MatchString(l):
-			matched = append(matched, i)
-		case probeAuthLine.MatchString(l), probeNoneLine.MatchString(l):
-			auth = append(auth, i)
-		}
-		if failed == "" {
-			failed = failureLine(l)
-		}
-	}
-	fingerprint := ""
-	if len(presented) == 1 && !malformed {
-		fingerprint = presentedFP
-	}
-	refuse := func(outcome Outcome, detail string) (hostTrust, bool, Result) {
-		return hostTrust{}, false, Result{Outcome: outcome, HostKey: fingerprint, Detail: detail + "; nothing was sent"}
-	}
-	// OpenSSH says "Executing" when it runs a configured command, and that command's standard
-	// error reaches the same stream as the probe's own lines. A transcript that shows one ran is
-	// not the record of OpenSSH's decision alone, whatever else it says.
-	for _, l := range lines {
-		if strings.HasPrefix(l, "debug1: Executing ") {
-			return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: "OpenSSH ran a configured command during the check, so its output is not evidence; nothing was sent"}
-		}
-	}
-	if failed != "" {
-		switch {
-		case strings.Contains(failed, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
-			return refuse(HostKeyChanged, "OpenSSH reports that the host key has changed")
-		case strings.Contains(failed, "revoked"):
-			return refuse(HostKeyRevoked, "OpenSSH reports that the host key is revoked")
-		case strings.Contains(failed, "host key is known for"):
-			return refuse(HostKeyUnknown, "OpenSSH has no record of this host key; establish trust with your normal SSH client first")
-		case failed == "Host key verification failed." && len(presented) == 1:
-			// With strict checking, OpenSSH ends with this line when it does not trust the key it
-			// presented. A global known-hosts setting often prints no line that says which case it is.
-			return refuse(HostKeyUnknown, "OpenSSH does not trust this host key; establish trust with your normal SSH client first")
-		}
-		return refuse(TransportFailure, "OpenSSH refused the host key for a reason netdoc does not recognise")
-	}
-	if len(presented) == 0 {
-		if reason := unreachable(lines); reason != "" {
-			return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: reason + "; nothing was sent"}
-		}
-	}
-	if exitStatus != 255 {
-		return refuse(TransportFailure, "OpenSSH's probe ended with an unexpected status")
-	}
-	if malformed || len(presented) != 1 || len(algorithms) != 1 || len(matched) != 1 || !probeEvidenceInOrder(lines, presented[0], algorithms[0], matched[0], auth) {
-		return refuse(TransportFailure, "OpenSSH's output did not show a trusted host key in the order and form netdoc needs")
-	}
-	if !ValidFingerprint(fingerprint) {
-		return refuse(TransportFailure, "OpenSSH's host key fingerprint is malformed")
-	}
-	return hostTrust{algorithm: probeAlgorithmLine.FindStringSubmatch(lines[algorithms[0]])[1], fingerprint: fingerprint, certificate: presentedCert, keyID: presentedKeyID}, true, Result{}
-}
-
-// unreachable names why OpenSSH read no host key, from the client's own lines. The client prints
-// these lines itself, so the server cannot write them. It returns "" when none of them is there.
-func unreachable(lines []string) string {
-	for _, l := range lines {
-		switch {
-		case strings.HasPrefix(l, "ssh: Could not resolve hostname "):
-			return "the host name could not be resolved"
-		case strings.HasPrefix(l, "ssh: connect to host "):
-			return "the server could not be reached, so it named no host key"
-		case strings.HasPrefix(l, "Unable to negotiate with "):
-			// The client prints this line when the two sides share no algorithm. The server's own
-			// list follows it on the same line, which the prefix does not depend on.
-			return "OpenSSH could not agree a key exchange or host key algorithm with the server, so it named no host key"
-		case strings.HasPrefix(l, "Connection reset by "), strings.HasPrefix(l, "Connection closed by "):
-			// sshd refuses an address with recent failed logins at the identification stage, so the
-			// client's own reset line is all the output there is.
-			return "the server closed the connection before it named its host key, as sshd does to an address with recent failed logins"
-		}
-	}
-	return ""
-}
-
-// probeEvidenceInOrder checks the order of the evidence and the guard on injected text. The
-// algorithm line and the presented-key line come before the match, and an authentication line
-// comes after it. Every line before the match must be a plain debug line, and none may be a
-// debug message from the server.
-func probeEvidenceInOrder(lines []string, presented, algorithm, matched int, auth []int) bool {
-	if algorithm >= presented || presented >= matched {
-		return false
-	}
-	afterMatch := false
-	for _, a := range auth {
-		if a > matched {
-			afterMatch = true
-		}
-	}
-	if !afterMatch {
-		return false
-	}
-	for _, l := range lines[:matched] {
-		if !strings.HasPrefix(l, "debug1: ") || strings.HasPrefix(l, "debug1: Remote:") {
-			return false
-		}
-	}
-	return true
-}
-
-// failureLine returns l when OpenSSH printed a refusal on it, and "" otherwise.
-func failureLine(l string) string {
-	switch {
-	case l == "Host key verification failed.",
-		strings.Contains(l, "REMOTE HOST IDENTIFICATION HAS CHANGED"),
-		strings.Contains(l, "revoked"),
-		strings.Contains(l, "host key is known for"):
-		return l
-	}
-	return ""
-}
-
 // openSSHProbe is the host-key decision a check asks for. The product uses probeHostKey; tests
 // replace it with a fixed decision, and the integration tests run the real client.
 var openSSHProbe = probeHostKey
@@ -270,17 +116,12 @@ func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool,
 	if r, ok := confirmRoute(ctx, program, t, dest); !ok {
 		return hostTrust{}, false, r
 	}
-	transcript, status, accepted, err := runHostKeyProbe(ctx, program, probeArgs(dest))
+	transcript, status, err := runHostKeyProbe(ctx, program, probeArgs(dest))
 	if ctx.Err() != nil {
 		return hostTrust{}, false, transport(ctx, "the OpenSSH host-key check did not finish")
 	}
 	if err != nil {
 		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: textsafe.Clean(err.Error()) + "; nothing was sent"}
-	}
-	if accepted {
-		// The probe ended itself, so its exit status is the stop, not OpenSSH's decision. The
-		// transcript must still show the whole decision, which the parser checks.
-		status = 255
 	}
 	return parseHostTrust(transcript, status)
 }
@@ -288,6 +129,9 @@ func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool,
 // errProbeOutput refuses a probe that wrote to standard output or ran past the output limit.
 var errProbeOutput = errors.New("the OpenSSH host-key check wrote unexpected output")
 
+// runHostKeyProbe runs program with args and returns its diagnostic output and exit status. The
+// argument vector is passed as a slice, with no shell. The probe may write nothing to standard
+// output, and its diagnostic output is held to probeOutputLimit.
 // runHostKeyProbe runs program with args and returns its diagnostic output and exit status. The
 // argument vector is passed as a slice, with no shell. The probe may write nothing to standard
 // output, and its diagnostic output is held to probeOutputLimit.
@@ -318,10 +162,8 @@ func (w *acceptWatch) Write(p []byte) (int, error) {
 // whether it ended itself because the server accepted "none". The argument vector is passed as a
 // slice, with no shell. The probe may write nothing to standard output, and its diagnostic output
 // is held to probeOutputLimit. Its whole process group ends with it.
-func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte, int, bool, error) {
-	runCtx, stop := context.WithCancel(ctx)
-	defer stop()
-	cmd := exec.CommandContext(runCtx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
+func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte, int, error) {
+	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
 	// The probe's group is killed with it, so no descendant outlives the deadline, and the wait
 	// for its output is bounded, so a descendant that holds the output cannot hold the check.
 	configureProcess(cmd)
@@ -329,22 +171,22 @@ func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte
 	cmd.Env = append(os.Environ(), "SSH_ASKPASS_REQUIRE=never")
 	var stdout, stderr bytes.Buffer
 	out := &limitedBuffer{buf: &stdout, limit: 0}
-	diag := &acceptWatch{limitedBuffer: limitedBuffer{buf: &stderr, limit: probeOutputLimit}, stop: stop}
+	diag := &limitedBuffer{buf: &stderr, limit: probeOutputLimit}
 	cmd.Stdout = out
 	cmd.Stderr = diag
 	err := cmd.Run()
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {
-		return nil, 0, false, err
+		return nil, 0, err
 	}
 	if out.over || diag.over {
-		return nil, 0, false, errProbeOutput
+		return nil, 0, errProbeOutput
 	}
 	status := 0
 	if exit != nil {
 		status = exit.ExitCode()
 	}
-	return stderr.Bytes(), status, diag.accepted, nil
+	return stderr.Bytes(), status, nil
 }
 
 // limitedBuffer keeps at most limit bytes and records that it was asked for more, so an

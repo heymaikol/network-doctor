@@ -337,16 +337,18 @@ jobs:
         run: |
           mkdir -p coverage
           go test -covermode=set -coverprofile=coverage/unit.out ./...
-      # The OpenSSH tests must run and pass, not skip: cmd/opensshgate reads the -v output and
-      # refuses the run for any required test that skipped, failed, or did not run.
+      # The OpenSSH tests must run and pass, not skip. cmd/opensshgate judges the go test -json events:
+      # each required test must run once and pass, and each package must finish with a passing result.
+      # It first checks that the OpenSSH prerequisites are on the host.
       - if: matrix.shard == 'unit-coverage'
         name: Run loopback integration tests with coverage
         env:
           NETDOC_REQUIRE_OPENSSH: "1"
         run: |
           set -o pipefail
-          go test -v -covermode=set -coverprofile=coverage/integration.out -tags integration $INTEGRATION_PACKAGES | tee integration.log
-          go run ./cmd/opensshgate < integration.log
+          go run ./cmd/opensshgate -prereq
+          go test -json -covermode=set -coverprofile=coverage/integration.out -tags integration $INTEGRATION_PACKAGES | tee integration.json
+          go run ./cmd/opensshgate < integration.json
       - if: matrix.shard == 'unit-coverage'
         name: Upload unit and integration coverage profiles
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -462,25 +464,17 @@ jobs:
       # statistics, so it must never run beside another test; the hunt shard runs
       # its three tests one after another. Together the two shards run every test
       # exactly once.
+      # Every integration package must finish with a passing result in this lane's run, and every
+      # OpenSSH-dependent test must run and pass with no skip. cmd/opensshgate judges both from the
+      # go test -json events, so it replaces the old check for an ok line per package.
       - if: matrix.shard == 'race-integration'
         env:
           NETDOC_REQUIRE_OPENSSH: "1"
         run: |
           set -o pipefail
-          go test -race -v -tags integration -count=1 -skip "$HUNT_BUDGET_TESTS" $INTEGRATION_PACKAGES | tee rest-integration.log
-      # A skipped test step leaves its leg green, so each proof is its own step.
-      # Every integration package must report an ok line from this lane's run.
-      - if: matrix.shard == 'race-integration'
-        run: |
-          for pkg in $INTEGRATION_PACKAGES; do
-            grep -q "^ok[[:space:]]*$pkg[[:space:]]" rest-integration.log || { echo "no ok line for $pkg"; exit 1; }
-          done
-      # Every OpenSSH-dependent test in the verifier and the profile lab must have run and passed
-      # in this lane, with no skip. See cmd/opensshgate.
-      - if: matrix.shard == 'race-integration'
-        env:
-          NETDOC_REQUIRE_OPENSSH: "1"
-        run: go run ./cmd/opensshgate < rest-integration.log
+          go run ./cmd/opensshgate -prereq
+          go test -race -json -tags integration -count=1 -skip "$HUNT_BUDGET_TESTS" $INTEGRATION_PACKAGES | tee rest-integration.json
+          go run ./cmd/opensshgate < rest-integration.json
       - if: matrix.shard == 'race-integration-hunt'
         run: |
           set -o pipefail

@@ -130,9 +130,10 @@ func requiredTests(root string) ([]requirement, error) {
 }
 
 // check reads a go test -json stream from in. It returns an error naming each required test that did
-// not run, did not finish, ran or reported more than once, or did not pass, each required package that
-// did not finish or did not pass, and each malformed or out-of-order event. It writes a one-line
-// summary to out.
+// not run, did not finish, ran or reported more than once, or did not pass, each package in the stream
+// that did not finish, reported twice, or failed, and each malformed or out-of-order event. Every
+// package in the stream is checked, so a failing package that holds no required test is refused too.
+// It writes a one-line summary to out.
 func check(in io.Reader, required []requirement, out io.Writer) error {
 	needPkg := map[string]bool{}
 	for _, r := range required {
@@ -140,6 +141,8 @@ func check(in io.Reader, required []requirement, out io.Writer) error {
 	}
 	life := map[requirement][]string{} // lifecycle actions of each test, in stream order
 	lastOut := map[requirement]string{}
+	seen := map[string]bool{}           // every package the stream names
+	hasTests := map[string]bool{}       // a package that ran at least one test
 	pkgResults := map[string][]string{} // package-level results
 	closed := map[string]bool{}         // a package that has reported its result
 	dec := json.NewDecoder(in)
@@ -159,12 +162,10 @@ func check(in io.Reader, required []requirement, out io.Writer) error {
 			}
 			return fmt.Errorf("event %d (%s) names no package", n, e.Action)
 		}
-		if !needPkg[e.Package] {
-			continue
-		}
 		if closed[e.Package] && e.Action != "output" {
 			return fmt.Errorf("event %d (%s) for %s comes after its package result", n, e.Action, e.Package)
 		}
+		seen[e.Package] = true
 		r := requirement{Pkg: e.Package, Test: e.Test}
 		switch {
 		case e.Test == "" && (e.Action == "pass" || e.Action == "fail" || e.Action == "skip"):
@@ -173,18 +174,18 @@ func check(in io.Reader, required []requirement, out io.Writer) error {
 		case e.Test == "":
 			// start, output and build events of the package carry no verdict.
 		case e.Action == "output":
-			if s := strings.TrimSpace(e.Output); s != "" {
-				lastOut[r] = s
+			if t := strings.TrimSpace(e.Output); t != "" {
+				lastOut[r] = t
 			}
 		case e.Action == "run" || e.Action == "pass" || e.Action == "fail" || e.Action == "skip" || e.Action == "pause" || e.Action == "cont":
+			hasTests[e.Package] = true
 			life[r] = append(life[r], e.Action)
 		}
 	}
 
 	var problems []string
 	for _, r := range required {
-		seq := lifecycle(life[r])
-		problems = append(problems, sequenceProblems(label(r), seq, lastOut[r])...)
+		problems = append(problems, sequenceProblems(label(r), lifecycle(life[r]), lastOut[r])...)
 	}
 	// Subtests of a required test are checked too: every one that ran must have passed.
 	need := map[requirement]bool{}
@@ -199,20 +200,27 @@ func check(in io.Reader, required []requirement, out io.Writer) error {
 		problems = append(problems, sequenceProblems(label(r), lifecycle(acts), lastOut[r])...)
 	}
 	for pkg := range needPkg {
+		if !seen[pkg] {
+			problems = append(problems, shortPkg(pkg)+" did not finish")
+		}
+	}
+	for pkg := range seen {
 		switch res := pkgResults[pkg]; {
 		case len(res) == 0:
 			problems = append(problems, shortPkg(pkg)+" did not finish")
 		case len(res) > 1:
 			problems = append(problems, fmt.Sprintf("%s reported %d package results", shortPkg(pkg), len(res)))
-		case res[0] != "pass":
-			problems = append(problems, shortPkg(pkg)+" ended "+res[0])
+		case res[0] == "fail":
+			problems = append(problems, shortPkg(pkg)+" ended fail")
+		case res[0] == "skip" && hasTests[pkg]:
+			problems = append(problems, shortPkg(pkg)+" ended skip")
 		}
 	}
 	if len(problems) > 0 {
 		sort.Strings(problems)
 		return fmt.Errorf("%d required OpenSSH test problem(s):\n  %s", len(problems), strings.Join(problems, "\n  "))
 	}
-	fmt.Fprintf(out, "opensshgate: all %d required OpenSSH tests ran and passed\n", len(required))
+	fmt.Fprintf(out, "opensshgate: all %d required OpenSSH tests ran and passed; %d packages finished\n", len(required), len(seen))
 	return nil
 }
 

@@ -267,3 +267,19 @@ func TestPrereqReportsTheClientVersion(t *testing.T) {
 		t.Fatalf("the client version was not reported: %q", out.String())
 	}
 }
+
+// A package that fails with no required test in it is refused: the gate checks every package the stream
+// names, not only those that hold required tests.
+func TestGateRefusesAFailedPackageWithNoRequiredTest(t *testing.T) {
+	stream := green(pkgVerify, "TestA") + ev("start", pkgApp, "", "") + ev("run", pkgApp, "TestOther", "") +
+		ev("fail", pkgApp, "TestOther", "") + ev("fail", pkgApp, "", "")
+	mustContain(t, gate(t, stream, req(pkgVerify, "TestA")...), "app ended fail")
+}
+
+// A package with no tests reports skip, and that is not a failure.
+func TestGateAcceptsAPackageWithNoTests(t *testing.T) {
+	stream := green(pkgVerify, "TestA") + ev("skip", pkgApp, "", "")
+	if err := gate(t, stream, req(pkgVerify, "TestA")...); err != nil {
+		t.Fatalf("a package with no tests was refused: %v", err)
+	}
+}

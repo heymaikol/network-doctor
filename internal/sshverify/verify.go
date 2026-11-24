@@ -86,6 +86,10 @@ type Attempt struct {
 	KeyPath          string // MethodKey
 	Passphrase       []byte // MethodKey, when the key file is encrypted
 	AgentFingerprint string // MethodAgent: SHA256 fingerprint of the key to offer
+	// HostKey is the SHA256 fingerprint that discovery showed for this host. When it is set,
+	// Verify refuses any other key before it sends the credential, even a key OpenSSH trusts.
+	// Empty means no discovery happened, and OpenSSH's decision alone governs the check.
+	HostKey string
 }
 
 // AgentKey is one identity the ssh-agent holds, for the user to choose from.
@@ -130,6 +134,9 @@ func Verify(ctx context.Context, t Target, a Attempt, opts Options) Result {
 	trust, ok, r := openSSHProbe(ctx, t, opts)
 	if !ok {
 		return r
+	}
+	if a.HostKey != "" && trust.fingerprint != a.HostKey {
+		return Result{Outcome: HostKeyChanged, HostKey: trust.fingerprint, Detail: "the host key is not the one discovery showed for this host; nothing was sent"}
 	}
 	return handshake(ctx, t, opts, cred, t.User, trust)
 }

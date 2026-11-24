@@ -72,6 +72,9 @@ type verifyPanel struct {
 	// trusted is set when the last result was a discovery that OpenSSH trusted the host for.
 	// The secret waits for it, so a check starts only after the host key is trusted.
 	trusted bool
+	// hostKey is the fingerprint that discovery showed for the host. A check binds to it, so a
+	// key other than the one shown is refused before the secret is sent.
+	hostKey string
 	note    string
 	busy    bool
 	id      uint64
@@ -210,6 +213,7 @@ func (p *verifyPanel) dropRoute() {
 	p.agentKeys, p.agentIdx = nil, 0
 	p.result = nil
 	p.trusted = false
+	p.hostKey = ""
 	p.note = ""
 }
 
@@ -246,9 +250,12 @@ func agentKeysCmd(ctx context.Context, id, seq uint64, t sshverify.Target, opts 
 // checkCmd sends one credential. The attempt's secret is cleared by Verify.
 func checkCmd(ctx context.Context, id uint64, t sshverify.Target, a sshverify.Attempt, opts sshverify.Options) tea.Cmd {
 	return func() tea.Msg {
-		return verifyResultMsg{id: id, result: sshverify.Verify(ctx, t, a, opts)}
+		return verifyResultMsg{id: id, result: verifyCheck(ctx, t, a, opts)}
 	}
 }
+
+// verifyCheck sends one credential. Tests replace it to see the attempt the panel built.
+var verifyCheck = sshverify.Verify
 
 // visibleRows is the order of rows for the current method.
 func (p verifyPanel) visibleRows() []verifyRow {
@@ -351,6 +358,7 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 			return m, nil
 		}
 		a = att
+		a.HostKey = p.hostKey
 	}
 	p.note = ""
 	wasTicking := m.spinnerActive()
@@ -527,7 +535,11 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.result = &msg.result
 		// Only a discovery that trusted the host sets the gate for the next check; any other
 		// result clears it, so a check needs a fresh discovery.
-		m.verify.trusted = msg.result.Outcome == sshverify.Discovered
+		m.verify.trusted = msg.result.Outcome == sshverify.Discovered && msg.result.HostKey != ""
+		m.verify.hostKey = ""
+		if m.verify.trusted {
+			m.verify.hostKey = msg.result.HostKey
+		}
 		m.verify.note = ""
 		// The focus may now sit on a row that is no longer visible.
 		if !slices.Contains(m.verify.visibleRows(), m.verify.row) {
@@ -630,6 +642,10 @@ func resultLines(m model, r sshverify.Result) string {
 		// The presented key is the only fingerprint netdoc has for the server, so it is shown
 		// for the user to compare with the key they expect.
 		lines = append(lines, style.Render("presented host key: "+textsafe.Clean(r.HostKey)))
+	}
+	if r.Outcome == sshverify.Discovered && r.HostKey != "" {
+		// The check binds to this key: a later check refuses any other, so it is shown to compare.
+		lines = append(lines, style.Render("trusted host key: "+textsafe.Clean(r.HostKey)))
 	}
 	if len(r.Methods) > 0 {
 		lines = append(lines, m.st.faint.Render("server offers: "+textsafe.Clean(strings.Join(r.Methods, ", "))))

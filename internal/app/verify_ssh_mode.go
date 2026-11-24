@@ -155,6 +155,8 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 		if !ok {
 			return code
 		}
+		// The check binds to the key discovery just showed, so a key that changed in between is refused.
+		attempt.HostKey = seen.HostKey
 		result = verifyVerify(ctx, tgt, attempt, opts)
 	default: // agent
 		attempt, code, ok := buildAttempt(ctx, f, tgt, needsPass, stdout, stderr)

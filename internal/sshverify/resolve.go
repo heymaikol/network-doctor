@@ -483,17 +483,20 @@ func listingKey(out []byte, key string) bool {
 	return false
 }
 
+// groupGoneBound bounds how long a read waits, after it kills the client's process group, for the
+// group to empty. A process the kill reached may still be running when the kill returns. The wait
+// ends at the bound even if a process remains in the group.
+const groupGoneBound = time.Second
+
 // readConfig runs the client once, in its own process group, and returns its
 // complete standard output and complete diagnostic output. It fails when the run
 // was cut short, when either stream was not read to its end or was larger than
 // netdoc reads, or when the client exited non-zero. A process that a configured
-// command starts with setsid leaves the group and is not killed here; a read whose
-// output that process holds open is refused as incomplete, but the process itself
-// can outlive the read.
-// groupGoneBound bounds how long a read waits, after it kills the client's process group, for the
-// group to empty. A process the kill reached may still be running when the kill returns.
-const groupGoneBound = time.Second
-
+// command starts with setsid, or that moves into its own process group (job
+// control, set -m), leaves the group and is not killed here. A read whose output
+// that process holds open is refused as incomplete, but the process itself can
+// outlive the read. After the group is killed, the read waits up to groupGoneBound
+// for it to empty, then returns.
 func readConfig(ctx context.Context, program string, args []string, env []string) ([]byte, []byte, error) {
 	outR, outW, err := os.Pipe()
 	if err != nil {

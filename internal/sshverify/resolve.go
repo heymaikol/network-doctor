@@ -490,6 +490,10 @@ func listingKey(out []byte, key string) bool {
 // command starts with setsid leaves the group and is not killed here; a read whose
 // output that process holds open is refused as incomplete, but the process itself
 // can outlive the read.
+// groupGoneBound bounds how long a read waits, after it kills the client's process group, for the
+// group to empty. A process the kill reached may still be running when the kill returns.
+const groupGoneBound = time.Second
+
 func readConfig(ctx context.Context, program string, args []string, env []string) ([]byte, []byte, error) {
 	outR, outW, err := os.Pipe()
 	if err != nil {
@@ -532,6 +536,7 @@ func readConfig(ctx context.Context, program string, args []string, env []string
 	// The client has exited. Anything it left running in its group is killed now,
 	// so a read does not leave a helper process behind.
 	killProcessGroup(cmd.Process.Pid)
+	waitGroupGone(cmd.Process.Pid, groupGoneBound)
 	out, outComplete := stdout.finish(outR)
 	diag, diagComplete := stderr.finish(errR)
 

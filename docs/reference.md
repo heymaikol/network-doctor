@@ -904,7 +904,7 @@ Credential verification and the configuration read are refused on Windows and Fr
 
 This classification does not cover how a host name is resolved. A `HostName` is resolved by the system resolver when `ssh` connects, not by the read, so a resolver setting that differs from yours can connect to another address. netdoc does not yet test resolver behaviour, and it makes no claim about it.
 
-On Unix, cancelling the read, or its deadline, kills the `ssh` process and each process still in its process group. A process that has left the group, for example with `setsid`, is not killed. If it keeps the diagnostic or configuration output open, the read is refused as incomplete.
+On Unix, cancelling the read, or its deadline, kills the `ssh` process and each process still in its process group. A process that has left the group, for example with `setsid`, is not killed. The read waits up to one second for the group it killed to empty before it returns, so a process it killed is no longer running when the read ends. If it keeps the diagnostic or configuration output open, the read is refused as incomplete.
 
 netdoc asks OpenSSH which host key to trust, before any credential is sent. It runs `ssh` once, with no credential method, no agent, no session, no forwarding and no command, and it reads OpenSSH's own record of the decision. netdoc reads no `known_hosts` file itself. `UserKnownHostsFile`, `GlobalKnownHostsFile`, `HostKeyAlias`, certificate authorities and revocation are OpenSSH's to resolve, as they are for `ssh`.
 

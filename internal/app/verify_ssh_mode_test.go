@@ -33,8 +33,10 @@ type stubVerify struct {
 	attempt   sshverify.Attempt
 	attempted bool
 	discover  bool
-	resolved  bool
-	result    sshverify.Result
+	// boundAfterDiscover records that a discovery had run in this same invocation when the check ran.
+	boundAfterDiscover bool
+	resolved           bool
+	result             sshverify.Result
 	// preflight is what discovery returns before a secret; nil means the host
 	// key is trusted and the server lists methods.
 	preflight *sshverify.Result
@@ -78,6 +80,7 @@ func installVerifyStubs(t *testing.T, s *stubVerify) {
 	verifyVerify = func(_ context.Context, _ sshverify.Target, a sshverify.Attempt, o sshverify.Options) sshverify.Result {
 		s.attempted = true
 		s.attempt = a
+		s.boundAfterDiscover = s.discover
 		return s.result
 	}
 	verifyListAgent = func(_ context.Context, _ sshverify.Target, _ sshverify.Options) ([]sshverify.AgentKey, error) {

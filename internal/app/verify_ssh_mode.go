@@ -138,14 +138,13 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 	opts := sshverify.Options{}
 
 	var result sshverify.Result
-	switch f.auth {
-	case "":
+	if f.auth == "" {
 		result = verifyDiscover(ctx, tgt, opts)
-	case "password", "key":
-		// Discovery checks the host key with OpenSSH and sends no credential. The
-		// secret is asked for only when OpenSSH trusts the key. The check repeats
-		// that decision before it sends anything, so a key that changed in between
-		// is refused.
+	} else {
+		// A credential check discovers the host in this same run, and binds to the identity that
+		// discovery trusted. Nothing is carried over from an earlier run, so an earlier invocation
+		// cannot supply the consent. The secret is asked for only after the discovery trusted the host,
+		// and the check refuses any other identity that OpenSSH trusts by then.
 		seen := verifyDiscover(ctx, tgt, opts)
 		if seen.Outcome != sshverify.Discovered || !seen.Identity.Valid() {
 			writeVerifyResult(stdout, label, seen, f.jsonOut)
@@ -155,14 +154,7 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 		if !ok {
 			return code
 		}
-		// The check binds to the key discovery just showed, so a key that changed in between is refused.
 		attempt.Identity = seen.Identity
-		result = verifyVerify(ctx, tgt, attempt, opts)
-	default: // agent
-		attempt, code, ok := buildAttempt(ctx, f, tgt, needsPass, stdout, stderr)
-		if !ok {
-			return code
-		}
 		result = verifyVerify(ctx, tgt, attempt, opts)
 	}
 	writeVerifyResult(stdout, label, result, f.jsonOut)

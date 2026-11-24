@@ -75,10 +75,10 @@ func readRoute(ctx context.Context, program string, args []string, verifying boo
 	if err != nil {
 		return Route{}, err
 	}
-	// A route the first read cannot establish is refused now. A second read would run the
-	// configuration's Match exec commands again, so it is made only for a route that is known.
-	if route := classify(first, !TerminalAvailable(), verifying); route.Kind == RouteUnknown {
-		return route, nil
+	// A first read that ran a Match exec command is refused now. A second read would run that command
+	// again, so it is made only when the first read did not run one.
+	if hasMatchExec(first) {
+		return classify(first, !TerminalAvailable(), verifying), nil
 	}
 	second, err := captureConfig(ctx, program, args)
 	if err != nil {
@@ -194,11 +194,17 @@ func readingFiles(diag []byte) []string {
 // classify turns one complete read into a route. The rules are checked in order and
 // the first that refuses names the reason. headless is true when netdoc has no
 // terminal of its own, which selects the stricter $ rule.
+// hasMatchExec reports whether the client's diagnostic output shows that a configured Match exec
+// command ran during the read.
+func hasMatchExec(c capture) bool {
+	return bytes.Contains(c.diag, []byte(execMarker))
+}
+
 func classify(c capture, headless, verifying bool) Route {
 	unknown := func(reason string) Route {
 		return Route{Kind: RouteUnknown, Reason: reason, Listing: c.listing}
 	}
-	if bytes.Contains(c.diag, []byte(execMarker)) {
+	if hasMatchExec(c) {
 		return unknown("a Match exec command runs in the configuration; its answer depends on the environment, which netdoc cannot reproduce")
 	}
 	for i, body := range c.contents {

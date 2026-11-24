@@ -98,7 +98,10 @@ func runSecretPrompt(t *testing.T, input []byte) (exitErr error, echoAfter bool)
 
 	// #nosec G702 G204 -- the test runs its own binary as the helper process, with a fixed argument
 	cmd := exec.Command(os.Args[0], "-test.run=^TestPasswordPromptHelper$")
-	cmd.Env = append(os.Environ(), "NETDOC_PROMPT_HELPER=1")
+	// TERM=dumb keeps the helper's terminal library from querying the pty at init. Unless
+	// CI is set or TERM is screen, tmux or dumb, that query blocks with the terminal in
+	// raw mode, and an interrupt during it leaves echo off. The secret read is unchanged.
+	cmd.Env = append(os.Environ(), "NETDOC_PROMPT_HELPER=1", "TERM=dumb")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	if err := cmd.Start(); err != nil {

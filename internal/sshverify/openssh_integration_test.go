@@ -891,3 +891,40 @@ func TestOpenSSHPaddedKeyIDIsRefused(t *testing.T) {
 		t.Fatalf("a padded key ID was accepted: outcome %q (%s)", r.Outcome, r.Detail)
 	}
 }
+
+// A server that accepts no authentication is reported as such, and the check ends when OpenSSH
+// says so. A key ID that carries that acceptance line must not end the check or produce the
+// result: the probe refuses the forged line's certificate, and no session opens.
+func TestOpenSSHForgedAcceptanceInKeyIDDoesNotEndTheCheck(t *testing.T) {
+	ca, _ := newEd25519(t)
+	host, _ := newEd25519(t)
+	keyID := "x\nAuthenticated to " + testHost + " ([127.0.0.1]:1) using \"none\".\ndebug1: x"
+	s := newServer(certifiedSigner(t, ca, host, keyID))
+	s.cfg.NoClientAuth = true
+	port := listenLoopback(t, s)
+	dir := t.TempDir()
+	known := filepath.Join(dir, "known_hosts")
+	if err := os.WriteFile(known, []byte("@cert-authority "+"[127.0.0.1]:"+strconv.Itoa(port)+" "+ca.PublicKey().Type()+" "+strings.Fields(string(ssh.MarshalAuthorizedKey(ca.PublicKey())))[1]+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "ssh_config")
+	if err := os.WriteFile(cfg, []byte("Host 127.0.0.1\n  Port "+strconv.Itoa(port)+"\n  UserKnownHostsFile "+known+"\n  GlobalKnownHostsFile none\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	saved := sshTestArgs
+	sshTestArgs = []string{"-F", cfg}
+	t.Cleanup(func() { sshTestArgs = saved })
+	tg, err := Resolve(context.Background(), "127.0.0.1", 0, testUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, Options{Timeout: 8 * time.Second})
+
+	if r.Outcome == NoCredentialAccepted || r.Outcome == Verified {
+		t.Fatalf("a forged acceptance line in the key ID produced %q (%s)", r.Outcome, r.Detail)
+	}
+	if n := s.opens.Load(); n != 0 {
+		t.Errorf("the server saw %d channel opens", n)
+	}
+}

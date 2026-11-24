@@ -50,7 +50,7 @@ func TestClassifyRefusesWhatItCannotMatch(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			r := classify(c.c, false)
+			r := classify(c.c, false, true)
 			if r.Kind != c.want {
 				t.Fatalf("kind = %s (%q), want %s", r.Kind, r.Reason, c.want)
 			}

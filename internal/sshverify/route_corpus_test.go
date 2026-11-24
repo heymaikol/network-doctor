@@ -176,10 +176,10 @@ func TestScannerCorpusRoutesAsMeasured(t *testing.T) {
 				}
 				return
 			}
-			if got := classify(cap, false); got.Kind != c.terminal {
+			if got := classify(cap, false, true); got.Kind != c.terminal {
 				t.Errorf("terminal = %s (%q), want %s", got.Kind, got.Reason, c.terminal)
 			}
-			if got := classify(cap, true); got.Kind != c.headless {
+			if got := classify(cap, true, true); got.Kind != c.headless {
 				t.Errorf("headless = %s (%q), want %s", got.Kind, got.Reason, c.headless)
 			}
 		})
@@ -247,10 +247,10 @@ func TestMutatedDirectRoutesAreRefused(t *testing.T) {
 				if err != nil {
 					return // the client refused the mutated configuration outright
 				}
-				if got := classify(cap, false); got.Kind == direct {
+				if got := classify(cap, false, true); got.Kind == direct {
 					t.Errorf("terminal accepted the mutated route as direct")
 				}
-				if got := classify(cap, true); got.Kind == direct {
+				if got := classify(cap, true, true); got.Kind == direct {
 					t.Errorf("headless accepted the mutated route as direct")
 				}
 			})

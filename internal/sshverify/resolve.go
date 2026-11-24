@@ -174,7 +174,7 @@ func ReadConfig(ctx context.Context, program string, args []string) ([]byte, err
 	if !configPlatformSupported {
 		return nil, unsupportedPlatform()
 	}
-	route, err := ReadRoute(ctx, program, args)
+	route, err := readRoute(ctx, program, args, true)
 	if err != nil {
 		return nil, err
 	}

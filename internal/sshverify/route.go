@@ -56,7 +56,15 @@ type Route struct {
 // The read runs twice. A file or the listing that differs between the two runs makes
 // the route unknown, so a configuration changed mid-read is not classified from a mix
 // of its two states. The contents classified are the bytes that were read.
+// ReadRoute reads the route for a --via run, which starts the user's own ssh. It applies the
+// route rules that hold for any run, and none of the restrictions that only a credential needs.
 func ReadRoute(ctx context.Context, program string, args []string) (Route, error) {
+	return readRoute(ctx, program, args, false)
+}
+
+// readRoute reads the route. verifying says a credential will be sent over it, which needs the
+// verification-only restrictions as well.
+func readRoute(ctx context.Context, program string, args []string, verifying bool) (Route, error) {
 	if !configPlatformSupported {
 		return Route{}, unsupportedPlatform()
 	}
@@ -74,7 +82,7 @@ func ReadRoute(ctx context.Context, program string, args []string) (Route, error
 	if !first.same(second) {
 		return Route{Kind: RouteUnknown, Reason: "the SSH configuration changed while netdoc read it, so no route is established; nothing was sent"}, nil
 	}
-	return classify(first, !TerminalAvailable()), nil
+	return classify(first, !TerminalAvailable(), verifying), nil
 }
 
 func unsupportedPlatform() error {
@@ -181,7 +189,7 @@ func readingFiles(diag []byte) []string {
 // classify turns one complete read into a route. The rules are checked in order and
 // the first that refuses names the reason. headless is true when netdoc has no
 // terminal of its own, which selects the stricter $ rule.
-func classify(c capture, headless bool) Route {
+func classify(c capture, headless, verifying bool) Route {
 	unknown := func(reason string) Route {
 		return Route{Kind: RouteUnknown, Reason: reason, Listing: c.listing}
 	}
@@ -207,7 +215,7 @@ func classify(c capture, headless bool) Route {
 	if value, set := listingValue(c.listing, "knownhostscommand"); set && value != "none" {
 		return unknown("KnownHostsCommand is set: it decides host-key trust when a connection is made, and netdoc does not run it")
 	}
-	if value, set := listingValue(c.listing, "gssapikeyexchange"); set && value != "no" {
+	if value, set := listingValue(c.listing, "gssapikeyexchange"); verifying && set && value != "no" {
 		// A GSSAPI key exchange authenticates with the user's Kerberos credentials, which
 		// netdoc does not send. Only a listing that says no is known to send none.
 		return unknown("GSSAPIKeyExchange is set: its key exchange would use your Kerberos credentials, which netdoc does not send")

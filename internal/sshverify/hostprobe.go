@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
@@ -235,6 +236,9 @@ var sshTestArgs []string
 // probeOutputLimit bounds what the probe keeps of OpenSSH's output.
 const probeOutputLimit = 1 << 20
 
+// probeWaitDelay bounds the wait for the probe's output once the client has ended or been killed.
+const probeWaitDelay = 2 * time.Second
+
 // probeHostKey runs the probe for the target and returns OpenSSH's trust decision. It runs the
 // installed client, the one ssh -G read the configuration with, and sends no credential.
 func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool, Result) {
@@ -270,6 +274,10 @@ var errProbeOutput = errors.New("the OpenSSH host-key check wrote unexpected out
 // output, and its diagnostic output is held to probeOutputLimit.
 func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte, int, error) {
 	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
+	// The probe's group is killed with it, so no descendant outlives the deadline, and the wait
+	// for its output is bounded, so a descendant that holds the output cannot hold the check.
+	configureProcess(cmd)
+	cmd.WaitDelay = probeWaitDelay
 	cmd.Env = append(os.Environ(), "SSH_ASKPASS_REQUIRE=never")
 	var stdout, stderr bytes.Buffer
 	out := &limitedBuffer{buf: &stdout, limit: 0}

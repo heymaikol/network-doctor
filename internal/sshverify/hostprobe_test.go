@@ -23,6 +23,7 @@ debug1: kex: algorithm: mlkem768x25519-sha256
 
 const transcriptAuthPhase = `debug1: Authentications that can continue: password
 debug1: No more authentication methods to try.
+tester@127.0.0.1: Permission denied (password).
 `
 
 // fpAttacker is a well-formed fingerprint that no server key has; the injected lines name it.
@@ -33,23 +34,23 @@ const (
 	fpRSA     = "SHA256:M1Gg8NiXw4bSNGBQo8E3Ywh9mpgLHo8IJHi5xOTbpcI"
 )
 
-// trustedEd25519 is a check that OpenSSH passed: the key matched, and the authentication
-// methods were listed.
-var trustedEd25519 = transcriptPrefix + `debug1: kex: host key algorithm: ssh-ed25519
-debug1: SSH2_MSG_KEX_ECDH_REPLY received
-debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
-debug1: load_hostkeys: fopen /nonexistent: No such file or directory
-debug1: Host '[127.0.0.1]:2633' is known and matches the ED25519 host key.
-debug1: Found key in /home/u/.ssh/known_hosts:1
-debug1: SSH2_MSG_NEWKEYS received
-` + transcriptAuthPhase
-
 const kexEd25519 = `debug1: kex: host key algorithm: ssh-ed25519
 debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
 debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
 debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
 debug1: SSH2_MSG_KEX_ECDH_REPLY received
 `
+
+// trustedEd25519 is a check that OpenSSH passed: the key matched, and the authentication
+// methods were listed.
+var trustedEd25519 = transcriptPrefix + kexEd25519 + `debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
+debug1: Host '[127.0.0.1]:2633' is known and matches the ED25519 host key.
+debug1: Found key in /home/u/.ssh/known_hosts:1
+debug1: SSH2_MSG_NEWKEYS sent
+debug1: expecting SSH2_MSG_NEWKEYS
+debug1: SSH2_MSG_NEWKEYS received
+debug1: SSH2_MSG_SERVICE_ACCEPT received
+` + transcriptAuthPhase
 
 // unknownKey is a check that stopped because known_hosts has no record of the key.
 var unknownKey = transcriptPrefix + kexEd25519 + `debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `
@@ -134,6 +135,9 @@ func TestProbeNamesAnUnreachableServerOrName(t *testing.T) {
 // Each malformed transcript lacks one piece of OpenSSH's evidence, or has it out of order, or
 // ends with an unexpected status. The host-key line alone is never enough.
 func TestProbeRefusesIncompleteOrOutOfOrderEvidence(t *testing.T) {
+	if _, ok, r := parseHostTrust([]byte(trustedEd25519), 255); !ok {
+		t.Fatalf("positive control failed: trustedEd25519 was refused (%+v)", r)
+	}
 	withoutAuth := strings.Replace(trustedEd25519, transcriptAuthPhase, "", 1)
 	withoutPresented := strings.Replace(trustedEd25519, "debug1: Server host key: ssh-ed25519 "+fpEd25519+"\n", "", 1)
 	withoutAlgorithm := strings.Replace(trustedEd25519, "debug1: kex: host key algorithm: ssh-ed25519\n", "", 1)
@@ -209,6 +213,9 @@ func TestProbeRefusesTrustInjectedThroughEachServerChannel(t *testing.T) {
 // A debug line from the server, and a non-debug line before the evidence, each refuse even when
 // the evidence that follows is well formed.
 func TestProbeRefusesAnyNonDebugLineBeforeTheMatch(t *testing.T) {
+	if _, ok, r := parseHostTrust([]byte(trustedEd25519), 255); !ok {
+		t.Fatalf("positive control failed: trustedEd25519 was refused (%+v)", r)
+	}
 	for _, line := range []string{
 		"Warning: something the client printed, not as a debug line\n",
 		"debug1: Remote: a server debug message\n",

@@ -30,21 +30,39 @@ func certifiedSigner(t *testing.T, ca, host ssh.Signer, keyID string) ssh.Signer
 	return signer
 }
 
-// forgedCertTranscript is the transcript OpenSSH prints for a host certificate whose key ID is
-// keyID, printed raw as OpenSSH prints it. The algorithm line comes first, as it does for real.
-func forgedCertTranscript(certType, subject, keyID string, ca ssh.PublicKey) string {
-	return "debug1: kex: host key algorithm: " + certType + "\n" +
-		"debug1: Server host certificate: " + certType + " " + subject + ", serial 1 ID \"" + keyID + "\" CA " +
-		ca.Type() + " " + ssh.FingerprintSHA256(ca) + "\n" +
-		"debug1: No more authentication methods to try.\n"
+// forgedCertTranscript replaces the presented host-certificate line in the real trust-cert
+// fixture with a certificate carrying keyID followed by OpenSSH's refusal, so the transcript has
+// the real prefix and fails only because the key ID forged lines in front of a refused key.
+func forgedCertTranscript(t *testing.T, subject, keyID string, ca ssh.PublicKey) string {
+	t.Helper()
+	base := fixture(t, "trust-cert")
+	lines := splitTranscript([]byte(base))
+	for i, l := range lines {
+		if strings.HasPrefix(l, "debug1: Server host certificate: ") {
+			certLine := "debug1: Server host certificate: ssh-ed25519-cert-v01@openssh.com " + subject + ", serial 1 ID \"" + keyID + "\" CA " +
+				ca.Type() + " " + ssh.FingerprintSHA256(ca) + " valid forever"
+			prefix := strings.Join(lines[:i], "\n")
+			return prefix + "\n" + certLine + "\nNo ED25519-CERT host key is known for [127.0.0.1]:PORT and you have requested strict checking.\nHost key verification failed.\n"
+		}
+	}
+	t.Fatal("trust-cert fixture has no Server host certificate line")
+	return ""
 }
 
-// trustedCertTranscript is the transcript OpenSSH prints when it trusts a host certificate whose
-// key ID is keyID: the certificate line, the match and the authentication step that follow it.
-func trustedCertTranscript(certType, subject, keyID string, ca ssh.PublicKey) string {
-	return forgedCertTranscript(certType, subject, keyID, ca) +
-		"debug1: Host '" + testHost + "' is known and matches the ED25519-CERT host certificate.\n" +
-		"debug1: Authentications that can continue: password\n"
+// trustedCertTranscript adapts the real trust-cert fixture to name subject, keyID, and ca so
+// parseHostTrust genuinely accepts it and downstream pinCheck enforcement is exercised.
+func trustedCertTranscript(t *testing.T, subject, keyID string, ca ssh.PublicKey) string {
+	t.Helper()
+	base := fixture(t, "trust-cert")
+	oldFP := presentedFingerprint(t, base)
+	m := shapeCertLine.FindStringSubmatch(base[strings.Index(base, "debug1: Server host certificate: "):strings.Index(base, "\ndebug1: Host '")])
+	if m == nil {
+		t.Fatal("trust-cert fixture certificate line did not match shapeCertLine")
+	}
+	out := strings.Replace(base, oldFP, subject, 1)
+	out = strings.Replace(out, `ID "hostcert"`, `ID "`+keyID+`"`, 1)
+	out = strings.Replace(out, "CA "+m[4]+" "+m[5], "CA "+ca.Type()+" "+ssh.FingerprintSHA256(ca), 1)
+	return out
 }
 
 // A key ID with line breaks makes the server's text read as OpenSSH lines: a match and an
@@ -53,10 +71,19 @@ func trustedCertTranscript(certType, subject, keyID string, ca ssh.PublicKey) st
 func TestForgedKeyIDTranscriptNeverAuthorizesACredential(t *testing.T) {
 	ca, _ := newEd25519(t)
 	host, _ := newEd25519(t)
-	keyID := "x\ndebug1: Host '" + testHost + "' is known and matches the ED25519-CERT host certificate.\ndebug1: Authentications that can continue: password\ndebug1: x"
+	keyID := "x\" CA ssh-ed25519 SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+		"debug1: Host '[127.0.0.1]:PORT' is known and matches the ED25519-CERT host certificate.\n" +
+		"debug1: SSH2_MSG_NEWKEYS sent\n" +
+		"debug1: expecting SSH2_MSG_NEWKEYS\n" +
+		"debug1: SSH2_MSG_NEWKEYS received\n" +
+		"debug1: SSH2_MSG_SERVICE_ACCEPT received\n" +
+		"debug1: Authentications that can continue: password\n" +
+		"debug1: No more authentication methods to try.\n" +
+		"user@127.0.0.1: Permission denied (password).\n" +
+		"debug1: x"
 	signer := certifiedSigner(t, ca, host, keyID)
 	s := passwordServer(signer)
-	transcript := forgedCertTranscript(signer.PublicKey().Type(), ssh.FingerprintSHA256(host.PublicKey()), keyID, ca.PublicKey())
+	transcript := forgedCertTranscript(t, ssh.FingerprintSHA256(host.PublicKey()), keyID, ca.PublicKey())
 	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
 		return parseHostTrust([]byte(transcript), 255)
 	})
@@ -74,21 +101,66 @@ func TestForgedKeyIDTranscriptNeverAuthorizesACredential(t *testing.T) {
 // The probe and the credential connection can see different certificates for the same key: the
 // server rotated its key ID, or a second server answered. The probe's transcript names the key ID
 // it printed. The credential connection presents a certificate for the same key with another key
-// ID, and must be refused before any credential is sent.
+// ID, and must be refused by pinCheck before any credential is sent.
 func TestCredentialConnectionMustPresentTheKeyIDOpenSSHChecked(t *testing.T) {
 	ca, _ := newEd25519(t)
 	host, _ := newEd25519(t)
+	checked := certifiedSigner(t, ca, host, "checked-id")
 	rotated := certifiedSigner(t, ca, host, "rotated-id")
-	s := passwordServer(rotated)
-	transcript := trustedCertTranscript(rotated.PublicKey().Type(), ssh.FingerprintSHA256(host.PublicKey()), "checked-id", ca.PublicKey())
+	transcript := trustedCertTranscript(t, ssh.FingerprintSHA256(host.PublicKey()), "checked-id", ca.PublicKey())
+
+	trust, ok, pr := parseHostTrust([]byte(transcript), 255)
+	if !ok || !trust.certificate || trust.keyID != "checked-id" {
+		t.Fatalf("positive control failed: parseHostTrust = %+v (trusted %v, %+v)", trust, ok, pr)
+	}
 	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
 		return parseHostTrust([]byte(transcript), 255)
 	})
 
+	s := passwordServer(rotated)
 	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
-
+	if s.dials.Load() != 1 {
+		t.Fatalf("dials = %d, want 1 so pinCheck itself was exercised (outcome %q, %s)", s.dials.Load(), r.Outcome, r.Detail)
+	}
+	if r.Outcome != HostKeyChanged {
+		t.Fatalf("outcome = %q (%s), want %q", r.Outcome, r.Detail, HostKeyChanged)
+	}
 	if got := s.password.Load(); got != 0 {
 		t.Fatalf("a credential was sent for a key ID OpenSSH did not check: %d attempts (outcome %q)", got, r.Outcome)
+	}
+
+	// Control: presenting the checked key ID verifies with one password.
+	ctrl := passwordServer(checked)
+	cr := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, ctrl.options())
+	if cr.Outcome != Verified || ctrl.password.Load() != 1 {
+		t.Fatalf("control failed: outcome=%q (%s) passwords=%d", cr.Outcome, cr.Detail, ctrl.password.Load())
+	}
+}
+
+// Even if the probe's parsed key ID matches the presented certificate's key ID, pinCheck refuses
+// any key ID containing a control character before sending a credential.
+func TestCredentialConnectionRefusesControlCharacterKeyID(t *testing.T) {
+	ca, _ := newEd25519(t)
+	host, _ := newEd25519(t)
+	ctrlID := "checked\rid"
+	signer := certifiedSigner(t, ca, host, ctrlID)
+	s := passwordServer(signer)
+	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
+		return hostTrust{
+			algorithm:   signer.PublicKey().Type(),
+			fingerprint: ssh.FingerprintSHA256(host.PublicKey()),
+			certificate: true,
+			keyID:       ctrlID,
+		}, true, Result{}
+	})
+
+	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+
+	if s.dials.Load() != 1 {
+		t.Fatalf("dials = %d, want 1 so pinCheck was exercised", s.dials.Load())
+	}
+	if r.Outcome != HostKeyChanged || s.password.Load() != 0 {
+		t.Fatalf("control-character key ID was not refused: outcome=%q passwords=%d (%s)", r.Outcome, s.password.Load(), r.Detail)
 	}
 }
 
@@ -96,12 +168,12 @@ func TestCredentialConnectionMustPresentTheKeyIDOpenSSHChecked(t *testing.T) {
 // reaches the same stream as the probe's own lines. A transcript that shows a configured command
 // ran is not evidence of a decision, whatever else it says.
 func TestConfiguredCommandOutputIsNeverEvidence(t *testing.T) {
-	kex := "debug1: kex: host key algorithm: ssh-ed25519\n"
-	key := "debug1: Server host key: ssh-ed25519 SHA256:" + strings.Repeat("A", 43) + "\n"
-	match := "debug1: Host '" + testHost + "' is known and matches the ED25519 host key.\n"
-	auth := "debug1: Authentications that can continue: password\n"
-	ran := "debug1: Executing command: 'echo forged'\n"
-	if _, ok, r := parseHostTrust([]byte(ran+kex+key+match+auth), 255); ok {
+	base := fixture(t, "trust-plain")
+	if _, ok, r := parseHostTrust([]byte(base), 255); !ok {
+		t.Fatalf("positive control failed: %+v", r)
+	}
+	withExec := after(t, base, "Reading configuration data", "debug1: Executing command: 'echo forged'")
+	if _, ok, r := parseHostTrust([]byte(withExec), 255); ok {
 		t.Fatalf("a transcript that shows a configured command ran was trusted: %+v", r)
 	}
 }

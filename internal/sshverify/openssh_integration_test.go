@@ -12,6 +12,7 @@ package sshverify
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1085,5 +1087,68 @@ func TestOpenSSHForgedKeyIDDoesNotSpoofFingerprintOrSuppressWarnings(t *testing.
 				t.Fatalf("got outcome=%q hostKey=%q (%s), want %q with %q", r.Outcome, r.HostKey, r.Detail, tc.wantState, attackerFP)
 			}
 		})
+	}
+}
+
+// A server presenting a trusted host certificate whose key ID rotates between OpenSSH's probe and
+// the credential connection must be refused by pinCheck before any password is sent.
+func TestOpenSSHCertificateRotatedKeyIDIsRefused(t *testing.T) {
+	ca, _ := newEd25519(t)
+	host, _ := newEd25519(t)
+	signForLoopback := func(keyID string) ssh.Signer {
+		t.Helper()
+		cert := &ssh.Certificate{
+			Key:             host.PublicKey(),
+			CertType:        ssh.HostCert,
+			KeyId:           keyID,
+			ValidPrincipals: []string{"127.0.0.1"},
+			ValidBefore:     ssh.CertTimeInfinity,
+		}
+		if err := cert.SignCert(rand.Reader, ca); err != nil {
+			t.Fatal(err)
+		}
+		signer, err := ssh.NewCertSigner(cert, host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return signer
+	}
+	checked := signForLoopback("checked-id")
+	rotated := signForLoopback("rotated-id")
+
+	run := func(t *testing.T, second ssh.Signer) (Result, int32) {
+		t.Helper()
+		var passwords atomic.Int32
+		port := listenPerConnection(t, checked, second, &passwords)
+		dir := t.TempDir()
+		known := filepath.Join(dir, "known_hosts")
+		caFields := strings.Fields(string(ssh.MarshalAuthorizedKey(ca.PublicKey())))
+		if err := os.WriteFile(known, []byte("@cert-authority [127.0.0.1]:"+strconv.Itoa(port)+" "+caFields[0]+" "+caFields[1]+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg := filepath.Join(dir, "ssh_config")
+		if err := os.WriteFile(cfg, []byte("Host 127.0.0.1\n  Port "+strconv.Itoa(port)+"\n  UserKnownHostsFile "+known+"\n  GlobalKnownHostsFile none\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		saved := sshTestArgs
+		sshTestArgs = []string{"-F", cfg}
+		t.Cleanup(func() { sshTestArgs = saved })
+		tg, err := Resolve(context.Background(), "127.0.0.1", 0, testUser)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
+		return r, passwords.Load()
+	}
+
+	r, pw := run(t, rotated)
+	if r.Outcome != HostKeyChanged || pw != 0 {
+		t.Fatalf("rotated key ID: outcome=%q (%s) passwords=%d, want %q with 0 passwords", r.Outcome, r.Detail, pw, HostKeyChanged)
+	}
+
+	// Control: the same key ID on both connections reaches the password callback once.
+	cr, cpw := run(t, checked)
+	if cr.Outcome != Refused || cpw != 1 {
+		t.Fatalf("matching key ID control: outcome=%q (%s) passwords=%d, want %q with 1 password", cr.Outcome, cr.Detail, cpw, Refused)
 	}
 }

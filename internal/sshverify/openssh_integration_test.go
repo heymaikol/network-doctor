@@ -724,15 +724,25 @@ func TestOpenSSHLabSeesASessionWhenThereIsOne(t *testing.T) {
 	}
 }
 
-// TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient records a hybrid ML-DSA host key on a
-// server that offers it. OpenSSH 10.5 does not agree that key type with the default client, so
-// the probe names the failed agreement and netdoc sends no credential. Enabling the type on both
-// sides did not produce an agreement in this lab either, so that case is not tested here.
+// TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient checks that netdoc does not trust a host key
+// the default OpenSSH client cannot agree on. That client refuses the key, so the probe must name
+// the failed agreement and send no credential. Where this ssh-keygen can make an ML-DSA host key,
+// that key is tested. Where it reports "unknown key type", the same refusal is set up with an
+// ed25519 host key and a client that offers only another type, so the property is still checked.
 func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
-	const mldsa = "ssh-mldsa44-ed25519@openssh.com"
-	l := newOSHLab(t, oshOpts{hostKinds: []string{"mldsa44-ed25519"}, extra: "HostKeyAlgorithms +" + mldsa + "\n"})
-	l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
-	l.useConfig(t, l.baseConfig(l.known, ""))
+	kind, offer, client := "mldsa44-ed25519", "ssh-mldsa44-ed25519", "Include /etc/ssh/ssh_config\n"
+	if !oshKeygenMakes(t, oshTool(t, "ssh-keygen"), kind) {
+		kind, offer = "ed25519", "ssh-ed25519"
+		// The first value OpenSSH reads wins, so the restriction goes before the system configuration.
+		client = "HostKeyAlgorithms ecdsa-sha2-nistp256\n" + client
+	}
+	// No known_hosts record for the key: OpenSSH adds a recorded key's type to its own offer, and then
+	// the client would agree with the key, which is the case this test is not about. The system
+	// configuration is included because the default client reads it, and on some systems its crypto
+	// policy leaves the ML-DSA name out of HostKeyAlgorithms.
+	l := newOSHLab(t, oshOpts{hostKinds: []string{kind}})
+	l.useConfig(t, client+l.baseConfig(l.known, ""))
+	l.requireDefaultClientRefusal(t, offer)
 	tg := l.resolve(t, "127.0.0.1")
 
 	snap := l.snap(t)
@@ -742,6 +752,35 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 	}
 	if got := l.credentials() - snap.creds; got != 0 {
 		t.Errorf("the server saw %d credential attempts", got)
+	}
+}
+
+// oshKeygenMakes reports whether ssh-keygen can make a host key of kind. An OpenSSH without the
+// type says "unknown key type"; any other failure is a broken test environment and fails the test.
+func oshKeygenMakes(t *testing.T, keygen, kind string) bool {
+	t.Helper()
+	out, err := exec.Command(keygen, "-q", "-t", kind, "-N", "", "-f", filepath.Join(t.TempDir(), "probe")).CombinedOutput() // #nosec G204 -- fixed arguments and a test-owned path
+	if err == nil {
+		return true
+	}
+	if strings.Contains(string(out), "unknown key type") {
+		return false
+	}
+	t.Fatalf("ssh-keygen -t %s: %v: %s", kind, err, out)
+	return false
+}
+
+// requireDefaultClientRefusal runs the default client against the lab. It fails unless the client
+// reports that it found no host key type to agree on and that the server offered offer. The
+// probe's answer means something only if this scenario holds.
+func (l *oshLab) requireDefaultClientRefusal(t *testing.T, offer string) {
+	t.Helper()
+	args := append(append([]string(nil), sshTestArgs...), "-o", "BatchMode=yes", "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1", "true")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, oshTool(t, "ssh"), args...).CombinedOutput() // #nosec G204 -- fixed options and the lab's own port
+	if s := string(out); !strings.Contains(s, "no matching host key type found") || !strings.Contains(s, "Their offer: "+offer) {
+		t.Fatalf("the default client did not refuse the %s host key with its offer named, so the scenario is not established:\n%s", offer, out)
 	}
 }
 

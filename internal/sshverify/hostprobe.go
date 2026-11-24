@@ -56,12 +56,18 @@ type hostTrust struct {
 // does override KnownHostsCommand, to none, so a command written after the route read cannot change
 // the decision. The options that stop a probe from doing more than the handshake are: no session
 // (-N), no credential method, no agent, no control connection, no forwarding, no local command,
-// no proxy, no provider, and no background process. Match exec in the configuration still runs
-// when OpenSSH reads it; the route read refuses that, and no option can turn it off.
+// no proxy, no provider, and no background process. A Match exec in the configuration can run
+// whenever OpenSSH reads the configuration, including the probe's own read, and no option turns
+// that off. The route read refuses a configuration with a Match exec before the probe starts, and
+// the probe refuses a transcript that shows a configured command ran. Neither stops the command
+// from running. VisualHostKey and HostbasedAuthentication are off, because their output is not part
+// of the shape and they change nothing about the trust decision.
 func probeArgs(dest []string) []string {
 	return append([]string{
 		"-N", "-n", "-T",
 		"-o", "LogLevel=DEBUG1",
+		"-o", "VisualHostKey=no",
+		"-o", "HostbasedAuthentication=no",
 		"-o", "LogVerbose=none",
 		"-o", "FingerprintHash=sha256",
 		"-o", "BatchMode=yes",

@@ -58,8 +58,9 @@ type Target struct {
 }
 
 // Resolve reads the configuration for host, as ssh would resolve it. It runs
-// one `ssh -G` with a fixed argument vector. That reads configuration files
-// and connects to nothing.
+// one `ssh -G` with a fixed argument vector, which reads configuration files and
+// connects to nothing. A Match exec command in the configuration still runs while
+// OpenSSH reads it; netdoc refuses such a route, and no option prevents the run.
 func Resolve(ctx context.Context, host string, port int, login string) (Target, error) {
 	if host == "" {
 		return Target{}, errors.New("no host given")
@@ -332,8 +333,8 @@ func runCanary(ctx context.Context, program string) error {
 		return canaryFail(probeProxyJump, "ProxyJump none did not leave the route direct in the listing")
 	}
 
-	// -G lists KnownHostsCommand and must not run it: the command would otherwise run
-	// during every configuration read, before any route is known.
+	// -G lists KnownHostsCommand and does not run it. The canary checks that, because a
+	// command run during every configuration read would run before any route is known.
 	out, _, err = runProbe(ctx, program, dir, probeKnownHostsCommand, "positive", hostBlock+"  KnownHostsCommand touch "+sentinel+"\n")
 	if err != nil {
 		return err
@@ -485,7 +486,10 @@ func listingKey(out []byte, key string) bool {
 // readConfig runs the client once, in its own process group, and returns its
 // complete standard output and complete diagnostic output. It fails when the run
 // was cut short, when either stream was not read to its end or was larger than
-// netdoc reads, or when the client exited non-zero.
+// netdoc reads, or when the client exited non-zero. A process that a configured
+// command starts with setsid leaves the group and is not killed here; a read whose
+// output that process holds open is refused as incomplete, but the process itself
+// can outlive the read.
 func readConfig(ctx context.Context, program string, args []string, env []string) ([]byte, []byte, error) {
 	outR, outW, err := os.Pipe()
 	if err != nil {

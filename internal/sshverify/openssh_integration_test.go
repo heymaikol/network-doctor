@@ -724,31 +724,131 @@ func TestOpenSSHLabSeesASessionWhenThereIsOne(t *testing.T) {
 	}
 }
 
-// TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient checks that netdoc does not trust a host key
-// the default OpenSSH client cannot agree on. That client refuses the key, so the probe must name
-// the failed agreement and send no credential. Where this ssh-keygen can make an ML-DSA host key,
-// that key is tested. Where it reports "unknown key type", the same refusal is set up with an
-// ed25519 host key and a client that offers only another type, so the property is still checked.
+// TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient checks that netdoc trusts no host key the
+// OpenSSH client does not agree on, and sends no credential to that host. The lab is hermetic: its
+// client configuration names no system file, and the server states its host key type explicitly.
+// The two subtests make different claims, and their names say which.
 func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
-	kind, offer, client := "mldsa44-ed25519", "ssh-mldsa44-ed25519", "Include /etc/ssh/ssh_config\n"
+	// The ML-DSA key when this OpenSSH can make one; otherwise ed25519, which every OpenSSH offers.
+	kind := "mldsa44-ed25519"
 	if !oshKeygenMakes(t, oshTool(t, "ssh-keygen"), kind) {
-		kind, offer = "ed25519", "ssh-ed25519"
-		// The first value OpenSSH reads wins, so the restriction goes before the system configuration.
-		client = "HostKeyAlgorithms ecdsa-sha2-nistp256\n" + client
+		kind = "ed25519"
 	}
-	// No known_hosts record for the key: OpenSSH adds a recorded key's type to its own offer, and then
-	// the client would agree with the key, which is the case this test is not about. The system
-	// configuration is included because the default client reads it, and on some systems its crypto
-	// policy leaves the ML-DSA name out of HostKeyAlgorithms.
-	l := newOSHLab(t, oshOpts{hostKinds: []string{kind}})
-	l.useConfig(t, client+l.baseConfig(l.known, ""))
-	l.requireDefaultClientRefusal(t, offer)
-	tg := l.resolve(t, "127.0.0.1")
+	t.Logf("host key type: %s", kind)
+	t.Run("DefaultClientPolicy", func(t *testing.T) {
+		// The client reads only the lab's configuration, so its algorithm list is the compiled default.
+		// Whatever it answers sets the expectation, so nothing here assumes a version.
+		l := newOSHLab(t, oshOpts{hostKinds: []string{kind}, extra: oshAdvertise(t, kind)})
+		l.useConfig(t, l.baseConfig(l.known, ""))
+		out, status := l.clientRun(t)
+		offer := oshHostKeyToken(t, l.hostKeys[0])
+		refused := oshNegotiationRefused(out, status, offer)
+		if !refused && !oshAgreedUnrecorded(out, status, offer) {
+			t.Fatalf("the default client neither refused nor agreed with the %s host key as expected (status %d):\n%s", offer, status, out)
+		}
+		if refused {
+			t.Logf("default client refused %s: no algorithm agreed", offer)
+		} else {
+			t.Logf("default client agreed on %s and refused the unrecorded key", offer)
+		}
+		l.requireNetdocNoTrust(t, refused)
+	})
+	t.Run("RestrictedClientNegotiation", func(t *testing.T) {
+		// The restriction is explicit and lab-owned: the client offers only ecdsa, the server offers
+		// kind. This is a different claim from the default policy, and it is checked as one.
+		l := newOSHLab(t, oshOpts{hostKinds: []string{kind}, extra: oshAdvertise(t, kind)})
+		l.useConfig(t, "HostKeyAlgorithms ecdsa-sha2-nistp256\n"+l.baseConfig(l.known, ""))
+		out, status := l.clientRun(t)
+		offer := oshHostKeyToken(t, l.hostKeys[0])
+		if !oshNegotiationRefused(out, status, offer) {
+			t.Fatalf("the restricted client did not fail to negotiate the %s host key (status %d):\n%s", offer, status, out)
+		}
+		l.requireNetdocNoTrust(t, true)
+	})
+}
 
+// oshAdvertise is the sshd line that makes the server offer the lab's host key type explicitly.
+func oshAdvertise(t *testing.T, kind string) string {
+	t.Helper()
+	return "HostKeyAlgorithms " + oshHostKeyTokenFor(t, kind) + "\n"
+}
+
+// oshHostKeyTokenFor generates a key of kind and returns its algorithm name, the first field of
+// its public half. The lab uses the name OpenSSH itself writes, not a name the test assumes.
+func oshHostKeyTokenFor(t *testing.T, kind string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "token")
+	if out, err := exec.Command(oshTool(t, "ssh-keygen"), "-q", "-t", kind, "-N", "", "-f", path).CombinedOutput(); err != nil { // #nosec G204 -- fixed arguments and a test-owned path
+		t.Fatalf("ssh-keygen -t %s: %v: %s", kind, err, out)
+	}
+	return oshHostKeyToken(t, path)
+}
+
+// oshHostKeyToken returns the algorithm name in a generated key's public half.
+func oshHostKeyToken(t *testing.T, privatePath string) string {
+	t.Helper()
+	b, err := os.ReadFile(privatePath + ".pub") // #nosec G304 -- a test-owned path
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Fields(string(b))
+	if len(f) < 2 {
+		t.Fatalf("%s.pub has no key type", privatePath)
+	}
+	return f[0]
+}
+
+// clientRun runs the OpenSSH client the lab uses, with the lab's own configuration and no netdoc
+// options, and returns its output and exit status. LogLevel=DEBUG1 prints the negotiation line.
+func (l *oshLab) clientRun(t *testing.T) (string, int) {
+	t.Helper()
+	args := append(append([]string(nil), sshTestArgs...), "-o", "BatchMode=yes", "-o", "LogLevel=DEBUG1", "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1", "true")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, oshTool(t, "ssh"), args...).CombinedOutput() // #nosec G204 -- fixed options and the lab's own port
+	status := 0
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		status = exit.ExitCode()
+	} else if err != nil {
+		t.Fatalf("run the client: %v", err)
+	}
+	return string(out), status
+}
+
+// oshNegotiationRefused reports whether the client failed the way a host key algorithm mismatch
+// fails: exit 255, the negotiation found no match, and the server named offer as its offer.
+func oshNegotiationRefused(out string, status int, offer string) bool {
+	return status == 255 && strings.Contains(out, "kex: host key algorithm: (no match)") &&
+		strings.Contains(out, "no matching host key type found. Their offer: "+offer)
+}
+
+// oshAgreedUnrecorded reports whether the client agreed on offer and then refused the unrecorded key.
+func oshAgreedUnrecorded(out string, status int, offer string) bool {
+	return status == 255 && strings.Contains(out, "kex: host key algorithm: "+offer) &&
+		strings.Contains(out, "Server host key: "+offer+" ") && strings.Contains(out, "Host key verification failed.")
+}
+
+// requireNetdocNoTrust checks netdoc's answer for the lab host, both by discovery and by the
+// credential-bearing verify path. A refusal must name the failed agreement, or the key must come
+// back as unknown when the client agreed. Either way no credential may reach the server.
+func (l *oshLab) requireNetdocNoTrust(t *testing.T, negotiationFailed bool) {
+	t.Helper()
+	tg := l.resolve(t, "127.0.0.1")
 	snap := l.snap(t)
 	r := l.discover(t, tg)
-	if r.Outcome == Discovered || r.Outcome == Verified || !strings.Contains(r.Detail, "could not agree") {
+	if r.Outcome == Discovered || r.Outcome == Verified {
+		t.Fatalf("discover = %q (%s), want the host key refused or unknown", r.Outcome, r.Detail)
+	}
+	if negotiationFailed && !strings.Contains(r.Detail, "could not agree") {
 		t.Fatalf("discover = %q (%s), want a refusal that says no algorithm was agreed", r.Outcome, r.Detail)
+	}
+	if !negotiationFailed && r.Outcome != HostKeyUnknown {
+		t.Fatalf("discover = %q (%s), want the agreed but unrecorded key reported as unknown", r.Outcome, r.Detail)
+	}
+	v := l.verify(t, tg)
+	if v.Outcome == Verified {
+		t.Fatalf("verify = %q, want no trust for a host the client did not verify", v.Outcome)
 	}
 	if got := l.credentials() - snap.creds; got != 0 {
 		t.Errorf("the server saw %d credential attempts", got)
@@ -768,20 +868,6 @@ func oshKeygenMakes(t *testing.T, keygen, kind string) bool {
 	}
 	t.Fatalf("ssh-keygen -t %s: %v: %s", kind, err, out)
 	return false
-}
-
-// requireDefaultClientRefusal runs the default client against the lab. It fails unless the client
-// reports that it found no host key type to agree on and that the server offered offer. The
-// probe's answer means something only if this scenario holds.
-func (l *oshLab) requireDefaultClientRefusal(t *testing.T, offer string) {
-	t.Helper()
-	args := append(append([]string(nil), sshTestArgs...), "-o", "BatchMode=yes", "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1", "true")
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	out, _ := exec.CommandContext(ctx, oshTool(t, "ssh"), args...).CombinedOutput() // #nosec G204 -- fixed options and the lab's own port
-	if s := string(out); !strings.Contains(s, "no matching host key type found") || !strings.Contains(s, "Their offer: "+offer) {
-		t.Fatalf("the default client did not refuse the %s host key with its offer named, so the scenario is not established:\n%s", offer, out)
-	}
 }
 
 // The probe's own argument list must not run a KnownHostsCommand the configuration names. The

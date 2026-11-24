@@ -755,13 +755,23 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 	})
 	t.Run("RestrictedClientNegotiation", func(t *testing.T) {
 		// The restriction is explicit and lab-owned: the client offers only ecdsa, the server offers
-		// kind. This is a different claim from the default policy, and it is checked as one.
+		// kind. Its effect can be seen only where the default client would agree on the key. Where
+		// the default client refuses the key already, the restriction changes nothing, and the run
+		// says so instead of claiming a check it did not make.
 		l := newOSHLab(t, oshOpts{hostKinds: []string{kind}, extra: oshAdvertise(t, kind)})
+		offer := oshHostKeyToken(t, l.hostKeys[0])
+		l.useConfig(t, l.baseConfig(l.known, ""))
+		defOut, defStatus := l.clientRun(t)
+		defaultAgrees := oshAgreedUnrecorded(defOut, defStatus, offer)
 		l.useConfig(t, "HostKeyAlgorithms ecdsa-sha2-nistp256\n"+l.baseConfig(l.known, ""))
 		out, status := l.clientRun(t)
-		offer := oshHostKeyToken(t, l.hostKeys[0])
 		if !oshHostKeyMismatch(out, status, offer) {
-			t.Fatalf("the restricted client did not fail to negotiate the %s host key (status %d):\n%s", offer, status, out)
+			t.Fatalf("the restricted client did not fail to agree on the %s host key (status %d):\n%s", offer, status, out)
+		}
+		if defaultAgrees {
+			t.Logf("restriction exercised: the default client agrees on %s and the restricted client refuses it", offer)
+		} else {
+			t.Logf("restriction NOT exercised on this OpenSSH: the default client already refuses %s, so the restriction has no effect here; only the restricted refusal is checked", offer)
 		}
 		l.requireNetdocNoTrust(t, true)
 	})

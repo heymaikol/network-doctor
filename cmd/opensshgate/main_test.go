@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const passing = `=== RUN   TestOpenSSHTrusted
+const greenRun = `=== RUN   TestOpenSSHTrusted
 --- PASS: TestOpenSSHTrusted (1.20s)
 === RUN   TestProfileLab
 === RUN   TestProfileLab/unknown_host_key
@@ -23,26 +23,26 @@ func gate(t *testing.T, stream string, required ...string) error {
 }
 
 func TestGateAcceptsRequiredTestsThatPassed(t *testing.T) {
-	if err := gate(t, passing, "TestOpenSSHTrusted", "TestProfileLab"); err != nil {
+	if err := gate(t, greenRun, "TestOpenSSHTrusted", "TestProfileLab"); err != nil {
 		t.Fatalf("a run where every required test passed was refused: %v", err)
 	}
 }
 
 func TestGateRefusesARequiredTestThatSkipped(t *testing.T) {
-	stream := strings.Replace(passing, "--- PASS: TestOpenSSHTrusted", "--- SKIP: TestOpenSSHTrusted", 1)
+	stream := strings.Replace(greenRun, "--- PASS: TestOpenSSHTrusted", "--- SKIP: TestOpenSSHTrusted", 1)
 	if err := gate(t, stream, "TestOpenSSHTrusted"); err == nil || !strings.Contains(err.Error(), "TestOpenSSHTrusted ended SKIP") {
 		t.Fatalf("a skipped required test was not refused: %v", err)
 	}
 }
 
 func TestGateRefusesARequiredTestThatDidNotRun(t *testing.T) {
-	if err := gate(t, passing, "TestOpenSSHTrusted", "TestMissing"); err == nil || !strings.Contains(err.Error(), "TestMissing did not run") {
+	if err := gate(t, greenRun, "TestOpenSSHTrusted", "TestMissing"); err == nil || !strings.Contains(err.Error(), "TestMissing did not run") {
 		t.Fatalf("a missing required test was not refused: %v", err)
 	}
 }
 
 func TestGateRefusesARequiredTestThatFailed(t *testing.T) {
-	stream := strings.Replace(passing, "--- PASS: TestOpenSSHTrusted", "--- FAIL: TestOpenSSHTrusted", 1)
+	stream := strings.Replace(greenRun, "--- PASS: TestOpenSSHTrusted", "--- FAIL: TestOpenSSHTrusted", 1)
 	if err := gate(t, stream, "TestOpenSSHTrusted"); err == nil || !strings.Contains(err.Error(), "TestOpenSSHTrusted ended FAIL") {
 		t.Fatalf("a failed required test was not refused: %v", err)
 	}
@@ -50,14 +50,14 @@ func TestGateRefusesARequiredTestThatFailed(t *testing.T) {
 
 // A subtest skipped under a required test is a skip of the required test's own check, so it is refused too.
 func TestGateRefusesASkippedSubtestOfARequiredTest(t *testing.T) {
-	stream := strings.Replace(passing, "--- PASS: TestProfileLab/unknown_host_key", "--- SKIP: TestProfileLab/unknown_host_key", 1)
+	stream := strings.Replace(greenRun, "--- PASS: TestProfileLab/unknown_host_key", "--- SKIP: TestProfileLab/unknown_host_key", 1)
 	if err := gate(t, stream, "TestProfileLab"); err == nil || !strings.Contains(err.Error(), "TestProfileLab/unknown_host_key ended SKIP") {
 		t.Fatalf("a skipped subtest of a required test was not refused: %v", err)
 	}
 }
 
 func TestGateIgnoresSkipsOfTestsItDoesNotRequire(t *testing.T) {
-	stream := passing + "--- SKIP: TestUnrelatedNetns (0.00s)\n"
+	stream := greenRun + "--- SKIP: TestUnrelatedNetns (0.00s)\n"
 	if err := gate(t, stream, "TestOpenSSHTrusted"); err != nil {
 		t.Fatalf("a skip of a test outside the required set was refused: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestRequiredTestsComeFromTheIntegrationSource(t *testing.T) {
 	write := func(rel, body string) {
 		t.Helper()
 		p := filepath.Join(root, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {

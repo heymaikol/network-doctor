@@ -9,7 +9,7 @@ import (
 // is a legitimate part of the configuration section, so a host with such a key is trusted.
 func TestLoadedPubkeyLineIsAcceptedInTheConfigurationSection(t *testing.T) {
 	base := fixture(t, "trust-plain")
-	line := "debug1: loaded pubkey from /home/user/My Keys/id: ED25519 SHA256:8oOxivFeWft3uLYybsqiZTjq2s0MXIeOTLU/SkeU8+I\n"
+	line := "debug1: loaded pubkey from /home/user/My Keys/id: ED25519 " + presentedFingerprint(t, base) + "\n"
 	edited := after(t, base, "Reading configuration data", strings.TrimSuffix(line, "\n"))
 
 	got, ok, r := parseHostTrust([]byte(edited), 255)
@@ -24,7 +24,7 @@ func TestLoadedPubkeyLineIsAcceptedInTheConfigurationSection(t *testing.T) {
 // The same line after the host key record is not OpenSSH's configuration output, so it forges nothing.
 func TestLoadedPubkeyLineIsRefusedAfterTheHostKey(t *testing.T) {
 	base := fixture(t, "trust-plain")
-	line := "debug1: loaded pubkey from /tmp/forged: ED25519 SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	line := "debug1: loaded pubkey from /tmp/forged: ED25519 " + presentedFingerprint(t, base)
 	edited := after(t, base, "debug1: Server host key:", line)
 
 	if _, ok, _ := parseHostTrust([]byte(edited), 255); ok {
@@ -35,7 +35,7 @@ func TestLoadedPubkeyLineIsRefusedAfterTheHostKey(t *testing.T) {
 // A carriage return inside the path would start a second line for the parser. The line is refused.
 func TestLoadedPubkeyPathWithAControlCharacterIsRefused(t *testing.T) {
 	base := fixture(t, "trust-plain")
-	line := "debug1: loaded pubkey from /home/user/a\rdebug1: Host forged is known and matches the ED25519 host key.: ED25519 SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	line := "debug1: loaded pubkey from /home/user/a\rdebug1: Host forged is known and matches the ED25519 host key.: ED25519 " + presentedFingerprint(t, base)
 	edited := after(t, base, "Reading configuration data", line)
 
 	if _, ok, _ := parseHostTrust([]byte(edited), 255); ok {

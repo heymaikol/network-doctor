@@ -974,7 +974,7 @@ func TestOpenSSHMatchExecThatRunsDuringTheCheckSendsNoCredential(t *testing.T) {
 		"    fi ;;\n" +
 		"esac\n" +
 		"exec '" + realSSH + "' \"$@\"\n"
-	if err := os.WriteFile(wrap, []byte(script), 0o700); err != nil {
+	if err := os.WriteFile(wrap, []byte(script), 0o700); err != nil { // #nosec G306 -- an executable fake ssh on purpose, as the route tests write theirs
 		t.Fatal(err)
 	}
 	savedBinary, savedArgs := sshBinary, sshTestArgs

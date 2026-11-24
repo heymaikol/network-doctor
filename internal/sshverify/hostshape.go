@@ -56,11 +56,15 @@ var shapeKexRules = []shapeRule{
 // line carries its key ID, which the server chose, and ends with the authority and validity text.
 var (
 	shapeKeyLine  = regexp.MustCompile(`^debug1: Server host key: (\S+) (SHA256:\S+)$`)
-	shapeCertLine = regexp.MustCompile(`^debug1: Server host certificate: (\S+) (SHA256:\S+), serial \d+ ID "(.*)" CA (\S+) (SHA256:\S+)(?: valid .*)?$`)
+	shapeCertLine = regexp.MustCompile(`^debug1: Server host certificate: (\S+) (SHA256:\S+), serial (\d+) ID "([^"\x00-\x1f\x7f]*)" CA (\S+) (SHA256:\S+) valid (?:forever|after \S+|before \S+|from \S+ to \S+)$`)
 	// shapeCertPrefix matches the client-written head of a certificate record before the server's
 	// key ID begins, so refusal reporting extracts the presented key even if the key ID spans lines.
 	shapeCertPrefix = regexp.MustCompile(`^debug1: Server host certificate: \S+ (SHA256:\S+), serial \d+ ID "`)
 )
+
+// certRecordLimit is the length from which a host certificate record may have been cut. OpenSSH
+// prints records up to 1021 bytes, and a real record is far shorter than this.
+const certRecordLimit = 1000
 
 // The section after the host-key record, to the end of the output. Each marker that decides the
 // connection appears exactly once: the match, the NEWKEYS markers, SERVICE_ACCEPT, the method list
@@ -171,8 +175,17 @@ func acceptShape(lines []string) (hostTrust, string) {
 		m := shapeKeyLine.FindStringSubmatch(lines[pos])
 		presentedType, key.fingerprint = m[1], m[2]
 	case shapeCertLine.MatchString(lines[pos]):
+		// OpenSSH cuts a record that is too long to print and prints nothing to say so, so a
+		// record near the limit may be truncated. Its tail would then be text the server chose.
+		if len(lines[pos]) >= certRecordLimit {
+			return hostTrust{}, "the host certificate record is at the length OpenSSH cuts, so it may be truncated"
+		}
 		m := shapeCertLine.FindStringSubmatch(lines[pos])
-		presentedType, key.fingerprint, key.certificate, key.keyID = m[1], m[2], true, m[3]
+		presentedType, key.fingerprint, key.certificate, key.keyID = m[1], m[2], true, m[4]
+		key.serial, key.authority = m[3], m[6]
+		if !ValidFingerprint(key.authority) {
+			return hostTrust{}, "the certificate's authority fingerprint is malformed"
+		}
 	default:
 		return hostTrust{}, "the host key record is not one of OpenSSH's two forms, in full"
 	}

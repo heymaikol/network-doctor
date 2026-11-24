@@ -3,6 +3,7 @@ package sshverify
 import (
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -21,6 +22,8 @@ type pinCheck struct {
 	fingerprint string // SHA256 of the subject key OpenSSH checked
 	certificate bool   // OpenSSH checked a host certificate, not a plain key
 	keyID       string // the key ID OpenSSH printed for the certificate
+	serial      string // the serial number OpenSSH printed for the certificate
+	authority   string // the SHA256 fingerprint of the certificate's signing key, as OpenSSH printed it
 	presented   string // SHA256 of the subject key the server presented, once it has
 	refused     bool   // the server presented something this check does not admit
 }
@@ -39,6 +42,10 @@ func (p *pinCheck) callback(_ string, _ net.Addr, key ssh.PublicKey) error {
 		return errHostMoved
 	}
 	if isCert && (cert.KeyId != p.keyID || hasControlCharacter(cert.KeyId)) {
+		p.refused = true
+		return errHostMoved
+	}
+	if isCert && (strconv.FormatUint(cert.Serial, 10) != p.serial || ssh.FingerprintSHA256(cert.SignatureKey) != p.authority) {
 		p.refused = true
 		return errHostMoved
 	}

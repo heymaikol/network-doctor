@@ -43,6 +43,11 @@ type hostTrust struct {
 	// the same one; see pinCheck.
 	certificate bool
 	keyID       string
+	// serial and authority are the certificate's serial number and the SHA256 fingerprint of
+	// the key that signed it, as OpenSSH printed them. The credential connection must present
+	// the same ones, so two certificates for one subject key are told apart; see pinCheck.
+	serial    string
+	authority string
 }
 
 // probeArgs is the argument vector for the probe: the options that decide what the client

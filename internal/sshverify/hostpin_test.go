@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -102,7 +103,7 @@ func TestPinAcceptsACertificateBySubjectKey(t *testing.T) {
 	}
 	s := passwordServer(certSigner)
 	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
-		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(hostSigner.PublicKey()), certificate: true, keyID: cert.KeyId}, true, Result{}
+		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(hostSigner.PublicKey()), certificate: true, keyID: cert.KeyId, serial: fmt.Sprint(cert.Serial), authority: ssh.FingerprintSHA256(ca.PublicKey())}, true, Result{}
 	})
 
 	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())

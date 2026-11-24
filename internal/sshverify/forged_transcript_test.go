@@ -39,7 +39,7 @@ func forgedCertTranscript(t *testing.T, subject, keyID string, ca ssh.PublicKey)
 	lines := splitTranscript([]byte(base))
 	for i, l := range lines {
 		if strings.HasPrefix(l, "debug1: Server host certificate: ") {
-			certLine := "debug1: Server host certificate: ssh-ed25519-cert-v01@openssh.com " + subject + ", serial 1 ID \"" + keyID + "\" CA " +
+			certLine := "debug1: Server host certificate: ssh-ed25519-cert-v01@openssh.com " + subject + ", serial 0 ID \"" + keyID + "\" CA " +
 				ca.Type() + " " + ssh.FingerprintSHA256(ca) + " valid forever"
 			prefix := strings.Join(lines[:i], "\n")
 			return prefix + "\n" + certLine + "\nNo ED25519-CERT host key is known for [127.0.0.1]:PORT and you have requested strict checking.\nHost key verification failed.\n"
@@ -61,7 +61,7 @@ func trustedCertTranscript(t *testing.T, subject, keyID string, ca ssh.PublicKey
 	}
 	out := strings.Replace(base, oldFP, subject, 1)
 	out = strings.Replace(out, `ID "hostcert"`, `ID "`+keyID+`"`, 1)
-	out = strings.Replace(out, "CA "+m[4]+" "+m[5], "CA "+ca.Type()+" "+ssh.FingerprintSHA256(ca), 1)
+	out = strings.Replace(out, "CA "+m[5]+" "+m[6], "CA "+ca.Type()+" "+ssh.FingerprintSHA256(ca), 1)
 	return out
 }
 

@@ -454,7 +454,7 @@ func handshake(ctx context.Context, t Target, opts Options, cred *credential, us
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 
-	r := round{pin: &pinCheck{fingerprint: trust.fingerprint, certificate: trust.certificate, keyID: trust.keyID}, auth: &authState{cred: cred}}
+	r := round{pin: &pinCheck{fingerprint: trust.fingerprint, certificate: trust.certificate, keyID: trust.keyID, serial: trust.serial, authority: trust.authority}, auth: &authState{cred: cred}}
 	cfg := &ssh.ClientConfig{
 		User:              user,
 		HostKeyCallback:   r.pin.callback,

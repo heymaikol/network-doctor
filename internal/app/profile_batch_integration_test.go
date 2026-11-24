@@ -150,7 +150,12 @@ type profileLabFixture struct {
 // configuration, and the wrapper on PATH, and points NETDOC_VIA_COMMAND at the stand-in worker.
 func newProfileLab(t *testing.T, c profileLabCase) *profileLabFixture {
 	t.Helper()
-	sshd := profileLabTool(t, "sshd", "/usr/sbin/sshd")
+	// The lab runs the sshd on the PATH, with the system sbin directories added to it. The test
+	// skips when there is no sshd to run.
+	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+"/usr/sbin"+string(os.PathListSeparator)+"/usr/local/sbin")
+	if _, err := exec.LookPath("sshd"); err != nil {
+		t.Skip("needs sshd on this host")
+	}
 	realSSH := profileLabTool(t, "ssh", "")
 	who, err := user.Current()
 	if err != nil {
@@ -194,7 +199,12 @@ LogLevel ERROR
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = logFile.Close() })
-	daemon := exec.Command(sshd, "-D", "-e", "-f", sshdCfg)
+	// The program and its arguments are literals. The config is named relative to the lab's own
+	// directory, which the daemon runs in, so no path from the lab is passed on the command line.
+	daemon := exec.Command("sshd", "-D", "-e", "-f", "sshd_config")
+	daemon.Dir = dir
+	// sshd refuses an argv[0] that is not absolute, and exec.Command resolved the program to one.
+	daemon.Args[0] = daemon.Path
 	daemon.Stdout, daemon.Stderr = logFile, logFile
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("start sshd: %v", err)

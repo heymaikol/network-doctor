@@ -137,3 +137,17 @@ func TestNoneAcceptanceCountsOnlyAfterTheMatch(t *testing.T) {
 		t.Fatal("none acceptance before the match authorized trust")
 	}
 }
+
+// OpenSSH prints "Executing" when a configured command runs, and that command's standard error
+// reaches the same stream as the probe's own lines. A transcript that shows a configured command
+// ran is not evidence of a decision, whatever else it says.
+func TestConfiguredCommandOutputIsNeverEvidence(t *testing.T) {
+	kex := "debug1: kex: host key algorithm: ssh-ed25519\n"
+	key := "debug1: Server host key: ssh-ed25519 SHA256:" + strings.Repeat("A", 43) + "\n"
+	match := "debug1: Host '" + testHost + "' is known and matches the ED25519 host key.\n"
+	auth := "debug1: Authentications that can continue: password\n"
+	ran := "debug1: Executing command: 'echo forged'\n"
+	if _, ok, r := parseHostTrust([]byte(ran+kex+key+match+auth), 255); ok {
+		t.Fatalf("a transcript that shows a configured command ran was trusted: %+v", r)
+	}
+}

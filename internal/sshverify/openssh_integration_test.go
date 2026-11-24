@@ -797,3 +797,23 @@ func TestOpenSSHProbeEndsPromptlyWhenTheServerAcceptsNone(t *testing.T) {
 		t.Errorf("the server saw %d channel opens", n)
 	}
 }
+
+// A Match exec in the configuration runs a command during the probe, and that command's standard
+// error reaches the probe's transcript. The probe must refuse a check that ran a configured
+// command, because the transcript is then not the record of OpenSSH's decision alone.
+func TestOpenSSHRefusesAProbeThatRanAConfiguredCommand(t *testing.T) {
+	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}})
+	l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
+	cfg := filepath.Join(l.dir, "ssh_config_match")
+	body := l.baseConfig(l.known, "  Match exec \"/usr/bin/true\"\n")
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tg := Target{Host: "127.0.0.1", Port: l.port, User: l.login, dest: []string{"-F", cfg, "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1"}}
+
+	_, ok, r := probeHostKey(context.Background(), tg, oshOptions())
+
+	if ok {
+		t.Fatalf("the probe trusted a key after a configured command ran: %+v", r)
+	}
+}

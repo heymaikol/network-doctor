@@ -137,6 +137,14 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 	refuse := func(outcome Outcome, detail string) (hostTrust, bool, Result) {
 		return hostTrust{}, false, Result{Outcome: outcome, HostKey: fingerprint, Detail: detail + "; nothing was sent"}
 	}
+	// OpenSSH says "Executing" when it runs a configured command, and that command's standard
+	// error reaches the same stream as the probe's own lines. A transcript that shows one ran is
+	// not the record of OpenSSH's decision alone, whatever else it says.
+	for _, l := range lines {
+		if strings.HasPrefix(l, "debug1: Executing ") {
+			return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: "OpenSSH ran a configured command during the check, so its output is not evidence; nothing was sent"}
+		}
+	}
 	if failed != "" {
 		switch {
 		case strings.Contains(failed, "REMOTE HOST IDENTIFICATION HAS CHANGED"):

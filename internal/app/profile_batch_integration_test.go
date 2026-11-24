@@ -14,7 +14,10 @@ package app
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"os"
@@ -28,6 +31,7 @@ import (
 	"time"
 
 	"github.com/heymaikol/network-doctor/v2/internal/remote"
+	"golang.org/x/crypto/ssh"
 )
 
 // profileLabCase is one configuration. Placeholders {port}, {user}, {client}, {enc}, {known},
@@ -147,7 +151,6 @@ type profileLabFixture struct {
 func newProfileLab(t *testing.T, c profileLabCase) *profileLabFixture {
 	t.Helper()
 	sshd := profileLabTool(t, "sshd", "/usr/sbin/sshd")
-	keygen := profileLabTool(t, "ssh-keygen", "")
 	realSSH := profileLabTool(t, "ssh", "")
 	who, err := user.Current()
 	if err != nil {
@@ -163,11 +166,10 @@ func newProfileLab(t *testing.T, c profileLabCase) *profileLabFixture {
 	f.client = filepath.Join(dir, "client")
 	f.enc = filepath.Join(dir, "enc")
 	hostKey, other := filepath.Join(dir, "hostkey"), filepath.Join(dir, "other")
-	for _, k := range [][3]string{{"ed25519", hostKey, ""}, {"ed25519", f.client, ""}, {"ed25519", f.enc, "pw"}, {"ed25519", other, ""}} {
-		if out, err := exec.Command(keygen, "-q", "-t", k[0], "-N", k[2], "-f", k[1]).CombinedOutput(); err != nil {
-			t.Fatalf("ssh-keygen: %v %s", err, out)
-		}
-	}
+	profileLabKey(t, hostKey, "")
+	profileLabKey(t, f.client, "")
+	profileLabKey(t, f.enc, "pw")
+	profileLabKey(t, other, "")
 	clientPub, _ := os.ReadFile(f.client + ".pub")
 	encPub, _ := os.ReadFile(f.enc + ".pub")
 	profileLabWrite(t, filepath.Join(dir, "authorized_keys"), string(clientPub)+string(encPub), 0o600)
@@ -187,7 +189,7 @@ StrictModes no
 PerSourcePenalties no
 LogLevel ERROR
 `, port, hostKey, filepath.Join(dir, "authorized_keys")), 0o600)
-	logFile, err := os.Create(filepath.Join(dir, "sshd.log"))
+	logFile, err := os.Create(filepath.Clean(filepath.Join(dir, "sshd.log")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,9 +212,9 @@ LogLevel ERROR
 		}
 	}
 
-	hostPub, _ := os.ReadFile(hostKey + ".pub")
+	hostPub, _ := os.ReadFile(filepath.Clean(hostKey + ".pub"))
 	hostFields := strings.Fields(string(hostPub))
-	otherPub, _ := os.ReadFile(other + ".pub")
+	otherPub, _ := os.ReadFile(filepath.Clean(other + ".pub"))
 	otherFields := strings.Fields(string(otherPub))
 	switch c.known {
 	case "empty":
@@ -290,13 +292,51 @@ func profileLabFreePort(t *testing.T) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	port := l.Addr().(*net.TCPAddr).Port
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return port
 }
 
+// profileLabKey writes an ed25519 key pair in OpenSSH's formats. The private key is encrypted with
+// passphrase when one is given. The keys are made in process, so no ssh-keygen runs.
+func profileLabKey(t *testing.T, path, passphrase string) {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var block *pem.Block
+	if passphrase == "" {
+		block, err = ssh.MarshalPrivateKey(priv, "")
+	} else {
+		block, err = ssh.MarshalPrivateKeyWithPassphrase(priv, "", []byte(passphrase))
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := ssh.NewPublicKey(priv.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileLabWrite(t, path, string(pem.EncodeToMemory(block)), 0o600)
+	profileLabWrite(t, path+".pub", string(ssh.MarshalAuthorizedKey(pub)), 0o644)
+}
+
+// profileLabWrite writes path inside its own directory, through a root that refuses any name that
+// would leave it.
 func profileLabWrite(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = root.WriteFile(filepath.Base(path), []byte(content), mode)
+	if cerr := root.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 }

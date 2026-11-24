@@ -80,3 +80,23 @@ func TestPinRefusesACertificateWithAnotherSerialOrAuthority(t *testing.T) {
 		t.Fatal("a certificate from another authority was admitted")
 	}
 }
+
+// The handshake pin refuses a certificate whose key ID is not the one OpenSSH checked. The probe's
+// own comparison also catches this swap, so this test calls the pin directly to pin that check alone.
+func TestPinRefusesACertificateWithAnotherKeyID(t *testing.T) {
+	ca, _ := newEd25519(t)
+	host, _ := newEd25519(t)
+	pin := pinCheck{fingerprint: ssh.FingerprintSHA256(host.PublicKey()), certificate: true, keyID: "hostcert", serial: "0", authority: ssh.FingerprintSHA256(ca.PublicKey())}
+	cert := func(keyID string) *ssh.Certificate {
+		return &ssh.Certificate{Key: host.PublicKey(), CertType: ssh.HostCert, KeyId: keyID, SignatureKey: ca.PublicKey()}
+	}
+
+	control := pin
+	if err := control.callback("", nil, cert("hostcert")); err != nil {
+		t.Fatalf("the checked certificate was refused: %v", err)
+	}
+	another := pin
+	if err := another.callback("", nil, cert("hostcert-rotated")); err == nil {
+		t.Fatal("a certificate with another key ID was admitted")
+	}
+}

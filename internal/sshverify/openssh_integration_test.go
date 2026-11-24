@@ -742,7 +742,7 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 		l.useConfig(t, l.baseConfig(l.known, ""))
 		out, status := l.clientRun(t)
 		offer := oshHostKeyToken(t, l.hostKeys[0])
-		refused := oshNegotiationRefused(out, status, offer)
+		refused := oshHostKeyMismatch(out, status, offer)
 		if !refused && !oshAgreedUnrecorded(out, status, offer) {
 			t.Fatalf("the default client neither refused nor agreed with the %s host key as expected (status %d):\n%s", offer, status, out)
 		}
@@ -760,7 +760,7 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 		l.useConfig(t, "HostKeyAlgorithms ecdsa-sha2-nistp256\n"+l.baseConfig(l.known, ""))
 		out, status := l.clientRun(t)
 		offer := oshHostKeyToken(t, l.hostKeys[0])
-		if !oshNegotiationRefused(out, status, offer) {
+		if !oshHostKeyMismatch(out, status, offer) {
 			t.Fatalf("the restricted client did not fail to negotiate the %s host key (status %d):\n%s", offer, status, out)
 		}
 		l.requireNetdocNoTrust(t, true)
@@ -816,11 +816,19 @@ func (l *oshLab) clientRun(t *testing.T) (string, int) {
 	return string(out), status
 }
 
-// oshNegotiationRefused reports whether the client failed the way a host key algorithm mismatch
-// fails: exit 255, the negotiation found no match, and the server named offer as its offer.
-func oshNegotiationRefused(out string, status int, offer string) bool {
+// oshHostKeyMismatch reports whether the client failed on the host key algorithm: exit 255, the
+// client's own host key stage found no match, and the server named offer as its offer. A key
+// exchange failure prints a different stage line (oshKexMismatch), so it does not satisfy this.
+func oshHostKeyMismatch(out string, status int, offer string) bool {
 	return status == 255 && strings.Contains(out, "kex: host key algorithm: (no match)") &&
 		strings.Contains(out, "no matching host key type found. Their offer: "+offer)
+}
+
+// oshKexMismatch reports whether the client failed on the key exchange method: exit 255 and the
+// client's own key exchange stage found no match.
+func oshKexMismatch(out string, status int) bool {
+	return status == 255 && strings.Contains(out, "kex: algorithm: (no match)") &&
+		strings.Contains(out, "no matching key exchange method found")
 }
 
 // oshAgreedUnrecorded reports whether the client agreed on offer and then refused the unrecorded key.
@@ -830,8 +838,10 @@ func oshAgreedUnrecorded(out string, status int, offer string) bool {
 }
 
 // requireNetdocNoTrust checks netdoc's answer for the lab host, both by discovery and by the
-// credential-bearing verify path. A refusal must name the failed agreement, or the key must come
-// back as unknown when the client agreed. Either way no credential may reach the server.
+// credential-bearing verify path. A failed agreement must come back as a transport failure, and an
+// agreed key must come back as unknown. Which algorithm failed is decided from the client's own
+// stage lines by the caller, not from netdoc's detail, because a key exchange failure and a host
+// key failure carry the same detail text. Either way no credential may reach the server.
 func (l *oshLab) requireNetdocNoTrust(t *testing.T, negotiationFailed bool) {
 	t.Helper()
 	tg := l.resolve(t, "127.0.0.1")
@@ -840,8 +850,8 @@ func (l *oshLab) requireNetdocNoTrust(t *testing.T, negotiationFailed bool) {
 	if r.Outcome == Discovered || r.Outcome == Verified {
 		t.Fatalf("discover = %q (%s), want the host key refused or unknown", r.Outcome, r.Detail)
 	}
-	if negotiationFailed && !strings.Contains(r.Detail, "could not agree") {
-		t.Fatalf("discover = %q (%s), want a refusal that says no algorithm was agreed", r.Outcome, r.Detail)
+	if negotiationFailed && r.Outcome != TransportFailure {
+		t.Fatalf("discover = %q (%s), want the failed agreement reported as a transport failure", r.Outcome, r.Detail)
 	}
 	if !negotiationFailed && r.Outcome != HostKeyUnknown {
 		t.Fatalf("discover = %q (%s), want the agreed but unrecorded key reported as unknown", r.Outcome, r.Detail)
@@ -853,6 +863,23 @@ func (l *oshLab) requireNetdocNoTrust(t *testing.T, negotiationFailed bool) {
 	if got := l.credentials() - snap.creds; got != 0 {
 		t.Errorf("the server saw %d credential attempts", got)
 	}
+}
+
+// TestOpenSSHKexMismatchDoesNotSatisfyTheHostKeyAssertion is the negative control for the host-key
+// assertion. Client and server share no key exchange method, so the failure is a key exchange
+// mismatch. It must not satisfy the host-key mismatch check, and netdoc must still report no trust.
+func TestOpenSSHKexMismatchDoesNotSatisfyTheHostKeyAssertion(t *testing.T) {
+	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}, extra: "KexAlgorithms curve25519-sha256\n"})
+	l.useConfig(t, "KexAlgorithms diffie-hellman-group14-sha256\n"+l.baseConfig(l.known, ""))
+	out, status := l.clientRun(t)
+	offer := oshHostKeyToken(t, l.hostKeys[0])
+	if !oshKexMismatch(out, status) {
+		t.Fatalf("the forced key exchange mismatch did not occur (status %d):\n%s", status, out)
+	}
+	if oshHostKeyMismatch(out, status, offer) {
+		t.Fatalf("a key exchange mismatch satisfied the host-key mismatch check:\n%s", out)
+	}
+	l.requireNetdocNoTrust(t, true)
 }
 
 // oshKeygenMakes reports whether ssh-keygen can make a host key of kind. An OpenSSH without the

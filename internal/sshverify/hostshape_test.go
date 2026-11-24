@@ -13,7 +13,7 @@ import (
 // edits one of them, so each refusal is about one changed line.
 func fixture(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "openssh", name+".txt"))
+	b, err := os.ReadFile(filepath.Join("testdata", "openssh", name+".txt")) // #nosec G304 -- a fixture in this package
 	if err != nil {
 		t.Fatal(err)
 	}

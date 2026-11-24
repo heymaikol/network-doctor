@@ -131,37 +131,8 @@ var errProbeOutput = errors.New("the OpenSSH host-key check wrote unexpected out
 
 // runHostKeyProbe runs program with args and returns its diagnostic output and exit status. The
 // argument vector is passed as a slice, with no shell. The probe may write nothing to standard
-// output, and its diagnostic output is held to probeOutputLimit.
-// runHostKeyProbe runs program with args and returns its diagnostic output and exit status. The
-// argument vector is passed as a slice, with no shell. The probe may write nothing to standard
-// output, and its diagnostic output is held to probeOutputLimit.
-// acceptWatch is the probe's standard error. When OpenSSH reports that the server accepted "none",
-// the decision is made, and the probe ends: with -N the client would otherwise hold the connection
-// open for as long as the timeout allows.
-type acceptWatch struct {
-	limitedBuffer
-	stop     context.CancelFunc
-	accepted bool
-}
-
-var acceptLine = []byte("Authenticated to ")
-
-func (w *acceptWatch) Write(p []byte) (int, error) {
-	n, err := w.limitedBuffer.Write(p)
-	if !w.accepted {
-		b := w.buf.Bytes()
-		if bytes.HasPrefix(b, acceptLine) || bytes.Contains(b, append([]byte("\n"), acceptLine...)) {
-			w.accepted = true
-			w.stop()
-		}
-	}
-	return n, err
-}
-
-// runHostKeyProbe runs program with args and returns its diagnostic output, its exit status, and
-// whether it ended itself because the server accepted "none". The argument vector is passed as a
-// slice, with no shell. The probe may write nothing to standard output, and its diagnostic output
-// is held to probeOutputLimit. Its whole process group ends with it.
+// output, and its diagnostic output is held to probeOutputLimit. Its whole process group ends with
+// it, and its wait for output is bounded.
 func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte, int, error) {
 	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
 	// The probe's group is killed with it, so no descendant outlives the deadline, and the wait

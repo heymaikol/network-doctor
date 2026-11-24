@@ -44,14 +44,6 @@ debug1: Found key in /home/u/.ssh/known_hosts:1
 debug1: SSH2_MSG_NEWKEYS received
 ` + transcriptAuthPhase
 
-// trustedCertificate is a check that passed through a host certificate. The fingerprint OpenSSH
-// reports is the one of the subject key, not of the certificate blob.
-var trustedCertificate = transcriptPrefix + `debug1: kex: host key algorithm: ssh-ed25519-cert-v01@openssh.com
-debug1: Server host certificate: ssh-ed25519-cert-v01@openssh.com ` + fpEd25519 + `, serial 0 ID "hostcert" CA ssh-ed25519 SHA256:ua50z1HNJpTq7vDDnreY7Ga/viw valid forever
-debug1: Host '[127.0.0.1]:2634' is known and matches the ED25519-CERT host certificate.
-debug1: Found CA key in /home/u/.ssh/known_hosts:1
-` + transcriptAuthPhase
-
 // unknownKey is a check that stopped because known_hosts has no record of the key.
 var unknownKey = transcriptPrefix + `debug1: kex: host key algorithm: ssh-ed25519
 debug1: Server host key: ssh-ed25519 ` + fpEd25519 + `

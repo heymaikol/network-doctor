@@ -48,7 +48,6 @@ var shapeKexRules = []shapeRule{shapeKexInitSent, shapeKexInitRecv, shapeKexAlgo
 var (
 	shapeKeyLine  = regexp.MustCompile(`^debug1: Server host key: (\S+) (SHA256:\S+)$`)
 	shapeCertLine = regexp.MustCompile(`^debug1: Server host certificate: (\S+) (SHA256:\S+), serial \d+ ID "(.*)" CA (\S+) (SHA256:\S+)(?: valid .*)?$`)
-	shapeAnyHost  = regexp.MustCompile(`^debug1: Server host `)
 )
 
 // The section after the host-key record, to the end of the output. Each marker that decides the
@@ -164,7 +163,7 @@ func acceptShape(lines []string) (hostTrust, string) {
 	}
 	algorithm := shapeKexHostKeyAlg.re.FindStringSubmatch(lines[kex[3]])[1]
 	// An RSA key is presented as ssh-rsa, and negotiated with one of its signature algorithms.
-	if presentedType != algorithm && !(presentedType == "ssh-rsa" && strings.HasPrefix(algorithm, "rsa-sha2-")) {
+	if presentedType != algorithm && (presentedType != "ssh-rsa" || !strings.HasPrefix(algorithm, "rsa-sha2-")) {
 		return hostTrust{}, "the host key record and the negotiated algorithm name different keys"
 	}
 	methods := shapeAuthMethods.re.FindStringSubmatch(lines[after[indexOfRule(shapeAfterKey, shapeAuthMethods)]])[1]

@@ -55,6 +55,7 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 		return m, m.setNotice("stopping jobs, then quitting", true)
 	}
 	m.clearCancel()
+	m.verify.abandon()
 	diagnostic.ReleaseProbes(m.probes)
 	return m, tea.Quit
 }
@@ -759,6 +760,7 @@ func (m model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 	switch p.kind {
 	case pendQuit:
 		m.clearCancel()
+		m.verify.abandon()
 		diagnostic.ReleaseProbes(m.probes)
 		return m, tea.Quit
 	case pendRestart:

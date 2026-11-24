@@ -474,3 +474,38 @@ func TestVerifyCheckWaitsForATrustedDiscovery(t *testing.T) {
 		t.Error("a changed-key result left the check open")
 	}
 }
+
+// Quitting the app ends a check in flight and clears the typed secret. The process must not keep
+// a credential, or a running check, after the TUI has gone.
+func TestQuitCancelsACheckAndClearsTheSecret(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.secret.SetValue("typed-secret")
+	cancelled := false
+	m.verify.busy = true
+	m.verify.cancel = func() { cancelled = true }
+
+	u, _ := m.quit()
+	got := asModel(t, u)
+
+	if !cancelled {
+		t.Fatal("quitting left a check running")
+	}
+	if v := got.verify.secret.Value(); v != "" {
+		t.Fatalf("quitting left the typed secret in the panel: %q", v)
+	}
+
+	// The same holds when the quit was pending behind running jobs.
+	m2 := resolved(t, sshModel(t))
+	m2 = pressed(t, m2, keyPress("S"))
+	m2 = resolved(t, m2)
+	m2.verify.secret.SetValue("typed-secret")
+	cancelled = false
+	m2.verify.busy = true
+	m2.verify.cancel = func() { cancelled = true }
+	u2, _ := m2.runPending(&pendingAction{kind: pendQuit})
+	if !cancelled || asModel(t, u2).verify.secret.Value() != "" {
+		t.Fatal("a pending quit left a check or the typed secret behind")
+	}
+}

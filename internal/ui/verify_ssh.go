@@ -173,6 +173,25 @@ func (p *verifyPanel) readRoute() tea.Cmd {
 
 // dropRoute forgets the route and everything that depends on it, when the login
 // changes. A check then cannot run until the route is read for the new login.
+// abandon ends everything the panel has running and clears the typed secret. A quit calls it, so
+// the process keeps no check and no credential after the TUI has gone.
+func (p *verifyPanel) abandon() {
+	if p.cancel != nil {
+		p.cancel()
+		p.cancel = nil
+	}
+	p.busy = false
+	if p.resolveCancel != nil {
+		p.resolveCancel()
+		p.resolveCancel = nil
+	}
+	if p.keysCancel != nil {
+		p.keysCancel()
+		p.keysCancel = nil
+	}
+	p.secret.SetValue("")
+}
+
 func (p *verifyPanel) dropRoute() {
 	if p.resolveCancel != nil {
 		p.resolveCancel()

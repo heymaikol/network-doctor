@@ -478,6 +478,12 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.secret.SetValue("")
 		}
 	case vrSecret:
+		// The field takes no text until a discovery has trusted the host: a secret typed before
+		// that would sit in the panel for a host nobody has checked.
+		if !p.trusted {
+			p.note = "press enter on Discover methods first, so the host key is trusted before you type the secret"
+			return m, nil
+		}
 		p.secret, cmd = p.secret.Update(msg)
 	}
 	return m, cmd

@@ -8,6 +8,8 @@ func TestVerifyLoginChangeClearsTheTypedSecret(t *testing.T) {
 	m := resolved(t, sshModel(t))
 	m = pressed(t, m, keyPress("S"))
 	m = resolved(t, m)
+	// The password field takes text only after a trusted discovery.
+	m.verify.trusted = true
 	m.verify.focus(vrSecret)
 	u, _ := m.handleVerifyKey(keyPress("alice-password"))
 	m = asModel(t, u)

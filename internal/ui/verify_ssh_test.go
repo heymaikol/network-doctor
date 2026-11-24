@@ -398,6 +398,8 @@ func TestVerifyPasswordTypedInPasswordModeIsCarried(t *testing.T) {
 	m := resolved(t, sshModel(t))
 	m = pressed(t, m, keyPress("S"))
 	m = resolved(t, m)
+	// The password field takes text only after a trusted discovery.
+	m.verify.trusted = true
 	m.verify.focus(vrSecret)
 	u, _ := m.handleVerifyKey(keyPress("the-password"))
 	m = asModel(t, u)
@@ -507,5 +509,21 @@ func TestQuitCancelsACheckAndClearsTheSecret(t *testing.T) {
 	u2, _ := m2.runPending(&pendingAction{kind: pendQuit})
 	if !cancelled || asModel(t, u2).verify.secret.Value() != "" {
 		t.Fatal("a pending quit left a check or the typed secret behind")
+	}
+}
+
+// The password field takes no text until a discovery has trusted the host. A secret typed before
+// that would sit in the panel for a host nobody has checked.
+func TestSecretFieldTakesNoTextBeforeATrustedDiscovery(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	m.verify.focus(vrSecret)
+	for _, k := range []string{"a", "b", "c"} {
+		u, _ := m.handleVerifyKey(keyPress(k))
+		m = asModel(t, u)
+	}
+	if v := m.verify.secret.Value(); v != "" {
+		t.Fatalf("the secret field took %q before a trusted discovery", v)
 	}
 }

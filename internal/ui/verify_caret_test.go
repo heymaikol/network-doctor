@@ -9,6 +9,8 @@ func TestVerifyLeftAndRightMoveTheCaretInTextFields(t *testing.T) {
 	m := resolved(t, sshModel(t))
 	m = pressed(t, m, keyPress("S"))
 	m = resolved(t, m)
+	// The password field takes text only after a trusted discovery.
+	m.verify.trusted = true
 
 	m.verify.user.SetValue("")
 	m.verify.focus(vrUser)
@@ -29,6 +31,8 @@ func TestVerifyLeftAndRightMoveTheCaretInTextFields(t *testing.T) {
 	}
 
 	m.verify.secret.SetValue("")
+	// Editing the login dropped the trusted discovery, so the secret needs one again.
+	m.verify.trusted = true
 	m.verify.focus(vrSecret)
 	m = typeInPanel(t, m, "abc")
 	m = typeInPanel(t, m, "left")

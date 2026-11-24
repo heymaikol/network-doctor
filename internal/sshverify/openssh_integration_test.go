@@ -939,3 +939,62 @@ func TestOpenSSHExplicitIdentityFileIsTrusted(t *testing.T) {
 	snap := l.snap(t)
 	l.expectVerified(t, snap, Verify(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions()))
 }
+
+// A Match exec can run during OpenSSH's own configuration evaluation, and netdoc cannot prevent that. This
+// test adds one after the route read, so the probe runs it and the command leaves a marker. The probe must
+// refuse the check, and the server must receive no password. The output of the command is refused by the
+// position of its line in the configuration section; a grammar that accepts that line sends the password.
+func TestOpenSSHMatchExecThatRunsDuringTheCheckSendsNoCredential(t *testing.T) {
+	host, _ := newEd25519(t)
+	s := passwordServer(host)
+	port := listenLoopback(t, s)
+	p := strconv.Itoa(port)
+	dir := t.TempDir()
+	known := filepath.Join(dir, "known_hosts")
+	if err := os.WriteFile(known, []byte(knownhosts.Line([]string{"[127.0.0.1]:" + p}, host.PublicKey())+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "ssh_config")
+	if err := os.WriteFile(cfg, []byte("Host 127.0.0.1\n  Port "+p+"\n  UserKnownHostsFile "+known+"\n  GlobalKnownHostsFile none\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	touch, err := exec.LookPath("touch")
+	if err != nil {
+		t.Skip("no touch on PATH")
+	}
+	realSSH := oshTool(t, "ssh")
+	marker := filepath.Join(dir, "ran")
+	wrap := filepath.Join(dir, "ssh-wrapper")
+	script := "#!/bin/sh\n" +
+		"case \" $* \" in\n" +
+		"  *\" LogLevel=DEBUG1 \"*)\n" +
+		"    if [ ! -e '" + marker + "' ]; then\n" +
+		"      printf 'Match exec \"" + touch + " " + marker + "\"\\n' >> '" + cfg + "'\n" +
+		"      : > '" + marker + "'\n" +
+		"    fi ;;\n" +
+		"esac\n" +
+		"exec '" + realSSH + "' \"$@\"\n"
+	if err := os.WriteFile(wrap, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	savedBinary, savedArgs := sshBinary, sshTestArgs
+	sshBinary, sshTestArgs = wrap, []string{"-F", cfg}
+	t.Cleanup(func() { sshBinary, sshTestArgs = savedBinary, savedArgs })
+
+	tg, err := Resolve(context.Background(), "127.0.0.1", 0, testUser)
+	if err != nil {
+		t.Fatalf("resolve before the Match exec was added: %v", err)
+	}
+	r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
+
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("the probe did not run the configured Match exec, so the test shows nothing: %v", statErr)
+	}
+	t.Logf("outcome=%q detail=%q passwords=%d", r.Outcome, r.Detail, s.password.Load())
+	if r.Outcome == Verified || r.Outcome == NoCredentialAccepted {
+		t.Fatalf("outcome = %q (%s), want a refusal", r.Outcome, r.Detail)
+	}
+	if got := s.password.Load(); got != 0 {
+		t.Fatalf("the server received %d password attempt(s) after a Match exec ran during the check", got)
+	}
+}

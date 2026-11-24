@@ -55,7 +55,7 @@ func TestMissingOpenSSHFailsOnlyWhenRequired(t *testing.T) {
 		if required {
 			env = append(env, openSSHRequiredEnv+"=1")
 		}
-		cmd := exec.Command(os.Args[0], "-test.run=^TestMissingOpenSSHChild$", "-test.v") // #nosec G204 -- this test binary, with fixed arguments
+		cmd := exec.Command(os.Args[0], "-test.run=^TestMissingOpenSSHChild$", "-test.v") // #nosec G204 G702 -- this test binary, with fixed arguments
 		cmd.Env = env
 		var out bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &out

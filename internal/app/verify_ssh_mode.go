@@ -147,7 +147,7 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 		// that decision before it sends anything, so a key that changed in between
 		// is refused.
 		seen := verifyDiscover(ctx, tgt, opts)
-		if seen.Outcome != sshverify.Discovered || seen.HostKey == "" {
+		if seen.Outcome != sshverify.Discovered || !seen.Identity.Valid() {
 			writeVerifyResult(stdout, label, seen, f.jsonOut)
 			return verifyExitCode(seen.Outcome)
 		}
@@ -156,7 +156,7 @@ func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, st
 			return code
 		}
 		// The check binds to the key discovery just showed, so a key that changed in between is refused.
-		attempt.HostKey = seen.HostKey
+		attempt.Identity = seen.Identity
 		result = verifyVerify(ctx, tgt, attempt, opts)
 	default: // agent
 		attempt, code, ok := buildAttempt(ctx, f, tgt, needsPass, stdout, stderr)

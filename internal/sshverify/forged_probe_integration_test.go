@@ -90,7 +90,7 @@ func TestUntrustedHostGetsNoPasswordWhenItForgesTheProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, Options{Timeout: 8 * time.Second})
+	r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, Options{Timeout: 8 * time.Second})
 
 	if got := passwords.Load(); got != 0 {
 		t.Fatalf("an untrusted host received %d password(s) after forging the probe (outcome %q, %s)", got, r.Outcome, r.Detail)

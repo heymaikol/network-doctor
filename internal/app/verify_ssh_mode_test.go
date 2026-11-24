@@ -3,18 +3,30 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io/fs"
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 )
 
+// stubIdentity is the identity the stub discovery trusts: a fixed key, as OpenSSH would record it.
+var stubIdentity = func() sshverify.HostIdentity {
+	signer, err := ssh.NewSignerFromKey(ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)))
+	if err != nil {
+		panic(err)
+	}
+	return sshverify.HostIdentity{Fingerprint: ssh.FingerprintSHA256(signer.PublicKey()), Algorithm: "ssh-ed25519"}
+}()
+
 // stubHostKey is the fingerprint the stub server presents when a test does not
 // set one. A password or key check discovers it before any secret is asked for.
-const stubHostKey = "SHA256:stubhostkeystubhostkeystubhostkeystub0"
+var stubHostKey = stubIdentity.Fingerprint
 
 // stubVerify replaces the verification seams for one test and restores them.
 type stubVerify struct {
@@ -61,7 +73,7 @@ func installVerifyStubs(t *testing.T, s *stubVerify) {
 		case s.result.Outcome == sshverify.Discovered:
 			return s.result
 		}
-		return sshverify.Result{Outcome: sshverify.Discovered, HostKey: stubHostKey, Methods: []string{"password", "publickey"}}
+		return sshverify.Result{Outcome: sshverify.Discovered, HostKey: stubHostKey, Identity: stubIdentity, Methods: []string{"password", "publickey"}}
 	}
 	verifyVerify = func(_ context.Context, _ sshverify.Target, a sshverify.Attempt, o sshverify.Options) sshverify.Result {
 		s.attempted = true

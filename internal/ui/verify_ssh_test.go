@@ -94,7 +94,7 @@ func TestVerifySecretIsClearedAfterTheAttempt(t *testing.T) {
 	m = resolved(t, m)
 	m.verify.secret.SetValue("the-typed-secret")
 	m.verify.focus(vrCheck)
-	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered, HostKey: "SHA256:seen"}})
+	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered, HostKey: shownIdentity.Fingerprint, Identity: shownIdentity}})
 
 	u, cmd := m.startVerifyAction(true)
 	m = asModel(t, u)
@@ -467,7 +467,7 @@ func TestVerifyCheckWaitsForATrustedDiscovery(t *testing.T) {
 		t.Errorf("note %q does not say why nothing was sent", m.verify.note)
 	}
 
-	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered, HostKey: "SHA256:seen"}})
+	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered, HostKey: shownIdentity.Fingerprint, Identity: shownIdentity}})
 	if !m.verify.trusted {
 		t.Fatal("a trusted discovery did not open the check")
 	}

@@ -123,7 +123,7 @@ func TestVerifyPasswordAcceptedOnce(t *testing.T) {
 	trustOpenSSH(t, host.PublicKey())
 	pw := []byte(testPassword)
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: pw}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: pw}, s.options())
 
 	if r.Outcome != Verified || r.Method != MethodPassword {
 		t.Fatalf("outcome = %q method = %q, want verified by password; detail %q", r.Outcome, r.Method, r.Detail)
@@ -144,7 +144,7 @@ func TestVerifyPasswordRefusedWithoutRetry(t *testing.T) {
 	s := passwordServer(host)
 	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testWrongPass)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testWrongPass)}, s.options())
 
 	if r.Outcome != Refused {
 		t.Fatalf("outcome = %q, want refused; detail %q", r.Outcome, r.Detail)
@@ -181,7 +181,7 @@ func TestVerifyMethodNotOfferedSendsNothing(t *testing.T) {
 	}
 	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != NotOffered {
 		t.Fatalf("outcome = %q, want not offered; detail %q", r.Outcome, r.Detail)
@@ -216,7 +216,7 @@ func TestVerifyLocalFailuresSendNothing(t *testing.T) {
 			s := passwordServer(host)
 			opts := s.options()
 			opts.Agent = func() (io.ReadWriteCloser, error) { return nil, errors.New("no agent in this test") }
-			r := Verify(context.Background(), target(), a, opts)
+			r := VerifyDirect(context.Background(), target(), a, opts)
 			if r.Outcome != LocalFailure {
 				t.Fatalf("outcome = %q, want local failure; detail %q", r.Outcome, r.Detail)
 			}
@@ -240,7 +240,7 @@ func TestVerifyKeyFileAccepted(t *testing.T) {
 	}
 	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodKey, KeyPath: keyPath}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodKey, KeyPath: keyPath}, s.options())
 
 	if r.Outcome != Verified || r.Method != MethodKey {
 		t.Fatalf("outcome = %q, want verified by key; detail %q", r.Outcome, r.Detail)
@@ -260,7 +260,7 @@ func TestVerifyEncryptedKeyWithPassphrase(t *testing.T) {
 	trustOpenSSH(t, host.PublicKey())
 	keyPath, _ := writeKey(t, t.TempDir(), "enc", testPassphrase)
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodKey, KeyPath: keyPath, Passphrase: []byte(testPassphrase)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodKey, KeyPath: keyPath, Passphrase: []byte(testPassphrase)}, s.options())
 
 	if r.Outcome != Verified {
 		t.Fatalf("outcome = %q, want verified; detail %q", r.Outcome, r.Detail)
@@ -287,7 +287,7 @@ func TestVerifyAgentKeyChosenByFingerprint(t *testing.T) {
 		t.Fatalf("listing agent keys contacted the server: %d attempts", got)
 	}
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, opts)
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, opts)
 	if r.Outcome != Verified || r.Method != MethodAgent {
 		t.Fatalf("outcome = %q, want verified by agent; detail %q", r.Outcome, r.Detail)
 	}
@@ -309,7 +309,7 @@ func TestVerifyPasswordOverKeyboardInteractive(t *testing.T) {
 	}
 	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Verified {
 		t.Fatalf("outcome = %q, want verified via keyboard-interactive; detail %q", r.Outcome, r.Detail)
@@ -328,7 +328,7 @@ func TestVerifyDeclinesMultiplePrompts(t *testing.T) {
 	}
 	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Unsupported {
 		t.Fatalf("outcome = %q, want unsupported; detail %q", r.Outcome, r.Detail)
@@ -355,7 +355,7 @@ func TestVerifyPartialSuccessReportsWhatRemains(t *testing.T) {
 		t.Fatalf("ListAgentKeys = %v, %v", keys, err)
 	}
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, opts)
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, opts)
 
 	if r.Outcome != Partial {
 		t.Fatalf("outcome = %q, want partial; detail %q", r.Outcome, r.Detail)
@@ -371,7 +371,7 @@ func TestVerifyNoCredentialAcceptedIsAFinding(t *testing.T) {
 	s.cfg.NoClientAuth = true
 	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != NoCredentialAccepted {
 		t.Fatalf("outcome = %q, want no credential accepted; detail %q", r.Outcome, r.Detail)
@@ -387,7 +387,7 @@ func TestProxiedTargetIsRefusedWithoutDialing(t *testing.T) {
 	tg := target()
 	tg.Unsupported = "proxyjump"
 
-	r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Unsupported {
 		t.Fatalf("outcome = %q, want unsupported; detail %q", r.Outcome, r.Detail)
@@ -404,7 +404,7 @@ func TestCancelledCheckReportsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	r := Verify(ctx, target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(ctx, target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != TransportFailure || !strings.Contains(r.Detail, "cancelled") {
 		t.Fatalf("outcome = %q detail %q, want a transport failure that says cancelled", r.Outcome, r.Detail)
@@ -425,7 +425,7 @@ func TestSilentServerTimesOut(t *testing.T) {
 		},
 	}
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 
 	if r.Outcome != TransportFailure || !strings.Contains(r.Detail, "timed out") {
 		t.Fatalf("outcome = %q detail %q, want a transport failure that says timed out", r.Outcome, r.Detail)
@@ -444,7 +444,7 @@ func TestResultsNeverCarryTheSecret(t *testing.T) {
 		{Method: MethodKey, KeyPath: filepath.Join(t.TempDir(), secret)},
 	}
 	for _, a := range attempts {
-		r := Verify(context.Background(), target(), a, s.options())
+		r := VerifyDirect(context.Background(), target(), a, s.options())
 		raw, err := json.Marshal(r)
 		if err != nil {
 			t.Fatal(err)
@@ -520,7 +520,7 @@ func TestKeyboardInteractiveSendsTheCredentialOnce(t *testing.T) {
 	}
 	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Unsupported {
 		t.Fatalf("outcome = %q, want unsupported for a second prompt; detail %q", r.Outcome, r.Detail)
@@ -544,7 +544,7 @@ func TestVerifyKeyboardInteractiveWithoutAPromptIsNotVerified(t *testing.T) {
 	}
 	trustOpenSSH(t, host.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 	if r.Outcome == Verified {
 		t.Fatalf("a server that asked for no password was reported as verified; detail %q", r.Detail)
 	}
@@ -574,7 +574,7 @@ func TestPasswordDroppedBeforeAnswerIsNotARefusal(t *testing.T) {
 		},
 	}
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 	if r.Outcome != TransportFailure {
 		t.Fatalf("a connection dropped before the server answered gave %q, want %q; detail %q", r.Outcome, TransportFailure, r.Detail)
 	}
@@ -589,7 +589,7 @@ func TestVerifyHostKeyChangedStopsBeforeAuth(t *testing.T) {
 	// connection refuses the key before any credential is sent.
 	trustOpenSSH(t, other.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != HostKeyChanged {
 		t.Fatalf("outcome = %q, want host key changed; detail %q", r.Outcome, r.Detail)
@@ -608,7 +608,7 @@ func TestVerifyHostKeyUnknownSendsNothing(t *testing.T) {
 	s := passwordServer(host)
 	refuseOpenSSH(t, Result{Outcome: HostKeyUnknown, HostKey: ssh.FingerprintSHA256(host.PublicKey()), Detail: "OpenSSH has no record of this host key"})
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != HostKeyUnknown {
 		t.Fatalf("outcome = %q, want host key unknown; detail %q", r.Outcome, r.Detail)

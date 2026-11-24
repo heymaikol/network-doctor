@@ -72,13 +72,13 @@ type verifyPanel struct {
 	// trusted is set when the last result was a discovery that OpenSSH trusted the host for.
 	// The secret waits for it, so a check starts only after the host key is trusted.
 	trusted bool
-	// hostKey is the fingerprint that discovery showed for the host. A check binds to it, so a
+	// identity is the host identity that discovery trusted. A check binds to it, so a
 	// key other than the one shown is refused before the secret is sent.
-	hostKey string
-	note    string
-	busy    bool
-	id      uint64
-	cancel  context.CancelFunc
+	identity sshverify.HostIdentity
+	note     string
+	busy     bool
+	id       uint64
+	cancel   context.CancelFunc
 	// resolveCancel ends the configuration read this panel started, if it is
 	// still running.
 	resolveCancel context.CancelFunc
@@ -213,7 +213,7 @@ func (p *verifyPanel) dropRoute() {
 	p.agentKeys, p.agentIdx = nil, 0
 	p.result = nil
 	p.trusted = false
-	p.hostKey = ""
+	p.identity = sshverify.HostIdentity{}
 	p.note = ""
 }
 
@@ -358,7 +358,7 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 			return m, nil
 		}
 		a = att
-		a.HostKey = p.hostKey
+		a.Identity = p.identity
 	}
 	p.note = ""
 	wasTicking := m.spinnerActive()
@@ -535,10 +535,10 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.result = &msg.result
 		// Only a discovery that trusted the host sets the gate for the next check; any other
 		// result clears it, so a check needs a fresh discovery.
-		m.verify.trusted = msg.result.Outcome == sshverify.Discovered && msg.result.HostKey != ""
-		m.verify.hostKey = ""
+		m.verify.trusted = msg.result.Outcome == sshverify.Discovered && msg.result.Identity.Valid()
+		m.verify.identity = sshverify.HostIdentity{}
 		if m.verify.trusted {
-			m.verify.hostKey = msg.result.HostKey
+			m.verify.identity = msg.result.Identity
 		}
 		m.verify.note = ""
 		// The focus may now sit on a row that is no longer visible.
@@ -643,9 +643,9 @@ func resultLines(m model, r sshverify.Result) string {
 		// for the user to compare with the key they expect.
 		lines = append(lines, style.Render("presented host key: "+textsafe.Clean(r.HostKey)))
 	}
-	if r.Outcome == sshverify.Discovered && r.HostKey != "" {
+	if r.Outcome == sshverify.Discovered && r.Identity.Valid() {
 		// The check binds to this key: a later check refuses any other, so it is shown to compare.
-		lines = append(lines, style.Render("trusted host key: "+textsafe.Clean(r.HostKey)))
+		lines = append(lines, style.Render("trusted host key: "+textsafe.Clean(r.Identity.Fingerprint)))
 	}
 	if len(r.Methods) > 0 {
 		lines = append(lines, m.st.faint.Render("server offers: "+textsafe.Clean(strings.Join(r.Methods, ", "))))

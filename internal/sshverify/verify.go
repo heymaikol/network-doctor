@@ -65,6 +65,9 @@ type Result struct {
 	Remaining []string `json:"remaining,omitempty"`
 	HostKey   string   `json:"host_key_sha256,omitempty"`
 	Detail    string   `json:"detail,omitempty"`
+	// Identity is the host identity a discovery trusted. Only Discover sets it, on a discovery
+	// that OpenSSH trusted, and Verify binds to it. It is not part of the JSON report.
+	Identity HostIdentity `json:"-"`
 }
 
 // Options tunes a check. The zero value dials TCP and uses the target's agent. Trust in
@@ -86,10 +89,10 @@ type Attempt struct {
 	KeyPath          string // MethodKey
 	Passphrase       []byte // MethodKey, when the key file is encrypted
 	AgentFingerprint string // MethodAgent: SHA256 fingerprint of the key to offer
-	// HostKey is the SHA256 fingerprint that discovery showed for this host. When it is set,
-	// Verify refuses any other key before it sends the credential, even a key OpenSSH trusts.
-	// Empty means no discovery happened, and OpenSSH's decision alone governs the check.
-	HostKey string
+	// Identity is the identity the discovery before this check trusted. Verify refuses a check
+	// without a valid identity, and refuses any trusted host that differs in any field before it
+	// sends the credential. VerifyDirect takes no identity.
+	Identity HostIdentity
 }
 
 // AgentKey is one identity the ssh-agent holds, for the user to choose from.
@@ -109,15 +112,42 @@ func Discover(ctx context.Context, t Target, opts Options) Result {
 	if !ok {
 		return r
 	}
-	return handshake(ctx, t, opts, nil, t.User, trust)
+	r = handshake(ctx, t, opts, nil, t.User, trust)
+	if r.Outcome == Discovered {
+		r.Identity = identityOf(trust)
+	}
+	return r
 }
 
 // Verify sends one credential, once, and reports whether the server accepted
-// it. The byte slices in a are cleared before Verify returns; a Go string made
-// from a password cannot be cleared and is a residual the docs state.
+// it. The check is bound to the identity in a: the host OpenSSH trusts must be
+// that identity in every field, or nothing is sent. A check without a valid
+// identity is refused before anything runs, so a missing discovery cannot
+// silently drop the binding. The byte slices in a are cleared before Verify
+// returns; a Go string made from a password cannot be cleared and is a residual
+// the docs state.
 func Verify(ctx context.Context, t Target, a Attempt, opts Options) Result {
 	defer clear(a.Password)
 	defer clear(a.Passphrase)
+	if !a.Identity.Valid() {
+		return Result{Outcome: LocalFailure, Detail: "no valid host identity from a discovery was given to bind the credential to; discover the host first, or use VerifyDirect; nothing was sent"}
+	}
+	return verify(ctx, t, a, opts, true)
+}
+
+// VerifyDirect sends one credential, once, to a host no discovery named. OpenSSH's trust decision
+// alone governs the check. It refuses an attempt that carries an identity, because that attempt
+// meant to bind, and VerifyDirect does not bind.
+func VerifyDirect(ctx context.Context, t Target, a Attempt, opts Options) Result {
+	defer clear(a.Password)
+	defer clear(a.Passphrase)
+	if a.Identity != (HostIdentity{}) {
+		return Result{Outcome: LocalFailure, Detail: "VerifyDirect does not bind to a discovered identity, and this attempt carries one; use Verify; nothing was sent"}
+	}
+	return verify(ctx, t, a, opts, false)
+}
+
+func verify(ctx context.Context, t Target, a Attempt, opts Options, bound bool) Result {
 	if r, stop := unsupported(t); stop {
 		return r
 	}
@@ -135,7 +165,7 @@ func Verify(ctx context.Context, t Target, a Attempt, opts Options) Result {
 	if !ok {
 		return r
 	}
-	if a.HostKey != "" && trust.fingerprint != a.HostKey {
+	if bound && identityOf(trust) != a.Identity {
 		return Result{Outcome: HostKeyChanged, HostKey: trust.fingerprint, Detail: "the host key is not the one discovery showed for this host; nothing was sent"}
 	}
 	return handshake(ctx, t, opts, cred, t.User, trust)

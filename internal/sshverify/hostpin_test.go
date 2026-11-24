@@ -47,7 +47,7 @@ func TestPinRefusesAKeyThatMovedAfterOpenSSHTrustedIt(t *testing.T) {
 	moved := passwordServer(keyB)
 	trustOpenSSH(t, keyA.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, moved.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, moved.options())
 
 	if r.Outcome != HostKeyChanged {
 		t.Fatalf("outcome = %q, want host key changed; detail %q", r.Outcome, r.Detail)
@@ -66,7 +66,7 @@ func TestPinAcceptsTheKeyOpenSSHTrusted(t *testing.T) {
 	s := passwordServer(key)
 	trustOpenSSH(t, key.PublicKey())
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Verified {
 		t.Fatalf("outcome = %q, want verified; detail %q", r.Outcome, r.Detail)
@@ -84,7 +84,7 @@ func TestPinFollowsTheAlgorithmOpenSSHNegotiated(t *testing.T) {
 	for _, trusted := range []ssh.Signer{ed, ec} {
 		s := passwordServerWith(ed, ec)
 		trustOpenSSH(t, trusted.PublicKey())
-		r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+		r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 		if r.Outcome != Verified {
 			t.Fatalf("trusting %s: outcome = %q, want verified; detail %q", trusted.PublicKey().Type(), r.Outcome, r.Detail)
 		}
@@ -106,7 +106,7 @@ func TestPinAcceptsACertificateBySubjectKey(t *testing.T) {
 		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(hostSigner.PublicKey()), certificate: true, keyID: cert.KeyId, serial: fmt.Sprint(cert.Serial), authority: ssh.FingerprintSHA256(ca.PublicKey())}, true, Result{}
 	})
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != Verified {
 		t.Fatalf("outcome = %q, want verified; detail %q", r.Outcome, r.Detail)
@@ -127,7 +127,7 @@ func TestPinRefusesACertificateBlobFingerprint(t *testing.T) {
 		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(cert)}, true, Result{}
 	})
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome != HostKeyChanged {
 		t.Fatalf("outcome = %q, want host key changed for a blob fingerprint; detail %q", r.Outcome, r.Detail)
@@ -214,7 +214,7 @@ func TestPinRefusesAnAlgorithmTheLibraryCannotNegotiate(t *testing.T) {
 		return hostTrust{algorithm: "ssh-mldsa-65", fingerprint: ssh.FingerprintSHA256(key.PublicKey())}, true, Result{}
 	})
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if r.Outcome == Verified {
 		t.Fatal("a host key algorithm the library cannot negotiate verified")

@@ -274,7 +274,7 @@ func (l *oshLab) discover(t *testing.T, tg Target) Result {
 
 func (l *oshLab) verify(t *testing.T, tg Target) Result {
 	t.Helper()
-	return Verify(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions())
+	return VerifyDirect(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions())
 }
 
 // The server's log counts. A credential is an accepted or failed public-key request. A session
@@ -687,7 +687,7 @@ func TestOpenSSHKeyThatMovedAfterTheProbeIsRefused(t *testing.T) {
 
 	trustOpenSSH(t, l.pubKey(l.otherKey))
 	snap := l.snap(t)
-	r := Verify(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions())
+	r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions())
 	l.expectRefusal(t, snap, r, HostKeyChanged)
 	if want := ssh.FingerprintSHA256(l.pubKey(l.hostKeys[0])); r.HostKey != want {
 		t.Errorf("the refusal names %q, want the key the server presented %q", r.HostKey, want)
@@ -695,7 +695,7 @@ func TestOpenSSHKeyThatMovedAfterTheProbeIsRefused(t *testing.T) {
 
 	trustOpenSSH(t, l.pubKey(l.hostKeys[0]))
 	snap = l.snap(t)
-	l.expectVerified(t, snap, Verify(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions()))
+	l.expectVerified(t, snap, VerifyDirect(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions()))
 }
 
 // TestOpenSSHLabSeesASessionWhenThereIsOne is the control for the zero counts above: a real ssh
@@ -793,7 +793,7 @@ func TestOpenSSHRefusesAServerThatAcceptsNone(t *testing.T) {
 	if _, ok, r := probeHostKey(context.Background(), tg, opts); ok {
 		t.Fatalf("the probe trusted a server that accepted none: %+v", r)
 	}
-	got := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	got := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 	if got.Outcome == Verified || got.Outcome == NoCredentialAccepted {
 		t.Fatalf("outcome = %q (%s), want a refusal", got.Outcome, got.Detail)
 	}
@@ -917,7 +917,7 @@ func TestOpenSSHForgedAcceptanceInKeyIDDoesNotEndTheCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, Options{Timeout: 8 * time.Second})
+	r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, Options{Timeout: 8 * time.Second})
 
 	if r.Outcome == NoCredentialAccepted || r.Outcome == Verified {
 		t.Fatalf("a forged acceptance line in the key ID produced %q (%s)", r.Outcome, r.Detail)
@@ -939,7 +939,7 @@ func TestOpenSSHExplicitIdentityFileIsTrusted(t *testing.T) {
 		t.Fatalf("discovery with an explicit IdentityFile = %q (%s), want discovered", d.Outcome, d.Detail)
 	}
 	snap := l.snap(t)
-	l.expectVerified(t, snap, Verify(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions()))
+	l.expectVerified(t, snap, VerifyDirect(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions()))
 }
 
 // A Match exec can run during OpenSSH's own configuration evaluation, and netdoc cannot prevent that. This
@@ -1018,7 +1018,7 @@ func TestOpenSSHMatchExecThatRunsDuringTheCheckSendsNoCredential(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolve before the Match exec was added: %v", err)
 			}
-			r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
+			r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
 
 			if _, statErr := os.Stat(marker); statErr != nil {
 				t.Fatalf("the probe did not run the configured Match exec, so the test shows nothing: %v", statErr)
@@ -1079,7 +1079,7 @@ func TestOpenSSHForgedKeyIDDoesNotSpoofFingerprintOrSuppressWarnings(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
+			r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
 			if s.password.Load() != 0 {
 				t.Fatalf("password sent to untrusted host: %d attempts", s.password.Load())
 			}
@@ -1137,7 +1137,7 @@ func TestOpenSSHCertificateRotatedKeyIDIsRefused(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
+		r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions())
 		return r, passwords.Load()
 	}
 
@@ -1223,13 +1223,13 @@ func TestOpenSSHOrdinaryTrustedConfigurationsVerify(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != Verified {
+		if r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != Verified {
 			t.Fatalf("uppercase user Alice = %q (%s), want %q", r.Outcome, r.Detail, Verified)
 		}
 		// Negative control: drifting User from Alice to alice must still be refused.
 		writeCfg("alice")
 		before := s.password.Load()
-		if r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != LocalFailure || s.password.Load() != before {
+		if r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != LocalFailure || s.password.Load() != before {
 			t.Fatalf("case drift Alice->alice was not refused: outcome=%q (%s) pwDelta=%d", r.Outcome, r.Detail, s.password.Load()-before)
 		}
 	})
@@ -1276,7 +1276,7 @@ func TestOpenSSHOrdinaryTrustedConfigurationsVerify(t *testing.T) {
 					t.Fatalf("%s probe refused: %+v", kex.alg, r)
 				}
 				if kex.checkVerify {
-					if r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != Verified {
+					if r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != Verified {
 						t.Fatalf("%s verify = %q (%s), want %q", kex.alg, r.Outcome, r.Detail, Verified)
 					}
 				}

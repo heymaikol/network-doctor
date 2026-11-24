@@ -88,7 +88,7 @@ func TestForgedKeyIDTranscriptNeverAuthorizesACredential(t *testing.T) {
 		return parseHostTrust([]byte(transcript), 255)
 	})
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if got := s.password.Load(); got != 0 {
 		t.Fatalf("a credential was sent on a forged transcript: %d attempts (outcome %q)", got, r.Outcome)
@@ -118,7 +118,7 @@ func TestCredentialConnectionMustPresentTheKeyIDOpenSSHChecked(t *testing.T) {
 	})
 
 	s := passwordServer(rotated)
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 	if s.dials.Load() != 1 {
 		t.Fatalf("dials = %d, want 1 so pinCheck itself was exercised (outcome %q, %s)", s.dials.Load(), r.Outcome, r.Detail)
 	}
@@ -131,7 +131,7 @@ func TestCredentialConnectionMustPresentTheKeyIDOpenSSHChecked(t *testing.T) {
 
 	// Control: presenting the checked key ID verifies with one password.
 	ctrl := passwordServer(checked)
-	cr := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, ctrl.options())
+	cr := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, ctrl.options())
 	if cr.Outcome != Verified || ctrl.password.Load() != 1 {
 		t.Fatalf("control failed: outcome=%q (%s) passwords=%d", cr.Outcome, cr.Detail, ctrl.password.Load())
 	}
@@ -154,7 +154,7 @@ func TestCredentialConnectionRefusesControlCharacterKeyID(t *testing.T) {
 		}, true, Result{}
 	})
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())
 
 	if s.dials.Load() != 1 {
 		t.Fatalf("dials = %d, want 1 so pinCheck was exercised", s.dials.Load())

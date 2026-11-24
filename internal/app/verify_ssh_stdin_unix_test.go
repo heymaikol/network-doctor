@@ -38,7 +38,7 @@ func TestHelperVerifyStdinChild(t *testing.T) {
 		return sshverify.Target{Host: "127.0.0.1", Port: 22, User: "tester"}, nil
 	}
 	verifyDiscover = func(context.Context, sshverify.Target, sshverify.Options) sshverify.Result {
-		return sshverify.Result{Outcome: sshverify.Discovered, HostKey: "SHA256:seen"}
+		return sshverify.Result{Outcome: sshverify.Discovered, HostKey: stubHostKey, Identity: stubIdentity}
 	}
 	verifyVerify = func(context.Context, sshverify.Target, sshverify.Attempt, sshverify.Options) sshverify.Result {
 		return sshverify.Result{Outcome: sshverify.Verified}

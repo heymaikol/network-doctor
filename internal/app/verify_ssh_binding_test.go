@@ -21,7 +21,7 @@ func TestVerifySSHCheckCarriesTheDiscoveredHostKey(t *testing.T) {
 	if !s.attempted {
 		t.Fatal("no credential check ran after the discovery")
 	}
-	if s.attempt.HostKey != stubHostKey {
-		t.Fatalf("the check's host key = %q, want the one discovery showed %q", s.attempt.HostKey, stubHostKey)
+	if s.attempt.Identity != stubIdentity {
+		t.Fatalf("the check's identity = %+v, want the one discovery showed %+v", s.attempt.Identity, stubIdentity)
 	}
 }

@@ -2,13 +2,25 @@ package ui
 
 import (
 	"context"
+	"crypto/ed25519"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 )
+
+// shownIdentity is the identity a test discovery trusts: a fixed key, as OpenSSH would record it.
+var shownIdentity = func() sshverify.HostIdentity {
+	seed := make([]byte, ed25519.SeedSize)
+	signer, err := ssh.NewSignerFromKey(ed25519.NewKeyFromSeed(seed))
+	if err != nil {
+		panic(err)
+	}
+	return sshverify.HostIdentity{Fingerprint: ssh.FingerprintSHA256(signer.PublicKey()), Algorithm: "ssh-ed25519"}
+}()
 
 // A check started after a discovery carries the host key that discovery showed, so Verify can
 // refuse a different key. The panel passes that key and nothing else of the discovery's.
@@ -24,7 +36,7 @@ func TestCheckCarriesTheHostKeyDiscoveryShowed(t *testing.T) {
 	m := resolved(t, sshModel(t))
 	m = pressed(t, m, keyPress("S"))
 	m = resolved(t, m)
-	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered, HostKey: "SHA256:shown"}})
+	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered, HostKey: shownIdentity.Fingerprint, Identity: shownIdentity}})
 	m.verify.secret.SetValue("secret")
 
 	_, cmd := m.startVerifyAction(true)
@@ -34,27 +46,27 @@ func TestCheckCarriesTheHostKeyDiscoveryShowed(t *testing.T) {
 		batch[0]()
 	}
 
-	if got.HostKey != "SHA256:shown" {
-		t.Fatalf("the check's host key = %q, want the one discovery showed", got.HostKey)
+	if got.Identity != shownIdentity {
+		t.Fatalf("the check's identity = %+v, want the one discovery showed %+v", got.Identity, shownIdentity)
 	}
 }
 
-// A discovery that names no host key trusts nothing for the check, so the check cannot start.
+// A discovery that names no identity trusts nothing for the check, so the check cannot start.
 func TestDiscoveryWithoutAHostKeyDoesNotArmTheCheck(t *testing.T) {
 	m := resolved(t, sshModel(t))
 	m = pressed(t, m, keyPress("S"))
 	m = resolved(t, m)
 	m, _, _ = m.handleVerifyMsg(verifyResultMsg{id: m.verify.id, result: sshverify.Result{Outcome: sshverify.Discovered}})
-	if m.verify.trusted || m.verify.hostKey != "" {
-		t.Fatalf("a discovery with no host key armed the check: trusted=%v hostKey=%q", m.verify.trusted, m.verify.hostKey)
+	if m.verify.trusted || m.verify.identity.Valid() {
+		t.Fatalf("a discovery with no identity armed the check: trusted=%v identity=%+v", m.verify.trusted, m.verify.identity)
 	}
 }
 
 // The panel shows the host key a discovery trusted, so the user can compare it with the key they expect.
 func TestDiscoveryShowsTheTrustedHostKey(t *testing.T) {
 	m := resolved(t, sshModel(t))
-	r := sshverify.Result{Outcome: sshverify.Discovered, HostKey: "SHA256:shown"}
-	if !strings.Contains(resultLines(m, r), "trusted host key: SHA256:shown") {
+	r := sshverify.Result{Outcome: sshverify.Discovered, HostKey: shownIdentity.Fingerprint, Identity: shownIdentity}
+	if !strings.Contains(resultLines(m, r), "trusted host key: "+shownIdentity.Fingerprint) {
 		t.Fatalf("the discovery result does not show its host key:\n%s", resultLines(m, r))
 	}
 }

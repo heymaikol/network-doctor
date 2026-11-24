@@ -50,10 +50,10 @@ func TestVerifyOverLoopbackTCP(t *testing.T) {
 	if r := Discover(ctx, tg, opts); r.Outcome != Discovered || len(r.Methods) != 1 || r.Methods[0] != "password" {
 		t.Fatalf("discover over TCP = %+v", r)
 	}
-	if r := Verify(ctx, tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts); r.Outcome != Verified {
+	if r := VerifyDirect(ctx, tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts); r.Outcome != Verified {
 		t.Fatalf("verify over TCP = %+v", r)
 	}
-	if r := Verify(ctx, tg, Attempt{Method: MethodPassword, Password: []byte(testWrongPass)}, opts); r.Outcome != Refused {
+	if r := VerifyDirect(ctx, tg, Attempt{Method: MethodPassword, Password: []byte(testWrongPass)}, opts); r.Outcome != Refused {
 		t.Fatalf("wrong password over TCP = %+v", r)
 	}
 	if got := s.opens.Load(); got != 0 {
@@ -104,7 +104,7 @@ func TestAgentOverUnixSocket(t *testing.T) {
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("ListAgentKeys over the socket = %v, %v", keys, err)
 	}
-	r := Verify(context.Background(), tg, Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, Options{Timeout: 5 * time.Second})
+	r := VerifyDirect(context.Background(), tg, Attempt{Method: MethodAgent, AgentFingerprint: keys[0].Fingerprint}, Options{Timeout: 5 * time.Second})
 	if r.Outcome != Verified || s.pubkey.Load() != 1 {
 		t.Fatalf("agent verify over the socket = %+v, key attempts %d", r, s.pubkey.Load())
 	}

@@ -135,7 +135,7 @@ func TestPartialReplyIsTransportFailure(t *testing.T) {
 		},
 	}
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 	select {
 	case <-got:
 	default:
@@ -185,7 +185,7 @@ func TestCutNoneReplyIsTransportFailureNotNotOffered(t *testing.T) {
 		},
 	}
 
-	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
+	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, opts)
 	if r.Outcome != TransportFailure {
 		t.Fatalf("outcome = %q, want transport failure; a cut reply to none is not a method list; detail %q", r.Outcome, r.Detail)
 	}

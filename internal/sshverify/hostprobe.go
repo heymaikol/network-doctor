@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
@@ -56,6 +57,8 @@ func probeArgs(dest []string) []string {
 	return append([]string{
 		"-N", "-n", "-T",
 		"-o", "LogLevel=DEBUG1",
+		"-o", "LogVerbose=none",
+		"-o", "FingerprintHash=sha256",
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=yes",
 		"-o", "PreferredAuthentications=none",
@@ -228,11 +231,12 @@ func confirmRoute(ctx context.Context, program string, t Target, dest []string) 
 	if route.Kind != RouteDirect {
 		return Result{Outcome: LocalFailure, Detail: "the SSH configuration changed after it was read, and the new one is not one netdoc verifies: " + route.Reason + "; nothing was sent"}, false
 	}
-	same := func(key, want string) bool {
+	sameLower := func(key, want string) bool {
 		got, set := listingValue(route.Listing, key)
-		return set && got == want
+		return set && got == strings.ToLower(want)
 	}
-	if !same("hostname", t.Host) || !same("port", strconv.Itoa(t.Port)) || !same("user", t.User) {
+	gotUser, userSet := listingRawValue(route.Listing, "user")
+	if !sameLower("hostname", t.Host) || !sameLower("port", strconv.Itoa(t.Port)) || !userSet || gotUser != t.User {
 		return Result{Outcome: LocalFailure, Detail: "the SSH configuration now names another host, port or login than the one checked; nothing was sent"}, false
 	}
 	return Result{}, true

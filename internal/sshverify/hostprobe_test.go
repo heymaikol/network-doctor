@@ -236,6 +236,7 @@ func TestProbeArgsForceTheChecksAndOverrideNoKnownHostsSetting(t *testing.T) {
 		"ProxyJump=none", "UpdateHostKeys=no",
 		"KnownHostsCommand=none", "PKCS11Provider=none", "SecurityKeyProvider=none",
 		"GSSAPIAuthentication=no", "ForkAfterAuthentication=no",
+		"LogVerbose=none", "FingerprintHash=sha256",
 	} {
 		if !slices.Contains(args, want) {
 			t.Errorf("probe arguments lack %q: %v", want, args)

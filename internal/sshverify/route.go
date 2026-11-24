@@ -347,12 +347,20 @@ func (r Route) Endpoint() (host, port string) {
 	return host, port
 }
 
-func listingValue(listing []byte, key string) (string, bool) {
+func listingRawValue(listing []byte, key string) (string, bool) {
 	for _, line := range strings.Split(string(listing), "\n") {
 		k, v, ok := strings.Cut(strings.TrimRight(line, "\r"), " ")
 		if ok && strings.ToLower(k) == key {
-			return strings.ToLower(strings.TrimSpace(v)), true
+			return strings.TrimSpace(v), true
 		}
 	}
 	return "", false
+}
+
+func listingValue(listing []byte, key string) (string, bool) {
+	v, ok := listingRawValue(listing, key)
+	if !ok {
+		return "", false
+	}
+	return strings.ToLower(v), true
 }

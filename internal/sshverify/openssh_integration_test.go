@@ -1152,3 +1152,135 @@ func TestOpenSSHCertificateRotatedKeyIDIsRefused(t *testing.T) {
 		t.Fatalf("matching key ID control: outcome=%q (%s) passwords=%d, want %q with 1 password", cr.Outcome, cr.Detail, cpw, Refused)
 	}
 }
+
+// Ordinary trusted OpenSSH configurations must verify without relaxing host-key validation:
+// missing optional known_hosts files, explicit IdentityFile with a user certificate, RSA host
+// certificates, uppercase logins, LogVerbose/FingerprintHash overrides, and DH-GEX.
+func TestOpenSSHOrdinaryTrustedConfigurationsVerify(t *testing.T) {
+	t.Run("missing optional known_hosts2 and global known_hosts", func(t *testing.T) {
+		l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}})
+		l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
+		khList := l.known + " " + filepath.Join(l.dir, "known_hosts2_missing")
+		cfg := fmt.Sprintf("Host 127.0.0.1\n  Port %d\n  User %s\n  UserKnownHostsFile %s\n  GlobalKnownHostsFile %s\n",
+			l.port, l.login, khList, filepath.Join(l.dir, "ssh_known_hosts_missing"))
+		l.useConfig(t, cfg)
+		tg := l.resolve(t, "127.0.0.1")
+		snap := l.snap(t)
+		l.expectVerified(t, snap, l.verify(t, tg))
+	})
+
+	t.Run("explicit IdentityFile with user certificate", func(t *testing.T) {
+		l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}})
+		l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
+		userCA := filepath.Join(l.dir, "user_ca")
+		if out, err := exec.Command(l.keygen, "-q", "-t", "ed25519", "-N", "", "-f", userCA).CombinedOutput(); err != nil { // #nosec G204 -- test helper
+			t.Fatalf("ssh-keygen user CA: %v: %s", err, out)
+		}
+		if out, err := exec.Command(l.keygen, "-q", "-s", userCA, "-I", "usercert", "-n", l.login, l.clientKey+".pub").CombinedOutput(); err != nil { // #nosec G204 -- test helper
+			t.Fatalf("ssh-keygen sign user cert: %v: %s", err, out)
+		}
+		l.useConfig(t, l.baseConfig(l.known, "  IdentityFile "+l.clientKey+"\n  IdentitiesOnly yes\n"))
+		tg := l.resolve(t, "127.0.0.1")
+		snap := l.snap(t)
+		l.expectVerified(t, snap, l.verify(t, tg))
+	})
+
+	t.Run("RSA host certificate", func(t *testing.T) {
+		l := newOSHLab(t, oshOpts{hostKinds: []string{"rsa"}, certificate: true})
+		ca := strings.Fields(l.pubLine(l.caKey))
+		l.writeKnown(t, "@cert-authority "+l.names()+" "+ca[0]+" "+ca[1]+"\n")
+		l.useConfig(t, l.baseConfig(l.known, ""))
+		tg := l.resolve(t, "127.0.0.1")
+		trust, ok, r := probeHostKey(context.Background(), tg, oshOptions())
+		if !ok || trust.algorithm != "rsa-sha2-512-cert-v01@openssh.com" || !trust.certificate {
+			t.Fatalf("RSA cert probe = %+v (trusted %v, %+v)", trust, ok, r)
+		}
+		snap := l.snap(t)
+		l.expectVerified(t, snap, l.verify(t, tg))
+	})
+
+	t.Run("uppercase username passes and case drift is refused", func(t *testing.T) {
+		host, _ := newEd25519(t)
+		s := passwordServer(host)
+		port := listenLoopback(t, s)
+		dir := t.TempDir()
+		known := filepath.Join(dir, "known_hosts")
+		if err := os.WriteFile(known, []byte(knownhosts.Line([]string{"[127.0.0.1]:" + strconv.Itoa(port)}, host.PublicKey())+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg := filepath.Join(dir, "ssh_config")
+		writeCfg := func(user string) {
+			body := fmt.Sprintf("Host 127.0.0.1\n  Port %d\n  User %s\n  UserKnownHostsFile %s\n  GlobalKnownHostsFile none\n", port, user, known)
+			if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writeCfg("Alice")
+		saved := sshTestArgs
+		sshTestArgs = []string{"-F", cfg}
+		t.Cleanup(func() { sshTestArgs = saved })
+		tg, err := Resolve(context.Background(), "127.0.0.1", 0, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != Verified {
+			t.Fatalf("uppercase user Alice = %q (%s), want %q", r.Outcome, r.Detail, Verified)
+		}
+		// Negative control: drifting User from Alice to alice must still be refused.
+		writeCfg("alice")
+		before := s.password.Load()
+		if r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != LocalFailure || s.password.Load() != before {
+			t.Fatalf("case drift Alice->alice was not refused: outcome=%q (%s) pwDelta=%d", r.Outcome, r.Detail, s.password.Load()-before)
+		}
+	})
+
+	t.Run("LogVerbose and FingerprintHash md5 overridden by probe", func(t *testing.T) {
+		l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}})
+		l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
+		l.useConfig(t, l.baseConfig(l.known, "  LogVerbose *\n  FingerprintHash md5\n"))
+		tg := l.resolve(t, "127.0.0.1")
+		snap := l.snap(t)
+		l.expectVerified(t, snap, l.verify(t, tg))
+	})
+
+	t.Run("non-PQ curve25519 and DH-GEX key exchanges", func(t *testing.T) {
+		for _, kex := range []struct {
+			alg         string
+			checkVerify bool
+		}{
+			{"curve25519-sha256", true},
+			{"diffie-hellman-group-exchange-sha256", false},
+		} {
+			t.Run(kex.alg, func(t *testing.T) {
+				host, _ := newEd25519(t)
+				s := passwordServer(host)
+				s.cfg.KeyExchanges = []string{kex.alg}
+				port := listenLoopback(t, s)
+				dir := t.TempDir()
+				known := filepath.Join(dir, "known_hosts")
+				if err := os.WriteFile(known, []byte(knownhosts.Line([]string{"[127.0.0.1]:" + strconv.Itoa(port)}, host.PublicKey())+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				cfg := filepath.Join(dir, "ssh_config")
+				if err := os.WriteFile(cfg, []byte(fmt.Sprintf("Host 127.0.0.1\n  Port %d\n  UserKnownHostsFile %s\n  GlobalKnownHostsFile none\n", port, known)), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				saved := sshTestArgs
+				sshTestArgs = []string{"-F", cfg}
+				t.Cleanup(func() { sshTestArgs = saved })
+				tg, err := Resolve(context.Background(), "127.0.0.1", 0, testUser)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, ok, r := probeHostKey(context.Background(), tg, oshOptions()); !ok {
+					t.Fatalf("%s probe refused: %+v", kex.alg, r)
+				}
+				if kex.checkVerify {
+					if r := Verify(context.Background(), tg, Attempt{Method: MethodPassword, Password: []byte(testPassword)}, oshOptions()); r.Outcome != Verified {
+						t.Fatalf("%s verify = %q (%s), want %q", kex.alg, r.Outcome, r.Detail, Verified)
+					}
+				}
+			})
+		}
+	})
+}

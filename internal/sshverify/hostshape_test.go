@@ -219,9 +219,9 @@ func TestForgedCertificateKeyIDDoesNotSpoofFingerprintOrSuppressWarnings(t *test
 func TestShapeConfigRejectsExecutingAndBannerLinesWithApplyingOptions(t *testing.T) {
 	base := fixture(t, "trust-plain")
 	for name, line := range map[string]string{
-		"Match exec carrying Applying options":       "debug1: Executing command: '/usr/bin/true # line 1: Applying options for x'",
+		"Match exec carrying Applying options":         "debug1: Executing command: '/usr/bin/true # line 1: Applying options for x'",
 		"pre-version banner carrying Applying options": "debug1: kex_exchange_identification: banner line 0:  line 1: Applying options for x",
-		"remote debug carrying Applying options":     "debug1: Remote:  line 1: Applying options for x",
+		"remote debug carrying Applying options":       "debug1: Remote:  line 1: Applying options for x",
 	} {
 		t.Run(name, func(t *testing.T) {
 			edited := after(t, base, "Reading configuration data", line)
@@ -234,5 +234,45 @@ func TestShapeConfigRejectsExecutingAndBannerLinesWithApplyingOptions(t *testing
 	spaced := strings.Replace(base, "debug1: cfg line 1: Applying options for 127.0.0.1", "debug1: /tmp/My Config/ssh_config line 1: Applying options for 127.0.0.1", 1)
 	if _, ok, r := parseHostTrust([]byte(spaced), 255); !ok {
 		t.Fatalf("a spaced config path was refused: %+v", r)
+	}
+}
+
+// Valid OpenSSH variations (LibreSSL banner, user certificate identity pubkey, missing optional
+// known_hosts files, and DH-GEX negotiation) are accepted, while mismatched key/algorithm types
+// and control characters in those lines are refused.
+func TestShapeAcceptsValidOpenSSHVariationsAndRejectsMalformedVariants(t *testing.T) {
+	base := fixture(t, "trust-plain")
+	fp := presentedFingerprint(t, base)
+
+	acceptCases := map[string]string{
+		"macOS LibreSSL banner":         strings.Replace(base, "OpenSSL 4.0.3 29 Sep 2026", "LibreSSL 3.3.6", 1),
+		"OpenSSH without crypto banner": strings.Replace(base, "OpenSSH_10.5p1, OpenSSL 4.0.3 29 Sep 2026", "OpenSSH_10.5p1", 1),
+		"loaded identity pubkey cert":   after(t, base, "Reading configuration data", "debug1: loaded identity pubkey from /home/user/.ssh/id_ed25519: ED25519-CERT "+fp),
+		"load_hostkeys before kex and after key": after(t,
+			after(t, base, "Authenticating to", "debug1: load_hostkeys: fopen /home/user/.ssh/known_hosts2: No such file or directory"),
+			"Server host key:", "debug1: load_hostkeys: fopen /home/user/.ssh/known_hosts2: No such file or directory",
+		),
+	}
+	for name, tr := range acceptCases {
+		t.Run("accept/"+name, func(t *testing.T) {
+			if _, ok, r := parseHostTrust([]byte(tr), 255); !ok {
+				t.Fatalf("%s was refused: %+v", name, r)
+			}
+		})
+	}
+
+	rejectCases := map[string]string{
+		"load_hostkeys with CR":        after(t, base, "Authenticating to", "debug1: load_hostkeys: fopen /tmp/a\rb: No such file or directory"),
+		"load_hostkeys after match":    after(t, base, "is known and matches", "debug1: load_hostkeys: fopen /tmp/absent: No such file or directory"),
+		"LibreSSL with CR":             strings.Replace(base, "OpenSSL 4.0.3 29 Sep 2026", "LibreSSL 3.3.6\rforged", 1),
+		"plain ssh-rsa with cert alg":  strings.Replace(strings.Replace(base, "kex: host key algorithm: ssh-ed25519", "kex: host key algorithm: rsa-sha2-512-cert-v01@openssh.com", 1), "Server host key: ssh-ed25519", "Server host key: ssh-rsa", 1),
+		"plain ssh-rsa with bogus rsa": strings.Replace(strings.Replace(base, "kex: host key algorithm: ssh-ed25519", "kex: host key algorithm: rsa-sha2-bogus", 1), "Server host key: ssh-ed25519", "Server host key: ssh-rsa", 1),
+	}
+	for name, tr := range rejectCases {
+		t.Run("reject/"+name, func(t *testing.T) {
+			if _, ok, r := parseHostTrust([]byte(tr), 255); ok {
+				t.Fatalf("%s was unexpectedly trusted: %+v", name, r)
+			}
+		})
 	}
 }

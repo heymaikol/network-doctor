@@ -25,23 +25,32 @@ type shapeRule struct {
 
 // The configuration section: the lines OpenSSH prints while it reads the configuration and
 // connects, before the key exchange. Command output is not among them, so a Match exec line fails.
-var shapeConfig = []shapeRule{{regexp.MustCompile(`^debug1: (?:OpenSSH_\S+, OpenSSL .*|Reading configuration data .*|(?:[^"\x00-\x1f\x7f:]+ )?line \d+: Applying options for [^"\x00-\x1f\x7f]*|Applying options for [^"]*|(?:no pubkey loaded from|identity file|no identity pubkey loaded from) [^"]*|loaded pubkey from [^\x00-\x1f\x7f]+: [A-Za-z0-9@._-]+ SHA256:[A-Za-z0-9+/]+|Connecting to [^"]*|Connection established\.|Local version string SSH-2\.0-[^"]*|Remote protocol version 2\.0, remote software version [^"]*|compat_banner: [^"]*|Authenticating to [^"]*|using hostkeyalias: [^"]*)$`), 0, -1}}
+var shapeConfig = []shapeRule{{regexp.MustCompile(`^debug1: (?:OpenSSH_\S+(?:, (?:OpenSSL|LibreSSL) [^\x00-\x1f\x7f]+)?|Reading configuration data .*|(?:[^"\x00-\x1f\x7f:]+ )?line \d+: Applying options for [^"\x00-\x1f\x7f]*|Applying options for [^"]*|(?:no pubkey loaded from|identity file|no identity pubkey loaded from) [^"]*|loaded (?:identity )?pubkey from [^\x00-\x1f\x7f]+: [A-Za-z0-9@._-]+ SHA256:[A-Za-z0-9+/]+|load_hostkeys: fopen [^\x00-\x1f\x7f]+: [^\x00-\x1f\x7f]+|Connecting to [^"]*|Connection established\.|Local version string SSH-2\.0-[^"]*|Remote protocol version 2\.0, remote software version [^"]*|compat_banner: [^"]*|Authenticating to [^"]*|using hostkeyalias: [^"]*)$`), 0, -1}}
 
 // The key exchange, from the first KEXINIT line to the line before the host-key record. The host
 // key algorithm is the one line that is taken for the decision, so it appears exactly once.
 var (
-	shapeKexInitSent   = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEXINIT sent$`), 1, 1}
-	shapeKexInitRecv   = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEXINIT received$`), 1, 1}
-	shapeKexAlgorithm  = shapeRule{regexp.MustCompile(`^debug1: kex: algorithm: [A-Za-z0-9@._+-]+$`), 1, 1}
-	shapeKexHostKeyAlg = shapeRule{regexp.MustCompile(`^debug1: kex: host key algorithm: ([A-Za-z0-9@._+-]+)$`), 1, 1}
-	shapeKexS2C        = shapeRule{regexp.MustCompile(`^debug1: kex: server->client cipher: \S+ MAC: .*compression: \S+$`), 1, 1}
-	shapeKexC2S        = shapeRule{regexp.MustCompile(`^debug1: kex: client->server cipher: \S+ MAC: .*compression: \S+$`), 1, 1}
-	shapeKexNeed       = shapeRule{regexp.MustCompile(`^debug1: kex: \S+ need=\d+ dh_need=\d+$`), 0, 2}
-	shapeKexExpect     = shapeRule{regexp.MustCompile(`^debug1: expecting SSH2_MSG_KEX[A-Z0-9_]*_REPLY$`), 1, 1}
-	shapeKexReply      = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEX[A-Z0-9_]*_REPLY received$`), 1, 1}
+	shapeKexInitSent    = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEXINIT sent$`), 1, 1}
+	shapeKexInitRecv    = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEXINIT received$`), 1, 1}
+	shapeKexAlgorithm   = shapeRule{regexp.MustCompile(`^debug1: kex: algorithm: [A-Za-z0-9@._+-]+$`), 1, 1}
+	shapeKexHostKeyAlg  = shapeRule{regexp.MustCompile(`^debug1: kex: host key algorithm: ([A-Za-z0-9@._+-]+)$`), 1, 1}
+	shapeKexS2C         = shapeRule{regexp.MustCompile(`^debug1: kex: server->client cipher: \S+ MAC: .*compression: \S+$`), 1, 1}
+	shapeKexC2S         = shapeRule{regexp.MustCompile(`^debug1: kex: client->server cipher: \S+ MAC: .*compression: \S+$`), 1, 1}
+	shapeKexNeed        = shapeRule{regexp.MustCompile(`^debug1: kex: \S+ need=\d+ dh_need=\d+$`), 0, 2}
+	shapeKexGexRequest  = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEX_DH_GEX_REQUEST\(\d+<\d+<\d+\) sent$`), 0, 1}
+	shapeKexGexExpGroup = shapeRule{regexp.MustCompile(`^debug1: expecting SSH2_MSG_KEX_DH_GEX_GROUP$`), 0, 1}
+	shapeKexGexGotGroup = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEX_DH_GEX_GROUP received$`), 0, 1}
+	shapeKexGexInit     = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEX_DH_GEX_INIT sent$`), 0, 1}
+	shapeKexExpect      = shapeRule{regexp.MustCompile(`^debug1: expecting SSH2_MSG_KEX[A-Z0-9_]*_REPLY$`), 1, 1}
+	shapeKexReply       = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_KEX[A-Z0-9_]*_REPLY received$`), 1, 1}
 )
 
-var shapeKexRules = []shapeRule{shapeKexInitSent, shapeKexInitRecv, shapeKexAlgorithm, shapeKexHostKeyAlg, shapeKexS2C, shapeKexC2S, shapeKexNeed, shapeKexExpect, shapeKexReply}
+var shapeKexRules = []shapeRule{
+	shapeKexInitSent, shapeKexInitRecv, shapeKexAlgorithm, shapeKexHostKeyAlg,
+	shapeKexS2C, shapeKexC2S, shapeKexNeed,
+	shapeKexGexRequest, shapeKexGexExpGroup, shapeKexGexGotGroup, shapeKexGexInit,
+	shapeKexExpect, shapeKexReply,
+}
 
 // The host-key record: exactly one, in one of OpenSSH's two forms, matched in full. A certificate's
 // line carries its key ID, which the server chose, and ends with the authority and validity text.
@@ -59,9 +68,10 @@ var (
 // them. The last two lines are the authentication step and the refusal, and their method lists
 // must agree.
 var (
-	// The lookup lines OpenSSH prints while it finds the key: the name it tries without the port, a
-	// fallback to the plain key when the certificate authority is not known, and the alias it uses.
-	shapeLookup        = shapeRule{regexp.MustCompile(`^debug1: (?:checking without port identifier|No matching CA found\. Retry with plain key|using hostkeyalias: [^"]*)$`), 0, -1}
+	// The lookup lines OpenSSH prints while it finds the key: optional missing known_hosts files,
+	// the name it tries without the port, a fallback to the plain key when the CA is not known,
+	// and the alias it uses.
+	shapeLookup        = shapeRule{regexp.MustCompile(`^debug1: (?:load_hostkeys: fopen [^\x00-\x1f\x7f]+: [^\x00-\x1f\x7f]+|checking without port identifier|No matching CA found\. Retry with plain key|using hostkeyalias: [^"]*)$`), 0, -1}
 	shapeMatched       = shapeRule{regexp.MustCompile(`^debug1: Host '[^']*' is known and matches the [A-Z0-9-]+ host (?:key|certificate)\.$`), 1, 1}
 	shapeFoundKey      = shapeRule{regexp.MustCompile(`^debug1: Found (?:CA )?key in [^"]*:\d+$`), 0, 1}
 	shapeSeqnrSend     = shapeRule{regexp.MustCompile(`^debug1: ssh_packet_send2_wrapped: resetting send seqnr \d+$`), 0, 1}
@@ -72,6 +82,9 @@ var (
 	shapeSeqnrRead     = shapeRule{regexp.MustCompile(`^debug1: ssh_packet_read_poll2: resetting read seqnr \d+$`), 0, 1}
 	shapeNewkeysRecv   = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_NEWKEYS received$`), 1, 1}
 	shapeRekeyIn       = shapeRule{regexp.MustCompile(`^debug1: rekey in after \d+ blocks$`), 0, 1}
+	shapePQWarn1       = shapeRule{regexp.MustCompile(`^\*\* WARNING: connection is not using a post-quantum key exchange algorithm\.$`), 0, 1}
+	shapePQWarn2       = shapeRule{regexp.MustCompile(`^\*\* This session may be vulnerable to "store now, decrypt later" attacks\.$`), 0, 1}
+	shapePQWarn3       = shapeRule{regexp.MustCompile(`^\*\* The server may need to be upgraded\. See https://openssh\.com/pq\.html$`), 0, 1}
 	shapeExt           = shapeRule{regexp.MustCompile(`^debug1: (?:SSH2_MSG_EXT_INFO received|kex_ext_info_[a-z_]+: [^"]*)$`), 0, -1}
 	shapeServiceAccept = shapeRule{regexp.MustCompile(`^debug1: SSH2_MSG_SERVICE_ACCEPT received$`), 1, 1}
 	shapeAuthMethods   = shapeRule{regexp.MustCompile(`^debug1: Authentications that can continue: ([a-z0-9-]+(?:,[a-z0-9-]+)*)$`), 1, 1}
@@ -83,7 +96,8 @@ var (
 // The extension lines are allowed on both sides of SERVICE_ACCEPT, so they are listed twice.
 var shapeAfterKey = []shapeRule{
 	shapeLookup, shapeMatched, shapeFoundKey, shapeSeqnrSend, shapeRekeyOut, shapeNewkeysSent, shapeExtSend,
-	shapeExpectNewkeys, shapeSeqnrRead, shapeNewkeysRecv, shapeRekeyIn, shapeExt,
+	shapeExpectNewkeys, shapeSeqnrRead, shapeNewkeysRecv, shapeRekeyIn,
+	shapePQWarn1, shapePQWarn2, shapePQWarn3, shapeExt,
 	shapeServiceAccept, shapeExt, shapeAuthMethods, shapeNoMore, shapePermission,
 }
 
@@ -169,9 +183,9 @@ func acceptShape(lines []string) (hostTrust, string) {
 	if pos != len(lines) {
 		return hostTrust{}, "the output continues after the final refusal"
 	}
-	algorithm := shapeKexHostKeyAlg.re.FindStringSubmatch(lines[kex[3]])[1]
-	// An RSA key is presented as ssh-rsa, and negotiated with one of its signature algorithms.
-	if presentedType != algorithm && (presentedType != "ssh-rsa" || !strings.HasPrefix(algorithm, "rsa-sha2-")) {
+	algorithm := shapeKexHostKeyAlg.re.FindStringSubmatch(lines[kex[indexOfRule(shapeKexRules, shapeKexHostKeyAlg)]])[1]
+	// An RSA key or certificate is presented under its ssh-rsa key type and negotiated with an RSA SHA-2 signature algorithm.
+	if !presentedMatchesAlgorithm(presentedType, algorithm) {
 		return hostTrust{}, "the host key record and the negotiated algorithm name different keys"
 	}
 	methods := shapeAuthMethods.re.FindStringSubmatch(lines[after[indexOfRule(shapeAfterKey, shapeAuthMethods)]])[1]
@@ -184,6 +198,22 @@ func acceptShape(lines []string) (hostTrust, string) {
 	}
 	key.algorithm = algorithm
 	return key, ""
+}
+
+// presentedMatchesAlgorithm reports whether OpenSSH's presented key type matches the negotiated
+// host-key algorithm. RSA plain keys and RSA host certificates present under ssh-rsa types while
+// negotiating rsa-sha2-256 or rsa-sha2-512.
+func presentedMatchesAlgorithm(presentedType, algorithm string) bool {
+	if presentedType == algorithm {
+		return true
+	}
+	switch presentedType {
+	case "ssh-rsa":
+		return algorithm == "rsa-sha2-256" || algorithm == "rsa-sha2-512"
+	case "ssh-rsa-cert-v01@openssh.com":
+		return algorithm == "rsa-sha2-256-cert-v01@openssh.com" || algorithm == "rsa-sha2-512-cert-v01@openssh.com"
+	}
+	return false
 }
 
 // parseHostTrust decides a probe transcript. Trust comes only from acceptShape. Any other

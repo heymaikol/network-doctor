@@ -24,9 +24,10 @@ import (
 //   - the key ID and principals of a host certificate, printed on the presented-key line.
 //
 // Injected text can carry trust lines of its own, so the parser accepts trust only when the
-// evidence is unique, when every line before it is a plain debug line, and when the
-// authentication phase followed it. The probe also forces LogLevel DEBUG1, which hides the
-// debug2 lines that print the server's own algorithm lists. probeArgs documents the rest.
+// whole transcript has OpenSSH's shape, from the configuration lines to the end of the output
+// (hostshape.go). A matching line alone is not enough, and neither is a clean end alone. The probe
+// also forces LogLevel DEBUG1, which hides the debug2 lines that print the server's own algorithm
+// lists. probeArgs documents the rest.
 
 // hostTrust is OpenSSH's decision about the host key, as its own record states it.
 type hostTrust struct {

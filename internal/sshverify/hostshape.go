@@ -266,45 +266,34 @@ func presentedKeyAtPrefix(lines []string) string {
 
 // refusal names why a transcript was refused. It chooses the message only: the shape has already
 // refused, and nothing here can make a transcript trusted.
+//
+// OpenSSH names a refused host key on the line just before its final line, "Host key verification
+// failed.", and the client prints the two together, so the server cannot write between them. Server
+// text, banners, disconnect messages and key IDs can contain any of the same words anywhere else, so
+// only that position decides which refusal is named.
 func refusal(lines []string, exitStatus int) Result {
 	fingerprint := presentedKeyAtPrefix(lines)
 	out := func(outcome Outcome, detail string) Result {
 		return Result{Outcome: outcome, HostKey: fingerprint, Detail: detail + "; nothing was sent"}
 	}
-	var hasChanged, hasRevoked, hasUnknown, hasExecBeforeKex, hasAuth bool
-	beforeKex := true
-	for _, l := range lines {
-		if shapeKexInitSent.re.MatchString(l) {
-			beforeKex = false
-		}
-		if beforeKex && strings.HasPrefix(l, "debug1: Executing ") {
-			hasExecBeforeKex = true
-		}
-		if strings.HasPrefix(l, "Authenticated to ") {
-			hasAuth = true
-		}
-		if failed := failureLine(l); failed != "" {
-			switch {
-			case strings.Contains(failed, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
-				hasChanged = true
-			case strings.Contains(failed, "revoked"):
-				hasRevoked = true
-			case strings.Contains(failed, "host key is known for"), failed == "Host key verification failed.":
-				hasUnknown = true
-			}
+	if n := len(lines); exitStatus == 255 && n >= 2 && lines[n-1] == hostKeyVerificationFailed {
+		switch decision := lines[n-2]; {
+		case shapeChangedDecision.MatchString(decision):
+			return out(HostKeyChanged, "OpenSSH reports that the host key has changed")
+		case shapeRevokedDecision.MatchString(decision), shapeRevokedFileDecision.MatchString(decision):
+			return out(HostKeyRevoked, "OpenSSH reports that the host key is revoked")
+		case shapeUnknownDecision.MatchString(decision):
+			return out(HostKeyUnknown, "OpenSSH has no record of this host key; establish trust with your normal SSH client first")
 		}
 	}
-	switch {
-	case hasChanged:
-		return out(HostKeyChanged, "OpenSSH reports that the host key has changed")
-	case hasRevoked:
-		return out(HostKeyRevoked, "OpenSSH reports that the host key is revoked")
-	case hasUnknown:
-		return out(HostKeyUnknown, "OpenSSH has no record of this host key; establish trust with your normal SSH client first")
-	case hasExecBeforeKex:
-		return out(TransportFailure, "OpenSSH ran a configured command during the check, so its output is not evidence")
-	case hasAuth:
-		return out(TransportFailure, "the server accepted the connection without authentication; netdoc does not verify such a server")
+	if n := len(lines); exitStatus == 255 && n >= 1 && lines[n-1] == hostKeyVerificationFailed && fingerprint != "" {
+		// OpenSSH refused the key without naming why, as a global known-hosts setting can cause.
+		return out(HostKeyUnknown, "OpenSSH does not trust this host key; establish trust with your normal SSH client first")
+	}
+	for _, l := range lines {
+		if strings.HasPrefix(l, "debug1: Executing ") {
+			return out(TransportFailure, "OpenSSH ran a configured command during the check, so its output is not evidence")
+		}
 	}
 	if reason := unreachable(lines); reason != "" {
 		return out(TransportFailure, reason)
@@ -314,6 +303,17 @@ func refusal(lines []string, exitStatus int) Result {
 	}
 	return out(TransportFailure, "OpenSSH's output did not have the shape netdoc verifies")
 }
+
+// hostKeyVerificationFailed is OpenSSH's final line when it refuses a host key.
+const hostKeyVerificationFailed = "Host key verification failed."
+
+// The decision lines OpenSSH prints for a refused host key, as the client prints them.
+var (
+	shapeChangedDecision     = regexp.MustCompile(`^Host key for \S+ has changed and you have requested strict checking\.$`)
+	shapeRevokedDecision     = regexp.MustCompile(`^[A-Z0-9-]+ host key for \S+ was revoked and you have requested strict checking\.$`)
+	shapeRevokedFileDecision = regexp.MustCompile(`^Host key [A-Z0-9-]+ SHA256:\S+ revoked by file .+$`)
+	shapeUnknownDecision     = regexp.MustCompile(`^No [A-Z0-9-]+ host key is known for \S+ and you have requested strict checking\.$`)
+)
 
 // unreachable names why OpenSSH read no host key, from the client's own lines. The client prints
 // these lines itself, so the server cannot write them. It returns "" when none of them is there.
@@ -333,21 +333,6 @@ func unreachable(lines []string) string {
 			// client's own reset line is all the output there is.
 			return "the server closed the connection before it named its host key, as sshd does to an address with recent failed logins"
 		}
-	}
-	return ""
-}
-
-// failureLine returns l when OpenSSH printed a refusal on it, and "" otherwise.
-func failureLine(l string) string {
-	if strings.HasPrefix(l, "debug1: ") {
-		return ""
-	}
-	switch {
-	case l == "Host key verification failed.",
-		strings.Contains(l, "REMOTE HOST IDENTIFICATION HAS CHANGED"),
-		strings.Contains(l, "revoked"),
-		strings.Contains(l, "host key is known for"):
-		return l
 	}
 	return ""
 }

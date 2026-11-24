@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -114,7 +113,7 @@ func Discover(ctx context.Context, t Target, opts Options) Result {
 	}
 	r = handshake(ctx, t, opts, nil, t.User, trust)
 	if r.Outcome == Discovered {
-		r.Identity = identityOf(trust)
+		r.Identity = identityOf(trust, endpointOf(t))
 	}
 	return r
 }
@@ -165,7 +164,7 @@ func verify(ctx context.Context, t Target, a Attempt, opts Options, bound bool) 
 	if !ok {
 		return r
 	}
-	if bound && identityOf(trust) != a.Identity {
+	if bound && identityOf(trust, endpointOf(t)) != a.Identity {
 		return Result{Outcome: HostKeyChanged, HostKey: trust.fingerprint, Detail: "the host key is not the one discovery showed for this host; nothing was sent"}
 	}
 	return handshake(ctx, t, opts, cred, t.User, trust)
@@ -472,7 +471,7 @@ func handshake(ctx context.Context, t Target, opts Options, cred *credential, us
 		stop := context.AfterFunc(ctx, cred.close)
 		defer stop()
 	}
-	addr := net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
+	addr := endpointOf(t)
 	conn, err := dial(ctx, addr, opts)
 	if err != nil {
 		return transport(ctx, "could not connect to "+addr+": "+textsafe.Clean(err.Error()))

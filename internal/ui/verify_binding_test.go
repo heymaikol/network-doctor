@@ -19,7 +19,7 @@ var shownIdentity = func() sshverify.HostIdentity {
 	if err != nil {
 		panic(err)
 	}
-	return sshverify.HostIdentity{Fingerprint: ssh.FingerprintSHA256(signer.PublicKey()), Algorithm: "ssh-ed25519"}
+	return sshverify.HostIdentity{Endpoint: "example.com:22", Fingerprint: ssh.FingerprintSHA256(signer.PublicKey()), Algorithm: "ssh-ed25519"}
 }()
 
 // A check started after a discovery carries the host key that discovery showed, so Verify can

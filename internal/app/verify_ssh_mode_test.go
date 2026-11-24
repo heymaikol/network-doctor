@@ -21,7 +21,7 @@ var stubIdentity = func() sshverify.HostIdentity {
 	if err != nil {
 		panic(err)
 	}
-	return sshverify.HostIdentity{Fingerprint: ssh.FingerprintSHA256(signer.PublicKey()), Algorithm: "ssh-ed25519"}
+	return sshverify.HostIdentity{Endpoint: "host.example:22", Fingerprint: ssh.FingerprintSHA256(signer.PublicKey()), Algorithm: "ssh-ed25519"}
 }()
 
 // stubHostKey is the fingerprint the stub server presents when a test does not

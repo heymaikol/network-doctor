@@ -28,3 +28,19 @@ func TestProbeProcessGroupEndsWithItsDescendants(t *testing.T) {
 		t.Fatal("a descendant of the probe kept running after the probe was cancelled")
 	}
 }
+
+// A descendant left holding standard error open when the probe exits normally must be killed with
+// the probe's process group instead of surviving past WaitDelay.
+func TestProbeProcessGroupEndsOnNormalExit(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "normal-exit-descendant-ran")
+	start := time.Now()
+	script := "(sleep 2; touch " + marker + ") & exit 255"
+	_, _, err := runHostKeyProbe(context.Background(), "/bin/sh", []string{"-c", script})
+	if elapsed := time.Since(start); elapsed > 1500*time.Millisecond {
+		t.Fatalf("the probe waited %v after normal exit for a descendant holding stderr (err %v)", elapsed, err)
+	}
+	time.Sleep(2500 * time.Millisecond)
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Fatal("a descendant of the probe kept running after normal exit")
+	}
+}

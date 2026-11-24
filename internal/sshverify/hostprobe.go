@@ -1,9 +1,9 @@
 package sshverify
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"slices"
@@ -133,53 +133,86 @@ var errProbeOutput = errors.New("the OpenSSH host-key check wrote unexpected out
 // runHostKeyProbe runs program with args and returns its diagnostic output and exit status. The
 // argument vector is passed as a slice, with no shell. The probe may write nothing to standard
 // output, and its diagnostic output is held to probeOutputLimit. Its whole process group ends with
-// it, and its wait for output is bounded.
+// it on both cancellation and normal exit, and its wait for output is bounded.
 func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte, int, error) {
-	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
-	// The probe's group is killed with it, so no descendant outlives the deadline, and the wait
-	// for its output is bounded, so a descendant that holds the output cannot hold the check.
-	configureProcess(cmd)
-	cmd.WaitDelay = probeWaitDelay
-	cmd.Env = append(os.Environ(), "SSH_ASKPASS_REQUIRE=never")
-	var stdout, stderr bytes.Buffer
-	out := &limitedBuffer{buf: &stdout, limit: 0}
-	diag := &limitedBuffer{buf: &stderr, limit: probeOutputLimit}
-	cmd.Stdout = out
-	cmd.Stderr = diag
-	err := cmd.Run()
-	var exit *exec.ExitError
-	if err != nil && !errors.As(err, &exit) {
+	outR, outW, err := os.Pipe()
+	if err != nil {
 		return nil, 0, err
 	}
-	if out.over || diag.over {
+	defer outR.Close()
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		_ = outW.Close()
+		return nil, 0, err
+	}
+	defer errR.Close()
+
+	cmd := exec.CommandContext(ctx, program, args...) // #nosec G204 -- a fixed option vector and the destination ssh -G read; no shell
+	configureProcess(cmd)
+	cmd.Env = append(os.Environ(), "SSH_ASKPASS_REQUIRE=never")
+	cmd.Stdout = outW
+	cmd.Stderr = errW
+	err = cmd.Start()
+	_ = outW.Close()
+	_ = errW.Close()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	out := captureProbeStream(outR, 0)
+	diag := captureProbeStream(errR, probeOutputLimit)
+
+	waitErr := cmd.Wait()
+	// Kill any descendant still in the probe's process group, even after a normal exit, so a
+	// helper holding stderr open cannot outlive the probe or stall output collection.
+	killProcessGroup(cmd.Process.Pid)
+	_, outComplete := out.finish(outR, probeWaitDelay)
+	stderr, diagComplete := diag.finish(errR, probeWaitDelay)
+
+	var exit *exec.ExitError
+	if waitErr != nil && !errors.As(waitErr, &exit) {
+		return nil, 0, waitErr
+	}
+	if out.over || diag.over || !outComplete || !diagComplete {
 		return nil, 0, errProbeOutput
 	}
 	status := 0
 	if exit != nil {
 		status = exit.ExitCode()
 	}
-	return stderr.Bytes(), status, nil
+	return stderr, status, nil
 }
 
-// limitedBuffer keeps at most limit bytes and records that it was asked for more, so an
-// oversized transcript is refused and never held in memory.
-type limitedBuffer struct {
-	buf   *bytes.Buffer
-	limit int
-	over  bool
+// probeStream captures one pipe up to limit bytes and drains any overflow so the child cannot block.
+type probeStream struct {
+	data []byte
+	over bool
+	done chan struct{}
 }
 
-func (l *limitedBuffer) Write(p []byte) (int, error) {
-	room := l.limit - l.buf.Len()
-	if room < len(p) {
-		l.over = true
-		if room > 0 {
-			l.buf.Write(p[:room])
+func captureProbeStream(r *os.File, limit int) *probeStream {
+	s := &probeStream{done: make(chan struct{})}
+	go func() {
+		defer close(s.done)
+		data, err := io.ReadAll(io.LimitReader(r, int64(limit)+1))
+		s.data = data
+		s.over = err == nil && len(data) > limit
+		if s.over {
+			_, _ = io.Copy(io.Discard, r)
 		}
-		return len(p), nil
+	}()
+	return s
+}
+
+func (s *probeStream) finish(r *os.File, grace time.Duration) ([]byte, bool) {
+	select {
+	case <-s.done:
+		return s.data, true
+	case <-time.After(grace):
+		_ = r.Close()
+		<-s.done
+		return s.data, false
 	}
-	l.buf.Write(p)
-	return len(p), nil
 }
 
 // confirmRoute reads the configuration again, under the rules the first read applied, immediately

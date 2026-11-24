@@ -737,9 +737,9 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 	}
 }
 
-// The probe must not run a KnownHostsCommand the configuration names. The route read refuses one,
-// but a configuration can change between that read and the probe, so the probe overrides it. The
-// decision still comes from the known_hosts files, and the command never runs.
+// The probe's own argument list must not run a KnownHostsCommand the configuration names. The
+// route read and the re-read refuse such a configuration first, so this checks the override alone:
+// the probe is run directly, with the same arguments it would use, and the command must not run.
 func TestOpenSSHProbeDoesNotRunAKnownHostsCommand(t *testing.T) {
 	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}})
 	l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
@@ -748,15 +748,15 @@ func TestOpenSSHProbeDoesNotRunAKnownHostsCommand(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(l.baseConfig(l.known, "  KnownHostsCommand /usr/bin/touch "+sentinel+"\n")), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	tg := Target{Host: "127.0.0.1", Port: l.port, User: l.login, dest: []string{"-F", cfg, "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1"}}
+	program := oshTool(t, "ssh")
+	dest := []string{"-F", cfg, "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1"}
 
-	_, ok, r := probeHostKey(context.Background(), tg, oshOptions())
+	if _, _, _, err := runHostKeyProbe(context.Background(), program, probeArgs(dest)); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := os.Stat(sentinel); err == nil {
 		t.Error("the probe ran the configured KnownHostsCommand")
-	}
-	if !ok {
-		t.Fatalf("the probe did not trust the recorded key: %s", r.Detail)
 	}
 }
 
@@ -815,5 +815,31 @@ func TestOpenSSHRefusesAProbeThatRanAConfiguredCommand(t *testing.T) {
 
 	if ok {
 		t.Fatalf("the probe trusted a key after a configured command ran: %+v", r)
+	}
+}
+
+// A configuration read clean can change before the check. A KnownHostsCommand written after the
+// read must not be silently overridden and then trusted: the check reads the configuration again
+// under the same rules, and refuses before any credential if it is no longer one netdoc verifies.
+func TestOpenSSHRefusesAConfigurationThatChangedAfterItWasRead(t *testing.T) {
+	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}})
+	l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
+	l.useConfig(t, l.baseConfig(l.known, ""))
+	tg := l.resolve(t, "127.0.0.1")
+
+	sentinel := filepath.Join(l.dir, "drift-khc-ran")
+	cfg := filepath.Join(l.dir, "ssh_config")
+	if err := os.WriteFile(cfg, []byte(l.baseConfig(l.known, "  KnownHostsCommand /usr/bin/touch "+sentinel+"\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snap := l.snap(t)
+	r := l.verify(t, tg)
+
+	if r.Outcome == Verified || l.credentials() != snap.creds {
+		t.Fatalf("a credential was sent after the configuration changed: outcome %q (%s)", r.Outcome, r.Detail)
+	}
+	if _, err := os.Stat(sentinel); err == nil {
+		t.Error("the changed configuration's command ran")
 	}
 }

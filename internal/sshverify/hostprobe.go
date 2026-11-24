@@ -267,6 +267,9 @@ func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool,
 	if dest == nil {
 		dest = append(slices.Clone(sshTestArgs), "-p", strconv.Itoa(t.Port), "-l", t.User, "--", t.Host)
 	}
+	if r, ok := confirmRoute(ctx, program, t, dest); !ok {
+		return hostTrust{}, false, r
+	}
 	transcript, status, accepted, err := runHostKeyProbe(ctx, program, probeArgs(dest))
 	if ctx.Err() != nil {
 		return hostTrust{}, false, transport(ctx, "the OpenSSH host-key check did not finish")
@@ -363,4 +366,27 @@ func (l *limitedBuffer) Write(p []byte) (int, error) {
 	}
 	l.buf.Write(p)
 	return len(p), nil
+}
+
+// confirmRoute reads the configuration again, under the rules the first read applied, immediately
+// before the probe. The probe reads the configuration itself, and it overrides KnownHostsCommand
+// and the providers, so a configuration that changed since the first read would otherwise be
+// trusted without anyone seeing the change. A configuration that is no longer one netdoc verifies,
+// or that now names another host, port or login, is refused before any credential is sent.
+func confirmRoute(ctx context.Context, program string, t Target, dest []string) (Result, bool) {
+	route, err := readRoute(ctx, program, append([]string{"-G"}, dest...), true)
+	if err != nil {
+		return Result{Outcome: LocalFailure, Detail: "the SSH configuration could not be read again before the check: " + textsafe.Clean(err.Error()) + "; nothing was sent"}, false
+	}
+	if route.Kind != RouteDirect {
+		return Result{Outcome: LocalFailure, Detail: "the SSH configuration changed after it was read, and the new one is not one netdoc verifies: " + route.Reason + "; nothing was sent"}, false
+	}
+	same := func(key, want string) bool {
+		got, set := listingValue(route.Listing, key)
+		return set && got == want
+	}
+	if !same("hostname", t.Host) || !same("port", strconv.Itoa(t.Port)) || !same("user", t.User) {
+		return Result{Outcome: LocalFailure, Detail: "the SSH configuration now names another host, port or login than the one checked; nothing was sent"}, false
+	}
+	return Result{}, true
 }

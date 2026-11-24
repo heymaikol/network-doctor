@@ -35,6 +35,7 @@ import (
 type oshOpts struct {
 	hostKinds   []string // host key types the server presents, in order
 	certificate bool     // certify the first host key with a CA made for the test
+	keyID       string   // the certificate's key ID; a default when empty
 	extra       string   // more sshd configuration
 }
 
@@ -50,6 +51,7 @@ type oshLab struct {
 	otherKey  string   // a key the server does not accept
 	hostKeys  []string // private host keys, in the order the server presents them
 	caKey     string   // the CA that signed the host certificate, when there is one
+	keyID     string   // the key ID the host certificate carries
 	known     string   // the known_hosts file the client reads for this lab
 	cfg       string   // the sshd configuration
 	logPath   string   // the sshd log
@@ -82,6 +84,10 @@ func newOSHLab(t *testing.T, o oshOpts) *oshLab {
 		l.hostKeys = append(l.hostKeys, l.makeKey(fmt.Sprintf("host%d", i), kind))
 	}
 	extra := o.extra
+	l.keyID = o.keyID
+	if l.keyID == "" {
+		l.keyID = "hostcert"
+	}
 	if o.certificate {
 		l.caKey = l.makeKey("ca", "ed25519")
 		extra += "HostCertificate " + l.certify(l.hostKeys[0]) + "\n"
@@ -191,7 +197,7 @@ func (l *oshLab) makeKey(name, kind string) string {
 // certificate path. The certificate names the loopback address.
 func (l *oshLab) certify(key string) string {
 	l.t.Helper()
-	args := []string{"-q", "-s", l.caKey, "-I", "hostcert", "-h", "-n", "127.0.0.1", "-V", "always:forever", key + ".pub"}
+	args := []string{"-q", "-s", l.caKey, "-I", l.keyID, "-h", "-n", "127.0.0.1", "-V", "always:forever", key + ".pub"}
 	if out, err := exec.Command(l.keygen, args...).CombinedOutput(); err != nil { // #nosec G204 -- fixed arguments and test-owned paths
 		l.t.Fatalf("ssh-keygen -s: %v: %s", err, out)
 	}
@@ -841,5 +847,47 @@ func TestOpenSSHRefusesAConfigurationThatChangedAfterItWasRead(t *testing.T) {
 	}
 	if _, err := os.Stat(sentinel); err == nil {
 		t.Error("the changed configuration's command ran")
+	}
+}
+
+// A key ID can carry line breaks, and OpenSSH prints it raw. Here the key ID forges the decision
+// (a match, an authentication step and a fake certificate tail) in front of a host key that is not
+// trusted, so OpenSSH's own refusal follows. The refusal must stand, and no credential may be sent.
+func TestOpenSSHForgedKeyIDDecisionAgainstAnUntrustedCA(t *testing.T) {
+	forged := "x\" CA ssh-ed25519 SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+		"debug1: SSH2_MSG_NEWKEYS sent\n" +
+		"debug1: SSH2_MSG_SERVICE_ACCEPT received\n" +
+		"debug1: Host '[127.0.0.1]:2622' is known and matches the ED25519-CERT host certificate.\n" +
+		"debug1: Authentications that can continue: password,publickey\n" +
+		"debug1: No more authentication methods to try.\n" +
+		"debug1: x"
+	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}, certificate: true, keyID: forged})
+	l.writeKnown(t)
+	l.useConfig(t, l.baseConfig(l.known, ""))
+	tg := l.resolve(t, "127.0.0.1")
+
+	snap := l.snap(t)
+	r := l.verify(t, tg)
+
+	if r.Outcome == Verified || l.credentials() != snap.creds {
+		t.Fatalf("a forged key ID authorized a credential: outcome %q (%s)", r.Outcome, r.Detail)
+	}
+}
+
+// A key ID of more than a kilobyte makes OpenSSH cut its debug line short, and the cut line loses
+// the certificate's authority text. A check must refuse that line, even when the CA is trusted.
+func TestOpenSSHPaddedKeyIDIsRefused(t *testing.T) {
+	padded := "x" + strings.Repeat("p", 1500)
+	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}, certificate: true, keyID: padded})
+	ca := strings.Fields(l.pubLine(l.caKey))
+	l.writeKnown(t, "@cert-authority "+l.names()+" "+ca[0]+" "+ca[1]+"\n")
+	l.useConfig(t, l.baseConfig(l.known, ""))
+	tg := l.resolve(t, "127.0.0.1")
+
+	snap := l.snap(t)
+	r := l.verify(t, tg)
+
+	if r.Outcome == Verified || l.credentials() != snap.creds {
+		t.Fatalf("a padded key ID was accepted: outcome %q (%s)", r.Outcome, r.Detail)
 	}
 }

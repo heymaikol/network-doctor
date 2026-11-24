@@ -99,7 +99,7 @@ func TestOpenSSHDiscoveredIdentityDoesNotAuthorizeAnotherEndpoint(t *testing.T) 
 	before := oshCountInLog(t, logB, "Failed password")
 	r := Verify(ctx, tgB, Attempt{Method: MethodPassword, Password: []byte("netdoc-not-the-password"), Identity: d.Identity}, oshOptions())
 	sent := oshCountInLog(t, logB, "Failed password") - before
-	if sent != 0 || r.Outcome == Verified {
+	if sent != 0 || r.Outcome != HostKeyChanged {
 		t.Fatalf("a discovery of endpoint A authorized a credential to endpoint B: outcome %q, passwords that reached B %d", r.Outcome, sent)
 	}
 
@@ -108,4 +108,44 @@ func TestOpenSSHDiscoveredIdentityDoesNotAuthorizeAnotherEndpoint(t *testing.T) 
 	if ok.Outcome != Verified {
 		t.Fatalf("verification at endpoint A with its own discovery: outcome %q (%s), want verified", ok.Outcome, ok.Detail)
 	}
+
+	// Host aliases name the same endpoint when they resolve to the same host and port. An alias that
+	// resolves to another port is another endpoint, so the discovery does not reach it.
+	t.Run("aliases", func(t *testing.T) {
+		cfg := filepath.Join(l.dir, "ssh_config_aliases")
+		body := fmt.Sprintf("Host endpoint-a\n  HostName 127.0.0.1\n  Port %d\n  User %s\n  UserKnownHostsFile %s\n  GlobalKnownHostsFile none\n"+
+			"Host endpoint-b\n  HostName 127.0.0.1\n  Port %d\n  User %s\n  UserKnownHostsFile %s\n  GlobalKnownHostsFile none\n",
+			portA, l.login, l.known, portB, l.login, l.known)
+		if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		saved := sshTestArgs
+		sshTestArgs = []string{"-F", cfg}
+		t.Cleanup(func() { sshTestArgs = saved })
+
+		aliasA, err := Resolve(ctx, "endpoint-a", 0, l.login)
+		if err != nil {
+			t.Fatalf("resolve endpoint-a: %v", err)
+		}
+		aliasB, err := Resolve(ctx, "endpoint-b", 0, l.login)
+		if err != nil {
+			t.Fatalf("resolve endpoint-b: %v", err)
+		}
+		discovered := Discover(ctx, aliasA, oshOptions())
+		if discovered.Outcome != Discovered || !discovered.Identity.Valid() {
+			t.Fatalf("discovery through endpoint-a: outcome %q (%s)", discovered.Outcome, discovered.Detail)
+		}
+
+		same := Verify(ctx, tgA, Attempt{Method: MethodKey, KeyPath: l.clientKey, Identity: discovered.Identity}, oshOptions())
+		if same.Outcome != Verified {
+			t.Fatalf("the same endpoint under its address (%s) refused the identity: outcome %q (%s)", aliasA.Host, same.Outcome, same.Detail)
+		}
+
+		before := oshCountInLog(t, logB, "Accepted publickey")
+		other := Verify(ctx, aliasB, Attempt{Method: MethodKey, KeyPath: l.clientKey, Identity: discovered.Identity}, oshOptions())
+		accepted := oshCountInLog(t, logB, "Accepted publickey") - before
+		if other.Outcome != HostKeyChanged || accepted != 0 {
+			t.Fatalf("an identity discovered through endpoint-a authorized endpoint-b: outcome %q, keys accepted at endpoint-b %d", other.Outcome, accepted)
+		}
+	})
 }

@@ -138,7 +138,7 @@ func oshTool(t *testing.T, name string) string {
 			return "/usr/sbin/sshd"
 		}
 	}
-	t.Skipf("needs %s on this host", name)
+	missingOpenSSH(t, "needs "+name+" on this host")
 	return ""
 }
 

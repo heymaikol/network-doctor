@@ -335,6 +335,8 @@ jobs:
           go test -covermode=set -coverprofile=coverage/unit.out ./...
       - if: matrix.shard == 'unit-coverage'
         name: Run loopback integration tests with coverage
+        env:
+          NETDOC_REQUIRE_OPENSSH: "1"
         run: go test -covermode=set -coverprofile=coverage/integration.out -tags integration $INTEGRATION_PACKAGES
       - if: matrix.shard == 'unit-coverage'
         name: Upload unit and integration coverage profiles
@@ -452,6 +454,8 @@ jobs:
       # its three tests one after another. Together the two shards run every test
       # exactly once.
       - if: matrix.shard == 'race-integration'
+        env:
+          NETDOC_REQUIRE_OPENSSH: "1"
         run: |
           set -o pipefail
           go test -race -tags integration -count=1 -skip "$HUNT_BUDGET_TESTS" $INTEGRATION_PACKAGES | tee rest-integration.log

@@ -25,7 +25,7 @@ type shapeRule struct {
 
 // The configuration section: the lines OpenSSH prints while it reads the configuration and
 // connects, before the key exchange. Command output is not among them, so a Match exec line fails.
-var shapeConfig = []shapeRule{{regexp.MustCompile(`^debug1: (?:OpenSSH_\S+, OpenSSL .*|Reading configuration data .*|(?:.* )?line \d+: Applying options for [^"]*|Applying options for [^"]*|(?:no pubkey loaded from|identity file|no identity pubkey loaded from) [^"]*|loaded pubkey from [^\x00-\x1f\x7f]+: [A-Za-z0-9@._-]+ SHA256:[A-Za-z0-9+/]+|Connecting to [^"]*|Connection established\.|Local version string SSH-2\.0-[^"]*|Remote protocol version 2\.0, remote software version [^"]*|compat_banner: [^"]*|Authenticating to [^"]*|using hostkeyalias: [^"]*)$`), 0, -1}}
+var shapeConfig = []shapeRule{{regexp.MustCompile(`^debug1: (?:OpenSSH_\S+, OpenSSL .*|Reading configuration data .*|(?:[^"\x00-\x1f\x7f:]+ )?line \d+: Applying options for [^"\x00-\x1f\x7f]*|Applying options for [^"]*|(?:no pubkey loaded from|identity file|no identity pubkey loaded from) [^"]*|loaded pubkey from [^\x00-\x1f\x7f]+: [A-Za-z0-9@._-]+ SHA256:[A-Za-z0-9+/]+|Connecting to [^"]*|Connection established\.|Local version string SSH-2\.0-[^"]*|Remote protocol version 2\.0, remote software version [^"]*|compat_banner: [^"]*|Authenticating to [^"]*|using hostkeyalias: [^"]*)$`), 0, -1}}
 
 // The key exchange, from the first KEXINIT line to the line before the host-key record. The host
 // key algorithm is the one line that is taken for the decision, so it appears exactly once.
@@ -134,6 +134,11 @@ func splitTranscript(transcript []byte) []string {
 // acceptShape decides a transcript from its shape alone. It returns the trust it establishes and
 // an empty reason, or no trust and the reason the shape failed.
 func acceptShape(lines []string) (hostTrust, string) {
+	for _, l := range lines {
+		if strings.HasPrefix(l, "debug1: Executing ") {
+			return hostTrust{}, "OpenSSH ran a configured command during the check"
+		}
+	}
 	pos, _, ok := walkShape(lines, 0, shapeConfig)
 	if !ok {
 		return hostTrust{}, "the configuration section has a line OpenSSH does not print there"

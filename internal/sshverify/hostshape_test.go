@@ -213,3 +213,26 @@ func TestForgedCertificateKeyIDDoesNotSpoofFingerprintOrSuppressWarnings(t *test
 		}
 	})
 }
+
+// Prefixed diagnostic lines such as Match exec execution output or a server's pre-version banner
+// must never match the configuration section's "Applying options for" rule.
+func TestShapeConfigRejectsExecutingAndBannerLinesWithApplyingOptions(t *testing.T) {
+	base := fixture(t, "trust-plain")
+	for name, line := range map[string]string{
+		"Match exec carrying Applying options":       "debug1: Executing command: '/usr/bin/true # line 1: Applying options for x'",
+		"pre-version banner carrying Applying options": "debug1: kex_exchange_identification: banner line 0:  line 1: Applying options for x",
+		"remote debug carrying Applying options":     "debug1: Remote:  line 1: Applying options for x",
+	} {
+		t.Run(name, func(t *testing.T) {
+			edited := after(t, base, "Reading configuration data", line)
+			if _, ok, r := parseHostTrust([]byte(edited), 255); ok {
+				t.Fatalf("%s was trusted: %+v", name, r)
+			}
+		})
+	}
+	// Positive control: a config file path with spaces still matches.
+	spaced := strings.Replace(base, "debug1: cfg line 1: Applying options for 127.0.0.1", "debug1: /tmp/My Config/ssh_config line 1: Applying options for 127.0.0.1", 1)
+	if _, ok, r := parseHostTrust([]byte(spaced), 255); !ok {
+		t.Fatalf("a spaced config path was refused: %+v", r)
+	}
+}

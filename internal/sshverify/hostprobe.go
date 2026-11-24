@@ -37,10 +37,20 @@ type hostTrust struct {
 	// fingerprint is the SHA256 fingerprint of the subject key OpenSSH checked. For a host
 	// certificate it is the key the certificate certifies, not the certificate blob.
 	fingerprint string
+	// certificate says OpenSSH printed a host certificate, and keyID is the key ID it printed
+	// for it. The key ID is text the signer chose, so the credential connection must present
+	// the same one; see pinCheck.
+	certificate bool
+	keyID       string
 }
 
 var (
-	probePresentedLine = regexp.MustCompile(`^debug1: Server host (?:key|certificate): \S+ (SHA256:\S+?)(?:, |$)`)
+	// A presented-key record starts with probeServerLine. Each form is matched in full, so a line
+	// that starts a record but is not one of the two forms refuses the transcript. The certificate
+	// line carries a key ID, and its end is fixed by OpenSSH's own CA and validity text.
+	probeServerLine    = regexp.MustCompile(`^debug1: Server host `)
+	probeKeyLine       = regexp.MustCompile(`^debug1: Server host key: (\S+) (SHA256:\S+)$`)
+	probeCertLine      = regexp.MustCompile(`^debug1: Server host certificate: (\S+) (SHA256:\S+), serial \d+ ID "(.*)" CA (\S+) (SHA256:\S+)(?: valid .*)?$`)
 	probeAlgorithmLine = regexp.MustCompile(`^debug1: kex: host key algorithm: ([A-Za-z0-9@.+_-]+)$`)
 	probeMatchedLine   = regexp.MustCompile(`^debug1: Host '.*' is known and matches the .* host (?:key|certificate)\.$`)
 	probeAuthLine      = regexp.MustCompile(`^debug1: Authentications that can continue: `)
@@ -80,11 +90,20 @@ func probeArgs(dest []string) []string {
 func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result) {
 	lines := strings.Split(strings.ReplaceAll(string(transcript), "\r\n", "\n"), "\n")
 	var presented, algorithms, matched, auth []int
+	var presentedFP, presentedKeyID string
+	var presentedCert, malformed bool
 	failed := ""
 	for i, l := range lines {
 		switch {
-		case probePresentedLine.MatchString(l):
+		case probeServerLine.MatchString(l):
 			presented = append(presented, i)
+			if m := probeKeyLine.FindStringSubmatch(l); m != nil {
+				presentedFP, presentedCert, presentedKeyID = m[2], false, ""
+			} else if m := probeCertLine.FindStringSubmatch(l); m != nil {
+				presentedFP, presentedCert, presentedKeyID = m[2], true, m[3]
+			} else {
+				malformed = true
+			}
 		case probeAlgorithmLine.MatchString(l):
 			algorithms = append(algorithms, i)
 		case probeMatchedLine.MatchString(l):
@@ -97,8 +116,8 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 		}
 	}
 	fingerprint := ""
-	if len(presented) == 1 {
-		fingerprint = probePresentedLine.FindStringSubmatch(lines[presented[0]])[1]
+	if len(presented) == 1 && !malformed {
+		fingerprint = presentedFP
 	}
 	refuse := func(outcome Outcome, detail string) (hostTrust, bool, Result) {
 		return hostTrust{}, false, Result{Outcome: outcome, HostKey: fingerprint, Detail: detail + "; nothing was sent"}
@@ -126,13 +145,13 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 	if exitStatus != 255 {
 		return refuse(TransportFailure, "OpenSSH's probe ended with an unexpected status")
 	}
-	if len(presented) != 1 || len(algorithms) != 1 || len(matched) != 1 || !probeEvidenceInOrder(lines, presented[0], algorithms[0], matched[0], auth) {
+	if malformed || len(presented) != 1 || len(algorithms) != 1 || len(matched) != 1 || !probeEvidenceInOrder(lines, presented[0], algorithms[0], matched[0], auth) {
 		return refuse(TransportFailure, "OpenSSH's output did not show a trusted host key in the order and form netdoc needs")
 	}
 	if !ValidFingerprint(fingerprint) {
 		return refuse(TransportFailure, "OpenSSH's host key fingerprint is malformed")
 	}
-	return hostTrust{algorithm: probeAlgorithmLine.FindStringSubmatch(lines[algorithms[0]])[1], fingerprint: fingerprint}, true, Result{}
+	return hostTrust{algorithm: probeAlgorithmLine.FindStringSubmatch(lines[algorithms[0]])[1], fingerprint: fingerprint, certificate: presentedCert, keyID: presentedKeyID}, true, Result{}
 }
 
 // unreachable names why OpenSSH read no host key, from the client's own lines. The client prints

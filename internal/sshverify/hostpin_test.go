@@ -102,7 +102,7 @@ func TestPinAcceptsACertificateBySubjectKey(t *testing.T) {
 	}
 	s := passwordServer(certSigner)
 	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
-		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(hostSigner.PublicKey())}, true, Result{}
+		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(hostSigner.PublicKey()), certificate: true, keyID: cert.KeyId}, true, Result{}
 	})
 
 	r := Verify(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())

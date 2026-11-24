@@ -924,3 +924,18 @@ func TestOpenSSHForgedAcceptanceInKeyIDDoesNotEndTheCheck(t *testing.T) {
 		t.Errorf("the server saw %d channel opens", n)
 	}
 }
+
+// An explicit IdentityFile makes OpenSSH print the key it loaded, before the key exchange. A host
+// trusted by OpenSSH must still be discovered, and a credential with that key must still verify.
+func TestOpenSSHExplicitIdentityFileIsTrusted(t *testing.T) {
+	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}})
+	l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
+	l.useConfig(t, l.baseConfig(l.known, "  IdentityFile "+l.clientKey+"\n  IdentitiesOnly yes\n"))
+	tg := l.resolve(t, "127.0.0.1")
+
+	if d := l.discover(t, tg); d.Outcome != Discovered {
+		t.Fatalf("discovery with an explicit IdentityFile = %q (%s), want discovered", d.Outcome, d.Detail)
+	}
+	snap := l.snap(t)
+	l.expectVerified(t, snap, Verify(context.Background(), tg, Attempt{Method: MethodKey, KeyPath: l.clientKey}, oshOptions()))
+}

@@ -57,11 +57,13 @@ var (
 )
 
 // probeArgs is the argument vector for the probe: the options that decide what the client
-// prints and what it may do, followed by the destination ssh -G read. Nothing here overrides a
-// known-hosts setting, CheckHostIP, or a revocation list; OpenSSH applies those from the user's
-// configuration. The options that stop a probe from doing more than the handshake are:
-// no session (-N), no credential method, no agent, no control connection, no forwarding, no
-// local command, and no proxy.
+// prints and what it may do, followed by the destination ssh -G read. It overrides no known-hosts
+// file, CheckHostIP, or revocation list: OpenSSH applies those from the user's configuration. It
+// does override KnownHostsCommand, to none, so a command written after the route read cannot change
+// the decision. The options that stop a probe from doing more than the handshake are: no session
+// (-N), no credential method, no agent, no control connection, no forwarding, no local command,
+// no proxy, no provider, and no background process. Match exec in the configuration still runs
+// when OpenSSH reads it; the route read refuses that, and no option can turn it off.
 func probeArgs(dest []string) []string {
 	return append([]string{
 		"-N", "-n", "-T",
@@ -81,6 +83,15 @@ func probeArgs(dest []string) []string {
 		"-o", "ProxyCommand=none",
 		"-o", "ProxyJump=none",
 		"-o", "UpdateHostKeys=no",
+		// Each of these lets the configuration run a program or load a provider during the check.
+		// "none" only removes keys from OpenSSH's decision, so it can make the decision stricter,
+		// never looser. GSSAPI and ForkAfterAuthentication would start a credential exchange or a
+		// background process, which this check never wants.
+		"-o", "KnownHostsCommand=none",
+		"-o", "PKCS11Provider=none",
+		"-o", "SecurityKeyProvider=none",
+		"-o", "GSSAPIAuthentication=no",
+		"-o", "ForkAfterAuthentication=no",
 	}, dest...)
 }
 

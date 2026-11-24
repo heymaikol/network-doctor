@@ -273,13 +273,15 @@ func TestProbeArgsForceTheChecksAndOverrideNoKnownHostsSetting(t *testing.T) {
 		"PreferredAuthentications=none", "IdentityAgent=none", "ControlPath=none",
 		"ClearAllForwardings=yes", "PermitLocalCommand=no", "ProxyCommand=none",
 		"ProxyJump=none", "UpdateHostKeys=no",
+		"KnownHostsCommand=none", "PKCS11Provider=none", "SecurityKeyProvider=none",
+		"GSSAPIAuthentication=no", "ForkAfterAuthentication=no",
 	} {
 		if !slices.Contains(args, want) {
 			t.Errorf("probe arguments lack %q: %v", want, args)
 		}
 	}
 	for _, banned := range []string{
-		"UserKnownHostsFile", "GlobalKnownHostsFile", "KnownHostsCommand", "RevokedHostKeys", "CheckHostIP",
+		"UserKnownHostsFile", "GlobalKnownHostsFile", "RevokedHostKeys", "CheckHostIP",
 	} {
 		for _, a := range args {
 			if strings.HasPrefix(a, banned) {

@@ -735,3 +735,26 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 		t.Errorf("the server saw %d credential attempts", got)
 	}
 }
+
+// The probe must not run a KnownHostsCommand the configuration names. The route read refuses one,
+// but a configuration can change between that read and the probe, so the probe overrides it. The
+// decision still comes from the known_hosts files, and the command never runs.
+func TestOpenSSHProbeDoesNotRunAKnownHostsCommand(t *testing.T) {
+	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}})
+	l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
+	sentinel := filepath.Join(l.dir, "khc-ran")
+	cfg := filepath.Join(l.dir, "ssh_config_khc")
+	if err := os.WriteFile(cfg, []byte(l.baseConfig(l.known, "  KnownHostsCommand /usr/bin/touch "+sentinel+"\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tg := Target{Host: "127.0.0.1", Port: l.port, User: l.login, dest: []string{"-F", cfg, "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1"}}
+
+	_, ok, r := probeHostKey(context.Background(), tg, oshOptions())
+
+	if _, err := os.Stat(sentinel); err == nil {
+		t.Error("the probe ran the configured KnownHostsCommand")
+	}
+	if !ok {
+		t.Fatalf("the probe did not trust the recorded key: %s", r.Detail)
+	}
+}

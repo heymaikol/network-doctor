@@ -48,9 +48,12 @@ const (
 	NoCredentialAccepted Outcome = "no_credential_accepted" // #nosec G101 -- an outcome label, not a credential
 	HostKeyUnknown       Outcome = "host_key_unknown"
 	HostKeyChanged       Outcome = "host_key_changed"
-	Unsupported          Outcome = "unsupported"
-	LocalFailure         Outcome = "local_failure"
-	TransportFailure     Outcome = "transport_failure"
+	// HostKeyRevoked is a host key OpenSSH refuses because a revocation list or a revoked marker
+	// names it. It is not a changed key, and the fix for it is not the fix for a change.
+	HostKeyRevoked   Outcome = "host_key_revoked"
+	Unsupported      Outcome = "unsupported"
+	LocalFailure     Outcome = "local_failure"
+	TransportFailure Outcome = "transport_failure"
 )
 
 // Result is one check's conclusion. It never carries a secret. Methods and
@@ -572,6 +575,8 @@ func (o Outcome) Describe() string {
 		return "host key unknown"
 	case HostKeyChanged:
 		return "host key changed"
+	case HostKeyRevoked:
+		return "host key revoked"
 	case Unsupported:
 		return "unsupported"
 	case LocalFailure:

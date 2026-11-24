@@ -150,7 +150,7 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 		case strings.Contains(failed, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
 			return refuse(HostKeyChanged, "OpenSSH reports that the host key has changed")
 		case strings.Contains(failed, "revoked"):
-			return refuse(HostKeyChanged, "OpenSSH reports that the host key is revoked")
+			return refuse(HostKeyRevoked, "OpenSSH reports that the host key is revoked")
 		case strings.Contains(failed, "host key is known for"):
 			return refuse(HostKeyUnknown, "OpenSSH has no record of this host key; establish trust with your normal SSH client first")
 		case failed == "Host key verification failed." && len(presented) == 1:

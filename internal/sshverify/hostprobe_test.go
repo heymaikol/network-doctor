@@ -122,7 +122,7 @@ func TestProbeRefusesEveryStateWithoutTrustAndNamesTheFingerprint(t *testing.T) 
 	}{
 		{"unknown key", unknownKey, HostKeyUnknown, fpEd25519},
 		{"changed key", changedKey, HostKeyChanged, fpEd25519},
-		{"revoked key", revokedKey, HostKeyChanged, fpEd25519},
+		{"revoked key", revokedKey, HostKeyRevoked, fpEd25519},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -291,5 +291,18 @@ func TestProbeArgsForceTheChecksAndOverrideNoKnownHostsSetting(t *testing.T) {
 	}
 	if args[len(args)-1] != "example.test" {
 		t.Errorf("the destination is not last: %v", args)
+	}
+}
+
+// A revoked key is refused under its own name. A changed key is a different fact, and a finding
+// that says the key changed would send the user to the wrong fix.
+func TestRevokedKeyHasItsOwnOutcome(t *testing.T) {
+	revoked := "debug1: kex: host key algorithm: ssh-ed25519\n" +
+		"debug1: Server host key: ssh-ed25519 " + fpEd25519 + "\n" +
+		"Host key ED25519 " + fpEd25519 + " revoked by file /etc/ssh/revoked\n" +
+		"Host key verification failed.\n"
+	_, ok, r := parseHostTrust([]byte(revoked), 255)
+	if ok || r.Outcome != HostKeyRevoked {
+		t.Fatalf("a revoked key = %q (trusted %v), want %q", r.Outcome, ok, HostKeyRevoked)
 	}
 }

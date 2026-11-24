@@ -194,7 +194,7 @@ func TestVerifyExitCodesMatchTheDocumentedMapping(t *testing.T) {
 	want := map[sshverify.Outcome]int{
 		sshverify.Discovered: 0, sshverify.Verified: 0,
 		sshverify.Refused: 1, sshverify.Partial: 1, sshverify.NotOffered: 1, sshverify.NoCredentialAccepted: 1,
-		sshverify.HostKeyUnknown: 2, sshverify.HostKeyChanged: 2, sshverify.Unsupported: 2,
+		sshverify.HostKeyUnknown: 2, sshverify.HostKeyChanged: 2, sshverify.HostKeyRevoked: 2, sshverify.Unsupported: 2,
 		sshverify.LocalFailure: 2, sshverify.TransportFailure: 2,
 	}
 	for outcome, code := range want {
@@ -266,7 +266,7 @@ func TestUnusedCredentialFlagsAreRefusedBeforeAnything(t *testing.T) {
 // An unknown or changed host key is an outcome, and the secret is never asked
 // for: the terminal is not read and stdin is left alone.
 func TestUntrustedHostKeyAsksForNothing(t *testing.T) {
-	for _, outcome := range []sshverify.Outcome{sshverify.HostKeyUnknown, sshverify.HostKeyChanged} {
+	for _, outcome := range []sshverify.Outcome{sshverify.HostKeyUnknown, sshverify.HostKeyChanged, sshverify.HostKeyRevoked} {
 		t.Run(string(outcome), func(t *testing.T) {
 			s := &stubVerify{preflight: &sshverify.Result{Outcome: outcome, HostKey: stubHostKey}}
 			installVerifyStubs(t, s)

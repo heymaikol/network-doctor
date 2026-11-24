@@ -502,7 +502,7 @@ func TestOpenSSHRevokedMarkerIsRefusedBeforeAnyCredential(t *testing.T) {
 	tg := l.resolve(t, "127.0.0.1")
 
 	snap := l.snap(t)
-	l.expectRefusal(t, snap, l.verify(t, tg), HostKeyChanged)
+	l.expectRefusal(t, snap, l.verify(t, tg), HostKeyRevoked)
 
 	l.writeKnown(t, l.record(l.hostKeys[0], "", l.names()))
 	snap = l.snap(t)
@@ -531,7 +531,7 @@ func TestOpenSSHRevocationListIsAppliedByTheProbe(t *testing.T) {
 	}
 	tg := Target{Host: "127.0.0.1", Port: l.port, User: l.login, dest: []string{"-F", cfg, "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1"}}
 	snap := l.snap(t)
-	if _, ok, r := probeHostKey(context.Background(), tg, oshOptions()); ok || r.Outcome != HostKeyChanged {
+	if _, ok, r := probeHostKey(context.Background(), tg, oshOptions()); ok || r.Outcome != HostKeyRevoked {
 		t.Fatalf("the probe trusted a revoked key: trusted %v, %+v", ok, r)
 	}
 	if got := l.credentials() - snap.creds; got != 0 {

@@ -38,3 +38,16 @@ func TestChangedHostKeyWithoutAFingerprintShowsNoLine(t *testing.T) {
 		t.Fatalf("a fingerprint line was drawn with no key:\n%s", view)
 	}
 }
+
+// A revoked key is refused like a changed one, and the panel shows the key it presented too.
+func TestRevokedHostKeyFingerprintIsShownInThePanel(t *testing.T) {
+	m := resolved(t, sshModel(t))
+	m = pressed(t, m, keyPress("S"))
+	m = resolved(t, m)
+	const presented = "SHA256:revokedkeyfixture"
+	m.verify.result = &sshverify.Result{Outcome: sshverify.HostKeyRevoked, HostKey: presented, Detail: "x"}
+
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "presented host key: "+presented) {
+		t.Fatalf("the revoked key's fingerprint is not in the panel:\n%s", view)
+	}
+}

@@ -935,7 +935,7 @@ Each check ends in one outcome:
 | partial | The server accepted this method and still requires more. The remaining methods are listed. | 1 |
 | method not offered | The server does not advertise this method. Nothing was sent. | 1 |
 | accepted with no credential | The server admitted the connection without any credential. That is reported as a finding, and no session is opened. | 1 |
-| host key unknown, host key changed | The host key was not accepted. Nothing was sent. | 2 |
+| host key unknown, host key changed, host key revoked | The host key was not accepted. Nothing was sent. | 2 |
 | unsupported | The route goes through a proxy, or the server asked for more than one password prompt. Nothing was sent. | 2 |
 | not sent | A local problem, such as a missing key file, a wrong passphrase, or no agent key. The server was not contacted. | 2 |
 | not completed | The connection failed, timed out, or was cancelled, or it ended during authentication so the result is unknown. | 2 |

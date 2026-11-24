@@ -328,6 +328,17 @@ jobs:
         name: Run the fast local check contributors are asked to run
         run: ./scripts/check.sh
 
+      # The OpenSSH lab and the -prereq check need an sshd at /usr/sbin/sshd, which the Ubuntu image
+      # does not list (it lists only the client). Install the server, and create the directory sshd
+      # refuses to run without. Repeating these commands is safe where they already hold.
+      - if: matrix.shard == 'unit-coverage' || matrix.shard == 'race-integration'
+        name: Install the OpenSSH server for the integration lab
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y openssh-server
+          sudo install -d -m 0755 /run/sshd
+          test -x /usr/sbin/sshd
+
       # Linux has the OpenSSH client, so a test that needs it must run here, not skip. The variable
       # turns a missing client into a failure in every package, not only the integration lane.
       - if: matrix.shard == 'unit-coverage'

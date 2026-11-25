@@ -915,31 +915,35 @@ func TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient(t *testing.T) 
 	l.requireNetdocNoTrust(t, true)
 }
 
-// oshMLDSAName is the name OpenSSH uses for the ML-DSA hybrid host key type.
-const oshMLDSAName = "ssh-mldsa44-ed25519@openssh.com"
+// oshMLDSAAbsentNames are the spellings of the ML-DSA hybrid host key type that absence must cover.
+// OpenSSH 10.5p1 lists the type with an @openssh.com suffix, and 10.6p2 lists it without one, so the
+// absence check rejects both spellings. The presence check uses the name OpenSSH's own keygen writes.
+var oshMLDSAAbsentNames = []string{"ssh-mldsa44-ed25519", "ssh-mldsa44-ed25519@openssh.com"}
 
 // oshRequireMLDSAPresent checks that this OpenSSH supports the ML-DSA host key type on both sides.
-// The client must list the type, and the server must accept a host key of that type.
+// The name is the one OpenSSH's keygen writes for the key it makes. The client must list that name,
+// and the server must accept a host key of that type.
 func oshRequireMLDSAPresent(t *testing.T) {
 	t.Helper()
-	list, err := exec.Command(oshTool(t, "ssh"), "-Q", "key").CombinedOutput() // #nosec G204 -- fixed arguments
-	if err != nil {
-		t.Fatalf("ssh -Q key: %v: %s", err, list)
-	}
-	if !strings.Contains(string(list), oshMLDSAName) {
-		t.Fatalf("ssh-keygen makes an ML-DSA host key, but ssh -Q key does not list %s:\n%s", oshMLDSAName, list)
-	}
 	dir := t.TempDir()
 	key := filepath.Join(dir, "host")
 	if out, err := exec.Command(oshTool(t, "ssh-keygen"), "-q", "-t", "mldsa44-ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil { // #nosec G204 -- fixed arguments and a test-owned path
 		t.Fatalf("ssh-keygen -t mldsa44-ed25519: %v: %s", err, out)
 	}
+	name := oshHostKeyToken(t, key)
+	list, err := exec.Command(oshTool(t, "ssh"), "-Q", "key").CombinedOutput() // #nosec G204 -- fixed arguments
+	if err != nil {
+		t.Fatalf("ssh -Q key: %v: %s", err, list)
+	}
+	if !strings.Contains(string(list), name) {
+		t.Fatalf("ssh-keygen makes an ML-DSA host key named %s, but ssh -Q key does not list that name:\n%s", name, list)
+	}
 	conf := filepath.Join(dir, "sshd.conf")
-	if err := os.WriteFile(conf, []byte("HostKey "+key+"\nHostKeyAlgorithms "+oshMLDSAName+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(conf, []byte("HostKey "+key+"\nHostKeyAlgorithms "+name+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(oshTool(t, "sshd"), "-t", "-f", conf).CombinedOutput(); err != nil { // #nosec G204 -- a test-owned path
-		t.Fatalf("sshd does not accept the ML-DSA host key type that ssh-keygen makes: %v: %s", err, out)
+		t.Fatalf("sshd does not accept the ML-DSA host key type %s that ssh-keygen makes: %v: %s", name, err, out)
 	}
 }
 
@@ -954,13 +958,15 @@ func oshRequireMLDSAAbsent(t *testing.T) {
 	if strings.Contains(string(list), "mldsa") {
 		t.Fatalf("ssh-keygen cannot make an ML-DSA host key, but ssh -Q key lists an ML-DSA type:\n%s", list)
 	}
-	conf := filepath.Join(t.TempDir(), "sshd.conf")
-	if err := os.WriteFile(conf, []byte("HostKeyAlgorithms "+oshMLDSAName+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	out, err := exec.Command(oshTool(t, "sshd"), "-t", "-f", conf).CombinedOutput() // #nosec G204 -- a test-owned path
-	if err == nil || !strings.Contains(string(out), "Bad key types") {
-		t.Fatalf("sshd does not reject %s as a bad key type, though ssh-keygen cannot make that key (err %v):\n%s", oshMLDSAName, err, out)
+	for _, name := range oshMLDSAAbsentNames {
+		conf := filepath.Join(t.TempDir(), "sshd.conf")
+		if err := os.WriteFile(conf, []byte("HostKeyAlgorithms "+name+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command(oshTool(t, "sshd"), "-t", "-f", conf).CombinedOutput() // #nosec G204 -- a test-owned path
+		if err == nil || !strings.Contains(string(out), "Bad key types") {
+			t.Fatalf("sshd does not reject %s as a bad key type, though ssh-keygen cannot make that key (err %v):\n%s", name, err, out)
+		}
 	}
 }
 

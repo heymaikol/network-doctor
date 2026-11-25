@@ -138,10 +138,13 @@ func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool,
 	if err != nil {
 		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: textsafe.Clean(err.Error()) + "; nothing was sent"}
 	}
-	transcript, ok := withoutGSSAPIUnsupported(transcript, func() ([]byte, error) {
+	transcript, ok := transcriptWithoutGSSAPI(ctx, transcript, func() ([]byte, error) {
 		return exec.CommandContext(ctx, program, "-Q", "kex-gss").CombinedOutput() // #nosec G204 -- fixed arguments
 	})
 	if !ok {
+		if ctx.Err() != nil {
+			return hostTrust{}, false, transport(ctx, "the OpenSSH host-key check did not finish")
+		}
 		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: "OpenSSH printed a GSSAPI diagnostic, and netdoc could not confirm that the client has no GSSAPI key exchange; nothing was sent"}
 	}
 	return parseHostTrust(transcript, status)
@@ -178,6 +181,14 @@ func withoutGSSAPIUnsupported(transcript []byte, kexList func() ([]byte, error))
 		return nil, false
 	}
 	return []byte(strings.Join(lines[1:], "\n") + "\n"), true
+}
+
+// transcriptWithoutGSSAPI is the GSSAPI step of probeHostKey. The exception is part of the check, so it
+// holds only while the check's context is live. A query that answers exactly and exits nonzero is
+// still refused when the context has ended by the time its answer is judged.
+func transcriptWithoutGSSAPI(ctx context.Context, transcript []byte, kexList func() ([]byte, error)) ([]byte, bool) {
+	transcript, ok := withoutGSSAPIUnsupported(transcript, kexList)
+	return transcript, ok && ctx.Err() == nil
 }
 
 // errProbeOutput refuses a probe that wrote to standard output or ran past the output limit.

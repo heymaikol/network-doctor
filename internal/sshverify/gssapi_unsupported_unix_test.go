@@ -79,6 +79,41 @@ func TestGSSAPIUnsupportedQueryTimeoutRefusesTheCheck(t *testing.T) {
 	}
 }
 
+// The exception belongs to the check, so the check's context governs it. Each case is deterministic:
+// no sleeps, and the context is ended by the test itself, after a real shell query has printed the
+// exact answer and exited nonzero.
+func TestGSSAPIExceptionIsRefusedOnceTheCheckContextEnds(t *testing.T) {
+	alpine := fixture(t, "alpine-openssh-10.6p2-trust")
+	exact := `printf 'Unsupported query "kex-gss"\n'; exit 255`
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	endAfterAnswer := func() ([]byte, error) {
+		out, err := exec.Command("sh", "-c", exact).CombinedOutput() // #nosec G204 -- fixed test script, not bound to the context
+		cancel()
+		return out, err
+	}
+	if _, ok := transcriptWithoutGSSAPI(ctx, []byte(alpine), endAfterAnswer); ok {
+		t.Fatal("the exception held after the check's context ended")
+	}
+
+	past, pastCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer pastCancel()
+	if _, ok := transcriptWithoutGSSAPI(past, []byte(alpine), shellQuery(exact)); ok {
+		t.Fatal("the exception held under a deadline that had already passed")
+	}
+
+	live, liveCancel := context.WithCancel(context.Background())
+	defer liveCancel()
+	got, ok := transcriptWithoutGSSAPI(live, []byte(alpine), shellQuery(exact))
+	if !ok {
+		t.Fatal("control: the exact answer with a live context was refused")
+	}
+	if want := strings.TrimPrefix(alpine, gssapiUnsupportedLine+"\n"); string(got) != want {
+		t.Fatalf("control: removal changed other lines:\n%q\nwant\n%q", got, want)
+	}
+}
+
 // Only the diagnostic line is removed: no other line of the transcript changes.
 func TestGSSAPIUnsupportedRemovalChangesNothingElse(t *testing.T) {
 	alpine := fixture(t, "alpine-openssh-10.6p2-trust")

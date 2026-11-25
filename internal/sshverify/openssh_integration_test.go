@@ -725,17 +725,27 @@ func TestOpenSSHLabSeesASessionWhenThereIsOne(t *testing.T) {
 }
 
 // TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient checks that netdoc trusts no host key the
-// OpenSSH client does not agree on, and sends no credential to that host. The lab is hermetic: its
-// client configuration names no system file, and the server states its host key type explicitly.
-// The two subtests make different claims, and their names say which.
+// OpenSSH client does not agree on, and sends no credential to that host. What it runs depends on
+// the installed OpenSSH, and each branch says which it ran:
+//   - Where ssh-keygen makes an ML-DSA host key, the client and the server must both show the type
+//     is supported, and then the MLDSAExecution subtests run the ML-DSA case.
+//   - Where ssh-keygen cannot make one, the absence of ML-DSA is checked on the client and on the
+//     server, under MLDSAAbsence. No other algorithm is substituted. The ed25519 host-key claim is
+//     TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient.
+//
+// Each branch passes only when its own check holds, so the test cannot pass by skipping.
 func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
-	// The ML-DSA key when this OpenSSH can make one; otherwise ed25519, which every OpenSSH offers.
-	kind := "mldsa44-ed25519"
+	const kind = "mldsa44-ed25519"
 	if !oshKeygenMakes(t, oshTool(t, "ssh-keygen"), kind) {
-		t.Skip("this ssh-keygen cannot make an ML-DSA host key, so the ML-DSA case did not run; the ed25519 case is TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient")
+		t.Run("MLDSAAbsence", func(t *testing.T) {
+			oshRequireMLDSAAbsent(t)
+			t.Log("ML-DSA absence verified on the client and on the server. The ML-DSA case did not execute on this OpenSSH.")
+		})
+		return
 	}
-	t.Logf("host key type: %s", kind)
-	t.Run("DefaultClientPolicy", func(t *testing.T) {
+	oshRequireMLDSAPresent(t)
+	t.Logf("ML-DSA executes on this OpenSSH: host key type %s", kind)
+	t.Run("MLDSAExecution/DefaultClientPolicy", func(t *testing.T) {
 		// The client reads only the lab's configuration, so its algorithm list is the compiled default.
 		// Whatever it answers sets the expectation, so nothing here assumes a version.
 		l := newOSHLab(t, oshOpts{hostKinds: []string{kind}, extra: oshAdvertise(t, kind)})
@@ -753,7 +763,7 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 		}
 		l.requireNetdocNoTrust(t, refused)
 	})
-	t.Run("RestrictedClientNegotiation", func(t *testing.T) {
+	t.Run("MLDSAExecution/RestrictedClientNegotiation", func(t *testing.T) {
 		// The restriction is explicit and lab-owned: the client offers only ecdsa, the server offers
 		// kind. Its effect can be seen only where the default client would agree on the key. Where
 		// the default client refuses the key already, the restriction changes nothing, and the run
@@ -904,6 +914,55 @@ func TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient(t *testing.T) 
 		t.Fatalf("the restricted client did not fail to agree on the %s host key (status %d):\n%s", offer, status, out)
 	}
 	l.requireNetdocNoTrust(t, true)
+}
+
+// oshMLDSAName is the name OpenSSH uses for the ML-DSA hybrid host key type.
+const oshMLDSAName = "ssh-mldsa44-ed25519@openssh.com"
+
+// oshRequireMLDSAPresent checks that this OpenSSH supports the ML-DSA host key type on both sides.
+// The client must list the type, and the server must accept a host key of that type.
+func oshRequireMLDSAPresent(t *testing.T) {
+	t.Helper()
+	list, err := exec.Command(oshTool(t, "ssh"), "-Q", "key").CombinedOutput() // #nosec G204 -- fixed arguments
+	if err != nil {
+		t.Fatalf("ssh -Q key: %v: %s", err, list)
+	}
+	if !strings.Contains(string(list), oshMLDSAName) {
+		t.Fatalf("ssh-keygen makes an ML-DSA host key, but ssh -Q key does not list %s:\n%s", oshMLDSAName, list)
+	}
+	dir := t.TempDir()
+	key := filepath.Join(dir, "host")
+	if out, err := exec.Command(oshTool(t, "ssh-keygen"), "-q", "-t", "mldsa44-ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil { // #nosec G204 -- fixed arguments and a test-owned path
+		t.Fatalf("ssh-keygen -t mldsa44-ed25519: %v: %s", err, out)
+	}
+	conf := filepath.Join(dir, "sshd.conf")
+	if err := os.WriteFile(conf, []byte("HostKey "+key+"\nHostKeyAlgorithms "+oshMLDSAName+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(oshTool(t, "sshd"), "-t", "-f", conf).CombinedOutput(); err != nil { // #nosec G204 -- a test-owned path
+		t.Fatalf("sshd does not accept the ML-DSA host key type that ssh-keygen makes: %v: %s", err, out)
+	}
+}
+
+// oshRequireMLDSAAbsent checks that this OpenSSH has no ML-DSA host key type on either side. The
+// client must not list any ML-DSA type, and the server must reject the type as a bad key type.
+func oshRequireMLDSAAbsent(t *testing.T) {
+	t.Helper()
+	list, err := exec.Command(oshTool(t, "ssh"), "-Q", "key").CombinedOutput() // #nosec G204 -- fixed arguments
+	if err != nil {
+		t.Fatalf("ssh -Q key: %v: %s", err, list)
+	}
+	if strings.Contains(string(list), "mldsa") {
+		t.Fatalf("ssh-keygen cannot make an ML-DSA host key, but ssh -Q key lists an ML-DSA type:\n%s", list)
+	}
+	conf := filepath.Join(t.TempDir(), "sshd.conf")
+	if err := os.WriteFile(conf, []byte("HostKeyAlgorithms "+oshMLDSAName+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(oshTool(t, "sshd"), "-t", "-f", conf).CombinedOutput() // #nosec G204 -- a test-owned path
+	if err == nil || !strings.Contains(string(out), "Bad key types") {
+		t.Fatalf("sshd does not reject %s as a bad key type, though ssh-keygen cannot make that key (err %v):\n%s", oshMLDSAName, err, out)
+	}
 }
 
 // oshKeygenMakes reports whether ssh-keygen can make a host key of kind. An OpenSSH without the

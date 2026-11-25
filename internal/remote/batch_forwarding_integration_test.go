@@ -29,17 +29,26 @@ func TestBatchOpensNoForwarding(t *testing.T) {
 	t.Run("OccupiedPortFailsPromptly", occupiedPortFailsPromptly)
 	t.Run("SilentListenerIsBoundedAfterPreflight", silentListenerIsBounded)
 	t.Run("UnintendedForwardingIsDetected", unintendedForwardingIsDetected)
+	t.Run("OccupiedPortFailsScenarioPromptly", occupiedPortFailsScenarioPromptly)
 }
 
 // forwardingReadBound bounds the worker's read from the remote forwarding. It is far below the
 // operation ceiling, so a silent listener on that port ends the read, not the run.
 const forwardingReadBound = 10
 
+// forwardingOccupiedEnv is set only by the test that runs the scenario as a child process. The child
+// then starts with its remote forwarding port held by a silent listener, which is the case the
+// preflight must catch.
+const forwardingOccupiedEnv = "NETDOC_FORWARDING_OCCUPIED"
+
 // runNoForwardingScenario is the check itself, with the control first.
 func runNoForwardingScenario(t *testing.T) {
 	lab := newBatchLab(t)
 	target, banner := localBanner(t)
 	lp, dp, rp := freeLoopbackPort(t), freeLoopbackPort(t), freeLoopbackPort(t)
+	if os.Getenv(forwardingOccupiedEnv) != "" {
+		rp = silentListener(t).Addr().(*net.TCPAddr).Port
+	}
 	// A port another process holds would make the listener check report that process as SSH's
 	// forwarding. The preflight fails the run at once, with the port named.
 	if err := forwardingPortsFree(lp, dp, rp); err != nil {
@@ -231,4 +240,29 @@ func localBanner(t *testing.T) (addr, banner string) {
 		}
 	}()
 	return ln.Addr().String(), banner
+}
+
+// occupiedPortFailsScenarioPromptly runs the scenario as a child with its remote forwarding port held
+// by another process. The child must fail at the preflight, naming the port, within seconds. Without
+// the preflight it would run the control and wait for the worker's read bound.
+func occupiedPortFailsScenarioPromptly(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBatchOpensNoForwarding$/^Scenario$", "-test.count=1") // #nosec G204 -- the test's own binary, with fixed arguments
+	cmd.Env = append(os.Environ(), forwardingOccupiedEnv+"=1")
+	start := time.Now()
+	out, err := cmd.CombinedOutput()
+	elapsed := time.Since(start)
+	if ctx.Err() != nil {
+		t.Fatalf("the scenario was still running at the deadline (%v): it did not fail at the preflight", elapsed)
+	}
+	if err == nil {
+		t.Fatalf("the scenario passed with its forwarding port held by another process:\n%s", out)
+	}
+	if !strings.Contains(string(out), "already in use") {
+		t.Fatalf("the scenario failed, but not at the preflight:\n%s", out)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("the scenario took %v to fail at the preflight", elapsed)
+	}
 }

@@ -55,18 +55,16 @@ Match all
   UpdateHostKeys yes
 `
 	gssOK := gssKexListedBy(ssh)
-	if !gssOK {
-		// Without GSSAPI, OpenSSH rejects the GSSAPIAuthentication line as a bad option, so the
-		// hostile line cannot take effect. That refusal is the check for it. The other pins are then
-		// checked on the same configuration without the line.
-		batchWrite(t, cfg, config, 0o600)
-		out, err := exec.Command(ssh, "-G", "-F", cfg, "lab").CombinedOutput()
-		if err == nil || !strings.Contains(strings.ToLower(string(out)), "bad configuration option: gssapiauthentication") {
-			t.Fatalf("without GSSAPI, OpenSSH must refuse the GSSAPIAuthentication line: err %v, output %q", err, out)
-		}
-		config = strings.Replace(config, "  GSSAPIAuthentication yes\n", "", 1)
-	}
 	batchWrite(t, cfg, config, 0o600)
+	if !gssOK {
+		// Without GSSAPI, OpenSSH ignores the GSSAPIAuthentication line with a warning and does not
+		// report the option. The warning must name it, so the hostile value is shown to be ignored,
+		// not applied. The other pins are checked on the same configuration as usual.
+		out, err := exec.Command(ssh, "-G", "-F", cfg, "lab").CombinedOutput()
+		if err != nil || !strings.Contains(strings.ToLower(string(out)), `unsupported option "gssapiauthentication"`) {
+			t.Fatalf("without GSSAPI, OpenSSH must ignore the GSSAPIAuthentication line with a warning: err %v, output %q", err, out)
+		}
+	}
 
 	args := []string{"-G", "-F", cfg}
 	for _, pin := range batchOptions {
@@ -104,6 +102,8 @@ Match all
 	}
 	if gssOK {
 		want["gssapiauthentication"] = "no"
+	} else if got, ok := effective["gssapiauthentication"]; ok {
+		t.Errorf("without GSSAPI the option must not be reported, but it reads %q", got)
 	}
 	for key, value := range want {
 		if got := effective[key]; got != value {

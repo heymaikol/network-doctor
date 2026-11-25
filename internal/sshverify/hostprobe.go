@@ -153,10 +153,16 @@ func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool,
 // of the transcript is relaxed.
 const gssapiUnsupportedLine = `command-line line 0: Unsupported option "gssapiauthentication"`
 
+// gssapiQueryAnswer is the whole answer a client without GSSAPI gives to ssh -Q kex-gss: one line,
+// with a nonzero exit status.
+const gssapiQueryAnswer = `Unsupported query "kex-gss"`
+
 // withoutGSSAPIUnsupported returns the transcript without its first line when that line is the
-// GSSAPI diagnostic and kexList reports no GSSAPI key exchange algorithm. It reports false when the
-// line is there and the client may have GSSAPI, or when kexList cannot run. Any other transcript is
-// returned unchanged, so a diagnostic anywhere else still refuses the check.
+// GSSAPI diagnostic and the query for GSSAPI key exchange gives exactly gssapiQueryAnswer, with a
+// nonzero exit. Any other answer refuses the check: a successful exit, empty or unrelated output,
+// more than one line, a process ended by a signal (including a timeout), or a query that cannot run.
+// A transcript without the diagnostic first is returned unchanged, so a diagnostic anywhere else
+// still refuses it in the shape check.
 func withoutGSSAPIUnsupported(transcript []byte, kexList func() ([]byte, error)) ([]byte, bool) {
 	lines := splitTranscript(transcript)
 	if len(lines) == 0 || lines[0] != gssapiUnsupportedLine {
@@ -164,13 +170,12 @@ func withoutGSSAPIUnsupported(transcript []byte, kexList func() ([]byte, error))
 	}
 	out, err := kexList()
 	var exit *exec.ExitError
-	if err != nil && !errors.As(err, &exit) {
+	if err == nil || !errors.As(err, &exit) || exit.ExitCode() < 1 {
 		return nil, false
 	}
-	for _, l := range strings.Split(string(out), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(l), "gss-") {
-			return nil, false
-		}
+	answer := splitTranscript(out)
+	if len(answer) != 1 || answer[0] != gssapiQueryAnswer {
+		return nil, false
 	}
 	return []byte(strings.Join(lines[1:], "\n") + "\n"), true
 }

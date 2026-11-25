@@ -18,7 +18,7 @@ func TestBatchPinsWinOverUserConfiguration(t *testing.T) {
 	ssh := lookTool(t, "ssh", "")
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config")
-	batchWrite(t, cfg, `Host lab
+	config := `Host lab
   HostName 127.0.0.1
   BatchMode no
   PreferredAuthentications password,keyboard-interactive
@@ -53,7 +53,20 @@ Match all
   ControlPath /tmp/hostile-master.sock
   StrictHostKeyChecking accept-new
   UpdateHostKeys yes
-`, 0o600)
+`
+	gssOK := gssKexListedBy(ssh)
+	if !gssOK {
+		// Without GSSAPI, OpenSSH rejects the GSSAPIAuthentication line as a bad option, so the
+		// hostile line cannot take effect. That refusal is the check for it. The other pins are then
+		// checked on the same configuration without the line.
+		batchWrite(t, cfg, config, 0o600)
+		out, err := exec.Command(ssh, "-G", "-F", cfg, "lab").CombinedOutput()
+		if err == nil || !strings.Contains(strings.ToLower(string(out)), "bad configuration option: gssapiauthentication") {
+			t.Fatalf("without GSSAPI, OpenSSH must refuse the GSSAPIAuthentication line: err %v, output %q", err, out)
+		}
+		config = strings.Replace(config, "  GSSAPIAuthentication yes\n", "", 1)
+	}
+	batchWrite(t, cfg, config, 0o600)
 
 	args := []string{"-G", "-F", cfg}
 	for _, pin := range batchOptions {
@@ -77,7 +90,6 @@ Match all
 	want := map[string]string{
 		"batchmode":                "yes",
 		"preferredauthentications": "publickey",
-		"gssapiauthentication":     "no",
 		"addkeystoagent":           "false",
 		"identityagent":            "none",
 		"forwardagent":             "no",
@@ -89,6 +101,9 @@ Match all
 		"controlmaster":         "false",
 		"stricthostkeychecking": "true",
 		"updatehostkeys":        "false",
+	}
+	if gssOK {
+		want["gssapiauthentication"] = "no"
 	}
 	for key, value := range want {
 		if got := effective[key]; got != value {
@@ -110,4 +125,15 @@ Match all
 	if strings.Contains(effective["pubkeyacceptedalgorithms"], "sk-") {
 		t.Errorf("security-key algorithms are offered: %q", effective["pubkeyacceptedalgorithms"])
 	}
+}
+
+// gssKexListedBy reports whether the client lists a GSSAPI key exchange algorithm.
+func gssKexListedBy(ssh string) bool {
+	out, _ := exec.Command(ssh, "-Q", "kex-gss").CombinedOutput() // #nosec G204 -- fixed arguments
+	for _, l := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "gss-") {
+			return true
+		}
+	}
+	return false
 }

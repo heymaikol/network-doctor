@@ -734,6 +734,11 @@ func TestOpenSSHLabSeesASessionWhenThereIsOne(t *testing.T) {
 //     server, under MLDSAAbsence. No other algorithm is substituted. The ed25519 host-key claim is
 //     TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient.
 //
+// The trust and credential assertions are sensitive to ML-DSA only where the client can negotiate the
+// algorithm. In the execution branch the default client is run with the key, so a change that makes it
+// agree, or refuse, is caught. In the absence branch no ML-DSA key is offered and no ML-DSA case runs,
+// so those assertions say nothing about ML-DSA there.
+//
 // Each branch passes only when its own check holds, so the test cannot pass by skipping.
 func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 	const kind = "mldsa44-ed25519"
@@ -915,9 +920,9 @@ func TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient(t *testing.T) 
 	l.requireNetdocNoTrust(t, true)
 }
 
-// oshMLDSAAbsentNames are the spellings of the ML-DSA hybrid host key type that absence must cover.
-// OpenSSH 10.5p1 lists the type with an @openssh.com suffix, and 10.6p2 lists it without one, so the
-// absence check rejects both spellings. The presence check uses the name OpenSSH's own keygen writes.
+// oshMLDSAAbsentNames are the two spellings the absence check rejects as bad key types: the one OpenSSH
+// 10.6p2 lists, and the @openssh.com form OpenSSH 10.5p1 lists. The presence check uses the name
+// OpenSSH's own keygen writes, and not these constants.
 var oshMLDSAAbsentNames = []string{"ssh-mldsa44-ed25519", "ssh-mldsa44-ed25519@openssh.com"}
 
 // oshRequireMLDSAPresent checks that this OpenSSH supports the ML-DSA host key type on both sides.
@@ -947,8 +952,9 @@ func oshRequireMLDSAPresent(t *testing.T) {
 	}
 }
 
-// oshRequireMLDSAAbsent checks that this OpenSSH has no ML-DSA host key type on either side. The
-// client must not list any ML-DSA type, and the server must reject the type as a bad key type.
+// oshRequireMLDSAAbsent checks the absence of ML-DSA on both sides. The absence check requires that
+// ssh -Q key lists no type containing "mldsa", and that sshd -t rejects each spelling in
+// oshMLDSAAbsentNames as a bad key type. It does not establish the absence of any other spelling.
 func oshRequireMLDSAAbsent(t *testing.T) {
 	t.Helper()
 	list, err := exec.Command(oshTool(t, "ssh"), "-Q", "key").CombinedOutput() // #nosec G204 -- fixed arguments

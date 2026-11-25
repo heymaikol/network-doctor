@@ -138,7 +138,41 @@ func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool,
 	if err != nil {
 		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: textsafe.Clean(err.Error()) + "; nothing was sent"}
 	}
+	transcript, ok := withoutGSSAPIUnsupported(transcript, func() ([]byte, error) {
+		return exec.CommandContext(ctx, program, "-Q", "kex-gss").CombinedOutput() // #nosec G204 -- fixed arguments
+	})
+	if !ok {
+		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: "OpenSSH printed a GSSAPI diagnostic, and netdoc could not confirm that the client has no GSSAPI key exchange; nothing was sent"}
+	}
 	return parseHostTrust(transcript, status)
+}
+
+// gssapiUnsupportedLine is the diagnostic a client without GSSAPI prints for the probe's own
+// GSSAPIAuthentication=no override. It is removed only as the first line, and only when the same
+// client lists no GSSAPI key exchange. Then the override has nothing to disable, and no other line
+// of the transcript is relaxed.
+const gssapiUnsupportedLine = `command-line line 0: Unsupported option "gssapiauthentication"`
+
+// withoutGSSAPIUnsupported returns the transcript without its first line when that line is the
+// GSSAPI diagnostic and kexList reports no GSSAPI key exchange algorithm. It reports false when the
+// line is there and the client may have GSSAPI, or when kexList cannot run. Any other transcript is
+// returned unchanged, so a diagnostic anywhere else still refuses the check.
+func withoutGSSAPIUnsupported(transcript []byte, kexList func() ([]byte, error)) ([]byte, bool) {
+	lines := splitTranscript(transcript)
+	if len(lines) == 0 || lines[0] != gssapiUnsupportedLine {
+		return transcript, true
+	}
+	out, err := kexList()
+	var exit *exec.ExitError
+	if err != nil && !errors.As(err, &exit) {
+		return nil, false
+	}
+	for _, l := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "gss-") {
+			return nil, false
+		}
+	}
+	return []byte(strings.Join(lines[1:], "\n") + "\n"), true
 }
 
 // errProbeOutput refuses a probe that wrote to standard output or ran past the output limit.

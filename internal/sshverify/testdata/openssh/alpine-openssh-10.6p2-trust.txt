@@ -1,0 +1,58 @@
+command-line line 0: Unsupported option "gssapiauthentication"
+debug1: OpenSSH_10.6p2, OpenSSL 3.5.7 9 Jun 2026
+debug1: Reading configuration data /home/user/ssh_config
+debug1: /home/user/ssh_config line 1: Applying options for 127.0.0.1
+debug1: no pubkey loaded from /root/.ssh/id_rsa
+debug1: identity file /root/.ssh/id_rsa type -1
+debug1: no identity pubkey loaded from /root/.ssh/id_rsa
+debug1: no pubkey loaded from /root/.ssh/id_ecdsa
+debug1: identity file /root/.ssh/id_ecdsa type -1
+debug1: no identity pubkey loaded from /root/.ssh/id_ecdsa
+debug1: no pubkey loaded from /root/.ssh/id_ecdsa_sk
+debug1: identity file /root/.ssh/id_ecdsa_sk type -1
+debug1: no identity pubkey loaded from /root/.ssh/id_ecdsa_sk
+debug1: no pubkey loaded from /root/.ssh/id_ed25519
+debug1: identity file /root/.ssh/id_ed25519 type -1
+debug1: no identity pubkey loaded from /root/.ssh/id_ed25519
+debug1: no pubkey loaded from /root/.ssh/id_ed25519_sk
+debug1: identity file /root/.ssh/id_ed25519_sk type -1
+debug1: no identity pubkey loaded from /root/.ssh/id_ed25519_sk
+debug1: no pubkey loaded from /root/.ssh/id_mldsa44_ed25519
+debug1: identity file /root/.ssh/id_mldsa44_ed25519 type -1
+debug1: no identity pubkey loaded from /root/.ssh/id_mldsa44_ed25519
+debug1: Connecting to 127.0.0.1 [127.0.0.1] port 33425.
+debug1: Connection established.
+debug1: Local version string SSH-2.0-OpenSSH_10.6
+debug1: Remote protocol version 2.0, remote software version OpenSSH_10.6
+debug1: compat_banner: match: OpenSSH_10.6 pat OpenSSH* compat 0x04000000
+debug1: Authenticating to 127.0.0.1:33425 as 'fixture-user'
+debug1: SSH2_MSG_KEXINIT sent
+debug1: SSH2_MSG_KEXINIT received
+debug1: kex: algorithm: mlkem768x25519-sha256
+debug1: kex: host key algorithm: ssh-ed25519
+debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+debug1: SSH2_MSG_KEX_ECDH_REPLY received
+debug1: Server host key: ssh-ed25519 SHA256:Ylw33p0tj05GbyUTESJR5eZJQkbjv2E1fzryEMxe4kY
+debug1: Host '[127.0.0.1]:33425' is known and matches the ED25519 host key.
+debug1: Found key in /home/user/known_hosts:1
+debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+debug1: rekey out after 134217728 blocks
+debug1: SSH2_MSG_NEWKEYS sent
+debug1: Sending SSH2_MSG_EXT_INFO
+debug1: expecting SSH2_MSG_NEWKEYS
+debug1: ssh_packet_read_poll2: resetting read seqnr 3
+debug1: SSH2_MSG_NEWKEYS received
+debug1: rekey in after 134217728 blocks
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256,ssh-mldsa44-ed25519,webauthn-sk-ecdsa-sha2-nistp256@openssh.com>
+debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+debug1: kex_ext_info_check_ver: agent-forward=<0>
+debug1: SSH2_MSG_SERVICE_ACCEPT received
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256,ssh-mldsa44-ed25519,webauthn-sk-ecdsa-sha2-nistp256@openssh.com>
+debug1: Authentications that can continue: publickey
+debug1: No more authentication methods to try.
+fixture-user@127.0.0.1: Permission denied (publickey).

@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -750,7 +751,7 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 		// Whatever it answers sets the expectation, so nothing here assumes a version.
 		l := newOSHLab(t, oshOpts{hostKinds: []string{kind}, extra: oshAdvertise(t, kind)})
 		l.useConfig(t, l.baseConfig(l.known, ""))
-		out, status := l.clientRun(t)
+		out, status := l.probeRun(t)
 		offer := oshHostKeyToken(t, l.hostKeys[0])
 		refused := oshHostKeyMismatch(out, status, offer)
 		if !refused && !oshAgreedUnrecorded(out, status, offer) {
@@ -771,10 +772,10 @@ func TestOpenSSHMLDSAHostKeyIsNotAgreedByTheDefaultClient(t *testing.T) {
 		l := newOSHLab(t, oshOpts{hostKinds: []string{kind}, extra: oshAdvertise(t, kind)})
 		offer := oshHostKeyToken(t, l.hostKeys[0])
 		l.useConfig(t, l.baseConfig(l.known, ""))
-		defOut, defStatus := l.clientRun(t)
+		defOut, defStatus := l.probeRun(t)
 		defaultAgrees := oshAgreedUnrecorded(defOut, defStatus, offer)
 		l.useConfig(t, "HostKeyAlgorithms ecdsa-sha2-nistp256\n"+l.baseConfig(l.known, ""))
-		out, status := l.clientRun(t)
+		out, status := l.probeRun(t)
 		if !oshHostKeyMismatch(out, status, offer) {
 			t.Fatalf("the restricted client did not fail to agree on the %s host key (status %d):\n%s", offer, status, out)
 		}
@@ -818,20 +819,17 @@ func oshHostKeyToken(t *testing.T, privatePath string) string {
 	return f[0]
 }
 
-// clientRun runs the OpenSSH client the lab uses, with the lab's own configuration and no netdoc
-// options, and returns its output and exit status. LogLevel=DEBUG1 prints the negotiation line.
-func (l *oshLab) clientRun(t *testing.T) (string, int) {
+// probeRun runs the host-key probe exactly as netdoc does for this lab: the same option vector
+// and the lab's configuration, through runHostKeyProbe. It returns the probe's transcript and status,
+// so a stage line in it is a line from netdoc's own probe, not from a separate client invocation.
+func (l *oshLab) probeRun(t *testing.T) (string, int) {
 	t.Helper()
-	args := append(append([]string(nil), sshTestArgs...), "-o", "BatchMode=yes", "-o", "LogLevel=DEBUG1", "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1", "true")
+	dest := append(slices.Clone(sshTestArgs), "-p", strconv.Itoa(l.port), "-l", l.login, "--", "127.0.0.1")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, oshTool(t, "ssh"), args...).CombinedOutput() // #nosec G204 -- fixed options and the lab's own port
-	status := 0
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		status = exit.ExitCode()
-	} else if err != nil {
-		t.Fatalf("run the client: %v", err)
+	out, status, err := runHostKeyProbe(ctx, oshTool(t, "ssh"), probeArgs(dest))
+	if err != nil {
+		t.Fatalf("run the probe: %v", err)
 	}
 	return string(out), status
 }
@@ -858,10 +856,11 @@ func oshAgreedUnrecorded(out string, status int, offer string) bool {
 }
 
 // requireNetdocNoTrust checks netdoc's answer for the lab host, both by discovery and by the
-// credential-bearing verify path. A failed agreement must come back as a transport failure, and an
-// agreed key must come back as unknown. Which algorithm failed is decided from the client's own
-// stage lines by the caller, not from netdoc's detail, because a key exchange failure and a host
-// key failure carry the same detail text. Either way no credential may reach the server.
+// credential-bearing verify path. A failed agreement must come back as a transport failure whose
+// detail says no algorithm was agreed, and an agreed key must come back as unknown. That detail is
+// the same for a key exchange failure and a host key failure, so it shows that a failed agreement
+// was reported, not which algorithm failed. The caller decides that from the probe's own transcript
+// with oshHostKeyMismatch or oshKexMismatch. Either way no credential may reach the server.
 func (l *oshLab) requireNetdocNoTrust(t *testing.T, negotiationFailed bool) {
 	t.Helper()
 	tg := l.resolve(t, "127.0.0.1")
@@ -870,8 +869,8 @@ func (l *oshLab) requireNetdocNoTrust(t *testing.T, negotiationFailed bool) {
 	if r.Outcome == Discovered || r.Outcome == Verified {
 		t.Fatalf("discover = %q (%s), want the host key refused or unknown", r.Outcome, r.Detail)
 	}
-	if negotiationFailed && r.Outcome != TransportFailure {
-		t.Fatalf("discover = %q (%s), want the failed agreement reported as a transport failure", r.Outcome, r.Detail)
+	if negotiationFailed && (r.Outcome != TransportFailure || !strings.Contains(r.Detail, "could not agree")) {
+		t.Fatalf("discover = %q (%s), want a transport failure that says no algorithm was agreed", r.Outcome, r.Detail)
 	}
 	if !negotiationFailed && r.Outcome != HostKeyUnknown {
 		t.Fatalf("discover = %q (%s), want the agreed but unrecorded key reported as unknown", r.Outcome, r.Detail)
@@ -891,7 +890,7 @@ func (l *oshLab) requireNetdocNoTrust(t *testing.T, negotiationFailed bool) {
 func TestOpenSSHKexMismatchDoesNotSatisfyTheHostKeyAssertion(t *testing.T) {
 	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}, extra: "KexAlgorithms curve25519-sha256\n"})
 	l.useConfig(t, "KexAlgorithms diffie-hellman-group14-sha256\n"+l.baseConfig(l.known, ""))
-	out, status := l.clientRun(t)
+	out, status := l.probeRun(t)
 	offer := oshHostKeyToken(t, l.hostKeys[0])
 	if !oshKexMismatch(out, status) {
 		t.Fatalf("the forced key exchange mismatch did not occur (status %d):\n%s", status, out)
@@ -908,7 +907,7 @@ func TestOpenSSHKexMismatchDoesNotSatisfyTheHostKeyAssertion(t *testing.T) {
 func TestOpenSSHEd25519HostKeyMismatchIsRefusedByRestrictedClient(t *testing.T) {
 	l := newOSHLab(t, oshOpts{hostKinds: []string{"ed25519"}, extra: oshAdvertise(t, "ed25519")})
 	l.useConfig(t, "HostKeyAlgorithms ecdsa-sha2-nistp256\n"+l.baseConfig(l.known, ""))
-	out, status := l.clientRun(t)
+	out, status := l.probeRun(t)
 	offer := oshHostKeyToken(t, l.hostKeys[0])
 	if !oshHostKeyMismatch(out, status, offer) {
 		t.Fatalf("the restricted client did not fail to agree on the %s host key (status %d):\n%s", offer, status, out)

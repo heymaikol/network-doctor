@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -123,8 +124,17 @@ func TestPinRefusesACertificateBlobFingerprint(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := passwordServer(certSigner)
+	// The record matches the certificate in every field except the fingerprint, which is the blob's.
+	// So only the fingerprint comparison can refuse, and this test fails if that comparison is removed.
 	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
-		return hostTrust{algorithm: cert.Type(), fingerprint: ssh.FingerprintSHA256(cert)}, true, Result{}
+		return hostTrust{
+			algorithm:   cert.Type(),
+			fingerprint: ssh.FingerprintSHA256(cert),
+			certificate: true,
+			keyID:       cert.KeyId,
+			serial:      strconv.FormatUint(cert.Serial, 10),
+			authority:   ssh.FingerprintSHA256(cert.SignatureKey),
+		}, true, Result{}
 	})
 
 	r := VerifyDirect(context.Background(), target(), Attempt{Method: MethodPassword, Password: []byte(testPassword)}, s.options())

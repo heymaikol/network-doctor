@@ -3,6 +3,7 @@ package sshverify
 import (
 	"context"
 	"crypto/rand"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -144,13 +145,18 @@ func TestCredentialConnectionRefusesControlCharacterKeyID(t *testing.T) {
 	host, _ := newEd25519(t)
 	ctrlID := "checked\rid"
 	signer := certifiedSigner(t, ca, host, ctrlID)
+	cert := signer.PublicKey().(*ssh.Certificate)
 	s := passwordServer(signer)
+	// The record names the serial and authority the certificate has, so the key ID is the only field
+	// that can refuse. Without them, another field would refuse and this test would not isolate the rule.
 	installProbe(t, func(context.Context, Target, Options) (hostTrust, bool, Result) {
 		return hostTrust{
 			algorithm:   signer.PublicKey().Type(),
 			fingerprint: ssh.FingerprintSHA256(host.PublicKey()),
 			certificate: true,
 			keyID:       ctrlID,
+			serial:      strconv.FormatUint(cert.Serial, 10),
+			authority:   ssh.FingerprintSHA256(cert.SignatureKey),
 		}, true, Result{}
 	})
 

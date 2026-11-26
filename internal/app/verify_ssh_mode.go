@@ -252,9 +252,14 @@ func buildAttempt(ctx context.Context, f verifySSHFlags, tgt sshverify.Target, n
 	}
 }
 
-// trimOneLineEnd removes the line end of a secret: one LF, and a CR before it. Any
-// other byte stays, so a CR with text after it is kept, and the length check refuses it.
+// trimOneLineEnd removes the line end of a secret: an LF, and a CR only when it immediately precedes
+// that LF. A line with no LF, such as one that ends the input, is returned whole: its CR is part of
+// the secret, so the secret is never changed into a different one. Any other byte stays, so a CR with
+// text after it is kept, and the length check refuses it.
 func trimOneLineEnd(line []byte) []byte {
+	if !bytes.HasSuffix(line, []byte("\n")) {
+		return line
+	}
 	line = bytes.TrimSuffix(line, []byte("\n"))
 	return bytes.TrimSuffix(line, []byte("\r"))
 }

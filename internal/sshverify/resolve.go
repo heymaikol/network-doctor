@@ -538,7 +538,7 @@ func readConfig(ctx context.Context, program string, args []string, env []string
 	waited := waitErr == nil || errors.As(waitErr, &exitErr)
 	// The client has exited. Anything it left running in its group is killed now,
 	// so a read does not leave a helper process behind.
-	killProcessGroup(cmd.Process.Pid)
+	terminateProcessGroup(cmd.Process.Pid)
 	waitGroupGone(cmd.Process.Pid, groupGoneBound)
 	out, outComplete := stdout.finish(outR)
 	diag, diagComplete := stderr.finish(errR)

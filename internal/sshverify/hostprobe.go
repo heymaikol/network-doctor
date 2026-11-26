@@ -215,7 +215,7 @@ func kexGSSQuery(ctx context.Context, program string) ([]byte, error) {
 	}
 	out := captureProbeStream(outR, probeOutputLimit)
 	waitErr := cmd.Wait()
-	killProcessGroup(cmd.Process.Pid)
+	terminateProcessGroup(cmd.Process.Pid)
 	data, complete := out.finish(outR, probeWaitDelay)
 	if out.over || !complete {
 		return nil, errProbeOutput
@@ -261,7 +261,7 @@ func runHostKeyProbe(ctx context.Context, program string, args []string) ([]byte
 	waitErr := cmd.Wait()
 	// Kill any descendant still in the probe's process group, even after a normal exit, so a
 	// helper holding stderr open cannot outlive the probe or stall output collection.
-	killProcessGroup(cmd.Process.Pid)
+	terminateProcessGroup(cmd.Process.Pid)
 	_, outComplete := out.finish(outR, probeWaitDelay)
 	stderr, diagComplete := diag.finish(errR, probeWaitDelay)
 

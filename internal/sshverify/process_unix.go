@@ -21,10 +21,40 @@ func configureProcess(cmd *exec.Cmd) {
 	}
 }
 
-// killProcessGroup kills every process still in the group the client led. It
-// is a no-op once the group is empty.
+// killProcessGroup sends SIGKILL once to the group the client led. It is the
+// cancellation path's signal. The client may still be an unreaped zombie there,
+// and a zombie leader keeps the group visible, so a retry would signal the whole
+// window every time.
 func killProcessGroup(pid int) {
 	_ = syscall.Kill(-pid, syscall.SIGKILL)
+}
+
+// groupRetryWindow bounds how long terminateProcessGroup keeps signalling after
+// the client is reaped. A healthy probe leaves no group, so its first kill
+// returns at once and the window is never used.
+const groupRetryWindow = 100 * time.Millisecond
+
+// groupRetryInterval is the pause between kills while the group still has members.
+const groupRetryInterval = 5 * time.Millisecond
+
+// terminateProcessGroup ends every process left in the group the client led. Call
+// it only after the client has been reaped. Each kill that finds a member is
+// followed by a short pause and another kill. The loop stops when a kill finds the
+// group empty, or when groupRetryWindow has passed, so a descendant forked while
+// the first kill was in progress is caught by a later one.
+//
+// The group ID is the client's PID, which the reaped client no longer holds. A
+// kill is sent only after the previous kill found the group occupied, so an empty
+// group is never signalled again. Linux does not reuse a PID while a process group
+// still uses it, so an occupied group keeps its ID. Reuse of an emptied group's ID
+// inside the window would need the PID space to wrap within about 100 ms. That is
+// not ruled out on every platform. A zombie member stays in the group until it is
+// reaped, so where PID 1 never reaps, the loop runs the whole window and stops.
+func terminateProcessGroup(pid int) {
+	deadline := time.Now().Add(groupRetryWindow)
+	for syscall.Kill(-pid, syscall.SIGKILL) != syscall.ESRCH && time.Now().Before(deadline) {
+		time.Sleep(groupRetryInterval)
+	}
 }
 
 // waitGroupGone waits, for at most bound, until no process is left in the group the client led.

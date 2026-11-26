@@ -139,7 +139,7 @@ func probeHostKey(ctx context.Context, t Target, opts Options) (hostTrust, bool,
 		return hostTrust{}, false, Result{Outcome: TransportFailure, Detail: textsafe.Clean(err.Error()) + "; nothing was sent"}
 	}
 	transcript, ok := transcriptWithoutGSSAPI(ctx, transcript, func() ([]byte, error) {
-		return exec.CommandContext(ctx, program, "-Q", "kex-gss").CombinedOutput() // #nosec G204 -- fixed arguments
+		return kexGSSQuery(ctx, program)
 	})
 	if !ok {
 		if ctx.Err() != nil {
@@ -189,6 +189,38 @@ func withoutGSSAPIUnsupported(transcript []byte, kexList func() ([]byte, error))
 func transcriptWithoutGSSAPI(ctx context.Context, transcript []byte, kexList func() ([]byte, error)) ([]byte, bool) {
 	transcript, ok := withoutGSSAPIUnsupported(transcript, kexList)
 	return transcript, ok && ctx.Err() == nil
+}
+
+// kexGSSQuery runs the client's GSSAPI key exchange query under the rules runHostKeyProbe uses. The
+// query gets its own process group, so cancellation and the cleanup after it exit reach any child it
+// started. Its standard output and standard error share one pipe, read to the probe's output limit.
+// The wait for that pipe is bounded by probeWaitDelay, and output still open after the bound is
+// refused as incomplete. WaitDelay is not used: exec applies it only to copy goroutines, which a file
+// pipe does not have, and after a nonzero exit it reports nothing, so it could not tell a complete
+// answer from an open one.
+func kexGSSQuery(ctx context.Context, program string) ([]byte, error) {
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	defer outR.Close()
+	cmd := exec.CommandContext(ctx, program, "-Q", "kex-gss") // #nosec G204 -- fixed arguments
+	configureProcess(cmd)
+	cmd.Stdout = outW
+	cmd.Stderr = outW
+	err = cmd.Start()
+	_ = outW.Close()
+	if err != nil {
+		return nil, err
+	}
+	out := captureProbeStream(outR, probeOutputLimit)
+	waitErr := cmd.Wait()
+	killProcessGroup(cmd.Process.Pid)
+	data, complete := out.finish(outR, probeWaitDelay)
+	if out.over || !complete {
+		return nil, errProbeOutput
+	}
+	return data, waitErr
 }
 
 // errProbeOutput refuses a probe that wrote to standard output or ran past the output limit.

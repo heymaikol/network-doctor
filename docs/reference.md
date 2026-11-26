@@ -942,7 +942,7 @@ Each check ends in one outcome:
 | refused | The server rejected the credential. | 1 |
 | partial | The server accepted this method and still requires more. The remaining methods are listed. | 1 |
 | method not offered | The server does not advertise this method. Nothing was sent. | 1 |
-| accepted with no credential | The server admitted the connection without any credential, after OpenSSH had trusted its key. That is reported as a finding, and no session is opened. The check does not produce this outcome on a server that accepts `none`: that server holds the probe open, and the check ends as not completed instead. The `none` case is described in the verification section below. | 1 |
+| accepted with no credential | The server admitted the connection without any credential, after OpenSSH had trusted its key. That is reported as a finding, and no session is opened. The check does not produce this outcome on a server that accepts `none`: that server holds the probe open, and the check ends as not completed instead. The `none` case is described in the verification section above. | 1 |
 | host key unknown, host key changed, host key revoked | The host key was not accepted. Nothing was sent. | 2 |
 | unsupported | The route goes through a proxy, or the server asked for more than one password prompt. Nothing was sent. | 2 |
 | not sent | A local problem, such as a missing key file, a wrong passphrase, or no agent key. The server was not contacted. | 2 |

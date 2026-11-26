@@ -638,9 +638,11 @@ func resultLines(m model, r sshverify.Result) string {
 		style = m.st.fail
 	}
 	lines := []string{style.Render("result: " + r.Outcome.Describe())}
-	if (r.Outcome == sshverify.HostKeyChanged || r.Outcome == sshverify.HostKeyRevoked) && r.HostKey != "" {
+	if (r.Outcome == sshverify.HostKeyUnknown || r.Outcome == sshverify.HostKeyChanged || r.Outcome == sshverify.HostKeyRevoked) && r.HostKey != "" {
 		// The presented key is the only fingerprint netdoc has for the server, so it is shown
-		// for the user to compare with the key they expect.
+		// for the user to compare with the key they expect. An unknown key is shown too, so the
+		// user can compare it before establishing trust with their normal SSH client. Showing it
+		// trusts nothing: the check still refuses until a discovery trusts the key.
 		lines = append(lines, style.Render("presented host key: "+textsafe.Clean(r.HostKey)))
 	}
 	if r.Outcome == sshverify.Discovered && r.Identity.Valid() {

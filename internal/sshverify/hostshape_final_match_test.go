@@ -75,6 +75,22 @@ func TestFinalMatchPassRequiresOrderedCompleteConfiguration(t *testing.T) {
 	}
 }
 
+// OpenSSH finishes its final configuration pass before connecting. Moving
+// the connection-established line ahead of the markers must not establish
+// host trust or expose a fingerprint through refusal reporting.
+func TestFinalMatchPassRefusesEarlyConnectionEstablished(t *testing.T) {
+	good := fedoraFinalMatchTranscript(t)
+	bad := strings.Replace(good, "debug1: Connection established.\n", "", 1)
+	bad = strings.Replace(bad,
+		"debug1: configuration requests final Match pass",
+		"debug1: Connection established.\n"+"debug1: configuration requests final Match pass", 1)
+
+	_, ok, result := parseHostTrust([]byte(bad), 255)
+	if ok || result.Outcome != TransportFailure || result.HostKey != "" {
+		t.Fatalf("early connection established: trusted=%v outcome=%q hostKey=%q", ok, result.Outcome, result.HostKey)
+	}
+}
+
 // A malformed configuration prefix cannot name a trusted host key, including
 // in refusal reporting. The same validation must guard presentedKeyAtPrefix
 // and acceptShape; a check applied only to acceptShape would miss this case.

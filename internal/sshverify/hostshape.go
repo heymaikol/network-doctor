@@ -58,7 +58,7 @@ func validFinalMatchPass(lines []string) bool {
 	}
 	initialRead := false
 	for _, line := range lines[:requested] {
-		if strings.HasPrefix(line, "debug1: Connecting to ") {
+		if strings.HasPrefix(line, "debug1: Connecting to ") || line == "debug1: Connection established." {
 			return false
 		}
 		if strings.HasPrefix(line, "debug1: Reading configuration data ") {

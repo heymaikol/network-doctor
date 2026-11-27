@@ -12,7 +12,7 @@
 # run"), which is why they share a directory and why nothing else named netdoc
 # is on PATH.
 
-FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.4-alpine3.23@sha256:146e3b9c7c1e2ec3d3f5348c8a686151a75e1976e50efac9fc022ebe446a9a82 AS build
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.4-alpine3.23@sha256:f70850ef6ce341e8b6427f677049145d63c0b7ce002d4d7e3d464828b1b96dcd AS build
 
 WORKDIR /src
 # Dependencies first: the module graph changes far less often than the code, so

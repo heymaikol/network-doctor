@@ -99,6 +99,16 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 	m.verify.focus(vrKey)
 	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "showing 1-5 of 8 private keys") || !strings.Contains(text, "/keys/a") {
 		t.Fatalf("picker did not display the first page: %q", text)
+	} else {
+		if !strings.Contains(text, "Key file  No Key File") {
+			t.Fatalf("picker did not show the unselected state: %q", text)
+		}
+		keysEnd := strings.Index(text, "showing 1-5 of 8 private keys")
+		hint := strings.Index(text, "choose with arrows, press enter to select")
+		passphrase := strings.Index(text, "Passphrase typed here")
+		if keysEnd < 0 || hint <= keysEnd || passphrase <= hint {
+			t.Fatalf("picker guidance must follow the list and precede Passphrase: %q", text)
+		}
 	}
 	t.Logf("sanitized key picker sample:\n%s", ansi.Strip(m.verifyView()))
 	for i := 0; i < 6; i++ {

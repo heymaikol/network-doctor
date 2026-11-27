@@ -286,7 +286,7 @@ func (p verifyPanel) visibleRows() []verifyRow {
 // passphrase, which is needed only when the key file is encrypted.
 func (p *verifyPanel) syncSecretPrompt() {
 	if verifyMethods[p.method] == sshverify.MethodKey {
-		p.secret.Prompt = "Passphrase"
+		p.secret.Prompt = "Passphrase "
 		return
 	}
 	p.secret.Prompt = "Password  "
@@ -637,16 +637,13 @@ func (m model) verifyView() string {
 	case sshverify.MethodPassword:
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodKey:
-		keyLine := "no private keys found in ~/.ssh"
+		keyLine := "No Key File"
 		if !p.resolved && p.resolveCancel != nil {
 			keyLine = "reading private keys in ~/.ssh"
 		} else if p.keyScanErr {
 			keyLine = "could not list private keys in ~/.ssh"
-		} else if len(p.keys) > 0 {
-			keyLine = "choose with arrows, press enter to select"
-			if p.keyChosen {
-				keyLine = "selected: " + ansi.Truncate(textsafe.Clean(shortSSHKeyPath(p.keys[p.keyIdx])), max(w-18, 12), "…")
-			}
+		} else if p.keyChosen && p.keyIdx >= 0 && p.keyIdx < len(p.keys) {
+			keyLine = "selected: " + ansi.Truncate(textsafe.Clean(shortSSHKeyPath(p.keys[p.keyIdx])), max(w-18, 12), "…")
 		}
 		b.WriteString(focused(vrKey) + m.st.key.Render("Key file  ") + keyLine + "\n")
 		if len(p.keys) > 0 {
@@ -669,6 +666,7 @@ func (m model) verifyView() string {
 			if len(p.keys) > visible {
 				b.WriteString("    " + m.st.faint.Render(fmt.Sprintf("showing %d-%d of %d private keys", start+1, min(start+visible, len(p.keys)), len(p.keys))) + "\n")
 			}
+			b.WriteString("    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
 		}
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodAgent:

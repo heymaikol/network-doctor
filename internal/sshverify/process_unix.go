@@ -40,8 +40,13 @@ const groupRetryInterval = 5 * time.Millisecond
 // terminateProcessGroup ends every process left in the group the client led. Call
 // it only after the client has been reaped. Each kill that finds a member is
 // followed by a short pause and another kill. The loop stops when a kill finds the
-// group empty, or when groupRetryWindow has passed, so a descendant forked while
-// the first kill was in progress is caught by a later one.
+// group empty, when a kill is refused with EPERM (no member can be signalled, so
+// another kill cannot succeed), or when groupRetryWindow has passed. A descendant
+// forked while the first kill was in progress is caught by a later one.
+//
+// A pid of 0 or 1 is refused before any kill. Negated, those name the caller's own
+// group and every process the caller may signal. A started client always has a
+// larger PID, so the guard only stops a bad value from reaching kill.
 //
 // The group ID is the client's PID, which the reaped client no longer holds. A
 // kill is sent only after the previous kill found the group occupied, so an empty
@@ -51,8 +56,15 @@ const groupRetryInterval = 5 * time.Millisecond
 // not ruled out on every platform. A zombie member stays in the group until it is
 // reaped, so where PID 1 never reaps, the loop runs the whole window and stops.
 func terminateProcessGroup(pid int) {
+	if pid <= 1 {
+		return
+	}
 	deadline := time.Now().Add(groupRetryWindow)
-	for syscall.Kill(-pid, syscall.SIGKILL) != syscall.ESRCH && time.Now().Before(deadline) {
+	for {
+		err := syscall.Kill(-pid, syscall.SIGKILL)
+		if err == syscall.ESRCH || err == syscall.EPERM || !time.Now().Before(deadline) {
+			return
+		}
 		time.Sleep(groupRetryInterval)
 	}
 }

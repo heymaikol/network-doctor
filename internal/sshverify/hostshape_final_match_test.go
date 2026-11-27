@@ -18,15 +18,20 @@ func TestFedoraRecordedFinalMatchTranscriptIsTrusted(t *testing.T) {
 
 // The synthetic variant isolates the second configuration pass from other
 // platform differences, so each negative control changes only one rule.
-func fedoraFinalMatchTranscript(t *testing.T) string {
+func withFinalMatchPass(t *testing.T, base string) string {
 	t.Helper()
-	return after(t, fixture(t, "trust-plain"), "cfg line 1: Applying options", strings.Join([]string{
+	return after(t, base, "cfg line 1: Applying options", strings.Join([]string{
 		"debug1: Reading configuration data /etc/ssh/ssh_config",
 		"debug1: configuration requests final Match pass",
 		"debug1: re-parsing configuration",
 		"debug1: Reading configuration data cfg",
 		"debug1: Reading configuration data /etc/ssh/ssh_config",
 	}, "\n"))
+}
+
+func fedoraFinalMatchTranscript(t *testing.T) string {
+	t.Helper()
+	return withFinalMatchPass(t, fixture(t, "trust-plain"))
 }
 
 func TestFedoraFinalMatchTranscriptIsTrusted(t *testing.T) {
@@ -67,5 +72,29 @@ func TestFinalMatchPassRequiresOrderedCompleteConfiguration(t *testing.T) {
 				t.Fatalf("malformed final Match transcript was trusted: %+v (%+v)", trust, result)
 			}
 		})
+	}
+}
+
+// A malformed configuration prefix cannot name a trusted host key, including
+// in refusal reporting. The same validation must guard presentedKeyAtPrefix
+// and acceptShape; a check applied only to acceptShape would miss this case.
+func TestFinalMatchMalformedPrefixDoesNotReportHostFingerprint(t *testing.T) {
+	good := fedoraFinalMatchTranscript(t)
+	bad := strings.Replace(good,
+		"debug1: configuration requests final Match pass\n"+"debug1: re-parsing configuration",
+		"debug1: re-parsing configuration\n"+"debug1: configuration requests final Match pass", 1)
+	_, ok, result := parseHostTrust([]byte(bad), 255)
+	if ok || result.Outcome != TransportFailure || result.HostKey != "" {
+		t.Fatalf("malformed prefix: trusted=%v outcome=%q hostKey=%q", ok, result.Outcome, result.HostKey)
+	}
+}
+
+// A complete final Match pass must not hide the key that OpenSSH actually
+// presented when it refuses an unknown host key. No trust is granted.
+func TestFinalMatchUnknownHostKeyStillReportsPresentedFingerprint(t *testing.T) {
+	tr := withFinalMatchPass(t, fixture(t, "unknown-plain"))
+	_, ok, result := parseHostTrust([]byte(tr), 255)
+	if ok || result.Outcome != HostKeyUnknown || result.HostKey != presentedFingerprint(t, tr) {
+		t.Fatalf("unknown key: trusted=%v outcome=%q hostKey=%q", ok, result.Outcome, result.HostKey)
 	}
 }

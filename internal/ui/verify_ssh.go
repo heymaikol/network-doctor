@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
@@ -54,6 +55,8 @@ type verifyPanel struct {
 	method     int
 	keys       []string
 	keyIdx     int
+	keyChosen  bool
+	keyScanErr bool
 	agentKeys  []sshverify.AgentKey
 	agentIdx   int
 	row        verifyRow
@@ -95,6 +98,8 @@ type verifyResolvedMsg struct {
 	seq    uint64
 	target sshverify.Target
 	err    error
+	keys   []string
+	keyErr error
 }
 
 // verifyResultMsg carries one discovery or check.
@@ -170,7 +175,10 @@ func (p *verifyPanel) readRoute() tea.Cmd {
 	login := strings.TrimSpace(p.user.Value())
 	return func() tea.Msg {
 		t, err := resolveTarget(ctx, host, port, login)
-		return verifyResolvedMsg{id: id, seq: seq, target: t, err: err}
+		// Key candidates come from the user's .ssh directory, never from the
+		// identity files OpenSSH chose for this particular host or alias.
+		keys, keyErr := userSSHPrivateKeys(ctx)
+		return verifyResolvedMsg{id: id, seq: seq, target: t, err: err, keys: keys, keyErr: keyErr}
 	}
 }
 
@@ -210,6 +218,8 @@ func (p *verifyPanel) dropRoute() {
 	p.resolveErr = ""
 	p.target = sshverify.Target{}
 	p.keys, p.keyIdx = nil, 0
+	p.keyChosen = false
+	p.keyScanErr = false
 	p.agentKeys, p.agentIdx = nil, 0
 	p.result = nil
 	p.trusted = false
@@ -320,8 +330,14 @@ func (p *verifyPanel) attempt() (sshverify.Attempt, string) {
 		}
 		a.Password = []byte(p.secret.Value())
 	case sshverify.MethodKey:
+		if p.keyScanErr {
+			return a, "could not list private keys in ~/.ssh"
+		}
 		if len(p.keys) == 0 {
-			return a, "no key file is available to choose; set one up in ~/.ssh or your SSH configuration"
+			return a, "no private keys found in ~/.ssh"
+		}
+		if !p.keyChosen || p.keyIdx >= len(p.keys) || p.keyIdx < 0 {
+			return a, "select a private key from ~/.ssh using the arrow keys and enter"
 		}
 		a.KeyPath = p.keys[p.keyIdx]
 		if p.secret.Value() != "" {
@@ -435,35 +451,48 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg.String() {
-	case "tab", "down":
+	case "tab":
 		return m, p.moveFrom(1)
-	case "shift+tab", "up":
+	case "shift+tab":
 		return m, p.moveFrom(-1)
-	case "left", "right":
+	case "up", "down", "left", "right":
 		// On a text row the key moves the caret in the field below, so it is not consumed here.
 		if p.row == vrUser || p.row == vrSecret {
 			break
 		}
 		delta := 1
-		if msg.String() == "left" {
+		if msg.String() == "left" || msg.String() == "up" {
 			delta = -1
 		}
 		switch p.row {
 		case vrMethod:
+			if msg.String() == "up" || msg.String() == "down" {
+				return m, p.moveFrom(delta)
+			}
 			p.method = (p.method + delta + len(verifyMethods)) % len(verifyMethods)
 			// The secret belongs to the method that was chosen when it was typed. A
 			// passphrase must never become a password, so a change clears it.
 			p.secret.SetValue("")
 			p.note = ""
 			p.syncSecretPrompt()
+			p.result = nil
 		case vrKey:
 			if n := len(p.keys); n > 0 {
 				p.keyIdx = (p.keyIdx + delta + n) % n
+				p.keyChosen = false
+				p.secret.SetValue("")
+				p.note = ""
+				p.result = nil
 			}
 		case vrAgent:
+			if msg.String() == "up" || msg.String() == "down" {
+				return m, p.moveFrom(delta)
+			}
 			if n := len(p.agentKeys); n > 0 {
 				p.agentIdx = (p.agentIdx + delta + n) % n
 			}
+		default:
+			return m, p.moveFrom(delta)
 		}
 		return m, nil
 	case "enter":
@@ -472,6 +501,18 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startVerifyAction(false)
 		case vrCheck:
 			return m.startVerifyAction(true)
+		case vrKey:
+			if len(p.keys) == 0 {
+				p.note = "no private keys found in ~/.ssh"
+				if p.keyScanErr {
+					p.note = "could not list private keys in ~/.ssh"
+				}
+				return m, nil
+			}
+			p.keyChosen = true
+			p.secret.SetValue("")
+			p.note = ""
+			p.result = nil
 		}
 		return m, p.moveFrom(1)
 	}
@@ -506,6 +547,10 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		m.verify.resolveCancel = nil
+		m.verify.keys = msg.keys
+		m.verify.keyIdx = 0
+		m.verify.keyChosen = false
+		m.verify.keyScanErr = msg.keyErr != nil
 		if msg.err != nil {
 			m.verify.resolveErr = textsafe.Clean(msg.err.Error())
 			return m, nil, true
@@ -513,7 +558,6 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.target = msg.target
 		m.verify.resolved = true
 		m.verify.resolveErr = ""
-		m.verify.keys = sshverify.ExistingIdentityFiles(msg.target)
 		return m, nil, true
 	case verifyKeysMsg:
 		if !m.verifying || msg.id != m.verify.id || msg.seq != m.verify.keysSeq {
@@ -593,14 +637,39 @@ func (m model) verifyView() string {
 	case sshverify.MethodPassword:
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodKey:
-		keyLine := "none found: set one up in ~/.ssh"
-		if len(p.keys) > 0 {
-			keyLine = textsafe.Clean(p.keys[p.keyIdx])
-			if len(p.keys) > 1 {
-				keyLine += m.st.faint.Render(fmt.Sprintf("  (%d of %d)", p.keyIdx+1, len(p.keys)))
+		keyLine := "no private keys found in ~/.ssh"
+		if !p.resolved && p.resolveCancel != nil {
+			keyLine = "reading private keys in ~/.ssh"
+		} else if p.keyScanErr {
+			keyLine = "could not list private keys in ~/.ssh"
+		} else if len(p.keys) > 0 {
+			keyLine = "choose with arrows, press enter to select"
+			if p.keyChosen {
+				keyLine = "selected: " + ansi.Truncate(textsafe.Clean(shortSSHKeyPath(p.keys[p.keyIdx])), max(w-18, 12), "…")
 			}
 		}
 		b.WriteString(focused(vrKey) + m.st.key.Render("Key file  ") + keyLine + "\n")
+		if len(p.keys) > 0 {
+			const visible = 5
+			start := min(max(0, p.keyIdx-2), max(0, len(p.keys)-visible))
+			for i := start; i < min(start+visible, len(p.keys)); i++ {
+				name := ansi.Truncate(textsafe.Clean(shortSSHKeyPath(p.keys[i])), max(w-9, 12), "…")
+				marker := "  "
+				if p.keyChosen && i == p.keyIdx {
+					marker = "✓ "
+				} else if p.row == vrKey && i == p.keyIdx {
+					marker = "▸ "
+				}
+				line := marker + name
+				if i == p.keyIdx {
+					line = m.st.sel.Render(line)
+				}
+				b.WriteString("    " + line + "\n")
+			}
+			if len(p.keys) > visible {
+				b.WriteString("    " + m.st.faint.Render(fmt.Sprintf("showing %d-%d of %d private keys", start+1, min(start+visible, len(p.keys)), len(p.keys))) + "\n")
+			}
+		}
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodAgent:
 		keyLine := m.st.faint.Render("none listed yet: press enter on Discover methods")
@@ -623,6 +692,9 @@ func (m model) verifyView() string {
 		b.WriteString("\n" + m.st.warn.Render(textsafe.Clean(p.note)))
 	}
 	keys := []string{"tab", "next", "enter", "run", "esc", "close"}
+	if p.row == vrKey && verifyMethods[p.method] == sshverify.MethodKey {
+		keys = []string{"↑/↓", "choose key", "enter", "select", "tab", "next", "esc", "close"}
+	}
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" +
 		m.quitNoticeFooter(helpKeys(m.st, m.width, keys...))
 }

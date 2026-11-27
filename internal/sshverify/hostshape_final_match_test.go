@@ -38,7 +38,7 @@ func TestFedoraFinalMatchTranscriptIsTrusted(t *testing.T) {
 	tr := fedoraFinalMatchTranscript(t)
 	trust, ok, result := parseHostTrust([]byte(tr), 255)
 	if !ok || trust.algorithm != "ssh-ed25519" || trust.fingerprint != presentedFingerprint(t, tr) || trust.certificate {
-		t.Fatalf("the Fedora final Match pass was refused: trust=%+v ok=%v result=%+v", trust, ok, result)
+		t.Fatalf("the final Match pass was refused: trust=%+v ok=%v result=%+v", trust, ok, result)
 	}
 }
 

@@ -27,7 +27,7 @@ type shapeRule struct {
 // connects, before the key exchange. Command output is not among them, so a Match exec line fails.
 var shapeConfig = []shapeRule{{regexp.MustCompile(`^debug1: (?:OpenSSH_\S+(?: [A-Za-z]+-[A-Za-z0-9._+~]+)?(?:, (?:OpenSSL|LibreSSL) [^\x00-\x1f\x7f]+)?|Reading configuration data .*|configuration requests final Match pass|re-parsing configuration|(?:[^"\x00-\x1f\x7f:]+ )?line \d+: Applying options for [^"\x00-\x1f\x7f]*|Applying options for [^"]*|(?:no pubkey loaded from|identity file|no identity pubkey loaded from) [^"]*|loaded (?:identity )?pubkey from [^\x00-\x1f\x7f]+: [A-Za-z0-9@._-]+ SHA256:[A-Za-z0-9+/]+|load_hostkeys: fopen [^\x00-\x1f\x7f]+: [^\x00-\x1f\x7f]+|Connecting to [^"]*|Connection established\.|Local version string SSH-2\.0-[^"]*|Remote protocol version 2\.0, remote software version [^"]*|compat_banner: [^"]*|Authenticating to [^"]*|using hostkeyalias: [^"]*)$`), 0, -1}}
 
-// Fedora's OpenSSH can read configuration twice for Match final. Accept the
+// OpenSSH can read configuration twice for Match final. Accept the
 // two exact diagnostic lines only as one ordered pair, between an initial
 // configuration read and a second one, before any connection starts. The rest
 // of the transcript must still match the entire host-key and refusal grammar.

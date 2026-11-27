@@ -5,7 +5,6 @@ package ui
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -27,6 +26,9 @@ func asModel(t *testing.T, m tea.Model) model {
 	}
 	return mm
 }
+
+// must drops a command, for updates whose command the test does not run.
+func must(m tea.Model, _ tea.Cmd) tea.Model { return m }
 
 func newModel(t *diagnostic.Target, toolbox bool) model {
 	m := NewWithSelection(t, nil, toolbox, false, "", "test", diagnostic.DefaultPublicDNS, true, diagnostic.ProbeSelection{}).(model)
@@ -215,7 +217,7 @@ func TestHelpOverlayFitsNarrowTerminal(t *testing.T) {
 			}
 			for _, def := range actionDefs {
 				for ctx, help := range def.help {
-					if km.bound(ctx, def.act) && def.act != actSSH {
+					if km.bound(ctx, def.act) {
 						expect(km.label(ctx, def.act), help.details)
 					}
 				}
@@ -924,10 +926,6 @@ func TestCtrlCNoticeVisibleInOverlays(t *testing.T) {
 	}{
 		{"theme picker", func(m *model) { m.theming = true }, "preview"},
 		{"actions menu", func(m *model) { m.actionsOpen = true }, "close"},
-		{"ssh form", func(m *model) { m.sshPrompt = true; m.ssh.host = "host" }, "connect"},
-		{"ssh form checking config", func(m *model) {
-			m.sshPrompt, m.ssh.host, m.ssh.pending = true, "host", &sshPending{}
-		}, "back"},
 		{"restart prompt", func(m *model) { m.entering = true }, "history"},
 		{"output viewer filtering", func(m *model) { m.viewing, m.filtering = true, true }, "apply"},
 	}
@@ -1455,10 +1453,10 @@ func TestPromptViewNarrowNoOverflow(t *testing.T) {
 	}
 }
 
-// An interactive ssh session ends by taking over the selected job slot, which
-// is the slot the network map draws from. The map must detach rather than read
-// the ssh exit as the LAN scan's outcome.
-func sshMapModel(t *testing.T) model {
+// A job that takes over the selected slot is the thing the network map must not
+// read as its own outcome: the map draws from that slot, so the takeover has to
+// detach the map first. slotMapModel is a map open over the LAN scan.
+func slotMapModel(t *testing.T) model {
 	t.Helper()
 	m := newModel(mustTarget(t, "example.com:22"), false)
 	doneResults(&m, "")
@@ -1472,31 +1470,37 @@ func sshMapModel(t *testing.T) model {
 	return m
 }
 
-func TestNetworkMapDetachesWhenSSHFinishes(t *testing.T) {
+// takeSlot is a job replacing the selected slot: the job it displaces is parked,
+// and the new one is shown in its place.
+func takeSlot(m model, failed bool) model {
+	m.stashJob()
+	m.cur = jobState{name: "ping", display: "ping example.com", status: JobDone}
+	if failed {
+		m.cur.status = JobFailed
+		m.appendJobLine("exit status 1")
+	}
+	return m
+}
+
+func TestNetworkMapDetachesWhenAJobTakesTheSlot(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		msg  sshDoneMsg
+		name   string
+		failed bool
 	}{
-		{"ssh fails", sshDoneMsg{
-			err:     errors.New("exit status 255"),
-			display: "ssh alice@example.com",
-			output:  "alice@example.com: Permission denied (publickey).\n",
-		}},
-		{"ssh succeeds", sshDoneMsg{display: "ssh alice@example.com"}},
+		{"job fails", true},
+		{"job succeeds", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := sshMapModel(t)
-			u, _ := m.Update(tc.msg)
-			nm := asModel(t, u)
+			nm := takeSlot(slotMapModel(t), tc.failed)
 			if nm.networkMap {
 				t.Fatalf("the map stayed open over the %q job", nm.cur.name)
 			}
 			view := ansi.Strip(nm.View())
-			if strings.Contains(view, "Discovery ") || strings.Contains(view, "No device evidence recorded") {
-				t.Fatalf("an ssh exit was reported as a LAN discovery outcome:\n%s", view)
+			if strings.Contains(view, "Discovery ") || strings.Contains(view, "No other devices replied") || strings.Contains(view, "No device evidence recorded") {
+				t.Fatalf("a job's outcome was reported as a LAN discovery outcome:\n%s", view)
 			}
 			// The scan itself is untouched: v brings its devices straight back.
-			u, _ = nm.Update(keyMsg("v"))
+			u, _ := nm.Update(keyMsg("v"))
 			back := asModel(t, u)
 			if back.confirmTool != nil || !back.networkMap || back.cur.name != lanDiscoveryName {
 				t.Fatalf("v must re-show the parked scan, got cur=%q confirm=%v", back.cur.name, back.confirmTool != nil)
@@ -1508,20 +1512,19 @@ func TestNetworkMapDetachesWhenSSHFinishes(t *testing.T) {
 	}
 }
 
-// Whatever the map does when ssh finishes, it does every time: a second and a
-// third session must not find it attached to the ssh job.
-func TestNetworkMapDetachesOnRepeatedSSH(t *testing.T) {
-	m := sshMapModel(t)
+// Whatever the map does when a takeover happens, it does every time: a second and
+// a third takeover must not find it attached to the new job.
+func TestNetworkMapDetachesOnRepeatedTakeover(t *testing.T) {
+	m := slotMapModel(t)
 	for i := range 3 {
-		u, _ := m.Update(sshDoneMsg{err: errors.New("exit status 255"), display: "ssh alice@example.com"})
-		m = asModel(t, u)
+		m = takeSlot(m, true)
 		if m.networkMap {
 			t.Fatalf("attempt %d left the map open over %q", i+1, m.cur.name)
 		}
-		if view := ansi.Strip(m.View()); strings.Contains(view, "Discovery ") || strings.Contains(view, "No device evidence recorded") {
-			t.Fatalf("attempt %d reported ssh as a LAN discovery outcome:\n%s", i+1, view)
+		if view := ansi.Strip(m.View()); strings.Contains(view, "Discovery ") || strings.Contains(view, "No other devices replied") || strings.Contains(view, "No device evidence recorded") {
+			t.Fatalf("attempt %d reported a job as a LAN discovery outcome:\n%s", i+1, view)
 		}
-		u, _ = m.Update(keyMsg("v"))
+		u, _ := m.Update(keyMsg("v"))
 		m = asModel(t, u)
 		if !m.networkMap || m.cur.name != lanDiscoveryName {
 			t.Fatalf("attempt %d could not re-show the scan, got cur=%q", i+1, m.cur.name)
@@ -1532,12 +1535,11 @@ func TestNetworkMapDetachesOnRepeatedSSH(t *testing.T) {
 // Tab walks the ring; no stop on it may bring the map back up over a job that
 // is not the scan.
 func TestJobSwitchingNeverRevivesStaleMap(t *testing.T) {
-	m := sshMapModel(t)
+	m := slotMapModel(t)
 	m.otherJobs = []jobState{{name: "ping", status: JobDone}}
-	u, _ := m.Update(sshDoneMsg{err: errors.New("exit status 255"), display: "ssh alice@example.com"})
-	m = asModel(t, u)
+	m = takeSlot(m, true)
 	for i := range 4 {
-		u, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		u, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 		m = asModel(t, u)
 		if m.networkMap {
 			t.Fatalf("tab %d reopened the map on %q", i+1, m.cur.name)

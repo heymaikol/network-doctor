@@ -109,7 +109,7 @@ func canonicalHostname(host string) (string, bool) {
 // or an error (caller exits 2 on error).
 //
 // The error is sanitized here rather than at each caller: every one of them
-// prints it straight at a terminal (stderr, the restart prompt, the SSH form),
+// prints it straight at a terminal (stderr, the restart prompt),
 // and not every error we wrap quotes what it echoes: net.AddrError embeds the
 // host verbatim, so a target carrying U+202E would reorder the line it lands
 // in. Replaced, not wrapped: nothing unwraps a parse error, it only gets shown.

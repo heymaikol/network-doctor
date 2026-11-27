@@ -160,8 +160,8 @@ func TestParseTargetPortExplicit(t *testing.T) {
 	}
 }
 
-// A rejected target's error text goes straight to a terminal, whether stderr,
-// the restart prompt or the SSH form, so it must survive Clean unchanged. The
+// A rejected target's error text goes straight to a terminal, whether stderr
+// or the restart prompt, so it must survive Clean unchanged. The
 // wrapped errors are the risk: net.AddrError echoes the host without quoting
 // it, which is how a bidi override used to reach the screen.
 func TestParseTargetErrorsAreTerminalSafe(t *testing.T) {

@@ -206,14 +206,14 @@ func (m model) layout(elaborate bool) (string, bool) {
 	if m.entering {
 		help = m.promptView(true)
 	}
-	if m.sshPrompt {
-		help = m.sshFormView()
-	}
 	if m.confirmTool != nil {
 		help = m.confirmView()
 	}
 	if m.theming {
 		help = m.themeView()
+	}
+	if m.verifying {
+		help = m.verifyView()
 	}
 	if m.actionsOpen {
 		// The answer and the header outrank the menu, so it is given the rows
@@ -262,7 +262,7 @@ func (m model) layout(elaborate bool) (string, bool) {
 	// before the selected evidence; and the final height clamp can only cut from
 	// the bottom. The Check details view keeps the complete selected evidence
 	// reachable when even the smallest body cannot share the screen.
-	ordinaryHelp := !m.entering && !m.sshPrompt && m.confirmTool == nil && !m.theming && !m.actionsOpen
+	ordinaryHelp := !m.entering && m.confirmTool == nil && !m.theming && !m.verifying && !m.actionsOpen
 	if m.height > 0 && avail < minAvail && ordinaryHelp {
 		tail = m.compactHelpView(deferred) + "\n"
 		budget()
@@ -1846,49 +1846,8 @@ func (m model) promptView(withForms bool) string {
 	return m.st.focusPanel.Width(w).Render(body) + "\n" + footer
 }
 
-// sshFormView is the SSH login panel (S), shown in place of the help bar. The
-// value receiver is doing real work here: the inputs are resized to the
-// terminal on the copy, never on the model.
-func (m model) sshFormView() string {
-	w := min(fitPanelWidth(m.st.focusPanel, m.width), 76)
-	// 6 = panel border + padding + the gutter the key row's ▸ marker sits in.
-	inputW := func(prompt string) int { return max(w-6-lipgloss.Width(prompt), 8) }
-	m.ssh.user.Width = inputW(m.ssh.user.Prompt)
-	m.ssh.pass.Width = inputW(m.ssh.pass.Prompt)
-
-	// The key row is a chooser, so it renders itself: the selected key, and
-	// the ←/→ hint only while the row has the focus.
-	key := m.st.key.Render("Key       ") + m.ssh.keyLabel()
-	if len(m.ssh.keys) > 1 {
-		key += m.st.faint.Render(fmt.Sprintf("  (%d of %d)", m.ssh.keyIdx+1, len(m.ssh.keys)))
-		if m.ssh.focus == sshKey {
-			key += m.st.faint.Render("  ←/→")
-		}
-	}
-	if m.ssh.focus == sshKey {
-		key = m.st.sel.Render("▸ ") + key
-	} else {
-		key = "  " + key
-	}
-
-	body := m.st.panelTitle.Render("SSH login to "+m.ssh.host) + "\n" +
-		"  " + m.ssh.user.View() + "\n" +
-		key + "\n" +
-		"  " + m.ssh.pass.View() +
-		"\n\n" + m.st.faint.Render("Leave a field blank and ssh asks you itself, as it does for a\nkey passphrase, a host-key check, or a 2FA code.")
-	if m.ssh.err != "" {
-		body += "\n" + m.st.fail.Render("✗ "+m.ssh.err)
-	}
-	if m.ssh.pending != nil {
-		body += "\n" + m.spinner.View() + " checking ssh config…"
-		return m.st.focusPanel.Width(w).Render(body) + "\n" + m.quitNoticeFooter(helpKeys(m.st, m.width, "esc", "back"))
-	}
-	return m.st.focusPanel.Width(w).Render(body) + "\n" +
-		m.quitNoticeFooter(helpKeys(m.st, m.width, "tab", "next field", "enter", "connect", "esc", "back"))
-}
-
 // themeView is the theme picker. It is drawn where the help bar goes, like the
-// confirm gate and the SSH form, rather than as a full-screen overlay: the
+// confirm gate, rather than as a full-screen overlay: the
 // checks, banner and panels stay visible, and moving the cursor repaints them
 // in the highlighted theme, which is the whole point of previewing one.
 func (m model) themeView() string {
@@ -2281,12 +2240,6 @@ func (m model) helpContent() string {
 	listed := func(ctx keyContext, def actionDef) (actionHelp, bool) {
 		help, ok := def.help[ctx]
 		if !ok || !m.keys.bound(ctx, def.act) {
-			return actionHelp{}, false
-		}
-		// SSH is the one row whose key is offered only where it applies, so a
-		// sheet that listed it unconditionally would promise a login the run
-		// has no host for.
-		if def.act == actSSH && !m.sshDetected() {
 			return actionHelp{}, false
 		}
 		return help, true

@@ -342,44 +342,27 @@ func TestProfileViaKeepsPlanOrderWhenCompletionOrderIsReversed(t *testing.T) {
 	}
 }
 
-// B: the destination wants to ask something. The batch acquisition cannot
-// establish, and the pass falls back to what netdoc has always done: one
-// interactively capable ssh at a time, in plan order.
-func TestProfileViaFallsBackToSequentialWhenBatchCannotBeEstablished(t *testing.T) {
+// B: the destination refuses the noninteractive acquisition. The pass fails on that
+// component and nothing is retried over the transport that can prompt (T24). The rest of the
+// plan is not started, because the components share this destination.
+func TestProfileViaRefusedBatchFailsThePassWithoutInteractiveRetry(t *testing.T) {
 	plan := githubPlan(t)
-	tr := traceProfileVia(t, 20*time.Millisecond, func(req remote.Request, batch bool) (remote.Response, error) {
-		if batch {
-			return remote.Response{}, errTransport
-		}
-		return profileComponentAnswer(t, req, true), nil
+	tr := traceProfileVia(t, 0, func(remote.Request, bool) (remote.Response, error) {
+		return remote.Response{}, errTransport
 	})
-	result, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
-	if err != nil {
-		t.Fatalf("profile pass: %v", err)
+	_, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
+	if err == nil || !strings.HasPrefix(err.Error(), plan.Runs[0].Label+":") {
+		t.Fatalf("error = %v, want it to name %q", err, plan.Runs[0].Label)
+	}
+	if !strings.Contains(err.Error(), "no question was asked") {
+		t.Errorf("error = %v, want it to say that no question was asked", err)
 	}
 	got := tr.snapshot()
-	if got.peakOrdinary != 1 {
-		t.Errorf("peak interactively capable acquisitions = %d, want exactly one at a time", got.peakOrdinary)
+	if len(got.calls) != 1 || !got.calls[0].batch {
+		t.Fatalf("acquisitions = %+v, want the one noninteractive attempt and nothing after it", got.calls)
 	}
-	if got.peak != 1 {
-		t.Errorf("peak concurrent acquisitions = %d, want the sequential fallback", got.peak)
-	}
-	batches := 0
-	for _, call := range got.calls {
-		if call.batch {
-			batches++
-		}
-	}
-	// One refused attempt on the first component, then one ordinary
-	// acquisition per component. The extra process is the whole cost of asking.
-	if batches != 1 || len(got.calls) != len(plan.Runs)+1 {
-		t.Errorf("%d acquisitions, %d of them noninteractive; want %d + one refused attempt",
-			len(got.calls), batches, len(plan.Runs))
-	}
-	for i, component := range result.Components {
-		if component.ID != plan.Runs[i].ID {
-			t.Errorf("component %d is %q, want registry order %q", i, component.ID, plan.Runs[i].ID)
-		}
+	if got.calls[0].target != plan.Runs[0].Target.Raw {
+		t.Errorf("acquisition reached %q, want only the first component", got.calls[0].target)
 	}
 }
 
@@ -412,28 +395,6 @@ func TestProfileViaKeepsAProxiedDestinationSequentialAndUnproxied(t *testing.T) 
 	for i, component := range result.Components {
 		if component.ID != plan.Runs[i].ID {
 			t.Errorf("component %d is %q, want registry order %q", i, component.ID, plan.Runs[i].ID)
-		}
-	}
-}
-
-// C: the fallback acquisition fails too. The pass stops on the first
-// component, names it, and never reaches the second.
-func TestProfileViaStopsAtTheFirstComponentWhenTheFallbackFailsToo(t *testing.T) {
-	plan := githubPlan(t)
-	tr := traceProfileVia(t, 0, func(remote.Request, bool) (remote.Response, error) {
-		return remote.Response{}, errTransport
-	})
-	_, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
-	if err == nil || !strings.HasPrefix(err.Error(), plan.Runs[0].Label+":") {
-		t.Fatalf("error = %v, want it to name %q", err, plan.Runs[0].Label)
-	}
-	got := tr.snapshot()
-	if len(got.calls) != 2 || !got.calls[0].batch || got.calls[1].batch {
-		t.Fatalf("acquisitions = %+v, want one refused attempt and one ordinary retry", got.calls)
-	}
-	for _, call := range got.calls {
-		if call.target != plan.Runs[0].Target.Raw {
-			t.Errorf("acquisition reached %q, want only the first component", call.target)
 		}
 	}
 }
@@ -539,6 +500,9 @@ func TestProfileViaNoFallbackOnceTheCallerHasCancelled(t *testing.T) {
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("error = %v, want the cancellation", err)
 			}
+			if strings.Contains(err.Error(), "no question was asked") {
+				t.Errorf("a cancellation is reported as a refusal: %v", err)
+			}
 			if got := tr.snapshot(); len(got.calls) != 1 || !got.calls[0].batch {
 				t.Errorf("acquisitions = %+v, want the one batch attempt and nothing after it", got.calls)
 			}
@@ -546,9 +510,10 @@ func TestProfileViaNoFallbackOnceTheCallerHasCancelled(t *testing.T) {
 	}
 }
 
-// H: an operation timeout is not a cancellation. With the caller still active,
-// a batch attempt that times out falls back, as it always has.
-func TestProfileViaTimedOutBatchAcquisitionStillFallsBack(t *testing.T) {
+// The text of a timeout is not a timeout. Only the transport's mark makes an error an ordinary
+// component timeout, so an unmarked error that says a run timed out still ends the pass, as a
+// refusal does.
+func TestProfileViaUnmarkedTimeoutStillEndsThePass(t *testing.T) {
 	plan := githubPlan(t)
 	tr := traceProfileVia(t, 0, func(req remote.Request, batch bool) (remote.Response, error) {
 		if batch {
@@ -556,13 +521,13 @@ func TestProfileViaTimedOutBatchAcquisitionStillFallsBack(t *testing.T) {
 		}
 		return profileComponentAnswer(t, req, true), nil
 	})
-	if _, _, _, err := runProfilePass(context.Background(), viaBase(), plan); err != nil {
-		t.Fatalf("profile pass: %v", err)
+	_, _, _, err := runProfilePass(context.Background(), viaBase(), plan)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error = %v, want the timeout reported as the component's failure", err)
 	}
 	got := tr.snapshot()
-	if len(got.calls) != len(plan.Runs)+1 || !got.calls[0].batch {
-		t.Fatalf("acquisitions = %d, want one refused batch attempt and one ordinary acquisition per component",
-			len(got.calls))
+	if len(got.calls) != 1 || !got.calls[0].batch {
+		t.Fatalf("acquisitions = %+v, want only the noninteractive attempt", got.calls)
 	}
 }
 
@@ -660,44 +625,25 @@ func TestProfileViaTreatsAnUnhealthyFirstComponentAsEstablished(t *testing.T) {
 	}
 }
 
-// The measurement behind this issue, with the SSH setup cost simulated so it is
-// the same on every machine. It asserts only the overlap, which is
-// deterministic; the timings are recorded for the change's write-up.
+// The setup cost of the noninteractive path is measured here. A refused noninteractive
+// attempt fails the pass (T24), so the refused case has no completed pass to time.
 func TestProfileViaLatencyUnderSimulatedSSHSetup(t *testing.T) {
 	plan := githubPlan(t)
 	for _, setup := range []time.Duration{50 * time.Millisecond, 200 * time.Millisecond} {
-		for _, noninteractive := range []bool{false, true} {
-			tr := traceProfileVia(t, setup, func(req remote.Request, batch bool) (remote.Response, error) {
-				if batch && !noninteractive {
-					// A destination that wants a password, a jump, an agent,
-					// or a hardware key: the transport that cannot ask is
-					// refused, and the ordinary one carries every component.
-					return remote.Response{}, errTransport
-				}
-				return profileComponentAnswer(t, req, true), nil
-			})
-			if noninteractive {
-				// The setup cost stays because it is what is being measured.
-				// The overlap is not measured from it: the barrier holds the
-				// components after the first until all of them are in flight.
-				tr.overlap(t, len(plan.Runs)-1)
-			}
-			start := time.Now()
-			if _, _, _, err := runProfilePass(context.Background(), viaBase(), plan); err != nil {
-				t.Fatalf("profile pass: %v", err)
-			}
-			elapsed := time.Since(start)
-			got := tr.snapshot()
-			t.Logf("ssh setup %v, %d components, noninteractive=%t: peak concurrent %d, one --via %v, profile %v",
-				setup, len(plan.Runs), noninteractive, got.peak, setup, elapsed.Round(time.Millisecond))
-			want := 1
-			if noninteractive {
-				want = len(plan.Runs) - 1
-			}
-			if got.peak != want {
-				t.Errorf("peak concurrent acquisitions = %d with noninteractive=%t, want %d",
-					got.peak, noninteractive, want)
-			}
+		tr := traceProfileVia(t, setup, func(req remote.Request, batch bool) (remote.Response, error) {
+			return profileComponentAnswer(t, req, true), nil
+		})
+		tr.overlap(t, len(plan.Runs)-1)
+		start := time.Now()
+		if _, _, _, err := runProfilePass(context.Background(), viaBase(), plan); err != nil {
+			t.Fatalf("profile pass: %v", err)
+		}
+		elapsed := time.Since(start)
+		got := tr.snapshot()
+		t.Logf("ssh setup %v, %d components: peak concurrent %d, profile %v",
+			setup, len(plan.Runs), got.peak, elapsed.Round(time.Millisecond))
+		if want := len(plan.Runs) - 1; got.peak != want {
+			t.Errorf("peak concurrent acquisitions = %d, want %d", got.peak, want)
 		}
 	}
 }

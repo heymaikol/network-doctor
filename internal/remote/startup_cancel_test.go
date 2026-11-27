@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,11 @@ func TestRunReportsAnExpiredDeadlineBeforeSSHStartsAsTimedOut(t *testing.T) {
 // A start failure with no cancellation involved keeps its own message, because
 // the caller needs the cause to fix it: here, the ssh that cannot be run.
 func TestRunKeepsTheCauseOfAnSSHThatCannotStart(t *testing.T) {
+	savedTerminal := sshverify.TerminalAvailable
+	// These tests are about the connection step, which a terminal run reaches directly; a
+	// headless run reads the route first, and has its own test for a missing ssh.
+	sshverify.TerminalAvailable = func() bool { return true }
+	t.Cleanup(func() { sshverify.TerminalAvailable = savedTerminal })
 	missing := filepath.Join(t.TempDir(), "no-such-ssh")
 	previous := sshProgram
 	sshProgram = missing
@@ -86,6 +92,11 @@ func TestRunKeepsTheCauseOfAnSSHThatCannotStart(t *testing.T) {
 // cancelled run reports it as well: the missing program is the cause a user can
 // act on, and the lookup happens before the context is ever consulted.
 func TestRunKeepsTheCauseOfAnSSHNotOnPATH(t *testing.T) {
+	savedTerminal := sshverify.TerminalAvailable
+	// These tests are about the connection step, which a terminal run reaches directly; a
+	// headless run reads the route first, and has its own test for a missing ssh.
+	sshverify.TerminalAvailable = func() bool { return true }
+	t.Cleanup(func() { sshverify.TerminalAvailable = savedTerminal })
 	previous := sshProgram
 	sshProgram = "netdoc-ssh-not-installed-for-test"
 	t.Cleanup(func() { sshProgram = previous })

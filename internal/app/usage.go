@@ -19,6 +19,7 @@ func printUsage(w io.Writer, fs *flag.FlagSet) {
        netdoc --peer-listen IP:port [--peer-listen IP:port]
        netdoc --update-check [--json]
        netdoc --peer-connect [--json]
+       netdoc -verify-ssh [user@]host[:port] [-verify-auth password|key|agent] [--json]
        netdoc --compare before.ndoc after.ndoc [--json]
        netdoc --explain topology.json DEST [--fail NODE[:INTERFACE]] [--json]
        netdoc --explain topology.json DEST --fail-ospf NODE:INTERFACE:NEIGHBOR [--json]

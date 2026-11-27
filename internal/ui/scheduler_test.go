@@ -217,17 +217,6 @@ func TestWatchPreservesOpenUIState(t *testing.T) {
 		open  func(m *model)
 		check func(t *testing.T, m model)
 	}{
-		{"ssh form", func(m *model) {
-			m.sshPrompt, m.ssh = true, newSSHForm(m.st, m.target)
-			m.ssh.user.SetValue("operator")
-		}, func(t *testing.T, m model) {
-			if !m.sshPrompt {
-				t.Error("watch tick closed the open SSH form")
-			}
-			if got := m.ssh.user.Value(); got != "operator" {
-				t.Errorf("typed username = %q, want %q", got, "operator")
-			}
-		}},
 		{"tool confirmation", func(m *model) {
 			tool := m.tools[0]
 			m.confirmTool = &tool

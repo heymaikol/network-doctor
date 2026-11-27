@@ -225,9 +225,9 @@ func TestRunProfileViaReportsARemoteTimeoutAsAComponentFailure(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	// Two: the refused attempt that would have opened the concurrent path, and
-	// the ordinary one that replaces it and reports the failure.
-	if attempts != 2 {
+	// One: the noninteractive attempt. A failure fails the pass; no interactive
+	// retry follows (T24).
+	if attempts != 1 {
 		t.Errorf("%d remote attempts, want the pass to stop at the first failed component", attempts)
 	}
 }

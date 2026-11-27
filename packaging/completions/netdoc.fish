@@ -79,3 +79,9 @@ complete -c netdoc -o public-dns -l public-dns -r -f -d 'Second-opinion DNS reso
 complete -c netdoc -o keys -l keys -r -f -d 'Keybinding preset for the TUI (default: default)' \
     -a 'default vim'
 complete -c netdoc -o timeout -l timeout -r -f -d 'Per-check probe timeout (default 4s)'
+complete -c netdoc -o verify-ssh -l verify-ssh -d 'Check SSH authentication for the target: list the methods it offers, or verify one credential with --verify-auth; runs no probes'
+complete -c netdoc -o verify-auth -l verify-auth -r -f -a 'password key agent' -d 'With --verify-ssh, the credential to verify'
+complete -c netdoc -o verify-key -l verify-key -r -d 'With --verify-auth key, the private key file to verify'
+complete -c netdoc -o verify-agent-key -l verify-agent-key -r -f -d 'With --verify-auth agent, the SHA256 fingerprint of the agent key'
+complete -c netdoc -o verify-user -l verify-user -r -f -d 'With --verify-ssh, the login name'
+complete -c netdoc -o password-stdin -l password-stdin -d 'With --verify-auth, read the secret from one line of standard input'

@@ -309,13 +309,13 @@ func TestCheatsheetGroupsSurviveMonochrome(t *testing.T) {
 	}
 }
 
-// TestCaseVariantKeysStayDistinct audits the four action/tool pairs that
+// TestCaseVariantKeysStayDistinct audits the three action/tool pairs that
 // differ only in shift, plus restart and retest. Each half has to resolve to
 // its own owner and neither may start a chord, since a chord prefix would hold
 // the keyboard instead of reaching the tool.
 func TestCaseVariantKeysStayDistinct(t *testing.T) {
 	pairs := []struct{ lower, upper string }{
-		{"i", "I"}, {"d", "D"}, {"t", "T"}, {"s", "S"}, {"r", "R"},
+		{"i", "I"}, {"d", "D"}, {"t", "T"}, {"r", "R"},
 	}
 	tgt := mustTarget(t, "example.com:443")
 	for _, preset := range KeyPresets() {

@@ -1,0 +1,395 @@
+package app
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
+	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
+	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
+)
+
+// verifySSHFlags are the values of the -verify-ssh family of flags.
+type verifySSHFlags struct {
+	auth          string
+	key           string
+	agentKey      string
+	user          string
+	passwordStdin bool
+	jsonOut       bool
+}
+
+// verifyOnly are the flags that mean something only with -verify-ssh.
+var verifyOnly = []string{"verify-auth", "verify-key", "verify-agent-key", "verify-user", "password-stdin"}
+
+// verifyCompatible are the flags -verify-ssh accepts. Any other mode, and any
+// probe setting, is refused by name rather than silently ignored, because the
+// check runs no probe and reads nothing from the rest.
+var verifyCompatible = map[string]bool{
+	"verify-ssh": true, "verify-auth": true, "verify-key": true, "verify-agent-key": true,
+	"verify-user": true, "password-stdin": true, "json": true,
+}
+
+// verifyFlagMisuse names a verification-only flag used without -verify-ssh.
+func verifyFlagMisuse(set map[string]bool, verifySSH bool) string {
+	if verifySSH {
+		return ""
+	}
+	for _, name := range verifyOnly {
+		if set[name] {
+			return "-" + name + " requires -verify-ssh"
+		}
+	}
+	return ""
+}
+
+// Test seams. Production reads the real stdin and terminal.
+var (
+	verifyStdin     io.Reader = os.Stdin
+	verifyIsTTY               = func() bool { return termIsTerminal(os.Stdin.Fd()) }
+	verifyReadPass            = readTerminalLine
+	verifyResolve             = sshverify.Resolve
+	verifyDiscover            = sshverify.Discover
+	verifyVerify              = sshverify.Verify
+	verifyListAgent           = sshverify.ListAgentKeys
+	verifyNeedsPass           = sshverify.KeyNeedsPassphrase
+)
+
+// maxSecretLen bounds a password or passphrase read from standard input.
+const maxSecretLen = 4096
+
+// runVerifySSH implements -verify-ssh. Without -verify-auth it lists the
+// methods the server offers and sends no credential. With -verify-auth it sends
+// one credential, once, and asks for a secret only after the server's host key
+// is trusted. Exit status: 0 for a verified credential or a listing, 1 when the
+// server did not accept the credential, 2 when the check could not be completed
+// (including an untrusted host key) or was misused, before anything was sent.
+func runVerifySSH(positional []string, set map[string]bool, f verifySSHFlags, stdout, stderr io.Writer) int {
+	for name := range set {
+		if !verifyCompatible[name] {
+			fmt.Fprintf(stderr, "netdoc: -verify-ssh cannot be combined with -%s\n", name)
+			return 2
+		}
+	}
+	// Every check that needs no network and no secret runs here, so a misused
+	// flag never starts a configuration read, a discovery, or a prompt.
+	if problem := flagProblem(set, f); problem != "" {
+		fmt.Fprintln(stderr, "netdoc:", problem)
+		return 2
+	}
+	needsPass := false
+	if f.auth == "key" {
+		var problem string
+		needsPass, problem = keyFileProblem(f.key)
+		if problem != "" {
+			fmt.Fprintln(stderr, "netdoc:", problem)
+			return 2
+		}
+	}
+	// -password-stdin reads a passphrase, and an unencrypted key has none to read, so
+	// the flag would do nothing. It is refused before anything is read or contacted.
+	if f.auth == "key" && !needsPass && set["password-stdin"] {
+		fmt.Fprintln(stderr, "netdoc: -password-stdin needs an encrypted key; this key has no passphrase to read")
+		return 2
+	}
+	if (f.auth == "password" || needsPass) && !f.passwordStdin && !verifyIsTTY() {
+		fmt.Fprintln(stderr, "netdoc: a password or passphrase needs a terminal, or -password-stdin")
+		return 2
+	}
+	if len(positional) != 1 {
+		fmt.Fprintln(stderr, "netdoc: -verify-ssh needs one target: netdoc -verify-ssh [user@]host[:port]")
+		return 2
+	}
+	login, rawHost, hasLogin := strings.Cut(positional[0], "@")
+	if !hasLogin {
+		rawHost, login = positional[0], ""
+	}
+	if f.user != "" {
+		login = f.user
+	}
+	parsed, err := diagnostic.ParseTarget(rawHost)
+	if err != nil {
+		fmt.Fprintln(stderr, "netdoc:", textsafe.Clean(err.Error()))
+		return 2
+	}
+	port := 0
+	if parsed.PortExplicit {
+		port = parsed.Port
+	}
+	// An interrupt cancels the configuration read and any check that follows.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	tgt, err := verifyResolve(ctx, parsed.ScopedHost(), port, login)
+	if err != nil {
+		fmt.Fprintln(stderr, "netdoc:", textsafe.Clean(err.Error()))
+		return 2
+	}
+	label := fmt.Sprintf("%s@%s:%d", tgt.User, tgt.Host, tgt.Port)
+	opts := sshverify.Options{}
+
+	var result sshverify.Result
+	if f.auth == "" {
+		result = verifyDiscover(ctx, tgt, opts)
+	} else {
+		// A credential check discovers the host in this same run, and binds to the identity that
+		// discovery trusted. Nothing is carried over from an earlier run, so an earlier invocation
+		// cannot supply the consent. The secret is asked for only after the discovery trusted the host,
+		// and the check refuses any other identity that OpenSSH trusts by then.
+		seen := verifyDiscover(ctx, tgt, opts)
+		if seen.Outcome != sshverify.Discovered || !seen.Identity.Valid() {
+			writeVerifyResult(stdout, label, seen, f.jsonOut)
+			return verifyExitCode(seen.Outcome)
+		}
+		attempt, code, ok := buildAttempt(ctx, f, tgt, needsPass, stdout, stderr)
+		if !ok {
+			return code
+		}
+		attempt.Identity = seen.Identity
+		result = verifyVerify(ctx, tgt, attempt, opts)
+	}
+	writeVerifyResult(stdout, label, result, f.jsonOut)
+	return verifyExitCode(result.Outcome)
+}
+
+// flagProblem names the first credential-flag misuse, or "". A flag that the
+// chosen method would never read is refused, not silently ignored, and so is a
+// malformed host key fingerprint, which could never match a presented key.
+func flagProblem(set map[string]bool, f verifySSHFlags) string {
+	switch f.auth {
+	case "", "password", "key", "agent":
+	default:
+		return "-verify-auth must be password, key, or agent"
+	}
+	if set["verify-agent-key"] && f.auth != "agent" {
+		return "-verify-agent-key needs -verify-auth agent"
+	}
+	if set["verify-key"] && f.auth != "key" {
+		return "-verify-key needs -verify-auth key"
+	}
+	if f.auth == "key" && f.key == "" {
+		return "-verify-auth key needs -verify-key FILE"
+	}
+	if set["password-stdin"] && f.auth != "password" && f.auth != "key" {
+		return "-password-stdin needs -verify-auth password or key"
+	}
+	// Listing the agent's keys prints plain text, which -json cannot carry, so the listing is
+	// refused rather than printed under a JSON contract.
+	if f.jsonOut && f.auth == "agent" && f.agentKey == "" {
+		return "-json cannot list the agent's keys, which are plain text; choose one with -verify-agent-key FINGERPRINT, or leave out -json"
+	}
+	return ""
+}
+
+// keyFileProblem reports whether the key file is encrypted, and why it cannot be
+// verified when it cannot. It reads the file and sends nothing.
+func keyFileProblem(path string) (bool, string) {
+	needs, err := verifyNeedsPass(path)
+	if err == nil {
+		return needs, ""
+	}
+	name := textsafe.Clean(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, fmt.Sprintf("the key file %s does not exist", name)
+	case errors.Is(err, fs.ErrPermission):
+		return false, fmt.Sprintf("the key file %s cannot be read: permission denied", name)
+	case errors.Is(err, sshverify.ErrKeyNotRegular):
+		return false, fmt.Sprintf("%s is not a regular file", name)
+	case errors.Is(err, sshverify.ErrKeyNotPrivate):
+		return false, fmt.Sprintf("%s is not a private key netdoc can read", name)
+	}
+	return false, fmt.Sprintf("the key file %s could not be read", name)
+}
+
+// buildAttempt reads the one secret the chosen method needs, with the key or
+// agent identity it uses. needsPass says the key file is encrypted, as
+// keyFileProblem found. ok is false when the attempt cannot be built, and code is
+// then the exit status.
+func buildAttempt(ctx context.Context, f verifySSHFlags, tgt sshverify.Target, needsPass bool, stdout, stderr io.Writer) (sshverify.Attempt, int, bool) {
+	switch f.auth {
+	case "password":
+		pw, err := readVerifySecret(ctx, stderr, fmt.Sprintf("Password for %s@%s: ", tgt.User, tgt.Host), f.passwordStdin)
+		if err != nil {
+			fmt.Fprintln(stderr, "netdoc:", err)
+			return sshverify.Attempt{}, 2, false
+		}
+		return sshverify.Attempt{Method: sshverify.MethodPassword, Password: pw}, 0, true
+	case "key":
+		attempt := sshverify.Attempt{Method: sshverify.MethodKey, KeyPath: f.key}
+		if needsPass {
+			pass, err := readVerifySecret(ctx, stderr, "Passphrase for the key: ", f.passwordStdin)
+			if err != nil {
+				fmt.Fprintln(stderr, "netdoc:", err)
+				return sshverify.Attempt{}, 2, false
+			}
+			attempt.Passphrase = pass
+		}
+		return attempt, 0, true
+	default: // agent
+		if f.agentKey == "" {
+			keys, err := verifyListAgent(ctx, tgt, sshverify.Options{})
+			if err != nil {
+				fmt.Fprintln(stderr, "netdoc:", textsafe.Clean(err.Error()))
+				return sshverify.Attempt{}, 2, false
+			}
+			fmt.Fprintln(stdout, "The agent holds these keys. Choose one with -verify-agent-key FINGERPRINT:")
+			for _, k := range keys {
+				fmt.Fprintf(stdout, "  %s  %s  %s\n", k.Fingerprint, k.Type, k.Comment)
+			}
+			return sshverify.Attempt{}, 2, false
+		}
+		return sshverify.Attempt{Method: sshverify.MethodAgent, AgentFingerprint: f.agentKey}, 0, true
+	}
+}
+
+// trimOneLineEnd removes the line end of a secret: an LF, and a CR only when it immediately precedes
+// that LF. A line with no LF, such as one that ends the input, is returned whole: its CR is part of
+// the secret, so the secret is never changed into a different one. Any other byte stays, so a CR with
+// text after it is kept, and the length check refuses it.
+func trimOneLineEnd(line []byte) []byte {
+	if !bytes.HasSuffix(line, []byte("\n")) {
+		return line
+	}
+	line = bytes.TrimSuffix(line, []byte("\n"))
+	return bytes.TrimSuffix(line, []byte("\r"))
+}
+
+// readVerifySecret returns one password or passphrase. With -password-stdin it
+// takes one line of standard input. When standard input is a terminal, the line is
+// read with echo off, as a prompt is, so a typed secret is not echoed. Otherwise it
+// needs a terminal and reads with echo off. It is never taken from argv or the
+// environment. A read of a pipe does not end on its own when the process is
+// interrupted, so it runs beside ctx, and an interrupt ends the wait; the read is
+// left to the exit.
+func readVerifySecret(ctx context.Context, stderr io.Writer, prompt string, fromStdin bool) ([]byte, error) {
+	var value []byte
+	if fromStdin && !verifyIsTTY() {
+		type stdinLine struct {
+			line []byte
+			err  error
+		}
+		got := make(chan stdinLine, 1)
+		go func() {
+			// The limit allows the longest secret plus CR LF, and one byte more, so an overlong
+			// line is seen whole and refused. A cut-off line would be a truncated secret.
+			reader := bufio.NewReaderSize(io.LimitReader(verifyStdin, maxSecretLen+3), maxSecretLen+3)
+			line, err := reader.ReadBytes('\n')
+			got <- stdinLine{line, err}
+		}()
+		select {
+		case read := <-got:
+			if read.err != nil && !errors.Is(read.err, io.EOF) {
+				return nil, errors.New("could not read the secret from standard input")
+			}
+			value = trimOneLineEnd(read.line)
+		case <-ctx.Done():
+			return nil, errors.New("interrupted before the secret was read; nothing was sent")
+		}
+	} else {
+		if !verifyIsTTY() {
+			return nil, errors.New("a password or passphrase needs a terminal, or -password-stdin")
+		}
+		read, err := readTerminalSecret(stderr, prompt)
+		if err != nil {
+			return nil, errors.New("could not read the secret from the terminal")
+		}
+		value = read
+	}
+	if len(value) == 0 || len(value) > maxSecretLen {
+		clear(value)
+		return nil, errors.New("the secret is empty or too long")
+	}
+	return value, nil
+}
+
+// readTerminalSecret reads a secret with echo off, and it puts the terminal back
+// whether the read ends normally or the process is interrupted or quit. Echo goes
+// off before the prompt is written, so a key typed while the prompt shows is not
+// echoed. secretEcho is the only writer of the terminal state, so the reader makes
+// no termios write of its own and a late write cannot undo an interrupt. A defer
+// does not run when a signal ends the process, so the signal handler restores it
+// instead.
+func readTerminalSecret(stderr io.Writer, prompt string) ([]byte, error) {
+	echo, err := newSecretEcho(os.Stdin.Fd())
+	if err != nil {
+		return nil, err
+	}
+	defer echo.restore()
+	// The handler is installed before echo goes off, so a signal in that window
+	// restores the terminal too.
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(interrupts)
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-interrupts:
+			echo.restore()
+			fmt.Fprintln(stderr)
+			os.Exit(130)
+		case <-finished:
+		}
+	}()
+	if err := echo.off(); err != nil {
+		return nil, err
+	}
+	fmt.Fprint(stderr, prompt)
+	value, err := verifyReadPass()
+	fmt.Fprintln(stderr)
+	return value, err
+}
+
+// writeVerifyResult prints one result. Every server-supplied string has been
+// sanitized already; the label is built from the resolved target, not the
+// secret, and no field carries a credential.
+func writeVerifyResult(w io.Writer, label string, r sshverify.Result, jsonOut bool) {
+	if jsonOut {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(struct {
+			Target string `json:"target"`
+			sshverify.Result
+		}{Target: label, Result: r})
+		return
+	}
+	fmt.Fprintf(w, "SSH check for %s\n", textsafe.Clean(label))
+	fmt.Fprintf(w, "  outcome:   %s\n", r.Outcome.Describe())
+	if r.Method != "" {
+		fmt.Fprintf(w, "  method:    %s\n", r.Method)
+	}
+	if r.HostKey != "" {
+		fmt.Fprintf(w, "  host key:  %s\n", textsafe.Clean(r.HostKey))
+	}
+	if len(r.Methods) > 0 {
+		fmt.Fprintf(w, "  methods:   %s\n", textsafe.Clean(strings.Join(r.Methods, ", ")))
+	}
+	if len(r.Remaining) > 0 {
+		fmt.Fprintf(w, "  remaining: %s\n", textsafe.Clean(strings.Join(r.Remaining, ", ")))
+	}
+	if r.Detail != "" {
+		fmt.Fprintf(w, "  detail:    %s\n", textsafe.Clean(r.Detail))
+	}
+}
+
+// verifyExitCode maps an outcome to the exit status documented for the mode.
+func verifyExitCode(o sshverify.Outcome) int {
+	switch o {
+	case sshverify.Discovered, sshverify.Verified:
+		return 0
+	case sshverify.Refused, sshverify.Partial, sshverify.NotOffered, sshverify.NoCredentialAccepted:
+		return 1
+	default:
+		return 2
+	}
+}

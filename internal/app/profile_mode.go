@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/profile"
+	"github.com/heymaikol/network-doctor/v2/internal/remote"
 	"github.com/heymaikol/network-doctor/v2/internal/report"
 	"github.com/heymaikol/network-doctor/v2/internal/snapshot"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
@@ -25,8 +27,9 @@ import (
 // runProfile executes each finite component plan through the ordinary
 // headless machinery. Local components run concurrently. Remote ones overlap
 // only over a transport that cannot ask the user anything, to a destination
-// reached without a proxy, and fall back to one at a time otherwise, so SSH
-// prompts cannot collide. Output remains in registry order either way.
+// reached without a proxy, and run one at a time otherwise, so SSH prompts
+// cannot collide. A refused noninteractive acquisition fails the pass; it is
+// never retried interactively. Output remains in registry order either way.
 func runProfile(parent context.Context, base headless, plan profile.Plan, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -41,7 +44,7 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 			if ctx.Err() != nil {
 				return code
 			}
-			fmt.Fprintln(stderr, "netdoc: -profile:", textsafe.Clean(err.Error()))
+			fmt.Fprintln(stderr, "netdoc: -profile:", oneLine(err))
 			return 2
 		}
 		code = 0
@@ -64,7 +67,17 @@ func runProfile(parent context.Context, base headless, plan profile.Plan, stdout
 		case base.save == "":
 			fmt.Fprint(stdout, profileText(result))
 		}
-		if base.save != "" {
+		if base.save != "" && !saveable(snapshots) {
+			// A component that did not finish has no snapshot to write, so nothing is written. A save
+			// is always a one-shot run, because -watch is refused with -save, so the run was asked for
+			// its artifact and did not get it: the failure exit 2 has always meant.
+			flag := "-save"
+			if base.support {
+				flag = "-support"
+			}
+			fmt.Fprintln(stderr, "netdoc: "+flag+": nothing written for this pass, because a component did not finish")
+			return 2
+		} else if base.save != "" {
 			artifact := buildProfileArtifact(result, snapshots)
 			if base.support {
 				artifact = snapshot.SanitizeProfileForSupport(artifact)
@@ -116,6 +129,10 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// Only -save and -support read a component's snapshot, and both arrive
 		// here as base.save.
 		outputs[i] = diagnoseHeadless(ctx, h, base.save != "")
+		if batch && outputs[i].err != nil {
+			// The noninteractive attempt asks nothing, so say that it did not.
+			outputs[i].err = fmt.Errorf("%w; no question was asked", outputs[i].err)
+		}
 	}
 	// together runs every component from first onwards at once. A component
 	// that fails does not cancel its siblings: each one is an independent
@@ -136,7 +153,7 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 	sequential := func() {
 		for i := range plan.Runs {
 			run(i, false)
-			if outputs[i].err != nil {
+			if err := outputs[i].err; err != nil && !ordinaryTimeout(err) {
 				return
 			}
 		}
@@ -161,17 +178,21 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 		// that cannot ask anything. It is a real component rather than a
 		// preflight: either this destination authenticates without a question,
 		// in which case the same transport carries the rest safely, or it does
-		// not. The later components are not overlapped because this one
-		// succeeded; they are safe because each one refuses interaction itself
-		// and holds the direct route the gate just read, so no proxy child can
-		// appear part-way through the pass to ask on its behalf.
+		// not and the pass fails. A timeout is not a refusal: it is this
+		// component's failure, and the later components still run. They are not
+		// overlapped until this one has answered, and they are safe because each
+		// one refuses interaction itself and holds the direct route the gate just
+		// read, so no proxy child can appear part-way through the pass to ask on its
+		// behalf.
 		run(0, true)
-		if outputs[0].err != nil {
-			// A failed first batch attempt falls back, for any reason, on purpose:
-			// a stalled connection may need a proxy the batch transport pinned off,
-			// and the ordinary acquisition re-reads the configuration. A cancelled
-			// caller's fallback starts nothing; see run.
-			sequential()
+		if err := outputs[0].err; err != nil && !ordinaryTimeout(err) {
+			// A refused noninteractive acquisition fails the pass. Nothing is retried
+			// over the transport that can prompt: a refused host key, passphrase, or
+			// LocalCommand would be answered there, and a changed key accepted under
+			// the user's StrictHostKeyChecking no. The other components are not
+			// started either, because they share this destination, so the same
+			// refusal would repeat for each of them. A timeout is not a refusal: it
+			// is recorded as that component's failure, and the others still run.
 			break
 		}
 		together(1, true)
@@ -183,13 +204,67 @@ func runProfilePass(ctx context.Context, base headless, plan profile.Plan) (prof
 	snapshots := make([]snapshot.Snapshot, len(outputs))
 	tools := make([]snapshot.Tool, len(outputs))
 	for i, output := range outputs {
-		if output.err != nil {
-			return profile.Result{}, nil, nil, fmt.Errorf("%s: %w", plan.Runs[i].Label, output.err)
+		if err := output.err; err != nil {
+			if !ordinaryTimeout(err) {
+				return profile.Result{}, nil, nil, fmt.Errorf("%s: %w", plan.Runs[i].Label, err)
+			}
+			reports[i] = timedOutReport(plan.Runs[i], err)
+			continue
 		}
 		reports[i], snapshots[i], tools[i] = output.report, output.snapshot, output.tool
 	}
 	result, err := profile.BuildResult(plan, reports)
 	return result, snapshots, tools, err
+}
+
+// oneLine is an error's text on one line, for a place that shows one. The sanitizer removes line
+// breaks, so each line is trimmed and the lines are joined with "; " first, and a detail that
+// spans lines keeps its boundaries.
+func oneLine(err error) string {
+	var parts []string
+	for _, line := range strings.FieldsFunc(err.Error(), func(r rune) bool { return r == '\n' || r == '\r' }) {
+		if line = strings.TrimSpace(line); line != "" {
+			parts = append(parts, line)
+		}
+	}
+	return textsafe.Clean(strings.Join(parts, "; "))
+}
+
+// ordinaryTimeout reports whether an acquisition ended by the transport's own deadline. That
+// is an ordinary component failure: the pass records it and goes on. Every other error from an
+// acquisition is a refusal or a failed gate, and it still ends the pass.
+func ordinaryTimeout(err error) bool {
+	return errors.Is(err, remote.ErrRunTimedOut)
+}
+
+// timedOutReport is the report of a component whose acquisition the deadline ended. The
+// component's one check is its focus check, failed with the error that ended the attempt, so
+// the profile reads the component as failed. It says nothing about what the target would have
+// answered.
+func timedOutReport(run profile.Run, err error) report.Report {
+	id := string(run.Focus)
+	r := report.Report{
+		Version:     version,
+		Checks:      []report.Check{{ID: id, Name: run.Label, Status: diagnostic.StatusFail.String(), Detail: oneLine(err)}},
+		Summary:     run.Label + " did not finish before its time ran out.",
+		Verdict:     diagnostic.VerdictIncomplete,
+		FailedStage: id,
+	}
+	if t := run.Target; t != nil {
+		r.Target = &report.Target{Host: t.Host, Port: t.Port, Protocol: t.Proto.String(), Zone: t.Zone}
+	}
+	return r
+}
+
+// saveable reports whether every component carries its own snapshot. A component whose
+// acquisition timed out has none, and the artifact format cannot hold a component without one.
+func saveable(snapshots []snapshot.Snapshot) bool {
+	for _, s := range snapshots {
+		if s.Schema == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func profileSelection(spec profile.Run, extra, skip probeList) (diagnostic.ProbeSelection, probeList) {

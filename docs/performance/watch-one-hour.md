@@ -380,9 +380,10 @@ cumulative, and its caller was not traced.
   `TestWatchSlowPassesUpToTheWindowPublishFirst` and `TestWatchTUISlowPassesPublish`,
   all added by #314.
 - Forced retest: a retest or a forced pass measures every row.
-  `TestWatchRetestRunsEveryRowThroughTheTUI`, `TestWatchForcedPassRunsEveryRow`
-  and `TestHeadlessWatchSaveAcquiresEveryRowFresh` cover the TUI retest, the
-  session's `Force`, and the headless save path.
+  `TestWatchRetestRunsEveryRowThroughTheTUI` and `TestWatchForcedPassRunsEveryRow`
+  cover the TUI retest and the session's `Force`. The headless save path, which
+  acquires every row fresh, has no test: the command line refuses `-save` with
+  `-watch`, so the path cannot run from a supported command.
 - TUI and headless agreement: the two front ends apply the same publish rule.
   `TestWatchSessionRecordsOnlyPublishedPassesThroughTheTUI` and
   `TestHeadlessWatchPrintsOnlyPublishedPasses` each check it in one front end.

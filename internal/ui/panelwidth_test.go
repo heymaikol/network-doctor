@@ -40,11 +40,6 @@ func focusedPanelCases() []focusedPanelCase {
 		}},
 		{"theme picker", func(t *testing.T) model { m := base(t); m.theming = true; return m }},
 		{"restart prompt", func(t *testing.T) model { m := base(t); m.entering = true; return m }},
-		{"SSH form", func(t *testing.T) model {
-			m := base(t)
-			m.sshPrompt, m.ssh = true, newSSHForm(m.st, m.target)
-			return m
-		}},
 		{"Actions menu", func(t *testing.T) model { m := base(t); m.actionsOpen = true; return m }},
 	}
 }
@@ -61,8 +56,6 @@ func renderFocusedPanel(m model) string {
 		return m.themeView()
 	case m.entering:
 		return m.promptView(true)
-	case m.sshPrompt:
-		return m.sshFormView()
 	case m.actionsOpen:
 		return m.actionsView(80)
 	default:
@@ -108,8 +101,8 @@ func TestFocusedPanelsKeepOrdinaryWidths(t *testing.T) {
 	want := map[string]map[int]int{
 		"network map": {80: 80, 100: 100}, "service chooser": {80: 80, 100: 100},
 		"confirmation": {80: 78, 100: 78}, "theme picker": {80: 80, 100: 100},
-		"restart prompt": {80: 80, 100: 90}, "SSH form": {80: 78, 100: 78},
-		"Actions menu": {80: 58, 100: 58},
+		"restart prompt": {80: 80, 100: 90},
+		"Actions menu":   {80: 58, 100: 58},
 	}
 	for _, tc := range focusedPanelCases() {
 		for _, width := range []int{80, 100} {

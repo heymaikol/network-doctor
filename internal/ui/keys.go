@@ -55,6 +55,7 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 		return m, m.setNotice("stopping jobs, then quitting", true)
 	}
 	m.clearCancel()
+	m.verify.abandon()
 	diagnostic.ReleaseProbes(m.probes)
 	return m, tea.Quit
 }
@@ -110,7 +111,7 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		return m.quit()
 	case actRestart:
 		// Open the restart prompt; an active job keeps streaming until Enter commits.
-		m.entering, m.sshPrompt, m.inputErr = true, false, ""
+		m.entering, m.inputErr = true, ""
 		ti := textinput.New()
 		ti.Prompt = "netdoc "
 		ti.Placeholder = "example.com:443, or empty for a general check"
@@ -125,18 +126,6 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case actRetest:
 		return m.retest()
-	case actSSH:
-		// The SSH login form is offered for every target, unlike the 'c'
-		// handshake check, which only fits an SSH one. It logs in to the
-		// machine under test, so it needs a target and takes the host from it.
-		if m.target == nil {
-			return m, m.setNotice("SSH needs a target: press r to set one", false)
-		}
-		if _, err := toolLookPath("ssh"); err != nil {
-			return m, m.setNotice("ssh not found: install an OpenSSH client", false)
-		}
-		m.sshPrompt, m.ssh = true, newSSHForm(m.st, m.target)
-		return m, textinput.Blink
 	case actNetworkMap:
 		if m.networkMap {
 			m.networkMap = false
@@ -270,6 +259,11 @@ func (m model) runAction(act keyAction) (tea.Model, tea.Cmd) {
 		}
 		notice, ok := exportReport(m.report(), act == actSave, m.keys.label(ctxList, actSave))
 		return m, m.setNotice(notice, ok)
+	case actVerifySSH:
+		if !m.actionAvailable(actVerifySSH) {
+			return m, nil
+		}
+		return m.openVerifySSH()
 	case actTheme:
 		// The picker is drawn where the help bar goes, so the run behind it
 		// stays on screen: that screen is the preview.
@@ -728,6 +722,12 @@ func parseRunArgs(line string) (*diagnostic.Target, error) {
 // Retest keeps that target, and a manually parsed target starts without it.
 // The configured sources, resolver, probe selection and timeout are fixed.
 func (m *model) applyTarget(t *diagnostic.Target, newQuestion bool) {
+	// The SSH panel belongs to the target it was opened for. A switch to another
+	// target closes it, so it never shows or runs against the previous one. A
+	// deferred restart reaches this point when its job ends.
+	if m.verifying && m.verify.targetKey != verifyKey(t) {
+		m.closeVerifyPanel()
+	}
 	m.target = t
 	if newQuestion && m.watchSession != nil {
 		// Nothing measured for the last target may answer for this one. The
@@ -760,6 +760,7 @@ func (m model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 	switch p.kind {
 	case pendQuit:
 		m.clearCancel()
+		m.verify.abandon()
 		diagnostic.ReleaseProbes(m.probes)
 		return m, tea.Quit
 	case pendRestart:
@@ -824,7 +825,7 @@ func (m *model) restartRun() tea.Cmd {
 func (m *model) resetPresentation() {
 	m.selMoved = false
 	m.explaining = false
-	m.pending, m.confirmTool, m.sshPrompt = nil, nil, false
+	m.pending, m.confirmTool = nil, nil
 	m.dropJobs()
 	m.networkMap, m.mapSelected = false, 0
 	m.svc = serviceChoice{}

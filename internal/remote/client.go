@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
 	"github.com/heymaikol/network-doctor/v2/internal/textsafe"
 )
 
@@ -151,6 +152,10 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // Hostbased authentication is left alone: ssh-keysign signs with an unencrypted
 // host key and has nothing to ask.
 //
+// KnownHostsCommand is pinned off for the same reason as the proxies: it runs during the
+// connection and can decide host-key trust, and the route read classifies it as unknown,
+// so a batch connection that ran it would connect by a route netdoc refused to read.
+//
 // A ProxyJump child and a ProxyCommand are the remaining prompting programs.
 // Neither inherits a word of the above: each is a separate program, a jump
 // child is an ordinary interactive ssh that can ask for the bastion's own
@@ -166,8 +171,21 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 // to reach a proxied host without its proxy; it is what stops a second
 // evaluation of the same config, through a Match exec whose result moved, from
 // producing a prompting child this list cannot bound. A batch acquisition that
-// fails for any reason falls back to Run, which evaluates and honors the
-// configuration as it stands at that moment, proxy included.
+// fails is not retried over Run, so nothing that can prompt runs for the
+// destination in its place.
+//
+// The pins from PermitLocalCommand to ForwardX11 come first on the command line, so ssh's
+// first-value rule keeps the user's configuration from overriding them. Each one closes a
+// way a batch session could act for the user without asking:
+//
+//   - PermitLocalCommand=no: a LocalCommand reads the request from ssh's stdin first.
+//   - ControlMaster=no, ControlPath=none: no reuse of a master the configuration names.
+//   - StrictHostKeyChecking=yes: no unknown host key written, no changed key accepted.
+//   - UpdateHostKeys=no: no extra host key written after authentication.
+//   - ForwardAgent=no: no agent socket for the diagnosed host. IdentityAgent=none also
+//     stops forwarding today, but that is a side effect of a different pin.
+//   - ClearAllForwardings=yes: no local, dynamic, or remote listener.
+//   - ForwardX11=no: no display channel to the diagnosed host.
 //
 // AddKeysToAgent is off because an ssh_config asking for "ask" turns a used
 // software key into an askpass prompt. PreferredAuthentications names the one
@@ -176,18 +194,27 @@ func Run(ctx context.Context, dest, command string, req Request) (Response, erro
 //
 // What remains eligible is a plain software key on disk, and nothing else. An
 // unencrypted one connects; an encrypted one is refused rather than asked
-// about. Everything refused here falls back to the ordinary transport, one
-// acquisition at a time.
+// about. Everything refused here fails its acquisition, and nothing is retried over
+// the ordinary transport.
 var batchOptions = []string{
 	"BatchMode=yes",
 	"PreferredAuthentications=publickey",
 	"ProxyJump=none",
 	"ProxyCommand=none",
+	"KnownHostsCommand=none",
 	"PubkeyAcceptedAlgorithms=-sk-*,webauthn-sk-*",
 	"IdentityAgent=none",
 	"AddKeysToAgent=no",
 	"PKCS11Provider=none",
 	"GSSAPIAuthentication=no",
+	"PermitLocalCommand=no",
+	"ControlMaster=no",
+	"ControlPath=none",
+	"StrictHostKeyChecking=yes",
+	"UpdateHostKeys=no",
+	"ForwardAgent=no",
+	"ClearAllForwardings=yes",
+	"ForwardX11=no",
 }
 
 // RunBatch is Run over a transport that cannot ask the user anything itself;
@@ -205,8 +232,8 @@ var batchOptions = []string{
 // around a configured proxy, which is not netdoc's decision to make.
 //
 // It fails closed. An ssh too old to know one of these options rejects the
-// whole invocation, which is a refusal like any other and sends the caller back
-// to Run.
+// whole invocation, which is a refusal like any other and fails the acquisition. The
+// caller does not retry it over Run.
 func RunBatch(ctx context.Context, dest, command string, req Request) (Response, error) {
 	return run(ctx, dest, command, req, true)
 }
@@ -242,42 +269,32 @@ const sshConfigTimeout = 10 * time.Second
 // acquisition could otherwise start a proxy child that no batch option reaches.
 // Pinning the proxy off for accelerated acquisitions holds this reading for the
 // pass; a destination read as proxied here is never acquired that way, and a
-// batch acquisition that fails hands the work back to Run and its unpinned
-// configuration.
+// batch acquisition that fails is not retried over Run.
 func Direct(ctx context.Context, dest string) bool {
+	return Route(ctx, dest).Kind == sshverify.RouteDirect
+}
+
+// Route reads the configuration ssh would use for dest and classifies it. dest is
+// validated against argv option injection, and it stays a separate argument, never
+// shell text. The read and its classification are sshverify's: a Match exec, an
+// Include with a variable, a KnownHostsCommand, a proxy, or a configuration that
+// changed mid-read is not a known direct route, and nothing connects by a route that
+// is not known.
+func Route(ctx context.Context, dest string) sshverify.Route {
 	if err := validateDestination(dest); err != nil {
-		return false
+		return sshverify.Route{Kind: sshverify.RouteUnknown, Reason: err.Error()}
 	}
 	ctx, cancel := context.WithTimeout(ctx, sshConfigTimeout)
 	defer cancel()
-	// -G prints the configuration ssh would use for this destination without
-	// connecting to anything.
-	// #nosec G204 -- sshProgram is fixed and dest is validated against argv
-	// option injection, and both stay separate arguments, never shell text.
-	cmd := exec.CommandContext(ctx, sshProgram, "-G", dest)
-	cmd.WaitDelay = cancelGrace
-	out, err := cmd.Output()
+	program, err := sshverify.ClientProgram(sshProgram)
 	if err != nil {
-		return false
+		return sshverify.Route{Kind: sshverify.RouteUnknown, Reason: err.Error()}
 	}
-	understood := false
-	for _, line := range strings.Split(string(out), "\n") {
-		keyword, value, _ := strings.Cut(strings.TrimSpace(line), " ")
-		switch strings.ToLower(keyword) {
-		case "hostname":
-			// Every ssh that knows -G prints this one. Requiring it is what
-			// makes silence an unanswered question rather than a yes.
-			understood = true
-		case "proxyjump", "proxycommand":
-			// ssh omits either keyword when it is unset or set to none, so
-			// reaching here is a configured proxy. The value is checked anyway
-			// rather than trusting that omission to stay true.
-			if !strings.EqualFold(strings.TrimSpace(value), "none") {
-				return false
-			}
-		}
+	route, err := sshverify.ReadRoute(ctx, program, []string{"-G", dest})
+	if err != nil {
+		return sshverify.Route{Kind: sshverify.RouteUnknown, Reason: err.Error()}
 	}
-	return understood
+	return route
 }
 
 func run(ctx context.Context, dest, command string, req Request, batch bool) (Response, error) {
@@ -288,6 +305,24 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		command = DefaultCommand
 	} else if err := validateCommand(command); err != nil {
 		return Response{}, err
+	}
+	var endpoint []string
+	if !sshverify.TerminalAvailable() {
+		// A run with no terminal of its own cannot answer a prompt, so it connects only
+		// by a route it has established as direct, and every ssh it starts is batch. A
+		// route it cannot establish fails here, before any ssh starts, rather than
+		// falling back to an interactive client that could ask for a password, a
+		// passphrase or a host key.
+		route := Route(ctx, dest)
+		if route.Kind != sshverify.RouteDirect {
+			return Response{}, headlessRefusal(route)
+		}
+		batch = true
+		// The connection reads the configuration again. Pinning the host and port this read
+		// classified keeps the connection where the read said it goes.
+		if host, port := route.Endpoint(); host != "" && port != "" {
+			endpoint = []string{"HostName=" + host, "Port=" + port}
+		}
 	}
 	req.Protocol = Protocol
 	body, err := marshalRequest(req)
@@ -323,11 +358,17 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		for _, option := range batchOptions {
 			args = append(args, "-o", option)
 		}
+		for _, option := range endpoint {
+			args = append(args, "-o", option)
+		}
 	}
 	args = append(args, dest, command, WorkerFlag)
 	// #nosec G204 -- sshProgram is fixed, dest is validated against argv option
 	// injection, and every element stays a separate argument, never shell text.
 	cmd := exec.CommandContext(opCtx, sshProgram, args...)
+	if batch {
+		configureBatchProcess(cmd)
+	}
 	cmd.WaitDelay = cancelGrace
 	errBuf := &capped{limit: maxStderrBytes}
 	cmd.Stderr = errBuf
@@ -347,7 +388,12 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		// deadline, and transportError is the one place that tells them apart.
 		// Any other start failure keeps its own cause.
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return Response{}, transportError(ctx, opCtx, limit, dest, -1, "", err)
+			// A deadline that ends before ssh forks ended no connection, so it is not a
+			// run timeout: the mark is for a started client only.
+			if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+				return Response{}, fmt.Errorf("%s: the run timed out before ssh started", cleanDest(dest))
+			}
+			return Response{}, transportError(ctx, opCtx, limit, dest, -1, "", batch, err)
 		}
 		return Response{}, fmt.Errorf("could not run ssh: %s", clean(err.Error()))
 	}
@@ -369,7 +415,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		// output says more than the broken pipe does, so it decides the verdict.
 		// A clean answer cannot be this request's, because the request never
 		// arrived whole.
-		resp, decodeErr = readAfterWriteFailure(opCtx, stdout, func() { _ = cmd.Process.Kill() })
+		resp, decodeErr = readAfterWriteFailure(opCtx, stdout, func() { killRun(cmd, batch) })
 		stopSSH = true
 	} else {
 		// The first value is read on its own goroutine, so the operation context can
@@ -411,7 +457,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	if stopSSH {
 		// A peer that already failed decoding or framing gets no teardown
 		// grace. Stop ssh so the failed exchange cannot strand its writer.
-		_ = cmd.Process.Kill()
+		killRun(cmd, batch)
 		_ = stdout.Close()
 	} else {
 		// Check the remainder on the exact decoder and LimitedReader that read
@@ -425,7 +471,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		select {
 		case framingErr = <-trailing:
 		case <-opCtx.Done():
-			framingErr = opCtx.Err()
+			framingErr = answeredPastDeadline{}
 		case <-time.After(responseEOFGrace):
 			// A complete valid response is already in hand. If stdout still has no end
 			// after the bounded teardown window, stop the local SSH transport. Killing
@@ -433,11 +479,11 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 			// pipe, letting the framing check finish without treating remote EOF as an
 			// unbounded requirement. That wait is bounded by cancelGrace, because a
 			// process other than ssh can hold the pipe open and then nothing ends it.
-			_ = cmd.Process.Kill()
+			killRun(cmd, batch)
 			select {
 			case framingErr = <-trailing:
 			case <-opCtx.Done():
-				framingErr = opCtx.Err()
+				framingErr = answeredPastDeadline{}
 			case <-time.After(cancelGrace):
 				// The answer stands only when the reader finishes once stdout is closed,
 				// and nothing other than whitespace followed the answer. A held pipe cannot
@@ -465,7 +511,7 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 		}
 
 		if framingErr != nil {
-			_ = cmd.Process.Kill()
+			killRun(cmd, batch)
 			_ = stdout.Close()
 			decodeErr = framingErr
 		} else {
@@ -482,10 +528,10 @@ func run(ctx context.Context, dest, command string, req Request, batch bool) (Re
 	// ends after this check does not undo the verdict. transportError still chooses
 	// between interrupted and timed out, because it reads the caller's context first.
 	if decodeErr == nil && opCtx.Err() != nil {
-		decodeErr = opCtx.Err()
+		decodeErr = answeredPastDeadline{}
 	}
 	if decodeErr != nil {
-		return Response{}, transportError(ctx, opCtx, limit, dest, exitStatus(cmd, waitErr), errBuf.String(), decodeErr)
+		return Response{}, transportError(ctx, opCtx, limit, dest, exitStatus(cmd, waitErr), errBuf.String(), batch, decodeErr)
 	}
 	// A response decoded, so the exchange succeeded and ssh's exit status is
 	// not consulted for the verdict. The worker exits 0 for a failed diagnosis
@@ -534,6 +580,40 @@ func readerWaitTimeout() <-chan time.Time {
 // hasNonSpace reports whether b holds anything other than JSON whitespace.
 func hasNonSpace(b []byte) bool {
 	return len(bytes.TrimLeft(b, " \t\r\n")) > 0
+}
+
+// answeredPastDeadline is the outcome when the operation deadline passed after the worker's answer
+// was in hand. The answer is not used. It still reads as a deadline to callers that check for one,
+// but it is never the run's own timeout, so it carries no run-timeout mark.
+type answeredPastDeadline struct{}
+
+func (answeredPastDeadline) Error() string {
+	return "the remote run's deadline passed after its answer arrived"
+}
+func (answeredPastDeadline) Unwrap() error { return context.DeadlineExceeded }
+
+// ErrRunTimedOut marks the one error a caller may treat as an ordinary timeout of an
+// acquisition: the transport's own deadline ended a run whose ssh client had been started
+// after its route was established. Refusals, failed route checks and every other gate error
+// do not carry it, so a timeout in a gate cannot be mistaken for one.
+var ErrRunTimedOut = errors.New("the remote run timed out")
+
+// timedOutError is the transport's deadline error. Its text is the one netdoc has always
+// shown, and it matches ErrRunTimedOut.
+type timedOutError struct{ message string }
+
+func (e timedOutError) Error() string        { return e.message }
+func (e timedOutError) Is(target error) bool { return target == ErrRunTimedOut }
+
+// killRun stops the ssh client a run started. A batch client leads a process group, and
+// every process in that group is stopped with it. The interactive client is stopped alone,
+// as it always was.
+func killRun(cmd *exec.Cmd, batch bool) {
+	if batch {
+		killBatchProcess(cmd)
+		return
+	}
+	_ = cmd.Process.Kill()
 }
 
 // readAfterWriteFailure reads what a worker wrote before its stdin stopped
@@ -593,6 +673,10 @@ func readAfterWriteFailure(ctx context.Context, stdout io.Reader, stop func()) (
 		return Response{}, requestNotDelivered(got.resp, nil)
 	case <-ctx.Done():
 		stop()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			// The answer was in hand, so this deadline is not a timeout of the run.
+			return Response{}, answeredPastDeadline{}
+		}
 		return Response{}, ctx.Err()
 	}
 }
@@ -620,20 +704,31 @@ func requestNotDelivered(resp Response, extra error) error {
 // leave opCtx.Err() non-nil, and only the caller's own context can say which
 // happened. Reading the derived one first would report every remote timeout as
 // an interruption nobody performed.
-func transportError(ctx, opCtx context.Context, limit time.Duration, dest string, status int, stderrText string, cause error) error {
+func transportError(ctx, opCtx context.Context, limit time.Duration, dest string, status int, stderrText string, batch bool, cause error) error {
 	detail := indentLines(clean(stderrText))
 	switch {
 	case ctx.Err() != nil:
 		return fmt.Errorf("%s: the run was interrupted", cleanDest(dest))
-	case errors.Is(opCtx.Err(), context.DeadlineExceeded):
-		return withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
+	case status == sshFailedStatus:
+		// ssh refused or failed on its own. That exit is the answer, and it wins over a deadline
+		// that expired at the same moment: a refusal is never an ordinary timeout.
+		return withDetail(fmt.Sprintf("%s: ssh could not open the connection", cleanDest(dest)), detail)
+	case errors.Is(cause, context.DeadlineExceeded):
+		// The cause decides, not the clock. An answer that arrived before the deadline, and then
+		// met the deadline during the teardown, reports the deadline with the text it always had,
+		// but it carries no mark, because it is not the run's own timeout.
+		// Only a batch run's own deadline is an ordinary timeout. An interactive run's also covers
+		// the time a person takes to answer a prompt, so it stays a plain failure, and it ends a pass.
+		message := withDetail(fmt.Sprintf("%s: the remote run timed out after %s", cleanDest(dest), limit),
 			join(detail,
 				"That is the time one diagnosis over SSH is allowed end to end, not a",
 				"verdict about the remote network: the connection, the remote netdoc, or",
 				"the path between them stopped making progress. Retry, or raise -timeout",
 				"if the remote run legitimately needs longer."))
-	case status == sshFailedStatus:
-		return withDetail(fmt.Sprintf("%s: ssh could not open the connection", cleanDest(dest)), detail)
+		if batch && !errors.Is(cause, answeredPastDeadline{}) {
+			return timedOutError{message.Error()}
+		}
+		return message
 	case errors.Is(cause, ErrNoResponse):
 		return withDetail(fmt.Sprintf("%s: netdoc did not run on the SSH host%s", cleanDest(dest), statusPhrase(status)),
 			join(detail,
@@ -789,4 +884,14 @@ func (c *capped) String() string {
 		s += "\n[" + strconv.Itoa(c.dropped) + " more bytes discarded]"
 	}
 	return s
+}
+
+// headlessRefusal is the error for a destination a run with no terminal may not
+// connect to. The reason is the route's own, so the user sees what netdoc could not
+// establish.
+func headlessRefusal(route sshverify.Route) error {
+	if route.Kind == sshverify.RouteProxied {
+		return errors.New("cannot read this route headlessly: it uses a proxy, which netdoc does not start without a terminal; run it from a terminal. Nothing was sent")
+	}
+	return errors.New("cannot read this route headlessly; run it from a terminal (" + textsafe.Clean(route.Reason) + "). Nothing was sent")
 }

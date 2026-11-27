@@ -25,7 +25,48 @@ type shapeRule struct {
 
 // The configuration section: the lines OpenSSH prints while it reads the configuration and
 // connects, before the key exchange. Command output is not among them, so a Match exec line fails.
-var shapeConfig = []shapeRule{{regexp.MustCompile(`^debug1: (?:OpenSSH_\S+(?: [A-Za-z]+-[A-Za-z0-9._+~]+)?(?:, (?:OpenSSL|LibreSSL) [^\x00-\x1f\x7f]+)?|Reading configuration data .*|(?:[^"\x00-\x1f\x7f:]+ )?line \d+: Applying options for [^"\x00-\x1f\x7f]*|Applying options for [^"]*|(?:no pubkey loaded from|identity file|no identity pubkey loaded from) [^"]*|loaded (?:identity )?pubkey from [^\x00-\x1f\x7f]+: [A-Za-z0-9@._-]+ SHA256:[A-Za-z0-9+/]+|load_hostkeys: fopen [^\x00-\x1f\x7f]+: [^\x00-\x1f\x7f]+|Connecting to [^"]*|Connection established\.|Local version string SSH-2\.0-[^"]*|Remote protocol version 2\.0, remote software version [^"]*|compat_banner: [^"]*|Authenticating to [^"]*|using hostkeyalias: [^"]*)$`), 0, -1}}
+var shapeConfig = []shapeRule{{regexp.MustCompile(`^debug1: (?:OpenSSH_\S+(?: [A-Za-z]+-[A-Za-z0-9._+~]+)?(?:, (?:OpenSSL|LibreSSL) [^\x00-\x1f\x7f]+)?|Reading configuration data .*|configuration requests final Match pass|re-parsing configuration|(?:[^"\x00-\x1f\x7f:]+ )?line \d+: Applying options for [^"\x00-\x1f\x7f]*|Applying options for [^"]*|(?:no pubkey loaded from|identity file|no identity pubkey loaded from) [^"]*|loaded (?:identity )?pubkey from [^\x00-\x1f\x7f]+: [A-Za-z0-9@._-]+ SHA256:[A-Za-z0-9+/]+|load_hostkeys: fopen [^\x00-\x1f\x7f]+: [^\x00-\x1f\x7f]+|Connecting to [^"]*|Connection established\.|Local version string SSH-2\.0-[^"]*|Remote protocol version 2\.0, remote software version [^"]*|compat_banner: [^"]*|Authenticating to [^"]*|using hostkeyalias: [^"]*)$`), 0, -1}}
+
+// Fedora's OpenSSH can read configuration twice for Match final. Accept the
+// two exact diagnostic lines only as one ordered pair, between an initial
+// configuration read and a second one, before any connection starts. The rest
+// of the transcript must still match the entire host-key and refusal grammar.
+func validFinalMatchPass(lines []string) bool {
+	const request = "debug1: configuration requests final Match pass"
+	const reparse = "debug1: re-parsing configuration"
+	requested, reparsed := -1, -1
+	for i, line := range lines {
+		switch line {
+		case request:
+			if requested != -1 {
+				return false
+			}
+			requested = i
+		case reparse:
+			if reparsed != -1 {
+				return false
+			}
+			reparsed = i
+		}
+	}
+	if requested == -1 {
+		return reparsed == -1
+	}
+	if reparsed != requested+1 || reparsed+1 >= len(lines) ||
+		!strings.HasPrefix(lines[reparsed+1], "debug1: Reading configuration data ") {
+		return false
+	}
+	initialRead := false
+	for _, line := range lines[:requested] {
+		if strings.HasPrefix(line, "debug1: Connecting to ") {
+			return false
+		}
+		if strings.HasPrefix(line, "debug1: Reading configuration data ") {
+			initialRead = true
+		}
+	}
+	return initialRead
+}
 
 // The key exchange, from the first KEXINIT line to the line before the host-key record. The host
 // key algorithm is the one line that is taken for the decision, so it appears exactly once.
@@ -140,6 +181,11 @@ func walkShape(lines []string, start int, rules []shapeRule) (int, []int, bool) 
 	return pos, first, true
 }
 
+func walkConfig(lines []string) (int, bool) {
+	pos, _, ok := walkShape(lines, 0, shapeConfig)
+	return pos, ok && validFinalMatchPass(lines[:pos])
+}
+
 // splitTranscript splits the probe's output into lines, without the empty line at the end.
 func splitTranscript(transcript []byte) []string {
 	lines := strings.Split(strings.ReplaceAll(string(transcript), "\r\n", "\n"), "\n")
@@ -157,7 +203,7 @@ func acceptShape(lines []string) (hostTrust, string) {
 			return hostTrust{}, "OpenSSH ran a configured command during the check"
 		}
 	}
-	pos, _, ok := walkShape(lines, 0, shapeConfig)
+	pos, ok := walkConfig(lines)
 	if !ok {
 		return hostTrust{}, "the configuration section has a line OpenSSH does not print there"
 	}
@@ -244,7 +290,7 @@ func parseHostTrust(transcript []byte, exitStatus int) (hostTrust, bool, Result)
 // presentedKeyAtPrefix returns the validated host-key fingerprint OpenSSH printed immediately
 // after a clean configuration and key-exchange prefix, so server-injected lines cannot spoof it.
 func presentedKeyAtPrefix(lines []string) string {
-	pos, _, ok := walkShape(lines, 0, shapeConfig)
+	pos, ok := walkConfig(lines)
 	if !ok {
 		return ""
 	}

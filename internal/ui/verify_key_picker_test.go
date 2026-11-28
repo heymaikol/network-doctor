@@ -149,6 +149,19 @@ func TestVerifyArrowKeysNavigatePasswordAndAgentRows(t *testing.T) {
 }
 
 func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
+	assertHintGap := func(text string) {
+		t.Helper()
+		lines := strings.Split(text, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, "choose with arrows, press enter to select") {
+				if i == 0 || strings.TrimSpace(strings.Trim(lines[i-1], "│")) != "" {
+					t.Fatalf("picker hint must follow a blank line: %q", text)
+				}
+				return
+			}
+		}
+		t.Fatalf("picker hint missing: %q", text)
+	}
 	m := pressed(t, sshModel(t), keyPress("S"))
 	m = resolved(t, m)
 	m.verify.method = 1
@@ -173,6 +186,7 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 		if keysEnd < 0 || hint <= keysEnd || passphrase <= hint {
 			t.Fatalf("picker guidance must follow the list and precede Passphrase: %q", text)
 		}
+		assertHintGap(text)
 	}
 	t.Logf("sanitized key picker sample:\n%s", ansi.Strip(m.verifyView()))
 	for i := 0; i < 6; i++ {
@@ -181,6 +195,8 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 	}
 	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, filepath.Join("/keys", "g")) || !strings.Contains(text, "showing 4-8 of 8 private keys") {
 		t.Fatalf("picker did not scroll with down: %q", text)
+	} else {
+		assertHintGap(text)
 	}
 	u, _ := m.handleVerifyKey(keyPress("tab"))
 	m = asModel(t, u)
@@ -190,6 +206,9 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 	if m.verify.keyChosen {
 		t.Fatal("tab automatically selected a key")
 	}
+	m.verify.keys = m.verify.keys[:5]
+	m.verify.keyIdx = 0
+	assertHintGap(ansi.Strip(m.verifyView()))
 }
 
 func TestVerifyKeyPickerDoesNotAcceptAnEmptyList(t *testing.T) {

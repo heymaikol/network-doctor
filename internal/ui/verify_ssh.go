@@ -675,7 +675,7 @@ func (m model) verifyView() string {
 			if len(p.keys) > visible {
 				b.WriteString("    " + m.st.faint.Render(fmt.Sprintf("showing %d-%d of %d private keys", start+1, min(start+visible, len(p.keys)), len(p.keys))) + "\n")
 			}
-			b.WriteString("    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
+			b.WriteString("\n    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
 		}
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodAgent:

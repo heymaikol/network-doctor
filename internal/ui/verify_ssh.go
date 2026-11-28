@@ -688,7 +688,7 @@ func (m model) verifyView() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(focused(vrDiscover) + "[ Discover methods ]  " + m.st.faint.Render("sends no credential") + "\n")
-	b.WriteString(focused(vrCheck) + "[ Verify credential ]  " + m.st.faint.Render("sends one credential, once") + "\n")
+	b.WriteString(focused(vrCheck) + "[ Verify credential ]  " + m.st.faint.Render("sends one credential") + "\n")
 
 	if p.busy {
 		b.WriteString("\n" + m.spinner.View() + " working; esc cancels")

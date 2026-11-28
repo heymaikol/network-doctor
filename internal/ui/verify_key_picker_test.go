@@ -164,6 +164,9 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 		if strings.Contains(text, "Key file  ") || strings.Contains(text, "No Key File") {
 			t.Fatalf("picker added a redundant key file status row: %q", text)
 		}
+		if !strings.Contains(text, "[ Verify credential ]  sends one credential") || strings.Contains(text, "sends one credential, once") {
+			t.Fatalf("verification action has outdated helper text: %q", text)
+		}
 		keysEnd := strings.Index(text, "showing 1-5 of 8 private keys")
 		hint := strings.Index(text, "choose with arrows, press enter to select")
 		passphrase := strings.Index(text, "Passphrase typed here")

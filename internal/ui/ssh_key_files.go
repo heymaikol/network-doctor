@@ -38,7 +38,7 @@ func scanSSHPrivateKeys(ctx context.Context, sshDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	var keys []string
 	visited := 0

@@ -66,6 +66,9 @@ func TestVerifyKeyPickerDoesNotChooseConfiguredIdentityAutomatically(t *testing.
 	if a, reason := m.verify.attempt(); reason != "" || a.KeyPath != manual[1] {
 		t.Fatalf("manual selection = %+v, reason %q", a, reason)
 	}
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "✓ "+shortSSHKeyPath(manual[1])) {
+		t.Fatalf("chosen key is not marked in the list: %q", text)
+	}
 }
 
 func TestVerifyChangingKeyClearsSelectionAndPassphrase(t *testing.T) {
@@ -97,11 +100,11 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 		m.verify.keys = append(m.verify.keys, filepath.Join("/keys", string(rune('a'+i))))
 	}
 	m.verify.focus(vrKey)
-	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "showing 1-5 of 8 private keys") || !strings.Contains(text, "/keys/a") {
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "showing 1-5 of 8 private keys") || !strings.Contains(text, filepath.Join("/keys", "a")) {
 		t.Fatalf("picker did not display the first page: %q", text)
 	} else {
-		if !strings.Contains(text, "Key file  No Key File") {
-			t.Fatalf("picker did not show the unselected state: %q", text)
+		if strings.Contains(text, "Key file  ") || strings.Contains(text, "No Key File") {
+			t.Fatalf("picker added a redundant key file status row: %q", text)
 		}
 		keysEnd := strings.Index(text, "showing 1-5 of 8 private keys")
 		hint := strings.Index(text, "choose with arrows, press enter to select")
@@ -115,7 +118,7 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 		u, _ := m.handleVerifyKey(keyPress("down"))
 		m = asModel(t, u)
 	}
-	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "/keys/g") || !strings.Contains(text, "showing 4-8 of 8 private keys") {
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, filepath.Join("/keys", "g")) || !strings.Contains(text, "showing 4-8 of 8 private keys") {
 		t.Fatalf("picker did not scroll with down: %q", text)
 	}
 	u, _ := m.handleVerifyKey(keyPress("tab"))

@@ -637,16 +637,13 @@ func (m model) verifyView() string {
 	case sshverify.MethodPassword:
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodKey:
-		keyLine := "No Key File"
 		if !p.resolved && p.resolveCancel != nil {
-			keyLine = "reading private keys in ~/.ssh"
+			b.WriteString(focused(vrKey) + m.st.faint.Render("reading private keys in ~/.ssh") + "\n")
 		} else if p.keyScanErr {
-			keyLine = "could not list private keys in ~/.ssh"
-		} else if p.keyChosen && p.keyIdx >= 0 && p.keyIdx < len(p.keys) {
-			keyLine = "selected: " + ansi.Truncate(textsafe.Clean(shortSSHKeyPath(p.keys[p.keyIdx])), max(w-18, 12), "…")
-		}
-		b.WriteString(focused(vrKey) + m.st.key.Render("Key file  ") + keyLine + "\n")
-		if len(p.keys) > 0 {
+			b.WriteString(focused(vrKey) + m.st.warn.Render("could not list private keys in ~/.ssh") + "\n")
+		} else if len(p.keys) == 0 {
+			b.WriteString(focused(vrKey) + m.st.faint.Render("no private keys found in ~/.ssh") + "\n")
+		} else {
 			const visible = 5
 			start := min(max(0, p.keyIdx-2), max(0, len(p.keys)-visible))
 			for i := start; i < min(start+visible, len(p.keys)); i++ {
@@ -658,7 +655,7 @@ func (m model) verifyView() string {
 					marker = "▸ "
 				}
 				line := marker + name
-				if i == p.keyIdx {
+				if i == p.keyIdx && (p.keyChosen || p.row == vrKey) {
 					line = m.st.sel.Render(line)
 				}
 				b.WriteString("    " + line + "\n")

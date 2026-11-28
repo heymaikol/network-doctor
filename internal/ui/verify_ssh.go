@@ -678,10 +678,10 @@ func (m model) verifyView() string {
 		} else if len(p.keys) == 0 {
 			b.WriteString(focused(vrKey) + m.st.faint.Render("no private keys found in ~/.ssh") + "\n")
 		} else {
-			const visible = 5
-			start := min(max(0, p.keyIdx-2), max(0, len(p.keys)-visible))
+			visible := verifyPickerVisibleRows(m.height)
+			start := min(max(0, p.keyIdx-visible/2), max(0, len(p.keys)-visible))
 			for i := start; i < min(start+visible, len(p.keys)); i++ {
-				name := ansi.Truncate(textsafe.Clean(shortSSHKeyPath(p.keys[i])), max(w-9, 12), "…")
+				name := keyPickerPathLabel(p.keys[i], max(w-9, 12))
 				marker := "▹ "
 				if p.keyChosen && i == p.keyIdx {
 					marker = "✓ "
@@ -701,15 +701,11 @@ func (m model) verifyView() string {
 		if len(p.agentKeys) == 0 {
 			b.WriteString(focused(vrAgent) + m.st.faint.Render("no agent keys listed: press enter on Discover methods") + "\n")
 		} else {
-			const visible = 5
-			start := min(max(0, p.agentIdx-2), max(0, len(p.agentKeys)-visible))
+			visible := verifyPickerVisibleRows(m.height)
+			start := min(max(0, p.agentIdx-visible/2), max(0, len(p.agentKeys)-visible))
 			for i := start; i < min(start+visible, len(p.agentKeys)); i++ {
 				k := p.agentKeys[i]
-				label := strings.TrimSpace(k.Comment)
-				if label == "" {
-					label = k.Type
-				}
-				name := ansi.Truncate(textsafe.Clean(label+"  "+k.Fingerprint), max(w-9, 12), "…")
+				name := agentPickerKeyLabel(k, max(w-9, 12))
 				marker := "▹ "
 				if p.agentChosen && i == p.agentIdx {
 					marker = "✓ "
@@ -743,6 +739,52 @@ func (m model) verifyView() string {
 	}
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" +
 		m.quitNoticeFooter(helpKeys(m.st, m.width, keys...))
+}
+
+// Leave the verification buttons reachable when the terminal is short. The
+// arrow-key selection still traverses every key regardless of the row count.
+func verifyPickerVisibleRows(height int) int {
+	switch {
+	case height > 0 && height <= 16:
+		return 1
+	case height > 0 && height <= 20:
+		return 3
+	default:
+		return 5
+	}
+}
+
+// Key paths often have long shared directory prefixes. Clip from the left so
+// the filename, which usually distinguishes the credentials, remains visible.
+func keyPickerPathLabel(path string, width int) string {
+	label := textsafe.Clean(shortSSHKeyPath(path))
+	return pickerKeepRight(label, width)
+}
+
+func pickerKeepRight(label string, width int) string {
+	if extra := ansi.StringWidth(label) - width; extra > 0 {
+		return ansi.TruncateLeft(label, extra+1, "…")
+	}
+	return label
+}
+
+// Keep the fingerprint on screen even when an agent supplies a long comment.
+// The comment identifies the key informally; the fingerprint identifies it.
+func agentPickerKeyLabel(key sshverify.AgentKey, width int) string {
+	fingerprint := textsafe.Clean(key.Fingerprint)
+	if ansi.StringWidth(fingerprint) >= width {
+		return pickerKeepRight(fingerprint, width)
+	}
+	comment := strings.TrimSpace(key.Comment)
+	if comment == "" {
+		comment = key.Type
+	}
+	comment = textsafe.Clean(comment)
+	available := width - ansi.StringWidth(fingerprint) - 2
+	if available <= 0 {
+		return fingerprint
+	}
+	return ansi.Truncate(comment, available, "…") + "  " + fingerprint
 }
 
 // resultLines renders one result: its label, what the server listed, and the

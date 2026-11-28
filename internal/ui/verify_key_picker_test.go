@@ -222,3 +222,61 @@ func TestVerifyKeyPickerDoesNotAcceptAnEmptyList(t *testing.T) {
 		t.Fatalf("empty picker: chosen=%v note=%q", m.verify.keyChosen, m.verify.note)
 	}
 }
+
+func TestVerifyKeyPickerKeepsDistinctFileNamesVisible(t *testing.T) {
+	m := resolved(t, pressed(t, sshModel(t), keyPress("S")))
+	m.verify.method = 1
+	m.width = 76
+	m.verify.keys = []string{
+		filepath.Join("/keys", strings.Repeat("shared-directory/", 10), "custom-key_ed25519"),
+		filepath.Join("/keys", strings.Repeat("shared-directory/", 10), "custom-key-backup"),
+	}
+	m.verify.focus(vrKey)
+	view := ansi.Strip(m.verifyView())
+	for _, name := range []string{"custom-key_ed25519", "custom-key-backup"} {
+		if !strings.Contains(view, name) {
+			t.Fatalf("long path hid %q in the chooser: %q", name, view)
+		}
+	}
+	if !strings.Contains(view, "…") {
+		t.Fatalf("long key paths were not visibly shortened: %q", view)
+	}
+}
+
+func TestVerifyPickerButtonsRemainVisibleOnShortTerminals(t *testing.T) {
+	for _, method := range []int{1, 2} {
+		for _, height := range []int{24, 16} {
+			m := resolved(t, pressed(t, sshModel(t), keyPress("S")))
+			m.width, m.height = 80, height
+			m.verify.method = method
+			m.verify.keys = []string{"/keys/a", "/keys/b", "/keys/c", "/keys/d", "/keys/e"}
+			for i := 0; i < 5; i++ {
+				m.verify.agentKeys = append(m.verify.agentKeys, sshverify.AgentKey{Comment: string(rune('a' + i)), Fingerprint: "SHA256:test"})
+			}
+			view := ansi.Strip(m.View())
+			if !strings.Contains(view, "[ Discover methods ]") || !strings.Contains(view, "[ Verify credential ]") {
+				t.Fatalf("method %d at 80x%d hid verification controls:\n%s", method, height, view)
+			}
+			if !strings.Contains(view, "esc") {
+				t.Fatalf("method %d at 80x%d hid the exit instructions:\n%s", method, height, view)
+			}
+			if height == 16 {
+				if method == 1 {
+					m.verify.focus(vrKey)
+				} else {
+					m.verify.focus(vrAgent)
+				}
+				u, _ := m.handleVerifyKey(keyPress("down"))
+				m = asModel(t, u)
+				view = ansi.Strip(m.View())
+				want := "▸ /keys/b"
+				if method == 2 {
+					want = "▸ b  SHA256:test"
+				}
+				if !strings.Contains(view, want) || !strings.Contains(view, "[ Verify credential ]") {
+					t.Fatalf("method %d at 80x16 did not scroll the compact list:\n%s", method, view)
+				}
+			}
+		}
+	}
+}

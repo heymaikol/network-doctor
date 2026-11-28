@@ -191,6 +191,23 @@ func TestVerifyAgentPickerDisplaysAWindowWithGuidance(t *testing.T) {
 	t.Logf("sanitized ssh-agent chooser:\n%s", ansi.Strip(m.verifyView()))
 }
 
+func TestVerifyAgentPickerKeepsFingerprintsVisibleWithLongComments(t *testing.T) {
+	m := resolved(t, pressed(t, sshModel(t), keyPress("S")))
+	m.verify.method = 2
+	m.width = 76
+	m.verify.agentKeys = []sshverify.AgentKey{
+		{Comment: strings.Repeat("shared-comment-", 12) + "one", Fingerprint: "SHA256:" + strings.Repeat("A", 43)},
+		{Comment: strings.Repeat("shared-comment-", 12) + "two", Fingerprint: "SHA256:" + strings.Repeat("B", 43)},
+	}
+	m.verify.focus(vrAgent)
+	view := ansi.Strip(m.verifyView())
+	for _, key := range m.verify.agentKeys {
+		if !strings.Contains(view, key.Fingerprint) {
+			t.Fatalf("agent comment hid fingerprint %q: %q", key.Fingerprint, view)
+		}
+	}
+}
+
 // Only the newest listing fills the chooser. A replaced listing, or one for a
 // route that was dropped, arrives late and must not replace the keys.
 func TestVerifyStaleAgentListingIsDropped(t *testing.T) {

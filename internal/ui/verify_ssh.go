@@ -721,9 +721,6 @@ func (m model) verifyView() string {
 			}
 			b.WriteString("\n    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
 		}
-		if p.resolved && !strings.EqualFold(p.target.Host, p.scannedIP) {
-			b.WriteString("  " + m.st.warn.Render("OpenSSH destination: "+textsafe.Clean(p.target.Host)+" (verify it is your map device)") + "\n")
-		}
 	}
 	if p.resolveErr != "" {
 		b.WriteString(m.st.fail.Render("✗ "+p.resolveErr) + "\n")

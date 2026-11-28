@@ -80,10 +80,13 @@ func TestMapDeviceCanChooseSSHProfileWithoutChoosingPrivateKey(t *testing.T) {
 		t.Fatal("choosing an SSH profile implicitly chose or lost the manual private-key list")
 	}
 	view := ansi.Strip(m.verifyView())
-	for _, want := range []string{"Original target: 192.0.2.151:22", "SSH Profile", "witness", "OpenSSH destination: witness.local"} {
+	for _, want := range []string{"Original target: 192.0.2.151:22", "SSH Profile", "witness", "Verify SSH credentials for witness@witness.local:22"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("selected profile view does not show %q: %s", want, view)
 		}
+	}
+	if strings.Contains(view, "OpenSSH destination:") {
+		t.Fatalf("selected profile view repeats the destination: %s", view)
 	}
 	if m.verify.trusted {
 		t.Fatal("choosing an SSH profile silently trusted its host key")

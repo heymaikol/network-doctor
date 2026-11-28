@@ -164,7 +164,7 @@ func TestVerifyAgentPickerDisplaysAWindowWithGuidance(t *testing.T) {
 	check := func(first, last string) {
 		t.Helper()
 		text := ansi.Strip(m.verifyView())
-		if !strings.Contains(text, first) || !strings.Contains(text, last) || !strings.Contains(text, "choose with arrows, press enter to select") {
+		if !strings.Contains(text, first) || !strings.Contains(text, last) || !strings.Contains(text, "choose with arrows, press enter to select") || strings.Contains(text, "showing ") {
 			t.Fatalf("agent key list not displayed correctly: %q", text)
 		}
 		lines := strings.Split(text, "\n")
@@ -177,12 +177,12 @@ func TestVerifyAgentPickerDisplaysAWindowWithGuidance(t *testing.T) {
 			}
 		}
 	}
-	check("key-a", "showing 1-5 of 8 agent keys")
+	check("▸ key-a", "▹ key-e")
 	for i := 0; i < 6; i++ {
 		u, _ := m.handleVerifyKey(keyPress("down"))
 		m = asModel(t, u)
 	}
-	check("key-g", "showing 4-8 of 8 agent keys")
+	check("▸ key-g", "▹ key-h")
 	u, _ := m.handleVerifyKey(keyPress("enter"))
 	m = asModel(t, u)
 	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "✓ key-g") {

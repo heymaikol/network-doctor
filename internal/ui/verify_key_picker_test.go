@@ -171,7 +171,7 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 		m.verify.keys = append(m.verify.keys, filepath.Join("/keys", string(rune('a'+i))))
 	}
 	m.verify.focus(vrKey)
-	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "showing 1-5 of 8 private keys") || !strings.Contains(text, filepath.Join("/keys", "a")) {
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "▸ "+filepath.Join("/keys", "a")) || !strings.Contains(text, "▹ "+filepath.Join("/keys", "b")) || !strings.Contains(text, filepath.Join("/keys", "e")) || strings.Contains(text, filepath.Join("/keys", "f")) || strings.Contains(text, "showing ") {
 		t.Fatalf("picker did not display the first page: %q", text)
 	} else {
 		if strings.Contains(text, "Key file  ") || strings.Contains(text, "No Key File") {
@@ -180,7 +180,7 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 		if !strings.Contains(text, "[ Verify credential ]  sends one credential") || strings.Contains(text, "sends one credential, once") {
 			t.Fatalf("verification action has outdated helper text: %q", text)
 		}
-		keysEnd := strings.Index(text, "showing 1-5 of 8 private keys")
+		keysEnd := strings.Index(text, filepath.Join("/keys", "e"))
 		hint := strings.Index(text, "choose with arrows, press enter to select")
 		passphrase := strings.Index(text, "Passphrase type here")
 		if keysEnd < 0 || hint <= keysEnd || passphrase <= hint {
@@ -193,7 +193,7 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 		u, _ := m.handleVerifyKey(keyPress("down"))
 		m = asModel(t, u)
 	}
-	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, filepath.Join("/keys", "g")) || !strings.Contains(text, "showing 4-8 of 8 private keys") {
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "▸ "+filepath.Join("/keys", "g")) || !strings.Contains(text, "▹ "+filepath.Join("/keys", "h")) || strings.Contains(text, filepath.Join("/keys", "c")) || strings.Contains(text, "showing ") {
 		t.Fatalf("picker did not scroll with down: %q", text)
 	} else {
 		assertHintGap(text)

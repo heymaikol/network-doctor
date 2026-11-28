@@ -682,7 +682,7 @@ func (m model) verifyView() string {
 			start := min(max(0, p.keyIdx-2), max(0, len(p.keys)-visible))
 			for i := start; i < min(start+visible, len(p.keys)); i++ {
 				name := ansi.Truncate(textsafe.Clean(shortSSHKeyPath(p.keys[i])), max(w-9, 12), "…")
-				marker := "  "
+				marker := "▹ "
 				if p.keyChosen && i == p.keyIdx {
 					marker = "✓ "
 				} else if p.row == vrKey && i == p.keyIdx {
@@ -693,9 +693,6 @@ func (m model) verifyView() string {
 					line = m.st.sel.Render(line)
 				}
 				b.WriteString("    " + line + "\n")
-			}
-			if len(p.keys) > visible {
-				b.WriteString("    " + m.st.faint.Render(fmt.Sprintf("showing %d-%d of %d private keys", start+1, min(start+visible, len(p.keys)), len(p.keys))) + "\n")
 			}
 			b.WriteString("\n    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
 		}
@@ -713,7 +710,7 @@ func (m model) verifyView() string {
 					label = k.Type
 				}
 				name := ansi.Truncate(textsafe.Clean(label+"  "+k.Fingerprint), max(w-9, 12), "…")
-				marker := "  "
+				marker := "▹ "
 				if p.agentChosen && i == p.agentIdx {
 					marker = "✓ "
 				} else if p.row == vrAgent && i == p.agentIdx {
@@ -724,9 +721,6 @@ func (m model) verifyView() string {
 					line = m.st.sel.Render(line)
 				}
 				b.WriteString("    " + line + "\n")
-			}
-			if len(p.agentKeys) > visible {
-				b.WriteString("    " + m.st.faint.Render(fmt.Sprintf("showing %d-%d of %d agent keys", start+1, min(start+visible, len(p.agentKeys)), len(p.agentKeys))) + "\n")
 			}
 			b.WriteString("\n    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
 		}

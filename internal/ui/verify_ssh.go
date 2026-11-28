@@ -237,6 +237,16 @@ func (p *verifyPanel) moveFrom(delta int) tea.Cmd {
 	return tea.Batch(p.step(delta), leave)
 }
 
+// moveArrow moves between visible rows without wrapping past the form's ends.
+// Tab remains available for wrapping navigation.
+func (p *verifyPanel) moveArrow(delta int) tea.Cmd {
+	rows := p.visibleRows()
+	if delta < 0 && p.row == rows[0] || delta > 0 && p.row == rows[len(rows)-1] {
+		return nil
+	}
+	return p.moveFrom(delta)
+}
+
 // resolveTarget reads a target's configuration. Tests replace it to observe
 // the read's context without running ssh.
 var resolveTarget = sshverify.Resolve
@@ -455,20 +465,33 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, p.moveFrom(1)
 	case "shift+tab":
 		return m, p.moveFrom(-1)
-	case "up", "down", "left", "right":
-		// On a text row the key moves the caret in the field below, so it is not consumed here.
+	case "up", "down":
+		delta := 1
+		if msg.String() == "up" {
+			delta = -1
+		}
+		if p.row == vrKey {
+			if next := p.keyIdx + delta; next >= 0 && next < len(p.keys) {
+				p.keyIdx = next
+				p.keyChosen = false
+				p.secret.SetValue("")
+				p.note = ""
+				p.result = nil
+				return m, nil
+			}
+		}
+		return m, p.moveArrow(delta)
+	case "left", "right":
+		// Horizontal arrows still move the caret inside text inputs.
 		if p.row == vrUser || p.row == vrSecret {
 			break
 		}
 		delta := 1
-		if msg.String() == "left" || msg.String() == "up" {
+		if msg.String() == "left" {
 			delta = -1
 		}
 		switch p.row {
 		case vrMethod:
-			if msg.String() == "up" || msg.String() == "down" {
-				return m, p.moveFrom(delta)
-			}
 			p.method = (p.method + delta + len(verifyMethods)) % len(verifyMethods)
 			// The secret belongs to the method that was chosen when it was typed. A
 			// passphrase must never become a password, so a change clears it.
@@ -476,23 +499,12 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.note = ""
 			p.syncSecretPrompt()
 			p.result = nil
-		case vrKey:
-			if n := len(p.keys); n > 0 {
-				p.keyIdx = (p.keyIdx + delta + n) % n
-				p.keyChosen = false
-				p.secret.SetValue("")
-				p.note = ""
-				p.result = nil
-			}
 		case vrAgent:
-			if msg.String() == "up" || msg.String() == "down" {
-				return m, p.moveFrom(delta)
-			}
 			if n := len(p.agentKeys); n > 0 {
 				p.agentIdx = (p.agentIdx + delta + n) % n
 			}
 		default:
-			return m, p.moveFrom(delta)
+			return m, nil
 		}
 		return m, nil
 	case "enter":
@@ -686,9 +698,9 @@ func (m model) verifyView() string {
 	if p.note != "" {
 		b.WriteString("\n" + m.st.warn.Render(textsafe.Clean(p.note)))
 	}
-	keys := []string{"tab", "next", "enter", "run", "esc", "close"}
+	keys := []string{"↑/↓", "navigate", "enter", "run", "tab", "next", "esc", "close"}
 	if p.row == vrKey && verifyMethods[p.method] == sshverify.MethodKey {
-		keys = []string{"↑/↓", "choose key", "enter", "select", "tab", "next", "esc", "close"}
+		keys = []string{"↑/↓", "choose/move", "enter", "select", "tab", "next", "esc", "close"}
 	}
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" +
 		m.quitNoticeFooter(helpKeys(m.st, m.width, keys...))

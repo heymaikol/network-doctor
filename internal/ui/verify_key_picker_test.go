@@ -76,17 +76,75 @@ func TestVerifyChangingKeyClearsSelectionAndPassphrase(t *testing.T) {
 	m = resolved(t, m)
 	m.verify.method = 1
 	m.verify.keys = []string{"/keys/one", "/keys/two"}
+	m.verify.keyIdx = 1
 	m.verify.keyChosen = true
 	m.verify.secret.SetValue("secret-passphrase")
 	m.verify.result = &sshverify.Result{Outcome: sshverify.Verified}
 	m.verify.focus(vrKey)
 	u, _ := m.handleVerifyKey(keyPress("up"))
 	m = asModel(t, u)
-	if m.verify.keyIdx != 1 || m.verify.keyChosen || m.verify.secret.Value() != "" || m.verify.result != nil {
+	if m.verify.keyIdx != 0 || m.verify.keyChosen || m.verify.secret.Value() != "" || m.verify.result != nil {
 		t.Fatalf("key change: index=%d chosen=%v passphrase length=%d result=%v", m.verify.keyIdx, m.verify.keyChosen, len(m.verify.secret.Value()), m.verify.result)
 	}
 	if a, reason := m.verify.attempt(); a.KeyPath != "" || reason == "" {
 		t.Fatalf("key change used stale selection: %+v, %q", a, reason)
+	}
+}
+
+func TestVerifyArrowKeysNavigateFieldsAndLeaveKeyListAtItsEnds(t *testing.T) {
+	m := pressed(t, sshModel(t), keyPress("S"))
+	m = resolved(t, m)
+	m.verify.method = 1
+	m.verify.keys = []string{"/keys/one", "/keys/two"}
+	m.verify.focus(vrUser)
+	pressArrow := func(key string, row verifyRow, idx int) {
+		t.Helper()
+		u, _ := m.handleVerifyKey(keyPress(key))
+		m = asModel(t, u)
+		if m.verify.row != row || m.verify.keyIdx != idx {
+			t.Fatalf("%s: row=%v keyIdx=%d, want row=%v keyIdx=%d", key, m.verify.row, m.verify.keyIdx, row, idx)
+		}
+	}
+	pressArrow("up", vrUser, 0) // no wrap at the start
+	pressArrow("down", vrMethod, 0)
+	pressArrow("down", vrKey, 0)
+	pressArrow("down", vrKey, 1)
+	pressArrow("down", vrSecret, 1)
+	pressArrow("down", vrDiscover, 1)
+	pressArrow("down", vrCheck, 1)
+	pressArrow("down", vrCheck, 1) // no wrap at the end
+	pressArrow("up", vrDiscover, 1)
+	pressArrow("up", vrSecret, 1)
+	pressArrow("up", vrKey, 1)
+	pressArrow("up", vrKey, 0)
+	pressArrow("up", vrMethod, 0)
+	pressArrow("up", vrUser, 0)
+	if m.verify.keyChosen {
+		t.Fatal("arrow navigation chose a private key without Enter")
+	}
+}
+
+func TestVerifyArrowKeysNavigatePasswordAndAgentRows(t *testing.T) {
+	for _, method := range []int{0, 2} {
+		m := pressed(t, sshModel(t), keyPress("S"))
+		m = resolved(t, m)
+		m.verify.method = method
+		m.verify.focus(vrUser)
+		rows := m.verify.visibleRows()
+		for _, want := range rows[1:] {
+			u, _ := m.handleVerifyKey(keyPress("down"))
+			m = asModel(t, u)
+			if m.verify.row != want {
+				t.Fatalf("method %d: down reached %v, want %v", method, m.verify.row, want)
+			}
+		}
+		for i := len(rows) - 2; i >= 0; i-- {
+			u, _ := m.handleVerifyKey(keyPress("up"))
+			m = asModel(t, u)
+			if m.verify.row != rows[i] {
+				t.Fatalf("method %d: up reached %v, want %v", method, m.verify.row, rows[i])
+			}
+		}
 	}
 }
 

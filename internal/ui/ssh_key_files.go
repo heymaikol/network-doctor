@@ -53,12 +53,13 @@ func scanSSHPrivateKeys(ctx context.Context, sshDir string) ([]string, error) {
 		if visited > maxSSHKeyScanEntries {
 			return errors.New("the SSH directory has too many entries to list safely")
 		}
-		if d.IsDir() || d.Type()&os.ModeSymlink != 0 || strings.HasSuffix(path, ".pub") {
+		if !d.Type().IsRegular() || strings.HasSuffix(path, ".pub") {
 			return nil
 		}
-		// Keep file reads rooted in ~/.ssh even if an entry is replaced
-		// between directory enumeration and opening it.
-		f, err := root.Open(path)
+		// A regular entry can be replaced with a FIFO between the directory
+		// listing and the open. The Unix opener is nonblocking for that case.
+		// All opens remain rooted in ~/.ssh if the entry changes to a symlink.
+		f, err := openSSHKeyCandidate(root, path)
 		if err != nil {
 			return nil
 		}

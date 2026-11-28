@@ -133,3 +133,16 @@ func TestSSHProfileDoesNotShowPortZeroWhenOpenSSHChoosesThePort(t *testing.T) {
 		t.Fatalf("original target label has a fictitious port: %s", view)
 	}
 }
+
+func TestSSHProfilePickerKeepsVerifyButtonsOnShortTerminal(t *testing.T) {
+	m := newModel(mustTarget(t, "192.0.2.151:22"), false)
+	m.width, m.height = 80, 16
+	m, _ = m.openVerifySSH()
+	m.verify.method = 1
+	m.verify.profiles = []string{"witness", "git", "other"}
+	m.verify.keys = []string{"/keys/a", "/keys/b", "/keys/c"}
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "No SSH Profile") || !strings.Contains(view, "[ Discover methods ]") || !strings.Contains(view, "[ Verify credential ]") {
+		t.Fatalf("profile picker at 80x16 hid options or actions:\n%s", view)
+	}
+}

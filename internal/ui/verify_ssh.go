@@ -47,19 +47,20 @@ var verifyMethodNames = map[sshverify.Method]string{
 // verifyPanel is the state of one open panel. Its secret lives only in the
 // secret input, which is cleared after every attempt and on close.
 type verifyPanel struct {
-	target     sshverify.Target
-	resolved   bool
-	resolveErr string
-	user       textinput.Model
-	secret     textinput.Model
-	method     int
-	keys       []string
-	keyIdx     int
-	keyChosen  bool
-	keyScanErr bool
-	agentKeys  []sshverify.AgentKey
-	agentIdx   int
-	row        verifyRow
+	target      sshverify.Target
+	resolved    bool
+	resolveErr  string
+	user        textinput.Model
+	secret      textinput.Model
+	method      int
+	keys        []string
+	keyIdx      int
+	keyChosen   bool
+	keyScanErr  bool
+	agentKeys   []sshverify.AgentKey
+	agentIdx    int
+	agentChosen bool
+	row         verifyRow
 	// targetKey is the target the panel was opened for. A switch to another target
 	// closes the panel, so it never shows or runs against the previous one.
 	targetKey string
@@ -221,6 +222,7 @@ func (p *verifyPanel) dropRoute() {
 	p.keyChosen = false
 	p.keyScanErr = false
 	p.agentKeys, p.agentIdx = nil, 0
+	p.agentChosen = false
 	p.result = nil
 	p.trusted = false
 	p.identity = sshverify.HostIdentity{}
@@ -357,6 +359,9 @@ func (p *verifyPanel) attempt() (sshverify.Attempt, string) {
 		if len(p.agentKeys) == 0 {
 			return a, "no agent key is listed yet; press enter on Discover methods"
 		}
+		if !p.agentChosen || p.agentIdx < 0 || p.agentIdx >= len(p.agentKeys) {
+			return a, "select an ssh-agent key using the arrow keys and enter"
+		}
 		a.AgentFingerprint = p.agentKeys[p.agentIdx].Fingerprint
 	}
 	return a, ""
@@ -410,6 +415,9 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 		if p.keysCancel != nil {
 			p.keysCancel()
 		}
+		p.agentKeys = nil
+		p.agentIdx = 0
+		p.agentChosen = false
 		keysCtx, keysCancel := context.WithCancel(context.Background())
 		p.keysCancel = keysCancel
 		p.keysSeq++
@@ -480,6 +488,15 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		if p.row == vrAgent {
+			if next := p.agentIdx + delta; next >= 0 && next < len(p.agentKeys) {
+				p.agentIdx = next
+				p.agentChosen = false
+				p.note = ""
+				p.result = nil
+				return m, nil
+			}
+		}
 		return m, p.moveArrow(delta)
 	case "left", "right":
 		// Horizontal arrows still move the caret inside text inputs.
@@ -499,10 +516,6 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.note = ""
 			p.syncSecretPrompt()
 			p.result = nil
-		case vrAgent:
-			if n := len(p.agentKeys); n > 0 {
-				p.agentIdx = (p.agentIdx + delta + n) % n
-			}
 		default:
 			return m, nil
 		}
@@ -523,6 +536,14 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			p.keyChosen = true
 			p.secret.SetValue("")
+			p.note = ""
+			p.result = nil
+		case vrAgent:
+			if len(p.agentKeys) == 0 {
+				p.note = "no agent key is listed yet; press enter on Discover methods"
+				return m, nil
+			}
+			p.agentChosen = true
 			p.note = ""
 			p.result = nil
 		}
@@ -580,7 +601,8 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		}
 		m.verify.keysCancel = nil
 		m.verify.agentKeys = msg.keys
-		m.verify.agentIdx = min(m.verify.agentIdx, max(len(msg.keys)-1, 0))
+		m.verify.agentIdx = 0
+		m.verify.agentChosen = false
 		return m, nil, true
 	case verifyResultMsg:
 		if !m.verifying || msg.id != m.verify.id {
@@ -679,12 +701,35 @@ func (m model) verifyView() string {
 		}
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodAgent:
-		keyLine := m.st.faint.Render("none listed yet: press enter on Discover methods")
-		if len(p.agentKeys) > 0 {
-			k := p.agentKeys[p.agentIdx]
-			keyLine = textsafe.Clean(k.Fingerprint+"  "+k.Comment) + m.st.faint.Render(fmt.Sprintf("  (%d of %d)", p.agentIdx+1, len(p.agentKeys)))
+		if len(p.agentKeys) == 0 {
+			b.WriteString(focused(vrAgent) + m.st.faint.Render("no agent keys listed: press enter on Discover methods") + "\n")
+		} else {
+			const visible = 5
+			start := min(max(0, p.agentIdx-2), max(0, len(p.agentKeys)-visible))
+			for i := start; i < min(start+visible, len(p.agentKeys)); i++ {
+				k := p.agentKeys[i]
+				label := strings.TrimSpace(k.Comment)
+				if label == "" {
+					label = k.Type
+				}
+				name := ansi.Truncate(textsafe.Clean(label+"  "+k.Fingerprint), max(w-9, 12), "…")
+				marker := "  "
+				if p.agentChosen && i == p.agentIdx {
+					marker = "✓ "
+				} else if p.row == vrAgent && i == p.agentIdx {
+					marker = "▸ "
+				}
+				line := marker + name
+				if i == p.agentIdx && (p.agentChosen || p.row == vrAgent) {
+					line = m.st.sel.Render(line)
+				}
+				b.WriteString("    " + line + "\n")
+			}
+			if len(p.agentKeys) > visible {
+				b.WriteString("    " + m.st.faint.Render(fmt.Sprintf("showing %d-%d of %d agent keys", start+1, min(start+visible, len(p.agentKeys)), len(p.agentKeys))) + "\n")
+			}
+			b.WriteString("\n    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
 		}
-		b.WriteString(focused(vrAgent) + m.st.key.Render("Agent key ") + keyLine + "\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(focused(vrDiscover) + "[ Discover methods ]  " + m.st.faint.Render("sends no credential") + "\n")
@@ -699,7 +744,7 @@ func (m model) verifyView() string {
 		b.WriteString("\n" + m.st.warn.Render(textsafe.Clean(p.note)))
 	}
 	keys := []string{"↑/↓", "navigate", "enter", "run", "tab", "next", "esc", "close"}
-	if p.row == vrKey && verifyMethods[p.method] == sshverify.MethodKey {
+	if (p.row == vrKey && verifyMethods[p.method] == sshverify.MethodKey) || (p.row == vrAgent && verifyMethods[p.method] == sshverify.MethodAgent) {
 		keys = []string{"↑/↓", "choose/move", "enter", "select", "tab", "next", "esc", "close"}
 	}
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" +

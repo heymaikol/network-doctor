@@ -56,27 +56,31 @@ func TestMapDeviceCanChooseSSHProfileWithoutChoosingPrivateKey(t *testing.T) {
 	m.width, m.height = 100, 40
 	m, cmd := m.openVerifySSH()
 	m = deliverReads(t, m, cmd)
-	if m.verify.row != vrHost || m.verify.sshHost.Value() != "192.0.2.151" || m.verify.scannedIP != "192.0.2.151" {
+	if m.verify.row != vrProfile || m.verify.host != "192.0.2.151" || m.verify.scannedIP != "192.0.2.151" || m.verify.profile != "" || m.verify.profileIdx != 0 {
 		t.Fatalf("map device did not open at its IP: %+v", m.verify)
 	}
 	if len(m.verify.profiles) != 1 || m.verify.profiles[0] != "witness" {
 		t.Fatalf("SSH profile options = %q", m.verify.profiles)
 	}
+	initialView := ansi.Strip(m.verifyView())
+	if !strings.Contains(initialView, "SSH Profile") || !strings.Contains(initialView, "No SSH Profile") || strings.Contains(initialView, "SSH host") {
+		t.Fatalf("initial SSH profile picker = %s", initialView)
+	}
 	u, cmd := m.handleVerifyKey(keyPress("down"))
 	m = asModel(t, u)
-	if cmd != nil || m.verify.profileIdx != 0 || m.verify.sshHost.Value() != "192.0.2.151" {
+	if cmd != nil || m.verify.profileIdx != 1 || m.verify.host != "192.0.2.151" {
 		t.Fatal("moving the SSH profile cursor changed the connection before selection")
 	}
 	u, cmd = m.handleVerifyKey(keyPress("enter"))
 	m = deliverReads(t, asModel(t, u), cmd)
-	if !m.verify.resolved || m.verify.sshHost.Value() != "witness" || m.verify.target.Host != "witness.local" {
+	if !m.verify.resolved || m.verify.host != "witness" || m.verify.profile != "witness" || m.verify.target.Host != "witness.local" {
 		t.Fatalf("selected profile was not resolved: %+v", m.verify)
 	}
 	if m.verify.keyChosen || len(m.verify.keys) != 1 || m.verify.keys[0] != key {
 		t.Fatal("choosing an SSH profile implicitly chose or lost the manual private-key list")
 	}
 	view := ansi.Strip(m.verifyView())
-	for _, want := range []string{"Original target: 192.0.2.151:22", "SSH host", "witness", "OpenSSH destination: witness.local"} {
+	for _, want := range []string{"Original target: 192.0.2.151:22", "SSH Profile", "witness", "OpenSSH destination: witness.local"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("selected profile view does not show %q: %s", want, view)
 		}
@@ -90,20 +94,37 @@ func TestChangingSSHProfileClearsDiscoveredHostTrust(t *testing.T) {
 	m := newModel(mustTarget(t, "192.0.2.151:22"), false)
 	m.width, m.height = 100, 40
 	m, _ = m.openVerifySSH()
+	m.verify.profiles = []string{"witness"}
 	m.verify.resolved = true
 	m.verify.trusted = true
 	m.verify.identity = shownIdentity
-	m.verify.sshHost.SetValue("witness")
-	m.verify.dropRoute()
+	m.verify.profileIdx = 1
+	m.verify.secret.SetValue("old secret")
+	u, _ := m.handleVerifyKey(keyPress("enter"))
+	m = asModel(t, u)
 	if m.verify.resolved || m.verify.trusted || m.verify.identity.Valid() {
-		t.Fatal("editing the SSH destination retained the previous host's trust")
+		t.Fatal("selecting a different SSH profile retained the previous host's trust")
 	}
-	if got := m.verify.sshHost.Value(); got != "witness" {
-		t.Fatalf("destination edit lost the typed name: %q", got)
+	if m.verify.secret.Value() != "" {
+		t.Fatal("selecting a different SSH profile retained a typed secret")
+	}
+	if got := m.verify.host; got != "witness" {
+		t.Fatalf("selected profile did not become destination: %q", got)
+	}
+	// Returning to No SSH Profile must also drop any trust earned for witness.
+	m.verify.resolved = true
+	m.verify.trusted = true
+	m.verify.identity = shownIdentity
+	m.verify.focus(vrProfile)
+	m.verify.profileIdx = 0
+	u, _ = m.handleVerifyKey(keyPress("enter"))
+	m = asModel(t, u)
+	if m.verify.profile != "" || m.verify.host != "192.0.2.151" || m.verify.resolved || m.verify.trusted || m.verify.identity.Valid() {
+		t.Fatalf("No SSH Profile did not restore the original IP and clear trust: %+v", m.verify)
 	}
 }
 
-func TestSSHHostFieldDoesNotShowPortZeroWhenOpenSSHChoosesThePort(t *testing.T) {
+func TestSSHProfileDoesNotShowPortZeroWhenOpenSSHChoosesThePort(t *testing.T) {
 	m := newModel(mustTarget(t, "ssh://192.0.2.151"), false)
 	m.width, m.height = 100, 40
 	m, _ = m.openVerifySSH()

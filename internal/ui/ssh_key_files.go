@@ -28,16 +28,25 @@ const maxSSHKeyScanEntries = 4096
 // An unreadable or non-key file is not offered as a credential. The bound
 // refuses an abnormally large tree instead of silently omitting some keys.
 func scanSSHPrivateKeys(ctx context.Context, sshDir string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(sshDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
 	var keys []string
 	visited := 0
-	err := filepath.WalkDir(sshDir, func(path string, d fs.DirEntry, walkErr error) error {
+	err = fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if walkErr != nil {
-			if path == sshDir && errors.Is(walkErr, fs.ErrNotExist) {
-				return nil
-			}
 			return walkErr
 		}
 		visited++
@@ -47,12 +56,15 @@ func scanSSHPrivateKeys(ctx context.Context, sshDir string) ([]string, error) {
 		if d.IsDir() || d.Type()&os.ModeSymlink != 0 || strings.HasSuffix(path, ".pub") {
 			return nil
 		}
-		info, err := d.Info()
-		if err != nil || !info.Mode().IsRegular() {
+		// Keep file reads rooted in ~/.ssh even if an entry is replaced
+		// between directory enumeration and opening it.
+		f, err := root.Open(path)
+		if err != nil {
 			return nil
 		}
-		f, err := os.Open(path) // #nosec G304 -- the path comes from the user's own .ssh directory
-		if err != nil {
+		info, err := f.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			_ = f.Close()
 			return nil
 		}
 		var head [64]byte
@@ -60,7 +72,7 @@ func scanSSHPrivateKeys(ctx context.Context, sshDir string) ([]string, error) {
 		_ = f.Close()
 		for _, prefix := range privateKeyHeaders {
 			if bytes.HasPrefix(head[:n], prefix) {
-				keys = append(keys, path)
+				keys = append(keys, filepath.Join(sshDir, filepath.FromSlash(path)))
 				break
 			}
 		}

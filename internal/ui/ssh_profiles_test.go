@@ -102,3 +102,13 @@ func TestChangingSSHProfileClearsDiscoveredHostTrust(t *testing.T) {
 		t.Fatalf("destination edit lost the typed name: %q", got)
 	}
 }
+
+func TestSSHHostFieldDoesNotShowPortZeroWhenOpenSSHChoosesThePort(t *testing.T) {
+	m := newModel(mustTarget(t, "ssh://192.0.2.151"), false)
+	m.width, m.height = 100, 40
+	m, _ = m.openVerifySSH()
+	view := ansi.Strip(m.verifyView())
+	if strings.Contains(view, "Original target: 192.0.2.151:0") || !strings.Contains(view, "Original target: 192.0.2.151") {
+		t.Fatalf("original target label has a fictitious port: %s", view)
+	}
+}

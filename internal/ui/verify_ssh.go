@@ -699,7 +699,11 @@ func (m model) verifyView() string {
 	var b strings.Builder
 	b.WriteString(m.st.panelTitle.Render("Verify SSH credentials for "+textsafe.Clean(label)) + "\n")
 	if p.scannedIP != "" {
-		b.WriteString("  " + m.st.faint.Render(fmt.Sprintf("Original target: %s:%d", textsafe.Clean(p.scannedIP), p.port)) + "\n")
+		original := textsafe.Clean(p.scannedIP)
+		if p.port > 0 {
+			original = fmt.Sprintf("%s:%d", original, p.port)
+		}
+		b.WriteString("  " + m.st.faint.Render("Original target: "+original) + "\n")
 		b.WriteString(focused(vrHost) + p.sshHost.View() + "\n")
 		if p.row == vrHost && len(p.profiles) > 0 {
 			b.WriteString("    " + m.st.faint.Render("SSH profiles from ~/.ssh/config:") + "\n")

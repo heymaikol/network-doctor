@@ -9,6 +9,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -27,6 +28,7 @@ type verifyRow int
 
 const (
 	vrUser verifyRow = iota
+	vrHost
 	vrMethod
 	vrSecret
 	vrKey
@@ -47,9 +49,15 @@ var verifyMethodNames = map[sshverify.Method]string{
 // verifyPanel is the state of one open panel. Its secret lives only in the
 // secret input, which is cleared after every attempt and on close.
 type verifyPanel struct {
-	target      sshverify.Target
-	resolved    bool
-	resolveErr  string
+	target     sshverify.Target
+	resolved   bool
+	resolveErr string
+	sshHost    textinput.Model
+	// scannedIP remains the IP target, whether typed or selected from the LAN
+	// map. Choosing an SSH profile changes the connection destination, not it.
+	scannedIP   string
+	profiles    []string
+	profileIdx  int
 	user        textinput.Model
 	secret      textinput.Model
 	method      int
@@ -64,9 +72,7 @@ type verifyPanel struct {
 	// targetKey is the target the panel was opened for. A switch to another target
 	// closes the panel, so it never shows or runs against the previous one.
 	targetKey string
-	// host and port are the destination the configuration read is asked for, kept
-	// so a login edit can read the route again.
-	host string
+	// port is the device's SSH port; the host is typed or selected in sshHost.
 	port int
 	// resolveSeq numbers the configuration reads. A login edit starts a newer one, and a
 	// result for an older read is dropped, so the route in use is always the one read for
@@ -95,12 +101,13 @@ type verifyPanel struct {
 // verifyResolvedMsg carries the off-loop configuration read. The id rejects a
 // result for a panel that was closed and reopened since.
 type verifyResolvedMsg struct {
-	id     uint64
-	seq    uint64
-	target sshverify.Target
-	err    error
-	keys   []string
-	keyErr error
+	id       uint64
+	seq      uint64
+	target   sshverify.Target
+	err      error
+	keys     []string
+	keyErr   error
+	profiles []string
 }
 
 // verifyResultMsg carries one discovery or check.
@@ -120,7 +127,11 @@ type verifyKeysMsg struct {
 // newVerifyPanel opens the panel for the run target. The inputs are created
 // here, not per frame, so their cursor and echo state survive a repaint.
 func newVerifyPanel(st styles, id uint64) verifyPanel {
-	p := verifyPanel{id: id, row: vrUser}
+	p := verifyPanel{id: id, row: vrUser, profileIdx: -1}
+	p.sshHost = textinput.New()
+	p.sshHost.Prompt = "SSH host  "
+	p.sshHost.Placeholder = "IP or SSH profile"
+	p.sshHost.PromptStyle = st.key
 	p.user = textinput.New()
 	p.user.Prompt = "Login     "
 	p.user.Placeholder = "username"
@@ -155,7 +166,13 @@ func (m model) openVerifySSH() (model, tea.Cmd) {
 	m.verifying = true
 	m.verify = newVerifyPanel(m.st, m.verifySeq)
 	m.verify.targetKey = verifyKey(m.target)
-	m.verify.host, m.verify.port = verifyTarget(m.target)
+	host, port := verifyTarget(m.target)
+	m.verify.sshHost.SetValue(host)
+	m.verify.port = port
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Is4() {
+		m.verify.scannedIP = host
+		m.verify.focus(vrHost)
+	}
 	// The read belongs to this panel: closing the panel cancels it, so a slow or
 	// hung configuration read never outlives the panel that asked for it.
 	return m, m.verify.readRoute()
@@ -172,14 +189,15 @@ func (p *verifyPanel) readRoute() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.resolveCancel = cancel
 	p.resolveErr = ""
-	id, seq, host, port := p.id, p.resolveSeq, p.host, p.port
+	id, seq, host, port := p.id, p.resolveSeq, strings.TrimSpace(p.sshHost.Value()), p.port
 	login := strings.TrimSpace(p.user.Value())
 	return func() tea.Msg {
 		t, err := resolveTarget(ctx, host, port, login)
+		profiles := listSSHHostProfiles(ctx)
 		// Key candidates come from the user's .ssh directory, never from the
 		// identity files OpenSSH chose for this particular host or alias.
 		keys, keyErr := userSSHPrivateKeys(ctx)
-		return verifyResolvedMsg{id: id, seq: seq, target: t, err: err, keys: keys, keyErr: keyErr}
+		return verifyResolvedMsg{id: id, seq: seq, target: t, err: err, keys: keys, keyErr: keyErr, profiles: profiles}
 	}
 }
 
@@ -233,7 +251,7 @@ func (p *verifyPanel) dropRoute() {
 // one is already read or being read, so the next check uses the route for this login.
 func (p *verifyPanel) moveFrom(delta int) tea.Cmd {
 	var leave tea.Cmd
-	if p.row == vrUser && !p.resolved && p.resolveCancel == nil {
+	if (p.row == vrUser || p.row == vrHost) && !p.resolved && p.resolveCancel == nil {
 		leave = p.readRoute()
 	}
 	return tea.Batch(p.step(delta), leave)
@@ -281,7 +299,11 @@ var verifyCheck = sshverify.Verify
 
 // visibleRows is the order of rows for the current method.
 func (p verifyPanel) visibleRows() []verifyRow {
-	rows := []verifyRow{vrUser, vrMethod}
+	rows := []verifyRow{}
+	if p.scannedIP != "" {
+		rows = append(rows, vrHost)
+	}
+	rows = append(rows, vrUser, vrMethod)
 	switch verifyMethods[p.method] {
 	case sshverify.MethodPassword:
 		rows = append(rows, vrSecret)
@@ -308,8 +330,11 @@ func (p *verifyPanel) syncSecretPrompt() {
 func (p *verifyPanel) focus(row verifyRow) tea.Cmd {
 	p.row = row
 	p.user.Blur()
+	p.sshHost.Blur()
 	p.secret.Blur()
 	switch row {
+	case vrHost:
+		return p.sshHost.Focus()
 	case vrUser:
 		return p.user.Focus()
 	case vrSecret:
@@ -478,6 +503,12 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "up" {
 			delta = -1
 		}
+		if p.row == vrHost {
+			if next := p.profileIdx + delta; next >= 0 && next < len(p.profiles) {
+				p.profileIdx = next
+				return m, nil
+			}
+		}
 		if p.row == vrKey {
 			if next := p.keyIdx + delta; next >= 0 && next < len(p.keys) {
 				p.keyIdx = next
@@ -500,7 +531,7 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, p.moveArrow(delta)
 	case "left", "right":
 		// Horizontal arrows still move the caret inside text inputs.
-		if p.row == vrUser || p.row == vrSecret {
+		if p.row == vrUser || p.row == vrHost || p.row == vrSecret {
 			break
 		}
 		delta := 1
@@ -522,6 +553,14 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		switch p.row {
+		case vrHost:
+			if p.profileIdx >= 0 && p.profileIdx < len(p.profiles) {
+				p.sshHost.SetValue(p.profiles[p.profileIdx])
+				p.profileIdx = -1
+			}
+			p.dropRoute()
+			p.secret.SetValue("")
+			return m, tea.Batch(p.step(1), p.readRoute())
 		case vrDiscover:
 			return m.startVerifyAction(false)
 		case vrCheck:
@@ -551,6 +590,14 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	switch p.row {
+	case vrHost:
+		before := p.sshHost.Value()
+		p.sshHost, cmd = p.sshHost.Update(msg)
+		if p.sshHost.Value() != before {
+			p.profileIdx = -1
+			p.dropRoute()
+			p.secret.SetValue("")
+		}
 	case vrUser:
 		before := p.user.Value()
 		p.user, cmd = p.user.Update(msg)
@@ -581,6 +628,7 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		}
 		m.verify.resolveCancel = nil
 		m.verify.keys = msg.keys
+		m.verify.profiles = msg.profiles
 		m.verify.keyIdx = 0
 		m.verify.keyChosen = false
 		m.verify.keyScanErr = msg.keyErr != nil
@@ -634,6 +682,7 @@ func (m model) verifyView() string {
 	w := min(fitPanelWidth(m.st.focusPanel, m.width), 76)
 	inputW := func(prompt string) int { return max(w-6-lipgloss.Width(prompt), 8) }
 	p.user.Width = inputW(p.user.Prompt)
+	p.sshHost.Width = inputW(p.sshHost.Prompt)
 	p.secret.Width = inputW(p.secret.Prompt)
 
 	label := "the run target"
@@ -649,6 +698,27 @@ func (m model) verifyView() string {
 
 	var b strings.Builder
 	b.WriteString(m.st.panelTitle.Render("Verify SSH credentials for "+textsafe.Clean(label)) + "\n")
+	if p.scannedIP != "" {
+		b.WriteString("  " + m.st.faint.Render(fmt.Sprintf("Original target: %s:%d", textsafe.Clean(p.scannedIP), p.port)) + "\n")
+		b.WriteString(focused(vrHost) + p.sshHost.View() + "\n")
+		if p.row == vrHost && len(p.profiles) > 0 {
+			b.WriteString("    " + m.st.faint.Render("SSH profiles from ~/.ssh/config:") + "\n")
+			visible := verifyPickerVisibleRows(m.height)
+			idx := max(0, p.profileIdx)
+			start := min(max(0, idx-visible/2), max(0, len(p.profiles)-visible))
+			for i := start; i < min(start+visible, len(p.profiles)); i++ {
+				line := "▹ " + textsafe.Clean(p.profiles[i])
+				if i == p.profileIdx {
+					line = m.st.sel.Render("▸ " + textsafe.Clean(p.profiles[i]))
+				}
+				b.WriteString("    " + line + "\n")
+			}
+			b.WriteString("\n    " + m.st.faint.Render("type an alias, or choose with arrows and enter") + "\n")
+		}
+		if p.resolved && !strings.EqualFold(p.target.Host, p.scannedIP) {
+			b.WriteString("  " + m.st.warn.Render("OpenSSH destination: "+textsafe.Clean(p.target.Host)+" (verify it is your map device)") + "\n")
+		}
+	}
 	if p.resolveErr != "" {
 		b.WriteString(m.st.fail.Render("✗ "+p.resolveErr) + "\n")
 	}

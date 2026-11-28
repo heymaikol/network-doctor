@@ -72,6 +72,13 @@ func TestVerifyRowsFollowTheMethod(t *testing.T) {
 	}
 }
 
+func TestVerifyLoginUsesUsernamePlaceholder(t *testing.T) {
+	m, _ := sshModel(t).openVerifySSH()
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "Login     username") || strings.Contains(text, "from your SSH configuration") {
+		t.Fatalf("login field does not show the username hint: %q", text)
+	}
+}
+
 func TestVerifyCheckNeedsASecretAndSendsNothingWithout(t *testing.T) {
 	m := resolved(t, sshModel(t))
 	m = pressed(t, m, keyPress("S"))

@@ -122,7 +122,7 @@ func newVerifyPanel(st styles, id uint64) verifyPanel {
 	p := verifyPanel{id: id, row: vrUser}
 	p.user = textinput.New()
 	p.user.Prompt = "Login     "
-	p.user.Placeholder = "from your SSH configuration"
+	p.user.Placeholder = "username"
 	p.user.PromptStyle = st.key
 	p.secret = textinput.New()
 	p.secret.Prompt = "Password  "

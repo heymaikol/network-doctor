@@ -126,7 +126,7 @@ func newVerifyPanel(st styles, id uint64) verifyPanel {
 	p.user.PromptStyle = st.key
 	p.secret = textinput.New()
 	p.secret.Prompt = "Password  "
-	p.secret.Placeholder = "typed here, never shown"
+	p.secret.Placeholder = "type here"
 	p.secret.PromptStyle = st.key
 	// A secret is echoed as dots and is held only in this input, which is
 	// cleared after each attempt. It never reaches a notice, a report, or argv.

@@ -182,7 +182,7 @@ func TestVerifyKeyPickerShowsAWindowOfKeysAndKeepsTabNavigation(t *testing.T) {
 		}
 		keysEnd := strings.Index(text, "showing 1-5 of 8 private keys")
 		hint := strings.Index(text, "choose with arrows, press enter to select")
-		passphrase := strings.Index(text, "Passphrase typed here")
+		passphrase := strings.Index(text, "Passphrase type here")
 		if keysEnd < 0 || hint <= keysEnd || passphrase <= hint {
 			t.Fatalf("picker guidance must follow the list and precede Passphrase: %q", text)
 		}

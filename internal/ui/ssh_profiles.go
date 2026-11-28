@@ -17,7 +17,7 @@ func listSSHHostProfiles(ctx context.Context) []string {
 	if err != nil {
 		return nil
 	}
-	f, err := os.Open(filepath.Join(home, ".ssh", "config"))
+	f, err := openSSHProfileConfig(filepath.Join(home, ".ssh", "config"))
 	if err != nil {
 		return nil
 	}
@@ -38,15 +38,18 @@ func parseSSHHostProfiles(config string) []string {
 	seen := map[string]bool{}
 	for line := range strings.SplitSeq(config, "\n") {
 		line, _, _ = strings.Cut(line, "#")
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		line = strings.TrimSpace(line)
+		separator := strings.IndexAny(line, " \t=")
+		if separator < 0 || !strings.EqualFold(line[:separator], "Host") {
 			continue
 		}
-		keyword := strings.TrimSuffix(fields[0], "=")
-		if !strings.EqualFold(keyword, "Host") {
+		value := strings.TrimSpace(line[separator:])
+		value = strings.TrimSpace(strings.TrimPrefix(value, "="))
+		fields := strings.Fields(value)
+		if len(fields) == 0 {
 			continue
 		}
-		for _, alias := range fields[1:] {
+		for _, alias := range fields {
 			// A wildcard, negation or quoted pattern is not a selectable host.
 			if strings.ContainsAny(alias, "*?!\"'\\") || strings.HasPrefix(alias, "-") {
 				continue

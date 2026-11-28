@@ -697,19 +697,3 @@ func expandHome(p, home string) string {
 	}
 	return p
 }
-
-// ExistingIdentityFiles returns the configured key files that exist as regular
-// files, in ssh's order. A path holding a %-token is left out: it names a key
-// ssh would expand per connection, and netdoc does not guess at the expansion.
-func ExistingIdentityFiles(t Target) []string {
-	var out []string
-	for _, p := range t.IdentityFile {
-		if strings.Contains(p, "%") {
-			continue
-		}
-		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
-			out = append(out, p)
-		}
-	}
-	return out
-}

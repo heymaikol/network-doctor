@@ -9,12 +9,14 @@ package ui
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/heymaikol/network-doctor/v2/internal/diagnostic"
 	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
@@ -26,6 +28,7 @@ type verifyRow int
 
 const (
 	vrUser verifyRow = iota
+	vrProfile
 	vrMethod
 	vrSecret
 	vrKey
@@ -49,20 +52,28 @@ type verifyPanel struct {
 	target     sshverify.Target
 	resolved   bool
 	resolveErr string
-	user       textinput.Model
-	secret     textinput.Model
-	method     int
-	keys       []string
-	keyIdx     int
-	agentKeys  []sshverify.AgentKey
-	agentIdx   int
-	row        verifyRow
+	// scannedIP remains the IP target, whether typed or selected from the LAN
+	// map. Choosing an SSH profile changes the connection destination, not it.
+	scannedIP   string
+	host        string // effective destination argument passed to ssh -G
+	profile     string // selected Host alias; empty means No SSH Profile
+	profiles    []string
+	profileIdx  int // cursor 0 is No SSH Profile, then the suggested aliases
+	user        textinput.Model
+	secret      textinput.Model
+	method      int
+	keys        []string
+	keyIdx      int
+	keyChosen   bool
+	keyScanErr  bool
+	agentKeys   []sshverify.AgentKey
+	agentIdx    int
+	agentChosen bool
+	row         verifyRow
 	// targetKey is the target the panel was opened for. A switch to another target
 	// closes the panel, so it never shows or runs against the previous one.
 	targetKey string
-	// host and port are the destination the configuration read is asked for, kept
-	// so a login edit can read the route again.
-	host string
+	// port is the device's SSH port; the profile list selects the host argument.
 	port int
 	// resolveSeq numbers the configuration reads. A login edit starts a newer one, and a
 	// result for an older read is dropped, so the route in use is always the one read for
@@ -91,10 +102,13 @@ type verifyPanel struct {
 // verifyResolvedMsg carries the off-loop configuration read. The id rejects a
 // result for a panel that was closed and reopened since.
 type verifyResolvedMsg struct {
-	id     uint64
-	seq    uint64
-	target sshverify.Target
-	err    error
+	id       uint64
+	seq      uint64
+	target   sshverify.Target
+	err      error
+	keys     []string
+	keyErr   error
+	profiles []string
 }
 
 // verifyResultMsg carries one discovery or check.
@@ -117,11 +131,11 @@ func newVerifyPanel(st styles, id uint64) verifyPanel {
 	p := verifyPanel{id: id, row: vrUser}
 	p.user = textinput.New()
 	p.user.Prompt = "Login     "
-	p.user.Placeholder = "from your SSH configuration"
+	p.user.Placeholder = "username"
 	p.user.PromptStyle = st.key
 	p.secret = textinput.New()
 	p.secret.Prompt = "Password  "
-	p.secret.Placeholder = "typed here, never shown"
+	p.secret.Placeholder = "type here"
 	p.secret.PromptStyle = st.key
 	// A secret is echoed as dots and is held only in this input, which is
 	// cleared after each attempt. It never reaches a notice, a report, or argv.
@@ -149,7 +163,13 @@ func (m model) openVerifySSH() (model, tea.Cmd) {
 	m.verifying = true
 	m.verify = newVerifyPanel(m.st, m.verifySeq)
 	m.verify.targetKey = verifyKey(m.target)
-	m.verify.host, m.verify.port = verifyTarget(m.target)
+	host, port := verifyTarget(m.target)
+	m.verify.host = host
+	m.verify.port = port
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Is4() {
+		m.verify.scannedIP = host
+		m.verify.focus(vrProfile)
+	}
 	// The read belongs to this panel: closing the panel cancels it, so a slow or
 	// hung configuration read never outlives the panel that asked for it.
 	return m, m.verify.readRoute()
@@ -170,7 +190,11 @@ func (p *verifyPanel) readRoute() tea.Cmd {
 	login := strings.TrimSpace(p.user.Value())
 	return func() tea.Msg {
 		t, err := resolveTarget(ctx, host, port, login)
-		return verifyResolvedMsg{id: id, seq: seq, target: t, err: err}
+		profiles := listSSHHostProfiles(ctx)
+		// Key candidates come from the user's .ssh directory, never from the
+		// identity files OpenSSH chose for this particular host or alias.
+		keys, keyErr := userSSHPrivateKeys(ctx)
+		return verifyResolvedMsg{id: id, seq: seq, target: t, err: err, keys: keys, keyErr: keyErr, profiles: profiles}
 	}
 }
 
@@ -210,7 +234,10 @@ func (p *verifyPanel) dropRoute() {
 	p.resolveErr = ""
 	p.target = sshverify.Target{}
 	p.keys, p.keyIdx = nil, 0
+	p.keyChosen = false
+	p.keyScanErr = false
 	p.agentKeys, p.agentIdx = nil, 0
+	p.agentChosen = false
 	p.result = nil
 	p.trusted = false
 	p.identity = sshverify.HostIdentity{}
@@ -221,10 +248,20 @@ func (p *verifyPanel) dropRoute() {
 // one is already read or being read, so the next check uses the route for this login.
 func (p *verifyPanel) moveFrom(delta int) tea.Cmd {
 	var leave tea.Cmd
-	if p.row == vrUser && !p.resolved && p.resolveCancel == nil {
+	if (p.row == vrUser || p.row == vrProfile) && !p.resolved && p.resolveCancel == nil {
 		leave = p.readRoute()
 	}
 	return tea.Batch(p.step(delta), leave)
+}
+
+// moveArrow moves between visible rows without wrapping past the form's ends.
+// Tab remains available for wrapping navigation.
+func (p *verifyPanel) moveArrow(delta int) tea.Cmd {
+	rows := p.visibleRows()
+	if delta < 0 && p.row == rows[0] || delta > 0 && p.row == rows[len(rows)-1] {
+		return nil
+	}
+	return p.moveFrom(delta)
 }
 
 // resolveTarget reads a target's configuration. Tests replace it to observe
@@ -259,7 +296,11 @@ var verifyCheck = sshverify.Verify
 
 // visibleRows is the order of rows for the current method.
 func (p verifyPanel) visibleRows() []verifyRow {
-	rows := []verifyRow{vrUser, vrMethod}
+	rows := []verifyRow{}
+	if p.scannedIP != "" {
+		rows = append(rows, vrProfile)
+	}
+	rows = append(rows, vrUser, vrMethod)
 	switch verifyMethods[p.method] {
 	case sshverify.MethodPassword:
 		rows = append(rows, vrSecret)
@@ -276,7 +317,7 @@ func (p verifyPanel) visibleRows() []verifyRow {
 // passphrase, which is needed only when the key file is encrypted.
 func (p *verifyPanel) syncSecretPrompt() {
 	if verifyMethods[p.method] == sshverify.MethodKey {
-		p.secret.Prompt = "Passphrase"
+		p.secret.Prompt = "Passphrase "
 		return
 	}
 	p.secret.Prompt = "Password  "
@@ -320,8 +361,14 @@ func (p *verifyPanel) attempt() (sshverify.Attempt, string) {
 		}
 		a.Password = []byte(p.secret.Value())
 	case sshverify.MethodKey:
+		if p.keyScanErr {
+			return a, "could not list private keys in ~/.ssh"
+		}
 		if len(p.keys) == 0 {
-			return a, "no key file is available to choose; set one up in ~/.ssh or your SSH configuration"
+			return a, "no private keys found in ~/.ssh"
+		}
+		if !p.keyChosen || p.keyIdx >= len(p.keys) || p.keyIdx < 0 {
+			return a, "select a private key from ~/.ssh using the arrow keys and enter"
 		}
 		a.KeyPath = p.keys[p.keyIdx]
 		if p.secret.Value() != "" {
@@ -330,6 +377,9 @@ func (p *verifyPanel) attempt() (sshverify.Attempt, string) {
 	case sshverify.MethodAgent:
 		if len(p.agentKeys) == 0 {
 			return a, "no agent key is listed yet; press enter on Discover methods"
+		}
+		if !p.agentChosen || p.agentIdx < 0 || p.agentIdx >= len(p.agentKeys) {
+			return a, "select an ssh-agent key using the arrow keys and enter"
 		}
 		a.AgentFingerprint = p.agentKeys[p.agentIdx].Fingerprint
 	}
@@ -384,6 +434,9 @@ func (m model) startVerifyAction(check bool) (model, tea.Cmd) {
 		if p.keysCancel != nil {
 			p.keysCancel()
 		}
+		p.agentKeys = nil
+		p.agentIdx = 0
+		p.agentChosen = false
 		keysCtx, keysCancel := context.WithCancel(context.Background())
 		p.keysCancel = keysCancel
 		p.keysSeq++
@@ -435,12 +488,43 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg.String() {
-	case "tab", "down":
+	case "tab":
 		return m, p.moveFrom(1)
-	case "shift+tab", "up":
+	case "shift+tab":
 		return m, p.moveFrom(-1)
+	case "up", "down":
+		delta := 1
+		if msg.String() == "up" {
+			delta = -1
+		}
+		if p.row == vrProfile {
+			if next := p.profileIdx + delta; next >= 0 && next <= len(p.profiles) {
+				p.profileIdx = next
+				return m, nil
+			}
+		}
+		if p.row == vrKey {
+			if next := p.keyIdx + delta; next >= 0 && next < len(p.keys) {
+				p.keyIdx = next
+				p.keyChosen = false
+				p.secret.SetValue("")
+				p.note = ""
+				p.result = nil
+				return m, nil
+			}
+		}
+		if p.row == vrAgent {
+			if next := p.agentIdx + delta; next >= 0 && next < len(p.agentKeys) {
+				p.agentIdx = next
+				p.agentChosen = false
+				p.note = ""
+				p.result = nil
+				return m, nil
+			}
+		}
+		return m, p.moveArrow(delta)
 	case "left", "right":
-		// On a text row the key moves the caret in the field below, so it is not consumed here.
+		// Horizontal arrows still move the caret inside text inputs.
 		if p.row == vrUser || p.row == vrSecret {
 			break
 		}
@@ -456,22 +540,47 @@ func (m model) handleVerifyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.secret.SetValue("")
 			p.note = ""
 			p.syncSecretPrompt()
-		case vrKey:
-			if n := len(p.keys); n > 0 {
-				p.keyIdx = (p.keyIdx + delta + n) % n
-			}
-		case vrAgent:
-			if n := len(p.agentKeys); n > 0 {
-				p.agentIdx = (p.agentIdx + delta + n) % n
-			}
+			p.result = nil
+		default:
+			return m, nil
 		}
 		return m, nil
 	case "enter":
 		switch p.row {
+		case vrProfile:
+			p.profile = ""
+			p.host = p.scannedIP
+			if p.profileIdx > 0 && p.profileIdx <= len(p.profiles) {
+				p.profile = p.profiles[p.profileIdx-1]
+				p.host = p.profile
+			}
+			p.dropRoute()
+			p.secret.SetValue("")
+			return m, tea.Batch(p.step(1), p.readRoute())
 		case vrDiscover:
 			return m.startVerifyAction(false)
 		case vrCheck:
 			return m.startVerifyAction(true)
+		case vrKey:
+			if len(p.keys) == 0 {
+				p.note = "no private keys found in ~/.ssh"
+				if p.keyScanErr {
+					p.note = "could not list private keys in ~/.ssh"
+				}
+				return m, nil
+			}
+			p.keyChosen = true
+			p.secret.SetValue("")
+			p.note = ""
+			p.result = nil
+		case vrAgent:
+			if len(p.agentKeys) == 0 {
+				p.note = "no agent key is listed yet; press enter on Discover methods"
+				return m, nil
+			}
+			p.agentChosen = true
+			p.note = ""
+			p.result = nil
 		}
 		return m, p.moveFrom(1)
 	}
@@ -506,6 +615,12 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		m.verify.resolveCancel = nil
+		m.verify.keys = msg.keys
+		m.verify.profiles = msg.profiles
+		m.verify.profileIdx = min(m.verify.profileIdx, len(msg.profiles))
+		m.verify.keyIdx = 0
+		m.verify.keyChosen = false
+		m.verify.keyScanErr = msg.keyErr != nil
 		if msg.err != nil {
 			m.verify.resolveErr = textsafe.Clean(msg.err.Error())
 			return m, nil, true
@@ -513,7 +628,6 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		m.verify.target = msg.target
 		m.verify.resolved = true
 		m.verify.resolveErr = ""
-		m.verify.keys = sshverify.ExistingIdentityFiles(msg.target)
 		return m, nil, true
 	case verifyKeysMsg:
 		if !m.verifying || msg.id != m.verify.id || msg.seq != m.verify.keysSeq {
@@ -524,7 +638,8 @@ func (m model) handleVerifyMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		}
 		m.verify.keysCancel = nil
 		m.verify.agentKeys = msg.keys
-		m.verify.agentIdx = min(m.verify.agentIdx, max(len(msg.keys)-1, 0))
+		m.verify.agentIdx = 0
+		m.verify.agentChosen = false
 		return m, nil, true
 	case verifyResultMsg:
 		if !m.verifying || msg.id != m.verify.id {
@@ -571,6 +686,42 @@ func (m model) verifyView() string {
 
 	var b strings.Builder
 	b.WriteString(m.st.panelTitle.Render("Verify SSH credentials for "+textsafe.Clean(label)) + "\n")
+	if p.scannedIP != "" {
+		original := textsafe.Clean(p.scannedIP)
+		if p.port > 0 {
+			original = fmt.Sprintf("%s:%d", original, p.port)
+		}
+		b.WriteString("  " + m.st.faint.Render("Original target: "+original) + "\n")
+		profileName := "No SSH Profile"
+		if p.profile != "" {
+			profileName = textsafe.Clean(p.profile)
+		}
+		b.WriteString(focused(vrProfile) + m.st.key.Render("SSH Profile  ") + profileName + "\n")
+		if p.row == vrProfile {
+			visible := verifyPickerVisibleRows(m.height)
+			count := len(p.profiles) + 1 // the explicit No SSH Profile choice
+			start := min(max(0, p.profileIdx-visible/2), max(0, count-visible))
+			for i := start; i < min(start+visible, count); i++ {
+				name := "No SSH Profile"
+				if i > 0 {
+					name = textsafe.Clean(p.profiles[i-1])
+				}
+				marker := "▹ "
+				if (i == 0 && p.profile == "") || (i > 0 && p.profile == p.profiles[i-1]) {
+					marker = "✓ "
+				}
+				if i == p.profileIdx {
+					marker = "▸ "
+				}
+				line := marker + name
+				if i == p.profileIdx {
+					line = m.st.sel.Render(line)
+				}
+				b.WriteString("    " + line + "\n")
+			}
+			b.WriteString("\n    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
+		}
+	}
 	if p.resolveErr != "" {
 		b.WriteString(m.st.fail.Render("✗ "+p.resolveErr) + "\n")
 	}
@@ -593,26 +744,59 @@ func (m model) verifyView() string {
 	case sshverify.MethodPassword:
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodKey:
-		keyLine := "none found: set one up in ~/.ssh"
-		if len(p.keys) > 0 {
-			keyLine = textsafe.Clean(p.keys[p.keyIdx])
-			if len(p.keys) > 1 {
-				keyLine += m.st.faint.Render(fmt.Sprintf("  (%d of %d)", p.keyIdx+1, len(p.keys)))
+		if !p.resolved && p.resolveCancel != nil {
+			b.WriteString(focused(vrKey) + m.st.faint.Render("reading private keys in ~/.ssh") + "\n")
+		} else if p.keyScanErr {
+			b.WriteString(focused(vrKey) + m.st.warn.Render("could not list private keys in ~/.ssh") + "\n")
+		} else if len(p.keys) == 0 {
+			b.WriteString(focused(vrKey) + m.st.faint.Render("no private keys found in ~/.ssh") + "\n")
+		} else {
+			visible := verifyPickerVisibleRows(m.height)
+			start := min(max(0, p.keyIdx-visible/2), max(0, len(p.keys)-visible))
+			for i := start; i < min(start+visible, len(p.keys)); i++ {
+				name := keyPickerPathLabel(p.keys[i], max(w-9, 12))
+				marker := "▹ "
+				if p.keyChosen && i == p.keyIdx {
+					marker = "✓ "
+				} else if p.row == vrKey && i == p.keyIdx {
+					marker = "▸ "
+				}
+				line := marker + name
+				if i == p.keyIdx && (p.keyChosen || p.row == vrKey) {
+					line = m.st.sel.Render(line)
+				}
+				b.WriteString("    " + line + "\n")
 			}
+			b.WriteString("\n    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
 		}
-		b.WriteString(focused(vrKey) + m.st.key.Render("Key file  ") + keyLine + "\n")
 		b.WriteString(focused(vrSecret) + p.secret.View() + "\n")
 	case sshverify.MethodAgent:
-		keyLine := m.st.faint.Render("none listed yet: press enter on Discover methods")
-		if len(p.agentKeys) > 0 {
-			k := p.agentKeys[p.agentIdx]
-			keyLine = textsafe.Clean(k.Fingerprint+"  "+k.Comment) + m.st.faint.Render(fmt.Sprintf("  (%d of %d)", p.agentIdx+1, len(p.agentKeys)))
+		if len(p.agentKeys) == 0 {
+			b.WriteString(focused(vrAgent) + m.st.faint.Render("no agent keys listed: press enter on Discover methods") + "\n")
+		} else {
+			visible := verifyPickerVisibleRows(m.height)
+			start := min(max(0, p.agentIdx-visible/2), max(0, len(p.agentKeys)-visible))
+			for i := start; i < min(start+visible, len(p.agentKeys)); i++ {
+				k := p.agentKeys[i]
+				name := agentPickerKeyLabel(k, max(w-9, 12))
+				marker := "▹ "
+				if p.agentChosen && i == p.agentIdx {
+					marker = "✓ "
+				} else if p.row == vrAgent && i == p.agentIdx {
+					marker = "▸ "
+				}
+				line := marker + name
+				if i == p.agentIdx && (p.agentChosen || p.row == vrAgent) {
+					line = m.st.sel.Render(line)
+				}
+				b.WriteString("    " + line + "\n")
+			}
+			b.WriteString("\n    " + m.st.faint.Render("choose with arrows, press enter to select") + "\n")
 		}
-		b.WriteString(focused(vrAgent) + m.st.key.Render("Agent key ") + keyLine + "\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(focused(vrDiscover) + "[ Discover methods ]  " + m.st.faint.Render("sends no credential") + "\n")
-	b.WriteString(focused(vrCheck) + "[ Verify credential ]  " + m.st.faint.Render("sends one credential, once") + "\n")
+	b.WriteString(focused(vrCheck) + "[ Verify credential ]  " + m.st.faint.Render("sends one credential") + "\n")
 
 	if p.busy {
 		b.WriteString("\n" + m.spinner.View() + " working; esc cancels")
@@ -622,9 +806,58 @@ func (m model) verifyView() string {
 	if p.note != "" {
 		b.WriteString("\n" + m.st.warn.Render(textsafe.Clean(p.note)))
 	}
-	keys := []string{"tab", "next", "enter", "run", "esc", "close"}
+	keys := []string{"↑/↓", "navigate", "enter", "run", "tab", "next", "esc", "close"}
+	if p.row == vrProfile || (p.row == vrKey && verifyMethods[p.method] == sshverify.MethodKey) || (p.row == vrAgent && verifyMethods[p.method] == sshverify.MethodAgent) {
+		keys = []string{"↑/↓", "choose/move", "enter", "select", "tab", "next", "esc", "close"}
+	}
 	return m.st.focusPanel.Width(w).Render(strings.TrimRight(b.String(), "\n")) + "\n" +
 		m.quitNoticeFooter(helpKeys(m.st, m.width, keys...))
+}
+
+// Leave the verification buttons reachable when the terminal is short. The
+// arrow-key selection still traverses every key regardless of the row count.
+func verifyPickerVisibleRows(height int) int {
+	switch {
+	case height > 0 && height <= 16:
+		return 1
+	case height > 0 && height <= 20:
+		return 3
+	default:
+		return 5
+	}
+}
+
+// Key paths often have long shared directory prefixes. Clip from the left so
+// the filename, which usually distinguishes the credentials, remains visible.
+func keyPickerPathLabel(path string, width int) string {
+	label := textsafe.Clean(shortSSHKeyPath(path))
+	return pickerKeepRight(label, width)
+}
+
+func pickerKeepRight(label string, width int) string {
+	if extra := ansi.StringWidth(label) - width; extra > 0 {
+		return ansi.TruncateLeft(label, extra+1, "…")
+	}
+	return label
+}
+
+// Keep the fingerprint on screen even when an agent supplies a long comment.
+// The comment identifies the key informally; the fingerprint identifies it.
+func agentPickerKeyLabel(key sshverify.AgentKey, width int) string {
+	fingerprint := textsafe.Clean(key.Fingerprint)
+	if ansi.StringWidth(fingerprint) >= width {
+		return pickerKeepRight(fingerprint, width)
+	}
+	comment := strings.TrimSpace(key.Comment)
+	if comment == "" {
+		comment = key.Type
+	}
+	comment = textsafe.Clean(comment)
+	available := width - ansi.StringWidth(fingerprint) - 2
+	if available <= 0 {
+		return fingerprint
+	}
+	return ansi.Truncate(comment, available, "…") + "  " + fingerprint
 }
 
 // resultLines renders one result: its label, what the server listed, and the

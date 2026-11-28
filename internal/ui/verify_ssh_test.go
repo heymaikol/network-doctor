@@ -72,6 +72,25 @@ func TestVerifyRowsFollowTheMethod(t *testing.T) {
 	}
 }
 
+func TestVerifyLoginUsesUsernamePlaceholder(t *testing.T) {
+	m, _ := sshModel(t).openVerifySSH()
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "Login     username") || strings.Contains(text, "from your SSH configuration") {
+		t.Fatalf("login field does not show the username hint: %q", text)
+	}
+}
+
+func TestVerifySecretInputUsesShortPlaceholder(t *testing.T) {
+	m, _ := sshModel(t).openVerifySSH()
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "Password  type here") || strings.Contains(text, "typed here, never shown") {
+		t.Fatalf("password field does not show the short hint: %q", text)
+	}
+	m.verify.method = 1
+	m.verify.syncSecretPrompt()
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "Passphrase type here") || strings.Contains(text, "typed here, never shown") {
+		t.Fatalf("passphrase field does not show the short hint: %q", text)
+	}
+}
+
 func TestVerifyCheckNeedsASecretAndSendsNothingWithout(t *testing.T) {
 	m := resolved(t, sshModel(t))
 	m = pressed(t, m, keyPress("S"))

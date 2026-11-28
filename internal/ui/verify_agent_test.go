@@ -7,11 +7,13 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/heymaikol/network-doctor/v2/internal/sshverify"
@@ -104,6 +106,108 @@ func TestVerifyAgentKeysReachTheChooserThroughUpdate(t *testing.T) {
 	}
 }
 
+func TestVerifyAgentPickerRequiresEnterAndClearsSelectionOnMove(t *testing.T) {
+	m := resolved(t, pressed(t, sshModel(t), keyPress("S")))
+	m.verify.method = 2
+	m.verify.agentKeys = []sshverify.AgentKey{
+		{Fingerprint: "SHA256:first", Comment: "first"},
+		{Fingerprint: "SHA256:second", Comment: "second"},
+	}
+	m.verify.focus(vrAgent)
+	if a, note := m.verify.attempt(); note == "" || a.AgentFingerprint != "" {
+		t.Fatalf("agent key chosen without Enter: attempt=%+v note=%q", a, note)
+	}
+	u, _ := m.handleVerifyKey(keyPress("down"))
+	m = asModel(t, u)
+	if m.verify.agentIdx != 1 || m.verify.agentChosen {
+		t.Fatalf("down selected agent key: index=%d chosen=%v", m.verify.agentIdx, m.verify.agentChosen)
+	}
+	u, _ = m.handleVerifyKey(keyPress("enter"))
+	m = asModel(t, u)
+	if m.verify.row != vrDiscover || !m.verify.agentChosen {
+		t.Fatalf("enter did not select agent key: row=%v chosen=%v", m.verify.row, m.verify.agentChosen)
+	}
+	if a, note := m.verify.attempt(); note != "" || a.AgentFingerprint != "SHA256:second" {
+		t.Fatalf("selected agent key = %+v, note %q", a, note)
+	}
+	m.verify.focus(vrAgent)
+	u, _ = m.handleVerifyKey(keyPress("up"))
+	m = asModel(t, u)
+	if m.verify.agentChosen || m.verify.agentIdx != 0 {
+		t.Fatalf("moving reused agent selection: index=%d chosen=%v", m.verify.agentIdx, m.verify.agentChosen)
+	}
+	if a, note := m.verify.attempt(); note == "" || a.AgentFingerprint != "" {
+		t.Fatalf("moving kept an agent credential: %+v, note %q", a, note)
+	}
+}
+
+func TestVerifyAgentPickerRefusesAnEmptyList(t *testing.T) {
+	m := resolved(t, pressed(t, sshModel(t), keyPress("S")))
+	m.verify.method = 2
+	m.verify.focus(vrAgent)
+	u, _ := m.handleVerifyKey(keyPress("enter"))
+	m = asModel(t, u)
+	if m.verify.row != vrAgent || m.verify.agentChosen || !strings.Contains(m.verify.note, "Discover methods") {
+		t.Fatalf("empty agent picker: row=%v chosen=%v note=%q", m.verify.row, m.verify.agentChosen, m.verify.note)
+	}
+}
+
+func TestVerifyAgentPickerDisplaysAWindowWithGuidance(t *testing.T) {
+	m := resolved(t, pressed(t, sshModel(t), keyPress("S")))
+	m.verify.method = 2
+	m.width = 66
+	for i := 0; i < 8; i++ {
+		name := string(rune('a' + i))
+		m.verify.agentKeys = append(m.verify.agentKeys, sshverify.AgentKey{Type: "ssh-ed25519", Comment: "key-" + name, Fingerprint: "SHA256:" + name})
+	}
+	m.verify.focus(vrAgent)
+	check := func(first, last string) {
+		t.Helper()
+		text := ansi.Strip(m.verifyView())
+		if !strings.Contains(text, first) || !strings.Contains(text, last) || !strings.Contains(text, "choose with arrows, press enter to select") || strings.Contains(text, "showing ") {
+			t.Fatalf("agent key list not displayed correctly: %q", text)
+		}
+		lines := strings.Split(text, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, "choose with arrows, press enter to select") {
+				if i == 0 || strings.TrimSpace(strings.Trim(lines[i-1], "│")) != "" {
+					t.Fatalf("agent hint must follow a blank line: %q", text)
+				}
+				return
+			}
+		}
+	}
+	check("▸ key-a", "▹ key-e")
+	for i := 0; i < 6; i++ {
+		u, _ := m.handleVerifyKey(keyPress("down"))
+		m = asModel(t, u)
+	}
+	check("▸ key-g", "▹ key-h")
+	u, _ := m.handleVerifyKey(keyPress("enter"))
+	m = asModel(t, u)
+	if text := ansi.Strip(m.verifyView()); !strings.Contains(text, "✓ key-g") {
+		t.Fatalf("selected agent key not marked: %q", text)
+	}
+	t.Logf("sanitized ssh-agent chooser:\n%s", ansi.Strip(m.verifyView()))
+}
+
+func TestVerifyAgentPickerKeepsFingerprintsVisibleWithLongComments(t *testing.T) {
+	m := resolved(t, pressed(t, sshModel(t), keyPress("S")))
+	m.verify.method = 2
+	m.width = 76
+	m.verify.agentKeys = []sshverify.AgentKey{
+		{Comment: strings.Repeat("shared-comment-", 12) + "one", Fingerprint: "SHA256:" + strings.Repeat("A", 43)},
+		{Comment: strings.Repeat("shared-comment-", 12) + "two", Fingerprint: "SHA256:" + strings.Repeat("B", 43)},
+	}
+	m.verify.focus(vrAgent)
+	view := ansi.Strip(m.verifyView())
+	for _, key := range m.verify.agentKeys {
+		if !strings.Contains(view, key.Fingerprint) {
+			t.Fatalf("agent comment hid fingerprint %q: %q", key.Fingerprint, view)
+		}
+	}
+}
+
 // Only the newest listing fills the chooser. A replaced listing, or one for a
 // route that was dropped, arrives late and must not replace the keys.
 func TestVerifyStaleAgentListingIsDropped(t *testing.T) {
@@ -154,7 +258,12 @@ func TestNewDiscoveryDropsTheEarlierAgentListing(t *testing.T) {
 	m, _ = m.startVerifyAction(false)
 	first := m.verify.keysSeq
 	m.verify.busy = false // the discovery result arrived; its listing is still running
+	m.verify.agentKeys = []sshverify.AgentKey{{Fingerprint: "old"}}
+	m.verify.agentChosen = true
 	m, _ = m.startVerifyAction(false)
+	if len(m.verify.agentKeys) != 0 || m.verify.agentChosen {
+		t.Fatalf("new discovery kept stale selection: keys=%v chosen=%v", m.verify.agentKeys, m.verify.agentChosen)
+	}
 	m, _, _ = m.handleVerifyMsg(verifyKeysMsg{id: m.verify.id, seq: first, keys: []sshverify.AgentKey{{Fingerprint: "old"}}})
 	if len(m.verify.agentKeys) != 0 {
 		t.Fatalf("an earlier listing filled the chooser: %v", m.verify.agentKeys)

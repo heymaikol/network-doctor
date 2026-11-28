@@ -43,6 +43,7 @@ func TestSSHPrivateKeyPickerDoesNotOpenNamedPipes(t *testing.T) {
 	}
 	for _, direct := range []bool{false, true} {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		// #nosec G204 -- the subprocess is this test binary with one fixed test selector, not external input.
 		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSSHPrivateKeyPickerDoesNotOpenNamedPipes$")
 		cmd.Env = append(os.Environ(), childEnv+"="+dir)
 		if direct {
